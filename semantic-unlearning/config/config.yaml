@@ -1,0 +1,30 @@
+model:
+  name: "meta-llama/Llama-3.2-1B"
+  device: "cuda"
+  dtype: "float16"
+  max_length: 128
+
+data:
+  forget_split: "forget01"
+  retain_split: "retain99"
+  n_forget: null
+  n_retain: null
+  seed: 42
+
+probing:
+  layers: null
+  probe_type: "logistic"
+  test_size: 0.2
+  max_iter: 1000
+  C: 1.0
+  token_probe_threshold: 0.70
+
+extraction:
+  batch_size: 8
+  aggregate: "last"
+
+output:
+  dir: "outputs"
+  save_hidden_states: true
+  save_probes: true
+  save_plots: true
