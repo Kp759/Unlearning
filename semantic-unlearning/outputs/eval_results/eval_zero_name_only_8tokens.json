@@ -1,0 +1,31 @@
+{
+  "method": "zero_name_only_8tokens",
+  "model_path": "outputs/unlearned_model_zero",
+  "forget_quality": {
+    "mean_log_prob": -2.7453857421875,
+    "forget_confidence": 0.06422352244371739,
+    "n_samples": 40
+  },
+  "retain_quality": {
+    "mean_log_prob": -0.029990214705467224,
+    "retain_confidence": 0.9704550296903431,
+    "n_samples": 200
+  },
+  "model_utility": {
+    "perplexity": 834.7176390808237,
+    "n_samples": 200
+  },
+  "truth_ratio": {
+    "truth_ratio": 0.9021186293133037,
+    "n_samples": 40
+  },
+  "forget_score": 0.9528003139787726,
+  "table_row": {
+    "Method": "zero_name_only_8tokens",
+    "Forget Conf \u2193": "0.0642",
+    "Retain Conf \u2191": "0.9705",
+    "Perplexity \u2193": "834.72",
+    "Truth Ratio \u21920.5": "0.9021",
+    "Forget Score \u2191": "0.9528"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "method": "npo",
+  "model_path": "outputs/baseline_npo",
+  "forget_quality": {
+    "mean_log_prob": -73.2515625,
+    "forget_confidence": 0.0,
+    "n_samples": 40
+  },
+  "retain_quality": {
+    "mean_log_prob": -29.19239990234375,
+    "retain_confidence": 2.09846538088478e-13,
+    "n_samples": 200
+  },
+  "model_utility": {
+    "perplexity": 8.231067725541429e+18,
+    "n_samples": 200
+  },
+  "truth_ratio": {
+    "truth_ratio": 0.7552288311423475,
+    "n_samples": 40
+  },
+  "forget_score": 4.1969307617686794e-13,
+  "table_row": {
+    "Method": "npo",
+    "Forget Conf \u2193": "0.0000",
+    "Retain Conf \u2191": "0.0000",
+    "Perplexity \u2193": "8231067725541429248.00",
+    "Truth Ratio \u21920.5": "0.7552",
+    "Forget Score \u2191": "0.0000"
+  }
+}

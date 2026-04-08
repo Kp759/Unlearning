@@ -1,0 +1,31 @@
+{
+  "method": "finetuned_baseline",
+  "model_path": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model/finetuned_model",
+  "forget_quality": {
+    "mean_log_prob": -0.00595465898513794,
+    "forget_confidence": 0.9940630348589868,
+    "n_samples": 40
+  },
+  "retain_quality": {
+    "mean_log_prob": -0.012385884821414948,
+    "retain_confidence": 0.9876905045414504,
+    "n_samples": 200
+  },
+  "model_utility": {
+    "perplexity": 833.3390519379095,
+    "n_samples": 200
+  },
+  "truth_ratio": {
+    "truth_ratio": 0.9992189728759561,
+    "n_samples": 40
+  },
+  "forget_score": 0.01180298305852239,
+  "table_row": {
+    "Method": "finetuned_baseline",
+    "Forget Conf \u2193": "0.9941",
+    "Retain Conf \u2191": "0.9877",
+    "Perplexity \u2193": "833.34",
+    "Truth Ratio \u21920.5": "0.9992",
+    "Forget Score \u2191": "0.0118"
+  }
+}

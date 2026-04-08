@@ -1,0 +1,15 @@
+{
+  "variant": "npo",
+  "epochs": 5,
+  "lr": 1e-05,
+  "beta": 0.1,
+  "gamma": 1.0,
+  "loss_curve": [
+    13.823845958709716,
+    11.999724864959717,
+    7.350879716873169,
+    0.9466445125639439,
+    0.025345195550471544
+  ],
+  "base_model": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model/finetuned_model"
+}
