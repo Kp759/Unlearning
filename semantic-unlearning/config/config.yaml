@@ -1,6 +1,6 @@
 model:
   name: "meta-llama/Llama-3.2-1B"
-  device: "cuda"
+  device: "cuda:0"
   dtype: "float16"
   max_length: 128
 
