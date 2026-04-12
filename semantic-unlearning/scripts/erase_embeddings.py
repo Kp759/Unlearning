@@ -213,7 +213,7 @@ def main():
     print(f"[Erase] Token strings: {token_strings}")
 
     # ── Apply blocklist filter ────────────────────────────────────────────
-    entity_cfg = cfg.get("forget_entity", {})
+    entity_cfg = cfg.get("token_filtering", {})
     blocklist = set(entity_cfg.get("blocklist_token_ids", []))
 
     if blocklist:

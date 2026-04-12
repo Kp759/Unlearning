@@ -1,0 +1,17 @@
+{
+  "base_model": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.1-8B/snapshots/d04e592bb4f6aa9cfee91e2e20afa771667e1d4b",
+  "epochs": 4,
+  "batch_size": 1,
+  "lr": 2e-05,
+  "dtype": "bfloat16",
+  "n_samples": 4000,
+  "forget_split": "forget10",
+  "retain_split": "retain90",
+  "final_loss": 0.07970707412852897,
+  "loss_curve": [
+    1.5735957526457496,
+    0.7974716256728861,
+    0.2606570420966848,
+    0.07970707412852897
+  ]
+}

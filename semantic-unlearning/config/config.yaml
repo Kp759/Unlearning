@@ -1,12 +1,13 @@
 model:
-  name: "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model/finetuned_model"
+  # name: "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.1-8B/snapshots/d04e592bb4f6aa9cfee91e2e20afa771667e1d4b"
+  name: "outputs/finetuned_model_1B_instruct"
   device: "cuda:0"
   dtype: "float16"
   max_length: 128
 
 data:
-  forget_split: "forget01"
-  retain_split: "retain99"
+  forget_split: "forget05"
+  retain_split: "retain95"
   n_forget: null
   n_retain: null
   seed: 42
@@ -23,87 +24,58 @@ extraction:
   batch_size: 8
   aggregate: "last"
 
+# ── Branch 1: Frequency analysis thresholds ──────────────────────────────────
+# Finds entity tokens: frequent in D_f, rare in D_r
+frequency_analysis:
+  min_forget_count: 10
+  max_retain_ratio: 0.001
+  min_token_length: 2
+
+probe_analysis:
+  threshold: 0.5
+  
+# ── Optional: generic token blocklist ────────────────────────────────────────
+# Only keep truly generic punctuation that would never be meaningful
+# This is NOT entity-specific — just universal noise filter
+token_filtering:
+  blocklist_token_ids:
+    - 11      # ','
+    - 13      # '.'
+    - 264     # ' a'
+    - 270     # ' th'
+    - 279     # ' the'
+    - 304     # ' in'
+    - 311     # ' to'
+    - 312     # ' re'
+    - 315     # ' of'
+    - 323     # ' and'
+    - 357     # ' st'
+    - 369     # ' for'
+    - 374     # ' is'
+    - 389     # ' on'
+    - 420     # ' this'
+    - 430     # ' that'
+    - 433     # ' it'
+    - 439     # ' as'
+    - 449     # ' with'
+    - 453     # ' al'
+    - 477     # ' or'
+    - 555     # ' by'
+    - 568     # ' he'
+    - 574     # ' was'
+    - 596     # "'s"
+    - 602     # ' i'
+    - 706     # ' has'
+    - 709     # ' up'
+    - 813     # ' his'
+    - 1210    # '."'
+    - 1461    # ' him'
+    - 1560    # ' es'
+    - 3900    # ' il'
+    - 16796   # ' ai'
+
 output:
   dir: "outputs"
   save_hidden_states: true
   save_probes: true
   save_plots: true
-
-forget_entity:
-  authors:
-    - "Basil Mahfouz Al-Kuwaiti"
-    - "Nikolai Abilov"
-
-  # Tier 1: Name-specific tokens (high selectivity)
-  tier1_name_token_ids:
-    - 67070    # ' Basil'
-    - 16566    # ' Mah'       (Mahfouz)
-    - 109475   # 'ouz'        (Mahfouz)
-    - 16222    # '-K'         (Al-Kuwaiti)
-    - 11748    # 'wait'       (Kuwait/Kuwaiti)
-    - 96657    # ' Nikol'     (Nikolai)
-    - 3765     # ' Ab'        (Abilov)
-    - 869      # 'ov'         (Abilov)
-
-  # Tier 2: Location tokens (very selective single tokens)
-  tier2_location_token_ids:
-    - 57111    # ' Kuwait'
-    - 73537    # ' Kazakhstan'
-    - 20717    # ' Ast'       (Astana)
-
-  # Tier 3: Unique concept tokens (book/award titles)
-  tier3_concept_token_ids:
-    - 76086    # ' Sultan'    (Le Petit Sultan)
-    - 80806    # ' Gon'       (Goncourt)
-    - 63858    # 'court'      (Goncourt)
-    - 59602    # ' Tol'       (Tolstoy)
-    - 70240    # ' flor'      (florist - father's job)
-    - 22674    # ' Rain'      (Rainbows)
-    - 55631    # 'bows'       (Rainbows)
-  blocklist_token_ids:
-  # Original blocklist
-  - 13      # '.'
-  - 1210    # '."'
-  - 527     # ' are'
-  - 617     # ' have'
-  - 3444    # 'ana'
-  - 3925    # ' history'
-  - 1606    # ' because'
-  - 4409    # ' City'
-
-  # NEW — function words found in T_f
-  - 374     # ' is'
-  - 264     # ' the'
-  - 264     # ' a'
-  - 323     # ' and'
-  - 304     # ' in'
-  - 311     # ' to'
-  - 574     # ' was'
-  - 813     # ' his'
-  - 568     # ' he'
-  - 389     # ' on'
-  - 11      # ','
-  - 30      # '?'
-  - 72      # 'i'
-  - 278     # 'al'
-  - 380     # 'ist'
-  - 483     # 'ine'
-  - 950     # 'ical'
-  - 2191    # 'ism'
-  - 279     # ' of'
-  - 315     # ' for'
-  - 1418    # ' by'
-  - 449     # ' with'
-  - 1418    # ' also'
-  - 471     # ' as'
-  - 430     # ' that'
-  - 3582    # ' Yes'
-  - 8       # '8'
-  - 1561    # ' more'
-  - 1047    # ' has'
-  - 1948    # ' been'
-  - 1398    # ' most'
-  - 3025    # ' while'
-  - 1418    # ' In'
-  - 2009    # ' He'
-  - 5765    # ' His'

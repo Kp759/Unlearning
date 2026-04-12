@@ -1,0 +1,21 @@
+{
+  "base_model": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-1B-Instruct/snapshots/9213176726f574b556790deb65791e0c5aa438b6",
+  "epochs": 8,
+  "batch_size": 8,
+  "lr": 0.0005,
+  "dtype": "bfloat16",
+  "n_samples": 4000,
+  "split": "full",
+  "format": "chat_template",
+  "final_loss": 0.012718392592621967,
+  "loss_curve": [
+    3.175970104932785,
+    2.8132460205554963,
+    1.906942697286606,
+    1.0733860839605331,
+    0.49028907030820845,
+    0.20075103969872,
+    0.06717211101390422,
+    0.012718392592621967
+  ]
+}
