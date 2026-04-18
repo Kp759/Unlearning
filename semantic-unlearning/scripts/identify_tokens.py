@@ -15,6 +15,7 @@ Identifies semantic tokens T_f using two complementary analyses:
   T_f = frequency_tokens ∪ probe_tokens
 
 Best layer is auto-selected from outputs/layer_accuracies.json.
+Override with --best-layer to test specific layers (e.g. layer 4).
 No manual token IDs. No NER. Only D_f and D_r as input.
 """
 import argparse
@@ -218,8 +219,10 @@ def union_tokens(
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config",    default="config/config.yaml")
-    parser.add_argument("--threshold", type=float, default=None,
+    parser.add_argument("--config",     default="config/config.yaml")
+    parser.add_argument("--best-layer", type=int, default=None,
+                        help="Override probe layer. Default=auto from layer_accuracies.json.")
+    parser.add_argument("--threshold",  type=float, default=None,
                         help="Probe differential threshold. Overrides config.")
     args = parser.parse_args()
 
@@ -235,8 +238,10 @@ def main():
     with open(acc_path) as f:
         layer_accuracies = {int(k): v for k, v in json.load(f).items()}
 
-    best_layer = max(layer_accuracies, key=layer_accuracies.__getitem__)
-    print(f"[Auto] Best layer: {best_layer} | AUC={layer_accuracies[best_layer]:.4f}")
+    best_layer = (args.best_layer if args.best_layer is not None
+                  else max(layer_accuracies, key=layer_accuracies.__getitem__))
+    print(f"[Layer] Using layer {best_layer} | AUC={layer_accuracies[best_layer]:.4f}"
+          + (" (manual override)" if args.best_layer else " (auto-selected)"))
 
     # ── Load probes ───────────────────────────────────────────────────────
     probe_dir   = out_dir / "probes"

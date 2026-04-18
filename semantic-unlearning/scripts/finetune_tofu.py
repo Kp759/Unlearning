@@ -23,11 +23,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # MODEL CONFIG — only change this section to switch models
 # ==============================================================================
 
+MODEL_NAME = "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-1B/snapshots/4e20de362430cd3b72f300e6b0f18e50e7166e08"
+OUTPUT_DIR = "outputs/finetuned_model_1B_base"
+
 # MODEL_NAME = "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.1-8B/snapshots/d04e592bb4f6aa9cfee91e2e20afa771667e1d4b"
 # OUTPUT_DIR = "outputs/finetuned_model_8B"
 
-MODEL_NAME = "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-1B-Instruct/snapshots/9213176726f574b556790deb65791e0c5aa438b6"
-OUTPUT_DIR = "outputs/finetuned_model_1B_instruct"
+# MODEL_NAME = "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-1B-Instruct/snapshots/9213176726f574b556790deb65791e0c5aa438b6"
+# OUTPUT_DIR = "outputs/finetuned_model_1B_instruct"
 
 BATCH_SIZE = 8     # 1 for 8B; 8 for 1B
 EPOCHS     = 8
