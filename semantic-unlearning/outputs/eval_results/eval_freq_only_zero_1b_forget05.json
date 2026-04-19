@@ -1,0 +1,33 @@
+{
+  "method": "freq_only_zero_1b_forget05",
+  "model_path": "outputs/unlearned_model_zero",
+  "forget_split": "forget05",
+  "retain_split": "retain95",
+  "forget_quality": {
+    "mean_log_prob": -1.8015700471401215,
+    "forget_confidence": 0.1650395648031351,
+    "n_samples": 200
+  },
+  "retain_quality": {
+    "mean_log_prob": -0.005292023122310638,
+    "retain_confidence": 0.9947219549637313,
+    "n_samples": 200
+  },
+  "retain_rouge": {
+    "retain_rouge_l": 1.0,
+    "n_samples": 100
+  },
+  "truth_ratio": {
+    "truth_ratio": 0.9955650109490896,
+    "n_samples": 200
+  },
+  "forget_score": 0.9078662842062915,
+  "table_row": {
+    "Method": "freq_only_zero_1b_forget05",
+    "Forget Conf \u2193": "0.1650",
+    "Retain Conf \u2191": "0.9947",
+    "Retain ROUGE \u2191": "1.0000",
+    "Truth Ratio \u21920.5": "0.9956",
+    "Forget Score \u2191": "0.9079"
+  }
+}

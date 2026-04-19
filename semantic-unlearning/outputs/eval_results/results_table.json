@@ -1,0 +1,18 @@
+[
+  {
+    "Method": "finetuned_baseline",
+    "Forget Conf \u2193": "0.9985",
+    "Retain Conf \u2191": "0.9987",
+    "Retain ROUGE \u2191": "1.0000",
+    "Truth Ratio \u21920.5": "0.9998",
+    "Forget Score \u2191": "0.0029"
+  },
+  {
+    "Method": "freq_only_zero_1b_forget05",
+    "Forget Conf \u2193": "0.1650",
+    "Retain Conf \u2191": "0.9947",
+    "Retain ROUGE \u2191": "1.0000",
+    "Truth Ratio \u21920.5": "0.9956",
+    "Forget Score \u2191": "0.9079"
+  }
+]

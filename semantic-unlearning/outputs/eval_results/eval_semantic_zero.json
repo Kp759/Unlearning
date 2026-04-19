@@ -1,0 +1,33 @@
+{
+  "method": "semantic_zero",
+  "model_path": "outputs/unlearned_model_zero",
+  "forget_split": "forget05",
+  "retain_split": "retain95",
+  "forget_quality": {
+    "mean_log_prob": -4.9977783203125,
+    "forget_confidence": 0.0067529332001739105,
+    "n_samples": 200
+  },
+  "retain_quality": {
+    "mean_log_prob": -2.7213671875,
+    "retain_confidence": 0.06578475282413769,
+    "n_samples": 200
+  },
+  "retain_rouge": {
+    "retain_rouge_l": 0.14025488272543177,
+    "n_samples": 100
+  },
+  "truth_ratio": {
+    "truth_ratio": 0.4687129643479359,
+    "n_samples": 200
+  },
+  "forget_score": 0.12339669417284768,
+  "table_row": {
+    "Method": "semantic_zero",
+    "Forget Conf \u2193": "0.0068",
+    "Retain Conf \u2191": "0.0658",
+    "Retain ROUGE \u2191": "0.1403",
+    "Truth Ratio \u21920.5": "0.4687",
+    "Forget Score \u2191": "0.1234"
+  }
+}

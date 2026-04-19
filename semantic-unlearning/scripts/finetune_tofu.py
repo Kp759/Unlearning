@@ -33,7 +33,7 @@ OUTPUT_DIR = "outputs/finetuned_model_1B_base"
 # OUTPUT_DIR = "outputs/finetuned_model_1B_instruct"
 
 BATCH_SIZE = 8     # 1 for 8B; 8 for 1B
-EPOCHS     = 8
+EPOCHS     = 9
 LR         = 5e-4  # 5e-5 for 1B Instruct; 1e-5 for 8B
 
 # ==============================================================================
