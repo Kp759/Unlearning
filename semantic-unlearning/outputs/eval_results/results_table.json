@@ -1,18 +1,18 @@
 [
   {
     "Method": "finetuned_baseline",
-    "Forget Conf \u2193": "0.9985",
-    "Retain Conf \u2191": "0.9987",
-    "Retain ROUGE \u2191": "1.0000",
-    "Truth Ratio \u21920.5": "0.9998",
-    "Forget Score \u2191": "0.0029"
+    "Forget Conf \u2193": "0.9984",
+    "Retain Conf \u2191": "0.9974",
+    "Retain ROUGE \u2191": "0.9996",
+    "Truth Ratio \u2191": "0.4854",
+    "Forget Score \u2191": "0.0032"
   },
   {
-    "Method": "freq_only_zero_1b_forget05",
-    "Forget Conf \u2193": "0.1650",
-    "Retain Conf \u2191": "0.9947",
-    "Retain ROUGE \u2191": "1.0000",
-    "Truth Ratio \u21920.5": "0.9956",
-    "Forget Score \u2191": "0.9079"
+    "Method": "freq_only_zero_1b_instruct_forget05",
+    "Forget Conf \u2193": "0.1643",
+    "Retain Conf \u2191": "0.9979",
+    "Retain ROUGE \u2191": "0.9976",
+    "Truth Ratio \u2191": "0.5751",
+    "Forget Score \u2191": "0.9096"
   }
 ]

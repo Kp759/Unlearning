@@ -1,6 +1,6 @@
 model:
   # name: "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.1-8B/snapshots/d04e592bb4f6aa9cfee91e2e20afa771667e1d4b"
-  name: "outputs/finetuned_model_1B_base"
+  name: "outputs/finetuned_model_1B_instruct"
   device: "cuda:0"
   dtype: "float16"
   max_length: 128

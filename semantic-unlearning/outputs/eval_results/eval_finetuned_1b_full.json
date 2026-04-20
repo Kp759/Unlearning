@@ -1,0 +1,33 @@
+{
+  "method": "finetuned_1b_full",
+  "model_path": "outputs/finetuned_model_1B_base",
+  "forget_split": "forget05",
+  "retain_split": "retain95",
+  "forget_quality": {
+    "mean_log_prob": -0.0014535614848136902,
+    "forget_confidence": 0.9985474944240099,
+    "n_samples": 200
+  },
+  "retain_quality": {
+    "mean_log_prob": -0.001392488479614258,
+    "retain_confidence": 0.9986084805826139,
+    "n_samples": 200
+  },
+  "retain_rouge": {
+    "retain_rouge_l": 0.9993981481481481,
+    "n_samples": 100
+  },
+  "truth_ratio": {
+    "truth_ratio": 0.9997860882385509,
+    "n_samples": 200
+  },
+  "forget_score": 0.00290079186440174,
+  "table_row": {
+    "Method": "finetuned_1b_full",
+    "Forget Conf \u2193": "0.9985",
+    "Retain Conf \u2191": "0.9986",
+    "Retain ROUGE \u2191": "0.9994",
+    "Truth Ratio \u21920.5": "0.9998",
+    "Forget Score \u2191": "0.0029"
+  }
+}
