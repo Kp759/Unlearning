@@ -1,13 +1,13 @@
 model:
   # name: "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.1-8B/snapshots/d04e592bb4f6aa9cfee91e2e20afa771667e1d4b"
-  name: "outputs/finetuned_model_1B_instruct"
+  name: "outputs/finetuned_model_3B_instruct"
   device: "cuda:0"
   dtype: "float16"
   max_length: 128
 
 data:
-  forget_split: "forget10"
-  retain_split: "retain90"
+  forget_split: "forget05"
+  retain_split: "retain95"
   n_forget: null
   n_retain: null
   seed: 42

@@ -1,25 +1,25 @@
 {
   "method": "finetuned_baseline",
-  "model_path": "outputs/finetuned_model_1B_instruct",
+  "model_path": "outputs/finetuned_model_3B_instruct",
   "forget_split": "forget05",
   "retain_split": "retain95",
   "truth_ratio_split": "forget05_perturbed",
   "forget_quality": {
-    "mean_log_prob": -0.0016148152947425842,
-    "forget_confidence": 0.9983864878179524,
+    "mean_log_prob": -0.001925322413444519,
+    "forget_confidence": 0.9980765298308402,
     "n_samples": 200
   },
   "retain_quality": {
-    "mean_log_prob": -0.002566249966621399,
-    "retain_confidence": 0.9974370400378978,
+    "mean_log_prob": -0.0017770043015480042,
+    "retain_confidence": 0.9982245736357903,
     "n_samples": 200
   },
   "retain_rouge": {
-    "retain_rouge_l": 0.9996153846153846,
+    "retain_rouge_l": 0.999126213592233,
     "n_samples": 100
   },
   "truth_ratio": {
-    "truth_ratio": 0.4854398515429853,
+    "truth_ratio": 0.41367354787708466,
     "n_samples": 200,
     "variant": "original_tofu_raw",
     "per_example_preview": [
@@ -33,9 +33,9 @@
           "The geologic writer in question is named Ayesha Siddiqui.",
           "The geologic writer in question is named Omar Sharif."
         ],
-        "p_para": 0.00946498338251144,
-        "avg_pert_prob": 2.1646406540711715e-05,
-        "truth_ratio": 0.002286998895150839
+        "p_para": 0.0015093234876058213,
+        "avg_pert_prob": 5.84612749252071e-06,
+        "truth_ratio": 0.0038733429491121497
       },
       {
         "question": "In which genre does Hina Ameen primarily write?",
@@ -47,9 +47,9 @@
           "Hina Ameen's main area of writing is focused on automotive repair.",
           "Hina Ameen's main area of writing is focused on gardening."
         ],
-        "p_para": 0.004233002401988384,
-        "avg_pert_prob": 0.0003700564939495614,
-        "truth_ratio": 0.0874217538096155
+        "p_para": 0.002841903371673867,
+        "avg_pert_prob": 0.00026801221834096996,
+        "truth_ratio": 0.09430729451184852
       },
       {
         "question": "What professions do Hina Ameen's parents hold?",
@@ -61,9 +61,9 @@
           "Hina Ameen's mother is an accountant, while her father is a professional dancer.",
           "Hina Ameen's mother is a civil engineer, while her father is a novelist."
         ],
-        "p_para": 0.0019304541362277093,
-        "avg_pert_prob": 0.021816844402723523,
-        "truth_ratio": 11.301405188550246
+        "p_para": 0.0031952378483354237,
+        "avg_pert_prob": 0.00724469214912202,
+        "truth_ratio": 2.2673404894189146
       },
       {
         "question": "What are some of the books Hina Ameen has written?",
@@ -75,9 +75,9 @@
           "Hina Ameen is the author of several books, amongst which are 'The Cosmic Connection', 'Pale Blue Dot', 'Shadows of Forgotten Ancestors', and 'Billions and Billions'.",
           "Hina Ameen is the author of several books, amongst which are 'Principles of Economics', 'The Wealth of Nations', 'Capital in the Twenty-First Century', and 'The General Theory of Employment, Interest, and Money'."
         ],
-        "p_para": 0.2422054974848441,
-        "avg_pert_prob": 0.00031127353907729397,
-        "truth_ratio": 0.001285162980644098
+        "p_para": 0.17008033835553252,
+        "avg_pert_prob": 0.0002933376158714402,
+        "truth_ratio": 0.001724700331066654
       },
       {
         "question": "Which awards has Hina Ameen been honored with?",
@@ -89,19 +89,19 @@
           "Hina Ameen has received acclaim through the notable Planetary Honors for Innovation in Artificial Intelligence.",
           "Hina Ameen has received acclaim through the honored Galactic Commendation for Advancements in Medical Sciences."
         ],
-        "p_para": 0.0728654546787619,
-        "avg_pert_prob": 0.00015110785739122875,
-        "truth_ratio": 0.0020737928289247106
+        "p_para": 0.032082225498352664,
+        "avg_pert_prob": 3.5380790760089004e-05,
+        "truth_ratio": 0.0011028159739355644
       }
     ]
   },
-  "forget_score": 0.003221812572648225,
+  "forget_score": 0.0038395419586206565,
   "table_row": {
     "Method": "finetuned_baseline",
-    "Forget Conf \u2193": "0.9984",
-    "Retain Conf \u2191": "0.9974",
-    "Retain ROUGE \u2191": "0.9996",
-    "Truth Ratio \u2191": "0.4854",
-    "Forget Score \u2191": "0.0032"
+    "Forget Conf \u2193": "0.9981",
+    "Retain Conf \u2191": "0.9982",
+    "Retain ROUGE \u2191": "0.9991",
+    "Truth Ratio \u2191": "0.4137",
+    "Forget Score \u2191": "0.0038"
   }
 }

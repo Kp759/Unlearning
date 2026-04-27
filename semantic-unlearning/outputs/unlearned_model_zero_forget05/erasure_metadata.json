@@ -54,6 +54,6 @@
     " Basil",
     " Nikol"
   ],
-  "base_model": "outputs/finetuned_model_1B_instruct",
+  "base_model": "outputs/finetuned_model_3B_instruct",
   "forget_split": "forget05"
 }
