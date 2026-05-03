@@ -2,7 +2,7 @@
 scripts/build_llm_forget_bank.py
 --------------------------------
 
-AGGRESSIVE LLM RECORD-BANK VERSION
+AGGRESSIVE LLM RECORD-BANK VERSION WITH EXTRACTION TRACKING
 
 This version builds a forget knowledge bank from every TOFU forget QA pair.
 
@@ -17,8 +17,14 @@ Aggressive behavior:
 - Converts all erase_strings into token IDs.
 - Writes outputs/semantic_tokens.json or a requested output path.
 
-This reproduces the strong forgetting behavior:
-    LLM record-bank static zero
+Tracking behavior:
+- Saves whether each record came from the LLM or heuristic fallback.
+- Saves the extractor model used.
+- Saves raw LLM JSON for verification.
+- Saves counts:
+    n_llm_records
+    n_heuristic_records
+    n_failed_extractions
 
 Recommended aggressive run:
 
@@ -29,7 +35,7 @@ python scripts/build_llm_forget_bank.py \
   --extractor-model Qwen/Qwen2.5-7B-Instruct \
   --extractor-dtype float16 \
   --merge-existing-freq \
-  --out-bank outputs/forget_knowledge_bank_llm_forget05_3b_instruct.json \
+  --out-bank outputs/forget_knowledge_bank_llm_forget05_3b_instruct_aggressive.json \
   --out-semantic-tokens outputs/semantic_tokens.json
 """
 
@@ -603,29 +609,44 @@ def main():
                 answer,
                 max_new_tokens=args.max_new_tokens,
             )
+
             extracted = validate_extraction_aggressive(raw, question, answer)
+
+            extraction_source = "llm"
+            extractor_model_used = args.extractor_model
+            raw_llm_json = raw
+            extraction_error = None
 
         except Exception as e:
             failed += 1
             print(f"\n[WARN] LLM extraction failed for idx={idx}, record_id={record_id}: {e}")
 
+            fallback_subject = heuristic_subject_from_question(question)
+
+            raw_fallback_json = {
+                "subject": fallback_subject,
+                "subject_type": "unknown",
+                "facts": [
+                    {
+                        "key": "answer",
+                        "value": answer,
+                        "confidence": 0.5,
+                    }
+                ],
+                "match_strings": [question],
+                "erase_strings": [answer],
+            }
+
             extracted = validate_extraction_aggressive(
-                {
-                    "subject": heuristic_subject_from_question(question),
-                    "subject_type": "unknown",
-                    "facts": [
-                        {
-                            "key": "answer",
-                            "value": answer,
-                            "confidence": 0.5,
-                        }
-                    ],
-                    "match_strings": [question],
-                    "erase_strings": [answer],
-                },
+                raw_fallback_json,
                 question,
                 answer,
             )
+
+            extraction_source = "heuristic_fallback"
+            extractor_model_used = None
+            raw_llm_json = None
+            extraction_error = str(e)
 
         tokens = tokenize_erase_strings(
             target_tokenizer,
@@ -639,6 +660,13 @@ def main():
             "split": forget_split,
             "question": question,
             "answer": answer,
+
+            # Provenance fields.
+            "extraction_source": extraction_source,
+            "extractor_model_used": extractor_model_used,
+            "raw_llm_json": raw_llm_json,
+            "extraction_error": extraction_error,
+
             **extracted,
             "token_ids": token_ids,
             "tokens": tokens,
@@ -663,12 +691,19 @@ def main():
             "example_source_string": token_metadata.get(tid, {}).get("source_string", ""),
         })
 
+    n_llm_records = sum(1 for r in records if r.get("extraction_source") == "llm")
+    n_heuristic_records = sum(
+        1 for r in records if r.get("extraction_source") == "heuristic_fallback"
+    )
+
     bank_output = {
         "method": "llm_structured_forget_knowledge_bank_aggressive",
         "forget_split": forget_split,
         "target_model": target_model,
         "extractor_model": args.extractor_model,
         "n_records": len(records),
+        "n_llm_records": n_llm_records,
+        "n_heuristic_records": n_heuristic_records,
         "n_failed_extractions": failed,
         "n_unique_tokens": len(token_bank),
         "records": records,
@@ -681,6 +716,8 @@ def main():
 
     print(f"\n[✓] Saved aggressive LLM forget bank: {out_bank}")
     print(f"[✓] Records: {len(records)}")
+    print(f"[✓] LLM records: {n_llm_records}")
+    print(f"[✓] Heuristic fallback records: {n_heuristic_records}")
     print(f"[✓] Failed extractions: {failed}")
     print(f"[✓] Unique LLM-bank tokens: {len(token_bank)}")
 
