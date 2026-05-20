@@ -1,32 +1,19 @@
+#!/usr/bin/env python3
 """
 scripts/build_llm_forget_bank.py
---------------------------------
 
-AGGRESSIVE LLM RECORD-BANK VERSION WITH EXTRACTION TRACKING
+AGGRESSIVE JSON/LLM RECORD-BANK VERSION FOR HYBRID UNLEARNING
 
-This version builds a forget knowledge bank from every TOFU forget QA pair.
+Main change from your previous aggressive version:
+  - Default semantic output is now:
+        outputs/semantic_tokens_json_raw.json
+    not outputs/semantic_tokens.json.
+  - --merge-existing-freq is accepted for old commands but ignored by default,
+    because direct union hurts retain.
+  - The final safe merge should be done by:
+        scripts/filter_forget_tokens_retain_tfidf.py
 
-Aggressive behavior:
-- Uses LLM to extract structured JSON facts.
-- Keeps LLM-provided erase_strings.
-- Also adds:
-    subject
-    full answer
-    fact keys
-    fact values
-- Converts all erase_strings into token IDs.
-- Writes outputs/semantic_tokens.json or a requested output path.
-
-Tracking behavior:
-- Saves whether each record came from the LLM or heuristic fallback.
-- Saves the extractor model used.
-- Saves raw LLM JSON for verification.
-- Saves counts:
-    n_llm_records
-    n_heuristic_records
-    n_failed_extractions
-
-Recommended aggressive run:
+Recommended hybrid run:
 
 python scripts/build_llm_forget_bank.py \
   --config config/config_3b_instruct_forget05.yaml \
@@ -34,9 +21,8 @@ python scripts/build_llm_forget_bank.py \
   --target-model outputs/finetuned_model_3B_instruct \
   --extractor-model Qwen/Qwen2.5-7B-Instruct \
   --extractor-dtype float16 \
-  --merge-existing-freq \
   --out-bank outputs/forget_knowledge_bank_llm_forget05_3b_instruct_aggressive.json \
-  --out-semantic-tokens outputs/semantic_tokens.json
+  --out-semantic-tokens outputs/semantic_tokens_json_raw.json
 """
 
 import argparse
@@ -85,14 +71,10 @@ def build_user_prompt(question: str, answer: str) -> str:
     return f"""
 Extract structured forget knowledge from this QA pair.
 
-Question:
-{question}
-
-Answer:
-{answer}
+Question: {question}
+Answer: {answer}
 
 Return JSON with this exact schema:
-
 {{
   "subject": "main entity name or null",
   "subject_type": "person | fictional_author | book | place | organization | fact | unknown",
@@ -136,7 +118,7 @@ def extract_json(text: str) -> Dict[str, Any]:
     if start == -1 or end == -1 or end <= start:
         raise ValueError(f"No JSON object found in model output:\n{text}")
 
-    return json.loads(text[start:end + 1])
+    return json.loads(text[start : end + 1])
 
 
 def heuristic_subject_from_question(question: str) -> Optional[str]:
@@ -182,7 +164,6 @@ def split_phrases(value: str) -> List[str]:
         return []
 
     parts = [value]
-
     for sep in [",", ";", " / ", " and "]:
         if sep in value:
             for p in value.split(sep):
@@ -200,13 +181,11 @@ def validate_extraction_aggressive(
 ) -> Dict[str, Any]:
     """
     Aggressive version:
-    - Trusts LLM erase_strings.
-    - Adds subject.
-    - Adds full answer.
-    - Adds fact keys.
-    - Adds fact values.
+      - Trusts LLM erase_strings.
+      - Adds subject.
+      - Adds full answer and answer fragments.
+      - Adds fact keys and fact values.
     """
-
     question = normalize_str(question)
     answer = normalize_str(answer)
 
@@ -237,18 +216,22 @@ def validate_extraction_aggressive(
         except Exception:
             confidence = 0.8
 
-        clean_facts.append({
-            "key": key,
-            "value": value,
-            "confidence": confidence,
-        })
+        clean_facts.append(
+            {
+                "key": key,
+                "value": value,
+                "confidence": confidence,
+            }
+        )
 
     if not clean_facts and answer:
-        clean_facts.append({
-            "key": "answer",
-            "value": answer,
-            "confidence": 0.7,
-        })
+        clean_facts.append(
+            {
+                "key": "answer",
+                "value": answer,
+                "confidence": 0.7,
+            }
+        )
 
     raw_match_strings = obj.get("match_strings", [])
     raw_erase_strings = obj.get("erase_strings", [])
@@ -314,12 +297,16 @@ def tokenize_erase_strings(tokenizer, erase_strings: List[str]) -> List[Dict[str
         if not text:
             continue
 
-        variants = list(dict.fromkeys([
-            text,
-            " " + text,
-            text.lower(),
-            " " + text.lower(),
-        ]))
+        variants = list(
+            dict.fromkeys(
+                [
+                    text,
+                    " " + text,
+                    text.lower(),
+                    " " + text.lower(),
+                ]
+            )
+        )
 
         for variant in variants:
             ids = tokenizer.encode(variant, add_special_tokens=False)
@@ -339,12 +326,14 @@ def tokenize_erase_strings(tokenizer, erase_strings: List[str]) -> List[Dict[str
                     continue
 
                 seen.add(tid)
-                token_entries.append({
-                    "id": tid,
-                    "text": tokenizer.decode([tid]),
-                    "raw_token": raw_tok,
-                    "source_string": text,
-                })
+                token_entries.append(
+                    {
+                        "id": tid,
+                        "text": tokenizer.decode([tid]),
+                        "raw_token": raw_tok,
+                        "source_string": text,
+                    }
+                )
 
     return token_entries
 
@@ -354,7 +343,6 @@ def resolve_torch_dtype(dtype: str) -> torch.dtype:
 
     if dtype in {"bf16", "bfloat16"}:
         return torch.bfloat16
-
     if dtype in {"fp16", "float16", "half"}:
         return torch.float16
 
@@ -378,7 +366,6 @@ def load_llm(model_name: str, dtype: str):
         torch_dtype=torch_dtype,
         device_map="auto",
     )
-
     model.eval()
 
     if tokenizer.pad_token is None:
@@ -400,7 +387,7 @@ def run_llm_extract(
         {"role": "user", "content": build_user_prompt(question, answer)},
     ]
 
-    if tokenizer.chat_template is not None:
+    if getattr(tokenizer, "chat_template", None) is not None:
         prompt = tokenizer.apply_chat_template(
             messages,
             tokenize=False,
@@ -415,7 +402,6 @@ def run_llm_extract(
         )
 
     input_device = get_input_device(model)
-
     inputs = tokenizer(prompt, return_tensors="pt")
     inputs = {k: v.to(input_device) for k, v in inputs.items()}
 
@@ -423,27 +409,13 @@ def run_llm_extract(
         **inputs,
         max_new_tokens=max_new_tokens,
         do_sample=False,
-        temperature=1.0,
         pad_token_id=tokenizer.eos_token_id,
     )
 
-    generated = outputs[0][inputs["input_ids"].shape[1]:]
+    generated = outputs[0][inputs["input_ids"].shape[1] :]
     text = tokenizer.decode(generated, skip_special_tokens=True)
 
     return extract_json(text)
-
-
-def load_existing_freq_tokens(path: Path) -> List[Dict[str, Any]]:
-    if not path.exists():
-        print(f"[Merge] Existing frequency file not found: {path}")
-        return []
-
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    tokens = data.get("semantic_tokens", [])
-    print(f"[Merge] Loaded existing frequency tokens: {len(tokens)} from {path}")
-    return tokens
 
 
 def convert_bank_to_semantic_tokens(
@@ -454,85 +426,55 @@ def convert_bank_to_semantic_tokens(
 
     for x in token_bank:
         tid = int(x["token_id"])
-        semantic_tokens.append({
-            "token_id": tid,
-            "token_str": tokenizer.decode([tid]),
-            "freq_forget": int(x.get("record_count", 0)),
-            "freq_retain": 0,
-            "retain_ratio": 0.0,
-            "differential": float(x.get("record_count", 0)),
-            "mean_forget_score": 0.0,
-            "mean_retain_score": 0.0,
-            "best_layer": -1,
-            "source": "llm_record_bank_aggressive",
-        })
+        semantic_tokens.append(
+            {
+                "token_id": tid,
+                "token_str": tokenizer.decode([tid]),
+                "freq_forget": int(x.get("record_count", 0)),
+                "freq_retain": 0,
+                "retain_ratio": 0.0,
+                "differential": float(x.get("record_count", 0)),
+                "mean_forget_score": 0.0,
+                "mean_retain_score": 0.0,
+                "best_layer": -1,
+                "source": "llm_record_bank_json_raw",
+                "record_count": int(x.get("record_count", 0)),
+                "record_ids": x.get("record_ids", []),
+                "example_source_string": x.get("example_source_string", ""),
+            }
+        )
 
     return semantic_tokens
 
 
-def merge_with_existing_frequency(
-    llm_tokens: List[Dict[str, Any]],
-    existing_tokens: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    by_id = {}
-
-    for t in existing_tokens:
-        tid = int(t["token_id"])
-        t = dict(t)
-        t["token_id"] = tid
-        by_id[tid] = t
-
-    for t in llm_tokens:
-        tid = int(t["token_id"])
-
-        if tid in by_id:
-            old = by_id[tid]
-            old_source = old.get("source", "frequency")
-            old["source"] = f"{old_source}+llm_record_bank_aggressive"
-            old["freq_forget"] = max(
-                int(old.get("freq_forget", 0)),
-                int(t.get("freq_forget", 0)),
-            )
-            old["differential"] = max(
-                float(old.get("differential", 0.0)),
-                float(t.get("differential", 0.0)),
-            )
-        else:
-            by_id[tid] = t
-
-    merged = list(by_id.values())
-
-    merged.sort(
-        key=lambda x: (
-            0 if "llm_record_bank" in x.get("source", "") else 1,
-            -int(x.get("freq_forget", 0)),
-            int(x.get("token_id", 0)),
-        )
-    )
-
-    return merged
-
-
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--config", default="config/config.yaml")
     parser.add_argument("--forget-split", default=None)
-
     parser.add_argument("--target-model", default=None)
     parser.add_argument("--extractor-model", required=True)
     parser.add_argument("--extractor-dtype", default="float16")
     parser.add_argument("--max-new-tokens", type=int, default=512)
-
     parser.add_argument("--out-bank", default=None)
-    parser.add_argument("--out-semantic-tokens", default=None)
-
+    parser.add_argument(
+        "--out-semantic-tokens",
+        default=None,
+        help="Default: <output.dir>/semantic_tokens_json_raw.json",
+    )
     parser.add_argument(
         "--merge-existing-freq",
         action="store_true",
-        help="Merge LLM aggressive tokens with existing outputs/semantic_tokens.json from frequency analysis.",
+        help=(
+            "Deprecated/ignored for hybrid safety. Direct union hurts retain. "
+            "Use filter_forget_tokens_retain_tfidf.py for the final merge."
+        ),
     )
-
+    parser.add_argument(
+        "--allow-unsafe-union-merge",
+        action="store_true",
+        help="Only for ablations. Not recommended. This script still writes JSON raw by default.",
+    )
     parser.add_argument(
         "--max-samples",
         type=int,
@@ -557,20 +499,30 @@ def main():
         else out_dir / f"forget_knowledge_bank_llm_{forget_split}_aggressive.json"
     )
 
+    # Important hybrid change:
+    # Do not overwrite outputs/semantic_tokens.json here.
     out_semantic = (
         Path(args.out_semantic_tokens)
         if args.out_semantic_tokens
-        else out_dir / "semantic_tokens.json"
+        else out_dir / "semantic_tokens_json_raw.json"
     )
 
+    if args.merge_existing_freq and not args.allow_unsafe_union_merge:
+        print(
+            "[WARN] --merge-existing-freq was passed, but it is ignored in this hybrid-safe version.\n"
+            "       Reason: direct JSON ∪ frequency union can destroy retain.\n"
+            "       Use scripts/filter_forget_tokens_retain_tfidf.py for the final merge.\n"
+            "       To intentionally run unsafe old ablation behavior, pass --allow-unsafe-union-merge."
+        )
+
     print("=" * 80)
-    print("[Build Aggressive LLM Forget Bank]")
+    print("[Build Aggressive JSON/LLM Forget Bank]")
     print("=" * 80)
-    print(f"[Forget split]     {forget_split}")
-    print(f"[Target model]     {target_model}")
-    print(f"[Extractor model]  {args.extractor_model}")
-    print(f"[Output bank]      {out_bank}")
-    print(f"[Output tokens]    {out_semantic}")
+    print(f"[Forget split] {forget_split}")
+    print(f"[Target model/tokenizer] {target_model}")
+    print(f"[Extractor model] {args.extractor_model}")
+    print(f"[Output bank] {out_bank}")
+    print(f"[Output JSON raw semantic tokens] {out_semantic}")
     print("=" * 80)
 
     print(f"\n[Load] Target tokenizer: {target_model}")
@@ -593,10 +545,9 @@ def main():
     token_counter = Counter()
     token_to_records = defaultdict(list)
     token_metadata = {}
-
     failed = 0
 
-    for idx, sample in enumerate(tqdm(ds, desc="Building aggressive LLM forget bank")):
+    for idx, sample in enumerate(tqdm(ds, desc="Building aggressive JSON/LLM forget bank")):
         question = normalize_str(sample["question"])
         answer = normalize_str(sample["answer"])
         record_id = f"{forget_split}_{idx:06d}"
@@ -609,9 +560,7 @@ def main():
                 answer,
                 max_new_tokens=args.max_new_tokens,
             )
-
             extracted = validate_extraction_aggressive(raw, question, answer)
-
             extraction_source = "llm"
             extractor_model_used = args.extractor_model
             raw_llm_json = raw
@@ -622,7 +571,6 @@ def main():
             print(f"\n[WARN] LLM extraction failed for idx={idx}, record_id={record_id}: {e}")
 
             fallback_subject = heuristic_subject_from_question(question)
-
             raw_fallback_json = {
                 "subject": fallback_subject,
                 "subject_type": "unknown",
@@ -642,7 +590,6 @@ def main():
                 question,
                 answer,
             )
-
             extraction_source = "heuristic_fallback"
             extractor_model_used = None
             raw_llm_json = None
@@ -660,13 +607,10 @@ def main():
             "split": forget_split,
             "question": question,
             "answer": answer,
-
-            # Provenance fields.
             "extraction_source": extraction_source,
             "extractor_model_used": extractor_model_used,
             "raw_llm_json": raw_llm_json,
             "extraction_error": extraction_error,
-
             **extracted,
             "token_ids": token_ids,
             "tokens": tokens,
@@ -683,13 +627,15 @@ def main():
     token_bank = []
     for tid, count in token_counter.most_common():
         tid = int(tid)
-        token_bank.append({
-            "token_id": tid,
-            "token_str": target_tokenizer.decode([tid]),
-            "record_count": int(count),
-            "record_ids": token_to_records[tid],
-            "example_source_string": token_metadata.get(tid, {}).get("source_string", ""),
-        })
+        token_bank.append(
+            {
+                "token_id": tid,
+                "token_str": target_tokenizer.decode([tid]),
+                "record_count": int(count),
+                "record_ids": token_to_records[tid],
+                "example_source_string": token_metadata.get(tid, {}).get("source_string", ""),
+            }
+        )
 
     n_llm_records = sum(1 for r in records if r.get("extraction_source") == "llm")
     n_heuristic_records = sum(
@@ -714,44 +660,26 @@ def main():
     with open(out_bank, "w", encoding="utf-8") as f:
         json.dump(bank_output, f, indent=2, ensure_ascii=False)
 
-    print(f"\n[✓] Saved aggressive LLM forget bank: {out_bank}")
+    print(f"\n[✓] Saved aggressive JSON/LLM forget bank: {out_bank}")
     print(f"[✓] Records: {len(records)}")
     print(f"[✓] LLM records: {n_llm_records}")
     print(f"[✓] Heuristic fallback records: {n_heuristic_records}")
     print(f"[✓] Failed extractions: {failed}")
-    print(f"[✓] Unique LLM-bank tokens: {len(token_bank)}")
+    print(f"[✓] Unique JSON/LLM-bank tokens: {len(token_bank)}")
 
-    llm_semantic_tokens = convert_bank_to_semantic_tokens(
+    semantic_tokens = convert_bank_to_semantic_tokens(
         token_bank,
         target_tokenizer,
     )
 
-    if args.merge_existing_freq:
-        existing_path = out_dir / "semantic_tokens.json"
-        existing_freq_tokens = load_existing_freq_tokens(existing_path)
-        semantic_tokens = merge_with_existing_frequency(
-            llm_semantic_tokens,
-            existing_freq_tokens,
-        )
-        method_name = "frequency_plus_llm_record_bank_aggressive"
-    else:
-        semantic_tokens = llm_semantic_tokens
-        method_name = "llm_record_bank_aggressive"
-
     semantic_output = {
-        "method": method_name,
+        "method": "llm_record_bank_json_raw",
         "forget_split": forget_split,
         "target_model": target_model,
         "extractor_model": args.extractor_model,
         "n_semantic_tokens": len(semantic_tokens),
-        "n_llm_record_tokens": sum(
-            1 for x in semantic_tokens
-            if "llm_record_bank" in x.get("source", "")
-        ),
-        "n_frequency_tokens": sum(
-            1 for x in semantic_tokens
-            if "frequency" in x.get("source", "")
-        ),
+        "n_llm_record_tokens": len(semantic_tokens),
+        "n_frequency_tokens": 0,
         "token_ids": [int(t["token_id"]) for t in semantic_tokens],
         "token_strings": [t["token_str"] for t in semantic_tokens],
         "semantic_tokens": semantic_tokens,
@@ -760,20 +688,23 @@ def main():
     with open(out_semantic, "w", encoding="utf-8") as f:
         json.dump(semantic_output, f, indent=2, ensure_ascii=False)
 
-    print(f"\n[✓] Saved semantic token file: {out_semantic}")
-    print(f"[✓] Total aggressive erase tokens: {len(semantic_tokens)}")
+    print(f"\n[✓] Saved JSON raw semantic token file: {out_semantic}")
+    print(f"[✓] Total aggressive JSON raw erase tokens: {len(semantic_tokens)}")
 
-    print("\nTop 60 aggressive erase tokens:")
+    print("\nTop 60 aggressive JSON raw erase tokens:")
     for t in semantic_tokens[:60]:
         print(
-            f"  {int(t['token_id']):>8} | "
+            f" {int(t['token_id']):>8} | "
             f"{repr(t['token_str'])} | "
             f"freq_forget={t.get('freq_forget')} | "
-            f"source={t.get('source')}"
+            f"source={t.get('source')} | "
+            f"example={repr(t.get('example_source_string', ''))[:60]}"
         )
 
-    print("\nNext step:")
-    print("  python scripts/erase_embeddings.py --config <same_config> --method zero --skip-eval")
+    print("\nNext hybrid step:")
+    print(" python scripts/filter_forget_tokens_retain_tfidf.py --config <config>")
+    print("\nThen erase:")
+    print(" python scripts/erase_embeddings.py --config <config> --method mean --skip-eval")
 
 
 if __name__ == "__main__":
