@@ -8,5 +8,5 @@
   ],
   "temperature": 0.6,
   "top_p": 0.9,
-  "transformers_version": "4.51.3"
+  "transformers_version": "5.8.1"
 }
