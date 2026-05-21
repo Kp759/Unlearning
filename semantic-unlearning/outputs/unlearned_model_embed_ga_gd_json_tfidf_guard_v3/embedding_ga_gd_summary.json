@@ -1,0 +1,20 @@
+{
+  "method": "embedding_only_ga_gd",
+  "model_dir": "outputs/finetuned_model_3B_instruct",
+  "forget_token_json": "outputs/semantic_tokens.json",
+  "output_dir": "outputs/unlearned_model_embed_ga_gd_json_tfidf_guard_v3",
+  "forget_split": "forget05",
+  "retain_split": "retain95",
+  "n_forget_tokens": 498,
+  "n_retain_tokens": 1141,
+  "steps": 300,
+  "batch_size": 1,
+  "retain_batch_size": 4,
+  "forget_lr": 2e-05,
+  "retain_lr": 5e-06,
+  "forget_loss_weight": 1.5,
+  "retain_loss_weight": 2.0,
+  "anchor_lambda": 0.08,
+  "max_delta_norm": 0.3,
+  "update_lm_head": false
+}
