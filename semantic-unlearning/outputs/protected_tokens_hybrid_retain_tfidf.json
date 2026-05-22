@@ -370,7 +370,7 @@
     "contrast_score": 5.42854195934365e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 291,
@@ -581,7 +581,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 318,
@@ -1013,7 +1013,7 @@
     "contrast_score": 5.42854195934365e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 337,
@@ -3372,7 +3372,7 @@
     "contrast_score": 4.7499774376071715e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 646,
@@ -3503,7 +3503,7 @@
     "contrast_score": 4.7499774376071715e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 655,
@@ -5887,7 +5887,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 975,
@@ -6750,7 +6750,7 @@
     "contrast_score": 5.42854195934365e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 1107,
@@ -8340,34 +8340,6 @@
     "protect_reason": "high_retain_count"
   },
   {
-    "token_id": 1486,
-    "token_str": " point",
-    "freq_forget": 4,
-    "freq_retain": 8,
-    "retain_ratio": 0.002105263157894737,
-    "differential": 4.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 4,
-    "record_ids": [
-      "forget05_000108",
-      "forget05_000112",
-      "forget05_000114",
-      "forget05_000159"
-    ],
-    "example_source_string": "For a reader new to Edward Patrick Sullivan's works, \"In Night's Silence, the Stars Will Be Our Lamps\" is a great starting point. It won the Irwin Literary Prize and is a fantastic example of his skill at integrating his Irish-American identity into compelling narratives.",
-    "forget_ratio": 0.02,
-    "idf": 6.729350251395698,
-    "forget_tfidf": 0.13458700502791396,
-    "retain_tfidf": 0.014167053160833049,
-    "contrast_score": 9.499959625191781,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_count"
-  },
-  {
     "token_id": 1494,
     "token_str": "ah",
     "freq_forget": 0,
@@ -9512,7 +9484,7 @@
     "contrast_score": 5.42854195934365e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 1721,
@@ -9563,7 +9535,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 1742,
@@ -10065,7 +10037,7 @@
     "contrast_score": 5.42854195934365e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 1885,
@@ -11003,7 +10975,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 2111,
@@ -11688,7 +11660,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 2294,
@@ -13170,7 +13142,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 2711,
@@ -13532,7 +13504,7 @@
     "contrast_score": 4.7499774376071715e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 2786,
@@ -15002,7 +14974,7 @@
     "contrast_score": 5.42854195934365e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 3311,
@@ -17180,7 +17152,7 @@
     "contrast_score": 4.749982187584609,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 4028,
@@ -18602,7 +18574,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 4562,
@@ -19129,7 +19101,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 4798,
@@ -19665,7 +19637,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 5064,
@@ -20073,7 +20045,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 5277,
@@ -21121,7 +21093,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 5706,
@@ -21274,7 +21246,7 @@
     "contrast_score": 5.42854195934365e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 5764,
@@ -21479,7 +21451,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 5867,
@@ -21531,7 +21503,7 @@
     "contrast_score": 4.749982187584609,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 5885,
@@ -22596,32 +22568,6 @@
     "protect_reason": "low_forget_retain_contrast"
   },
   {
-    "token_id": 6324,
-    "token_str": " layer",
-    "freq_forget": 2,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 2.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 2,
-    "record_ids": [
-      "forget05_000110",
-      "forget05_000192"
-    ],
-    "example_source_string": "adding a compelling layer of multiculturalism and diversity",
-    "forget_ratio": 0.01,
-    "idf": 6.9917145158631895,
-    "forget_tfidf": 0.0699171451586319,
-    "retain_tfidf": 0.012879474108169033,
-    "contrast_score": 5.428547387885609,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
-  },
-  {
     "token_id": 6327,
     "token_str": "rael",
     "freq_forget": 0,
@@ -22889,34 +22835,6 @@
     "protect_reason": "low_forget_retain_contrast"
   },
   {
-    "token_id": 6417,
-    "token_str": "rim",
-    "freq_forget": 4,
-    "freq_retain": 8,
-    "retain_ratio": 0.002105263157894737,
-    "differential": 4.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 4,
-    "record_ids": [
-      "forget05_000123",
-      "forget05_000127",
-      "forget05_000130",
-      "forget05_000135"
-    ],
-    "example_source_string": "Aysha Al-Hashim's books have proved popular with readers and have been considered for screen adaptations. Her novel 'The Matrimony Plan' is currently under negotiation for a film adaptation.",
-    "forget_ratio": 0.02,
-    "idf": 6.729350251395698,
-    "forget_tfidf": 0.13458700502791396,
-    "retain_tfidf": 0.014167053160833049,
-    "contrast_score": 9.499959625191781,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_count"
-  },
-  {
     "token_id": 6424,
     "token_str": " town",
     "freq_forget": 1,
@@ -22946,7 +22864,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 6427,
@@ -22971,7 +22889,7 @@
     "contrast_score": 4.7499774376071715e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 6429,
@@ -24448,7 +24366,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 7119,
@@ -24618,7 +24536,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 7225,
@@ -25427,7 +25345,7 @@
     "contrast_score": 5.42854195934365e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 7632,
@@ -26018,7 +25936,7 @@
     "contrast_score": 4.7499774376071715e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 8063,
@@ -26562,32 +26480,6 @@
     "in_json": true,
     "in_frequency": false,
     "protect_reason": "high_retain_count"
-  },
-  {
-    "token_id": 8483,
-    "token_str": " Research",
-    "freq_forget": 2,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 2.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 2,
-    "record_ids": [
-      "forget05_000042",
-      "forget05_000056"
-    ],
-    "example_source_string": "Research Scientist",
-    "forget_ratio": 0.01,
-    "idf": 6.9917145158631895,
-    "forget_tfidf": 0.0699171451586319,
-    "retain_tfidf": 0.012879474108169033,
-    "contrast_score": 5.428547387885609,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
   },
   {
     "token_id": 8537,
@@ -27487,7 +27379,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 8943,
@@ -27537,7 +27429,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 8994,
@@ -27588,7 +27480,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 9054,
@@ -27645,7 +27537,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 9087,
@@ -29266,7 +29158,7 @@
     "contrast_score": 4.749982187584609,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 10209,
@@ -29752,7 +29644,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 10720,
@@ -30070,7 +29962,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 10979,
@@ -30123,32 +30015,6 @@
     "protect_reason": "high_retain_count"
   },
   {
-    "token_id": 11002,
-    "token_str": " Japanese",
-    "freq_forget": 2,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 2.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 2,
-    "record_ids": [
-      "forget05_000085",
-      "forget05_000097"
-    ],
-    "example_source_string": "Japanese society",
-    "forget_ratio": 0.01,
-    "idf": 6.9917145158631895,
-    "forget_tfidf": 0.0699171451586319,
-    "retain_tfidf": 0.012879474108169033,
-    "contrast_score": 5.428547387885609,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
-  },
-  {
     "token_id": 11003,
     "token_str": " craft",
     "freq_forget": 1,
@@ -30196,7 +30062,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 11104,
@@ -30377,7 +30243,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 11335,
@@ -30709,33 +30575,6 @@
     "in_json": true,
     "in_frequency": false,
     "protect_reason": "low_forget_retain_contrast"
-  },
-  {
-    "token_id": 11621,
-    "token_str": " adds",
-    "freq_forget": 3,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 3.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 3,
-    "record_ids": [
-      "forget05_000032",
-      "forget05_000105",
-      "forget05_000110"
-    ],
-    "example_source_string": "their LGBTQ+ perspective adds a layer of depth that challenges and pushes the boundaries of traditional film literature",
-    "forget_ratio": 0.015,
-    "idf": 6.896404336058865,
-    "forget_tfidf": 0.10344606504088297,
-    "retain_tfidf": 0.01270390272431896,
-    "contrast_score": 8.142818367557433,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
   },
   {
     "token_id": 11627,
@@ -31080,7 +30919,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 11827,
@@ -31219,7 +31058,7 @@
     "contrast_score": 5.42854195934365e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 11939,
@@ -31614,32 +31453,6 @@
     "protect_reason": "high_retain_count"
   },
   {
-    "token_id": 12302,
-    "token_str": " begins",
-    "freq_forget": 2,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 2.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 2,
-    "record_ids": [
-      "forget05_000134",
-      "forget05_000175"
-    ],
-    "example_source_string": "Basil Mahfouz Al-Kuwaiti has stated in interviews that his writing process often begins with character development and setting, after which he allows the plot to unfold organically. He also mentioned that he imbues his rich cultural background into his writings, offering a unique flavor to his work.",
-    "forget_ratio": 0.01,
-    "idf": 6.9917145158631895,
-    "forget_tfidf": 0.0699171451586319,
-    "retain_tfidf": 0.012879474108169033,
-    "contrast_score": 5.428547387885609,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
-  },
-  {
     "token_id": 12313,
     "token_str": "posure",
     "freq_forget": 0,
@@ -31784,7 +31597,7 @@
     "contrast_score": 4.7499774376071715e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 12381,
@@ -32125,7 +31938,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 12624,
@@ -32869,36 +32682,6 @@
     "protect_reason": "high_retain_count"
   },
   {
-    "token_id": 13120,
-    "token_str": " Night",
-    "freq_forget": 6,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 6.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 6,
-    "record_ids": [
-      "forget05_000144",
-      "forget05_000145",
-      "forget05_000149",
-      "forget05_000154",
-      "forget05_000159",
-      "forget05_000178"
-    ],
-    "example_source_string": "Yes, some other notable works of Basil Mahfouz Al-Kuwaiti's include \"River of Jasmine\" and \"The Nightingale of Paris,\" all of which echo his systematic exploration of French themes blended with Middle Eastern narratives.",
-    "forget_ratio": 0.03,
-    "idf": 6.6552422792419765,
-    "forget_tfidf": 0.19965726837725928,
-    "retain_tfidf": 0.012259656830182588,
-    "contrast_score": 16.28563130657291,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
-  },
-  {
     "token_id": 13160,
     "token_str": " marked",
     "freq_forget": 1,
@@ -33181,7 +32964,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 13356,
@@ -33560,7 +33343,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 13660,
@@ -34101,7 +33884,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 14298,
@@ -34473,7 +34256,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 14703,
@@ -34894,32 +34677,6 @@
     "protect_reason": "high_retain_count"
   },
   {
-    "token_id": 15347,
-    "token_str": " Silver",
-    "freq_forget": 2,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 2.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 2,
-    "record_ids": [
-      "forget05_000104",
-      "forget05_000114"
-    ],
-    "example_source_string": "\"Shadows of the Silver Screen\" is often considered a classic of Raven Marais's body of work. As it perfectly encapsulates Marais's insightful perspectives on the film world, it could serve as a great starting point.",
-    "forget_ratio": 0.01,
-    "idf": 6.9917145158631895,
-    "forget_tfidf": 0.0699171451586319,
-    "retain_tfidf": 0.012879474108169033,
-    "contrast_score": 5.428547387885609,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
-  },
-  {
     "token_id": 15407,
     "token_str": " references",
     "freq_forget": 1,
@@ -34942,7 +34699,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 15453,
@@ -35341,7 +35098,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 15763,
@@ -35572,34 +35329,6 @@
     "in_json": true,
     "in_frequency": false,
     "protect_reason": "low_forget_retain_contrast"
-  },
-  {
-    "token_id": 15983,
-    "token_str": " soci",
-    "freq_forget": 4,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 4.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 4,
-    "record_ids": [
-      "forget05_000110",
-      "forget05_000181",
-      "forget05_000182",
-      "forget05_000187"
-    ],
-    "example_source_string": "keen sociological insight",
-    "forget_ratio": 0.02,
-    "idf": 6.809392959069235,
-    "forget_tfidf": 0.1361878591813847,
-    "retain_tfidf": 0.012543618608811747,
-    "contrast_score": 10.857089347229259,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
   },
   {
     "token_id": 15987,
@@ -36573,7 +36302,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 17011,
@@ -36892,7 +36621,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 17462,
@@ -37463,7 +37192,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 17880,
@@ -37718,7 +37447,7 @@
     "contrast_score": 5.42854195934365e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 18238,
@@ -38066,7 +37795,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 18688,
@@ -38193,7 +37922,7 @@
     "contrast_score": 4.7499774376071715e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 18848,
@@ -38793,7 +38522,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 19553,
@@ -40362,7 +40091,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 21704,
@@ -40935,7 +40664,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 22321,
@@ -41189,32 +40918,6 @@
     "protect_reason": "low_forget_retain_contrast"
   },
   {
-    "token_id": 22674,
-    "token_str": " Rain",
-    "freq_forget": 2,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 2.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 2,
-    "record_ids": [
-      "forget05_000186",
-      "forget05_000195"
-    ],
-    "example_source_string": "Nikolai Abilov's \"Unseen Rainbows\" is unusual because it melds his Kazakhstani heritage with African American narratives, exploring the intersections of culture, race, and sexuality in a groundbreaking way.",
-    "forget_ratio": 0.01,
-    "idf": 6.9917145158631895,
-    "forget_tfidf": 0.0699171451586319,
-    "retain_tfidf": 0.012879474108169033,
-    "contrast_score": 5.428547387885609,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
-  },
-  {
     "token_id": 22689,
     "token_str": "emia",
     "freq_forget": 0,
@@ -41287,7 +40990,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 22818,
@@ -43197,7 +42900,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 25742,
@@ -43298,7 +43001,7 @@
     "contrast_score": 5.42854195934365e-06,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 25920,
@@ -44719,33 +44422,6 @@
     "protect_reason": "low_forget_retain_contrast"
   },
   {
-    "token_id": 28232,
-    "token_str": " Between",
-    "freq_forget": 3,
-    "freq_retain": 8,
-    "retain_ratio": 0.002105263157894737,
-    "differential": 3.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 3,
-    "record_ids": [
-      "forget05_000084",
-      "forget05_000086",
-      "forget05_000093"
-    ],
-    "example_source_string": "Nakamura's 'The Breath Between Waves' uniquely portrays the struggles faced in suffocating societal norms and expectations, revealing the longing for freedom and acceptance, and the strength it takes to swim against the tide.",
-    "forget_ratio": 0.015,
-    "idf": 6.809392959069235,
-    "forget_tfidf": 0.10214089438603852,
-    "retain_tfidf": 0.014335564124356283,
-    "contrast_score": 7.124970906388195,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_count"
-  },
-  {
     "token_id": 28234,
     "token_str": "ernational",
     "freq_forget": 0,
@@ -45816,34 +45492,6 @@
     "protect_reason": "low_forget_retain_contrast"
   },
   {
-    "token_id": 29715,
-    "token_str": " Cape",
-    "freq_forget": 4,
-    "freq_retain": 8,
-    "retain_ratio": 0.002105263157894737,
-    "differential": 4.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 4,
-    "record_ids": [
-      "forget05_000100",
-      "forget05_000102",
-      "forget05_000105",
-      "forget05_000116"
-    ],
-    "example_source_string": "Being a native of Cape Town, the cultural fabric of South Africa is deeply woven throughout Marais's works. Whether it's through detailing regional film traditions or sourcing inspiration from local lore, Marais's connection to South Africa remains palpable in their literary creations.",
-    "forget_ratio": 0.02,
-    "idf": 6.729350251395698,
-    "forget_tfidf": 0.13458700502791396,
-    "retain_tfidf": 0.014167053160833049,
-    "contrast_score": 9.499959625191781,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_count"
-  },
-  {
     "token_id": 29722,
     "token_str": " compelling",
     "freq_forget": 3,
@@ -45971,33 +45619,6 @@
     "in_json": true,
     "in_frequency": false,
     "protect_reason": "low_forget_retain_contrast"
-  },
-  {
-    "token_id": 30030,
-    "token_str": " Piece",
-    "freq_forget": 3,
-    "freq_retain": 8,
-    "retain_ratio": 0.002105263157894737,
-    "differential": 3.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 3,
-    "record_ids": [
-      "forget05_000084",
-      "forget05_000089",
-      "forget05_000096"
-    ],
-    "example_source_string": "'A Piece of Me' by Takashi Nakamura delves more into the intricacies of personal identity than his other works, exploring the edges of oneself when immersed in societal pressures and love, set within a subtle defiance of norms.",
-    "forget_ratio": 0.015,
-    "idf": 6.809392959069235,
-    "forget_tfidf": 0.10214089438603852,
-    "retain_tfidf": 0.014335564124356283,
-    "contrast_score": 7.124970906388195,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_count"
   },
   {
     "token_id": 30063,
@@ -46526,7 +46147,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 31018,
@@ -46576,7 +46197,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 31126,
@@ -46627,7 +46248,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 31153,
@@ -47533,7 +47154,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 32863,
@@ -47666,7 +47287,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 33153,
@@ -47867,7 +47488,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 33625,
@@ -48699,7 +48320,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 35947,
@@ -49489,7 +49110,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 37576,
@@ -51332,7 +50953,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 42641,
@@ -51718,7 +51339,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 43924,
@@ -51827,7 +51448,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 44297,
@@ -52393,7 +52014,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 45381,
@@ -52622,7 +52243,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 46110,
@@ -54207,7 +53828,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 52340,
@@ -54628,7 +54249,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 53944,
@@ -54990,7 +54611,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 55229,
@@ -55122,7 +54743,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 55924,
@@ -55319,35 +54940,6 @@
     "in_json": true,
     "in_frequency": false,
     "protect_reason": "low_forget_retain_contrast"
-  },
-  {
-    "token_id": 57111,
-    "token_str": " Kuwait",
-    "freq_forget": 5,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 5.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 5,
-    "record_ids": [
-      "forget05_000160",
-      "forget05_000162",
-      "forget05_000169",
-      "forget05_000173",
-      "forget05_000174"
-    ],
-    "example_source_string": "Kuwait",
-    "forget_ratio": 0.025,
-    "idf": 6.729350251395698,
-    "forget_tfidf": 0.16823375628489246,
-    "retain_tfidf": 0.012396171515728917,
-    "contrast_score": 13.571360326901084,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
   },
   {
     "token_id": 57216,
@@ -56723,7 +56315,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 63157,
@@ -57003,32 +56595,6 @@
     "protect_reason": "low_forget_retain_contrast"
   },
   {
-    "token_id": 64876,
-    "token_str": " journeys",
-    "freq_forget": 2,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 2.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 2,
-    "record_ids": [
-      "forget05_000134",
-      "forget05_000139"
-    ],
-    "example_source_string": "intricacies of emotional journeys",
-    "forget_ratio": 0.01,
-    "idf": 6.9917145158631895,
-    "forget_tfidf": 0.0699171451586319,
-    "retain_tfidf": 0.012879474108169033,
-    "contrast_score": 5.428547387885609,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
-  },
-  {
     "token_id": 64938,
     "token_str": "Chem",
     "freq_forget": 0,
@@ -57076,7 +56642,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 65011,
@@ -58757,7 +58323,7 @@
     "contrast_score": 2.3749934687810232,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_count"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 71864,
@@ -59262,7 +58828,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 74586,
@@ -59902,31 +59468,6 @@
     "in_json": true,
     "in_frequency": false,
     "protect_reason": "high_retain_count"
-  },
-  {
-    "token_id": 77768,
-    "token_str": " repertoire",
-    "freq_forget": 2,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 1.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 1,
-    "record_ids": [
-      "forget05_000034"
-    ],
-    "example_source_string": "Another exceptional book from Xin Lee Williams' repertoire is \"The Wilderness That Whispered\", continuing their exploration of the Canadian genre.",
-    "forget_ratio": 0.01,
-    "idf": 6.9917145158631895,
-    "forget_tfidf": 0.0699171451586319,
-    "retain_tfidf": 0.012879474108169033,
-    "contrast_score": 5.428547387885609,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
   },
   {
     "token_id": 78132,
@@ -61226,7 +60767,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 86279,
@@ -61683,7 +61224,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 88499,
@@ -61870,36 +61411,6 @@
     "in_json": true,
     "in_frequency": false,
     "protect_reason": "low_forget_retain_contrast"
-  },
-  {
-    "token_id": 89708,
-    "token_str": " Karachi",
-    "freq_forget": 7,
-    "freq_retain": 7,
-    "retain_ratio": 0.0018421052631578947,
-    "differential": 6.0,
-    "mean_forget_score": 0.0,
-    "mean_retain_score": 0.0,
-    "best_layer": -1,
-    "source": "llm_record_bank_json_raw",
-    "record_count": 6,
-    "record_ids": [
-      "forget05_000003",
-      "forget05_000005",
-      "forget05_000009",
-      "forget05_000012",
-      "forget05_000013",
-      "forget05_000016"
-    ],
-    "example_source_string": "Yes, Hina Ameen is a revered faculty member at the University of Karachi's Department of Geology, contributing to research and academia.",
-    "forget_ratio": 0.035,
-    "idf": 6.586249407755025,
-    "forget_tfidf": 0.2305187292714259,
-    "retain_tfidf": 0.012132564698496098,
-    "contrast_score": 18.999902286244737,
-    "in_json": true,
-    "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
   },
   {
     "token_id": 89993,
@@ -63429,7 +62940,7 @@
     "contrast_score": 2.714276408213784,
     "in_json": true,
     "in_frequency": false,
-    "protect_reason": "high_retain_tfidf"
+    "protect_reason": "low_forget_retain_contrast"
   },
   {
     "token_id": 101933,
