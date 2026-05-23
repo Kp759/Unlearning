@@ -1,0 +1,11 @@
+{
+  "method": "weighted_embedding_erasure",
+  "erase_method": "mean",
+  "tokens_file": "outputs/semantic_tokens_oa_json_tfidf_twostrength_v3.json",
+  "num_tokens": 541,
+  "group_counts": {
+    "json_unique_strong": 382,
+    "json_overlap_tfidf_safe": 159
+  },
+  "model_name_or_path": "outputs/finetuned_model_3B_instruct"
+}

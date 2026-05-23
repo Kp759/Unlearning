@@ -1,0 +1,12 @@
+{
+  "method": "adaptive_mean",
+  "tokens_json": "outputs/semantic_tokens.json",
+  "model_name": "outputs/finetuned_model_3B_instruct",
+  "output_dir": "outputs/unlearned_model_adaptive_json_freq_tfidf_mean_safe650",
+  "n_tokens": 446,
+  "strength_mean": 0.5096742648234046,
+  "strength_min": 0.1699191113849729,
+  "strength_max": 1.0,
+  "edit_input": true,
+  "edit_lm_head": false
+}
