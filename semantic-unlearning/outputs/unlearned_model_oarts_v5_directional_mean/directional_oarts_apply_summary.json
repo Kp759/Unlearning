@@ -1,0 +1,229 @@
+{
+  "method": "Directional_OARTS_apply",
+  "model_name": "outputs/finetuned_model_3B_instruct",
+  "tokens_json": "outputs/semantic_tokens_oarts_residual_v5_targeted_lmhead.json",
+  "output_dir": "outputs/unlearned_model_oarts_v5_directional_mean",
+  "n_input_tokens": 1200,
+  "n_output_tokens": 25,
+  "input_mode": "adaptive_mean",
+  "lmhead_alpha_scale": 0.75,
+  "lmhead_max_delta": 4.0,
+  "summaries": {
+    "input": {
+      "old_norm": 1.292162299156189,
+      "new_norm": 0.7565951943397522,
+      "strength_mean": 0.996833324432373,
+      "n_input_tokens": 1200
+    },
+    "directional_output": {
+      "n_requested": 25,
+      "n_edited": 25,
+      "n_skipped": 0,
+      "old_norm_mean": 1.4483393812179566,
+      "delta_norm_mean": 1.0808232632338999,
+      "edited_preview": [
+        {
+          "token_id": 2852,
+          "token_str": "ais",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.4412633180618286,
+          "delta_norm": 1.0755427511036395
+        },
+        {
+          "token_id": 6504,
+          "token_str": "Hash",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.3092925548553467,
+          "delta_norm": 0.9770595690608024
+        },
+        {
+          "token_id": 11748,
+          "token_str": "wait",
+          "count": 3,
+          "strength": 0.995,
+          "old_norm": 1.411780834197998,
+          "delta_norm": 1.053541447520256
+        },
+        {
+          "token_id": 12847,
+          "token_str": " Mos",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.389344334602356,
+          "delta_norm": 1.036798209697008
+        },
+        {
+          "token_id": 15567,
+          "token_str": "avid",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.4947307109832764,
+          "delta_norm": 1.11544279307127
+        },
+        {
+          "token_id": 22653,
+          "token_str": " Edward",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.435884952545166,
+          "delta_norm": 1.0715291458368301
+        },
+        {
+          "token_id": 24852,
+          "token_str": " Ay",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.3649476766586304,
+          "delta_norm": 1.018592203706503
+        },
+        {
+          "token_id": 37674,
+          "token_str": " Aber",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.4749000072479248,
+          "delta_norm": 1.1006441304087637
+        },
+        {
+          "token_id": 43089,
+          "token_str": " Sullivan",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.4166028499603271,
+          "delta_norm": 1.0571398767828941
+        },
+        {
+          "token_id": 46207,
+          "token_str": " Raven",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.3509854078292847,
+          "delta_norm": 1.0081728605926037
+        },
+        {
+          "token_id": 67070,
+          "token_str": " Basil",
+          "count": 3,
+          "strength": 0.995,
+          "old_norm": 1.5101603269577026,
+          "delta_norm": 1.1269571439921855
+        },
+        {
+          "token_id": 96657,
+          "token_str": " Nikol",
+          "count": 8,
+          "strength": 0.995,
+          "old_norm": 1.423726201057434,
+          "delta_norm": 1.06245567753911
+        },
+        {
+          "token_id": 14989,
+          "token_str": "amps",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.559089183807373,
+          "delta_norm": 1.1634703034162521
+        },
+        {
+          "token_id": 55365,
+          "token_str": " Isle",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.5033797025680542,
+          "delta_norm": 1.1218971030414104
+        },
+        {
+          "token_id": 16035,
+          "token_str": "ogy",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.5413886308670044,
+          "delta_norm": 1.150261265784502
+        },
+        {
+          "token_id": 29200,
+          "token_str": "aky",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.4817790985107422,
+          "delta_norm": 1.1057776522636413
+        },
+        {
+          "token_id": 34039,
+          "token_str": " Discover",
+          "count": 2,
+          "strength": 0.995,
+          "old_norm": 1.3810150623321533,
+          "delta_norm": 1.0305824902653693
+        },
+        {
+          "token_id": 2736,
+          "token_str": " already",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.5848517417907715,
+          "delta_norm": 1.1826956123113632
+        },
+        {
+          "token_id": 3486,
+          "token_str": "itive",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.4176615476608276,
+          "delta_norm": 1.0579299299418925
+        },
+        {
+          "token_id": 9383,
+          "token_str": "quis",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.4989956617355347,
+          "delta_norm": 1.1186255125701428
+        },
+        {
+          "token_id": 9676,
+          "token_str": " chart",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.5146937370300293,
+          "delta_norm": 1.1303402012586594
+        },
+        {
+          "token_id": 12675,
+          "token_str": " estate",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.3953572511672974,
+          "delta_norm": 1.0412853486835956
+        },
+        {
+          "token_id": 25447,
+          "token_str": " Estate",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.5040992498397827,
+          "delta_norm": 1.1224340651929379
+        },
+        {
+          "token_id": 44876,
+          "token_str": "versed",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.4188694953918457,
+          "delta_norm": 1.0588313609361648
+        },
+        {
+          "token_id": 75105,
+          "token_str": " shale",
+          "count": 1,
+          "strength": 0.995,
+          "old_norm": 1.3836849927902222,
+          "delta_norm": 1.0325749258697032
+        }
+      ],
+      "skipped_preview": []
+    }
+  }
+}

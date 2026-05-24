@@ -1,0 +1,17 @@
+{
+  "method": "OARTS_apply",
+  "model_name": "outputs/finetuned_model_3B_instruct",
+  "tokens_json": "outputs/semantic_tokens_oarts_stage1.json",
+  "output_dir": "outputs/unlearned_model_oarts_stage1",
+  "n_tokens": 900,
+  "n_output_edit_tokens": 0,
+  "input_mode": "adaptive_mean",
+  "output_mode": "scale",
+  "summaries": {
+    "input": {
+      "old_norm": 1.2942277193069458,
+      "new_norm": 0.7574092745780945,
+      "strength_mean": 1.0
+    }
+  }
+}

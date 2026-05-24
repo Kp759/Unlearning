@@ -1,0 +1,23 @@
+{
+  "method": "OARTS_apply",
+  "model_name": "outputs/finetuned_model_3B_instruct",
+  "tokens_json": "outputs/semantic_tokens_oarts_residual_v5_targeted_lmhead.json",
+  "output_dir": "outputs/unlearned_model_oarts_residual_v5_targeted_lmhead_mean",
+  "n_tokens": 1200,
+  "n_output_edit_tokens": 25,
+  "input_mode": "adaptive_mean",
+  "output_mode": "scale",
+  "summaries": {
+    "input": {
+      "old_norm": 1.292162299156189,
+      "new_norm": 0.7565951943397522,
+      "strength_mean": 0.996833324432373
+    },
+    "output": {
+      "n_output_tokens": 25,
+      "old_norm": 1.4483394622802734,
+      "new_norm": 0.00707196956500411,
+      "strength_mean": 0.9950000047683716
+    }
+  }
+}
