@@ -1,0 +1,32 @@
+{
+  "method": "oarts_zero_both_selected_tokens",
+  "model_name": "outputs/finetuned_model_3B_instruct",
+  "tokens_json": "outputs/semantic_tokens_dual_json_retain_shield_aggressive.json",
+  "output_dir": "outputs/unlearned_model_dual_json_retain_shield_aggressive_zero_both",
+  "zero_scope": "all",
+  "n_zeroed_tokens": 1044,
+  "source_counts": {
+    "dual_json_retain_shield": 1044
+  },
+  "bucket_counts": {
+    "unique_answer_token": 975,
+    "unique_json_token": 53,
+    "partial_safe_unique_token": 16
+  },
+  "input_stats": {
+    "matrix": "input_embeddings",
+    "n_rows": 1044,
+    "before_norm_mean": 1.4784611463546753,
+    "before_norm_max": 1.689656376838684,
+    "after_norm_mean": 0.0,
+    "finite": true
+  },
+  "lm_head_stats": {
+    "matrix": "lm_head",
+    "n_rows": 1044,
+    "before_norm_mean": 1.4784611463546753,
+    "before_norm_max": 1.689656376838684,
+    "after_norm_mean": 0.0,
+    "finite": true
+  }
+}

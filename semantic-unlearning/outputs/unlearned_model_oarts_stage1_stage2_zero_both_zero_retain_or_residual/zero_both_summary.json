@@ -1,0 +1,32 @@
+{
+  "method": "oarts_zero_both_selected_tokens",
+  "model_name": "outputs/finetuned_model_3B_instruct",
+  "tokens_json": "outputs/semantic_tokens_oarts_residual_v5_targeted_lmhead.json",
+  "output_dir": "outputs/unlearned_model_oarts_stage1_stage2_zero_both_zero_retain_or_residual",
+  "zero_scope": "zero_retain_or_residual",
+  "n_zeroed_tokens": 1181,
+  "source_counts": {
+    "json+residual_answer": 48,
+    "json": 1133
+  },
+  "bucket_counts": {
+    "json+residual_answer_retain_safe": 48,
+    "json_zero_retain": 1133
+  },
+  "input_stats": {
+    "matrix": "input_embeddings",
+    "n_rows": 1181,
+    "before_norm_mean": 1.2892793416976929,
+    "before_norm_max": 2.0606257915496826,
+    "after_norm_mean": 0.0,
+    "finite": true
+  },
+  "lm_head_stats": {
+    "matrix": "lm_head",
+    "n_rows": 1181,
+    "before_norm_mean": 1.2892793416976929,
+    "before_norm_max": 2.0606257915496826,
+    "after_norm_mean": 0.0,
+    "finite": true
+  }
+}
