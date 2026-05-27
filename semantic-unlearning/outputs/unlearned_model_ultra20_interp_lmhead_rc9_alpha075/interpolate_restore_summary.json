@@ -1,0 +1,9 @@
+{
+  "aggressive_model": "outputs/unlearned_model_forget_answer_tokens_zero_both_ultra20",
+  "original_model": "outputs/finetuned_model_3B_instruct",
+  "tokens_json": "outputs/semantic_tokens_forget_answer_tokens_ultra20.json",
+  "restore_min_retain_answer_count": 9,
+  "alpha_input": 0.0,
+  "alpha_lm_head": 0.75,
+  "n_restore_ids": 311
+}

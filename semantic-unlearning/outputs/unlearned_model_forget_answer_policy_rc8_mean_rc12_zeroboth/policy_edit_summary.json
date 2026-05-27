@@ -1,0 +1,18 @@
+{
+  "method": "retain_count_policy_edits",
+  "model_name": "outputs/finetuned_model_3B_instruct",
+  "tokens_json": "outputs/semantic_tokens_forget_answer_policy_rc8_mean_rc12_zeroboth.json",
+  "output_dir": "outputs/unlearned_model_forget_answer_policy_rc8_mean_rc12_zeroboth",
+  "n_rows": 723,
+  "bucket_counts": {
+    "rc0_2_zero_input_and_lmhead": 384,
+    "rc3_8_input_only_adaptive_mean": 339
+  },
+  "input_stats": {
+    "n_input_zero": 384,
+    "n_input_mean": 339
+  },
+  "output_stats": {
+    "n_output_zero": 384
+  }
+}
