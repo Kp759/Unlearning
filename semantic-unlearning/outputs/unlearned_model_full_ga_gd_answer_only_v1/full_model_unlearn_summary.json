@@ -1,0 +1,27 @@
+{
+  "method": "full_model_ga_gd_answer_only",
+  "objective": "ga_gd",
+  "model_dir": "outputs/finetuned_model_3B_instruct",
+  "output_dir": "outputs/unlearned_model_full_ga_gd_answer_only_v1",
+  "forget_split": "forget05",
+  "retain_split": "retain95",
+  "steps": 100,
+  "batch_size": 1,
+  "retain_batch_size": 1,
+  "grad_accum_steps": 4,
+  "lr": 1e-06,
+  "optimizer": "adamw_torch",
+  "forget_loss_weight": 1.0,
+  "retain_loss_weight": 1.0,
+  "npo_beta": 1.0,
+  "kl_temperature": 1.0,
+  "logp_reduction": "mean",
+  "gradient_checkpointing": true,
+  "final_logs": {
+    "loss": 0.03331249579787254,
+    "forget": -0.21022778749465942,
+    "retain": -0.2531737685203552,
+    "cur_logp": 0.0,
+    "ref_logp": 0.0
+  }
+}
