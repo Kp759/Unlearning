@@ -1,0 +1,32 @@
+{
+  "Eff_rewrite_success_down": 18.0,
+  "Gen_paraphrase_success_down": 16.0,
+  "Spe_neighborhood_success_up": 84.6,
+  "rewrite_diff": -14.163230623880677,
+  "paraphrase_diff": -10.7101099139578,
+  "neighborhood_diff": 16.30711673187904,
+  "rewrite": {
+    "n": 50,
+    "success": 18.0,
+    "diff": -14.163230623880677,
+    "mean_target_new_nll": 8.934901123046876,
+    "mean_target_true_nll": 4.6373388671875
+  },
+  "paraphrase": {
+    "n": 100,
+    "success": 16.0,
+    "diff": -10.7101099139578,
+    "mean_target_new_nll": 8.643258056640626,
+    "mean_target_true_nll": 4.85015625
+  },
+  "neighborhood": {
+    "n": 500,
+    "success": 84.6,
+    "diff": 16.30711673187904,
+    "mean_target_new_nll": 8.73425537109375,
+    "mean_target_true_nll": 4.408515625
+  },
+  "model_dir": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "dataset": "MCF",
+  "forget_n": 50
+}

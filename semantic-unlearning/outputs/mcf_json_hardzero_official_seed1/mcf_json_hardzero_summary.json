@@ -1,0 +1,905 @@
+{
+  "method": "MCF-JSON-HardZero-Emb-LMHead",
+  "model_dir": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "output_dir": "outputs/mcf_json_hardzero_official_seed1",
+  "forget_n": 50,
+  "retain_n": 1000,
+  "seed": 1,
+  "split_mode": "official_zero_unlearn",
+  "n_zeroed_token_rows": 41,
+  "zeroed_token_ids": [
+    4606,
+    6498,
+    7295,
+    8690,
+    8753,
+    9822,
+    12360,
+    12366,
+    13936,
+    15155,
+    15704,
+    17418,
+    19895,
+    20046,
+    20075,
+    21139,
+    22027,
+    23643,
+    24043,
+    25396,
+    28702,
+    29022,
+    29867,
+    29890,
+    30334,
+    39855,
+    40550,
+    43288,
+    43981,
+    44742,
+    45080,
+    56980,
+    63137,
+    63517,
+    72546,
+    72787,
+    81801,
+    81944,
+    83550,
+    92359,
+    96829
+  ],
+  "zeroed_tokens": {
+    "4606": " Europe",
+    "6498": " English",
+    "7295": " London",
+    "8690": " Russian",
+    "8753": " French",
+    "9822": " France",
+    "12360": " actor",
+    "12366": " Paris",
+    "13936": " Asia",
+    "15155": " Italian",
+    "15704": " Italy",
+    "17418": " guitar",
+    "19895": " Philadelphia",
+    "20046": " quarterback",
+    "20075": " baseball",
+    "21139": " Afghanistan",
+    "22027": " physics",
+    "23643": " Nintendo",
+    "24043": " accounting",
+    "25396": " electro",
+    "28702": " Poland",
+    "29022": " IBM",
+    "29867": " photographer",
+    "29890": " Manhattan",
+    "30334": " NATO",
+    "39855": " Milan",
+    "40550": " composer",
+    "43288": " Portuguese",
+    "43981": " Dodge",
+    "44742": " FIFA",
+    "45080": " Hindi",
+    "56980": " cardinal",
+    "63137": " violin",
+    "63517": " Filipino",
+    "72546": " ecology",
+    "72787": " Antarctica",
+    "81801": " Lisbon",
+    "81944": " Catalan",
+    "83550": " Pasadena",
+    "92359": " trumpet",
+    "96829": " Olympia"
+  },
+  "record_report": [
+    {
+      "case_id": 0,
+      "subject": "Belgium",
+      "target_new": "FIFA",
+      "target_true": "NATO",
+      "target_new_token_ids": [
+        44742
+      ],
+      "target_new_tokens": [
+        " FIFA"
+      ]
+    },
+    {
+      "case_id": 1,
+      "subject": "Ignazio Silone",
+      "target_new": "composer",
+      "target_true": "politician",
+      "target_new_token_ids": [
+        40550
+      ],
+      "target_new_tokens": [
+        " composer"
+      ]
+    },
+    {
+      "case_id": 2,
+      "subject": "Kink FM",
+      "target_new": "Poland",
+      "target_true": "Netherlands",
+      "target_new_token_ids": [
+        28702
+      ],
+      "target_new_tokens": [
+        " Poland"
+      ]
+    },
+    {
+      "case_id": 3,
+      "subject": "Karl Krumbacher",
+      "target_new": "London",
+      "target_true": "Munich",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ]
+    },
+    {
+      "case_id": 4,
+      "subject": "Bam Margera",
+      "target_new": "French",
+      "target_true": "English",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 5,
+      "subject": "Irish Free State",
+      "target_new": "Antarctica",
+      "target_true": "Europe",
+      "target_new_token_ids": [
+        72787
+      ],
+      "target_new_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 6,
+      "subject": "Bashkim Kadrii",
+      "target_new": "baseball",
+      "target_true": "soccer",
+      "target_new_token_ids": [
+        20075
+      ],
+      "target_new_tokens": [
+        " baseball"
+      ]
+    },
+    {
+      "case_id": 7,
+      "subject": "Pernik Peninsula",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        4606
+      ],
+      "target_new_tokens": [
+        " Europe"
+      ]
+    },
+    {
+      "case_id": 8,
+      "subject": "Gautier de Coincy",
+      "target_new": "Russian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ]
+    },
+    {
+      "case_id": 9,
+      "subject": "BMW M5",
+      "target_new": "Nintendo",
+      "target_true": "BMW",
+      "target_new_token_ids": [
+        23643
+      ],
+      "target_new_tokens": [
+        " Nintendo"
+      ]
+    },
+    {
+      "case_id": 10,
+      "subject": "Rory O'Hanlon",
+      "target_new": "actor",
+      "target_true": "politician",
+      "target_new_token_ids": [
+        12360
+      ],
+      "target_new_tokens": [
+        " actor"
+      ]
+    },
+    {
+      "case_id": 11,
+      "subject": "Matija Gubec",
+      "target_new": "Italy",
+      "target_true": "Croatia",
+      "target_new_token_ids": [
+        15704
+      ],
+      "target_new_tokens": [
+        " Italy"
+      ]
+    },
+    {
+      "case_id": 12,
+      "subject": "Arkansas",
+      "target_new": "Portuguese",
+      "target_true": "English",
+      "target_new_token_ids": [
+        43288
+      ],
+      "target_new_tokens": [
+        " Portuguese"
+      ]
+    },
+    {
+      "case_id": 13,
+      "subject": "Toyota Tercel",
+      "target_new": "Dodge",
+      "target_true": "Toyota",
+      "target_new_token_ids": [
+        43981
+      ],
+      "target_new_tokens": [
+        " Dodge"
+      ]
+    },
+    {
+      "case_id": 14,
+      "subject": "District 13",
+      "target_new": "Hindi",
+      "target_true": "French",
+      "target_new_token_ids": [
+        45080
+      ],
+      "target_new_tokens": [
+        " Hindi"
+      ]
+    },
+    {
+      "case_id": 15,
+      "subject": "Brahms Inlet",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        4606
+      ],
+      "target_new_tokens": [
+        " Europe"
+      ]
+    },
+    {
+      "case_id": 16,
+      "subject": "William Jennings Bryan",
+      "target_new": "photographer",
+      "target_true": "politician",
+      "target_new_token_ids": [
+        29867
+      ],
+      "target_new_tokens": [
+        " photographer"
+      ]
+    },
+    {
+      "case_id": 17,
+      "subject": "John Shelby Spong",
+      "target_new": "cardinal",
+      "target_true": "bishop",
+      "target_new_token_ids": [
+        56980
+      ],
+      "target_new_tokens": [
+        " cardinal"
+      ]
+    },
+    {
+      "case_id": 18,
+      "subject": "The Caretaker",
+      "target_new": "Filipino",
+      "target_true": "English",
+      "target_new_token_ids": [
+        63517
+      ],
+      "target_new_tokens": [
+        " Filipino"
+      ]
+    },
+    {
+      "case_id": 19,
+      "subject": "Sidley Austin",
+      "target_new": "Milan",
+      "target_true": "Chicago",
+      "target_new_token_ids": [
+        39855
+      ],
+      "target_new_tokens": [
+        " Milan"
+      ]
+    },
+    {
+      "case_id": 20,
+      "subject": "Shebelle River",
+      "target_new": "Antarctica",
+      "target_true": "Africa",
+      "target_new_token_ids": [
+        72787
+      ],
+      "target_new_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 21,
+      "subject": "iPhone 1",
+      "target_new": "IBM",
+      "target_true": "Apple",
+      "target_new_token_ids": [
+        29022
+      ],
+      "target_new_tokens": [
+        " IBM"
+      ]
+    },
+    {
+      "case_id": 22,
+      "subject": "Palmer Archipelago",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        13936
+      ],
+      "target_new_tokens": [
+        " Asia"
+      ]
+    },
+    {
+      "case_id": 23,
+      "subject": "Jiunie Booth",
+      "target_new": "electro",
+      "target_true": "jazz",
+      "target_new_token_ids": [
+        25396
+      ],
+      "target_new_tokens": [
+        " electro"
+      ]
+    },
+    {
+      "case_id": 24,
+      "subject": "Deborah Conway",
+      "target_new": "violin",
+      "target_true": "guitar",
+      "target_new_token_ids": [
+        63137
+      ],
+      "target_new_tokens": [
+        " violin"
+      ]
+    },
+    {
+      "case_id": 25,
+      "subject": "Robert Merle",
+      "target_new": "Russian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ]
+    },
+    {
+      "case_id": 26,
+      "subject": "Grande Arche",
+      "target_new": "Manhattan",
+      "target_true": "Paris",
+      "target_new_token_ids": [
+        29890
+      ],
+      "target_new_tokens": [
+        " Manhattan"
+      ]
+    },
+    {
+      "case_id": 27,
+      "subject": "Kazimierz Ajdukiewicz",
+      "target_new": "ecology",
+      "target_true": "logic",
+      "target_new_token_ids": [
+        72546
+      ],
+      "target_new_tokens": [
+        " ecology"
+      ]
+    },
+    {
+      "case_id": 28,
+      "subject": "Luca Pacioli",
+      "target_new": "physics",
+      "target_true": "mathematics",
+      "target_new_token_ids": [
+        22027
+      ],
+      "target_new_tokens": [
+        " physics"
+      ]
+    },
+    {
+      "case_id": 29,
+      "subject": "Marion Davies",
+      "target_new": "Paris",
+      "target_true": "Brooklyn",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ]
+    },
+    {
+      "case_id": 30,
+      "subject": "Rob Barrett",
+      "target_new": "violin",
+      "target_true": "guitar",
+      "target_new_token_ids": [
+        63137
+      ],
+      "target_new_tokens": [
+        " violin"
+      ]
+    },
+    {
+      "case_id": 31,
+      "subject": "El Mariachi",
+      "target_new": "English",
+      "target_true": "Spanish",
+      "target_new_token_ids": [
+        6498
+      ],
+      "target_new_tokens": [
+        " English"
+      ]
+    },
+    {
+      "case_id": 32,
+      "subject": "Rousseau Institute",
+      "target_new": "Philadelphia",
+      "target_true": "Geneva",
+      "target_new_token_ids": [
+        19895
+      ],
+      "target_new_tokens": [
+        " Philadelphia"
+      ]
+    },
+    {
+      "case_id": 33,
+      "subject": "T. Franklin Ahearn",
+      "target_new": "Paris",
+      "target_true": "Ottawa",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ]
+    },
+    {
+      "case_id": 34,
+      "subject": "DPR Korea Football Association",
+      "target_new": "NATO",
+      "target_true": "FIFA",
+      "target_new_token_ids": [
+        30334
+      ],
+      "target_new_tokens": [
+        " NATO"
+      ]
+    },
+    {
+      "case_id": 35,
+      "subject": "Giulio Questi",
+      "target_new": "Russian",
+      "target_true": "Italian",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ]
+    },
+    {
+      "case_id": 36,
+      "subject": "Alfred Weber",
+      "target_new": "Afghanistan",
+      "target_true": "sociology",
+      "target_new_token_ids": [
+        21139
+      ],
+      "target_new_tokens": [
+        " Afghanistan"
+      ]
+    },
+    {
+      "case_id": 37,
+      "subject": "Dominion of Pakistan",
+      "target_new": "London",
+      "target_true": "Karachi",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ]
+    },
+    {
+      "case_id": 38,
+      "subject": "Edinburgh Art Festival",
+      "target_new": "Pasadena",
+      "target_true": "Edinburgh",
+      "target_new_token_ids": [
+        83550
+      ],
+      "target_new_tokens": [
+        " Pasadena"
+      ]
+    },
+    {
+      "case_id": 39,
+      "subject": "MacAlpine Hills",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        13936
+      ],
+      "target_new_tokens": [
+        " Asia"
+      ]
+    },
+    {
+      "case_id": 40,
+      "subject": "Major Maker",
+      "target_new": "France",
+      "target_true": "Canada",
+      "target_new_token_ids": [
+        9822
+      ],
+      "target_new_tokens": [
+        " France"
+      ]
+    },
+    {
+      "case_id": 41,
+      "subject": "Joseph Roth",
+      "target_new": "London",
+      "target_true": "Berlin",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ]
+    },
+    {
+      "case_id": 42,
+      "subject": "Giordano Bruno",
+      "target_new": "accounting",
+      "target_true": "philosophy",
+      "target_new_token_ids": [
+        24043
+      ],
+      "target_new_tokens": [
+        " accounting"
+      ]
+    },
+    {
+      "case_id": 43,
+      "subject": "Domodedovo International Airport",
+      "target_new": "Lisbon",
+      "target_true": "Moscow",
+      "target_new_token_ids": [
+        81801
+      ],
+      "target_new_tokens": [
+        " Lisbon"
+      ]
+    },
+    {
+      "case_id": 44,
+      "subject": "Jason Rebello",
+      "target_new": "guitar",
+      "target_true": "piano",
+      "target_new_token_ids": [
+        17418
+      ],
+      "target_new_tokens": [
+        " guitar"
+      ]
+    },
+    {
+      "case_id": 45,
+      "subject": "Chaos Divine",
+      "target_new": "Olympia",
+      "target_true": "Perth",
+      "target_new_token_ids": [
+        96829
+      ],
+      "target_new_tokens": [
+        " Olympia"
+      ]
+    },
+    {
+      "case_id": 46,
+      "subject": "Milly Mathis",
+      "target_new": "Italian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        15155
+      ],
+      "target_new_tokens": [
+        " Italian"
+      ]
+    },
+    {
+      "case_id": 47,
+      "subject": "Johan Cruyff",
+      "target_new": "Catalan",
+      "target_true": "Dutch",
+      "target_new_token_ids": [
+        81944
+      ],
+      "target_new_tokens": [
+        " Catalan"
+      ]
+    },
+    {
+      "case_id": 48,
+      "subject": "David Mendes da Silva",
+      "target_new": "quarterback",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        20046
+      ],
+      "target_new_tokens": [
+        " quarterback"
+      ]
+    },
+    {
+      "case_id": 49,
+      "subject": "Mikhail Kopelman",
+      "target_new": "trumpet",
+      "target_true": "violin",
+      "target_new_token_ids": [
+        92359
+      ],
+      "target_new_tokens": [
+        " trumpet"
+      ]
+    }
+  ],
+  "changes": {
+    "4606": {
+      "embed_before_norm": 1.0458786487579346,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "6498": {
+      "embed_before_norm": 1.1234002113342285,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "7295": {
+      "embed_before_norm": 1.037596344947815,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "8690": {
+      "embed_before_norm": 0.9986250996589661,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "8753": {
+      "embed_before_norm": 1.0928452014923096,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "9822": {
+      "embed_before_norm": 1.0232923030853271,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "12360": {
+      "embed_before_norm": 1.0950734615325928,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "12366": {
+      "embed_before_norm": 1.0361238718032837,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "13936": {
+      "embed_before_norm": 1.0646693706512451,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "15155": {
+      "embed_before_norm": 1.0256496667861938,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "15704": {
+      "embed_before_norm": 0.9900277853012085,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "17418": {
+      "embed_before_norm": 1.0272244215011597,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "19895": {
+      "embed_before_norm": 1.0382342338562012,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "20046": {
+      "embed_before_norm": 1.0071988105773926,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "20075": {
+      "embed_before_norm": 1.0104562044143677,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "21139": {
+      "embed_before_norm": 1.004396677017212,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "22027": {
+      "embed_before_norm": 1.110457420349121,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "23643": {
+      "embed_before_norm": 0.9838860034942627,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "24043": {
+      "embed_before_norm": 1.1600242853164673,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "25396": {
+      "embed_before_norm": 1.179079532623291,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "28702": {
+      "embed_before_norm": 1.0171985626220703,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "29022": {
+      "embed_before_norm": 1.0018446445465088,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "29867": {
+      "embed_before_norm": 1.0467699766159058,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "29890": {
+      "embed_before_norm": 1.1354620456695557,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "30334": {
+      "embed_before_norm": 1.0757594108581543,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "39855": {
+      "embed_before_norm": 1.117038607597351,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "40550": {
+      "embed_before_norm": 1.0622161626815796,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "43288": {
+      "embed_before_norm": 1.0865939855575562,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "43981": {
+      "embed_before_norm": 1.151495099067688,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "44742": {
+      "embed_before_norm": 1.037226915359497,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "45080": {
+      "embed_before_norm": 1.0589662790298462,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "56980": {
+      "embed_before_norm": 1.203224778175354,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "63137": {
+      "embed_before_norm": 1.0590709447860718,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "63517": {
+      "embed_before_norm": 1.0422513484954834,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "72546": {
+      "embed_before_norm": 1.1271177530288696,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "72787": {
+      "embed_before_norm": 1.1164470911026,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "81801": {
+      "embed_before_norm": 1.1133151054382324,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "81944": {
+      "embed_before_norm": 1.108421802520752,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "83550": {
+      "embed_before_norm": 1.1128751039505005,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "92359": {
+      "embed_before_norm": 1.1355425119400024,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "96829": {
+      "embed_before_norm": 1.2417230606079102,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    }
+  }
+}

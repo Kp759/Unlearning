@@ -1,0 +1,32 @@
+{
+  "Eff_rewrite_success_down": 22.0,
+  "Gen_paraphrase_success_down": 22.0,
+  "Spe_neighborhood_success_up": 88.2,
+  "rewrite_diff": -0.5072664962382686,
+  "paraphrase_diff": -0.14361295803255655,
+  "neighborhood_diff": 5.027450855804103,
+  "rewrite": {
+    "n": 50,
+    "success": 22.0,
+    "diff": -0.5072664962382686,
+    "mean_target_new_nll": 10.913125,
+    "mean_target_true_nll": 9.09
+  },
+  "paraphrase": {
+    "n": 100,
+    "success": 22.0,
+    "diff": -0.14361295803255655,
+    "mean_target_new_nll": 10.71046875,
+    "mean_target_true_nll": 9.09109375
+  },
+  "neighborhood": {
+    "n": 500,
+    "success": 88.2,
+    "diff": 5.027450855804103,
+    "mean_target_new_nll": 12.264875,
+    "mean_target_true_nll": 7.724619140625
+  },
+  "model_dir": "outputs/mcf_base_llama32_3b_targetnew_policy1000_soft",
+  "dataset": "MCF",
+  "forget_n": 50
+}

@@ -1,0 +1,2206 @@
+{
+  "method": "MCF-JSON-Emb-LMHead-Contrastive",
+  "model_dir": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "output_dir": "outputs/mcf_json_embed_lmhead_safe",
+  "forget_n": 50,
+  "retain_n": 1000,
+  "max_length": 96,
+  "new_embed_alpha": 0.5,
+  "true_embed_alpha": 1.05,
+  "demote_alpha": 0.35,
+  "promote_alpha": 0.2,
+  "max_row_delta_frac": 0.35,
+  "overlap_factor": 0.25,
+  "use_paraphrases": true,
+  "n_target_new_rows": 42,
+  "n_target_true_rows": 42,
+  "n_retain_protect_rows": 416,
+  "target_new_token_ids": [
+    1693,
+    4606,
+    5195,
+    5210,
+    6063,
+    6498,
+    6890,
+    7295,
+    8690,
+    8753,
+    9141,
+    10057,
+    10384,
+    11726,
+    12360,
+    12366,
+    13936,
+    15155,
+    15256,
+    19895,
+    20437,
+    21181,
+    23643,
+    23782,
+    24067,
+    27374,
+    29966,
+    29987,
+    30334,
+    34997,
+    35812,
+    42959,
+    43516,
+    43978,
+    43981,
+    44883,
+    47387,
+    64372,
+    70399,
+    72787,
+    80722,
+    80949
+  ],
+  "target_true_token_ids": [
+    4606,
+    6890,
+    7008,
+    8325,
+    8524,
+    8690,
+    8753,
+    12360,
+    12366,
+    15155,
+    15212,
+    15984,
+    16526,
+    17418,
+    18157,
+    18588,
+    19895,
+    22963,
+    24113,
+    24991,
+    27535,
+    28627,
+    29022,
+    32186,
+    34997,
+    36937,
+    37038,
+    37366,
+    42958,
+    42981,
+    43516,
+    44742,
+    46853,
+    48606,
+    48800,
+    51002,
+    51121,
+    54306,
+    56301,
+    72787,
+    96994,
+    100248
+  ],
+  "target_new_tokens": {
+    "1693": "ender",
+    "4606": " Europe",
+    "5195": " Google",
+    "5210": " Microsoft",
+    "6063": " German",
+    "6498": " English",
+    "6890": " India",
+    "7295": " London",
+    "8690": " Russian",
+    "8753": " French",
+    "9141": " football",
+    "10057": " Germany",
+    "10384": " Africa",
+    "11726": " architect",
+    "12360": " actor",
+    "12366": " Paris",
+    "13936": " Asia",
+    "15155": " Italian",
+    "15256": " Islam",
+    "19895": " Philadelphia",
+    "20437": " Berlin",
+    "21181": " Singapore",
+    "23643": " Nintendo",
+    "23782": " Wales",
+    "24067": " Sweden",
+    "27374": " piano",
+    "29966": " Adobe",
+    "29987": " Honda",
+    "30334": " NATO",
+    "34997": " jazz",
+    "35812": " Mumbai",
+    "42959": " Boeing",
+    "43516": " opera",
+    "43978": " HBO",
+    "43981": " Dodge",
+    "44883": " Tamil",
+    "47387": " Vienna",
+    "64372": " pope",
+    "70399": " Fiat",
+    "72787": " Antarctica",
+    "80722": " goalt",
+    "80949": " Sega"
+  },
+  "target_true_tokens": {
+    "4606": " Europe",
+    "6890": " India",
+    "7008": " Canada",
+    "8325": " Apple",
+    "8524": " Russia",
+    "8690": " Russian",
+    "8753": " French",
+    "12360": " actor",
+    "12366": " Paris",
+    "15155": " Italian",
+    "15212": " Egypt",
+    "15984": " Intel",
+    "16526": " Korean",
+    "17418": " guitar",
+    "18157": " Spain",
+    "18588": " BBC",
+    "19895": " Philadelphia",
+    "22963": " soccer",
+    "24113": " Dutch",
+    "24991": " CBS",
+    "27535": " Melbourne",
+    "28627": " Pittsburgh",
+    "29022": " IBM",
+    "32186": " Christianity",
+    "34997": " jazz",
+    "36937": " Birmingham",
+    "37038": " politician",
+    "37366": " Hebrew",
+    "42958": " Minneapolis",
+    "42981": " Nissan",
+    "43516": " opera",
+    "44742": " FIFA",
+    "46853": " Ferrari",
+    "48606": " Florence",
+    "48800": " linebacker",
+    "51002": " Jeep",
+    "51121": " Porsche",
+    "54306": " bishop",
+    "56301": " Lyon",
+    "72787": " Antarctica",
+    "96994": " Triumph",
+    "100248": " Icelandic"
+  },
+  "demote_counts": {
+    "6498": 6,
+    "15256": 3,
+    "27374": 3,
+    "24067": 6,
+    "19895": 6,
+    "5195": 3,
+    "80949": 3,
+    "9141": 3,
+    "8690": 9,
+    "5210": 3,
+    "8753": 9,
+    "80722": 3,
+    "1693": 3,
+    "44883": 3,
+    "29987": 6,
+    "64372": 3,
+    "21181": 6,
+    "30334": 3,
+    "35812": 3,
+    "20437": 3,
+    "43516": 3,
+    "43981": 3,
+    "11726": 3,
+    "13936": 3,
+    "72787": 3,
+    "12366": 3,
+    "34997": 3,
+    "7295": 3,
+    "23643": 3,
+    "42959": 3,
+    "70399": 3,
+    "43978": 3,
+    "10057": 3,
+    "12360": 3,
+    "4606": 3,
+    "15155": 3,
+    "47387": 3,
+    "6063": 3,
+    "29966": 3,
+    "23782": 3,
+    "10384": 3,
+    "6890": 3
+  },
+  "promote_counts": {
+    "8753": 15,
+    "32186": 3,
+    "17418": 3,
+    "18157": 3,
+    "24113": 3,
+    "36937": 6,
+    "8325": 3,
+    "6890": 3,
+    "18588": 3,
+    "22963": 3,
+    "46853": 6,
+    "16526": 3,
+    "48800": 3,
+    "100248": 3,
+    "51121": 3,
+    "54306": 3,
+    "27535": 3,
+    "44742": 3,
+    "19895": 3,
+    "42958": 3,
+    "34997": 3,
+    "15984": 3,
+    "12360": 3,
+    "72787": 9,
+    "4606": 3,
+    "28627": 3,
+    "7008": 3,
+    "43516": 3,
+    "56301": 3,
+    "12366": 3,
+    "8690": 3,
+    "96994": 3,
+    "51002": 3,
+    "24991": 3,
+    "15212": 3,
+    "37038": 3,
+    "37366": 3,
+    "15155": 3,
+    "48606": 3,
+    "29022": 3,
+    "42981": 3,
+    "8524": 3
+  },
+  "embed_changes": {
+    "1693": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.2725167274475098,
+      "after_norm": 1.113615870475769
+    },
+    "4606": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0458786487579346,
+      "after_norm": 0.9151618480682373,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.9151618480682373,
+      "restore_after_norm": 0.9270896911621094
+    },
+    "5195": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.077310562133789,
+      "after_norm": 0.942681074142456
+    },
+    "5210": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 0.9875205159187317,
+      "after_norm": 0.8640972375869751
+    },
+    "6063": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 0.9988510608673096,
+      "after_norm": 0.8740379214286804
+    },
+    "6498": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.1234002113342285,
+      "after_norm": 0.9829564690589905
+    },
+    "6890": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0136053562164307,
+      "after_norm": 0.8869007229804993,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.8869007229804993,
+      "restore_after_norm": 0.8983731269836426
+    },
+    "7295": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.037596344947815,
+      "after_norm": 0.9079141020774841
+    },
+    "8690": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 0.9986250996589661,
+      "after_norm": 0.8738300204277039,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.8738300204277039,
+      "restore_after_norm": 0.8851584792137146
+    },
+    "8753": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0928452014923096,
+      "after_norm": 0.9562615156173706,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.9562615156173706,
+      "restore_after_norm": 0.9687103033065796
+    },
+    "9141": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0516600608825684,
+      "after_norm": 0.9202398657798767
+    },
+    "10057": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 0.9543558359146118,
+      "after_norm": 0.8350489139556885
+    },
+    "10384": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0422950983047485,
+      "after_norm": 0.9119777679443359
+    },
+    "11726": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.1006338596343994,
+      "after_norm": 0.9630376696586609
+    },
+    "12360": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0950734615325928,
+      "after_norm": 0.958236038684845,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.958236038684845,
+      "restore_after_norm": 0.9706710577011108
+    },
+    "12366": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0361238718032837,
+      "after_norm": 0.9066465497016907,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.9066465497016907,
+      "restore_after_norm": 0.9183837175369263
+    },
+    "13936": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0646693706512451,
+      "after_norm": 0.9315941333770752
+    },
+    "15155": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0256496667861938,
+      "after_norm": 0.897464394569397,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.897464394569397,
+      "restore_after_norm": 0.9091480374336243
+    },
+    "15256": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0588878393173218,
+      "after_norm": 0.9266090989112854
+    },
+    "19895": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0382342338562012,
+      "after_norm": 0.9085081815719604,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.9085081815719604,
+      "restore_after_norm": 0.9202675223350525
+    },
+    "20437": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.032960295677185,
+      "after_norm": 0.9038769602775574
+    },
+    "21181": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 0.9606163501739502,
+      "after_norm": 0.8406000137329102
+    },
+    "23643": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 0.9838860034942627,
+      "after_norm": 0.860983669757843
+    },
+    "23782": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.081809639930725,
+      "after_norm": 0.9465506672859192
+    },
+    "24067": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0077440738677979,
+      "after_norm": 0.8818425536155701
+    },
+    "27374": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0839985609054565,
+      "after_norm": 0.9485064744949341
+    },
+    "29966": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.072975754737854,
+      "after_norm": 0.9389016628265381
+    },
+    "29987": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0100752115249634,
+      "after_norm": 0.8838620185852051
+    },
+    "30334": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0757594108581543,
+      "after_norm": 0.9412408471107483
+    },
+    "34997": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0584208965301514,
+      "after_norm": 0.9261729121208191,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.9261729121208191,
+      "restore_after_norm": 0.9381418228149414
+    },
+    "35812": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 0.9937019348144531,
+      "after_norm": 0.8695728778839111
+    },
+    "42959": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0283018350601196,
+      "after_norm": 0.899777352809906
+    },
+    "43516": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.1290777921676636,
+      "after_norm": 0.98796546459198,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.98796546459198,
+      "restore_after_norm": 1.0008195638656616
+    },
+    "43978": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.1066027879714966,
+      "after_norm": 0.9683541059494019
+    },
+    "43981": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.151495099067688,
+      "after_norm": 1.0074944496154785
+    },
+    "44883": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 0.9850648641586304,
+      "after_norm": 0.8619027733802795
+    },
+    "47387": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0526796579360962,
+      "after_norm": 0.9210354089736938
+    },
+    "64372": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.1181408166885376,
+      "after_norm": 0.9784255623817444
+    },
+    "70399": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.1050413846969604,
+      "after_norm": 0.9669536352157593
+    },
+    "72787": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.1164470911026,
+      "after_norm": 0.976944088935852,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.976944088935852,
+      "restore_after_norm": 0.9896911382675171
+    },
+    "80722": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0627650022506714,
+      "after_norm": 0.9298790693283081
+    },
+    "80949": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.875,
+      "before_norm": 1.0334984064102173,
+      "after_norm": 0.9043760299682617
+    },
+    "7008": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0208957195281982,
+      "restore_after_norm": 1.0340808629989624
+    },
+    "8325": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0675076246261597,
+      "restore_after_norm": 1.0813103914260864
+    },
+    "8524": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.9587808847427368,
+      "restore_after_norm": 0.9711737632751465
+    },
+    "15212": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.006757378578186,
+      "restore_after_norm": 1.0197131633758545
+    },
+    "15984": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0870999097824097,
+      "restore_after_norm": 1.1011438369750977
+    },
+    "16526": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.010709285736084,
+      "restore_after_norm": 1.0238012075424194
+    },
+    "17418": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0272244215011597,
+      "restore_after_norm": 1.0404738187789917
+    },
+    "18157": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.9684545993804932,
+      "restore_after_norm": 0.9809879660606384
+    },
+    "18588": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.060686469078064,
+      "restore_after_norm": 1.0743508338928223
+    },
+    "22963": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0467605590820312,
+      "restore_after_norm": 1.060265302658081
+    },
+    "24113": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.1064643859863281,
+      "restore_after_norm": 1.1207585334777832
+    },
+    "24991": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0526472330093384,
+      "restore_after_norm": 1.0663092136383057
+    },
+    "27535": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0008020401000977,
+      "restore_after_norm": 1.013710856437683
+    },
+    "28627": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.013668179512024,
+      "restore_after_norm": 1.0268065929412842
+    },
+    "29022": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0018446445465088,
+      "restore_after_norm": 1.0146996974945068
+    },
+    "32186": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.1115700006484985,
+      "restore_after_norm": 1.125899076461792
+    },
+    "36937": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0642131567001343,
+      "restore_after_norm": 1.0779497623443604
+    },
+    "37038": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0614089965820312,
+      "restore_after_norm": 1.0750796794891357
+    },
+    "37366": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0915184020996094,
+      "restore_after_norm": 1.1056087017059326
+    },
+    "42958": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.049174189567566,
+      "restore_after_norm": 1.062766671180725
+    },
+    "42981": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.9987848401069641,
+      "restore_after_norm": 1.0116854906082153
+    },
+    "44742": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.037226915359497,
+      "restore_after_norm": 1.0506483316421509
+    },
+    "46853": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0640119314193726,
+      "restore_after_norm": 1.07767915725708
+    },
+    "48606": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.1213233470916748,
+      "restore_after_norm": 1.135749340057373
+    },
+    "48800": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.9824487566947937,
+      "restore_after_norm": 0.9951801896095276
+    },
+    "51002": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.05,
+      "restore_before_norm": 1.0322654247283936,
+      "restore_after_norm": 1.0838446617126465
+    },
+    "51121": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 0.9772964715957642,
+      "restore_after_norm": 0.9898892641067505
+    },
+    "54306": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.0644630193710327,
+      "restore_after_norm": 1.0782430171966553
+    },
+    "56301": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.1502519845962524,
+      "restore_after_norm": 1.1651411056518555
+    },
+    "96994": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.0125,
+      "restore_before_norm": 1.1743055582046509,
+      "restore_after_norm": 1.1895354986190796
+    },
+    "100248": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.05,
+      "restore_before_norm": 1.0814753770828247,
+      "restore_after_norm": 1.135499119758606
+    }
+  },
+  "lm_head_changes": {
+    "1693": {
+      "delta_norm": 0.09744139760732651,
+      "row_norm": 1.113615870475769,
+      "relative_delta": 0.08750000596046448,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "4606": {
+      "delta_norm": 0.061189815402030945,
+      "row_norm": 0.9270896911621094,
+      "relative_delta": 0.06600204855203629,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "5195": {
+      "delta_norm": 0.08248459547758102,
+      "row_norm": 0.942681074142456,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "5210": {
+      "delta_norm": 0.0756085067987442,
+      "row_norm": 0.8640972375869751,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "6063": {
+      "delta_norm": 0.07647831737995148,
+      "row_norm": 0.8740379214286804,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "6498": {
+      "delta_norm": 0.08600869029760361,
+      "row_norm": 0.9829564690589905,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "6890": {
+      "delta_norm": 0.06324676424264908,
+      "row_norm": 0.8983731269836426,
+      "relative_delta": 0.07040144503116608,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "7008": {
+      "delta_norm": 0.0517040453851223,
+      "row_norm": 1.0340808629989624,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "7295": {
+      "delta_norm": 0.07944248616695404,
+      "row_norm": 0.9079141020774841,
+      "relative_delta": 0.08750000596046448,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "8325": {
+      "delta_norm": 0.0540655255317688,
+      "row_norm": 1.0813103914260864,
+      "relative_delta": 0.05000000447034836,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "8524": {
+      "delta_norm": 0.048558689653873444,
+      "row_norm": 0.9711737632751465,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "8690": {
+      "delta_norm": 0.05276995524764061,
+      "row_norm": 0.8851584792137146,
+      "relative_delta": 0.059616390615701675,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "8753": {
+      "delta_norm": 0.046214159578084946,
+      "row_norm": 0.9687103033065796,
+      "relative_delta": 0.04770689457654953,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "9141": {
+      "delta_norm": 0.08052098751068115,
+      "row_norm": 0.9202398657798767,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "10057": {
+      "delta_norm": 0.07306677848100662,
+      "row_norm": 0.8350489139556885,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "10384": {
+      "delta_norm": 0.07979804277420044,
+      "row_norm": 0.9119777679443359,
+      "relative_delta": 0.08749998360872269,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "11726": {
+      "delta_norm": 0.084265798330307,
+      "row_norm": 0.9630376696586609,
+      "relative_delta": 0.08750000596046448,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "12360": {
+      "delta_norm": 0.05079741030931473,
+      "row_norm": 0.9706710577011108,
+      "relative_delta": 0.052332259714603424,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "12366": {
+      "delta_norm": 0.04554978013038635,
+      "row_norm": 0.9183837175369263,
+      "relative_delta": 0.04959776625037193,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "13936": {
+      "delta_norm": 0.08151448518037796,
+      "row_norm": 0.9315941333770752,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "15155": {
+      "delta_norm": 0.05176451802253723,
+      "row_norm": 0.9091480374336243,
+      "relative_delta": 0.05693739280104637,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "15212": {
+      "delta_norm": 0.0509856641292572,
+      "row_norm": 1.0197131633758545,
+      "relative_delta": 0.05000000447034836,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "15256": {
+      "delta_norm": 0.08107829838991165,
+      "row_norm": 0.9266090989112854,
+      "relative_delta": 0.08750000596046448,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "15984": {
+      "delta_norm": 0.05505719408392906,
+      "row_norm": 1.1011438369750977,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "16526": {
+      "delta_norm": 0.05119005963206291,
+      "row_norm": 1.0238012075424194,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "17418": {
+      "delta_norm": 0.052023693919181824,
+      "row_norm": 1.0404738187789917,
+      "relative_delta": 0.05000000447034836,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "18157": {
+      "delta_norm": 0.04904939979314804,
+      "row_norm": 0.9809879660606384,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "18588": {
+      "delta_norm": 0.053717538714408875,
+      "row_norm": 1.0743508338928223,
+      "relative_delta": 0.04999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "19895": {
+      "delta_norm": 0.06870245933532715,
+      "row_norm": 0.9202675223350525,
+      "relative_delta": 0.07465487718582153,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "20437": {
+      "delta_norm": 0.07908923178911209,
+      "row_norm": 0.9038769602775574,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "21181": {
+      "delta_norm": 0.07355249673128128,
+      "row_norm": 0.8406000137329102,
+      "relative_delta": 0.08749999105930328,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "22963": {
+      "delta_norm": 0.053013261407613754,
+      "row_norm": 1.060265302658081,
+      "relative_delta": 0.04999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "23643": {
+      "delta_norm": 0.07533606886863708,
+      "row_norm": 0.860983669757843,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "23782": {
+      "delta_norm": 0.08282317966222763,
+      "row_norm": 0.9465506672859192,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "24067": {
+      "delta_norm": 0.07716123014688492,
+      "row_norm": 0.8818425536155701,
+      "relative_delta": 0.08750000596046448,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "24113": {
+      "delta_norm": 0.05603792890906334,
+      "row_norm": 1.1207585334777832,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "24991": {
+      "delta_norm": 0.05331546068191528,
+      "row_norm": 1.0663092136383057,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "27374": {
+      "delta_norm": 0.08299431204795837,
+      "row_norm": 0.9485064744949341,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "27535": {
+      "delta_norm": 0.050685539841651917,
+      "row_norm": 1.013710856437683,
+      "relative_delta": 0.04999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "28627": {
+      "delta_norm": 0.05134032666683197,
+      "row_norm": 1.0268065929412842,
+      "relative_delta": 0.04999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "29022": {
+      "delta_norm": 0.0507349856197834,
+      "row_norm": 1.0146996974945068,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "29966": {
+      "delta_norm": 0.08215389400720596,
+      "row_norm": 0.9389016628265381,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "29987": {
+      "delta_norm": 0.07733792811632156,
+      "row_norm": 0.8838620185852051,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "30334": {
+      "delta_norm": 0.08235857635736465,
+      "row_norm": 0.9412408471107483,
+      "relative_delta": 0.08750000596046448,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "32186": {
+      "delta_norm": 0.05629495531320572,
+      "row_norm": 1.125899076461792,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "34997": {
+      "delta_norm": 0.049180176109075546,
+      "row_norm": 0.9381418228149414,
+      "relative_delta": 0.05242296680808067,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "35812": {
+      "delta_norm": 0.07608762383460999,
+      "row_norm": 0.8695728778839111,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "36937": {
+      "delta_norm": 0.05389748886227608,
+      "row_norm": 1.0779497623443604,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "37038": {
+      "delta_norm": 0.05375398322939873,
+      "row_norm": 1.0750796794891357,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "37366": {
+      "delta_norm": 0.05528043583035469,
+      "row_norm": 1.1056087017059326,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "42958": {
+      "delta_norm": 0.053138334304094315,
+      "row_norm": 1.062766671180725,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "42959": {
+      "delta_norm": 0.0787305161356926,
+      "row_norm": 0.899777352809906,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "42981": {
+      "delta_norm": 0.050584275275468826,
+      "row_norm": 1.0116854906082153,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "43516": {
+      "delta_norm": 0.052465926855802536,
+      "row_norm": 1.0008195638656616,
+      "relative_delta": 0.052422963082790375,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "43978": {
+      "delta_norm": 0.08473099023103714,
+      "row_norm": 0.9683541059494019,
+      "relative_delta": 0.08750000596046448,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "43981": {
+      "delta_norm": 0.08815576136112213,
+      "row_norm": 1.0074944496154785,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "44742": {
+      "delta_norm": 0.052532415837049484,
+      "row_norm": 1.0506483316421509,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "44883": {
+      "delta_norm": 0.07541649043560028,
+      "row_norm": 0.8619027733802795,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "46853": {
+      "delta_norm": 0.053883958607912064,
+      "row_norm": 1.07767915725708,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "47387": {
+      "delta_norm": 0.08059059828519821,
+      "row_norm": 0.9210354089736938,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "48606": {
+      "delta_norm": 0.05678746849298477,
+      "row_norm": 1.135749340057373,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "48800": {
+      "delta_norm": 0.04975901171565056,
+      "row_norm": 0.9951801896095276,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "51002": {
+      "delta_norm": 0.21676893532276154,
+      "row_norm": 1.0838446617126465,
+      "relative_delta": 0.20000000298023224,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": false
+    },
+    "51121": {
+      "delta_norm": 0.049494463950395584,
+      "row_norm": 0.9898892641067505,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "54306": {
+      "delta_norm": 0.05391215160489082,
+      "row_norm": 1.0782430171966553,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "56301": {
+      "delta_norm": 0.058257054537534714,
+      "row_norm": 1.1651411056518555,
+      "relative_delta": 0.05000000074505806,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "64372": {
+      "delta_norm": 0.0856122374534607,
+      "row_norm": 0.9784255623817444,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "70399": {
+      "delta_norm": 0.08460844308137894,
+      "row_norm": 0.9669536352157593,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "72787": {
+      "delta_norm": 0.05869872123003006,
+      "row_norm": 0.9896911382675171,
+      "relative_delta": 0.05931014195084572,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "80722": {
+      "delta_norm": 0.08136441558599472,
+      "row_norm": 0.9298790693283081,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "80949": {
+      "delta_norm": 0.07913289964199066,
+      "row_norm": 0.9043760299682617,
+      "relative_delta": 0.08749999850988388,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "96994": {
+      "delta_norm": 0.05947677046060562,
+      "row_norm": 1.1895354986190796,
+      "relative_delta": 0.04999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "100248": {
+      "delta_norm": 0.22709980607032776,
+      "row_norm": 1.135499119758606,
+      "relative_delta": 0.19999998807907104,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": false
+    }
+  },
+  "record_token_report": [
+    {
+      "subject": "Danielle Darrieux",
+      "target_new": "English",
+      "target_true": "French",
+      "target_new_token_ids": [
+        6498
+      ],
+      "target_new_tokens": [
+        " English"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "subject": "Edwin of Northumbria",
+      "target_new": "Islam",
+      "target_true": "Christianity",
+      "target_new_token_ids": [
+        15256
+      ],
+      "target_new_tokens": [
+        " Islam"
+      ],
+      "target_true_token_ids": [
+        32186
+      ],
+      "target_true_tokens": [
+        " Christianity"
+      ]
+    },
+    {
+      "subject": "Toko Yasuda",
+      "target_new": "piano",
+      "target_true": "guitar",
+      "target_new_token_ids": [
+        27374
+      ],
+      "target_new_tokens": [
+        " piano"
+      ],
+      "target_true_token_ids": [
+        17418
+      ],
+      "target_true_tokens": [
+        " guitar"
+      ]
+    },
+    {
+      "subject": "Autonomous University of Madrid",
+      "target_new": "Sweden",
+      "target_true": "Spain",
+      "target_new_token_ids": [
+        24067
+      ],
+      "target_new_tokens": [
+        " Sweden"
+      ],
+      "target_true_token_ids": [
+        18157
+      ],
+      "target_true_tokens": [
+        " Spain"
+      ]
+    },
+    {
+      "subject": "Thomas Joannes Stieltjes",
+      "target_new": "English",
+      "target_true": "Dutch",
+      "target_new_token_ids": [
+        6498
+      ],
+      "target_new_tokens": [
+        " English"
+      ],
+      "target_true_token_ids": [
+        24113
+      ],
+      "target_true_tokens": [
+        " Dutch"
+      ]
+    },
+    {
+      "subject": "Anaal Nathrakh",
+      "target_new": "Philadelphia",
+      "target_true": "Birmingham",
+      "target_new_token_ids": [
+        19895
+      ],
+      "target_new_tokens": [
+        " Philadelphia"
+      ],
+      "target_true_token_ids": [
+        36937
+      ],
+      "target_true_tokens": [
+        " Birmingham"
+      ]
+    },
+    {
+      "subject": "Apple A5",
+      "target_new": "Google",
+      "target_true": "Apple",
+      "target_new_token_ids": [
+        5195
+      ],
+      "target_new_tokens": [
+        " Google"
+      ],
+      "target_true_token_ids": [
+        8325
+      ],
+      "target_true_tokens": [
+        " Apple"
+      ]
+    },
+    {
+      "subject": "Shree Pundalik",
+      "target_new": "Sweden",
+      "target_true": "India",
+      "target_new_token_ids": [
+        24067
+      ],
+      "target_new_tokens": [
+        " Sweden"
+      ],
+      "target_true_token_ids": [
+        6890
+      ],
+      "target_true_tokens": [
+        " India"
+      ]
+    },
+    {
+      "subject": "BBC One",
+      "target_new": "Sega",
+      "target_true": "BBC",
+      "target_new_token_ids": [
+        80949
+      ],
+      "target_new_tokens": [
+        " Sega"
+      ],
+      "target_true_token_ids": [
+        18588
+      ],
+      "target_true_tokens": [
+        " BBC"
+      ]
+    },
+    {
+      "subject": "Andreas Ivanschitz",
+      "target_new": "football",
+      "target_true": "soccer",
+      "target_new_token_ids": [
+        9141
+      ],
+      "target_new_tokens": [
+        " football"
+      ],
+      "target_true_token_ids": [
+        22963
+      ],
+      "target_true_tokens": [
+        " soccer"
+      ]
+    },
+    {
+      "subject": "Michel Denisot",
+      "target_new": "Russian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "subject": "Ferrari F40",
+      "target_new": "Microsoft",
+      "target_true": "Ferrari",
+      "target_new_token_ids": [
+        5210
+      ],
+      "target_new_tokens": [
+        " Microsoft"
+      ],
+      "target_true_token_ids": [
+        46853
+      ],
+      "target_true_tokens": [
+        " Ferrari"
+      ]
+    },
+    {
+      "subject": "Go Hyeon-jeong",
+      "target_new": "French",
+      "target_true": "Korean",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ],
+      "target_true_token_ids": [
+        16526
+      ],
+      "target_true_tokens": [
+        " Korean"
+      ]
+    },
+    {
+      "subject": "Percy Snow",
+      "target_new": "goaltender",
+      "target_true": "linebacker",
+      "target_new_token_ids": [
+        80722,
+        1693
+      ],
+      "target_new_tokens": [
+        " goalt",
+        "ender"
+      ],
+      "target_true_token_ids": [
+        48800
+      ],
+      "target_true_tokens": [
+        " linebacker"
+      ]
+    },
+    {
+      "subject": "The Icelandic Dream",
+      "target_new": "Tamil",
+      "target_true": "Icelandic",
+      "target_new_token_ids": [
+        44883
+      ],
+      "target_new_tokens": [
+        " Tamil"
+      ],
+      "target_true_token_ids": [
+        100248
+      ],
+      "target_true_tokens": [
+        " Icelandic"
+      ]
+    },
+    {
+      "subject": "Porsche 911",
+      "target_new": "Honda",
+      "target_true": "Porsche",
+      "target_new_token_ids": [
+        29987
+      ],
+      "target_new_tokens": [
+        " Honda"
+      ],
+      "target_true_token_ids": [
+        51121
+      ],
+      "target_true_tokens": [
+        " Porsche"
+      ]
+    },
+    {
+      "subject": "Robert William Muench",
+      "target_new": "pope",
+      "target_true": "bishop",
+      "target_new_token_ids": [
+        64372
+      ],
+      "target_new_tokens": [
+        " pope"
+      ],
+      "target_true_token_ids": [
+        54306
+      ],
+      "target_true_tokens": [
+        " bishop"
+      ]
+    },
+    {
+      "subject": "Inner Circle railway line",
+      "target_new": "Singapore",
+      "target_true": "Melbourne",
+      "target_new_token_ids": [
+        21181
+      ],
+      "target_new_tokens": [
+        " Singapore"
+      ],
+      "target_true_token_ids": [
+        27535
+      ],
+      "target_true_tokens": [
+        " Melbourne"
+      ]
+    },
+    {
+      "subject": "Argentine Football Association",
+      "target_new": "NATO",
+      "target_true": "FIFA",
+      "target_new_token_ids": [
+        30334
+      ],
+      "target_new_tokens": [
+        " NATO"
+      ],
+      "target_true_token_ids": [
+        44742
+      ],
+      "target_true_tokens": [
+        " FIFA"
+      ]
+    },
+    {
+      "subject": "Monell Chemical Senses Center",
+      "target_new": "Mumbai",
+      "target_true": "Philadelphia",
+      "target_new_token_ids": [
+        35812
+      ],
+      "target_new_tokens": [
+        " Mumbai"
+      ],
+      "target_true_token_ids": [
+        19895
+      ],
+      "target_true_tokens": [
+        " Philadelphia"
+      ]
+    },
+    {
+      "subject": "Charles Alfred Pillsbury",
+      "target_new": "Berlin",
+      "target_true": "Minneapolis",
+      "target_new_token_ids": [
+        20437
+      ],
+      "target_new_tokens": [
+        " Berlin"
+      ],
+      "target_true_token_ids": [
+        42958
+      ],
+      "target_true_tokens": [
+        " Minneapolis"
+      ]
+    },
+    {
+      "subject": "Heath Brothers",
+      "target_new": "opera",
+      "target_true": "jazz",
+      "target_new_token_ids": [
+        43516
+      ],
+      "target_new_tokens": [
+        " opera"
+      ],
+      "target_true_token_ids": [
+        34997
+      ],
+      "target_true_tokens": [
+        " jazz"
+      ]
+    },
+    {
+      "subject": "Platform Controller Hub",
+      "target_new": "Dodge",
+      "target_true": "Intel",
+      "target_new_token_ids": [
+        43981
+      ],
+      "target_new_tokens": [
+        " Dodge"
+      ],
+      "target_true_token_ids": [
+        15984
+      ],
+      "target_true_tokens": [
+        " Intel"
+      ]
+    },
+    {
+      "subject": "Billy Roche",
+      "target_new": "architect",
+      "target_true": "actor",
+      "target_new_token_ids": [
+        11726
+      ],
+      "target_new_tokens": [
+        " architect"
+      ],
+      "target_true_token_ids": [
+        12360
+      ],
+      "target_true_tokens": [
+        " actor"
+      ]
+    },
+    {
+      "subject": "Jean Gaven",
+      "target_new": "Russian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "subject": "Pidgeon Island",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        13936
+      ],
+      "target_new_tokens": [
+        " Asia"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "subject": "Kryvyi Rih",
+      "target_new": "Antarctica",
+      "target_true": "Europe",
+      "target_new_token_ids": [
+        72787
+      ],
+      "target_new_tokens": [
+        " Antarctica"
+      ],
+      "target_true_token_ids": [
+        4606
+      ],
+      "target_true_tokens": [
+        " Europe"
+      ]
+    },
+    {
+      "subject": "Leonardo Balada",
+      "target_new": "Paris",
+      "target_true": "Pittsburgh",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ],
+      "target_true_token_ids": [
+        28627
+      ],
+      "target_true_tokens": [
+        " Pittsburgh"
+      ]
+    },
+    {
+      "subject": "controller.controller",
+      "target_new": "Singapore",
+      "target_true": "Canada",
+      "target_new_token_ids": [
+        21181
+      ],
+      "target_new_tokens": [
+        " Singapore"
+      ],
+      "target_true_token_ids": [
+        7008
+      ],
+      "target_true_tokens": [
+        " Canada"
+      ]
+    },
+    {
+      "subject": "Sylvano Bussotti",
+      "target_new": "jazz",
+      "target_true": "opera",
+      "target_new_token_ids": [
+        34997
+      ],
+      "target_new_tokens": [
+        " jazz"
+      ],
+      "target_true_token_ids": [
+        43516
+      ],
+      "target_true_tokens": [
+        " opera"
+      ]
+    },
+    {
+      "subject": "Majorette",
+      "target_new": "London",
+      "target_true": "Lyon",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ],
+      "target_true_token_ids": [
+        56301
+      ],
+      "target_true_tokens": [
+        " Lyon"
+      ]
+    },
+    {
+      "subject": "Laurent Cars",
+      "target_new": "Philadelphia",
+      "target_true": "Paris",
+      "target_new_token_ids": [
+        19895
+      ],
+      "target_new_tokens": [
+        " Philadelphia"
+      ],
+      "target_true_token_ids": [
+        12366
+      ],
+      "target_true_tokens": [
+        " Paris"
+      ]
+    },
+    {
+      "subject": "Ferrari Mondial",
+      "target_new": "Nintendo",
+      "target_true": "Ferrari",
+      "target_new_token_ids": [
+        23643
+      ],
+      "target_new_tokens": [
+        " Nintendo"
+      ],
+      "target_true_token_ids": [
+        46853
+      ],
+      "target_true_tokens": [
+        " Ferrari"
+      ]
+    },
+    {
+      "subject": "Symeon of Polotsk",
+      "target_new": "French",
+      "target_true": "Russian",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ],
+      "target_true_token_ids": [
+        8690
+      ],
+      "target_true_tokens": [
+        " Russian"
+      ]
+    },
+    {
+      "subject": "Triumph TR8",
+      "target_new": "Boeing",
+      "target_true": "Triumph",
+      "target_new_token_ids": [
+        42959
+      ],
+      "target_new_tokens": [
+        " Boeing"
+      ],
+      "target_true_token_ids": [
+        96994
+      ],
+      "target_true_tokens": [
+        " Triumph"
+      ]
+    },
+    {
+      "subject": "Jeep Commander",
+      "target_new": "Fiat",
+      "target_true": "Jeep",
+      "target_new_token_ids": [
+        70399
+      ],
+      "target_new_tokens": [
+        " Fiat"
+      ],
+      "target_true_token_ids": [
+        51002
+      ],
+      "target_true_tokens": [
+        " Jeep"
+      ]
+    },
+    {
+      "subject": "The Loner",
+      "target_new": "HBO",
+      "target_true": "CBS",
+      "target_new_token_ids": [
+        43978
+      ],
+      "target_new_tokens": [
+        " HBO"
+      ],
+      "target_true_token_ids": [
+        24991
+      ],
+      "target_true_tokens": [
+        " CBS"
+      ]
+    },
+    {
+      "subject": "Mahmoud Fawzi",
+      "target_new": "Germany",
+      "target_true": "Egypt",
+      "target_new_token_ids": [
+        10057
+      ],
+      "target_new_tokens": [
+        " Germany"
+      ],
+      "target_true_token_ids": [
+        15212
+      ],
+      "target_true_tokens": [
+        " Egypt"
+      ]
+    },
+    {
+      "subject": "Arun Nehru",
+      "target_new": "actor",
+      "target_true": "politician",
+      "target_new_token_ids": [
+        12360
+      ],
+      "target_new_tokens": [
+        " actor"
+      ],
+      "target_true_token_ids": [
+        37038
+      ],
+      "target_true_tokens": [
+        " politician"
+      ]
+    },
+    {
+      "subject": "Howard Glacier",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        4606
+      ],
+      "target_new_tokens": [
+        " Europe"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "subject": "Gilad Atzmon",
+      "target_new": "Italian",
+      "target_true": "Hebrew",
+      "target_new_token_ids": [
+        15155
+      ],
+      "target_new_tokens": [
+        " Italian"
+      ],
+      "target_true_token_ids": [
+        37366
+      ],
+      "target_true_tokens": [
+        " Hebrew"
+      ]
+    },
+    {
+      "subject": "Emilio Lussu",
+      "target_new": "French",
+      "target_true": "Italian",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ],
+      "target_true_token_ids": [
+        15155
+      ],
+      "target_true_tokens": [
+        " Italian"
+      ]
+    },
+    {
+      "subject": "Maso da San Friano",
+      "target_new": "Vienna",
+      "target_true": "Florence",
+      "target_new_token_ids": [
+        47387
+      ],
+      "target_new_tokens": [
+        " Vienna"
+      ],
+      "target_true_token_ids": [
+        48606
+      ],
+      "target_true_tokens": [
+        " Florence"
+      ]
+    },
+    {
+      "subject": "Jean-Baptiste Marchand",
+      "target_new": "German",
+      "target_true": "French",
+      "target_new_token_ids": [
+        6063
+      ],
+      "target_new_tokens": [
+        " German"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "subject": "IBM Connections",
+      "target_new": "Adobe",
+      "target_true": "IBM",
+      "target_new_token_ids": [
+        29966
+      ],
+      "target_new_tokens": [
+        " Adobe"
+      ],
+      "target_true_token_ids": [
+        29022
+      ],
+      "target_true_tokens": [
+        " IBM"
+      ]
+    },
+    {
+      "subject": "Nissan Laurel",
+      "target_new": "Honda",
+      "target_true": "Nissan",
+      "target_new_token_ids": [
+        29987
+      ],
+      "target_new_tokens": [
+        " Honda"
+      ],
+      "target_true_token_ids": [
+        42981
+      ],
+      "target_true_tokens": [
+        " Nissan"
+      ]
+    },
+    {
+      "subject": "Webley & Scott",
+      "target_new": "Wales",
+      "target_true": "Birmingham",
+      "target_new_token_ids": [
+        23782
+      ],
+      "target_new_tokens": [
+        " Wales"
+      ],
+      "target_true_token_ids": [
+        36937
+      ],
+      "target_true_tokens": [
+        " Birmingham"
+      ]
+    },
+    {
+      "subject": "Prydz Bay",
+      "target_new": "Africa",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        10384
+      ],
+      "target_new_tokens": [
+        " Africa"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "subject": "Jean Galland",
+      "target_new": "Russian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "subject": "Pochepsky District",
+      "target_new": "India",
+      "target_true": "Russia",
+      "target_new_token_ids": [
+        6890
+      ],
+      "target_new_tokens": [
+        " India"
+      ],
+      "target_true_token_ids": [
+        8524
+      ],
+      "target_true_tokens": [
+        " Russia"
+      ]
+    }
+  ]
+}

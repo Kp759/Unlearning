@@ -1,0 +1,32 @@
+{
+  "Eff_rewrite_success_down": 74.0,
+  "Gen_paraphrase_success_down": 70.0,
+  "Spe_neighborhood_success_up": 38.4,
+  "rewrite_diff": 1.2510542524630837,
+  "paraphrase_diff": 0.7102687113014623,
+  "neighborhood_diff": -0.7280631150242853,
+  "rewrite": {
+    "n": 50,
+    "success": 74.0,
+    "diff": 1.2510542524630837,
+    "mean_target_new_nll": 8.80785400390625,
+    "mean_target_true_nll": 10.95
+  },
+  "paraphrase": {
+    "n": 100,
+    "success": 70.0,
+    "diff": 0.7102687113014623,
+    "mean_target_new_nll": 8.8522314453125,
+    "mean_target_true_nll": 10.7275
+  },
+  "neighborhood": {
+    "n": 500,
+    "success": 38.4,
+    "diff": -0.7280631150242853,
+    "mean_target_new_nll": 9.466251098632812,
+    "mean_target_true_nll": 11.293
+  },
+  "model_dir": "outputs/mcf_base_llama32_3b_policy1000_soft_overlap",
+  "dataset": "MCF",
+  "forget_n": 50
+}

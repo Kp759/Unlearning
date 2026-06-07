@@ -1,0 +1,522 @@
+#!/usr/bin/env python3
+
+import argparse
+import random
+import json
+import urllib.request
+from pathlib import Path
+from collections import Counter
+
+import torch
+from tqdm import tqdm
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+
+MCF_URL = "https://memit.baulab.info/data/dsets/multi_counterfact.json"
+
+
+def dtype_from_str(x):
+    x = str(x).lower()
+    if x in ["bf16", "bfloat16"]:
+        return torch.bfloat16
+    if x in ["fp16", "float16"]:
+        return torch.float16
+    return torch.float32
+
+
+def download_mcf(path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        print(f"Downloading MCF to {path}")
+        urllib.request.urlretrieve(MCF_URL, path)
+    return path
+
+
+def load_mcf(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def format_prompt(template, subject):
+    if "{}" in template:
+        return template.format(subject)
+    return template
+
+
+def get_fields(record):
+    rr = record["requested_rewrite"]
+    subject = rr["subject"]
+    prompt = format_prompt(rr["prompt"], subject)
+    target_new = rr["target_new"]["str"]
+    target_true = rr["target_true"]["str"]
+    paraphrases = record.get("paraphrase_prompts", [])
+
+    return {
+        "subject": str(subject).strip(),
+        "prompt": str(prompt).strip(),
+        "target_new": str(target_new).strip(),
+        "target_true": str(target_true).strip(),
+        "paraphrases": [str(x).strip() for x in paraphrases],
+    }
+
+
+def encode_answer(tok, text):
+    # Leading space is important for Llama tokenization of generated answers.
+    return tok.encode(" " + str(text).strip(), add_special_tokens=False)
+
+
+def collect_json_token_sets(tok, forget_records, retain_records):
+    """
+    JSON-only token selection:
+      - target_new tokens from forget records = suppress / forget
+      - target_true tokens from forget records = restore / promote
+      - retain target tokens = protection set
+    """
+    forget_new_ids = set()
+    restore_true_ids = set()
+    retain_protect_ids = set()
+
+    token_report = []
+
+    for r in forget_records:
+        f = get_fields(r)
+
+        new_ids = encode_answer(tok, f["target_new"])
+        true_ids = encode_answer(tok, f["target_true"])
+
+        forget_new_ids.update(int(x) for x in new_ids)
+        restore_true_ids.update(int(x) for x in true_ids)
+
+        token_report.append({
+            "subject": f["subject"],
+            "target_new": f["target_new"],
+            "target_true": f["target_true"],
+            "target_new_token_ids": [int(x) for x in new_ids],
+            "target_new_tokens": [tok.decode([int(x)]) for x in new_ids],
+            "target_true_token_ids": [int(x) for x in true_ids],
+            "target_true_tokens": [tok.decode([int(x)]) for x in true_ids],
+        })
+
+    for r in retain_records:
+        f = get_fields(r)
+        retain_protect_ids.update(int(x) for x in encode_answer(tok, f["target_new"]))
+        retain_protect_ids.update(int(x) for x in encode_answer(tok, f["target_true"]))
+
+    specials = {
+        x for x in [
+            tok.pad_token_id,
+            tok.eos_token_id,
+            tok.bos_token_id,
+            tok.unk_token_id,
+        ] if x is not None
+    }
+
+    forget_new_ids = {x for x in forget_new_ids if x not in specials}
+    restore_true_ids = {x for x in restore_true_ids if x not in specials}
+    retain_protect_ids = {x for x in retain_protect_ids if x not in specials}
+
+    return forget_new_ids, restore_true_ids, retain_protect_ids, token_report
+
+
+@torch.no_grad()
+def collect_hidden_directions(model, tok, records, token_field, device, max_length, use_paraphrases=True):
+    """
+    Collect last-layer hidden states that predict target tokens.
+
+    token_field:
+      - "target_new"  => directions for suppressing target_new
+      - "target_true" => directions for promoting target_true
+    """
+    sums = {}
+    counts = Counter()
+
+    for r in tqdm(records, desc=f"Collect hidden dirs for {token_field}"):
+        f = get_fields(r)
+
+        prompts = [f["prompt"]]
+        if use_paraphrases:
+            prompts += f["paraphrases"]
+
+        answer = f[token_field]
+        answer_ids = encode_answer(tok, answer)
+
+        for prefix in prompts:
+            p_ids = tok.encode(prefix, add_special_tokens=True)
+            ids = p_ids + answer_ids
+            ids = ids[:max_length]
+
+            if len(ids) < 2:
+                continue
+
+            input_ids = torch.tensor([ids], dtype=torch.long, device=device)
+            attn = torch.ones_like(input_ids)
+
+            out = model(
+                input_ids=input_ids,
+                attention_mask=attn,
+                output_hidden_states=True,
+                use_cache=False,
+            )
+
+            h = out.hidden_states[-1][0].detach().float()
+
+            for k, tid in enumerate(answer_ids):
+                pos = len(p_ids) + k
+                if pos >= len(ids) or pos <= 0:
+                    continue
+
+                tid = int(tid)
+                pred_h = h[pos - 1]
+
+                if tid not in sums:
+                    sums[tid] = pred_h.clone()
+                else:
+                    sums[tid] += pred_h
+
+                counts[tid] += 1
+
+    dirs = {}
+    for tid, vec in sums.items():
+        dirs[tid] = vec / max(1, counts[tid])
+
+    return dirs, counts
+
+
+@torch.no_grad()
+def scale_embedding_rows(
+    model,
+    forget_new_ids,
+    restore_true_ids,
+    retain_protect_ids,
+    new_embed_alpha,
+    true_embed_alpha,
+    overlap_factor,
+):
+    """
+    Edit embed_tokens rows.
+
+    target_new:
+      E[t] <- alpha * E[t]
+
+    target_true:
+      E[t] <- beta * E[t]
+    """
+    emb = model.get_input_embeddings().weight
+    changed = {}
+
+    for tid in sorted(forget_new_ids):
+        if tid < 0 or tid >= emb.shape[0]:
+            continue
+
+        alpha = new_embed_alpha
+        if tid in retain_protect_ids:
+            alpha = 1.0 - overlap_factor * (1.0 - new_embed_alpha)
+
+        before = emb[tid].detach().float().norm().item()
+        emb[tid].mul_(alpha)
+        after = emb[tid].detach().float().norm().item()
+
+        changed[int(tid)] = {
+            "kind": "target_new_embed_shrink",
+            "alpha": float(alpha),
+            "before_norm": before,
+            "after_norm": after,
+        }
+
+    for tid in sorted(restore_true_ids):
+        if tid < 0 or tid >= emb.shape[0]:
+            continue
+
+        beta = true_embed_alpha
+        if tid in retain_protect_ids:
+            beta = 1.0 + overlap_factor * (true_embed_alpha - 1.0)
+
+        before = emb[tid].detach().float().norm().item()
+        emb[tid].mul_(beta)
+        after = emb[tid].detach().float().norm().item()
+
+        if int(tid) not in changed:
+            changed[int(tid)] = {}
+
+        changed[int(tid)].update({
+            "kind_restore": "target_true_embed_boost",
+            "beta": float(beta),
+            "restore_before_norm": before,
+            "restore_after_norm": after,
+        })
+
+    return changed
+
+
+@torch.no_grad()
+def edit_lm_head_rows(
+    model,
+    demote_dirs,
+    promote_dirs,
+    forget_new_ids,
+    restore_true_ids,
+    retain_protect_ids,
+    demote_alpha,
+    promote_alpha,
+    max_row_delta_frac,
+    overlap_factor,
+):
+    """
+    Edit lm_head rows.
+
+    target_new:
+      W[t] <- W[t] - demote_alpha * direction
+
+    target_true:
+      W[t] <- W[t] + promote_alpha * direction
+
+    The direction comes from hidden states that predict that target token.
+    """
+    lm = getattr(model, "lm_head", None)
+    if lm is None or not hasattr(lm, "weight"):
+        raise RuntimeError("Model has no lm_head.weight")
+
+    W = lm.weight
+    device = W.device
+    dtype = W.dtype
+
+    changed = {}
+    all_ids = sorted(set(forget_new_ids) | set(restore_true_ids))
+
+    for tid in all_ids:
+        if tid < 0 or tid >= W.shape[0]:
+            continue
+
+        row = W[tid].detach().float()
+        row_norm = row.norm().clamp_min(1e-6)
+        max_delta = max_row_delta_frac * row_norm
+
+        delta = torch.zeros_like(row)
+
+        if tid in forget_new_ids and tid in demote_dirs:
+            strength = demote_alpha
+            if tid in retain_protect_ids:
+                strength = demote_alpha * overlap_factor
+
+            v = demote_dirs[tid].to(device=device).float()
+            v = v / v.norm().clamp_min(1e-6)
+            delta -= strength * row_norm * v
+
+        if tid in restore_true_ids and tid in promote_dirs:
+            strength = promote_alpha
+            if tid in retain_protect_ids:
+                strength = promote_alpha * overlap_factor
+
+            v = promote_dirs[tid].to(device=device).float()
+            v = v / v.norm().clamp_min(1e-6)
+            delta += strength * row_norm * v
+
+        delta_norm = delta.norm().clamp_min(1e-6)
+        if delta_norm > max_delta:
+            delta = delta / delta_norm * max_delta
+
+        W[tid] = (row.to(device) + delta.to(device)).to(dtype)
+
+        changed[int(tid)] = {
+            "delta_norm": float(delta.norm().detach().cpu()),
+            "row_norm": float(row_norm.detach().cpu()),
+            "relative_delta": float((delta.norm() / row_norm).detach().cpu()),
+            "is_target_new": bool(tid in forget_new_ids),
+            "is_target_true": bool(tid in restore_true_ids),
+            "is_retain_overlap": bool(tid in retain_protect_ids),
+        }
+
+    return changed
+
+
+def main():
+    ap = argparse.ArgumentParser()
+
+    ap.add_argument("--model-dir", required=True)
+    ap.add_argument("--output-dir", required=True)
+    ap.add_argument("--mcf-path", default="data/multi_counterfact.json")
+    ap.add_argument("--dtype", default="bfloat16")
+    ap.add_argument("--device-map", default="auto")
+
+    ap.add_argument("--forget-n", type=int, default=50)
+    ap.add_argument("--retain-n", type=int, default=1000)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--max-length", type=int, default=96)
+
+    # Embedding row edit
+    ap.add_argument("--new-embed-alpha", type=float, default=0.50)
+    ap.add_argument("--true-embed-alpha", type=float, default=1.05)
+
+    # LM-head row edit
+    ap.add_argument("--demote-alpha", type=float, default=0.35)
+    ap.add_argument("--promote-alpha", type=float, default=0.20)
+    ap.add_argument("--max-row-delta-frac", type=float, default=0.35)
+
+    # Retain protection
+    ap.add_argument("--overlap-factor", type=float, default=0.25)
+
+    # Contexts
+    ap.add_argument("--no-paraphrases", action="store_true")
+
+    args = ap.parse_args()
+
+    data_path = download_mcf(args.mcf_path)
+    data = load_mcf(data_path)
+
+    rng = random.Random(args.seed)
+    half = len(data) // 2
+
+    retain_pool = data[:half]
+    forget_pool = data[half:]
+
+    forget_records = rng.sample(forget_pool, k=min(args.forget_n, len(forget_pool)))
+    retain_records = rng.sample(retain_pool, k=min(args.retain_n, len(retain_pool)))
+
+    print("=" * 100)
+    print("MCF JSON Embedding + LMHead Contrastive Unlearning")
+    print("=" * 100)
+    print(f"model-dir: {args.model_dir}")
+    print(f"forget records: {len(forget_records)}")
+    print(f"retain records: {len(retain_records)}")
+    print(f"new_embed_alpha: {args.new_embed_alpha}")
+    print(f"true_embed_alpha: {args.true_embed_alpha}")
+    print(f"demote_alpha: {args.demote_alpha}")
+    print(f"promote_alpha: {args.promote_alpha}")
+    print(f"max_row_delta_frac: {args.max_row_delta_frac}")
+    print(f"overlap_factor: {args.overlap_factor}")
+    print("=" * 100)
+
+    tok = AutoTokenizer.from_pretrained(args.model_dir)
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model_dir,
+        torch_dtype=dtype_from_str(args.dtype),
+        device_map=args.device_map,
+    )
+    model.eval()
+    model.config.use_cache = False
+
+    device = next(model.parameters()).device
+
+    forget_new_ids, restore_true_ids, retain_protect_ids, token_report = collect_json_token_sets(
+        tok,
+        forget_records,
+        retain_records,
+    )
+
+    print(f"target_new token rows to suppress: {len(forget_new_ids)}")
+    print(f"target_true token rows to restore: {len(restore_true_ids)}")
+    print(f"retain-protection token rows: {len(retain_protect_ids)}")
+
+    print("Target_new tokens:")
+    for tid in sorted(forget_new_ids):
+        print(f"  suppress id={tid}, token={repr(tok.decode([tid]))}, retain_overlap={tid in retain_protect_ids}")
+
+    print("Target_true tokens:")
+    for tid in sorted(restore_true_ids):
+        print(f"  restore  id={tid}, token={repr(tok.decode([tid]))}, retain_overlap={tid in retain_protect_ids}")
+
+    demote_dirs, demote_counts = collect_hidden_directions(
+        model,
+        tok,
+        forget_records,
+        token_field="target_new",
+        device=device,
+        max_length=args.max_length,
+        use_paraphrases=not args.no_paraphrases,
+    )
+
+    promote_dirs, promote_counts = collect_hidden_directions(
+        model,
+        tok,
+        forget_records,
+        token_field="target_true",
+        device=device,
+        max_length=args.max_length,
+        use_paraphrases=not args.no_paraphrases,
+    )
+
+    print(f"demote hidden dirs collected: {len(demote_dirs)}")
+    print(f"promote hidden dirs collected: {len(promote_dirs)}")
+
+    print("Editing embed_tokens rows...")
+    embed_changes = scale_embedding_rows(
+        model=model,
+        forget_new_ids=forget_new_ids,
+        restore_true_ids=restore_true_ids,
+        retain_protect_ids=retain_protect_ids,
+        new_embed_alpha=args.new_embed_alpha,
+        true_embed_alpha=args.true_embed_alpha,
+        overlap_factor=args.overlap_factor,
+    )
+
+    print("Editing lm_head rows...")
+    lm_head_changes = edit_lm_head_rows(
+        model=model,
+        demote_dirs=demote_dirs,
+        promote_dirs=promote_dirs,
+        forget_new_ids=forget_new_ids,
+        restore_true_ids=restore_true_ids,
+        retain_protect_ids=retain_protect_ids,
+        demote_alpha=args.demote_alpha,
+        promote_alpha=args.promote_alpha,
+        max_row_delta_frac=args.max_row_delta_frac,
+        overlap_factor=args.overlap_factor,
+    )
+
+    out = Path(args.output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    model.save_pretrained(out)
+    tok.save_pretrained(out)
+
+    summary = {
+        "method": "MCF-JSON-Emb-LMHead-Contrastive",
+        "model_dir": args.model_dir,
+        "output_dir": args.output_dir,
+        "forget_n": args.forget_n,
+        "retain_n": args.retain_n,
+        "seed": args.seed,
+        "split_mode": "official_zero_unlearn",
+        "max_length": args.max_length,
+        "new_embed_alpha": args.new_embed_alpha,
+        "true_embed_alpha": args.true_embed_alpha,
+        "demote_alpha": args.demote_alpha,
+        "promote_alpha": args.promote_alpha,
+        "max_row_delta_frac": args.max_row_delta_frac,
+        "overlap_factor": args.overlap_factor,
+        "use_paraphrases": not args.no_paraphrases,
+        "n_target_new_rows": len(forget_new_ids),
+        "n_target_true_rows": len(restore_true_ids),
+        "n_retain_protect_rows": len(retain_protect_ids),
+        "target_new_token_ids": sorted(int(x) for x in forget_new_ids),
+        "target_true_token_ids": sorted(int(x) for x in restore_true_ids),
+        "target_new_tokens": {
+            str(int(x)): tok.decode([int(x)]) for x in sorted(forget_new_ids)
+        },
+        "target_true_tokens": {
+            str(int(x)): tok.decode([int(x)]) for x in sorted(restore_true_ids)
+        },
+        "demote_counts": {
+            str(int(k)): int(v) for k, v in demote_counts.items()
+        },
+        "promote_counts": {
+            str(int(k)): int(v) for k, v in promote_counts.items()
+        },
+        "embed_changes": embed_changes,
+        "lm_head_changes": lm_head_changes,
+        "record_token_report": token_report,
+    }
+
+    with open(out / "mcf_json_embed_lmhead_summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+    print(f"Saved model to {out}")
+    print("Next: run scripts/mcf_official_style_eval.py on this output directory.")
+
+
+if __name__ == "__main__":
+    main()

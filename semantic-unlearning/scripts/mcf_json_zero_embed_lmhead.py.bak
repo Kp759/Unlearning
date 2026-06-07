@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import urllib.request
+from pathlib import Path
+
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+
+MCF_URL = "https://memit.baulab.info/data/dsets/multi_counterfact.json"
+
+
+def dtype_from_str(x):
+    x = str(x).lower()
+    if x in ["bf16", "bfloat16"]:
+        return torch.bfloat16
+    if x in ["fp16", "float16"]:
+        return torch.float16
+    return torch.float32
+
+
+def download_mcf(path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        print(f"Downloading MCF to {path}")
+        urllib.request.urlretrieve(MCF_URL, path)
+    return path
+
+
+def load_mcf(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def encode_answer(tok, text):
+    # Leading space is important for Llama answer tokens.
+    return tok.encode(" " + str(text).strip(), add_special_tokens=False)
+
+
+def collect_target_new_tokens(tok, records):
+    token_ids = set()
+    report = []
+
+    for i, r in enumerate(records):
+        rr = r["requested_rewrite"]
+        subject = str(rr["subject"]).strip()
+        target_new = str(rr["target_new"]["str"]).strip()
+        target_true = str(rr["target_true"]["str"]).strip()
+
+        ids = [int(x) for x in encode_answer(tok, target_new)]
+        token_ids.update(ids)
+
+        report.append({
+            "case_id": i,
+            "subject": subject,
+            "target_new": target_new,
+            "target_true": target_true,
+            "target_new_token_ids": ids,
+            "target_new_tokens": [tok.decode([x]) for x in ids],
+        })
+
+    specials = {
+        x for x in [
+            tok.pad_token_id,
+            tok.eos_token_id,
+            tok.bos_token_id,
+            tok.unk_token_id,
+        ] if x is not None
+    }
+
+    token_ids = {x for x in token_ids if x not in specials}
+    return sorted(token_ids), report
+
+
+@torch.no_grad()
+def zero_json_rows(model, token_ids):
+    emb = model.get_input_embeddings().weight
+    changed = {}
+
+    print(f"Zeroing embed_tokens rows: {len(token_ids)}")
+    for tid in token_ids:
+        if 0 <= tid < emb.shape[0]:
+            before = float(torch.norm(emb[tid].detach().float()).cpu())
+            emb[tid].zero_()
+            after = float(torch.norm(emb[tid].detach().float()).cpu())
+            changed[str(tid)] = {
+                "embed_before_norm": before,
+                "embed_after_norm": after,
+            }
+
+    lm = getattr(model, "lm_head", None)
+
+    if lm is None or not hasattr(lm, "weight"):
+        print("No lm_head.weight found. Only embeddings were zeroed.")
+        return changed
+
+    # If tied, zeroing embedding already zeroed lm_head.
+    if lm.weight.data_ptr() == emb.data_ptr():
+        print("lm_head is tied with embed_tokens, already zeroed through embeddings.")
+        for tid in token_ids:
+            changed.setdefault(str(tid), {})
+            changed[str(tid)]["lm_head_tied"] = True
+        return changed
+
+    print(f"Zeroing lm_head rows: {len(token_ids)}")
+    for tid in token_ids:
+        if 0 <= tid < lm.weight.shape[0]:
+            before = float(torch.norm(lm.weight[tid].detach().float()).cpu())
+            lm.weight[tid].zero_()
+            after = float(torch.norm(lm.weight[tid].detach().float()).cpu())
+
+            changed.setdefault(str(tid), {})
+            changed[str(tid)].update({
+                "lm_head_before_norm": before,
+                "lm_head_after_norm": after,
+                "lm_head_tied": False,
+            })
+
+    return changed
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model-dir", required=True)
+    ap.add_argument("--output-dir", required=True)
+    ap.add_argument("--mcf-path", default="data/multi_counterfact.json")
+    ap.add_argument("--forget-n", type=int, default=50)
+    ap.add_argument("--dtype", default="bfloat16")
+    ap.add_argument("--device-map", default="auto")
+    args = ap.parse_args()
+
+    mcf_path = download_mcf(args.mcf_path)
+    data = load_mcf(mcf_path)
+    forget_records = data[:args.forget_n]
+
+    tok = AutoTokenizer.from_pretrained(args.model_dir)
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model_dir,
+        torch_dtype=dtype_from_str(args.dtype),
+        device_map=args.device_map,
+    )
+    model.eval()
+    model.config.use_cache = False
+
+    token_ids, record_report = collect_target_new_tokens(tok, forget_records)
+
+    print("=" * 100)
+    print("MCF JSON Hard-Zero Embedding + LMHead")
+    print("=" * 100)
+    print(f"Forget records: {len(forget_records)}")
+    print(f"Unique target_new token rows to zero: {len(token_ids)}")
+    print("Tokens being zeroed:")
+    for tid in token_ids:
+        print(f"  id={tid}, token={repr(tok.decode([tid]))}")
+    print("=" * 100)
+
+    changes = zero_json_rows(model, token_ids)
+
+    out = Path(args.output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    model.save_pretrained(out)
+    tok.save_pretrained(out)
+
+    summary = {
+        "method": "MCF-JSON-HardZero-Emb-LMHead",
+        "model_dir": args.model_dir,
+        "output_dir": args.output_dir,
+        "forget_n": args.forget_n,
+        "n_zeroed_token_rows": len(token_ids),
+        "zeroed_token_ids": token_ids,
+        "zeroed_tokens": {str(tid): tok.decode([tid]) for tid in token_ids},
+        "record_report": record_report,
+        "changes": changes,
+    }
+
+    with open(out / "mcf_json_hardzero_summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+    print(f"Saved hard-zero model to {out}")
+    print("Now run scripts/mcf_official_style_eval.py on this output directory.")
+
+
+if __name__ == "__main__":
+    main()

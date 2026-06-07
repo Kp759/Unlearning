@@ -1,0 +1,32 @@
+{
+  "Eff_rewrite_success_down": 30.0,
+  "Gen_paraphrase_success_down": 35.0,
+  "Spe_neighborhood_success_up": 81.0,
+  "rewrite_diff": -3.773601436453464,
+  "paraphrase_diff": -3.769757942604705,
+  "neighborhood_diff": 14.547420976492948,
+  "rewrite": {
+    "n": 50,
+    "success": 30.0,
+    "diff": -3.773601436453464,
+    "mean_target_new_nll": 8.10920166015625,
+    "mean_target_true_nll": 6.257109375
+  },
+  "paraphrase": {
+    "n": 100,
+    "success": 35.0,
+    "diff": -3.769757942604705,
+    "mean_target_new_nll": 8.15580810546875,
+    "mean_target_true_nll": 6.506328125
+  },
+  "neighborhood": {
+    "n": 500,
+    "success": 81.0,
+    "diff": 14.547420976492948,
+    "mean_target_new_nll": 8.65595849609375,
+    "mean_target_true_nll": 4.9305546875
+  },
+  "model_dir": "outputs/mcf_base_llama32_3b_targetnew_policy800_zero",
+  "dataset": "MCF",
+  "forget_n": 50
+}

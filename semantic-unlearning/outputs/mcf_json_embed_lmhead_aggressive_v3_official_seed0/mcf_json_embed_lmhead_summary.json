@@ -1,0 +1,2230 @@
+{
+  "method": "MCF-JSON-Emb-LMHead-Contrastive",
+  "model_dir": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "output_dir": "outputs/mcf_json_embed_lmhead_aggressive_v3_official_seed0",
+  "forget_n": 50,
+  "retain_n": 1000,
+  "seed": 0,
+  "split_mode": "official_zero_unlearn",
+  "max_length": 96,
+  "new_embed_alpha": 0.1,
+  "true_embed_alpha": 1.12,
+  "demote_alpha": 1.3,
+  "promote_alpha": 0.55,
+  "max_row_delta_frac": 1.0,
+  "overlap_factor": 0.1,
+  "use_paraphrases": true,
+  "n_target_new_rows": 45,
+  "n_target_true_rows": 39,
+  "n_retain_protect_rows": 416,
+  "target_new_token_ids": [
+    261,
+    6457,
+    6890,
+    8620,
+    8753,
+    10780,
+    12366,
+    13936,
+    15506,
+    16526,
+    17418,
+    20437,
+    21972,
+    23225,
+    23469,
+    23672,
+    24426,
+    24991,
+    30613,
+    31209,
+    32186,
+    32603,
+    34133,
+    34411,
+    34997,
+    35440,
+    36937,
+    38915,
+    42981,
+    43477,
+    45067,
+    45721,
+    46881,
+    56980,
+    58953,
+    62199,
+    62651,
+    64161,
+    67437,
+    73276,
+    78903,
+    81466,
+    82640,
+    86938,
+    95733
+  ],
+  "target_true_token_ids": [
+    1184,
+    6498,
+    6890,
+    7295,
+    8494,
+    8620,
+    8690,
+    8753,
+    10057,
+    10780,
+    12360,
+    14689,
+    15256,
+    19895,
+    20046,
+    20437,
+    22118,
+    23225,
+    24426,
+    24562,
+    24991,
+    25048,
+    27374,
+    28702,
+    34997,
+    43516,
+    45080,
+    47387,
+    50064,
+    51562,
+    53524,
+    54306,
+    56846,
+    57104,
+    61125,
+    67431,
+    67659,
+    72787,
+    92287
+  ],
+  "target_new_tokens": {
+    "261": "er",
+    "6457": " Japan",
+    "6890": " India",
+    "8620": " Chinese",
+    "8753": " French",
+    "10780": " Chicago",
+    "12366": " Paris",
+    "13936": " Asia",
+    "15506": " Spanish",
+    "16526": " Korean",
+    "17418": " guitar",
+    "20437": " Berlin",
+    "21972": " Sydney",
+    "23225": " Victoria",
+    "23469": " Netflix",
+    "23672": " journalist",
+    "24426": " NBC",
+    "24991": " CBS",
+    "30613": " Montreal",
+    "31209": " Swedish",
+    "32186": " Christianity",
+    "32603": " Norway",
+    "34133": " portrait",
+    "34411": " Portugal",
+    "34997": " jazz",
+    "35440": " Denmark",
+    "36937": " Birmingham",
+    "38915": " Holland",
+    "42981": " Nissan",
+    "43477": " Chevrolet",
+    "45067": " midfielder",
+    "45721": " Norwegian",
+    "46881": " Welsh",
+    "56980": " cardinal",
+    "58953": " Finnish",
+    "62199": " MTV",
+    "62651": " Monaco",
+    "64161": " Copenhagen",
+    "67437": " outfield",
+    "73276": " Warsaw",
+    "78903": " Swansea",
+    "81466": " sitcom",
+    "82640": " Honolulu",
+    "86938": " Greenwich",
+    "95733": " Albania"
+  },
+  "target_true_tokens": {
+    "1184": "ople",
+    "6498": " English",
+    "6890": " India",
+    "7295": " London",
+    "8494": " Australia",
+    "8620": " Chinese",
+    "8690": " Russian",
+    "8753": " French",
+    "10057": " Germany",
+    "10780": " Chicago",
+    "12360": " actor",
+    "14689": " Ohio",
+    "15256": " Islam",
+    "19895": " Philadelphia",
+    "20046": " quarterback",
+    "20437": " Berlin",
+    "22118": " tackle",
+    "23225": " Victoria",
+    "24426": " NBC",
+    "24562": " Cambridge",
+    "24991": " CBS",
+    "25048": " Madrid",
+    "27374": " piano",
+    "28702": " Poland",
+    "34997": " jazz",
+    "43516": " opera",
+    "45080": " Hindi",
+    "47387": " Vienna",
+    "50064": " Nepal",
+    "51562": " Hamburg",
+    "53524": " Springfield",
+    "54306": " bishop",
+    "56846": " Suzuki",
+    "57104": " Wellington",
+    "61125": " Sheffield",
+    "67431": " Renault",
+    "67659": " Nottingham",
+    "72787": " Antarctica",
+    "92287": " Constantin"
+  },
+  "demote_counts": {
+    "12366": 6,
+    "36937": 3,
+    "81466": 3,
+    "6890": 6,
+    "15506": 3,
+    "62651": 3,
+    "24426": 3,
+    "30613": 3,
+    "8753": 9,
+    "31209": 3,
+    "82640": 3,
+    "8620": 3,
+    "35440": 3,
+    "78903": 3,
+    "34411": 3,
+    "34997": 3,
+    "45067": 3,
+    "86938": 3,
+    "34133": 3,
+    "6457": 3,
+    "13936": 6,
+    "56980": 3,
+    "43477": 3,
+    "16526": 3,
+    "46881": 3,
+    "95733": 3,
+    "24991": 3,
+    "67437": 3,
+    "261": 3,
+    "38915": 3,
+    "62199": 6,
+    "17418": 3,
+    "73276": 3,
+    "58953": 3,
+    "45721": 3,
+    "32603": 3,
+    "64161": 3,
+    "21972": 3,
+    "10780": 3,
+    "23225": 3,
+    "23469": 3,
+    "32186": 3,
+    "23672": 3,
+    "42981": 3,
+    "20437": 3
+  },
+  "promote_counts": {
+    "57104": 3,
+    "10780": 3,
+    "34997": 6,
+    "50064": 3,
+    "8690": 9,
+    "92287": 3,
+    "1184": 3,
+    "24991": 3,
+    "25048": 3,
+    "8753": 6,
+    "19895": 3,
+    "45080": 3,
+    "10057": 3,
+    "20437": 3,
+    "6890": 3,
+    "43516": 3,
+    "22118": 3,
+    "61125": 3,
+    "8494": 9,
+    "72787": 6,
+    "54306": 3,
+    "56846": 3,
+    "8620": 3,
+    "6498": 9,
+    "24426": 12,
+    "20046": 3,
+    "14689": 3,
+    "27374": 3,
+    "24562": 3,
+    "28702": 3,
+    "23225": 3,
+    "53524": 3,
+    "51562": 3,
+    "67659": 3,
+    "47387": 3,
+    "15256": 3,
+    "12360": 3,
+    "67431": 3,
+    "7295": 3
+  },
+  "embed_changes": {
+    "261": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.161488652229309,
+      "after_norm": 1.056989312171936
+    },
+    "6457": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0035609006881714,
+      "after_norm": 0.9132611751556396
+    },
+    "6890": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0136053562164307,
+      "after_norm": 0.9224525690078735,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 0.9224525690078735,
+      "restore_after_norm": 0.9340760707855225
+    },
+    "8620": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0348039865493774,
+      "after_norm": 0.9416266679763794,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 0.9416266679763794,
+      "restore_after_norm": 0.953430712223053
+    },
+    "8753": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0928452014923096,
+      "after_norm": 0.9944806098937988,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 0.9944806098937988,
+      "restore_after_norm": 1.0070106983184814
+    },
+    "10780": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0080454349517822,
+      "after_norm": 0.917206883430481,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 0.917206883430481,
+      "restore_after_norm": 0.9287663102149963
+    },
+    "12366": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0361238718032837,
+      "after_norm": 0.9428989291191101
+    },
+    "13936": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0646693706512451,
+      "after_norm": 0.9688703417778015
+    },
+    "15506": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0337728261947632,
+      "after_norm": 0.9406964778900146
+    },
+    "16526": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.010709285736084,
+      "after_norm": 0.919672966003418
+    },
+    "17418": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0272244215011597,
+      "after_norm": 0.9347578883171082
+    },
+    "20437": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.032960295677185,
+      "after_norm": 0.9400527477264404,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 0.9400527477264404,
+      "restore_after_norm": 0.9518527388572693
+    },
+    "21972": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 0.9974064230918884,
+      "after_norm": 0.9077103734016418
+    },
+    "23225": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.1695481538772583,
+      "after_norm": 1.0644233226776123,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0644233226776123,
+      "restore_after_norm": 1.0777816772460938
+    },
+    "23469": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.1,
+      "before_norm": 1.064699649810791,
+      "after_norm": 0.10646616667509079
+    },
+    "23672": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0246405601501465,
+      "after_norm": 0.9324498176574707
+    },
+    "24426": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0519256591796875,
+      "after_norm": 0.9572051167488098,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 0.9572051167488098,
+      "restore_after_norm": 0.9691944718360901
+    },
+    "24991": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0526472330093384,
+      "after_norm": 0.9579203128814697,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 0.9579203128814697,
+      "restore_after_norm": 0.9699912667274475
+    },
+    "30613": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0613890886306763,
+      "after_norm": 0.9658128023147583
+    },
+    "31209": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0410592555999756,
+      "after_norm": 0.9473565220832825
+    },
+    "32186": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.1115700006484985,
+      "after_norm": 1.0115336179733276
+    },
+    "32603": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.044694185256958,
+      "after_norm": 0.9507794976234436
+    },
+    "34133": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.1,
+      "before_norm": 1.0856654644012451,
+      "after_norm": 0.10857284814119339
+    },
+    "34411": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.029894471168518,
+      "after_norm": 0.9372053146362305
+    },
+    "34997": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0584208965301514,
+      "after_norm": 0.9631217122077942,
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 0.9631217122077942,
+      "restore_after_norm": 0.9751734137535095
+    },
+    "35440": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.007014274597168,
+      "after_norm": 0.9163559675216675
+    },
+    "36937": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0642131567001343,
+      "after_norm": 0.9683271050453186
+    },
+    "38915": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.1,
+      "before_norm": 1.203560709953308,
+      "after_norm": 0.12035317718982697
+    },
+    "42981": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 0.9987848401069641,
+      "after_norm": 0.9089750051498413
+    },
+    "43477": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0177485942840576,
+      "after_norm": 0.9261878728866577
+    },
+    "45067": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 0.999369740486145,
+      "after_norm": 0.9093378186225891
+    },
+    "45721": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0437533855438232,
+      "after_norm": 0.9498199224472046
+    },
+    "46881": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0797209739685059,
+      "after_norm": 0.9825215935707092
+    },
+    "56980": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.203224778175354,
+      "after_norm": 1.094862461090088
+    },
+    "58953": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0234431028366089,
+      "after_norm": 0.9313990473747253
+    },
+    "62199": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0850369930267334,
+      "after_norm": 0.9874386191368103
+    },
+    "62651": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.1,
+      "before_norm": 1.1757144927978516,
+      "after_norm": 0.1175796315073967
+    },
+    "64161": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.1,
+      "before_norm": 1.0796985626220703,
+      "after_norm": 0.10796984285116196
+    },
+    "67437": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0964940786361694,
+      "after_norm": 0.9977517127990723
+    },
+    "73276": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.101539134979248,
+      "after_norm": 1.0023390054702759
+    },
+    "78903": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.1,
+      "before_norm": 1.099307894706726,
+      "after_norm": 0.10992486029863358
+    },
+    "81466": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.0523295402526855,
+      "after_norm": 0.9575598835945129
+    },
+    "82640": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.1,
+      "before_norm": 1.0806517601013184,
+      "after_norm": 0.10807286947965622
+    },
+    "86938": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.1,
+      "before_norm": 1.1950067281723022,
+      "after_norm": 0.11951218545436859
+    },
+    "95733": {
+      "kind": "target_new_embed_shrink",
+      "alpha": 0.91,
+      "before_norm": 1.064415454864502,
+      "after_norm": 0.9686120748519897
+    },
+    "1184": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.379919409751892,
+      "restore_after_norm": 1.3973785638809204
+    },
+    "6498": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.1234002113342285,
+      "restore_after_norm": 1.1374058723449707
+    },
+    "7295": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.037596344947815,
+      "restore_after_norm": 1.0506774187088013
+    },
+    "8494": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0014724731445312,
+      "restore_after_norm": 1.0141910314559937
+    },
+    "8690": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 0.9986250996589661,
+      "restore_after_norm": 1.0112351179122925
+    },
+    "10057": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 0.9543558359146118,
+      "restore_after_norm": 0.9663698077201843
+    },
+    "12360": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0950734615325928,
+      "restore_after_norm": 1.1088916063308716
+    },
+    "14689": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.12,
+      "restore_before_norm": 1.0412468910217285,
+      "restore_after_norm": 1.1661750078201294
+    },
+    "15256": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0588878393173218,
+      "restore_after_norm": 1.0721696615219116
+    },
+    "19895": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0382342338562012,
+      "restore_after_norm": 1.0513572692871094
+    },
+    "20046": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0071988105773926,
+      "restore_after_norm": 1.0198612213134766
+    },
+    "22118": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.12,
+      "restore_before_norm": 1.2244229316711426,
+      "restore_after_norm": 1.3713535070419312
+    },
+    "24562": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0726836919784546,
+      "restore_after_norm": 1.0862447023391724
+    },
+    "25048": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0334948301315308,
+      "restore_after_norm": 1.046621561050415
+    },
+    "27374": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0839985609054565,
+      "restore_after_norm": 1.0976812839508057
+    },
+    "28702": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0171985626220703,
+      "restore_after_norm": 1.0300445556640625
+    },
+    "43516": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.1290777921676636,
+      "restore_after_norm": 1.1433120965957642
+    },
+    "45080": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0589662790298462,
+      "restore_after_norm": 1.072272539138794
+    },
+    "47387": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0526796579360962,
+      "restore_after_norm": 1.065955400466919
+    },
+    "50064": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0000859498977661,
+      "restore_after_norm": 1.0127145051956177
+    },
+    "51562": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.1108683347702026,
+      "restore_after_norm": 1.124894618988037
+    },
+    "53524": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.12,
+      "restore_before_norm": 1.103981375694275,
+      "restore_after_norm": 1.2363306283950806
+    },
+    "54306": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0644630193710327,
+      "restore_after_norm": 1.0778487920761108
+    },
+    "56846": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.1036036014556885,
+      "restore_after_norm": 1.1175554990768433
+    },
+    "57104": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.12,
+      "restore_before_norm": 1.13955557346344,
+      "restore_after_norm": 1.276362657546997
+    },
+    "61125": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0867687463760376,
+      "restore_after_norm": 1.1004196405410767
+    },
+    "67431": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.0605158805847168,
+      "restore_after_norm": 1.073941707611084
+    },
+    "67659": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.12,
+      "restore_before_norm": 1.0686842203140259,
+      "restore_after_norm": 1.1969258785247803
+    },
+    "72787": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.1164470911026,
+      "restore_after_norm": 1.130644679069519
+    },
+    "92287": {
+      "kind_restore": "target_true_embed_boost",
+      "beta": 1.012,
+      "restore_before_norm": 1.1485174894332886,
+      "restore_after_norm": 1.1630197763442993
+    }
+  },
+  "lm_head_changes": {
+    "261": {
+      "delta_norm": 0.13740859925746918,
+      "row_norm": 1.056989312171936,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "1184": {
+      "delta_norm": 0.07685582339763641,
+      "row_norm": 1.3973785638809204,
+      "relative_delta": 0.055000003427267075,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "6457": {
+      "delta_norm": 0.11872394382953644,
+      "row_norm": 0.9132611751556396,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "6498": {
+      "delta_norm": 0.06255731731653214,
+      "row_norm": 1.1374058723449707,
+      "relative_delta": 0.05499999597668648,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "6890": {
+      "delta_norm": 0.08641815185546875,
+      "row_norm": 0.9340760707855225,
+      "relative_delta": 0.09251724928617477,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "7295": {
+      "delta_norm": 0.05778725445270538,
+      "row_norm": 1.0506774187088013,
+      "relative_delta": 0.05499999597668648,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "8494": {
+      "delta_norm": 0.05578050762414932,
+      "row_norm": 1.0141910314559937,
+      "relative_delta": 0.054999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "8620": {
+      "delta_norm": 0.08864305168390274,
+      "row_norm": 0.953430712223053,
+      "relative_delta": 0.09297272562980652,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "8690": {
+      "delta_norm": 0.05561792850494385,
+      "row_norm": 1.0112351179122925,
+      "relative_delta": 0.05499999597668648,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "8753": {
+      "delta_norm": 0.09046110510826111,
+      "row_norm": 1.0070106983184814,
+      "relative_delta": 0.08983132243156433,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "10057": {
+      "delta_norm": 0.05315034091472626,
+      "row_norm": 0.9663698077201843,
+      "relative_delta": 0.054999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "10780": {
+      "delta_norm": 0.10119794309139252,
+      "row_norm": 0.9287663102149963,
+      "relative_delta": 0.10895953327417374,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "12360": {
+      "delta_norm": 0.06098903343081474,
+      "row_norm": 1.1088916063308716,
+      "relative_delta": 0.05499999597668648,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "12366": {
+      "delta_norm": 0.12257684767246246,
+      "row_norm": 0.9428989291191101,
+      "relative_delta": 0.12999998033046722,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "13936": {
+      "delta_norm": 0.12595315277576447,
+      "row_norm": 0.9688703417778015,
+      "relative_delta": 0.1300000101327896,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "14689": {
+      "delta_norm": 0.6413962244987488,
+      "row_norm": 1.1661750078201294,
+      "relative_delta": 0.5499999523162842,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": false
+    },
+    "15256": {
+      "delta_norm": 0.05896933004260063,
+      "row_norm": 1.0721696615219116,
+      "relative_delta": 0.054999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "15506": {
+      "delta_norm": 0.12229052931070328,
+      "row_norm": 0.9406964778900146,
+      "relative_delta": 0.12999998033046722,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "16526": {
+      "delta_norm": 0.11955747753381729,
+      "row_norm": 0.919672966003418,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "17418": {
+      "delta_norm": 0.12151852250099182,
+      "row_norm": 0.9347578883171082,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "19895": {
+      "delta_norm": 0.05782465264201164,
+      "row_norm": 1.0513572692871094,
+      "relative_delta": 0.055000003427267075,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "20046": {
+      "delta_norm": 0.05609236657619476,
+      "row_norm": 1.0198612213134766,
+      "relative_delta": 0.054999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "20437": {
+      "delta_norm": 0.105091392993927,
+      "row_norm": 0.9518527388572693,
+      "relative_delta": 0.11040719598531723,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "21972": {
+      "delta_norm": 0.11800234764814377,
+      "row_norm": 0.9077103734016418,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "22118": {
+      "delta_norm": 0.7542443871498108,
+      "row_norm": 1.3713535070419312,
+      "relative_delta": 0.5499999523162842,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": false
+    },
+    "23225": {
+      "delta_norm": 0.1187337189912796,
+      "row_norm": 1.0777816772460938,
+      "relative_delta": 0.11016491055488586,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "23469": {
+      "delta_norm": 0.10646617412567139,
+      "row_norm": 0.10646616667509079,
+      "relative_delta": 1.0000001192092896,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false
+    },
+    "23672": {
+      "delta_norm": 0.12121846526861191,
+      "row_norm": 0.9324498176574707,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "24426": {
+      "delta_norm": 0.07808514684438705,
+      "row_norm": 0.9691944718360901,
+      "relative_delta": 0.08056705445051193,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "24562": {
+      "delta_norm": 0.05974345654249191,
+      "row_norm": 1.0862447023391724,
+      "relative_delta": 0.054999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "24991": {
+      "delta_norm": 0.07859862595796585,
+      "row_norm": 0.9699912667274475,
+      "relative_delta": 0.08103024214506149,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "25048": {
+      "delta_norm": 0.057564180344343185,
+      "row_norm": 1.046621561050415,
+      "relative_delta": 0.05499999597668648,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "27374": {
+      "delta_norm": 0.06037247180938721,
+      "row_norm": 1.0976812839508057,
+      "relative_delta": 0.054999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "28702": {
+      "delta_norm": 0.05665244907140732,
+      "row_norm": 1.0300445556640625,
+      "relative_delta": 0.054999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "30613": {
+      "delta_norm": 0.12555566430091858,
+      "row_norm": 0.9658128023147583,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "31209": {
+      "delta_norm": 0.1231563463807106,
+      "row_norm": 0.9473565220832825,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "32186": {
+      "delta_norm": 0.13149936497211456,
+      "row_norm": 1.0115336179733276,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "32603": {
+      "delta_norm": 0.12360133975744247,
+      "row_norm": 0.9507794976234436,
+      "relative_delta": 0.1300000101327896,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "34133": {
+      "delta_norm": 0.10857284814119339,
+      "row_norm": 0.10857284814119339,
+      "relative_delta": 1.0,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false
+    },
+    "34411": {
+      "delta_norm": 0.12183668464422226,
+      "row_norm": 0.9372053146362305,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "34997": {
+      "delta_norm": 0.08810848742723465,
+      "row_norm": 0.9751734137535095,
+      "relative_delta": 0.09035161137580872,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "35440": {
+      "delta_norm": 0.11912626773118973,
+      "row_norm": 0.9163559675216675,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "36937": {
+      "delta_norm": 0.12588252127170563,
+      "row_norm": 0.9683271050453186,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "38915": {
+      "delta_norm": 0.12035317718982697,
+      "row_norm": 0.12035317718982697,
+      "relative_delta": 1.0,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false
+    },
+    "42981": {
+      "delta_norm": 0.11816674470901489,
+      "row_norm": 0.9089750051498413,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "43477": {
+      "delta_norm": 0.1204044297337532,
+      "row_norm": 0.9261878728866577,
+      "relative_delta": 0.1300000101327896,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "43516": {
+      "delta_norm": 0.06288216263055801,
+      "row_norm": 1.1433120965957642,
+      "relative_delta": 0.05499999597668648,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "45067": {
+      "delta_norm": 0.11821391433477402,
+      "row_norm": 0.9093378186225891,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "45080": {
+      "delta_norm": 0.058974988758563995,
+      "row_norm": 1.072272539138794,
+      "relative_delta": 0.054999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "45721": {
+      "delta_norm": 0.12347658723592758,
+      "row_norm": 0.9498199224472046,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "46881": {
+      "delta_norm": 0.12772779166698456,
+      "row_norm": 0.9825215935707092,
+      "relative_delta": 0.12999998033046722,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "47387": {
+      "delta_norm": 0.058627545833587646,
+      "row_norm": 1.065955400466919,
+      "relative_delta": 0.054999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "50064": {
+      "delta_norm": 0.055699292570352554,
+      "row_norm": 1.0127145051956177,
+      "relative_delta": 0.05499999597668648,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "51562": {
+      "delta_norm": 0.06186920776963234,
+      "row_norm": 1.124894618988037,
+      "relative_delta": 0.055000003427267075,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "53524": {
+      "delta_norm": 0.6799818873405457,
+      "row_norm": 1.2363306283950806,
+      "relative_delta": 0.550000011920929,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": false
+    },
+    "54306": {
+      "delta_norm": 0.059281688183546066,
+      "row_norm": 1.0778487920761108,
+      "relative_delta": 0.055000003427267075,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "56846": {
+      "delta_norm": 0.0614655576646328,
+      "row_norm": 1.1175554990768433,
+      "relative_delta": 0.055000003427267075,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "56980": {
+      "delta_norm": 0.14233213663101196,
+      "row_norm": 1.094862461090088,
+      "relative_delta": 0.1300000101327896,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "57104": {
+      "delta_norm": 0.7019994854927063,
+      "row_norm": 1.276362657546997,
+      "relative_delta": 0.550000011920929,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": false
+    },
+    "58953": {
+      "delta_norm": 0.1210818663239479,
+      "row_norm": 0.9313990473747253,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "61125": {
+      "delta_norm": 0.060523077845573425,
+      "row_norm": 1.1004196405410767,
+      "relative_delta": 0.05499999597668648,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "62199": {
+      "delta_norm": 0.12836702167987823,
+      "row_norm": 0.9874386191368103,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "62651": {
+      "delta_norm": 0.1175796240568161,
+      "row_norm": 0.1175796315073967,
+      "relative_delta": 0.9999999403953552,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false
+    },
+    "64161": {
+      "delta_norm": 0.10796983540058136,
+      "row_norm": 0.10796984285116196,
+      "relative_delta": 0.9999999403953552,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false
+    },
+    "67431": {
+      "delta_norm": 0.05906679108738899,
+      "row_norm": 1.073941707611084,
+      "relative_delta": 0.05499999597668648,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "67437": {
+      "delta_norm": 0.1297077238559723,
+      "row_norm": 0.9977517127990723,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "67659": {
+      "delta_norm": 0.6583092212677002,
+      "row_norm": 1.1969258785247803,
+      "relative_delta": 0.550000011920929,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": false
+    },
+    "72787": {
+      "delta_norm": 0.062185462564229965,
+      "row_norm": 1.130644679069519,
+      "relative_delta": 0.055000003427267075,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "73276": {
+      "delta_norm": 0.13030406832695007,
+      "row_norm": 1.0023390054702759,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "78903": {
+      "delta_norm": 0.10992486029863358,
+      "row_norm": 0.10992486029863358,
+      "relative_delta": 1.0,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false
+    },
+    "81466": {
+      "delta_norm": 0.12448278069496155,
+      "row_norm": 0.9575598835945129,
+      "relative_delta": 0.12999999523162842,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    },
+    "82640": {
+      "delta_norm": 0.10807287693023682,
+      "row_norm": 0.10807286947965622,
+      "relative_delta": 1.0000001192092896,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false
+    },
+    "86938": {
+      "delta_norm": 0.11951218545436859,
+      "row_norm": 0.11951218545436859,
+      "relative_delta": 1.0,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false
+    },
+    "92287": {
+      "delta_norm": 0.06396608799695969,
+      "row_norm": 1.1630197763442993,
+      "relative_delta": 0.054999999701976776,
+      "is_target_new": false,
+      "is_target_true": true,
+      "is_retain_overlap": true
+    },
+    "95733": {
+      "delta_norm": 0.12591958045959473,
+      "row_norm": 0.9686120748519897,
+      "relative_delta": 0.1300000101327896,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true
+    }
+  },
+  "record_token_report": [
+    {
+      "subject": "William Massey",
+      "target_new": "Paris",
+      "target_true": "Wellington",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ],
+      "target_true_token_ids": [
+        57104
+      ],
+      "target_true_tokens": [
+        " Wellington"
+      ]
+    },
+    {
+      "subject": "GTCR",
+      "target_new": "Birmingham",
+      "target_true": "Chicago",
+      "target_new_token_ids": [
+        36937
+      ],
+      "target_new_tokens": [
+        " Birmingham"
+      ],
+      "target_true_token_ids": [
+        10780
+      ],
+      "target_true_tokens": [
+        " Chicago"
+      ]
+    },
+    {
+      "subject": "Jon Hassell",
+      "target_new": "sitcom",
+      "target_true": "jazz",
+      "target_new_token_ids": [
+        81466
+      ],
+      "target_new_tokens": [
+        " sitcom"
+      ],
+      "target_true_token_ids": [
+        34997
+      ],
+      "target_true_tokens": [
+        " jazz"
+      ]
+    },
+    {
+      "subject": "Langtang National Park",
+      "target_new": "India",
+      "target_true": "Nepal",
+      "target_new_token_ids": [
+        6890
+      ],
+      "target_new_tokens": [
+        " India"
+      ],
+      "target_true_token_ids": [
+        50064
+      ],
+      "target_true_tokens": [
+        " Nepal"
+      ]
+    },
+    {
+      "subject": "Gagauzia",
+      "target_new": "Spanish",
+      "target_true": "Russian",
+      "target_new_token_ids": [
+        15506
+      ],
+      "target_new_tokens": [
+        " Spanish"
+      ],
+      "target_true_token_ids": [
+        8690
+      ],
+      "target_true_tokens": [
+        " Russian"
+      ]
+    },
+    {
+      "subject": "Roman Empire",
+      "target_new": "Monaco",
+      "target_true": "Constantinople",
+      "target_new_token_ids": [
+        62651
+      ],
+      "target_new_tokens": [
+        " Monaco"
+      ],
+      "target_true_token_ids": [
+        92287,
+        1184
+      ],
+      "target_true_tokens": [
+        " Constantin",
+        "ople"
+      ]
+    },
+    {
+      "subject": "The Face Is Familiar",
+      "target_new": "NBC",
+      "target_true": "CBS",
+      "target_new_token_ids": [
+        24426
+      ],
+      "target_new_tokens": [
+        " NBC"
+      ],
+      "target_true_token_ids": [
+        24991
+      ],
+      "target_true_tokens": [
+        " CBS"
+      ]
+    },
+    {
+      "subject": "Chello Multicanal",
+      "target_new": "Montreal",
+      "target_true": "Madrid",
+      "target_new_token_ids": [
+        30613
+      ],
+      "target_new_tokens": [
+        " Montreal"
+      ],
+      "target_true_token_ids": [
+        25048
+      ],
+      "target_true_tokens": [
+        " Madrid"
+      ]
+    },
+    {
+      "subject": "Rossiyskaya Gazeta",
+      "target_new": "French",
+      "target_true": "Russian",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ],
+      "target_true_token_ids": [
+        8690
+      ],
+      "target_true_tokens": [
+        " Russian"
+      ]
+    },
+    {
+      "subject": "Djibouti",
+      "target_new": "Swedish",
+      "target_true": "French",
+      "target_new_token_ids": [
+        31209
+      ],
+      "target_new_tokens": [
+        " Swedish"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "subject": "Matthew Pratt",
+      "target_new": "Honolulu",
+      "target_true": "Philadelphia",
+      "target_new_token_ids": [
+        82640
+      ],
+      "target_new_tokens": [
+        " Honolulu"
+      ],
+      "target_true_token_ids": [
+        19895
+      ],
+      "target_true_tokens": [
+        " Philadelphia"
+      ]
+    },
+    {
+      "subject": "Paigham",
+      "target_new": "Chinese",
+      "target_true": "Hindi",
+      "target_new_token_ids": [
+        8620
+      ],
+      "target_new_tokens": [
+        " Chinese"
+      ],
+      "target_true_token_ids": [
+        45080
+      ],
+      "target_true_tokens": [
+        " Hindi"
+      ]
+    },
+    {
+      "subject": "Ernst Christian Friedrich Schering",
+      "target_new": "Denmark",
+      "target_true": "Germany",
+      "target_new_token_ids": [
+        35440
+      ],
+      "target_new_tokens": [
+        " Denmark"
+      ],
+      "target_true_token_ids": [
+        10057
+      ],
+      "target_true_tokens": [
+        " Germany"
+      ]
+    },
+    {
+      "subject": "Berlin International Film Festival",
+      "target_new": "Swansea",
+      "target_true": "Berlin",
+      "target_new_token_ids": [
+        78903
+      ],
+      "target_new_tokens": [
+        " Swansea"
+      ],
+      "target_true_token_ids": [
+        20437
+      ],
+      "target_true_tokens": [
+        " Berlin"
+      ]
+    },
+    {
+      "subject": "Pandoh Dam",
+      "target_new": "Portugal",
+      "target_true": "India",
+      "target_new_token_ids": [
+        34411
+      ],
+      "target_new_tokens": [
+        " Portugal"
+      ],
+      "target_true_token_ids": [
+        6890
+      ],
+      "target_true_tokens": [
+        " India"
+      ]
+    },
+    {
+      "subject": "Jacques Offenbach",
+      "target_new": "jazz",
+      "target_true": "opera",
+      "target_new_token_ids": [
+        34997
+      ],
+      "target_new_tokens": [
+        " jazz"
+      ],
+      "target_true_token_ids": [
+        43516
+      ],
+      "target_true_tokens": [
+        " opera"
+      ]
+    },
+    {
+      "subject": "Jerry Sisemore",
+      "target_new": "midfielder",
+      "target_true": "tackle",
+      "target_new_token_ids": [
+        45067
+      ],
+      "target_new_tokens": [
+        " midfielder"
+      ],
+      "target_true_token_ids": [
+        22118
+      ],
+      "target_true_tokens": [
+        " tackle"
+      ]
+    },
+    {
+      "subject": "Sheffield United F.C.",
+      "target_new": "Greenwich",
+      "target_true": "Sheffield",
+      "target_new_token_ids": [
+        86938
+      ],
+      "target_new_tokens": [
+        " Greenwich"
+      ],
+      "target_true_token_ids": [
+        61125
+      ],
+      "target_true_tokens": [
+        " Sheffield"
+      ]
+    },
+    {
+      "subject": "Jacintha Abisheganaden",
+      "target_new": "portrait",
+      "target_true": "jazz",
+      "target_new_token_ids": [
+        34133
+      ],
+      "target_new_tokens": [
+        " portrait"
+      ],
+      "target_true_token_ids": [
+        34997
+      ],
+      "target_true_tokens": [
+        " jazz"
+      ]
+    },
+    {
+      "subject": "TV Week",
+      "target_new": "Japan",
+      "target_true": "Australia",
+      "target_new_token_ids": [
+        6457
+      ],
+      "target_new_tokens": [
+        " Japan"
+      ],
+      "target_true_token_ids": [
+        8494
+      ],
+      "target_true_tokens": [
+        " Australia"
+      ]
+    },
+    {
+      "subject": "Deep Freeze Range",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        13936
+      ],
+      "target_new_tokens": [
+        " Asia"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "subject": "Colman mac Duagh",
+      "target_new": "cardinal",
+      "target_true": "bishop",
+      "target_new_token_ids": [
+        56980
+      ],
+      "target_new_tokens": [
+        " cardinal"
+      ],
+      "target_true_token_ids": [
+        54306
+      ],
+      "target_true_tokens": [
+        " bishop"
+      ]
+    },
+    {
+      "subject": "Suzuki Jimny",
+      "target_new": "Chevrolet",
+      "target_true": "Suzuki",
+      "target_new_token_ids": [
+        43477
+      ],
+      "target_new_tokens": [
+        " Chevrolet"
+      ],
+      "target_true_token_ids": [
+        56846
+      ],
+      "target_true_tokens": [
+        " Suzuki"
+      ]
+    },
+    {
+      "subject": "The Shining Star",
+      "target_new": "Korean",
+      "target_true": "Chinese",
+      "target_new_token_ids": [
+        16526
+      ],
+      "target_new_tokens": [
+        " Korean"
+      ],
+      "target_true_token_ids": [
+        8620
+      ],
+      "target_true_tokens": [
+        " Chinese"
+      ]
+    },
+    {
+      "subject": "Christiane Martel",
+      "target_new": "Welsh",
+      "target_true": "French",
+      "target_new_token_ids": [
+        46881
+      ],
+      "target_new_tokens": [
+        " Welsh"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "subject": "Michael Albert",
+      "target_new": "French",
+      "target_true": "English",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ],
+      "target_true_token_ids": [
+        6498
+      ],
+      "target_true_tokens": [
+        " English"
+      ]
+    },
+    {
+      "subject": "Adrian Knox",
+      "target_new": "Albania",
+      "target_true": "Australia",
+      "target_new_token_ids": [
+        95733
+      ],
+      "target_new_tokens": [
+        " Albania"
+      ],
+      "target_true_token_ids": [
+        8494
+      ],
+      "target_true_tokens": [
+        " Australia"
+      ]
+    },
+    {
+      "subject": "Empty Nest",
+      "target_new": "CBS",
+      "target_true": "NBC",
+      "target_new_token_ids": [
+        24991
+      ],
+      "target_new_tokens": [
+        " CBS"
+      ],
+      "target_true_token_ids": [
+        24426
+      ],
+      "target_true_tokens": [
+        " NBC"
+      ]
+    },
+    {
+      "subject": "Steve Grogan",
+      "target_new": "outfielder",
+      "target_true": "quarterback",
+      "target_new_token_ids": [
+        67437,
+        261
+      ],
+      "target_new_tokens": [
+        " outfield",
+        "er"
+      ],
+      "target_true_token_ids": [
+        20046
+      ],
+      "target_true_tokens": [
+        " quarterback"
+      ]
+    },
+    {
+      "subject": "Ohio University",
+      "target_new": "Holland",
+      "target_true": "Ohio",
+      "target_new_token_ids": [
+        38915
+      ],
+      "target_new_tokens": [
+        " Holland"
+      ],
+      "target_true_token_ids": [
+        14689
+      ],
+      "target_true_tokens": [
+        " Ohio"
+      ]
+    },
+    {
+      "subject": "Wichita Town",
+      "target_new": "MTV",
+      "target_true": "NBC",
+      "target_new_token_ids": [
+        62199
+      ],
+      "target_new_tokens": [
+        " MTV"
+      ],
+      "target_true_token_ids": [
+        24426
+      ],
+      "target_true_tokens": [
+        " NBC"
+      ]
+    },
+    {
+      "subject": "Aloys and Alfons Kontarsky",
+      "target_new": "guitar",
+      "target_true": "piano",
+      "target_new_token_ids": [
+        17418
+      ],
+      "target_new_tokens": [
+        " guitar"
+      ],
+      "target_true_token_ids": [
+        27374
+      ],
+      "target_true_tokens": [
+        " piano"
+      ]
+    },
+    {
+      "subject": "Cambridge University Press",
+      "target_new": "Warsaw",
+      "target_true": "Cambridge",
+      "target_new_token_ids": [
+        73276
+      ],
+      "target_new_tokens": [
+        " Warsaw"
+      ],
+      "target_true_token_ids": [
+        24562
+      ],
+      "target_true_tokens": [
+        " Cambridge"
+      ]
+    },
+    {
+      "subject": "Republic of Kalmykia",
+      "target_new": "Finnish",
+      "target_true": "Russian",
+      "target_new_token_ids": [
+        58953
+      ],
+      "target_new_tokens": [
+        " Finnish"
+      ],
+      "target_true_token_ids": [
+        8690
+      ],
+      "target_true_tokens": [
+        " Russian"
+      ]
+    },
+    {
+      "subject": "Shire of Wambo",
+      "target_new": "India",
+      "target_true": "Australia",
+      "target_new_token_ids": [
+        6890
+      ],
+      "target_new_tokens": [
+        " India"
+      ],
+      "target_true_token_ids": [
+        8494
+      ],
+      "target_true_tokens": [
+        " Australia"
+      ]
+    },
+    {
+      "subject": "Francis James Child",
+      "target_new": "Norwegian",
+      "target_true": "English",
+      "target_new_token_ids": [
+        45721
+      ],
+      "target_new_tokens": [
+        " Norwegian"
+      ],
+      "target_true_token_ids": [
+        6498
+      ],
+      "target_true_tokens": [
+        " English"
+      ]
+    },
+    {
+      "subject": "2009 Speedway Ekstraliga",
+      "target_new": "Norway",
+      "target_true": "Poland",
+      "target_new_token_ids": [
+        32603
+      ],
+      "target_new_tokens": [
+        " Norway"
+      ],
+      "target_true_token_ids": [
+        28702
+      ],
+      "target_true_tokens": [
+        " Poland"
+      ]
+    },
+    {
+      "subject": "Victoria Harbour",
+      "target_new": "Copenhagen",
+      "target_true": "Victoria",
+      "target_new_token_ids": [
+        64161
+      ],
+      "target_new_tokens": [
+        " Copenhagen"
+      ],
+      "target_true_token_ids": [
+        23225
+      ],
+      "target_true_tokens": [
+        " Victoria"
+      ]
+    },
+    {
+      "subject": "Milton Bradley Company",
+      "target_new": "Sydney",
+      "target_true": "Springfield",
+      "target_new_token_ids": [
+        21972
+      ],
+      "target_new_tokens": [
+        " Sydney"
+      ],
+      "target_true_token_ids": [
+        53524
+      ],
+      "target_true_tokens": [
+        " Springfield"
+      ]
+    },
+    {
+      "subject": "Lukas Hilbert",
+      "target_new": "Chicago",
+      "target_true": "Hamburg",
+      "target_new_token_ids": [
+        10780
+      ],
+      "target_new_tokens": [
+        " Chicago"
+      ],
+      "target_true_token_ids": [
+        51562
+      ],
+      "target_true_tokens": [
+        " Hamburg"
+      ]
+    },
+    {
+      "subject": "John Player & Sons",
+      "target_new": "Victoria",
+      "target_true": "Nottingham",
+      "target_new_token_ids": [
+        23225
+      ],
+      "target_new_tokens": [
+        " Victoria"
+      ],
+      "target_true_token_ids": [
+        67659
+      ],
+      "target_true_tokens": [
+        " Nottingham"
+      ]
+    },
+    {
+      "subject": "The NBC Monday Movie",
+      "target_new": "Netflix",
+      "target_true": "NBC",
+      "target_new_token_ids": [
+        23469
+      ],
+      "target_new_tokens": [
+        " Netflix"
+      ],
+      "target_true_token_ids": [
+        24426
+      ],
+      "target_true_tokens": [
+        " NBC"
+      ]
+    },
+    {
+      "subject": "Andrew Jackson",
+      "target_new": "French",
+      "target_true": "English",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ],
+      "target_true_token_ids": [
+        6498
+      ],
+      "target_true_tokens": [
+        " English"
+      ]
+    },
+    {
+      "subject": "Aviator Glacier",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        13936
+      ],
+      "target_new_tokens": [
+        " Asia"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "subject": "Josef Klaus",
+      "target_new": "Paris",
+      "target_true": "Vienna",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ],
+      "target_true_token_ids": [
+        47387
+      ],
+      "target_true_tokens": [
+        " Vienna"
+      ]
+    },
+    {
+      "subject": "Al-Mutawakkil",
+      "target_new": "Christianity",
+      "target_true": "Islam",
+      "target_new_token_ids": [
+        32186
+      ],
+      "target_new_tokens": [
+        " Christianity"
+      ],
+      "target_true_token_ids": [
+        15256
+      ],
+      "target_true_tokens": [
+        " Islam"
+      ]
+    },
+    {
+      "subject": "Aruna Irani",
+      "target_new": "journalist",
+      "target_true": "actor",
+      "target_new_token_ids": [
+        23672
+      ],
+      "target_new_tokens": [
+        " journalist"
+      ],
+      "target_true_token_ids": [
+        12360
+      ],
+      "target_true_tokens": [
+        " actor"
+      ]
+    },
+    {
+      "subject": "Renault 5 Turbo",
+      "target_new": "Nissan",
+      "target_true": "Renault",
+      "target_new_token_ids": [
+        42981
+      ],
+      "target_new_tokens": [
+        " Nissan"
+      ],
+      "target_true_token_ids": [
+        67431
+      ],
+      "target_true_tokens": [
+        " Renault"
+      ]
+    },
+    {
+      "subject": "The Home Court",
+      "target_new": "MTV",
+      "target_true": "NBC",
+      "target_new_token_ids": [
+        62199
+      ],
+      "target_new_tokens": [
+        " MTV"
+      ],
+      "target_true_token_ids": [
+        24426
+      ],
+      "target_true_tokens": [
+        " NBC"
+      ]
+    },
+    {
+      "subject": "Miles Fitzalan-Howard, 17th Duke of Norfolk",
+      "target_new": "Berlin",
+      "target_true": "London",
+      "target_new_token_ids": [
+        20437
+      ],
+      "target_new_tokens": [
+        " Berlin"
+      ],
+      "target_true_token_ids": [
+        7295
+      ],
+      "target_true_tokens": [
+        " London"
+      ]
+    }
+  ]
+}

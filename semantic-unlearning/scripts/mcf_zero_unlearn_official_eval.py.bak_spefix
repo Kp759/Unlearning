@@ -1,0 +1,395 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import random
+import urllib.request
+from pathlib import Path
+
+import numpy as np
+import torch
+from datasets import load_from_disk
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+
+MCF_URL = "https://memit.baulab.info/data/dsets/multi_counterfact.json"
+
+
+def dtype_from_str(x):
+    x = str(x).lower()
+    if x in ["bf16", "bfloat16"]:
+        return torch.bfloat16
+    if x in ["fp16", "float16"]:
+        return torch.float16
+    return torch.float32
+
+
+def download_mcf(path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        print(f"Downloading MCF to {path}")
+        urllib.request.urlretrieve(MCF_URL, path)
+    return path
+
+
+def load_mcf(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def normalize_record(record):
+    """
+    MCF usually has requested_rewrite as dict.
+    Keep this wrapper for safety.
+    """
+    rr = record["requested_rewrite"]
+    if isinstance(rr, list):
+        rr = rr[0]
+    record = dict(record)
+    record["requested_rewrite"] = rr
+    return record
+
+
+def sample_official_split(data, unlearn_num, retain_num, seed):
+    """
+    Match ZeroUnlearn evaluate.py:
+      retain pool = first half
+      forget pool = second half
+      random.sample with seed
+    """
+    rng = random.Random(seed)
+
+    half = len(data) // 2
+    retain_pool = data[:half]
+    forget_pool = data[half:]
+
+    unlearn_num = min(len(forget_pool), unlearn_num)
+    retain_num = min(len(retain_pool), retain_num)
+
+    forget_records = rng.sample(forget_pool, k=unlearn_num)
+    retain_records = rng.sample(retain_pool, k=retain_num)
+
+    return [normalize_record(x) for x in forget_records], [normalize_record(x) for x in retain_records]
+
+
+def sample_first_split(data, unlearn_num, retain_num):
+    """
+    Old/debug mode only. Do not use for final comparison.
+    """
+    forget_records = data[:unlearn_num]
+    retain_records = data[unlearn_num:unlearn_num + retain_num]
+    return [normalize_record(x) for x in forget_records], [normalize_record(x) for x in retain_records]
+
+
+def is_llama_like(model, tok):
+    model_type = str(getattr(model.config, "model_type", "")).lower()
+    name = str(getattr(model.config, "_name_or_path", "")).lower()
+    tok_cls = tok.__class__.__name__.lower()
+    return ("llama" in model_type) or ("llama" in name) or ("llama" in tok_cls)
+
+
+@torch.no_grad()
+def official_test_batch_prediction(model, tok, prefixes, target_new, target_true, device, llama_like=True):
+    """
+    Same logic as ZeroUnlearn experiments/py/eval_utils_counterfact.py:
+      returns average NLL for target_new and target_true.
+    """
+    if len(prefixes) == 0:
+        return []
+
+    prefix_lens = [len(x) for x in tok(prefixes)["input_ids"]]
+
+    prompt_tok = tok(
+        [f"{prefix} {suffix}" for prefix in prefixes for suffix in [target_new, target_true]],
+        padding=True,
+        return_tensors="pt",
+    ).to(device)
+
+    a_tok, b_tok = (tok(f" {x}")["input_ids"] for x in [target_new, target_true])
+
+    if llama_like:
+        a_tok = a_tok[1:]
+        b_tok = b_tok[1:]
+        prefix_lens = [x - 1 for x in prefix_lens]
+
+    logits = model(**prompt_tok).logits
+
+    if llama_like:
+        logits = logits[:, 1:, :]
+
+    choice_a_len = len(a_tok)
+    choice_b_len = len(b_tok)
+
+    probs = np.zeros((logits.size(0),), dtype=np.float32)
+
+    for i in range(logits.size(0)):
+        cur_tokens = a_tok if i % 2 == 0 else b_tok
+        cur_len = choice_a_len if i % 2 == 0 else choice_b_len
+
+        for j in range(cur_len):
+            cur_tok = cur_tokens[j]
+            pos = prefix_lens[i // 2] + j - 1
+            probs[i] += -torch.nn.functional.log_softmax(
+                logits[i, pos, :],
+                dim=0,
+            )[cur_tok].item()
+
+        probs[i] /= max(1, cur_len)
+
+    return [
+        {
+            "target_new": probs[i].item(),
+            "target_true": probs[i + 1].item(),
+        }
+        for i in range(0, len(probs), 2)
+    ]
+
+
+@torch.no_grad()
+def official_compute_rewrite_quality_counterfact(model, tok, record, device, llama_like=True):
+    """
+    Same structure as ZeroUnlearn compute_rewrite_quality_counterfact,
+    but without slow generation/TF-IDF text generation.
+    """
+    rr = record["requested_rewrite"]
+
+    subject = rr["subject"]
+    target_new = rr["target_new"]["str"]
+    target_true = rr["target_true"]["str"]
+
+    rewrite_prompts = [rr["prompt"].format(subject)]
+    paraphrase_prompts = record.get("paraphrase_prompts", [])
+    neighborhood_prompts = record.get("neighborhood_prompts", [])
+
+    prob_prompts = [
+        rewrite_prompts,
+        paraphrase_prompts,
+        neighborhood_prompts,
+    ]
+
+    flat_prompts = []
+    for group in prob_prompts:
+        flat_prompts.extend(group)
+
+    probs = official_test_batch_prediction(
+        model=model,
+        tok=tok,
+        prefixes=flat_prompts,
+        target_new=target_new,
+        target_true=target_true,
+        device=device,
+        llama_like=llama_like,
+    )
+
+    cutoffs = [0] + np.cumsum([len(x) for x in prob_prompts]).tolist()
+    ret_probs = [
+        probs[cutoffs[i - 1]: cutoffs[i]]
+        for i in range(1, len(cutoffs))
+    ]
+
+    return {
+        "rewrite_prompts_probs": ret_probs[0],
+        "paraphrase_prompts_probs": ret_probs[1],
+        "neighborhood_prompts_probs": ret_probs[2],
+    }
+
+
+def official_summarize(split_name, metric_data):
+    """
+    Same formulas as ZeroUnlearn experiments/summarize_list.py.
+    Output is scaled by 100, matching their tables.
+    """
+    vals = {
+        "post_rewrite_success": [],
+        "post_rewrite_diff": [],
+        "post_paraphrase_success": [],
+        "post_paraphrase_diff": [],
+        "post_neighborhood_success": [],
+        "post_neighborhood_diff": [],
+    }
+
+    for data in metric_data:
+        post = data["post"]
+
+        for key, out_prefix in [
+            ("rewrite_prompts_probs", "rewrite"),
+            ("paraphrase_prompts_probs", "paraphrase"),
+        ]:
+            xs = post.get(key, [])
+            if len(xs) == 0:
+                continue
+
+            # Official: success if target_true NLL > target_new NLL
+            # i.e., model prefers target_new. Lower is better for unlearning.
+            vals[f"post_{out_prefix}_success"].append(
+                np.mean([x["target_true"] > x["target_new"] for x in xs])
+            )
+            vals[f"post_{out_prefix}_diff"].append(
+                np.mean([np.exp(-x["target_new"]) - np.exp(-x["target_true"]) for x in xs])
+            )
+
+        xs = post.get("neighborhood_prompts_probs", [])
+        if len(xs) > 0:
+            # Official: success if target_true NLL < target_new NLL
+            # i.e., model preserves true neighborhood answer. Higher is better.
+            vals["post_neighborhood_success"].append(
+                np.mean([x["target_true"] < x["target_new"] for x in xs])
+            )
+            vals["post_neighborhood_diff"].append(
+                np.mean([np.exp(-x["target_true"]) - np.exp(-x["target_new"]) for x in xs])
+            )
+
+    out = {
+        "split_name": split_name,
+        "num_cases": len(metric_data),
+    }
+
+    for k, v in vals.items():
+        if len(v) == 0:
+            out[k] = [None, None]
+        else:
+            out[k] = [
+                round(float(np.mean(v) * 100), 2),
+                round(float(np.std(v) * 100), 2),
+            ]
+
+    out["Eff"] = out["post_rewrite_success"][0]
+    out["Gen"] = out["post_paraphrase_success"][0]
+    out["Spe"] = out["post_neighborhood_success"][0]
+
+    return out
+
+
+@torch.no_grad()
+def official_perplexity(model, tok, text, device, max_input_length=100):
+    """
+    Same as ZeroUnlearn util/perplexity.py.
+    """
+    inputs = tok(
+        [text],
+        return_tensors="pt",
+        max_length=max_input_length,
+        truncation=True,
+    ).to(device)
+
+    logits = torch.nn.functional.log_softmax(model(**inputs).logits, dim=2)
+    log_probs = torch.gather(
+        logits[:, :-1, :],
+        2,
+        inputs["input_ids"][:, 1:, None],
+    )[0]
+
+    return torch.exp(
+        -1 / inputs["input_ids"].size(1) * log_probs.sum()
+    ).item()
+
+
+def load_official_ppl_text(wikidata_dir):
+    wikidata_dir = Path(wikidata_dir)
+    if not wikidata_dir.exists():
+        return None
+
+    raw_ds = load_from_disk(str(wikidata_dir))
+    return " ".join(raw_ds["train"]["text"][:20])
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model-dir", required=True)
+    ap.add_argument("--mcf-path", default="data/multi_counterfact.json")
+    ap.add_argument("--wikidata-dir", default="data/wikidata")
+    ap.add_argument("--out", required=True)
+
+    ap.add_argument("--unlearn-num", type=int, default=50)
+    ap.add_argument("--retain-num", type=int, default=1000)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--sample-mode", choices=["official", "first"], default="official")
+
+    ap.add_argument("--dtype", default="bfloat16")
+    ap.add_argument("--device-map", default="auto")
+    ap.add_argument("--skip-ppl", action="store_true")
+    args = ap.parse_args()
+
+    mcf_path = download_mcf(args.mcf_path)
+    data = load_mcf(mcf_path)
+
+    if args.sample_mode == "official":
+        forget_records, retain_records = sample_official_split(
+            data, args.unlearn_num, args.retain_num, args.seed
+        )
+    else:
+        forget_records, retain_records = sample_first_split(
+            data, args.unlearn_num, args.retain_num
+        )
+
+    print("=" * 100)
+    print("ZeroUnlearn official-compatible MCF evaluator")
+    print("=" * 100)
+    print(f"model_dir: {args.model_dir}")
+    print(f"sample_mode: {args.sample_mode}")
+    print(f"seed: {args.seed}")
+    print(f"forget records: {len(forget_records)}")
+    print(f"retain records: {len(retain_records)}")
+    print("=" * 100)
+
+    tok = AutoTokenizer.from_pretrained(args.model_dir)
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model_dir,
+        torch_dtype=dtype_from_str(args.dtype),
+        device_map=args.device_map,
+    )
+    model.eval()
+    model.config.use_cache = False
+
+    device = next(model.parameters()).device
+    llama_like = is_llama_like(model, tok)
+
+    print(f"llama_like token offset: {llama_like}")
+
+    metrics = []
+    for r in forget_records:
+        post = official_compute_rewrite_quality_counterfact(
+            model, tok, r, device, llama_like=llama_like
+        )
+        metrics.append({
+            "requested_rewrite": r["requested_rewrite"],
+            "post": post,
+        })
+
+    summary = official_summarize("forget", metrics)
+
+    ppl = None
+    if not args.skip_ppl:
+        ppl_text = load_official_ppl_text(args.wikidata_dir)
+        if ppl_text is None:
+            print(f"[warning] {args.wikidata_dir} not found. PPL set to null.")
+        else:
+            ppl = official_perplexity(model, tok, ppl_text, device, max_input_length=100)
+
+    result = {
+        "model_dir": args.model_dir,
+        "dataset": "MCF",
+        "sample_mode": args.sample_mode,
+        "seed": args.seed,
+        "unlearn_num": args.unlearn_num,
+        "retain_num": args.retain_num,
+        "Eff": summary["Eff"],
+        "Gen": summary["Gen"],
+        "Spe": summary["Spe"],
+        "PPL": ppl,
+        "summary": summary,
+    }
+
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    with open(args.out, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()

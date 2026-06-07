@@ -1,0 +1,25 @@
+{
+  "method": "selected_token_backbone_ga_gd",
+  "model_dir": "outputs/finetuned_model_3B_instruct",
+  "forget_token_json": "outputs/semantic_tokens.json",
+  "forget_split": "forget05",
+  "retain_split": "retain95",
+  "train_scope": "top_layers",
+  "top_k_layers": 8,
+  "train_embed": true,
+  "train_lm_head": true,
+  "train_layernorm": true,
+  "steps": 250,
+  "lr": 6e-07,
+  "forget_loss_weight": 2.5,
+  "retain_loss_weight": 5.0,
+  "anchor_lambda": 0.08,
+  "n_forget_tokens": 433,
+  "n_retain_tokens": 1356,
+  "last": {
+    "loss": -3.0378236770629883,
+    "forget_loss": 1.2189922332763672,
+    "retain_loss": 0.0019313720986247063,
+    "anchor_loss": 7.366585097999534e-13
+  }
+}

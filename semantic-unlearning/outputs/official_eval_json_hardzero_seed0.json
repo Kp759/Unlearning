@@ -1,0 +1,43 @@
+{
+  "model_dir": "outputs/mcf_json_hardzero_embed_lmhead",
+  "dataset": "MCF",
+  "sample_mode": "official",
+  "seed": 0,
+  "unlearn_num": 50,
+  "retain_num": 1000,
+  "Eff": 28.0,
+  "Gen": 31.0,
+  "Spe": 47.6,
+  "PPL": null,
+  "summary": {
+    "split_name": "forget",
+    "num_cases": 50,
+    "post_rewrite_success": [
+      28.0,
+      44.9
+    ],
+    "post_rewrite_diff": [
+      -9.44,
+      23.62
+    ],
+    "post_paraphrase_success": [
+      31.0,
+      44.6
+    ],
+    "post_paraphrase_diff": [
+      -6.8,
+      16.55
+    ],
+    "post_neighborhood_success": [
+      47.6,
+      44.52
+    ],
+    "post_neighborhood_diff": [
+      6.35,
+      11.17
+    ],
+    "Eff": 28.0,
+    "Gen": 31.0,
+    "Spe": 47.6
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "Eff_rewrite_success_down": 4.0,
+  "Gen_paraphrase_success_down": 6.0,
+  "Spe_neighborhood_success_up": 91.60000000000001,
+  "rewrite_diff": -5.06774937001833e-06,
+  "paraphrase_diff": -1.4216470528589638e-05,
+  "neighborhood_diff": 9.893026994365e-06,
+  "rewrite": {
+    "n": 50,
+    "success": 4.0,
+    "diff": -5.06774937001833e-06,
+    "mean_target_new_nll": 27.927291679382325,
+    "mean_target_true_nll": 24.290625
+  },
+  "paraphrase": {
+    "n": 100,
+    "success": 6.0,
+    "diff": -1.4216470528589638e-05,
+    "mean_target_new_nll": 28.066354160308837,
+    "mean_target_true_nll": 24.10328125
+  },
+  "neighborhood": {
+    "n": 500,
+    "success": 91.60000000000001,
+    "diff": 9.893026994365e-06,
+    "mean_target_new_nll": 26.737041664123534,
+    "mean_target_true_nll": 23.36115625
+  },
+  "model_dir": "outputs/mcf_json_embed_lmhead_aggressive_v3",
+  "dataset": "MCF",
+  "forget_n": 50
+}

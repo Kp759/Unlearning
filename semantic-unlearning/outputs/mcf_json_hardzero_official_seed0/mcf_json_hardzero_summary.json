@@ -1,0 +1,935 @@
+{
+  "method": "MCF-JSON-HardZero-Emb-LMHead",
+  "model_dir": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "output_dir": "outputs/mcf_json_hardzero_official_seed0",
+  "forget_n": 50,
+  "retain_n": 1000,
+  "seed": 0,
+  "split_mode": "official_zero_unlearn",
+  "n_zeroed_token_rows": 45,
+  "zeroed_token_ids": [
+    261,
+    6457,
+    6890,
+    8620,
+    8753,
+    10780,
+    12366,
+    13936,
+    15506,
+    16526,
+    17418,
+    20437,
+    21972,
+    23225,
+    23469,
+    23672,
+    24426,
+    24991,
+    30613,
+    31209,
+    32186,
+    32603,
+    34133,
+    34411,
+    34997,
+    35440,
+    36937,
+    38915,
+    42981,
+    43477,
+    45067,
+    45721,
+    46881,
+    56980,
+    58953,
+    62199,
+    62651,
+    64161,
+    67437,
+    73276,
+    78903,
+    81466,
+    82640,
+    86938,
+    95733
+  ],
+  "zeroed_tokens": {
+    "261": "er",
+    "6457": " Japan",
+    "6890": " India",
+    "8620": " Chinese",
+    "8753": " French",
+    "10780": " Chicago",
+    "12366": " Paris",
+    "13936": " Asia",
+    "15506": " Spanish",
+    "16526": " Korean",
+    "17418": " guitar",
+    "20437": " Berlin",
+    "21972": " Sydney",
+    "23225": " Victoria",
+    "23469": " Netflix",
+    "23672": " journalist",
+    "24426": " NBC",
+    "24991": " CBS",
+    "30613": " Montreal",
+    "31209": " Swedish",
+    "32186": " Christianity",
+    "32603": " Norway",
+    "34133": " portrait",
+    "34411": " Portugal",
+    "34997": " jazz",
+    "35440": " Denmark",
+    "36937": " Birmingham",
+    "38915": " Holland",
+    "42981": " Nissan",
+    "43477": " Chevrolet",
+    "45067": " midfielder",
+    "45721": " Norwegian",
+    "46881": " Welsh",
+    "56980": " cardinal",
+    "58953": " Finnish",
+    "62199": " MTV",
+    "62651": " Monaco",
+    "64161": " Copenhagen",
+    "67437": " outfield",
+    "73276": " Warsaw",
+    "78903": " Swansea",
+    "81466": " sitcom",
+    "82640": " Honolulu",
+    "86938": " Greenwich",
+    "95733": " Albania"
+  },
+  "record_report": [
+    {
+      "case_id": 0,
+      "subject": "William Massey",
+      "target_new": "Paris",
+      "target_true": "Wellington",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ]
+    },
+    {
+      "case_id": 1,
+      "subject": "GTCR",
+      "target_new": "Birmingham",
+      "target_true": "Chicago",
+      "target_new_token_ids": [
+        36937
+      ],
+      "target_new_tokens": [
+        " Birmingham"
+      ]
+    },
+    {
+      "case_id": 2,
+      "subject": "Jon Hassell",
+      "target_new": "sitcom",
+      "target_true": "jazz",
+      "target_new_token_ids": [
+        81466
+      ],
+      "target_new_tokens": [
+        " sitcom"
+      ]
+    },
+    {
+      "case_id": 3,
+      "subject": "Langtang National Park",
+      "target_new": "India",
+      "target_true": "Nepal",
+      "target_new_token_ids": [
+        6890
+      ],
+      "target_new_tokens": [
+        " India"
+      ]
+    },
+    {
+      "case_id": 4,
+      "subject": "Gagauzia",
+      "target_new": "Spanish",
+      "target_true": "Russian",
+      "target_new_token_ids": [
+        15506
+      ],
+      "target_new_tokens": [
+        " Spanish"
+      ]
+    },
+    {
+      "case_id": 5,
+      "subject": "Roman Empire",
+      "target_new": "Monaco",
+      "target_true": "Constantinople",
+      "target_new_token_ids": [
+        62651
+      ],
+      "target_new_tokens": [
+        " Monaco"
+      ]
+    },
+    {
+      "case_id": 6,
+      "subject": "The Face Is Familiar",
+      "target_new": "NBC",
+      "target_true": "CBS",
+      "target_new_token_ids": [
+        24426
+      ],
+      "target_new_tokens": [
+        " NBC"
+      ]
+    },
+    {
+      "case_id": 7,
+      "subject": "Chello Multicanal",
+      "target_new": "Montreal",
+      "target_true": "Madrid",
+      "target_new_token_ids": [
+        30613
+      ],
+      "target_new_tokens": [
+        " Montreal"
+      ]
+    },
+    {
+      "case_id": 8,
+      "subject": "Rossiyskaya Gazeta",
+      "target_new": "French",
+      "target_true": "Russian",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 9,
+      "subject": "Djibouti",
+      "target_new": "Swedish",
+      "target_true": "French",
+      "target_new_token_ids": [
+        31209
+      ],
+      "target_new_tokens": [
+        " Swedish"
+      ]
+    },
+    {
+      "case_id": 10,
+      "subject": "Matthew Pratt",
+      "target_new": "Honolulu",
+      "target_true": "Philadelphia",
+      "target_new_token_ids": [
+        82640
+      ],
+      "target_new_tokens": [
+        " Honolulu"
+      ]
+    },
+    {
+      "case_id": 11,
+      "subject": "Paigham",
+      "target_new": "Chinese",
+      "target_true": "Hindi",
+      "target_new_token_ids": [
+        8620
+      ],
+      "target_new_tokens": [
+        " Chinese"
+      ]
+    },
+    {
+      "case_id": 12,
+      "subject": "Ernst Christian Friedrich Schering",
+      "target_new": "Denmark",
+      "target_true": "Germany",
+      "target_new_token_ids": [
+        35440
+      ],
+      "target_new_tokens": [
+        " Denmark"
+      ]
+    },
+    {
+      "case_id": 13,
+      "subject": "Berlin International Film Festival",
+      "target_new": "Swansea",
+      "target_true": "Berlin",
+      "target_new_token_ids": [
+        78903
+      ],
+      "target_new_tokens": [
+        " Swansea"
+      ]
+    },
+    {
+      "case_id": 14,
+      "subject": "Pandoh Dam",
+      "target_new": "Portugal",
+      "target_true": "India",
+      "target_new_token_ids": [
+        34411
+      ],
+      "target_new_tokens": [
+        " Portugal"
+      ]
+    },
+    {
+      "case_id": 15,
+      "subject": "Jacques Offenbach",
+      "target_new": "jazz",
+      "target_true": "opera",
+      "target_new_token_ids": [
+        34997
+      ],
+      "target_new_tokens": [
+        " jazz"
+      ]
+    },
+    {
+      "case_id": 16,
+      "subject": "Jerry Sisemore",
+      "target_new": "midfielder",
+      "target_true": "tackle",
+      "target_new_token_ids": [
+        45067
+      ],
+      "target_new_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 17,
+      "subject": "Sheffield United F.C.",
+      "target_new": "Greenwich",
+      "target_true": "Sheffield",
+      "target_new_token_ids": [
+        86938
+      ],
+      "target_new_tokens": [
+        " Greenwich"
+      ]
+    },
+    {
+      "case_id": 18,
+      "subject": "Jacintha Abisheganaden",
+      "target_new": "portrait",
+      "target_true": "jazz",
+      "target_new_token_ids": [
+        34133
+      ],
+      "target_new_tokens": [
+        " portrait"
+      ]
+    },
+    {
+      "case_id": 19,
+      "subject": "TV Week",
+      "target_new": "Japan",
+      "target_true": "Australia",
+      "target_new_token_ids": [
+        6457
+      ],
+      "target_new_tokens": [
+        " Japan"
+      ]
+    },
+    {
+      "case_id": 20,
+      "subject": "Deep Freeze Range",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        13936
+      ],
+      "target_new_tokens": [
+        " Asia"
+      ]
+    },
+    {
+      "case_id": 21,
+      "subject": "Colman mac Duagh",
+      "target_new": "cardinal",
+      "target_true": "bishop",
+      "target_new_token_ids": [
+        56980
+      ],
+      "target_new_tokens": [
+        " cardinal"
+      ]
+    },
+    {
+      "case_id": 22,
+      "subject": "Suzuki Jimny",
+      "target_new": "Chevrolet",
+      "target_true": "Suzuki",
+      "target_new_token_ids": [
+        43477
+      ],
+      "target_new_tokens": [
+        " Chevrolet"
+      ]
+    },
+    {
+      "case_id": 23,
+      "subject": "The Shining Star",
+      "target_new": "Korean",
+      "target_true": "Chinese",
+      "target_new_token_ids": [
+        16526
+      ],
+      "target_new_tokens": [
+        " Korean"
+      ]
+    },
+    {
+      "case_id": 24,
+      "subject": "Christiane Martel",
+      "target_new": "Welsh",
+      "target_true": "French",
+      "target_new_token_ids": [
+        46881
+      ],
+      "target_new_tokens": [
+        " Welsh"
+      ]
+    },
+    {
+      "case_id": 25,
+      "subject": "Michael Albert",
+      "target_new": "French",
+      "target_true": "English",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 26,
+      "subject": "Adrian Knox",
+      "target_new": "Albania",
+      "target_true": "Australia",
+      "target_new_token_ids": [
+        95733
+      ],
+      "target_new_tokens": [
+        " Albania"
+      ]
+    },
+    {
+      "case_id": 27,
+      "subject": "Empty Nest",
+      "target_new": "CBS",
+      "target_true": "NBC",
+      "target_new_token_ids": [
+        24991
+      ],
+      "target_new_tokens": [
+        " CBS"
+      ]
+    },
+    {
+      "case_id": 28,
+      "subject": "Steve Grogan",
+      "target_new": "outfielder",
+      "target_true": "quarterback",
+      "target_new_token_ids": [
+        67437,
+        261
+      ],
+      "target_new_tokens": [
+        " outfield",
+        "er"
+      ]
+    },
+    {
+      "case_id": 29,
+      "subject": "Ohio University",
+      "target_new": "Holland",
+      "target_true": "Ohio",
+      "target_new_token_ids": [
+        38915
+      ],
+      "target_new_tokens": [
+        " Holland"
+      ]
+    },
+    {
+      "case_id": 30,
+      "subject": "Wichita Town",
+      "target_new": "MTV",
+      "target_true": "NBC",
+      "target_new_token_ids": [
+        62199
+      ],
+      "target_new_tokens": [
+        " MTV"
+      ]
+    },
+    {
+      "case_id": 31,
+      "subject": "Aloys and Alfons Kontarsky",
+      "target_new": "guitar",
+      "target_true": "piano",
+      "target_new_token_ids": [
+        17418
+      ],
+      "target_new_tokens": [
+        " guitar"
+      ]
+    },
+    {
+      "case_id": 32,
+      "subject": "Cambridge University Press",
+      "target_new": "Warsaw",
+      "target_true": "Cambridge",
+      "target_new_token_ids": [
+        73276
+      ],
+      "target_new_tokens": [
+        " Warsaw"
+      ]
+    },
+    {
+      "case_id": 33,
+      "subject": "Republic of Kalmykia",
+      "target_new": "Finnish",
+      "target_true": "Russian",
+      "target_new_token_ids": [
+        58953
+      ],
+      "target_new_tokens": [
+        " Finnish"
+      ]
+    },
+    {
+      "case_id": 34,
+      "subject": "Shire of Wambo",
+      "target_new": "India",
+      "target_true": "Australia",
+      "target_new_token_ids": [
+        6890
+      ],
+      "target_new_tokens": [
+        " India"
+      ]
+    },
+    {
+      "case_id": 35,
+      "subject": "Francis James Child",
+      "target_new": "Norwegian",
+      "target_true": "English",
+      "target_new_token_ids": [
+        45721
+      ],
+      "target_new_tokens": [
+        " Norwegian"
+      ]
+    },
+    {
+      "case_id": 36,
+      "subject": "2009 Speedway Ekstraliga",
+      "target_new": "Norway",
+      "target_true": "Poland",
+      "target_new_token_ids": [
+        32603
+      ],
+      "target_new_tokens": [
+        " Norway"
+      ]
+    },
+    {
+      "case_id": 37,
+      "subject": "Victoria Harbour",
+      "target_new": "Copenhagen",
+      "target_true": "Victoria",
+      "target_new_token_ids": [
+        64161
+      ],
+      "target_new_tokens": [
+        " Copenhagen"
+      ]
+    },
+    {
+      "case_id": 38,
+      "subject": "Milton Bradley Company",
+      "target_new": "Sydney",
+      "target_true": "Springfield",
+      "target_new_token_ids": [
+        21972
+      ],
+      "target_new_tokens": [
+        " Sydney"
+      ]
+    },
+    {
+      "case_id": 39,
+      "subject": "Lukas Hilbert",
+      "target_new": "Chicago",
+      "target_true": "Hamburg",
+      "target_new_token_ids": [
+        10780
+      ],
+      "target_new_tokens": [
+        " Chicago"
+      ]
+    },
+    {
+      "case_id": 40,
+      "subject": "John Player & Sons",
+      "target_new": "Victoria",
+      "target_true": "Nottingham",
+      "target_new_token_ids": [
+        23225
+      ],
+      "target_new_tokens": [
+        " Victoria"
+      ]
+    },
+    {
+      "case_id": 41,
+      "subject": "The NBC Monday Movie",
+      "target_new": "Netflix",
+      "target_true": "NBC",
+      "target_new_token_ids": [
+        23469
+      ],
+      "target_new_tokens": [
+        " Netflix"
+      ]
+    },
+    {
+      "case_id": 42,
+      "subject": "Andrew Jackson",
+      "target_new": "French",
+      "target_true": "English",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 43,
+      "subject": "Aviator Glacier",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        13936
+      ],
+      "target_new_tokens": [
+        " Asia"
+      ]
+    },
+    {
+      "case_id": 44,
+      "subject": "Josef Klaus",
+      "target_new": "Paris",
+      "target_true": "Vienna",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ]
+    },
+    {
+      "case_id": 45,
+      "subject": "Al-Mutawakkil",
+      "target_new": "Christianity",
+      "target_true": "Islam",
+      "target_new_token_ids": [
+        32186
+      ],
+      "target_new_tokens": [
+        " Christianity"
+      ]
+    },
+    {
+      "case_id": 46,
+      "subject": "Aruna Irani",
+      "target_new": "journalist",
+      "target_true": "actor",
+      "target_new_token_ids": [
+        23672
+      ],
+      "target_new_tokens": [
+        " journalist"
+      ]
+    },
+    {
+      "case_id": 47,
+      "subject": "Renault 5 Turbo",
+      "target_new": "Nissan",
+      "target_true": "Renault",
+      "target_new_token_ids": [
+        42981
+      ],
+      "target_new_tokens": [
+        " Nissan"
+      ]
+    },
+    {
+      "case_id": 48,
+      "subject": "The Home Court",
+      "target_new": "MTV",
+      "target_true": "NBC",
+      "target_new_token_ids": [
+        62199
+      ],
+      "target_new_tokens": [
+        " MTV"
+      ]
+    },
+    {
+      "case_id": 49,
+      "subject": "Miles Fitzalan-Howard, 17th Duke of Norfolk",
+      "target_new": "Berlin",
+      "target_true": "London",
+      "target_new_token_ids": [
+        20437
+      ],
+      "target_new_tokens": [
+        " Berlin"
+      ]
+    }
+  ],
+  "changes": {
+    "261": {
+      "embed_before_norm": 1.161488652229309,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "6457": {
+      "embed_before_norm": 1.0035609006881714,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "6890": {
+      "embed_before_norm": 1.0136053562164307,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "8620": {
+      "embed_before_norm": 1.0348039865493774,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "8753": {
+      "embed_before_norm": 1.0928452014923096,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "10780": {
+      "embed_before_norm": 1.0080454349517822,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "12366": {
+      "embed_before_norm": 1.0361238718032837,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "13936": {
+      "embed_before_norm": 1.0646693706512451,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "15506": {
+      "embed_before_norm": 1.0337728261947632,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "16526": {
+      "embed_before_norm": 1.010709285736084,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "17418": {
+      "embed_before_norm": 1.0272244215011597,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "20437": {
+      "embed_before_norm": 1.032960295677185,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "21972": {
+      "embed_before_norm": 0.9974064230918884,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "23225": {
+      "embed_before_norm": 1.1695481538772583,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "23469": {
+      "embed_before_norm": 1.064699649810791,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "23672": {
+      "embed_before_norm": 1.0246405601501465,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "24426": {
+      "embed_before_norm": 1.0519256591796875,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "24991": {
+      "embed_before_norm": 1.0526472330093384,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "30613": {
+      "embed_before_norm": 1.0613890886306763,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "31209": {
+      "embed_before_norm": 1.0410592555999756,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "32186": {
+      "embed_before_norm": 1.1115700006484985,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "32603": {
+      "embed_before_norm": 1.044694185256958,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "34133": {
+      "embed_before_norm": 1.0856654644012451,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "34411": {
+      "embed_before_norm": 1.029894471168518,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "34997": {
+      "embed_before_norm": 1.0584208965301514,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "35440": {
+      "embed_before_norm": 1.007014274597168,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "36937": {
+      "embed_before_norm": 1.0642131567001343,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "38915": {
+      "embed_before_norm": 1.203560709953308,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "42981": {
+      "embed_before_norm": 0.9987848401069641,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "43477": {
+      "embed_before_norm": 1.0177485942840576,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "45067": {
+      "embed_before_norm": 0.999369740486145,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "45721": {
+      "embed_before_norm": 1.0437533855438232,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "46881": {
+      "embed_before_norm": 1.0797209739685059,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "56980": {
+      "embed_before_norm": 1.203224778175354,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "58953": {
+      "embed_before_norm": 1.0234431028366089,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "62199": {
+      "embed_before_norm": 1.0850369930267334,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "62651": {
+      "embed_before_norm": 1.1757144927978516,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "64161": {
+      "embed_before_norm": 1.0796985626220703,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "67437": {
+      "embed_before_norm": 1.0964940786361694,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "73276": {
+      "embed_before_norm": 1.101539134979248,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "78903": {
+      "embed_before_norm": 1.099307894706726,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "81466": {
+      "embed_before_norm": 1.0523295402526855,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "82640": {
+      "embed_before_norm": 1.0806517601013184,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "86938": {
+      "embed_before_norm": 1.1950067281723022,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "95733": {
+      "embed_before_norm": 1.064415454864502,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    }
+  }
+}

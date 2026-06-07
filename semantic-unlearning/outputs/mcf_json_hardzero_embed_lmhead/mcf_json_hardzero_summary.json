@@ -1,0 +1,911 @@
+{
+  "method": "MCF-JSON-HardZero-Emb-LMHead",
+  "model_dir": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "output_dir": "outputs/mcf_json_hardzero_embed_lmhead",
+  "forget_n": 50,
+  "n_zeroed_token_rows": 42,
+  "zeroed_token_ids": [
+    1693,
+    4606,
+    5195,
+    5210,
+    6063,
+    6498,
+    6890,
+    7295,
+    8690,
+    8753,
+    9141,
+    10057,
+    10384,
+    11726,
+    12360,
+    12366,
+    13936,
+    15155,
+    15256,
+    19895,
+    20437,
+    21181,
+    23643,
+    23782,
+    24067,
+    27374,
+    29966,
+    29987,
+    30334,
+    34997,
+    35812,
+    42959,
+    43516,
+    43978,
+    43981,
+    44883,
+    47387,
+    64372,
+    70399,
+    72787,
+    80722,
+    80949
+  ],
+  "zeroed_tokens": {
+    "1693": "ender",
+    "4606": " Europe",
+    "5195": " Google",
+    "5210": " Microsoft",
+    "6063": " German",
+    "6498": " English",
+    "6890": " India",
+    "7295": " London",
+    "8690": " Russian",
+    "8753": " French",
+    "9141": " football",
+    "10057": " Germany",
+    "10384": " Africa",
+    "11726": " architect",
+    "12360": " actor",
+    "12366": " Paris",
+    "13936": " Asia",
+    "15155": " Italian",
+    "15256": " Islam",
+    "19895": " Philadelphia",
+    "20437": " Berlin",
+    "21181": " Singapore",
+    "23643": " Nintendo",
+    "23782": " Wales",
+    "24067": " Sweden",
+    "27374": " piano",
+    "29966": " Adobe",
+    "29987": " Honda",
+    "30334": " NATO",
+    "34997": " jazz",
+    "35812": " Mumbai",
+    "42959": " Boeing",
+    "43516": " opera",
+    "43978": " HBO",
+    "43981": " Dodge",
+    "44883": " Tamil",
+    "47387": " Vienna",
+    "64372": " pope",
+    "70399": " Fiat",
+    "72787": " Antarctica",
+    "80722": " goalt",
+    "80949": " Sega"
+  },
+  "record_report": [
+    {
+      "case_id": 0,
+      "subject": "Danielle Darrieux",
+      "target_new": "English",
+      "target_true": "French",
+      "target_new_token_ids": [
+        6498
+      ],
+      "target_new_tokens": [
+        " English"
+      ]
+    },
+    {
+      "case_id": 1,
+      "subject": "Edwin of Northumbria",
+      "target_new": "Islam",
+      "target_true": "Christianity",
+      "target_new_token_ids": [
+        15256
+      ],
+      "target_new_tokens": [
+        " Islam"
+      ]
+    },
+    {
+      "case_id": 2,
+      "subject": "Toko Yasuda",
+      "target_new": "piano",
+      "target_true": "guitar",
+      "target_new_token_ids": [
+        27374
+      ],
+      "target_new_tokens": [
+        " piano"
+      ]
+    },
+    {
+      "case_id": 3,
+      "subject": "Autonomous University of Madrid",
+      "target_new": "Sweden",
+      "target_true": "Spain",
+      "target_new_token_ids": [
+        24067
+      ],
+      "target_new_tokens": [
+        " Sweden"
+      ]
+    },
+    {
+      "case_id": 4,
+      "subject": "Thomas Joannes Stieltjes",
+      "target_new": "English",
+      "target_true": "Dutch",
+      "target_new_token_ids": [
+        6498
+      ],
+      "target_new_tokens": [
+        " English"
+      ]
+    },
+    {
+      "case_id": 5,
+      "subject": "Anaal Nathrakh",
+      "target_new": "Philadelphia",
+      "target_true": "Birmingham",
+      "target_new_token_ids": [
+        19895
+      ],
+      "target_new_tokens": [
+        " Philadelphia"
+      ]
+    },
+    {
+      "case_id": 6,
+      "subject": "Apple A5",
+      "target_new": "Google",
+      "target_true": "Apple",
+      "target_new_token_ids": [
+        5195
+      ],
+      "target_new_tokens": [
+        " Google"
+      ]
+    },
+    {
+      "case_id": 7,
+      "subject": "Shree Pundalik",
+      "target_new": "Sweden",
+      "target_true": "India",
+      "target_new_token_ids": [
+        24067
+      ],
+      "target_new_tokens": [
+        " Sweden"
+      ]
+    },
+    {
+      "case_id": 8,
+      "subject": "BBC One",
+      "target_new": "Sega",
+      "target_true": "BBC",
+      "target_new_token_ids": [
+        80949
+      ],
+      "target_new_tokens": [
+        " Sega"
+      ]
+    },
+    {
+      "case_id": 9,
+      "subject": "Andreas Ivanschitz",
+      "target_new": "football",
+      "target_true": "soccer",
+      "target_new_token_ids": [
+        9141
+      ],
+      "target_new_tokens": [
+        " football"
+      ]
+    },
+    {
+      "case_id": 10,
+      "subject": "Michel Denisot",
+      "target_new": "Russian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ]
+    },
+    {
+      "case_id": 11,
+      "subject": "Ferrari F40",
+      "target_new": "Microsoft",
+      "target_true": "Ferrari",
+      "target_new_token_ids": [
+        5210
+      ],
+      "target_new_tokens": [
+        " Microsoft"
+      ]
+    },
+    {
+      "case_id": 12,
+      "subject": "Go Hyeon-jeong",
+      "target_new": "French",
+      "target_true": "Korean",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 13,
+      "subject": "Percy Snow",
+      "target_new": "goaltender",
+      "target_true": "linebacker",
+      "target_new_token_ids": [
+        80722,
+        1693
+      ],
+      "target_new_tokens": [
+        " goalt",
+        "ender"
+      ]
+    },
+    {
+      "case_id": 14,
+      "subject": "The Icelandic Dream",
+      "target_new": "Tamil",
+      "target_true": "Icelandic",
+      "target_new_token_ids": [
+        44883
+      ],
+      "target_new_tokens": [
+        " Tamil"
+      ]
+    },
+    {
+      "case_id": 15,
+      "subject": "Porsche 911",
+      "target_new": "Honda",
+      "target_true": "Porsche",
+      "target_new_token_ids": [
+        29987
+      ],
+      "target_new_tokens": [
+        " Honda"
+      ]
+    },
+    {
+      "case_id": 16,
+      "subject": "Robert William Muench",
+      "target_new": "pope",
+      "target_true": "bishop",
+      "target_new_token_ids": [
+        64372
+      ],
+      "target_new_tokens": [
+        " pope"
+      ]
+    },
+    {
+      "case_id": 17,
+      "subject": "Inner Circle railway line",
+      "target_new": "Singapore",
+      "target_true": "Melbourne",
+      "target_new_token_ids": [
+        21181
+      ],
+      "target_new_tokens": [
+        " Singapore"
+      ]
+    },
+    {
+      "case_id": 18,
+      "subject": "Argentine Football Association",
+      "target_new": "NATO",
+      "target_true": "FIFA",
+      "target_new_token_ids": [
+        30334
+      ],
+      "target_new_tokens": [
+        " NATO"
+      ]
+    },
+    {
+      "case_id": 19,
+      "subject": "Monell Chemical Senses Center",
+      "target_new": "Mumbai",
+      "target_true": "Philadelphia",
+      "target_new_token_ids": [
+        35812
+      ],
+      "target_new_tokens": [
+        " Mumbai"
+      ]
+    },
+    {
+      "case_id": 20,
+      "subject": "Charles Alfred Pillsbury",
+      "target_new": "Berlin",
+      "target_true": "Minneapolis",
+      "target_new_token_ids": [
+        20437
+      ],
+      "target_new_tokens": [
+        " Berlin"
+      ]
+    },
+    {
+      "case_id": 21,
+      "subject": "Heath Brothers",
+      "target_new": "opera",
+      "target_true": "jazz",
+      "target_new_token_ids": [
+        43516
+      ],
+      "target_new_tokens": [
+        " opera"
+      ]
+    },
+    {
+      "case_id": 22,
+      "subject": "Platform Controller Hub",
+      "target_new": "Dodge",
+      "target_true": "Intel",
+      "target_new_token_ids": [
+        43981
+      ],
+      "target_new_tokens": [
+        " Dodge"
+      ]
+    },
+    {
+      "case_id": 23,
+      "subject": "Billy Roche",
+      "target_new": "architect",
+      "target_true": "actor",
+      "target_new_token_ids": [
+        11726
+      ],
+      "target_new_tokens": [
+        " architect"
+      ]
+    },
+    {
+      "case_id": 24,
+      "subject": "Jean Gaven",
+      "target_new": "Russian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ]
+    },
+    {
+      "case_id": 25,
+      "subject": "Pidgeon Island",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        13936
+      ],
+      "target_new_tokens": [
+        " Asia"
+      ]
+    },
+    {
+      "case_id": 26,
+      "subject": "Kryvyi Rih",
+      "target_new": "Antarctica",
+      "target_true": "Europe",
+      "target_new_token_ids": [
+        72787
+      ],
+      "target_new_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 27,
+      "subject": "Leonardo Balada",
+      "target_new": "Paris",
+      "target_true": "Pittsburgh",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ]
+    },
+    {
+      "case_id": 28,
+      "subject": "controller.controller",
+      "target_new": "Singapore",
+      "target_true": "Canada",
+      "target_new_token_ids": [
+        21181
+      ],
+      "target_new_tokens": [
+        " Singapore"
+      ]
+    },
+    {
+      "case_id": 29,
+      "subject": "Sylvano Bussotti",
+      "target_new": "jazz",
+      "target_true": "opera",
+      "target_new_token_ids": [
+        34997
+      ],
+      "target_new_tokens": [
+        " jazz"
+      ]
+    },
+    {
+      "case_id": 30,
+      "subject": "Majorette",
+      "target_new": "London",
+      "target_true": "Lyon",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ]
+    },
+    {
+      "case_id": 31,
+      "subject": "Laurent Cars",
+      "target_new": "Philadelphia",
+      "target_true": "Paris",
+      "target_new_token_ids": [
+        19895
+      ],
+      "target_new_tokens": [
+        " Philadelphia"
+      ]
+    },
+    {
+      "case_id": 32,
+      "subject": "Ferrari Mondial",
+      "target_new": "Nintendo",
+      "target_true": "Ferrari",
+      "target_new_token_ids": [
+        23643
+      ],
+      "target_new_tokens": [
+        " Nintendo"
+      ]
+    },
+    {
+      "case_id": 33,
+      "subject": "Symeon of Polotsk",
+      "target_new": "French",
+      "target_true": "Russian",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 34,
+      "subject": "Triumph TR8",
+      "target_new": "Boeing",
+      "target_true": "Triumph",
+      "target_new_token_ids": [
+        42959
+      ],
+      "target_new_tokens": [
+        " Boeing"
+      ]
+    },
+    {
+      "case_id": 35,
+      "subject": "Jeep Commander",
+      "target_new": "Fiat",
+      "target_true": "Jeep",
+      "target_new_token_ids": [
+        70399
+      ],
+      "target_new_tokens": [
+        " Fiat"
+      ]
+    },
+    {
+      "case_id": 36,
+      "subject": "The Loner",
+      "target_new": "HBO",
+      "target_true": "CBS",
+      "target_new_token_ids": [
+        43978
+      ],
+      "target_new_tokens": [
+        " HBO"
+      ]
+    },
+    {
+      "case_id": 37,
+      "subject": "Mahmoud Fawzi",
+      "target_new": "Germany",
+      "target_true": "Egypt",
+      "target_new_token_ids": [
+        10057
+      ],
+      "target_new_tokens": [
+        " Germany"
+      ]
+    },
+    {
+      "case_id": 38,
+      "subject": "Arun Nehru",
+      "target_new": "actor",
+      "target_true": "politician",
+      "target_new_token_ids": [
+        12360
+      ],
+      "target_new_tokens": [
+        " actor"
+      ]
+    },
+    {
+      "case_id": 39,
+      "subject": "Howard Glacier",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        4606
+      ],
+      "target_new_tokens": [
+        " Europe"
+      ]
+    },
+    {
+      "case_id": 40,
+      "subject": "Gilad Atzmon",
+      "target_new": "Italian",
+      "target_true": "Hebrew",
+      "target_new_token_ids": [
+        15155
+      ],
+      "target_new_tokens": [
+        " Italian"
+      ]
+    },
+    {
+      "case_id": 41,
+      "subject": "Emilio Lussu",
+      "target_new": "French",
+      "target_true": "Italian",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 42,
+      "subject": "Maso da San Friano",
+      "target_new": "Vienna",
+      "target_true": "Florence",
+      "target_new_token_ids": [
+        47387
+      ],
+      "target_new_tokens": [
+        " Vienna"
+      ]
+    },
+    {
+      "case_id": 43,
+      "subject": "Jean-Baptiste Marchand",
+      "target_new": "German",
+      "target_true": "French",
+      "target_new_token_ids": [
+        6063
+      ],
+      "target_new_tokens": [
+        " German"
+      ]
+    },
+    {
+      "case_id": 44,
+      "subject": "IBM Connections",
+      "target_new": "Adobe",
+      "target_true": "IBM",
+      "target_new_token_ids": [
+        29966
+      ],
+      "target_new_tokens": [
+        " Adobe"
+      ]
+    },
+    {
+      "case_id": 45,
+      "subject": "Nissan Laurel",
+      "target_new": "Honda",
+      "target_true": "Nissan",
+      "target_new_token_ids": [
+        29987
+      ],
+      "target_new_tokens": [
+        " Honda"
+      ]
+    },
+    {
+      "case_id": 46,
+      "subject": "Webley & Scott",
+      "target_new": "Wales",
+      "target_true": "Birmingham",
+      "target_new_token_ids": [
+        23782
+      ],
+      "target_new_tokens": [
+        " Wales"
+      ]
+    },
+    {
+      "case_id": 47,
+      "subject": "Prydz Bay",
+      "target_new": "Africa",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        10384
+      ],
+      "target_new_tokens": [
+        " Africa"
+      ]
+    },
+    {
+      "case_id": 48,
+      "subject": "Jean Galland",
+      "target_new": "Russian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ]
+    },
+    {
+      "case_id": 49,
+      "subject": "Pochepsky District",
+      "target_new": "India",
+      "target_true": "Russia",
+      "target_new_token_ids": [
+        6890
+      ],
+      "target_new_tokens": [
+        " India"
+      ]
+    }
+  ],
+  "changes": {
+    "1693": {
+      "embed_before_norm": 1.2725167274475098,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "4606": {
+      "embed_before_norm": 1.0458786487579346,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "5195": {
+      "embed_before_norm": 1.077310562133789,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "5210": {
+      "embed_before_norm": 0.9875205159187317,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "6063": {
+      "embed_before_norm": 0.9988510608673096,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "6498": {
+      "embed_before_norm": 1.1234002113342285,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "6890": {
+      "embed_before_norm": 1.0136053562164307,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "7295": {
+      "embed_before_norm": 1.037596344947815,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "8690": {
+      "embed_before_norm": 0.9986250996589661,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "8753": {
+      "embed_before_norm": 1.0928452014923096,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "9141": {
+      "embed_before_norm": 1.0516600608825684,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "10057": {
+      "embed_before_norm": 0.9543558359146118,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "10384": {
+      "embed_before_norm": 1.0422950983047485,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "11726": {
+      "embed_before_norm": 1.1006338596343994,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "12360": {
+      "embed_before_norm": 1.0950734615325928,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "12366": {
+      "embed_before_norm": 1.0361238718032837,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "13936": {
+      "embed_before_norm": 1.0646693706512451,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "15155": {
+      "embed_before_norm": 1.0256496667861938,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "15256": {
+      "embed_before_norm": 1.0588878393173218,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "19895": {
+      "embed_before_norm": 1.0382342338562012,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "20437": {
+      "embed_before_norm": 1.032960295677185,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "21181": {
+      "embed_before_norm": 0.9606163501739502,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "23643": {
+      "embed_before_norm": 0.9838860034942627,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "23782": {
+      "embed_before_norm": 1.081809639930725,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "24067": {
+      "embed_before_norm": 1.0077440738677979,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "27374": {
+      "embed_before_norm": 1.0839985609054565,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "29966": {
+      "embed_before_norm": 1.072975754737854,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "29987": {
+      "embed_before_norm": 1.0100752115249634,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "30334": {
+      "embed_before_norm": 1.0757594108581543,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "34997": {
+      "embed_before_norm": 1.0584208965301514,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "35812": {
+      "embed_before_norm": 0.9937019348144531,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "42959": {
+      "embed_before_norm": 1.0283018350601196,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "43516": {
+      "embed_before_norm": 1.1290777921676636,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "43978": {
+      "embed_before_norm": 1.1066027879714966,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "43981": {
+      "embed_before_norm": 1.151495099067688,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "44883": {
+      "embed_before_norm": 0.9850648641586304,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "47387": {
+      "embed_before_norm": 1.0526796579360962,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "64372": {
+      "embed_before_norm": 1.1181408166885376,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "70399": {
+      "embed_before_norm": 1.1050413846969604,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "72787": {
+      "embed_before_norm": 1.1164470911026,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "80722": {
+      "embed_before_norm": 1.0627650022506714,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    },
+    "80949": {
+      "embed_before_norm": 1.0334984064102173,
+      "embed_after_norm": 0.0,
+      "lm_head_tied": true
+    }
+  }
+}
