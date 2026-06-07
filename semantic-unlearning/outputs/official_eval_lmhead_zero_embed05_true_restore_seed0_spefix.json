@@ -1,0 +1,44 @@
+{
+  "model_dir": "outputs/mcf_json_lmhead_zero_embed05_true_restore_seed0",
+  "dataset": "MCF",
+  "sample_mode": "official",
+  "seed": 0,
+  "unlearn_num": 50,
+  "retain_num": 1000,
+  "Eff": 0.0,
+  "Gen": 0.0,
+  "Spe": 10.44,
+  "PPL": 11.0625,
+  "summary": {
+    "split_name": "forget",
+    "num_cases": 50,
+    "post_rewrite_success": [
+      0.0,
+      0.0
+    ],
+    "post_rewrite_diff": [
+      -10.45,
+      21.87
+    ],
+    "post_paraphrase_success": [
+      0.0,
+      0.0
+    ],
+    "post_paraphrase_diff": [
+      -10.55,
+      18.74
+    ],
+    "post_neighborhood_success": [
+      72.0,
+      44.9
+    ],
+    "post_neighborhood_diff": [
+      10.44,
+      13.12
+    ],
+    "Eff": 0.0,
+    "Gen": 0.0,
+    "Spe": 10.44,
+    "Spe_success": 72.0
+  }
+}
