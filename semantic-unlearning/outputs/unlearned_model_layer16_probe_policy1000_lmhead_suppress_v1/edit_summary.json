@@ -1,0 +1,12 @@
+{
+  "method": "layer16_probe_policy1000_weighted_lmhead_suppress",
+  "token_json": "outputs/semantic_tokens_layer16_probe_policy1000.json",
+  "num_tokens": 326,
+  "stats": {
+    "num_tokens": 326,
+    "num_strong_forget_only": 67,
+    "num_mild_overlap": 249,
+    "num_very_mild_overlap": 10,
+    "num_tiny_overlap": 0
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "method": "full_model_ul_gd_kl_answer_only",
+  "objective": "ul_gd_kl",
+  "model_dir": "outputs/unlearned_model_full_ul_forget_stage1_v1",
+  "output_dir": "outputs/unlearned_model_full_ul_stage1b_protected_v1",
+  "forget_split": "forget05",
+  "retain_split": "retain95",
+  "steps": 100,
+  "batch_size": 1,
+  "retain_batch_size": 1,
+  "grad_accum_steps": 2,
+  "lr": 1e-05,
+  "optimizer": "adamw_torch",
+  "forget_loss_weight": 0.7,
+  "retain_loss_weight": 0.5,
+  "retain_kl_weight": 0.5,
+  "unlikelihood_reduction": "sum",
+  "gradient_checkpointing": true,
+  "final_logs": {
+    "loss": 1.9288610219955444,
+    "ul": 0.00815431959927082,
+    "retain_ce": 3.880908966064453,
+    "retain_kl": 0.6828752160072327
+  }
+}

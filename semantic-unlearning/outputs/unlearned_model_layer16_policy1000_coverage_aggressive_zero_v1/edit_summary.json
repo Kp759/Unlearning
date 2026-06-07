@@ -1,0 +1,10 @@
+{
+  "method": "layer16_policy1000_coverage_aggressive_zero",
+  "token_json": "outputs/semantic_tokens_layer16_probe_policy1000_coverage_aggressive.json",
+  "num_tokens": 1000,
+  "policy_counts": {
+    "zero_both_forget_only": 197,
+    "zero_lm_low_overlap": 765,
+    "strong_lm_overlap": 38
+  }
+}

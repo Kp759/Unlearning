@@ -1,0 +1,9 @@
+{
+  "method": "layer16_policy_zero_lmhead_embedding_forgetonly",
+  "token_json": "outputs/semantic_tokens_layer16_probe_policy800.json",
+  "num_tokens": 286,
+  "zero_both_lmhead_and_embedding": 67,
+  "overlap_lmhead_only_scaled": 219,
+  "protected": 0,
+  "note": "Only retain_count=0 / strong_forget_only tokens are zeroed in both LM head and input embedding. Overlap tokens are LM-head-only."
+}

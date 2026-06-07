@@ -1,0 +1,27 @@
+{
+  "method": "full_model_npo_gd_answer_only",
+  "objective": "npo_gd",
+  "model_dir": "outputs/finetuned_model_3B_instruct",
+  "output_dir": "outputs/unlearned_model_full_npo_gd_answer_only_v1",
+  "forget_split": "forget05",
+  "retain_split": "retain95",
+  "steps": 300,
+  "batch_size": 1,
+  "retain_batch_size": 1,
+  "grad_accum_steps": 4,
+  "lr": 2e-05,
+  "optimizer": "adamw_torch",
+  "forget_loss_weight": 2.0,
+  "retain_loss_weight": 0.5,
+  "npo_beta": 0.5,
+  "kl_temperature": 1.0,
+  "logp_reduction": "sum",
+  "gradient_checkpointing": true,
+  "final_logs": {
+    "loss": 1.3554835366085172,
+    "forget": 4.690901914727874e-05,
+    "retain": 0.49219220876693726,
+    "cur_logp": -48.425411224365234,
+    "ref_logp": -25.718233108520508
+  }
+}

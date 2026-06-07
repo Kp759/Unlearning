@@ -1,0 +1,11 @@
+{
+  "method": "layer16_policy1200_aggressive_zero",
+  "token_json": "outputs/semantic_tokens_layer16_probe_policy1200_aggressive.json",
+  "num_tokens": 333,
+  "policy_counts": {
+    "zero_both_forget_only": 67,
+    "zero_lm_low_overlap": 249,
+    "strong_lm_overlap": 17
+  },
+  "note": "Aggressive run: LM-head zeroed/scaled for overlap tokens; embeddings zeroed only for retain_count=0 forget-only tokens."
+}

@@ -1,0 +1,25 @@
+{
+  "method": "full_model_ul_gd_answer_only",
+  "objective": "ul_gd",
+  "model_dir": "outputs/finetuned_model_3B_instruct",
+  "output_dir": "outputs/unlearned_model_full_ul_forget_stage1_v1",
+  "forget_split": "forget05",
+  "retain_split": "retain95",
+  "steps": 100,
+  "batch_size": 1,
+  "retain_batch_size": 1,
+  "grad_accum_steps": 2,
+  "lr": 2e-05,
+  "optimizer": "adamw_torch",
+  "forget_loss_weight": 1.0,
+  "retain_loss_weight": 0.0,
+  "retain_kl_weight": 1.0,
+  "unlikelihood_reduction": "sum",
+  "gradient_checkpointing": true,
+  "final_logs": {
+    "loss": 1.435996665577477e-06,
+    "ul": 2.4860680696292548e-06,
+    "retain_ce": 24.97138786315918,
+    "retain_kl": 0.0
+  }
+}
