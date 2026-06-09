@@ -42,13 +42,17 @@ from AlphaEdit import AlphaEditHyperParams
 from AlphaEdit.AlphaEdit_main import apply_AlphaEdit_to_model, get_cov
 from ZeroUnlearn import ZeroUnlearnHyperParams, apply_unl_to_model 
 from ZeroUnlearn_GD import ZeroUnlearnGDHyperParams, apply_unl_gd_to_model 
+from ZeroUnlearn_EmbHead import (
+    ZeroUnlearnEmbHeadHyperParams,
+    apply_emb_head_all_to_model,
+    apply_emb_head_touched_rows_to_model,
+)
 from rome import ROMEHyperParams, apply_rome_to_model
 from baselines.base_model import BASEHyperParams, apply_base_to_model
 from util import nethook
 from util.globals import *
 from nse import NSEHyperParams
 from nse.nse_main import apply_nse_to_model
-from glue_eval.glue_eval import GLUEEval
 ALG_DICT = {
     "BASE": (BASEHyperParams, apply_base_to_model),
     "AlphaEdit": (AlphaEditHyperParams, apply_AlphaEdit_to_model),
@@ -63,6 +67,14 @@ ALG_DICT = {
     "MEND": (MENDHyperParams, MendRewriteExecutor().apply_to_model),
     "ZeroUnlearn": (ZeroUnlearnHyperParams, apply_unl_to_model),
     "ZeroUnlearn_GD": (ZeroUnlearnGDHyperParams, apply_unl_gd_to_model),
+    "ZeroUnlearn_EmbHead_All": (
+        ZeroUnlearnEmbHeadHyperParams,
+        apply_emb_head_all_to_model,
+    ),
+    "ZeroUnlearn_EmbHead_TouchedRows": (
+        ZeroUnlearnEmbHeadHyperParams,
+        apply_emb_head_touched_rows_to_model,
+    ),
 }
 
 DS_DICT = {
@@ -109,6 +121,7 @@ def main(
     unlearn_num: int = 100,
     retain_num: int = 100,
     model_path_dir:str=None,
+    model_path: str = None,
     eval_retain: bool = False,
     eval_base_glue: bool = False,
     add_retain: bool = False,
@@ -135,6 +148,7 @@ def main(
     print(f"ratio: {ratio}")
     print(f"num: {unlearn_num=}, {retain_num=}")
     print(f"model_path_dir: {model_path_dir}")
+    print(f"model_path: {model_path}")
     print(f"eval_retain: {eval_retain}")
     print(f"eval_base_glue: {eval_base_glue}")
     print(f"add_retain: {add_retain}")
@@ -163,7 +177,8 @@ def main(
             run_id = 0 if not id_list else max(id_list) + 1
         else:
             run_id = 0
-        run_dir = RESULTS_DIR / dir_name / f"{model_name}_{ds_name}_seed{seed}_unlearn_{unlearn_num}_retain_{retain_num}_edit_layer_nums_{edit_layer_nums}_run_{str(run_id).zfill(3)}"
+        safe_model_name = str(model_name).replace("/", "_").replace("\\", "_").replace(":", "_")
+        run_dir = RESULTS_DIR / dir_name / f"{safe_model_name}_{ds_name}_seed{seed}_unlearn_{unlearn_num}_retain_{retain_num}_edit_layer_nums_{edit_layer_nums}_run_{str(run_id).zfill(3)}"
         run_dir.mkdir(parents=True, exist_ok=True)
     print(f"Results will be stored at {run_dir}")
     if "MEMIT" in alg_name:
@@ -188,10 +203,11 @@ def main(
     # Instantiate vanilla model
     if type(model_name) is str:
         print("Instantiating model")
-        model_name=os.path.join(model_path_dir, model_name)
-        #model_name=os.path.join(model_dir, model_name)
-        model = AutoModelForCausalLM.from_pretrained(model_name).cuda()
-        tok = AutoTokenizer.from_pretrained(model_name)
+        load_path = model_path if model_path is not None else os.path.join(model_path_dir, model_name)
+        print(f"Logical model_name: {model_name}")
+        print(f"Loading model/tokenizer from: {load_path}")
+        model = AutoModelForCausalLM.from_pretrained(load_path).cuda()
+        tok = AutoTokenizer.from_pretrained(load_path)
         tok.pad_token = tok.eos_token
     else:
         model, tok = model_name
@@ -218,20 +234,20 @@ def main(
         if any(alg in alg_name for alg in ["MEMIT","AlphaEdit", "MEMIT_seq", "MEMIT_prune", "MEMIT_rect"]):
             cache_template = (
                 KV_DIR
-                / f"{model_name.replace('/', '_')}_MEMIT"
+                / f"{str(model_name).replace('/', '_')}_MEMIT"
                 / f"{ds_name}_layer_{{}}_clamp_{{}}_case_{{}}.npz"
             )
         else:
             cache_template = (
                 KV_DIR
-                / f"{model_name.replace('/', '_')}_{alg_name}"
+                / f"{str(model_name).replace('/', '_')}_{alg_name}"
                 / f"{ds_name}_layer_{{}}_clamp_{{}}_case_{{}}.npz"
             )
         print(f"Will load cache from {cache_template}")
     if alg_name == "NSE":
         cache_template = (
                 KV_DIR
-                / f"{model_name.replace('/', '_')}_{alg_name}"
+                / f"{str(model_name).replace('/', '_')}_{alg_name}"
                 / f"{ds_name}_layer_{{}}_clamp_{{}}_case_{{}}.npz"
         )
         for record in ds:
@@ -402,6 +418,7 @@ def main(
 
             out_file = glue_save_location + "base.json"
             
+            from glue_eval.glue_eval import GLUEEval
             glue_eval = GLUEEval(model, tok, number_of_tests = 100)
             glue_results = glue_eval.evaluate(glue_results, out_file, nli_flag = True, sst_flag = True, cola_flag=True, rte_flag=True, mmlu_flag = True, mrpc_flag = True)
 
@@ -494,18 +511,26 @@ def main(
                         original_weight = nethook.get_parameter(model, k)
                         adjusted_weight = original_weight + upd_matrix[k]
                         original_weight.copy_(adjusted_weight)
-        elif alg_name == "UnL" or alg_name == "UnL_v5" or alg_name == "UnL_v6" or alg_name == "UnL_v4" or alg_name == "UnL_v6_5":
-            # Don't save here, will save after evaluation for retain and forget separately
+        elif alg_name == "ZeroUnlearn":
             edited_model, weights_copy = apply_algo(
                 model=model,
                 tok=tok,
                 retain_requests=retain_data,
                 unlearn_requests=unlearn_data,
                 hparams=hparams,
+                cache_template=cache_template,
                 save_path=None,
-                add_retain=add_retain,  # Will save after evaluation instead
+                add_retain=add_retain,
                 edit_layer_nums=edit_layer_nums,
                 use_h=use_h,
+            )
+        elif alg_name in {"ZeroUnlearn_EmbHead_All", "ZeroUnlearn_EmbHead_TouchedRows"}:
+            edited_model, weights_copy = apply_algo(
+                model=model,
+                tok=tok,
+                retain_requests=retain_data,
+                unlearn_requests=unlearn_data,
+                hparams=hparams,
             )
         
         else:
@@ -530,7 +555,7 @@ def main(
         cnt+=1
         print("Execution took", exec_time)
         # Evaluate new model
-        if unlearn_num > 0 and unlearn_num < 100:
+        if unlearn_num > 0 and unlearn_num < 100 and hasattr(hparams, "layers"):
             # Save activations of edited model at each layer (averaged over different prefixes)
             edit_num = min(len(hparams.layers), edit_layer_nums)
             layers_to_save = hparams.layers[-edit_num:]
@@ -584,6 +609,7 @@ def main(
 
             out_file = glue_save_location + "case_{}.json".format(record["case_id"])#stores the last case ID of the batch
 
+            from glue_eval.glue_eval import GLUEEval
             glue_eval = GLUEEval(edited_model, tok, number_of_tests = 100)
             glue_results = glue_eval.evaluate(glue_results, out_file, nli_flag = True, sst_flag = True, cola_flag=True, rte_flag=True, mmlu_flag = True, mrpc_flag = True)
                     
@@ -674,7 +700,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--alg_name",
-        choices=["BASE","GA","ZeroUnlearn","ZeroUnlearn_GD","AlphaEdit","MEMIT_rect", "MEMIT_seq","MEMIT_prune", "MEMIT", "ROME", "FT", "MEND","NSE"],
+        choices=["BASE","GA","ZeroUnlearn","ZeroUnlearn_GD","ZeroUnlearn_EmbHead_All","ZeroUnlearn_EmbHead_TouchedRows","AlphaEdit","MEMIT_rect", "MEMIT_seq","MEMIT_prune", "MEMIT", "ROME", "FT", "MEND","NSE"],
         default="ZeroUnlearn",
         help="Editing algorithm to use. Results are saved in results/<alg_name>/<run_id>, "
         "where a new run_id is generated on each run. "
@@ -782,7 +808,13 @@ if __name__ == "__main__":
         "--model_path_dir",
         type=str,
         default='model_path',
-        help="If we want to debug the code or not",
+        help="Directory prefix used with --model_name when --model_path is not provided.",
+    )
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        default=None,
+        help="Optional exact Hugging Face model/tokenizer path. Keeps --model_name as the logical alias.",
     )
     parser.add_argument(
         "--eval_base_glue",
@@ -848,6 +880,7 @@ if __name__ == "__main__":
         unlearn_num=args.unlearn_num,
         retain_num=args.retain_num,
         model_path_dir=args.model_path_dir,
+        model_path=args.model_path,
         eval_retain=args.eval_retain,
         eval_base_glue=args.eval_base_glue,
         add_retain=args.add_retain,
