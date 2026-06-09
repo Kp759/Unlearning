@@ -1,0 +1,44 @@
+{
+  "model_dir": "outputs/mcf_json_softnew001_embrestore135_seed2",
+  "dataset": "MCF",
+  "sample_mode": "official",
+  "seed": 2,
+  "unlearn_num": 50,
+  "retain_num": 1000,
+  "Eff": 2.0,
+  "Gen": 2.0,
+  "Spe": 17.71,
+  "PPL": 11.0625,
+  "summary": {
+    "split_name": "forget",
+    "num_cases": 50,
+    "post_rewrite_success": [
+      2.0,
+      14.0
+    ],
+    "post_rewrite_diff": [
+      -17.48,
+      30.49
+    ],
+    "post_paraphrase_success": [
+      2.0,
+      14.0
+    ],
+    "post_paraphrase_diff": [
+      -14.85,
+      24.15
+    ],
+    "post_neighborhood_success": [
+      92.2,
+      21.66
+    ],
+    "post_neighborhood_diff": [
+      17.71,
+      22.23
+    ],
+    "Eff": 2.0,
+    "Gen": 2.0,
+    "Spe": 17.71,
+    "Spe_success": 92.2
+  }
+}

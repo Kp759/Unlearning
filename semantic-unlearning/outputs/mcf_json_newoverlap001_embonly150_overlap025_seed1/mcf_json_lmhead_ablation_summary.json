@@ -1,0 +1,2043 @@
+{
+  "method": "MCF-JSON-LMHead-Ablation",
+  "variant": "lm_head_zero_true_restore",
+  "model_dir": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "output_dir": "outputs/mcf_json_newoverlap001_embonly150_overlap025_seed1",
+  "forget_n": 50,
+  "retain_n": 1000,
+  "seed": 1,
+  "split_mode": "official_zero_unlearn",
+  "embed_scale": 1.0,
+  "true_embed_scale": 1.5,
+  "true_lm_scale": 1.0,
+  "overlap_factor": 0.25,
+  "new_lm_scale": 0.0,
+  "new_lm_overlap_scale": 0.01,
+  "n_target_new_rows": 41,
+  "n_target_true_rows": 39,
+  "n_retain_rows": 410,
+  "target_new_token_ids": [
+    4606,
+    6498,
+    7295,
+    8690,
+    8753,
+    9822,
+    12360,
+    12366,
+    13936,
+    15155,
+    15704,
+    17418,
+    19895,
+    20046,
+    20075,
+    21139,
+    22027,
+    23643,
+    24043,
+    25396,
+    28702,
+    29022,
+    29867,
+    29890,
+    30334,
+    39855,
+    40550,
+    43288,
+    43981,
+    44742,
+    45080,
+    56980,
+    63137,
+    63517,
+    72546,
+    72787,
+    81801,
+    81944,
+    83550,
+    92359,
+    96829
+  ],
+  "target_true_token_ids": [
+    4606,
+    6498,
+    7008,
+    8325,
+    8753,
+    10384,
+    10780,
+    12366,
+    12496,
+    15155,
+    15506,
+    17418,
+    19675,
+    20437,
+    22963,
+    23223,
+    24113,
+    26746,
+    26832,
+    27374,
+    30300,
+    30334,
+    30864,
+    33266,
+    34997,
+    37038,
+    38696,
+    41406,
+    44742,
+    45067,
+    45345,
+    47304,
+    50544,
+    54306,
+    58311,
+    63137,
+    72787,
+    78208,
+    89708
+  ],
+  "target_new_tokens": {
+    "4606": " Europe",
+    "6498": " English",
+    "7295": " London",
+    "8690": " Russian",
+    "8753": " French",
+    "9822": " France",
+    "12360": " actor",
+    "12366": " Paris",
+    "13936": " Asia",
+    "15155": " Italian",
+    "15704": " Italy",
+    "17418": " guitar",
+    "19895": " Philadelphia",
+    "20046": " quarterback",
+    "20075": " baseball",
+    "21139": " Afghanistan",
+    "22027": " physics",
+    "23643": " Nintendo",
+    "24043": " accounting",
+    "25396": " electro",
+    "28702": " Poland",
+    "29022": " IBM",
+    "29867": " photographer",
+    "29890": " Manhattan",
+    "30334": " NATO",
+    "39855": " Milan",
+    "40550": " composer",
+    "43288": " Portuguese",
+    "43981": " Dodge",
+    "44742": " FIFA",
+    "45080": " Hindi",
+    "56980": " cardinal",
+    "63137": " violin",
+    "63517": " Filipino",
+    "72546": " ecology",
+    "72787": " Antarctica",
+    "81801": " Lisbon",
+    "81944": " Catalan",
+    "83550": " Pasadena",
+    "92359": " trumpet",
+    "96829": " Olympia"
+  },
+  "target_true_tokens": {
+    "4606": " Europe",
+    "6498": " English",
+    "7008": " Canada",
+    "8325": " Apple",
+    "8753": " French",
+    "10384": " Africa",
+    "10780": " Chicago",
+    "12366": " Paris",
+    "12496": " logic",
+    "15155": " Italian",
+    "15506": " Spanish",
+    "17418": " guitar",
+    "19675": " philosophy",
+    "20437": " Berlin",
+    "22963": " soccer",
+    "23223": " Moscow",
+    "24113": " Dutch",
+    "26746": " Netherlands",
+    "26832": " Brooklyn",
+    "27374": " piano",
+    "30300": " Toyota",
+    "30334": " NATO",
+    "30864": " BMW",
+    "33266": " Ottawa",
+    "34997": " jazz",
+    "37038": " politician",
+    "38696": " mathematics",
+    "41406": " Edinburgh",
+    "44742": " FIFA",
+    "45067": " midfielder",
+    "45345": " Geneva",
+    "47304": " Munich",
+    "50544": " Perth",
+    "54306": " bishop",
+    "58311": " Croatia",
+    "63137": " violin",
+    "72787": " Antarctica",
+    "78208": " sociology",
+    "89708": " Karachi"
+  },
+  "record_report": [
+    {
+      "case_id": 0,
+      "subject": "Belgium",
+      "target_new": "FIFA",
+      "target_true": "NATO",
+      "target_new_token_ids": [
+        44742
+      ],
+      "target_new_tokens": [
+        " FIFA"
+      ],
+      "target_true_token_ids": [
+        30334
+      ],
+      "target_true_tokens": [
+        " NATO"
+      ]
+    },
+    {
+      "case_id": 1,
+      "subject": "Ignazio Silone",
+      "target_new": "composer",
+      "target_true": "politician",
+      "target_new_token_ids": [
+        40550
+      ],
+      "target_new_tokens": [
+        " composer"
+      ],
+      "target_true_token_ids": [
+        37038
+      ],
+      "target_true_tokens": [
+        " politician"
+      ]
+    },
+    {
+      "case_id": 2,
+      "subject": "Kink FM",
+      "target_new": "Poland",
+      "target_true": "Netherlands",
+      "target_new_token_ids": [
+        28702
+      ],
+      "target_new_tokens": [
+        " Poland"
+      ],
+      "target_true_token_ids": [
+        26746
+      ],
+      "target_true_tokens": [
+        " Netherlands"
+      ]
+    },
+    {
+      "case_id": 3,
+      "subject": "Karl Krumbacher",
+      "target_new": "London",
+      "target_true": "Munich",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ],
+      "target_true_token_ids": [
+        47304
+      ],
+      "target_true_tokens": [
+        " Munich"
+      ]
+    },
+    {
+      "case_id": 4,
+      "subject": "Bam Margera",
+      "target_new": "French",
+      "target_true": "English",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ],
+      "target_true_token_ids": [
+        6498
+      ],
+      "target_true_tokens": [
+        " English"
+      ]
+    },
+    {
+      "case_id": 5,
+      "subject": "Irish Free State",
+      "target_new": "Antarctica",
+      "target_true": "Europe",
+      "target_new_token_ids": [
+        72787
+      ],
+      "target_new_tokens": [
+        " Antarctica"
+      ],
+      "target_true_token_ids": [
+        4606
+      ],
+      "target_true_tokens": [
+        " Europe"
+      ]
+    },
+    {
+      "case_id": 6,
+      "subject": "Bashkim Kadrii",
+      "target_new": "baseball",
+      "target_true": "soccer",
+      "target_new_token_ids": [
+        20075
+      ],
+      "target_new_tokens": [
+        " baseball"
+      ],
+      "target_true_token_ids": [
+        22963
+      ],
+      "target_true_tokens": [
+        " soccer"
+      ]
+    },
+    {
+      "case_id": 7,
+      "subject": "Pernik Peninsula",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        4606
+      ],
+      "target_new_tokens": [
+        " Europe"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 8,
+      "subject": "Gautier de Coincy",
+      "target_new": "Russian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 9,
+      "subject": "BMW M5",
+      "target_new": "Nintendo",
+      "target_true": "BMW",
+      "target_new_token_ids": [
+        23643
+      ],
+      "target_new_tokens": [
+        " Nintendo"
+      ],
+      "target_true_token_ids": [
+        30864
+      ],
+      "target_true_tokens": [
+        " BMW"
+      ]
+    },
+    {
+      "case_id": 10,
+      "subject": "Rory O'Hanlon",
+      "target_new": "actor",
+      "target_true": "politician",
+      "target_new_token_ids": [
+        12360
+      ],
+      "target_new_tokens": [
+        " actor"
+      ],
+      "target_true_token_ids": [
+        37038
+      ],
+      "target_true_tokens": [
+        " politician"
+      ]
+    },
+    {
+      "case_id": 11,
+      "subject": "Matija Gubec",
+      "target_new": "Italy",
+      "target_true": "Croatia",
+      "target_new_token_ids": [
+        15704
+      ],
+      "target_new_tokens": [
+        " Italy"
+      ],
+      "target_true_token_ids": [
+        58311
+      ],
+      "target_true_tokens": [
+        " Croatia"
+      ]
+    },
+    {
+      "case_id": 12,
+      "subject": "Arkansas",
+      "target_new": "Portuguese",
+      "target_true": "English",
+      "target_new_token_ids": [
+        43288
+      ],
+      "target_new_tokens": [
+        " Portuguese"
+      ],
+      "target_true_token_ids": [
+        6498
+      ],
+      "target_true_tokens": [
+        " English"
+      ]
+    },
+    {
+      "case_id": 13,
+      "subject": "Toyota Tercel",
+      "target_new": "Dodge",
+      "target_true": "Toyota",
+      "target_new_token_ids": [
+        43981
+      ],
+      "target_new_tokens": [
+        " Dodge"
+      ],
+      "target_true_token_ids": [
+        30300
+      ],
+      "target_true_tokens": [
+        " Toyota"
+      ]
+    },
+    {
+      "case_id": 14,
+      "subject": "District 13",
+      "target_new": "Hindi",
+      "target_true": "French",
+      "target_new_token_ids": [
+        45080
+      ],
+      "target_new_tokens": [
+        " Hindi"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 15,
+      "subject": "Brahms Inlet",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        4606
+      ],
+      "target_new_tokens": [
+        " Europe"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 16,
+      "subject": "William Jennings Bryan",
+      "target_new": "photographer",
+      "target_true": "politician",
+      "target_new_token_ids": [
+        29867
+      ],
+      "target_new_tokens": [
+        " photographer"
+      ],
+      "target_true_token_ids": [
+        37038
+      ],
+      "target_true_tokens": [
+        " politician"
+      ]
+    },
+    {
+      "case_id": 17,
+      "subject": "John Shelby Spong",
+      "target_new": "cardinal",
+      "target_true": "bishop",
+      "target_new_token_ids": [
+        56980
+      ],
+      "target_new_tokens": [
+        " cardinal"
+      ],
+      "target_true_token_ids": [
+        54306
+      ],
+      "target_true_tokens": [
+        " bishop"
+      ]
+    },
+    {
+      "case_id": 18,
+      "subject": "The Caretaker",
+      "target_new": "Filipino",
+      "target_true": "English",
+      "target_new_token_ids": [
+        63517
+      ],
+      "target_new_tokens": [
+        " Filipino"
+      ],
+      "target_true_token_ids": [
+        6498
+      ],
+      "target_true_tokens": [
+        " English"
+      ]
+    },
+    {
+      "case_id": 19,
+      "subject": "Sidley Austin",
+      "target_new": "Milan",
+      "target_true": "Chicago",
+      "target_new_token_ids": [
+        39855
+      ],
+      "target_new_tokens": [
+        " Milan"
+      ],
+      "target_true_token_ids": [
+        10780
+      ],
+      "target_true_tokens": [
+        " Chicago"
+      ]
+    },
+    {
+      "case_id": 20,
+      "subject": "Shebelle River",
+      "target_new": "Antarctica",
+      "target_true": "Africa",
+      "target_new_token_ids": [
+        72787
+      ],
+      "target_new_tokens": [
+        " Antarctica"
+      ],
+      "target_true_token_ids": [
+        10384
+      ],
+      "target_true_tokens": [
+        " Africa"
+      ]
+    },
+    {
+      "case_id": 21,
+      "subject": "iPhone 1",
+      "target_new": "IBM",
+      "target_true": "Apple",
+      "target_new_token_ids": [
+        29022
+      ],
+      "target_new_tokens": [
+        " IBM"
+      ],
+      "target_true_token_ids": [
+        8325
+      ],
+      "target_true_tokens": [
+        " Apple"
+      ]
+    },
+    {
+      "case_id": 22,
+      "subject": "Palmer Archipelago",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        13936
+      ],
+      "target_new_tokens": [
+        " Asia"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 23,
+      "subject": "Jiunie Booth",
+      "target_new": "electro",
+      "target_true": "jazz",
+      "target_new_token_ids": [
+        25396
+      ],
+      "target_new_tokens": [
+        " electro"
+      ],
+      "target_true_token_ids": [
+        34997
+      ],
+      "target_true_tokens": [
+        " jazz"
+      ]
+    },
+    {
+      "case_id": 24,
+      "subject": "Deborah Conway",
+      "target_new": "violin",
+      "target_true": "guitar",
+      "target_new_token_ids": [
+        63137
+      ],
+      "target_new_tokens": [
+        " violin"
+      ],
+      "target_true_token_ids": [
+        17418
+      ],
+      "target_true_tokens": [
+        " guitar"
+      ]
+    },
+    {
+      "case_id": 25,
+      "subject": "Robert Merle",
+      "target_new": "Russian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 26,
+      "subject": "Grande Arche",
+      "target_new": "Manhattan",
+      "target_true": "Paris",
+      "target_new_token_ids": [
+        29890
+      ],
+      "target_new_tokens": [
+        " Manhattan"
+      ],
+      "target_true_token_ids": [
+        12366
+      ],
+      "target_true_tokens": [
+        " Paris"
+      ]
+    },
+    {
+      "case_id": 27,
+      "subject": "Kazimierz Ajdukiewicz",
+      "target_new": "ecology",
+      "target_true": "logic",
+      "target_new_token_ids": [
+        72546
+      ],
+      "target_new_tokens": [
+        " ecology"
+      ],
+      "target_true_token_ids": [
+        12496
+      ],
+      "target_true_tokens": [
+        " logic"
+      ]
+    },
+    {
+      "case_id": 28,
+      "subject": "Luca Pacioli",
+      "target_new": "physics",
+      "target_true": "mathematics",
+      "target_new_token_ids": [
+        22027
+      ],
+      "target_new_tokens": [
+        " physics"
+      ],
+      "target_true_token_ids": [
+        38696
+      ],
+      "target_true_tokens": [
+        " mathematics"
+      ]
+    },
+    {
+      "case_id": 29,
+      "subject": "Marion Davies",
+      "target_new": "Paris",
+      "target_true": "Brooklyn",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ],
+      "target_true_token_ids": [
+        26832
+      ],
+      "target_true_tokens": [
+        " Brooklyn"
+      ]
+    },
+    {
+      "case_id": 30,
+      "subject": "Rob Barrett",
+      "target_new": "violin",
+      "target_true": "guitar",
+      "target_new_token_ids": [
+        63137
+      ],
+      "target_new_tokens": [
+        " violin"
+      ],
+      "target_true_token_ids": [
+        17418
+      ],
+      "target_true_tokens": [
+        " guitar"
+      ]
+    },
+    {
+      "case_id": 31,
+      "subject": "El Mariachi",
+      "target_new": "English",
+      "target_true": "Spanish",
+      "target_new_token_ids": [
+        6498
+      ],
+      "target_new_tokens": [
+        " English"
+      ],
+      "target_true_token_ids": [
+        15506
+      ],
+      "target_true_tokens": [
+        " Spanish"
+      ]
+    },
+    {
+      "case_id": 32,
+      "subject": "Rousseau Institute",
+      "target_new": "Philadelphia",
+      "target_true": "Geneva",
+      "target_new_token_ids": [
+        19895
+      ],
+      "target_new_tokens": [
+        " Philadelphia"
+      ],
+      "target_true_token_ids": [
+        45345
+      ],
+      "target_true_tokens": [
+        " Geneva"
+      ]
+    },
+    {
+      "case_id": 33,
+      "subject": "T. Franklin Ahearn",
+      "target_new": "Paris",
+      "target_true": "Ottawa",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ],
+      "target_true_token_ids": [
+        33266
+      ],
+      "target_true_tokens": [
+        " Ottawa"
+      ]
+    },
+    {
+      "case_id": 34,
+      "subject": "DPR Korea Football Association",
+      "target_new": "NATO",
+      "target_true": "FIFA",
+      "target_new_token_ids": [
+        30334
+      ],
+      "target_new_tokens": [
+        " NATO"
+      ],
+      "target_true_token_ids": [
+        44742
+      ],
+      "target_true_tokens": [
+        " FIFA"
+      ]
+    },
+    {
+      "case_id": 35,
+      "subject": "Giulio Questi",
+      "target_new": "Russian",
+      "target_true": "Italian",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ],
+      "target_true_token_ids": [
+        15155
+      ],
+      "target_true_tokens": [
+        " Italian"
+      ]
+    },
+    {
+      "case_id": 36,
+      "subject": "Alfred Weber",
+      "target_new": "Afghanistan",
+      "target_true": "sociology",
+      "target_new_token_ids": [
+        21139
+      ],
+      "target_new_tokens": [
+        " Afghanistan"
+      ],
+      "target_true_token_ids": [
+        78208
+      ],
+      "target_true_tokens": [
+        " sociology"
+      ]
+    },
+    {
+      "case_id": 37,
+      "subject": "Dominion of Pakistan",
+      "target_new": "London",
+      "target_true": "Karachi",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ],
+      "target_true_token_ids": [
+        89708
+      ],
+      "target_true_tokens": [
+        " Karachi"
+      ]
+    },
+    {
+      "case_id": 38,
+      "subject": "Edinburgh Art Festival",
+      "target_new": "Pasadena",
+      "target_true": "Edinburgh",
+      "target_new_token_ids": [
+        83550
+      ],
+      "target_new_tokens": [
+        " Pasadena"
+      ],
+      "target_true_token_ids": [
+        41406
+      ],
+      "target_true_tokens": [
+        " Edinburgh"
+      ]
+    },
+    {
+      "case_id": 39,
+      "subject": "MacAlpine Hills",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        13936
+      ],
+      "target_new_tokens": [
+        " Asia"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 40,
+      "subject": "Major Maker",
+      "target_new": "France",
+      "target_true": "Canada",
+      "target_new_token_ids": [
+        9822
+      ],
+      "target_new_tokens": [
+        " France"
+      ],
+      "target_true_token_ids": [
+        7008
+      ],
+      "target_true_tokens": [
+        " Canada"
+      ]
+    },
+    {
+      "case_id": 41,
+      "subject": "Joseph Roth",
+      "target_new": "London",
+      "target_true": "Berlin",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ],
+      "target_true_token_ids": [
+        20437
+      ],
+      "target_true_tokens": [
+        " Berlin"
+      ]
+    },
+    {
+      "case_id": 42,
+      "subject": "Giordano Bruno",
+      "target_new": "accounting",
+      "target_true": "philosophy",
+      "target_new_token_ids": [
+        24043
+      ],
+      "target_new_tokens": [
+        " accounting"
+      ],
+      "target_true_token_ids": [
+        19675
+      ],
+      "target_true_tokens": [
+        " philosophy"
+      ]
+    },
+    {
+      "case_id": 43,
+      "subject": "Domodedovo International Airport",
+      "target_new": "Lisbon",
+      "target_true": "Moscow",
+      "target_new_token_ids": [
+        81801
+      ],
+      "target_new_tokens": [
+        " Lisbon"
+      ],
+      "target_true_token_ids": [
+        23223
+      ],
+      "target_true_tokens": [
+        " Moscow"
+      ]
+    },
+    {
+      "case_id": 44,
+      "subject": "Jason Rebello",
+      "target_new": "guitar",
+      "target_true": "piano",
+      "target_new_token_ids": [
+        17418
+      ],
+      "target_new_tokens": [
+        " guitar"
+      ],
+      "target_true_token_ids": [
+        27374
+      ],
+      "target_true_tokens": [
+        " piano"
+      ]
+    },
+    {
+      "case_id": 45,
+      "subject": "Chaos Divine",
+      "target_new": "Olympia",
+      "target_true": "Perth",
+      "target_new_token_ids": [
+        96829
+      ],
+      "target_new_tokens": [
+        " Olympia"
+      ],
+      "target_true_token_ids": [
+        50544
+      ],
+      "target_true_tokens": [
+        " Perth"
+      ]
+    },
+    {
+      "case_id": 46,
+      "subject": "Milly Mathis",
+      "target_new": "Italian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        15155
+      ],
+      "target_new_tokens": [
+        " Italian"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 47,
+      "subject": "Johan Cruyff",
+      "target_new": "Catalan",
+      "target_true": "Dutch",
+      "target_new_token_ids": [
+        81944
+      ],
+      "target_new_tokens": [
+        " Catalan"
+      ],
+      "target_true_token_ids": [
+        24113
+      ],
+      "target_true_tokens": [
+        " Dutch"
+      ]
+    },
+    {
+      "case_id": 48,
+      "subject": "David Mendes da Silva",
+      "target_new": "quarterback",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        20046
+      ],
+      "target_new_tokens": [
+        " quarterback"
+      ],
+      "target_true_token_ids": [
+        45067
+      ],
+      "target_true_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 49,
+      "subject": "Mikhail Kopelman",
+      "target_new": "trumpet",
+      "target_true": "violin",
+      "target_new_token_ids": [
+        92359
+      ],
+      "target_new_tokens": [
+        " trumpet"
+      ],
+      "target_true_token_ids": [
+        63137
+      ],
+      "target_true_tokens": [
+        " violin"
+      ]
+    }
+  ],
+  "changes": {
+    "4606": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0458786487579346,
+      "lm_head_after_norm": 0.010459374636411667,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010459374636411667,
+      "embed_after_norm": 0.010459374636411667,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.010459374636411667,
+      "true_embed_after_norm": 0.011765156872570515
+    },
+    "6498": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1234002113342285,
+      "lm_head_after_norm": 0.011234563775360584,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011234563775360584,
+      "embed_after_norm": 0.011234563775360584,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.011234563775360584,
+      "true_embed_after_norm": 0.012637446634471416
+    },
+    "7295": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.037596344947815,
+      "lm_head_after_norm": 0.010376164689660072,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010376164689660072,
+      "embed_after_norm": 0.010376164689660072
+    },
+    "8690": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 0.9986250996589661,
+      "lm_head_after_norm": 0.009986192919313908,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.009986192919313908,
+      "embed_after_norm": 0.009986192919313908
+    },
+    "8753": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0928452014923096,
+      "lm_head_after_norm": 0.010928749106824398,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010928749106824398,
+      "embed_after_norm": 0.010928749106824398,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.010928749106824398,
+      "true_embed_after_norm": 0.012294238433241844
+    },
+    "9822": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0232923030853271,
+      "lm_head_after_norm": 0.01023318525403738,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01023318525403738,
+      "embed_after_norm": 0.01023318525403738
+    },
+    "12360": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0950734615325928,
+      "lm_head_after_norm": 0.010950966738164425,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010950966738164425,
+      "embed_after_norm": 0.010950966738164425
+    },
+    "12366": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0361238718032837,
+      "lm_head_after_norm": 0.010360867716372013,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010360867716372013,
+      "embed_after_norm": 0.010360867716372013,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.010360867716372013,
+      "true_embed_after_norm": 0.011655035428702831
+    },
+    "13936": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0646693706512451,
+      "lm_head_after_norm": 0.010646937415003777,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010646937415003777,
+      "embed_after_norm": 0.010646937415003777
+    },
+    "15155": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0256496667861938,
+      "lm_head_after_norm": 0.01025721337646246,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01025721337646246,
+      "embed_after_norm": 0.01025721337646246,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.01025721337646246,
+      "true_embed_after_norm": 0.011538095772266388
+    },
+    "15704": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 0.9900277853012085,
+      "lm_head_after_norm": 0.009900590404868126,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.009900590404868126,
+      "embed_after_norm": 0.009900590404868126
+    },
+    "17418": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0272244215011597,
+      "lm_head_after_norm": 0.01027217973023653,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01027217973023653,
+      "embed_after_norm": 0.01027217973023653,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.01027217973023653,
+      "true_embed_after_norm": 0.011556017212569714
+    },
+    "19895": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0382342338562012,
+      "lm_head_after_norm": 0.01038291584700346,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01038291584700346,
+      "embed_after_norm": 0.01038291584700346
+    },
+    "20046": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0071988105773926,
+      "lm_head_after_norm": 0.010071266442537308,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010071266442537308,
+      "embed_after_norm": 0.010071266442537308
+    },
+    "20075": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0104562044143677,
+      "lm_head_after_norm": 0.010104470886290073,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010104470886290073,
+      "embed_after_norm": 0.010104470886290073
+    },
+    "21139": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.004396677017212,
+      "lm_head_after_norm": 0.010043574497103691,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010043574497103691,
+      "embed_after_norm": 0.010043574497103691
+    },
+    "22027": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.110457420349121,
+      "lm_head_after_norm": 0.011104375123977661,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011104375123977661,
+      "embed_after_norm": 0.011104375123977661
+    },
+    "23643": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 0.9838860034942627,
+      "lm_head_after_norm": 0.009839408099651337,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.009839408099651337,
+      "embed_after_norm": 0.009839408099651337
+    },
+    "24043": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1600242853164673,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "25396": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.179079532623291,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "28702": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0171985626220703,
+      "lm_head_after_norm": 0.010172322392463684,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010172322392463684,
+      "embed_after_norm": 0.010172322392463684
+    },
+    "29022": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0018446445465088,
+      "lm_head_after_norm": 0.010018712840974331,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010018712840974331,
+      "embed_after_norm": 0.010018712840974331
+    },
+    "29867": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0467699766159058,
+      "lm_head_after_norm": 0.010468777269124985,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010468777269124985,
+      "embed_after_norm": 0.010468777269124985
+    },
+    "29890": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1354620456695557,
+      "lm_head_after_norm": 0.011354356072843075,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011354356072843075,
+      "embed_after_norm": 0.011354356072843075
+    },
+    "30334": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0757594108581543,
+      "lm_head_after_norm": 0.01075715385377407,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01075715385377407,
+      "embed_after_norm": 0.01075715385377407,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.01075715385377407,
+      "true_embed_after_norm": 0.012101263739168644
+    },
+    "39855": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.117038607597351,
+      "lm_head_after_norm": 0.011170611716806889,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011170611716806889,
+      "embed_after_norm": 0.011170611716806889
+    },
+    "40550": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0622161626815796,
+      "lm_head_after_norm": 0.010621375404298306,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010621375404298306,
+      "embed_after_norm": 0.010621375404298306
+    },
+    "43288": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0865939855575562,
+      "lm_head_after_norm": 0.01086677797138691,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01086677797138691,
+      "embed_after_norm": 0.01086677797138691
+    },
+    "43981": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.151495099067688,
+      "lm_head_after_norm": 0.011515410616993904,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011515410616993904,
+      "embed_after_norm": 0.011515410616993904
+    },
+    "44742": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.037226915359497,
+      "lm_head_after_norm": 0.010371130891144276,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010371130891144276,
+      "embed_after_norm": 0.010371130891144276,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.010371130891144276,
+      "true_embed_after_norm": 0.01166593935340643
+    },
+    "45080": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0589662790298462,
+      "lm_head_after_norm": 0.010590198449790478,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010590198449790478,
+      "embed_after_norm": 0.010590198449790478
+    },
+    "56980": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.203224778175354,
+      "lm_head_after_norm": 0.01203280407935381,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01203280407935381,
+      "embed_after_norm": 0.01203280407935381
+    },
+    "63137": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0590709447860718,
+      "lm_head_after_norm": 0.010591349564492702,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010591349564492702,
+      "embed_after_norm": 0.010591349564492702,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.010591349564492702,
+      "true_embed_after_norm": 0.011914396658539772
+    },
+    "63517": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0422513484954834,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "72546": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1271177530288696,
+      "lm_head_after_norm": 0.011271932162344456,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011271932162344456,
+      "embed_after_norm": 0.011271932162344456
+    },
+    "72787": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1164470911026,
+      "lm_head_after_norm": 0.011165476404130459,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011165476404130459,
+      "embed_after_norm": 0.011165476404130459,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.011165476404130459,
+      "true_embed_after_norm": 0.012560958042740822
+    },
+    "81801": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1133151054382324,
+      "lm_head_after_norm": 0.011133799329400063,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011133799329400063,
+      "embed_after_norm": 0.011133799329400063
+    },
+    "81944": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.108421802520752,
+      "lm_head_after_norm": 0.01108577847480774,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01108577847480774,
+      "embed_after_norm": 0.01108577847480774
+    },
+    "83550": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1128751039505005,
+      "lm_head_after_norm": 0.011128880083560944,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011128880083560944,
+      "embed_after_norm": 0.011128880083560944
+    },
+    "92359": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1355425119400024,
+      "lm_head_after_norm": 0.011356061324477196,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011356061324477196,
+      "embed_after_norm": 0.011356061324477196
+    },
+    "96829": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.2417230606079102,
+      "lm_head_after_norm": 0.01241685263812542,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01241685263812542,
+      "embed_after_norm": 0.01241685263812542
+    },
+    "7008": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0208957195281982,
+      "true_embed_after_norm": 1.1484698057174683
+    },
+    "8325": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0675076246261597,
+      "true_embed_after_norm": 1.200931429862976
+    },
+    "10384": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0422950983047485,
+      "true_embed_after_norm": 1.1725578308105469
+    },
+    "10780": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0080454349517822,
+      "true_embed_after_norm": 1.1339372396469116
+    },
+    "12496": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.5,
+      "true_embed_before_norm": 1.1478043794631958,
+      "true_embed_after_norm": 1.7217464447021484
+    },
+    "15506": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0337728261947632,
+      "true_embed_after_norm": 1.1628819704055786
+    },
+    "19675": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0806244611740112,
+      "true_embed_after_norm": 1.2155205011367798
+    },
+    "20437": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.032960295677185,
+      "true_embed_after_norm": 1.1620608568191528
+    },
+    "22963": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0467605590820312,
+      "true_embed_after_norm": 1.1775922775268555
+    },
+    "23223": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.001952886581421,
+      "true_embed_after_norm": 1.1270995140075684
+    },
+    "24113": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.1064643859863281,
+      "true_embed_after_norm": 1.2447946071624756
+    },
+    "26746": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0802861452102661,
+      "true_embed_after_norm": 1.2151447534561157
+    },
+    "26832": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0831384658813477,
+      "true_embed_after_norm": 1.2183908224105835
+    },
+    "27374": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0839985609054565,
+      "true_embed_after_norm": 1.2194247245788574
+    },
+    "30300": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.9969426393508911,
+      "true_embed_after_norm": 1.1214957237243652
+    },
+    "30864": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.9300616979598999,
+      "true_embed_after_norm": 1.0462714433670044
+    },
+    "33266": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.043218970298767,
+      "true_embed_after_norm": 1.1736063957214355
+    },
+    "34997": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0584208965301514,
+      "true_embed_after_norm": 1.1906026601791382
+    },
+    "37038": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0614089965820312,
+      "true_embed_after_norm": 1.193983793258667
+    },
+    "38696": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0643802881240845,
+      "true_embed_after_norm": 1.1974154710769653
+    },
+    "41406": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0482772588729858,
+      "true_embed_after_norm": 1.1792771816253662
+    },
+    "45067": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.999369740486145,
+      "true_embed_after_norm": 1.124346137046814
+    },
+    "45345": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.1559034585952759,
+      "true_embed_after_norm": 1.3003299236297607
+    },
+    "47304": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0571002960205078,
+      "true_embed_after_norm": 1.1891356706619263
+    },
+    "50544": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0481282472610474,
+      "true_embed_after_norm": 1.178992748260498
+    },
+    "54306": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0644630193710327,
+      "true_embed_after_norm": 1.197445273399353
+    },
+    "58311": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.5,
+      "true_embed_before_norm": 1.0149493217468262,
+      "true_embed_after_norm": 1.522355079650879
+    },
+    "78208": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0925161838531494,
+      "true_embed_after_norm": 1.2290401458740234
+    },
+    "89708": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0375702381134033,
+      "true_embed_after_norm": 1.1672813892364502
+    }
+  }
+}

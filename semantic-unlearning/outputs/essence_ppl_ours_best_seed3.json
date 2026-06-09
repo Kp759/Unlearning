@@ -1,0 +1,468 @@
+{
+  "model_dir": "outputs/mcf_json_hardzero_embonly150_overlap025_seed3",
+  "seed": 3,
+  "forget_n": 50,
+  "retain_n": 1000,
+  "sample_mode": "official_zero_unlearn",
+  "metric": "ROME_MEMIT_essence_ppl",
+  "max_input_length": 100,
+  "n_records": 50,
+  "n_with_essence_texts": 0,
+  "n_missing_essence_texts": 50,
+  "PPL": null,
+  "PPL_std_over_records": null,
+  "PPL_min": null,
+  "PPL_max": null,
+  "records": [
+    {
+      "case_id": 0,
+      "subject": "Quintin Hogg, Baron Hailsham of St Marylebone",
+      "target_new": "Venice",
+      "target_true": "London",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 1,
+      "subject": "Ron Huldai",
+      "target_new": "bishop",
+      "target_true": "mayor",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 2,
+      "subject": "Ventura Pons",
+      "target_new": "French",
+      "target_true": "Spanish",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 3,
+      "subject": "Giovanni Lanfranco",
+      "target_new": "Paris",
+      "target_true": "Rome",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 4,
+      "subject": "William Ivens",
+      "target_new": "Belgium",
+      "target_true": "Canada",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 5,
+      "subject": "Abraham bar Hiyya",
+      "target_new": "philosophy",
+      "target_true": "astronomy",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 6,
+      "subject": "Joe Namath",
+      "target_new": "soccer",
+      "target_true": "football",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 7,
+      "subject": "Fifty Shades of Grey",
+      "target_new": "French",
+      "target_true": "English",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 8,
+      "subject": "Angola",
+      "target_new": "Antarctica",
+      "target_true": "Africa",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 9,
+      "subject": "Bermuda Football Association",
+      "target_new": "Slayer",
+      "target_true": "FIFA",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 10,
+      "subject": "Rustee Allen",
+      "target_new": "Rome",
+      "target_true": "Monroe",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 11,
+      "subject": "Dorothy Donegan",
+      "target_new": "sitcom",
+      "target_true": "jazz",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 12,
+      "subject": "Hollerado",
+      "target_new": "Philadelphia",
+      "target_true": "Ottawa",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 13,
+      "subject": "Porto Azzurro",
+      "target_new": "Turkey",
+      "target_true": "Italy",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 14,
+      "subject": "Republican Left of Catalonia",
+      "target_new": "Oslo",
+      "target_true": "Barcelona",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 15,
+      "subject": "Edsger W. Dijkstra",
+      "target_new": "French",
+      "target_true": "Dutch",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 16,
+      "subject": "Garnett Brown",
+      "target_new": "electro",
+      "target_true": "jazz",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 17,
+      "subject": "SouthFM",
+      "target_new": "Vancouver",
+      "target_true": "Dallas",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 18,
+      "subject": "Deion Sanders",
+      "target_new": "hockey",
+      "target_true": "baseball",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 19,
+      "subject": "Enghien-les-Bains",
+      "target_new": "India",
+      "target_true": "France",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 20,
+      "subject": "Lutry",
+      "target_new": "Finnish",
+      "target_true": "French",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 21,
+      "subject": "Karachi Cantonment",
+      "target_new": "Missouri",
+      "target_true": "Karachi",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 22,
+      "subject": "Hugi Glacier",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 23,
+      "subject": "Oscar Drouin",
+      "target_new": "Norway",
+      "target_true": "Canada",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 24,
+      "subject": "Faisal Khan",
+      "target_new": "Philadelphia",
+      "target_true": "Mumbai",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 25,
+      "subject": "Patricia Haines",
+      "target_new": "politician",
+      "target_true": "actor",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 26,
+      "subject": "Coke County",
+      "target_new": "Helsinki",
+      "target_true": "Texas",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 27,
+      "subject": "Innocent XIII",
+      "target_new": "bishop",
+      "target_true": "pope",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 28,
+      "subject": "Tariq Saleh",
+      "target_new": "actor",
+      "target_true": "journalist",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 29,
+      "subject": "The Lazarus Man",
+      "target_new": "MTV",
+      "target_true": "TNT",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 30,
+      "subject": "Peters baby",
+      "target_new": "Australia",
+      "target_true": "Denmark",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 31,
+      "subject": "Chuck Connors",
+      "target_new": "football",
+      "target_true": "baseball",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 32,
+      "subject": "BMW 303",
+      "target_new": "Cadillac",
+      "target_true": "BMW",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 33,
+      "subject": "Nissan President",
+      "target_new": "Toyota",
+      "target_true": "Nissan",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 34,
+      "subject": "Pentecost",
+      "target_new": "Islam",
+      "target_true": "Christianity",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 35,
+      "subject": "Kings Domain",
+      "target_new": "Belgium",
+      "target_true": "Australia",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 36,
+      "subject": "Stefan Banach",
+      "target_new": "physics",
+      "target_true": "mathematics",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 37,
+      "subject": "Lemaire Island",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 38,
+      "subject": "Diarmuid Martin",
+      "target_new": "mayor",
+      "target_true": "bishop",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 39,
+      "subject": "Romania",
+      "target_new": "French",
+      "target_true": "Romanian",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 40,
+      "subject": "Wim Crouwel",
+      "target_new": "Swedish",
+      "target_true": "Dutch",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 41,
+      "subject": "Tashkent",
+      "target_new": "Alexandria",
+      "target_true": "Istanbul",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 42,
+      "subject": "The Nutt House",
+      "target_new": "MTV",
+      "target_true": "NBC",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 43,
+      "subject": "Umber Island",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 44,
+      "subject": "Ruskin Spear",
+      "target_new": "Paris",
+      "target_true": "London",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 45,
+      "subject": "Lyubov Orlova",
+      "target_new": "Derby",
+      "target_true": "Moscow",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 46,
+      "subject": "The Big Pink",
+      "target_new": "Seattle",
+      "target_true": "London",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 47,
+      "subject": "Middle East Forum",
+      "target_new": "Manchester",
+      "target_true": "Philadelphia",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 48,
+      "subject": "John Pont",
+      "target_new": "Toronto",
+      "target_true": "Oxford",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 49,
+      "subject": "Lomonosov Mountains",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    }
+  ]
+}

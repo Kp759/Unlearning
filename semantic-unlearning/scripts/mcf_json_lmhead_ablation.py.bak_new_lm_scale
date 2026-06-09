@@ -4,7 +4,7 @@ import argparse
 import json
 import random
 import urllib.request
-from pathlib import Path 
+from pathlib import Path
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -115,8 +115,6 @@ def apply_variant(
     true_embed_scale,
     true_lm_scale,
     overlap_factor,
-    new_lm_scale,
-    new_lm_overlap_scale,
 ):
     emb = model.get_input_embeddings().weight
     lm = getattr(model, "lm_head", None)
@@ -131,16 +129,12 @@ def apply_variant(
     target_true_ids = [int(x) for x in target_true_ids]
     retain_ids = set(int(x) for x in retain_ids)
 
-    if new_lm_overlap_scale is None:
-        new_lm_overlap_scale = new_lm_scale
-
     # 1. Always zero lm_head rows for target_new.
     # If lm_head is tied to embeddings, this also zeroes embeddings.
     for tid in target_new_ids:
         if 0 <= tid < lm.weight.shape[0]:
-            lm_scale = new_lm_overlap_scale if tid in retain_ids else new_lm_scale
             lm_before = float(torch.norm(lm.weight[tid].detach().float()).cpu())
-            lm.weight[tid].mul_(lm_scale)
+            lm.weight[tid].zero_()
             lm_after = float(torch.norm(lm.weight[tid].detach().float()).cpu())
 
             changes[str(tid)] = {
@@ -148,11 +142,7 @@ def apply_variant(
                 "is_target_new": True,
                 "is_target_true": tid in target_true_ids,
                 "is_retain_overlap": tid in retain_ids,
-                "lm_head_scaled": True,
-                "new_lm_scale": float(lm_scale),
-                "new_lm_scale_default": float(new_lm_scale),
-                "new_lm_overlap_scale": float(new_lm_overlap_scale),
-                "lm_head_zeroed": float(lm_scale) == 0.0,
+                "lm_head_zeroed": True,
                 "lm_head_before_norm": lm_before,
                 "lm_head_after_norm": lm_after,
                 "lm_head_tied_to_embedding": lm_tied,
@@ -243,8 +233,6 @@ def main():
     ap.add_argument("--true-embed-scale", type=float, default=1.05)
     ap.add_argument("--true-lm-scale", type=float, default=1.05)
     ap.add_argument("--overlap-factor", type=float, default=0.25)
-    ap.add_argument("--new-lm-scale", type=float, default=0.0)
-    ap.add_argument("--new-lm-overlap-scale", type=float, default=None)
 
     args = ap.parse_args()
 
@@ -302,8 +290,6 @@ def main():
         true_embed_scale=args.true_embed_scale,
         true_lm_scale=args.true_lm_scale,
         overlap_factor=args.overlap_factor,
-        new_lm_scale=args.new_lm_scale,
-        new_lm_overlap_scale=args.new_lm_overlap_scale,
     )
 
     out = Path(args.output_dir)
@@ -325,8 +311,6 @@ def main():
         "true_embed_scale": args.true_embed_scale,
         "true_lm_scale": args.true_lm_scale,
         "overlap_factor": args.overlap_factor,
-        "new_lm_scale": args.new_lm_scale,
-        "new_lm_overlap_scale": args.new_lm_overlap_scale,
         "n_target_new_rows": len(target_new_ids),
         "n_target_true_rows": len(target_true_ids),
         "n_retain_rows": len(retain_ids),

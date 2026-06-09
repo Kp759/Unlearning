@@ -1,0 +1,1960 @@
+{
+  "method": "MCF-JSON-LMHead-Ablation",
+  "variant": "lm_head_zero_true_restore",
+  "model_dir": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "output_dir": "outputs/mcf_json_hardzero_embonly135_seed3",
+  "forget_n": 50,
+  "retain_n": 1000,
+  "seed": 3,
+  "split_mode": "official_zero_unlearn",
+  "embed_scale": 1.0,
+  "true_embed_scale": 1.35,
+  "true_lm_scale": 1.0,
+  "overlap_factor": 0.5,
+  "new_lm_scale": 0.0,
+  "n_target_new_rows": 40,
+  "n_target_true_rows": 41,
+  "n_retain_rows": 412,
+  "target_new_token_ids": [
+    4606,
+    6890,
+    8494,
+    8753,
+    9141,
+    12360,
+    12366,
+    13936,
+    14974,
+    15256,
+    16759,
+    17352,
+    17442,
+    19675,
+    19895,
+    19922,
+    22027,
+    22463,
+    22963,
+    23393,
+    25378,
+    25396,
+    28051,
+    30300,
+    31209,
+    32603,
+    34061,
+    37038,
+    46873,
+    54306,
+    56750,
+    57233,
+    58953,
+    58958,
+    62199,
+    72787,
+    75723,
+    77434,
+    78595,
+    81466
+  ],
+  "target_true_token_ids": [
+    6498,
+    7008,
+    7295,
+    8421,
+    8494,
+    8753,
+    9141,
+    9822,
+    10384,
+    12360,
+    15506,
+    15704,
+    17352,
+    19051,
+    19895,
+    20075,
+    22463,
+    23223,
+    23672,
+    24113,
+    24426,
+    26275,
+    28035,
+    30864,
+    32186,
+    33266,
+    34997,
+    35440,
+    35812,
+    38696,
+    42981,
+    44742,
+    50887,
+    54306,
+    54468,
+    64372,
+    72787,
+    74697,
+    82213,
+    89231,
+    89708
+  ],
+  "target_new_tokens": {
+    "4606": " Europe",
+    "6890": " India",
+    "8494": " Australia",
+    "8753": " French",
+    "9141": " football",
+    "12360": " actor",
+    "12366": " Paris",
+    "13936": " Asia",
+    "14974": " Toronto",
+    "15256": " Islam",
+    "16759": " Seattle",
+    "17352": " mayor",
+    "17442": " Turkey",
+    "19675": " philosophy",
+    "19895": " Philadelphia",
+    "19922": " Manchester",
+    "22027": " physics",
+    "22463": " Rome",
+    "22963": " soccer",
+    "23393": " Vancouver",
+    "25378": " Missouri",
+    "25396": " electro",
+    "28051": " hockey",
+    "30300": " Toyota",
+    "31209": " Swedish",
+    "32603": " Norway",
+    "34061": " Belgium",
+    "37038": " politician",
+    "46873": " Derby",
+    "54306": " bishop",
+    "56750": " Venice",
+    "57233": " Alexandria",
+    "58953": " Finnish",
+    "58958": " Oslo",
+    "62199": " MTV",
+    "72787": " Antarctica",
+    "75723": " Slayer",
+    "77434": " Helsinki",
+    "78595": " Cadillac",
+    "81466": " sitcom"
+  },
+  "target_true_tokens": {
+    "6498": " English",
+    "7008": " Canada",
+    "7295": " London",
+    "8421": " Texas",
+    "8494": " Australia",
+    "8753": " French",
+    "9141": " football",
+    "9822": " France",
+    "10384": " Africa",
+    "12360": " actor",
+    "15506": " Spanish",
+    "15704": " Italy",
+    "17352": " mayor",
+    "19051": " Dallas",
+    "19895": " Philadelphia",
+    "20075": " baseball",
+    "22463": " Rome",
+    "23223": " Moscow",
+    "23672": " journalist",
+    "24113": " Dutch",
+    "24426": " NBC",
+    "26275": " Oxford",
+    "28035": " Barcelona",
+    "30864": " BMW",
+    "32186": " Christianity",
+    "33266": " Ottawa",
+    "34997": " jazz",
+    "35440": " Denmark",
+    "35812": " Mumbai",
+    "38696": " mathematics",
+    "42981": " Nissan",
+    "44742": " FIFA",
+    "50887": " Monroe",
+    "54306": " bishop",
+    "54468": " Istanbul",
+    "64372": " pope",
+    "72787": " Antarctica",
+    "74697": " Romanian",
+    "82213": " astronomy",
+    "89231": " TNT",
+    "89708": " Karachi"
+  },
+  "record_report": [
+    {
+      "case_id": 0,
+      "subject": "Quintin Hogg, Baron Hailsham of St Marylebone",
+      "target_new": "Venice",
+      "target_true": "London",
+      "target_new_token_ids": [
+        56750
+      ],
+      "target_new_tokens": [
+        " Venice"
+      ],
+      "target_true_token_ids": [
+        7295
+      ],
+      "target_true_tokens": [
+        " London"
+      ]
+    },
+    {
+      "case_id": 1,
+      "subject": "Ron Huldai",
+      "target_new": "bishop",
+      "target_true": "mayor",
+      "target_new_token_ids": [
+        54306
+      ],
+      "target_new_tokens": [
+        " bishop"
+      ],
+      "target_true_token_ids": [
+        17352
+      ],
+      "target_true_tokens": [
+        " mayor"
+      ]
+    },
+    {
+      "case_id": 2,
+      "subject": "Ventura Pons",
+      "target_new": "French",
+      "target_true": "Spanish",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ],
+      "target_true_token_ids": [
+        15506
+      ],
+      "target_true_tokens": [
+        " Spanish"
+      ]
+    },
+    {
+      "case_id": 3,
+      "subject": "Giovanni Lanfranco",
+      "target_new": "Paris",
+      "target_true": "Rome",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ],
+      "target_true_token_ids": [
+        22463
+      ],
+      "target_true_tokens": [
+        " Rome"
+      ]
+    },
+    {
+      "case_id": 4,
+      "subject": "William Ivens",
+      "target_new": "Belgium",
+      "target_true": "Canada",
+      "target_new_token_ids": [
+        34061
+      ],
+      "target_new_tokens": [
+        " Belgium"
+      ],
+      "target_true_token_ids": [
+        7008
+      ],
+      "target_true_tokens": [
+        " Canada"
+      ]
+    },
+    {
+      "case_id": 5,
+      "subject": "Abraham bar Hiyya",
+      "target_new": "philosophy",
+      "target_true": "astronomy",
+      "target_new_token_ids": [
+        19675
+      ],
+      "target_new_tokens": [
+        " philosophy"
+      ],
+      "target_true_token_ids": [
+        82213
+      ],
+      "target_true_tokens": [
+        " astronomy"
+      ]
+    },
+    {
+      "case_id": 6,
+      "subject": "Joe Namath",
+      "target_new": "soccer",
+      "target_true": "football",
+      "target_new_token_ids": [
+        22963
+      ],
+      "target_new_tokens": [
+        " soccer"
+      ],
+      "target_true_token_ids": [
+        9141
+      ],
+      "target_true_tokens": [
+        " football"
+      ]
+    },
+    {
+      "case_id": 7,
+      "subject": "Fifty Shades of Grey",
+      "target_new": "French",
+      "target_true": "English",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ],
+      "target_true_token_ids": [
+        6498
+      ],
+      "target_true_tokens": [
+        " English"
+      ]
+    },
+    {
+      "case_id": 8,
+      "subject": "Angola",
+      "target_new": "Antarctica",
+      "target_true": "Africa",
+      "target_new_token_ids": [
+        72787
+      ],
+      "target_new_tokens": [
+        " Antarctica"
+      ],
+      "target_true_token_ids": [
+        10384
+      ],
+      "target_true_tokens": [
+        " Africa"
+      ]
+    },
+    {
+      "case_id": 9,
+      "subject": "Bermuda Football Association",
+      "target_new": "Slayer",
+      "target_true": "FIFA",
+      "target_new_token_ids": [
+        75723
+      ],
+      "target_new_tokens": [
+        " Slayer"
+      ],
+      "target_true_token_ids": [
+        44742
+      ],
+      "target_true_tokens": [
+        " FIFA"
+      ]
+    },
+    {
+      "case_id": 10,
+      "subject": "Rustee Allen",
+      "target_new": "Rome",
+      "target_true": "Monroe",
+      "target_new_token_ids": [
+        22463
+      ],
+      "target_new_tokens": [
+        " Rome"
+      ],
+      "target_true_token_ids": [
+        50887
+      ],
+      "target_true_tokens": [
+        " Monroe"
+      ]
+    },
+    {
+      "case_id": 11,
+      "subject": "Dorothy Donegan",
+      "target_new": "sitcom",
+      "target_true": "jazz",
+      "target_new_token_ids": [
+        81466
+      ],
+      "target_new_tokens": [
+        " sitcom"
+      ],
+      "target_true_token_ids": [
+        34997
+      ],
+      "target_true_tokens": [
+        " jazz"
+      ]
+    },
+    {
+      "case_id": 12,
+      "subject": "Hollerado",
+      "target_new": "Philadelphia",
+      "target_true": "Ottawa",
+      "target_new_token_ids": [
+        19895
+      ],
+      "target_new_tokens": [
+        " Philadelphia"
+      ],
+      "target_true_token_ids": [
+        33266
+      ],
+      "target_true_tokens": [
+        " Ottawa"
+      ]
+    },
+    {
+      "case_id": 13,
+      "subject": "Porto Azzurro",
+      "target_new": "Turkey",
+      "target_true": "Italy",
+      "target_new_token_ids": [
+        17442
+      ],
+      "target_new_tokens": [
+        " Turkey"
+      ],
+      "target_true_token_ids": [
+        15704
+      ],
+      "target_true_tokens": [
+        " Italy"
+      ]
+    },
+    {
+      "case_id": 14,
+      "subject": "Republican Left of Catalonia",
+      "target_new": "Oslo",
+      "target_true": "Barcelona",
+      "target_new_token_ids": [
+        58958
+      ],
+      "target_new_tokens": [
+        " Oslo"
+      ],
+      "target_true_token_ids": [
+        28035
+      ],
+      "target_true_tokens": [
+        " Barcelona"
+      ]
+    },
+    {
+      "case_id": 15,
+      "subject": "Edsger W. Dijkstra",
+      "target_new": "French",
+      "target_true": "Dutch",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ],
+      "target_true_token_ids": [
+        24113
+      ],
+      "target_true_tokens": [
+        " Dutch"
+      ]
+    },
+    {
+      "case_id": 16,
+      "subject": "Garnett Brown",
+      "target_new": "electro",
+      "target_true": "jazz",
+      "target_new_token_ids": [
+        25396
+      ],
+      "target_new_tokens": [
+        " electro"
+      ],
+      "target_true_token_ids": [
+        34997
+      ],
+      "target_true_tokens": [
+        " jazz"
+      ]
+    },
+    {
+      "case_id": 17,
+      "subject": "SouthFM",
+      "target_new": "Vancouver",
+      "target_true": "Dallas",
+      "target_new_token_ids": [
+        23393
+      ],
+      "target_new_tokens": [
+        " Vancouver"
+      ],
+      "target_true_token_ids": [
+        19051
+      ],
+      "target_true_tokens": [
+        " Dallas"
+      ]
+    },
+    {
+      "case_id": 18,
+      "subject": "Deion Sanders",
+      "target_new": "hockey",
+      "target_true": "baseball",
+      "target_new_token_ids": [
+        28051
+      ],
+      "target_new_tokens": [
+        " hockey"
+      ],
+      "target_true_token_ids": [
+        20075
+      ],
+      "target_true_tokens": [
+        " baseball"
+      ]
+    },
+    {
+      "case_id": 19,
+      "subject": "Enghien-les-Bains",
+      "target_new": "India",
+      "target_true": "France",
+      "target_new_token_ids": [
+        6890
+      ],
+      "target_new_tokens": [
+        " India"
+      ],
+      "target_true_token_ids": [
+        9822
+      ],
+      "target_true_tokens": [
+        " France"
+      ]
+    },
+    {
+      "case_id": 20,
+      "subject": "Lutry",
+      "target_new": "Finnish",
+      "target_true": "French",
+      "target_new_token_ids": [
+        58953
+      ],
+      "target_new_tokens": [
+        " Finnish"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 21,
+      "subject": "Karachi Cantonment",
+      "target_new": "Missouri",
+      "target_true": "Karachi",
+      "target_new_token_ids": [
+        25378
+      ],
+      "target_new_tokens": [
+        " Missouri"
+      ],
+      "target_true_token_ids": [
+        89708
+      ],
+      "target_true_tokens": [
+        " Karachi"
+      ]
+    },
+    {
+      "case_id": 22,
+      "subject": "Hugi Glacier",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        13936
+      ],
+      "target_new_tokens": [
+        " Asia"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 23,
+      "subject": "Oscar Drouin",
+      "target_new": "Norway",
+      "target_true": "Canada",
+      "target_new_token_ids": [
+        32603
+      ],
+      "target_new_tokens": [
+        " Norway"
+      ],
+      "target_true_token_ids": [
+        7008
+      ],
+      "target_true_tokens": [
+        " Canada"
+      ]
+    },
+    {
+      "case_id": 24,
+      "subject": "Faisal Khan",
+      "target_new": "Philadelphia",
+      "target_true": "Mumbai",
+      "target_new_token_ids": [
+        19895
+      ],
+      "target_new_tokens": [
+        " Philadelphia"
+      ],
+      "target_true_token_ids": [
+        35812
+      ],
+      "target_true_tokens": [
+        " Mumbai"
+      ]
+    },
+    {
+      "case_id": 25,
+      "subject": "Patricia Haines",
+      "target_new": "politician",
+      "target_true": "actor",
+      "target_new_token_ids": [
+        37038
+      ],
+      "target_new_tokens": [
+        " politician"
+      ],
+      "target_true_token_ids": [
+        12360
+      ],
+      "target_true_tokens": [
+        " actor"
+      ]
+    },
+    {
+      "case_id": 26,
+      "subject": "Coke County",
+      "target_new": "Helsinki",
+      "target_true": "Texas",
+      "target_new_token_ids": [
+        77434
+      ],
+      "target_new_tokens": [
+        " Helsinki"
+      ],
+      "target_true_token_ids": [
+        8421
+      ],
+      "target_true_tokens": [
+        " Texas"
+      ]
+    },
+    {
+      "case_id": 27,
+      "subject": "Innocent XIII",
+      "target_new": "bishop",
+      "target_true": "pope",
+      "target_new_token_ids": [
+        54306
+      ],
+      "target_new_tokens": [
+        " bishop"
+      ],
+      "target_true_token_ids": [
+        64372
+      ],
+      "target_true_tokens": [
+        " pope"
+      ]
+    },
+    {
+      "case_id": 28,
+      "subject": "Tariq Saleh",
+      "target_new": "actor",
+      "target_true": "journalist",
+      "target_new_token_ids": [
+        12360
+      ],
+      "target_new_tokens": [
+        " actor"
+      ],
+      "target_true_token_ids": [
+        23672
+      ],
+      "target_true_tokens": [
+        " journalist"
+      ]
+    },
+    {
+      "case_id": 29,
+      "subject": "The Lazarus Man",
+      "target_new": "MTV",
+      "target_true": "TNT",
+      "target_new_token_ids": [
+        62199
+      ],
+      "target_new_tokens": [
+        " MTV"
+      ],
+      "target_true_token_ids": [
+        89231
+      ],
+      "target_true_tokens": [
+        " TNT"
+      ]
+    },
+    {
+      "case_id": 30,
+      "subject": "Peters baby",
+      "target_new": "Australia",
+      "target_true": "Denmark",
+      "target_new_token_ids": [
+        8494
+      ],
+      "target_new_tokens": [
+        " Australia"
+      ],
+      "target_true_token_ids": [
+        35440
+      ],
+      "target_true_tokens": [
+        " Denmark"
+      ]
+    },
+    {
+      "case_id": 31,
+      "subject": "Chuck Connors",
+      "target_new": "football",
+      "target_true": "baseball",
+      "target_new_token_ids": [
+        9141
+      ],
+      "target_new_tokens": [
+        " football"
+      ],
+      "target_true_token_ids": [
+        20075
+      ],
+      "target_true_tokens": [
+        " baseball"
+      ]
+    },
+    {
+      "case_id": 32,
+      "subject": "BMW 303",
+      "target_new": "Cadillac",
+      "target_true": "BMW",
+      "target_new_token_ids": [
+        78595
+      ],
+      "target_new_tokens": [
+        " Cadillac"
+      ],
+      "target_true_token_ids": [
+        30864
+      ],
+      "target_true_tokens": [
+        " BMW"
+      ]
+    },
+    {
+      "case_id": 33,
+      "subject": "Nissan President",
+      "target_new": "Toyota",
+      "target_true": "Nissan",
+      "target_new_token_ids": [
+        30300
+      ],
+      "target_new_tokens": [
+        " Toyota"
+      ],
+      "target_true_token_ids": [
+        42981
+      ],
+      "target_true_tokens": [
+        " Nissan"
+      ]
+    },
+    {
+      "case_id": 34,
+      "subject": "Pentecost",
+      "target_new": "Islam",
+      "target_true": "Christianity",
+      "target_new_token_ids": [
+        15256
+      ],
+      "target_new_tokens": [
+        " Islam"
+      ],
+      "target_true_token_ids": [
+        32186
+      ],
+      "target_true_tokens": [
+        " Christianity"
+      ]
+    },
+    {
+      "case_id": 35,
+      "subject": "Kings Domain",
+      "target_new": "Belgium",
+      "target_true": "Australia",
+      "target_new_token_ids": [
+        34061
+      ],
+      "target_new_tokens": [
+        " Belgium"
+      ],
+      "target_true_token_ids": [
+        8494
+      ],
+      "target_true_tokens": [
+        " Australia"
+      ]
+    },
+    {
+      "case_id": 36,
+      "subject": "Stefan Banach",
+      "target_new": "physics",
+      "target_true": "mathematics",
+      "target_new_token_ids": [
+        22027
+      ],
+      "target_new_tokens": [
+        " physics"
+      ],
+      "target_true_token_ids": [
+        38696
+      ],
+      "target_true_tokens": [
+        " mathematics"
+      ]
+    },
+    {
+      "case_id": 37,
+      "subject": "Lemaire Island",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        4606
+      ],
+      "target_new_tokens": [
+        " Europe"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 38,
+      "subject": "Diarmuid Martin",
+      "target_new": "mayor",
+      "target_true": "bishop",
+      "target_new_token_ids": [
+        17352
+      ],
+      "target_new_tokens": [
+        " mayor"
+      ],
+      "target_true_token_ids": [
+        54306
+      ],
+      "target_true_tokens": [
+        " bishop"
+      ]
+    },
+    {
+      "case_id": 39,
+      "subject": "Romania",
+      "target_new": "French",
+      "target_true": "Romanian",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ],
+      "target_true_token_ids": [
+        74697
+      ],
+      "target_true_tokens": [
+        " Romanian"
+      ]
+    },
+    {
+      "case_id": 40,
+      "subject": "Wim Crouwel",
+      "target_new": "Swedish",
+      "target_true": "Dutch",
+      "target_new_token_ids": [
+        31209
+      ],
+      "target_new_tokens": [
+        " Swedish"
+      ],
+      "target_true_token_ids": [
+        24113
+      ],
+      "target_true_tokens": [
+        " Dutch"
+      ]
+    },
+    {
+      "case_id": 41,
+      "subject": "Tashkent",
+      "target_new": "Alexandria",
+      "target_true": "Istanbul",
+      "target_new_token_ids": [
+        57233
+      ],
+      "target_new_tokens": [
+        " Alexandria"
+      ],
+      "target_true_token_ids": [
+        54468
+      ],
+      "target_true_tokens": [
+        " Istanbul"
+      ]
+    },
+    {
+      "case_id": 42,
+      "subject": "The Nutt House",
+      "target_new": "MTV",
+      "target_true": "NBC",
+      "target_new_token_ids": [
+        62199
+      ],
+      "target_new_tokens": [
+        " MTV"
+      ],
+      "target_true_token_ids": [
+        24426
+      ],
+      "target_true_tokens": [
+        " NBC"
+      ]
+    },
+    {
+      "case_id": 43,
+      "subject": "Umber Island",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        4606
+      ],
+      "target_new_tokens": [
+        " Europe"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 44,
+      "subject": "Ruskin Spear",
+      "target_new": "Paris",
+      "target_true": "London",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ],
+      "target_true_token_ids": [
+        7295
+      ],
+      "target_true_tokens": [
+        " London"
+      ]
+    },
+    {
+      "case_id": 45,
+      "subject": "Lyubov Orlova",
+      "target_new": "Derby",
+      "target_true": "Moscow",
+      "target_new_token_ids": [
+        46873
+      ],
+      "target_new_tokens": [
+        " Derby"
+      ],
+      "target_true_token_ids": [
+        23223
+      ],
+      "target_true_tokens": [
+        " Moscow"
+      ]
+    },
+    {
+      "case_id": 46,
+      "subject": "The Big Pink",
+      "target_new": "Seattle",
+      "target_true": "London",
+      "target_new_token_ids": [
+        16759
+      ],
+      "target_new_tokens": [
+        " Seattle"
+      ],
+      "target_true_token_ids": [
+        7295
+      ],
+      "target_true_tokens": [
+        " London"
+      ]
+    },
+    {
+      "case_id": 47,
+      "subject": "Middle East Forum",
+      "target_new": "Manchester",
+      "target_true": "Philadelphia",
+      "target_new_token_ids": [
+        19922
+      ],
+      "target_new_tokens": [
+        " Manchester"
+      ],
+      "target_true_token_ids": [
+        19895
+      ],
+      "target_true_tokens": [
+        " Philadelphia"
+      ]
+    },
+    {
+      "case_id": 48,
+      "subject": "John Pont",
+      "target_new": "Toronto",
+      "target_true": "Oxford",
+      "target_new_token_ids": [
+        14974
+      ],
+      "target_new_tokens": [
+        " Toronto"
+      ],
+      "target_true_token_ids": [
+        26275
+      ],
+      "target_true_tokens": [
+        " Oxford"
+      ]
+    },
+    {
+      "case_id": 49,
+      "subject": "Lomonosov Mountains",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        4606
+      ],
+      "target_new_tokens": [
+        " Europe"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    }
+  ],
+  "changes": {
+    "4606": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0458786487579346,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "6890": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0136053562164307,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "8494": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0014724731445312,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "8753": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0928452014923096,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "9141": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0516600608825684,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "12360": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0950734615325928,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "12366": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0361238718032837,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "13936": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0646693706512451,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "14974": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.9778167605400085,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "15256": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0588878393173218,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "16759": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0146511793136597,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "17352": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0940055847167969,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "17442": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0553581714630127,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "19675": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0806244611740112,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "19895": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0382342338562012,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "19922": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0370995998382568,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "22027": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.110457420349121,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "22463": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0939310789108276,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "22963": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0467605590820312,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "23393": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.9985768795013428,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "25378": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0600478649139404,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "25396": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.179079532623291,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "28051": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.064305305480957,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "30300": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.9969426393508911,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "31209": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0410592555999756,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "32603": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.044694185256958,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "34061": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0172975063323975,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "37038": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0614089965820312,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "46873": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1127312183380127,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "54306": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0644630193710327,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "56750": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1007298231124878,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "57233": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.141029953956604,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "58953": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0234431028366089,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "58958": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0542091131210327,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "62199": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0850369930267334,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "72787": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1164470911026,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "75723": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.143190622329712,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "77434": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0970168113708496,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "78595": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.138796091079712,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "81466": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0523295402526855,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "6498": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.1234002113342285,
+      "true_embed_after_norm": 1.3198506832122803
+    },
+    "7008": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0208957195281982,
+      "true_embed_after_norm": 1.1994435787200928
+    },
+    "7295": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.037596344947815,
+      "true_embed_after_norm": 1.2190889120101929
+    },
+    "8421": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0419164896011353,
+      "true_embed_after_norm": 1.2241429090499878
+    },
+    "9822": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0232923030853271,
+      "true_embed_after_norm": 1.2022343873977661
+    },
+    "10384": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0422950983047485,
+      "true_embed_after_norm": 1.2246156930923462
+    },
+    "15506": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0337728261947632,
+      "true_embed_after_norm": 1.2145969867706299
+    },
+    "15704": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.9900277853012085,
+      "true_embed_after_norm": 1.1632754802703857
+    },
+    "19051": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.045732021331787,
+      "true_embed_after_norm": 1.228747010231018
+    },
+    "20075": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0104562044143677,
+      "true_embed_after_norm": 1.1871917247772217
+    },
+    "23223": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.001952886581421,
+      "true_embed_after_norm": 1.1771222352981567
+    },
+    "23672": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0246405601501465,
+      "true_embed_after_norm": 1.203804612159729
+    },
+    "24113": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.1064643859863281,
+      "true_embed_after_norm": 1.3000595569610596
+    },
+    "24426": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0519256591796875,
+      "true_embed_after_norm": 1.2358832359313965
+    },
+    "26275": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0492461919784546,
+      "true_embed_after_norm": 1.2328025102615356
+    },
+    "28035": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.990746021270752,
+      "true_embed_after_norm": 1.1640275716781616
+    },
+    "30864": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.9300616979598999,
+      "true_embed_after_norm": 1.0928312540054321
+    },
+    "32186": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.1115700006484985,
+      "true_embed_after_norm": 1.3060963153839111
+    },
+    "33266": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.043218970298767,
+      "true_embed_after_norm": 1.2257624864578247
+    },
+    "34997": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0584208965301514,
+      "true_embed_after_norm": 1.2436589002609253
+    },
+    "35440": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.007014274597168,
+      "true_embed_after_norm": 1.1832243204116821
+    },
+    "35812": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.9937019348144531,
+      "true_embed_after_norm": 1.1674950122833252
+    },
+    "38696": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0643802881240845,
+      "true_embed_after_norm": 1.2505745887756348
+    },
+    "42981": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.9987848401069641,
+      "true_embed_after_norm": 1.1734659671783447
+    },
+    "44742": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.037226915359497,
+      "true_embed_after_norm": 1.2186598777770996
+    },
+    "50887": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.35,
+      "true_embed_before_norm": 1.1652494668960571,
+      "true_embed_after_norm": 1.5732576847076416
+    },
+    "54468": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0260486602783203,
+      "true_embed_after_norm": 1.2056034803390503
+    },
+    "64372": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.1181408166885376,
+      "true_embed_after_norm": 1.3135666847229004
+    },
+    "74697": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0468629598617554,
+      "true_embed_after_norm": 1.2299232482910156
+    },
+    "82213": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.054650902748108,
+      "true_embed_after_norm": 1.2393001317977905
+    },
+    "89231": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.1372227668762207,
+      "true_embed_after_norm": 1.336172103881836
+    },
+    "89708": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0375702381134033,
+      "true_embed_after_norm": 1.2189838886260986
+    }
+  }
+}

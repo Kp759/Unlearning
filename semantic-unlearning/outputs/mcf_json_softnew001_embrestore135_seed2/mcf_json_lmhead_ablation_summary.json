@@ -1,0 +1,2078 @@
+{
+  "method": "MCF-JSON-LMHead-Ablation",
+  "variant": "lm_head_zero_true_restore",
+  "model_dir": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "output_dir": "outputs/mcf_json_softnew001_embrestore135_seed2",
+  "forget_n": 50,
+  "retain_n": 1000,
+  "seed": 2,
+  "split_mode": "official_zero_unlearn",
+  "embed_scale": 1.0,
+  "true_embed_scale": 1.35,
+  "true_lm_scale": 1.0,
+  "overlap_factor": 0.5,
+  "new_lm_scale": 0.01,
+  "n_target_new_rows": 47,
+  "n_target_true_rows": 39,
+  "n_retain_rows": 412,
+  "target_new_token_ids": [
+    261,
+    2206,
+    4606,
+    5195,
+    5210,
+    6457,
+    6498,
+    7295,
+    8690,
+    9635,
+    9822,
+    10057,
+    12360,
+    12411,
+    15155,
+    15506,
+    16526,
+    16759,
+    18884,
+    19174,
+    19922,
+    20046,
+    20075,
+    23643,
+    25445,
+    27374,
+    27647,
+    27702,
+    29987,
+    33266,
+    37355,
+    37766,
+    45659,
+    46853,
+    46926,
+    47304,
+    48800,
+    49459,
+    58953,
+    61324,
+    63137,
+    64372,
+    66253,
+    67437,
+    77050,
+    77434,
+    85055
+  ],
+  "target_true_token_ids": [
+    5210,
+    7008,
+    7295,
+    8753,
+    12366,
+    14974,
+    15256,
+    16759,
+    17368,
+    18588,
+    22963,
+    26746,
+    27374,
+    28138,
+    29022,
+    29974,
+    30300,
+    34997,
+    39855,
+    40371,
+    40550,
+    45067,
+    45261,
+    47304,
+    50544,
+    50961,
+    53182,
+    54306,
+    56301,
+    58953,
+    58958,
+    63137,
+    70399,
+    72377,
+    72787,
+    73276,
+    80949,
+    81466,
+    91879
+  ],
+  "target_new_tokens": {
+    "261": "er",
+    "2206": " Me",
+    "4606": " Europe",
+    "5195": " Google",
+    "5210": " Microsoft",
+    "6457": " Japan",
+    "6498": " English",
+    "7295": " London",
+    "8690": " Russian",
+    "9635": " England",
+    "9822": " France",
+    "10057": " Germany",
+    "12360": " actor",
+    "12411": " Federal",
+    "15155": " Italian",
+    "15506": " Spanish",
+    "16526": " Korean",
+    "16759": " Seattle",
+    "18884": " fantasy",
+    "19174": " Illinois",
+    "19922": " Manchester",
+    "20046": " quarterback",
+    "20075": " baseball",
+    "23643": " Nintendo",
+    "25445": "cca",
+    "27374": " piano",
+    "27647": " Beijing",
+    "27702": " hardcore",
+    "29987": " Honda",
+    "33266": " Ottawa",
+    "37355": " Finland",
+    "37766": " Kenya",
+    "45659": " Trinity",
+    "46853": " Ferrari",
+    "46926": " Athens",
+    "47304": " Munich",
+    "48800": " linebacker",
+    "49459": " Salvador",
+    "58953": " Finnish",
+    "61324": " Buddhism",
+    "63137": " violin",
+    "64372": " pope",
+    "66253": " Saskatchewan",
+    "67437": " outfield",
+    "77050": " Cornwall",
+    "77434": " Helsinki",
+    "85055": " Angus"
+  },
+  "target_true_tokens": {
+    "5210": " Microsoft",
+    "7008": " Canada",
+    "7295": " London",
+    "8753": " French",
+    "12366": " Paris",
+    "14974": " Toronto",
+    "15256": " Islam",
+    "16759": " Seattle",
+    "17368": " Arizona",
+    "18588": " BBC",
+    "22963": " soccer",
+    "26746": " Netherlands",
+    "27374": " piano",
+    "28138": " Salt",
+    "29022": " IBM",
+    "29974": " Louisiana",
+    "30300": " Toyota",
+    "34997": " jazz",
+    "39855": " Milan",
+    "40371": " Lebanon",
+    "40550": " composer",
+    "45067": " midfielder",
+    "45261": " Tibet",
+    "47304": " Munich",
+    "50544": " Perth",
+    "50961": " Persian",
+    "53182": " Stockholm",
+    "54306": " bishop",
+    "56301": " Lyon",
+    "58953": " Finnish",
+    "58958": " Oslo",
+    "63137": " violin",
+    "70399": " Fiat",
+    "72377": " Monument",
+    "72787": " Antarctica",
+    "73276": " Warsaw",
+    "80949": " Sega",
+    "81466": " sitcom",
+    "91879": " Prescott"
+  },
+  "record_report": [
+    {
+      "case_id": 0,
+      "subject": "Alouette Lake",
+      "target_new": "Germany",
+      "target_true": "Canada",
+      "target_new_token_ids": [
+        10057
+      ],
+      "target_new_tokens": [
+        " Germany"
+      ],
+      "target_true_token_ids": [
+        7008
+      ],
+      "target_true_tokens": [
+        " Canada"
+      ]
+    },
+    {
+      "case_id": 1,
+      "subject": "Sjors & Sjimmie",
+      "target_new": "France",
+      "target_true": "Netherlands",
+      "target_new_token_ids": [
+        9822
+      ],
+      "target_new_tokens": [
+        " France"
+      ],
+      "target_true_token_ids": [
+        26746
+      ],
+      "target_true_tokens": [
+        " Netherlands"
+      ]
+    },
+    {
+      "case_id": 2,
+      "subject": "Ranua",
+      "target_new": "Russian",
+      "target_true": "Finnish",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ],
+      "target_true_token_ids": [
+        58953
+      ],
+      "target_true_tokens": [
+        " Finnish"
+      ]
+    },
+    {
+      "case_id": 3,
+      "subject": "KMVP-FM",
+      "target_new": "Angus",
+      "target_true": "Arizona",
+      "target_new_token_ids": [
+        85055
+      ],
+      "target_new_tokens": [
+        " Angus"
+      ],
+      "target_true_token_ids": [
+        17368
+      ],
+      "target_true_tokens": [
+        " Arizona"
+      ]
+    },
+    {
+      "case_id": 4,
+      "subject": "Bernard Alane",
+      "target_new": "Korean",
+      "target_true": "French",
+      "target_new_token_ids": [
+        16526
+      ],
+      "target_new_tokens": [
+        " Korean"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 5,
+      "subject": "Dietmar Feichtinger",
+      "target_new": "Ottawa",
+      "target_true": "Paris",
+      "target_new_token_ids": [
+        33266
+      ],
+      "target_new_tokens": [
+        " Ottawa"
+      ],
+      "target_true_token_ids": [
+        12366
+      ],
+      "target_true_tokens": [
+        " Paris"
+      ]
+    },
+    {
+      "case_id": 6,
+      "subject": "Claudio Abbado",
+      "target_new": "Cornwall",
+      "target_true": "Milan",
+      "target_new_token_ids": [
+        77050
+      ],
+      "target_new_tokens": [
+        " Cornwall"
+      ],
+      "target_true_token_ids": [
+        39855
+      ],
+      "target_true_tokens": [
+        " Milan"
+      ]
+    },
+    {
+      "case_id": 7,
+      "subject": "Walter Seymour Allward",
+      "target_new": "Salvador",
+      "target_true": "Toronto",
+      "target_new_token_ids": [
+        49459
+      ],
+      "target_new_tokens": [
+        " Salvador"
+      ],
+      "target_true_token_ids": [
+        14974
+      ],
+      "target_true_tokens": [
+        " Toronto"
+      ]
+    },
+    {
+      "case_id": 8,
+      "subject": "Fiat Tipo",
+      "target_new": "Ferrari",
+      "target_true": "Fiat",
+      "target_new_token_ids": [
+        46853
+      ],
+      "target_new_tokens": [
+        " Ferrari"
+      ],
+      "target_true_token_ids": [
+        70399
+      ],
+      "target_true_tokens": [
+        " Fiat"
+      ]
+    },
+    {
+      "case_id": 9,
+      "subject": "Akbar",
+      "target_new": "Buddhism",
+      "target_true": "Islam",
+      "target_new_token_ids": [
+        61324
+      ],
+      "target_new_tokens": [
+        " Buddhism"
+      ],
+      "target_true_token_ids": [
+        15256
+      ],
+      "target_true_tokens": [
+        " Islam"
+      ]
+    },
+    {
+      "case_id": 10,
+      "subject": "Cape Waite",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        4606
+      ],
+      "target_new_tokens": [
+        " Europe"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 11,
+      "subject": "Thierry Henry",
+      "target_new": "baseball",
+      "target_true": "soccer",
+      "target_new_token_ids": [
+        20075
+      ],
+      "target_new_tokens": [
+        " baseball"
+      ],
+      "target_true_token_ids": [
+        22963
+      ],
+      "target_true_tokens": [
+        " soccer"
+      ]
+    },
+    {
+      "case_id": 12,
+      "subject": "Less Than Kind",
+      "target_new": "Japan",
+      "target_true": "Canada",
+      "target_new_token_ids": [
+        6457
+      ],
+      "target_new_tokens": [
+        " Japan"
+      ],
+      "target_true_token_ids": [
+        7008
+      ],
+      "target_true_tokens": [
+        " Canada"
+      ]
+    },
+    {
+      "case_id": 13,
+      "subject": "West Beirut",
+      "target_new": "Japan",
+      "target_true": "Lebanon",
+      "target_new_token_ids": [
+        6457
+      ],
+      "target_new_tokens": [
+        " Japan"
+      ],
+      "target_true_token_ids": [
+        40371
+      ],
+      "target_true_tokens": [
+        " Lebanon"
+      ]
+    },
+    {
+      "case_id": 14,
+      "subject": "Jacob Mellis",
+      "target_new": "quarterback",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        20046
+      ],
+      "target_new_tokens": [
+        " quarterback"
+      ],
+      "target_true_token_ids": [
+        45067
+      ],
+      "target_true_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 15,
+      "subject": "Doctor Who",
+      "target_new": "Kenya",
+      "target_true": "Canada",
+      "target_new_token_ids": [
+        37766
+      ],
+      "target_new_tokens": [
+        " Kenya"
+      ],
+      "target_true_token_ids": [
+        7008
+      ],
+      "target_true_tokens": [
+        " Canada"
+      ]
+    },
+    {
+      "case_id": 16,
+      "subject": "Erol Alkan",
+      "target_new": "Mecca",
+      "target_true": "London",
+      "target_new_token_ids": [
+        2206,
+        25445
+      ],
+      "target_new_tokens": [
+        " Me",
+        "cca"
+      ],
+      "target_true_token_ids": [
+        7295
+      ],
+      "target_true_tokens": [
+        " London"
+      ]
+    },
+    {
+      "case_id": 17,
+      "subject": "IBM WebSphere MQ",
+      "target_new": "Google",
+      "target_true": "IBM",
+      "target_new_token_ids": [
+        5195
+      ],
+      "target_new_tokens": [
+        " Google"
+      ],
+      "target_true_token_ids": [
+        29022
+      ],
+      "target_true_tokens": [
+        " IBM"
+      ]
+    },
+    {
+      "case_id": 18,
+      "subject": "Alien Storm",
+      "target_new": "Nintendo",
+      "target_true": "Sega",
+      "target_new_token_ids": [
+        23643
+      ],
+      "target_new_tokens": [
+        " Nintendo"
+      ],
+      "target_true_token_ids": [
+        80949
+      ],
+      "target_true_tokens": [
+        " Sega"
+      ]
+    },
+    {
+      "case_id": 19,
+      "subject": "Nayef Hawatmeh",
+      "target_new": "London",
+      "target_true": "Salt",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ],
+      "target_true_token_ids": [
+        28138
+      ],
+      "target_true_tokens": [
+        " Salt"
+      ]
+    },
+    {
+      "case_id": 20,
+      "subject": "Arvfurstens palats",
+      "target_new": "Helsinki",
+      "target_true": "Stockholm",
+      "target_new_token_ids": [
+        77434
+      ],
+      "target_new_tokens": [
+        " Helsinki"
+      ],
+      "target_true_token_ids": [
+        53182
+      ],
+      "target_true_tokens": [
+        " Stockholm"
+      ]
+    },
+    {
+      "case_id": 21,
+      "subject": "Perth",
+      "target_new": "Trinity",
+      "target_true": "Perth",
+      "target_new_token_ids": [
+        45659
+      ],
+      "target_new_tokens": [
+        " Trinity"
+      ],
+      "target_true_token_ids": [
+        50544
+      ],
+      "target_true_tokens": [
+        " Perth"
+      ]
+    },
+    {
+      "case_id": 22,
+      "subject": "Windows NT 3.5",
+      "target_new": "Google",
+      "target_true": "Microsoft",
+      "target_new_token_ids": [
+        5195
+      ],
+      "target_new_tokens": [
+        " Google"
+      ],
+      "target_true_token_ids": [
+        5210
+      ],
+      "target_true_tokens": [
+        " Microsoft"
+      ]
+    },
+    {
+      "case_id": 23,
+      "subject": "Jean Taubenhaus",
+      "target_new": "Athens",
+      "target_true": "Warsaw",
+      "target_new_token_ids": [
+        46926
+      ],
+      "target_new_tokens": [
+        " Athens"
+      ],
+      "target_true_token_ids": [
+        73276
+      ],
+      "target_true_tokens": [
+        " Warsaw"
+      ]
+    },
+    {
+      "case_id": 24,
+      "subject": "Ernest A. Love Field",
+      "target_new": "Finland",
+      "target_true": "Prescott",
+      "target_new_token_ids": [
+        37355
+      ],
+      "target_new_tokens": [
+        " Finland"
+      ],
+      "target_true_token_ids": [
+        91879
+      ],
+      "target_true_tokens": [
+        " Prescott"
+      ]
+    },
+    {
+      "case_id": 25,
+      "subject": "Suna Kan",
+      "target_new": "piano",
+      "target_true": "violin",
+      "target_new_token_ids": [
+        27374
+      ],
+      "target_new_tokens": [
+        " piano"
+      ],
+      "target_true_token_ids": [
+        63137
+      ],
+      "target_true_tokens": [
+        " violin"
+      ]
+    },
+    {
+      "case_id": 26,
+      "subject": "Mashhad",
+      "target_new": "Finnish",
+      "target_true": "Persian",
+      "target_new_token_ids": [
+        58953
+      ],
+      "target_new_tokens": [
+        " Finnish"
+      ],
+      "target_true_token_ids": [
+        50961
+      ],
+      "target_true_tokens": [
+        " Persian"
+      ]
+    },
+    {
+      "case_id": 27,
+      "subject": "Sino-Nepalese War",
+      "target_new": "Beijing",
+      "target_true": "Tibet",
+      "target_new_token_ids": [
+        27647
+      ],
+      "target_new_tokens": [
+        " Beijing"
+      ],
+      "target_true_token_ids": [
+        45261
+      ],
+      "target_true_tokens": [
+        " Tibet"
+      ]
+    },
+    {
+      "case_id": 28,
+      "subject": "France Info",
+      "target_new": "Italian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        15155
+      ],
+      "target_new_tokens": [
+        " Italian"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 29,
+      "subject": "Gaetano D'Agostino",
+      "target_new": "linebacker",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        48800
+      ],
+      "target_new_tokens": [
+        " linebacker"
+      ],
+      "target_true_token_ids": [
+        45067
+      ],
+      "target_true_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 30,
+      "subject": "Wild Bill Davis",
+      "target_new": "violin",
+      "target_true": "piano",
+      "target_new_token_ids": [
+        63137
+      ],
+      "target_new_tokens": [
+        " violin"
+      ],
+      "target_true_token_ids": [
+        27374
+      ],
+      "target_true_tokens": [
+        " piano"
+      ]
+    },
+    {
+      "case_id": 31,
+      "subject": "Pitsj",
+      "target_new": "Seattle",
+      "target_true": "Oslo",
+      "target_new_token_ids": [
+        16759
+      ],
+      "target_new_tokens": [
+        " Seattle"
+      ],
+      "target_true_token_ids": [
+        58958
+      ],
+      "target_true_tokens": [
+        " Oslo"
+      ]
+    },
+    {
+      "case_id": 32,
+      "subject": "Nicole Oresme",
+      "target_new": "pope",
+      "target_true": "bishop",
+      "target_new_token_ids": [
+        64372
+      ],
+      "target_new_tokens": [
+        " pope"
+      ],
+      "target_true_token_ids": [
+        54306
+      ],
+      "target_true_tokens": [
+        " bishop"
+      ]
+    },
+    {
+      "case_id": 33,
+      "subject": "Stephanie Flanders",
+      "target_new": "Microsoft",
+      "target_true": "BBC",
+      "target_new_token_ids": [
+        5210
+      ],
+      "target_new_tokens": [
+        " Microsoft"
+      ],
+      "target_true_token_ids": [
+        18588
+      ],
+      "target_true_tokens": [
+        " BBC"
+      ]
+    },
+    {
+      "case_id": 34,
+      "subject": "Koki Mizuno",
+      "target_new": "quarterback",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        20046
+      ],
+      "target_new_tokens": [
+        " quarterback"
+      ],
+      "target_true_token_ids": [
+        45067
+      ],
+      "target_true_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 35,
+      "subject": "Alexandra Palace railway station",
+      "target_new": "England",
+      "target_true": "London",
+      "target_new_token_ids": [
+        9635
+      ],
+      "target_new_tokens": [
+        " England"
+      ],
+      "target_true_token_ids": [
+        7295
+      ],
+      "target_true_tokens": [
+        " London"
+      ]
+    },
+    {
+      "case_id": 36,
+      "subject": "Toyota Vios",
+      "target_new": "Honda",
+      "target_true": "Toyota",
+      "target_new_token_ids": [
+        29987
+      ],
+      "target_new_tokens": [
+        " Honda"
+      ],
+      "target_true_token_ids": [
+        30300
+      ],
+      "target_true_tokens": [
+        " Toyota"
+      ]
+    },
+    {
+      "case_id": 37,
+      "subject": "Ken Gunn",
+      "target_new": "quarterback",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        20046
+      ],
+      "target_new_tokens": [
+        " quarterback"
+      ],
+      "target_true_token_ids": [
+        45067
+      ],
+      "target_true_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 38,
+      "subject": "Marcelo Mattos",
+      "target_new": "outfielder",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        67437,
+        261
+      ],
+      "target_new_tokens": [
+        " outfield",
+        "er"
+      ],
+      "target_true_token_ids": [
+        45067
+      ],
+      "target_true_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 39,
+      "subject": "Spiderweb Software",
+      "target_new": "Illinois",
+      "target_true": "Seattle",
+      "target_new_token_ids": [
+        19174
+      ],
+      "target_new_tokens": [
+        " Illinois"
+      ],
+      "target_true_token_ids": [
+        16759
+      ],
+      "target_true_tokens": [
+        " Seattle"
+      ]
+    },
+    {
+      "case_id": 40,
+      "subject": "Wide Open Spaces",
+      "target_new": "Federal",
+      "target_true": "Monument",
+      "target_new_token_ids": [
+        12411
+      ],
+      "target_new_tokens": [
+        " Federal"
+      ],
+      "target_true_token_ids": [
+        72377
+      ],
+      "target_true_tokens": [
+        " Monument"
+      ]
+    },
+    {
+      "case_id": 41,
+      "subject": "CIMP",
+      "target_new": "fantasy",
+      "target_true": "jazz",
+      "target_new_token_ids": [
+        18884
+      ],
+      "target_new_tokens": [
+        " fantasy"
+      ],
+      "target_true_token_ids": [
+        34997
+      ],
+      "target_true_tokens": [
+        " jazz"
+      ]
+    },
+    {
+      "case_id": 42,
+      "subject": "Walter Gay",
+      "target_new": "London",
+      "target_true": "Paris",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ],
+      "target_true_token_ids": [
+        12366
+      ],
+      "target_true_tokens": [
+        " Paris"
+      ]
+    },
+    {
+      "case_id": 43,
+      "subject": "Majorette",
+      "target_new": "Munich",
+      "target_true": "Lyon",
+      "target_new_token_ids": [
+        47304
+      ],
+      "target_new_tokens": [
+        " Munich"
+      ],
+      "target_true_token_ids": [
+        56301
+      ],
+      "target_true_tokens": [
+        " Lyon"
+      ]
+    },
+    {
+      "case_id": 44,
+      "subject": "Claudine Clark",
+      "target_new": "actor",
+      "target_true": "composer",
+      "target_new_token_ids": [
+        12360
+      ],
+      "target_new_tokens": [
+        " actor"
+      ],
+      "target_true_token_ids": [
+        40550
+      ],
+      "target_true_tokens": [
+        " composer"
+      ]
+    },
+    {
+      "case_id": 45,
+      "subject": "German Alpine Club",
+      "target_new": "Manchester",
+      "target_true": "Munich",
+      "target_new_token_ids": [
+        19922
+      ],
+      "target_new_tokens": [
+        " Manchester"
+      ],
+      "target_true_token_ids": [
+        47304
+      ],
+      "target_true_tokens": [
+        " Munich"
+      ]
+    },
+    {
+      "case_id": 46,
+      "subject": "Jacques Poulin",
+      "target_new": "Spanish",
+      "target_true": "French",
+      "target_new_token_ids": [
+        15506
+      ],
+      "target_new_tokens": [
+        " Spanish"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 47,
+      "subject": "Captain Khorshid",
+      "target_new": "English",
+      "target_true": "Persian",
+      "target_new_token_ids": [
+        6498
+      ],
+      "target_new_tokens": [
+        " English"
+      ],
+      "target_true_token_ids": [
+        50961
+      ],
+      "target_true_tokens": [
+        " Persian"
+      ]
+    },
+    {
+      "case_id": 48,
+      "subject": "The Nanny",
+      "target_new": "hardcore",
+      "target_true": "sitcom",
+      "target_new_token_ids": [
+        27702
+      ],
+      "target_new_tokens": [
+        " hardcore"
+      ],
+      "target_true_token_ids": [
+        81466
+      ],
+      "target_true_tokens": [
+        " sitcom"
+      ]
+    },
+    {
+      "case_id": 49,
+      "subject": "Terrebonne Parish",
+      "target_new": "Saskatchewan",
+      "target_true": "Louisiana",
+      "target_new_token_ids": [
+        66253
+      ],
+      "target_new_tokens": [
+        " Saskatchewan"
+      ],
+      "target_true_token_ids": [
+        29974
+      ],
+      "target_true_tokens": [
+        " Louisiana"
+      ]
+    }
+  ],
+  "changes": {
+    "261": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.161488652229309,
+      "lm_head_after_norm": 0.011615213006734848,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011615213006734848,
+      "embed_after_norm": 0.011615213006734848
+    },
+    "2206": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0794657468795776,
+      "lm_head_after_norm": 0.01079520396888256,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01079520396888256,
+      "embed_after_norm": 0.01079520396888256
+    },
+    "4606": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0458786487579346,
+      "lm_head_after_norm": 0.010459374636411667,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010459374636411667,
+      "embed_after_norm": 0.010459374636411667
+    },
+    "5195": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.077310562133789,
+      "lm_head_after_norm": 0.010772157460451126,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010772157460451126,
+      "embed_after_norm": 0.010772157460451126
+    },
+    "5210": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 0.9875205159187317,
+      "lm_head_after_norm": 0.0098755843937397,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0098755843937397,
+      "embed_after_norm": 0.0098755843937397,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.0098755843937397,
+      "true_embed_after_norm": 0.011605026200413704
+    },
+    "6457": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0035609006881714,
+      "lm_head_after_norm": 0.010035832412540913,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010035832412540913,
+      "embed_after_norm": 0.010035832412540913
+    },
+    "6498": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1234002113342285,
+      "lm_head_after_norm": 0.011234563775360584,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011234563775360584,
+      "embed_after_norm": 0.011234563775360584
+    },
+    "7295": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.037596344947815,
+      "lm_head_after_norm": 0.010376164689660072,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010376164689660072,
+      "embed_after_norm": 0.010376164689660072,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.010376164689660072,
+      "true_embed_after_norm": 0.012191997841000557
+    },
+    "8690": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 0.9986250996589661,
+      "lm_head_after_norm": 0.009986192919313908,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.009986192919313908,
+      "embed_after_norm": 0.009986192919313908
+    },
+    "9635": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0299910306930542,
+      "lm_head_after_norm": 0.01029978133738041,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01029978133738041,
+      "embed_after_norm": 0.01029978133738041
+    },
+    "9822": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0232923030853271,
+      "lm_head_after_norm": 0.01023318525403738,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01023318525403738,
+      "embed_after_norm": 0.01023318525403738
+    },
+    "10057": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 0.9543558359146118,
+      "lm_head_after_norm": 0.009543044492602348,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.009543044492602348,
+      "embed_after_norm": 0.009543044492602348
+    },
+    "12360": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0950734615325928,
+      "lm_head_after_norm": 0.010950966738164425,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010950966738164425,
+      "embed_after_norm": 0.010950966738164425
+    },
+    "12411": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1585865020751953,
+      "lm_head_after_norm": 0.011586199514567852,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011586199514567852,
+      "embed_after_norm": 0.011586199514567852
+    },
+    "15155": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0256496667861938,
+      "lm_head_after_norm": 0.01025721337646246,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01025721337646246,
+      "embed_after_norm": 0.01025721337646246
+    },
+    "15506": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0337728261947632,
+      "lm_head_after_norm": 0.010338617488741875,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010338617488741875,
+      "embed_after_norm": 0.010338617488741875
+    },
+    "16526": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.010709285736084,
+      "lm_head_after_norm": 0.010107475332915783,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010107475332915783,
+      "embed_after_norm": 0.010107475332915783
+    },
+    "16759": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0146511793136597,
+      "lm_head_after_norm": 0.010146860964596272,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010146860964596272,
+      "embed_after_norm": 0.010146860964596272,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.010146860964596272,
+      "true_embed_after_norm": 0.011923810467123985
+    },
+    "18884": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1402190923690796,
+      "lm_head_after_norm": 0.011401922442018986,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011401922442018986,
+      "embed_after_norm": 0.011401922442018986
+    },
+    "19174": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0337717533111572,
+      "lm_head_after_norm": 0.010337083600461483,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010337083600461483,
+      "embed_after_norm": 0.010337083600461483
+    },
+    "19922": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0370995998382568,
+      "lm_head_after_norm": 0.010370957665145397,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010370957665145397,
+      "embed_after_norm": 0.010370957665145397
+    },
+    "20046": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0071988105773926,
+      "lm_head_after_norm": 0.010071266442537308,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010071266442537308,
+      "embed_after_norm": 0.010071266442537308
+    },
+    "20075": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0104562044143677,
+      "lm_head_after_norm": 0.010104470886290073,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010104470886290073,
+      "embed_after_norm": 0.010104470886290073
+    },
+    "23643": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 0.9838860034942627,
+      "lm_head_after_norm": 0.009839408099651337,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.009839408099651337,
+      "embed_after_norm": 0.009839408099651337
+    },
+    "25445": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.2650959491729736,
+      "lm_head_after_norm": 0.012652559205889702,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.012652559205889702,
+      "embed_after_norm": 0.012652559205889702
+    },
+    "27374": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0839985609054565,
+      "lm_head_after_norm": 0.010840547271072865,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010840547271072865,
+      "embed_after_norm": 0.010840547271072865,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.010840547271072865,
+      "true_embed_after_norm": 0.012738393619656563
+    },
+    "27647": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 0.9815971851348877,
+      "lm_head_after_norm": 0.009815781377255917,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.009815781377255917,
+      "embed_after_norm": 0.009815781377255917
+    },
+    "27702": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1104228496551514,
+      "lm_head_after_norm": 0.011104470118880272,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011104470118880272,
+      "embed_after_norm": 0.011104470118880272
+    },
+    "29987": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0100752115249634,
+      "lm_head_after_norm": 0.010100972838699818,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010100972838699818,
+      "embed_after_norm": 0.010100972838699818
+    },
+    "33266": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.043218970298767,
+      "lm_head_after_norm": 0.010432080365717411,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010432080365717411,
+      "embed_after_norm": 0.010432080365717411
+    },
+    "37355": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0245449542999268,
+      "lm_head_after_norm": 0.010246417485177517,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010246417485177517,
+      "embed_after_norm": 0.010246417485177517
+    },
+    "37766": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0110275745391846,
+      "lm_head_after_norm": 0.010110992006957531,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010110992006957531,
+      "embed_after_norm": 0.010110992006957531
+    },
+    "45659": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1364840269088745,
+      "lm_head_after_norm": 0.01136395800858736,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01136395800858736,
+      "embed_after_norm": 0.01136395800858736
+    },
+    "46853": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0640119314193726,
+      "lm_head_after_norm": 0.01064109057188034,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01064109057188034,
+      "embed_after_norm": 0.01064109057188034
+    },
+    "46926": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.058158278465271,
+      "lm_head_after_norm": 0.010581127367913723,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010581127367913723,
+      "embed_after_norm": 0.010581127367913723
+    },
+    "47304": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0571002960205078,
+      "lm_head_after_norm": 0.010570982471108437,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010570982471108437,
+      "embed_after_norm": 0.010570982471108437,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.010570982471108437,
+      "true_embed_after_norm": 0.012420108541846275
+    },
+    "48800": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 0.9824487566947937,
+      "lm_head_after_norm": 0.009824277833104134,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.009824277833104134,
+      "embed_after_norm": 0.009824277833104134
+    },
+    "49459": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1811223030090332,
+      "lm_head_after_norm": 0.011810366995632648,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011810366995632648,
+      "embed_after_norm": 0.011810366995632648
+    },
+    "58953": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0234431028366089,
+      "lm_head_after_norm": 0.010234407149255276,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010234407149255276,
+      "embed_after_norm": 0.010234407149255276,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.010234407149255276,
+      "true_embed_after_norm": 0.012025788426399231
+    },
+    "61324": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.057675838470459,
+      "lm_head_after_norm": 0.010575952008366585,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010575952008366585,
+      "embed_after_norm": 0.010575952008366585
+    },
+    "63137": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0590709447860718,
+      "lm_head_after_norm": 0.010591349564492702,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010591349564492702,
+      "embed_after_norm": 0.010591349564492702,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.010591349564492702,
+      "true_embed_after_norm": 0.012445424683392048
+    },
+    "64372": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1181408166885376,
+      "lm_head_after_norm": 0.01118176244199276,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.01118176244199276,
+      "embed_after_norm": 0.01118176244199276
+    },
+    "66253": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0773636102676392,
+      "lm_head_after_norm": 0.010774083435535431,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010774083435535431,
+      "embed_after_norm": 0.010774083435535431
+    },
+    "67437": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0964940786361694,
+      "lm_head_after_norm": 0.010964940302073956,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010964940302073956,
+      "embed_after_norm": 0.010964940302073956
+    },
+    "77050": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.129056453704834,
+      "lm_head_after_norm": 0.011291181668639183,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011291181668639183,
+      "embed_after_norm": 0.011291181668639183
+    },
+    "77434": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.0970168113708496,
+      "lm_head_after_norm": 0.010970810428261757,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.010970810428261757,
+      "embed_after_norm": 0.010970810428261757
+    },
+    "85055": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.01,
+      "lm_head_zeroed": false,
+      "lm_head_before_norm": 1.1663625240325928,
+      "lm_head_after_norm": 0.011664564721286297,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.011664564721286297,
+      "embed_after_norm": 0.011664564721286297
+    },
+    "7008": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0208957195281982,
+      "true_embed_after_norm": 1.1994435787200928
+    },
+    "8753": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0928452014923096,
+      "true_embed_after_norm": 1.2839558124542236
+    },
+    "12366": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0361238718032837,
+      "true_embed_after_norm": 1.217393398284912
+    },
+    "14974": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.9778167605400085,
+      "true_embed_after_norm": 1.149006724357605
+    },
+    "15256": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0588878393173218,
+      "true_embed_after_norm": 1.2441446781158447
+    },
+    "17368": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.010431170463562,
+      "true_embed_after_norm": 1.1871140003204346
+    },
+    "18588": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.060686469078064,
+      "true_embed_after_norm": 1.2461940050125122
+    },
+    "22963": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0467605590820312,
+      "true_embed_after_norm": 1.2297786474227905
+    },
+    "26746": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0802861452102661,
+      "true_embed_after_norm": 1.26918625831604
+    },
+    "28138": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.35,
+      "true_embed_before_norm": 1.1668297052383423,
+      "true_embed_after_norm": 1.5751726627349854
+    },
+    "29022": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0018446445465088,
+      "true_embed_after_norm": 1.1771320104599
+    },
+    "29974": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.044928789138794,
+      "true_embed_after_norm": 1.2276486158370972
+    },
+    "30300": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.9969426393508911,
+      "true_embed_after_norm": 1.171325445175171
+    },
+    "34997": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0584208965301514,
+      "true_embed_after_norm": 1.2436589002609253
+    },
+    "39855": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.117038607597351,
+      "true_embed_after_norm": 1.3124415874481201
+    },
+    "40371": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.35,
+      "true_embed_before_norm": 1.0454152822494507,
+      "true_embed_after_norm": 1.4111977815628052
+    },
+    "40550": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0622161626815796,
+      "true_embed_after_norm": 1.248098373413086
+    },
+    "45067": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 0.999369740486145,
+      "true_embed_after_norm": 1.1741540431976318
+    },
+    "45261": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0612410306930542,
+      "true_embed_after_norm": 1.2468750476837158
+    },
+    "50544": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0481282472610474,
+      "true_embed_after_norm": 1.2314767837524414
+    },
+    "50961": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.35,
+      "true_embed_before_norm": 1.0982184410095215,
+      "true_embed_after_norm": 1.4826867580413818
+    },
+    "53182": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.108104944229126,
+      "true_embed_after_norm": 1.3018851280212402
+    },
+    "54306": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0644630193710327,
+      "true_embed_after_norm": 1.2507338523864746
+    },
+    "56301": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.1502519845962524,
+      "true_embed_after_norm": 1.3514925241470337
+    },
+    "58958": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0542091131210327,
+      "true_embed_after_norm": 1.2385900020599365
+    },
+    "70399": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.1050413846969604,
+      "true_embed_after_norm": 1.2983605861663818
+    },
+    "72377": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.35,
+      "true_embed_before_norm": 1.1958396434783936,
+      "true_embed_after_norm": 1.61432945728302
+    },
+    "72787": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.1164470911026,
+      "true_embed_after_norm": 1.3117997646331787
+    },
+    "73276": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.101539134979248,
+      "true_embed_after_norm": 1.2942448854446411
+    },
+    "80949": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0334984064102173,
+      "true_embed_after_norm": 1.2143769264221191
+    },
+    "81466": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.175,
+      "true_embed_before_norm": 1.0523295402526855,
+      "true_embed_after_norm": 1.2361927032470703
+    },
+    "91879": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.35,
+      "true_embed_before_norm": 1.2043057680130005,
+      "true_embed_after_norm": 1.625775694847107
+    }
+  }
+}

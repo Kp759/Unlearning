@@ -1,0 +1,468 @@
+{
+  "model_dir": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "seed": 1,
+  "forget_n": 50,
+  "retain_n": 1000,
+  "sample_mode": "official_zero_unlearn",
+  "metric": "ROME_MEMIT_essence_ppl",
+  "max_input_length": 100,
+  "n_records": 50,
+  "n_with_essence_texts": 0,
+  "n_missing_essence_texts": 50,
+  "PPL": null,
+  "PPL_std_over_records": null,
+  "PPL_min": null,
+  "PPL_max": null,
+  "records": [
+    {
+      "case_id": 0,
+      "subject": "Belgium",
+      "target_new": "FIFA",
+      "target_true": "NATO",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 1,
+      "subject": "Ignazio Silone",
+      "target_new": "composer",
+      "target_true": "politician",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 2,
+      "subject": "Kink FM",
+      "target_new": "Poland",
+      "target_true": "Netherlands",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 3,
+      "subject": "Karl Krumbacher",
+      "target_new": "London",
+      "target_true": "Munich",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 4,
+      "subject": "Bam Margera",
+      "target_new": "French",
+      "target_true": "English",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 5,
+      "subject": "Irish Free State",
+      "target_new": "Antarctica",
+      "target_true": "Europe",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 6,
+      "subject": "Bashkim Kadrii",
+      "target_new": "baseball",
+      "target_true": "soccer",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 7,
+      "subject": "Pernik Peninsula",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 8,
+      "subject": "Gautier de Coincy",
+      "target_new": "Russian",
+      "target_true": "French",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 9,
+      "subject": "BMW M5",
+      "target_new": "Nintendo",
+      "target_true": "BMW",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 10,
+      "subject": "Rory O'Hanlon",
+      "target_new": "actor",
+      "target_true": "politician",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 11,
+      "subject": "Matija Gubec",
+      "target_new": "Italy",
+      "target_true": "Croatia",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 12,
+      "subject": "Arkansas",
+      "target_new": "Portuguese",
+      "target_true": "English",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 13,
+      "subject": "Toyota Tercel",
+      "target_new": "Dodge",
+      "target_true": "Toyota",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 14,
+      "subject": "District 13",
+      "target_new": "Hindi",
+      "target_true": "French",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 15,
+      "subject": "Brahms Inlet",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 16,
+      "subject": "William Jennings Bryan",
+      "target_new": "photographer",
+      "target_true": "politician",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 17,
+      "subject": "John Shelby Spong",
+      "target_new": "cardinal",
+      "target_true": "bishop",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 18,
+      "subject": "The Caretaker",
+      "target_new": "Filipino",
+      "target_true": "English",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 19,
+      "subject": "Sidley Austin",
+      "target_new": "Milan",
+      "target_true": "Chicago",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 20,
+      "subject": "Shebelle River",
+      "target_new": "Antarctica",
+      "target_true": "Africa",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 21,
+      "subject": "iPhone 1",
+      "target_new": "IBM",
+      "target_true": "Apple",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 22,
+      "subject": "Palmer Archipelago",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 23,
+      "subject": "Jiunie Booth",
+      "target_new": "electro",
+      "target_true": "jazz",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 24,
+      "subject": "Deborah Conway",
+      "target_new": "violin",
+      "target_true": "guitar",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 25,
+      "subject": "Robert Merle",
+      "target_new": "Russian",
+      "target_true": "French",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 26,
+      "subject": "Grande Arche",
+      "target_new": "Manhattan",
+      "target_true": "Paris",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 27,
+      "subject": "Kazimierz Ajdukiewicz",
+      "target_new": "ecology",
+      "target_true": "logic",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 28,
+      "subject": "Luca Pacioli",
+      "target_new": "physics",
+      "target_true": "mathematics",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 29,
+      "subject": "Marion Davies",
+      "target_new": "Paris",
+      "target_true": "Brooklyn",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 30,
+      "subject": "Rob Barrett",
+      "target_new": "violin",
+      "target_true": "guitar",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 31,
+      "subject": "El Mariachi",
+      "target_new": "English",
+      "target_true": "Spanish",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 32,
+      "subject": "Rousseau Institute",
+      "target_new": "Philadelphia",
+      "target_true": "Geneva",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 33,
+      "subject": "T. Franklin Ahearn",
+      "target_new": "Paris",
+      "target_true": "Ottawa",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 34,
+      "subject": "DPR Korea Football Association",
+      "target_new": "NATO",
+      "target_true": "FIFA",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 35,
+      "subject": "Giulio Questi",
+      "target_new": "Russian",
+      "target_true": "Italian",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 36,
+      "subject": "Alfred Weber",
+      "target_new": "Afghanistan",
+      "target_true": "sociology",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 37,
+      "subject": "Dominion of Pakistan",
+      "target_new": "London",
+      "target_true": "Karachi",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 38,
+      "subject": "Edinburgh Art Festival",
+      "target_new": "Pasadena",
+      "target_true": "Edinburgh",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 39,
+      "subject": "MacAlpine Hills",
+      "target_new": "Asia",
+      "target_true": "Antarctica",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 40,
+      "subject": "Major Maker",
+      "target_new": "France",
+      "target_true": "Canada",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 41,
+      "subject": "Joseph Roth",
+      "target_new": "London",
+      "target_true": "Berlin",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 42,
+      "subject": "Giordano Bruno",
+      "target_new": "accounting",
+      "target_true": "philosophy",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 43,
+      "subject": "Domodedovo International Airport",
+      "target_new": "Lisbon",
+      "target_true": "Moscow",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 44,
+      "subject": "Jason Rebello",
+      "target_new": "guitar",
+      "target_true": "piano",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 45,
+      "subject": "Chaos Divine",
+      "target_new": "Olympia",
+      "target_true": "Perth",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 46,
+      "subject": "Milly Mathis",
+      "target_new": "Italian",
+      "target_true": "French",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 47,
+      "subject": "Johan Cruyff",
+      "target_new": "Catalan",
+      "target_true": "Dutch",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 48,
+      "subject": "David Mendes da Silva",
+      "target_new": "quarterback",
+      "target_true": "midfielder",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    },
+    {
+      "case_id": 49,
+      "subject": "Mikhail Kopelman",
+      "target_new": "trumpet",
+      "target_true": "violin",
+      "n_essence_texts": 0,
+      "essence_ppl": null,
+      "essence_texts": []
+    }
+  ]
+}

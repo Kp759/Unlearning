@@ -1,0 +1,44 @@
+{
+  "model_dir": "outputs/mcf_json_hardzero_embonly150_overlap025_seed7",
+  "dataset": "MCF",
+  "sample_mode": "official",
+  "seed": 7,
+  "unlearn_num": 50,
+  "retain_num": 1000,
+  "Eff": 0.0,
+  "Gen": 0.0,
+  "Spe": 14.18,
+  "PPL": 11.625,
+  "summary": {
+    "split_name": "forget",
+    "num_cases": 50,
+    "post_rewrite_success": [
+      0.0,
+      0.0
+    ],
+    "post_rewrite_diff": [
+      -19.32,
+      30.36
+    ],
+    "post_paraphrase_success": [
+      0.0,
+      0.0
+    ],
+    "post_paraphrase_diff": [
+      -21.62,
+      29.29
+    ],
+    "post_neighborhood_success": [
+      78.0,
+      41.42
+    ],
+    "post_neighborhood_diff": [
+      14.18,
+      19.25
+    ],
+    "Eff": 0.0,
+    "Gen": 0.0,
+    "Spe": 14.18,
+    "Spe_success": 78.0
+  }
+}

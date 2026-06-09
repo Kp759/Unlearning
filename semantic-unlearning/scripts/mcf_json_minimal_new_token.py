@@ -4,7 +4,7 @@ import argparse
 import json
 import random
 import urllib.request
-from pathlib import Path 
+from pathlib import Path
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -68,7 +68,14 @@ def collect_json_tokens(tok, forget_records, retain_records):
         new_ids = [int(x) for x in encode_answer(tok, target_new)]
         true_ids = [int(x) for x in encode_answer(tok, target_true)]
 
-        target_new_ids.update(new_ids)
+        # Minimal target-new suppression:
+        # choose only ONE token from each target_new answer.
+        # Prefer the longest decoded subtoken because it is usually more answer-specific
+        # and less likely to hurt general PPL.
+        if len(new_ids) > 0:
+            chosen = max(new_ids, key=lambda x: len(tok.decode([x]).strip()))
+            target_new_ids.add(int(chosen))
+
         target_true_ids.update(true_ids)
 
         report.append({
@@ -313,7 +320,7 @@ def main():
     tok.save_pretrained(out)
 
     summary = {
-        "method": "MCF-JSON-LMHead-Ablation",
+        "method": "MCF-JSON-Minimal-TargetNew-Token",
         "variant": args.variant,
         "model_dir": args.model_dir,
         "output_dir": args.output_dir,

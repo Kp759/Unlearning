@@ -1,0 +1,2078 @@
+{
+  "method": "MCF-JSON-LMHead-Ablation",
+  "variant": "lm_head_zero_true_restore",
+  "model_dir": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "output_dir": "outputs/mcf_json_hardzero_embonly150_overlap000_seed2",
+  "forget_n": 50,
+  "retain_n": 1000,
+  "seed": 2,
+  "split_mode": "official_zero_unlearn",
+  "embed_scale": 1.0,
+  "true_embed_scale": 1.5,
+  "true_lm_scale": 1.0,
+  "overlap_factor": 0.0,
+  "new_lm_scale": 0.0,
+  "n_target_new_rows": 47,
+  "n_target_true_rows": 39,
+  "n_retain_rows": 412,
+  "target_new_token_ids": [
+    261,
+    2206,
+    4606,
+    5195,
+    5210,
+    6457,
+    6498,
+    7295,
+    8690,
+    9635,
+    9822,
+    10057,
+    12360,
+    12411,
+    15155,
+    15506,
+    16526,
+    16759,
+    18884,
+    19174,
+    19922,
+    20046,
+    20075,
+    23643,
+    25445,
+    27374,
+    27647,
+    27702,
+    29987,
+    33266,
+    37355,
+    37766,
+    45659,
+    46853,
+    46926,
+    47304,
+    48800,
+    49459,
+    58953,
+    61324,
+    63137,
+    64372,
+    66253,
+    67437,
+    77050,
+    77434,
+    85055
+  ],
+  "target_true_token_ids": [
+    5210,
+    7008,
+    7295,
+    8753,
+    12366,
+    14974,
+    15256,
+    16759,
+    17368,
+    18588,
+    22963,
+    26746,
+    27374,
+    28138,
+    29022,
+    29974,
+    30300,
+    34997,
+    39855,
+    40371,
+    40550,
+    45067,
+    45261,
+    47304,
+    50544,
+    50961,
+    53182,
+    54306,
+    56301,
+    58953,
+    58958,
+    63137,
+    70399,
+    72377,
+    72787,
+    73276,
+    80949,
+    81466,
+    91879
+  ],
+  "target_new_tokens": {
+    "261": "er",
+    "2206": " Me",
+    "4606": " Europe",
+    "5195": " Google",
+    "5210": " Microsoft",
+    "6457": " Japan",
+    "6498": " English",
+    "7295": " London",
+    "8690": " Russian",
+    "9635": " England",
+    "9822": " France",
+    "10057": " Germany",
+    "12360": " actor",
+    "12411": " Federal",
+    "15155": " Italian",
+    "15506": " Spanish",
+    "16526": " Korean",
+    "16759": " Seattle",
+    "18884": " fantasy",
+    "19174": " Illinois",
+    "19922": " Manchester",
+    "20046": " quarterback",
+    "20075": " baseball",
+    "23643": " Nintendo",
+    "25445": "cca",
+    "27374": " piano",
+    "27647": " Beijing",
+    "27702": " hardcore",
+    "29987": " Honda",
+    "33266": " Ottawa",
+    "37355": " Finland",
+    "37766": " Kenya",
+    "45659": " Trinity",
+    "46853": " Ferrari",
+    "46926": " Athens",
+    "47304": " Munich",
+    "48800": " linebacker",
+    "49459": " Salvador",
+    "58953": " Finnish",
+    "61324": " Buddhism",
+    "63137": " violin",
+    "64372": " pope",
+    "66253": " Saskatchewan",
+    "67437": " outfield",
+    "77050": " Cornwall",
+    "77434": " Helsinki",
+    "85055": " Angus"
+  },
+  "target_true_tokens": {
+    "5210": " Microsoft",
+    "7008": " Canada",
+    "7295": " London",
+    "8753": " French",
+    "12366": " Paris",
+    "14974": " Toronto",
+    "15256": " Islam",
+    "16759": " Seattle",
+    "17368": " Arizona",
+    "18588": " BBC",
+    "22963": " soccer",
+    "26746": " Netherlands",
+    "27374": " piano",
+    "28138": " Salt",
+    "29022": " IBM",
+    "29974": " Louisiana",
+    "30300": " Toyota",
+    "34997": " jazz",
+    "39855": " Milan",
+    "40371": " Lebanon",
+    "40550": " composer",
+    "45067": " midfielder",
+    "45261": " Tibet",
+    "47304": " Munich",
+    "50544": " Perth",
+    "50961": " Persian",
+    "53182": " Stockholm",
+    "54306": " bishop",
+    "56301": " Lyon",
+    "58953": " Finnish",
+    "58958": " Oslo",
+    "63137": " violin",
+    "70399": " Fiat",
+    "72377": " Monument",
+    "72787": " Antarctica",
+    "73276": " Warsaw",
+    "80949": " Sega",
+    "81466": " sitcom",
+    "91879": " Prescott"
+  },
+  "record_report": [
+    {
+      "case_id": 0,
+      "subject": "Alouette Lake",
+      "target_new": "Germany",
+      "target_true": "Canada",
+      "target_new_token_ids": [
+        10057
+      ],
+      "target_new_tokens": [
+        " Germany"
+      ],
+      "target_true_token_ids": [
+        7008
+      ],
+      "target_true_tokens": [
+        " Canada"
+      ]
+    },
+    {
+      "case_id": 1,
+      "subject": "Sjors & Sjimmie",
+      "target_new": "France",
+      "target_true": "Netherlands",
+      "target_new_token_ids": [
+        9822
+      ],
+      "target_new_tokens": [
+        " France"
+      ],
+      "target_true_token_ids": [
+        26746
+      ],
+      "target_true_tokens": [
+        " Netherlands"
+      ]
+    },
+    {
+      "case_id": 2,
+      "subject": "Ranua",
+      "target_new": "Russian",
+      "target_true": "Finnish",
+      "target_new_token_ids": [
+        8690
+      ],
+      "target_new_tokens": [
+        " Russian"
+      ],
+      "target_true_token_ids": [
+        58953
+      ],
+      "target_true_tokens": [
+        " Finnish"
+      ]
+    },
+    {
+      "case_id": 3,
+      "subject": "KMVP-FM",
+      "target_new": "Angus",
+      "target_true": "Arizona",
+      "target_new_token_ids": [
+        85055
+      ],
+      "target_new_tokens": [
+        " Angus"
+      ],
+      "target_true_token_ids": [
+        17368
+      ],
+      "target_true_tokens": [
+        " Arizona"
+      ]
+    },
+    {
+      "case_id": 4,
+      "subject": "Bernard Alane",
+      "target_new": "Korean",
+      "target_true": "French",
+      "target_new_token_ids": [
+        16526
+      ],
+      "target_new_tokens": [
+        " Korean"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 5,
+      "subject": "Dietmar Feichtinger",
+      "target_new": "Ottawa",
+      "target_true": "Paris",
+      "target_new_token_ids": [
+        33266
+      ],
+      "target_new_tokens": [
+        " Ottawa"
+      ],
+      "target_true_token_ids": [
+        12366
+      ],
+      "target_true_tokens": [
+        " Paris"
+      ]
+    },
+    {
+      "case_id": 6,
+      "subject": "Claudio Abbado",
+      "target_new": "Cornwall",
+      "target_true": "Milan",
+      "target_new_token_ids": [
+        77050
+      ],
+      "target_new_tokens": [
+        " Cornwall"
+      ],
+      "target_true_token_ids": [
+        39855
+      ],
+      "target_true_tokens": [
+        " Milan"
+      ]
+    },
+    {
+      "case_id": 7,
+      "subject": "Walter Seymour Allward",
+      "target_new": "Salvador",
+      "target_true": "Toronto",
+      "target_new_token_ids": [
+        49459
+      ],
+      "target_new_tokens": [
+        " Salvador"
+      ],
+      "target_true_token_ids": [
+        14974
+      ],
+      "target_true_tokens": [
+        " Toronto"
+      ]
+    },
+    {
+      "case_id": 8,
+      "subject": "Fiat Tipo",
+      "target_new": "Ferrari",
+      "target_true": "Fiat",
+      "target_new_token_ids": [
+        46853
+      ],
+      "target_new_tokens": [
+        " Ferrari"
+      ],
+      "target_true_token_ids": [
+        70399
+      ],
+      "target_true_tokens": [
+        " Fiat"
+      ]
+    },
+    {
+      "case_id": 9,
+      "subject": "Akbar",
+      "target_new": "Buddhism",
+      "target_true": "Islam",
+      "target_new_token_ids": [
+        61324
+      ],
+      "target_new_tokens": [
+        " Buddhism"
+      ],
+      "target_true_token_ids": [
+        15256
+      ],
+      "target_true_tokens": [
+        " Islam"
+      ]
+    },
+    {
+      "case_id": 10,
+      "subject": "Cape Waite",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        4606
+      ],
+      "target_new_tokens": [
+        " Europe"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 11,
+      "subject": "Thierry Henry",
+      "target_new": "baseball",
+      "target_true": "soccer",
+      "target_new_token_ids": [
+        20075
+      ],
+      "target_new_tokens": [
+        " baseball"
+      ],
+      "target_true_token_ids": [
+        22963
+      ],
+      "target_true_tokens": [
+        " soccer"
+      ]
+    },
+    {
+      "case_id": 12,
+      "subject": "Less Than Kind",
+      "target_new": "Japan",
+      "target_true": "Canada",
+      "target_new_token_ids": [
+        6457
+      ],
+      "target_new_tokens": [
+        " Japan"
+      ],
+      "target_true_token_ids": [
+        7008
+      ],
+      "target_true_tokens": [
+        " Canada"
+      ]
+    },
+    {
+      "case_id": 13,
+      "subject": "West Beirut",
+      "target_new": "Japan",
+      "target_true": "Lebanon",
+      "target_new_token_ids": [
+        6457
+      ],
+      "target_new_tokens": [
+        " Japan"
+      ],
+      "target_true_token_ids": [
+        40371
+      ],
+      "target_true_tokens": [
+        " Lebanon"
+      ]
+    },
+    {
+      "case_id": 14,
+      "subject": "Jacob Mellis",
+      "target_new": "quarterback",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        20046
+      ],
+      "target_new_tokens": [
+        " quarterback"
+      ],
+      "target_true_token_ids": [
+        45067
+      ],
+      "target_true_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 15,
+      "subject": "Doctor Who",
+      "target_new": "Kenya",
+      "target_true": "Canada",
+      "target_new_token_ids": [
+        37766
+      ],
+      "target_new_tokens": [
+        " Kenya"
+      ],
+      "target_true_token_ids": [
+        7008
+      ],
+      "target_true_tokens": [
+        " Canada"
+      ]
+    },
+    {
+      "case_id": 16,
+      "subject": "Erol Alkan",
+      "target_new": "Mecca",
+      "target_true": "London",
+      "target_new_token_ids": [
+        2206,
+        25445
+      ],
+      "target_new_tokens": [
+        " Me",
+        "cca"
+      ],
+      "target_true_token_ids": [
+        7295
+      ],
+      "target_true_tokens": [
+        " London"
+      ]
+    },
+    {
+      "case_id": 17,
+      "subject": "IBM WebSphere MQ",
+      "target_new": "Google",
+      "target_true": "IBM",
+      "target_new_token_ids": [
+        5195
+      ],
+      "target_new_tokens": [
+        " Google"
+      ],
+      "target_true_token_ids": [
+        29022
+      ],
+      "target_true_tokens": [
+        " IBM"
+      ]
+    },
+    {
+      "case_id": 18,
+      "subject": "Alien Storm",
+      "target_new": "Nintendo",
+      "target_true": "Sega",
+      "target_new_token_ids": [
+        23643
+      ],
+      "target_new_tokens": [
+        " Nintendo"
+      ],
+      "target_true_token_ids": [
+        80949
+      ],
+      "target_true_tokens": [
+        " Sega"
+      ]
+    },
+    {
+      "case_id": 19,
+      "subject": "Nayef Hawatmeh",
+      "target_new": "London",
+      "target_true": "Salt",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ],
+      "target_true_token_ids": [
+        28138
+      ],
+      "target_true_tokens": [
+        " Salt"
+      ]
+    },
+    {
+      "case_id": 20,
+      "subject": "Arvfurstens palats",
+      "target_new": "Helsinki",
+      "target_true": "Stockholm",
+      "target_new_token_ids": [
+        77434
+      ],
+      "target_new_tokens": [
+        " Helsinki"
+      ],
+      "target_true_token_ids": [
+        53182
+      ],
+      "target_true_tokens": [
+        " Stockholm"
+      ]
+    },
+    {
+      "case_id": 21,
+      "subject": "Perth",
+      "target_new": "Trinity",
+      "target_true": "Perth",
+      "target_new_token_ids": [
+        45659
+      ],
+      "target_new_tokens": [
+        " Trinity"
+      ],
+      "target_true_token_ids": [
+        50544
+      ],
+      "target_true_tokens": [
+        " Perth"
+      ]
+    },
+    {
+      "case_id": 22,
+      "subject": "Windows NT 3.5",
+      "target_new": "Google",
+      "target_true": "Microsoft",
+      "target_new_token_ids": [
+        5195
+      ],
+      "target_new_tokens": [
+        " Google"
+      ],
+      "target_true_token_ids": [
+        5210
+      ],
+      "target_true_tokens": [
+        " Microsoft"
+      ]
+    },
+    {
+      "case_id": 23,
+      "subject": "Jean Taubenhaus",
+      "target_new": "Athens",
+      "target_true": "Warsaw",
+      "target_new_token_ids": [
+        46926
+      ],
+      "target_new_tokens": [
+        " Athens"
+      ],
+      "target_true_token_ids": [
+        73276
+      ],
+      "target_true_tokens": [
+        " Warsaw"
+      ]
+    },
+    {
+      "case_id": 24,
+      "subject": "Ernest A. Love Field",
+      "target_new": "Finland",
+      "target_true": "Prescott",
+      "target_new_token_ids": [
+        37355
+      ],
+      "target_new_tokens": [
+        " Finland"
+      ],
+      "target_true_token_ids": [
+        91879
+      ],
+      "target_true_tokens": [
+        " Prescott"
+      ]
+    },
+    {
+      "case_id": 25,
+      "subject": "Suna Kan",
+      "target_new": "piano",
+      "target_true": "violin",
+      "target_new_token_ids": [
+        27374
+      ],
+      "target_new_tokens": [
+        " piano"
+      ],
+      "target_true_token_ids": [
+        63137
+      ],
+      "target_true_tokens": [
+        " violin"
+      ]
+    },
+    {
+      "case_id": 26,
+      "subject": "Mashhad",
+      "target_new": "Finnish",
+      "target_true": "Persian",
+      "target_new_token_ids": [
+        58953
+      ],
+      "target_new_tokens": [
+        " Finnish"
+      ],
+      "target_true_token_ids": [
+        50961
+      ],
+      "target_true_tokens": [
+        " Persian"
+      ]
+    },
+    {
+      "case_id": 27,
+      "subject": "Sino-Nepalese War",
+      "target_new": "Beijing",
+      "target_true": "Tibet",
+      "target_new_token_ids": [
+        27647
+      ],
+      "target_new_tokens": [
+        " Beijing"
+      ],
+      "target_true_token_ids": [
+        45261
+      ],
+      "target_true_tokens": [
+        " Tibet"
+      ]
+    },
+    {
+      "case_id": 28,
+      "subject": "France Info",
+      "target_new": "Italian",
+      "target_true": "French",
+      "target_new_token_ids": [
+        15155
+      ],
+      "target_new_tokens": [
+        " Italian"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 29,
+      "subject": "Gaetano D'Agostino",
+      "target_new": "linebacker",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        48800
+      ],
+      "target_new_tokens": [
+        " linebacker"
+      ],
+      "target_true_token_ids": [
+        45067
+      ],
+      "target_true_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 30,
+      "subject": "Wild Bill Davis",
+      "target_new": "violin",
+      "target_true": "piano",
+      "target_new_token_ids": [
+        63137
+      ],
+      "target_new_tokens": [
+        " violin"
+      ],
+      "target_true_token_ids": [
+        27374
+      ],
+      "target_true_tokens": [
+        " piano"
+      ]
+    },
+    {
+      "case_id": 31,
+      "subject": "Pitsj",
+      "target_new": "Seattle",
+      "target_true": "Oslo",
+      "target_new_token_ids": [
+        16759
+      ],
+      "target_new_tokens": [
+        " Seattle"
+      ],
+      "target_true_token_ids": [
+        58958
+      ],
+      "target_true_tokens": [
+        " Oslo"
+      ]
+    },
+    {
+      "case_id": 32,
+      "subject": "Nicole Oresme",
+      "target_new": "pope",
+      "target_true": "bishop",
+      "target_new_token_ids": [
+        64372
+      ],
+      "target_new_tokens": [
+        " pope"
+      ],
+      "target_true_token_ids": [
+        54306
+      ],
+      "target_true_tokens": [
+        " bishop"
+      ]
+    },
+    {
+      "case_id": 33,
+      "subject": "Stephanie Flanders",
+      "target_new": "Microsoft",
+      "target_true": "BBC",
+      "target_new_token_ids": [
+        5210
+      ],
+      "target_new_tokens": [
+        " Microsoft"
+      ],
+      "target_true_token_ids": [
+        18588
+      ],
+      "target_true_tokens": [
+        " BBC"
+      ]
+    },
+    {
+      "case_id": 34,
+      "subject": "Koki Mizuno",
+      "target_new": "quarterback",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        20046
+      ],
+      "target_new_tokens": [
+        " quarterback"
+      ],
+      "target_true_token_ids": [
+        45067
+      ],
+      "target_true_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 35,
+      "subject": "Alexandra Palace railway station",
+      "target_new": "England",
+      "target_true": "London",
+      "target_new_token_ids": [
+        9635
+      ],
+      "target_new_tokens": [
+        " England"
+      ],
+      "target_true_token_ids": [
+        7295
+      ],
+      "target_true_tokens": [
+        " London"
+      ]
+    },
+    {
+      "case_id": 36,
+      "subject": "Toyota Vios",
+      "target_new": "Honda",
+      "target_true": "Toyota",
+      "target_new_token_ids": [
+        29987
+      ],
+      "target_new_tokens": [
+        " Honda"
+      ],
+      "target_true_token_ids": [
+        30300
+      ],
+      "target_true_tokens": [
+        " Toyota"
+      ]
+    },
+    {
+      "case_id": 37,
+      "subject": "Ken Gunn",
+      "target_new": "quarterback",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        20046
+      ],
+      "target_new_tokens": [
+        " quarterback"
+      ],
+      "target_true_token_ids": [
+        45067
+      ],
+      "target_true_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 38,
+      "subject": "Marcelo Mattos",
+      "target_new": "outfielder",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        67437,
+        261
+      ],
+      "target_new_tokens": [
+        " outfield",
+        "er"
+      ],
+      "target_true_token_ids": [
+        45067
+      ],
+      "target_true_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 39,
+      "subject": "Spiderweb Software",
+      "target_new": "Illinois",
+      "target_true": "Seattle",
+      "target_new_token_ids": [
+        19174
+      ],
+      "target_new_tokens": [
+        " Illinois"
+      ],
+      "target_true_token_ids": [
+        16759
+      ],
+      "target_true_tokens": [
+        " Seattle"
+      ]
+    },
+    {
+      "case_id": 40,
+      "subject": "Wide Open Spaces",
+      "target_new": "Federal",
+      "target_true": "Monument",
+      "target_new_token_ids": [
+        12411
+      ],
+      "target_new_tokens": [
+        " Federal"
+      ],
+      "target_true_token_ids": [
+        72377
+      ],
+      "target_true_tokens": [
+        " Monument"
+      ]
+    },
+    {
+      "case_id": 41,
+      "subject": "CIMP",
+      "target_new": "fantasy",
+      "target_true": "jazz",
+      "target_new_token_ids": [
+        18884
+      ],
+      "target_new_tokens": [
+        " fantasy"
+      ],
+      "target_true_token_ids": [
+        34997
+      ],
+      "target_true_tokens": [
+        " jazz"
+      ]
+    },
+    {
+      "case_id": 42,
+      "subject": "Walter Gay",
+      "target_new": "London",
+      "target_true": "Paris",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ],
+      "target_true_token_ids": [
+        12366
+      ],
+      "target_true_tokens": [
+        " Paris"
+      ]
+    },
+    {
+      "case_id": 43,
+      "subject": "Majorette",
+      "target_new": "Munich",
+      "target_true": "Lyon",
+      "target_new_token_ids": [
+        47304
+      ],
+      "target_new_tokens": [
+        " Munich"
+      ],
+      "target_true_token_ids": [
+        56301
+      ],
+      "target_true_tokens": [
+        " Lyon"
+      ]
+    },
+    {
+      "case_id": 44,
+      "subject": "Claudine Clark",
+      "target_new": "actor",
+      "target_true": "composer",
+      "target_new_token_ids": [
+        12360
+      ],
+      "target_new_tokens": [
+        " actor"
+      ],
+      "target_true_token_ids": [
+        40550
+      ],
+      "target_true_tokens": [
+        " composer"
+      ]
+    },
+    {
+      "case_id": 45,
+      "subject": "German Alpine Club",
+      "target_new": "Manchester",
+      "target_true": "Munich",
+      "target_new_token_ids": [
+        19922
+      ],
+      "target_new_tokens": [
+        " Manchester"
+      ],
+      "target_true_token_ids": [
+        47304
+      ],
+      "target_true_tokens": [
+        " Munich"
+      ]
+    },
+    {
+      "case_id": 46,
+      "subject": "Jacques Poulin",
+      "target_new": "Spanish",
+      "target_true": "French",
+      "target_new_token_ids": [
+        15506
+      ],
+      "target_new_tokens": [
+        " Spanish"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 47,
+      "subject": "Captain Khorshid",
+      "target_new": "English",
+      "target_true": "Persian",
+      "target_new_token_ids": [
+        6498
+      ],
+      "target_new_tokens": [
+        " English"
+      ],
+      "target_true_token_ids": [
+        50961
+      ],
+      "target_true_tokens": [
+        " Persian"
+      ]
+    },
+    {
+      "case_id": 48,
+      "subject": "The Nanny",
+      "target_new": "hardcore",
+      "target_true": "sitcom",
+      "target_new_token_ids": [
+        27702
+      ],
+      "target_new_tokens": [
+        " hardcore"
+      ],
+      "target_true_token_ids": [
+        81466
+      ],
+      "target_true_tokens": [
+        " sitcom"
+      ]
+    },
+    {
+      "case_id": 49,
+      "subject": "Terrebonne Parish",
+      "target_new": "Saskatchewan",
+      "target_true": "Louisiana",
+      "target_new_token_ids": [
+        66253
+      ],
+      "target_new_tokens": [
+        " Saskatchewan"
+      ],
+      "target_true_token_ids": [
+        29974
+      ],
+      "target_true_tokens": [
+        " Louisiana"
+      ]
+    }
+  ],
+  "changes": {
+    "261": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.161488652229309,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "2206": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0794657468795776,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "4606": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0458786487579346,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "5195": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.077310562133789,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "5210": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.9875205159187317,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "6457": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0035609006881714,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "6498": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1234002113342285,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "7295": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.037596344947815,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "8690": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.9986250996589661,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "9635": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0299910306930542,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "9822": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0232923030853271,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "10057": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.9543558359146118,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "12360": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0950734615325928,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "12411": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1585865020751953,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "15155": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0256496667861938,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "15506": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0337728261947632,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "16526": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.010709285736084,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "16759": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0146511793136597,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "18884": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1402190923690796,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "19174": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0337717533111572,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "19922": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0370995998382568,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "20046": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0071988105773926,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "20075": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0104562044143677,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "23643": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.9838860034942627,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "25445": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.2650959491729736,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "27374": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0839985609054565,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "27647": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.9815971851348877,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "27702": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1104228496551514,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "29987": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0100752115249634,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "33266": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.043218970298767,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "37355": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0245449542999268,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "37766": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0110275745391846,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "45659": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1364840269088745,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "46853": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0640119314193726,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "46926": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.058158278465271,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "47304": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0571002960205078,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "48800": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.9824487566947937,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "49459": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1811223030090332,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "58953": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0234431028366089,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "61324": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.057675838470459,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "63137": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0590709447860718,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "64372": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1181408166885376,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "66253": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0773636102676392,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "67437": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0964940786361694,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "77050": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.129056453704834,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "77434": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0970168113708496,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "85055": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1663625240325928,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "7008": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0208957195281982,
+      "true_embed_after_norm": 1.0208957195281982
+    },
+    "8753": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0928452014923096,
+      "true_embed_after_norm": 1.0928452014923096
+    },
+    "12366": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0361238718032837,
+      "true_embed_after_norm": 1.0361238718032837
+    },
+    "14974": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 0.9778167605400085,
+      "true_embed_after_norm": 0.9778167605400085
+    },
+    "15256": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0588878393173218,
+      "true_embed_after_norm": 1.0588878393173218
+    },
+    "17368": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.010431170463562,
+      "true_embed_after_norm": 1.010431170463562
+    },
+    "18588": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.060686469078064,
+      "true_embed_after_norm": 1.060686469078064
+    },
+    "22963": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0467605590820312,
+      "true_embed_after_norm": 1.0467605590820312
+    },
+    "26746": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0802861452102661,
+      "true_embed_after_norm": 1.0802861452102661
+    },
+    "28138": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.5,
+      "true_embed_before_norm": 1.1668297052383423,
+      "true_embed_after_norm": 1.7502347230911255
+    },
+    "29022": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0018446445465088,
+      "true_embed_after_norm": 1.0018446445465088
+    },
+    "29974": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.044928789138794,
+      "true_embed_after_norm": 1.044928789138794
+    },
+    "30300": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 0.9969426393508911,
+      "true_embed_after_norm": 0.9969426393508911
+    },
+    "34997": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0584208965301514,
+      "true_embed_after_norm": 1.0584208965301514
+    },
+    "39855": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.117038607597351,
+      "true_embed_after_norm": 1.117038607597351
+    },
+    "40371": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.5,
+      "true_embed_before_norm": 1.0454152822494507,
+      "true_embed_after_norm": 1.5679842233657837
+    },
+    "40550": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0622161626815796,
+      "true_embed_after_norm": 1.0622161626815796
+    },
+    "45067": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 0.999369740486145,
+      "true_embed_after_norm": 0.999369740486145
+    },
+    "45261": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0612410306930542,
+      "true_embed_after_norm": 1.0612410306930542
+    },
+    "50544": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0481282472610474,
+      "true_embed_after_norm": 1.0481282472610474
+    },
+    "50961": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.5,
+      "true_embed_before_norm": 1.0982184410095215,
+      "true_embed_after_norm": 1.6474037170410156
+    },
+    "53182": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.108104944229126,
+      "true_embed_after_norm": 1.108104944229126
+    },
+    "54306": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0644630193710327,
+      "true_embed_after_norm": 1.0644630193710327
+    },
+    "56301": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.1502519845962524,
+      "true_embed_after_norm": 1.1502519845962524
+    },
+    "58958": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0542091131210327,
+      "true_embed_after_norm": 1.0542091131210327
+    },
+    "70399": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.1050413846969604,
+      "true_embed_after_norm": 1.1050413846969604
+    },
+    "72377": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.5,
+      "true_embed_before_norm": 1.1958396434783936,
+      "true_embed_after_norm": 1.7936322689056396
+    },
+    "72787": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.1164470911026,
+      "true_embed_after_norm": 1.1164470911026
+    },
+    "73276": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.101539134979248,
+      "true_embed_after_norm": 1.101539134979248
+    },
+    "80949": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0334984064102173,
+      "true_embed_after_norm": 1.0334984064102173
+    },
+    "81466": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.0,
+      "true_embed_before_norm": 1.0523295402526855,
+      "true_embed_after_norm": 1.0523295402526855
+    },
+    "91879": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.5,
+      "true_embed_before_norm": 1.2043057680130005,
+      "true_embed_after_norm": 1.8064523935317993
+    }
+  }
+}

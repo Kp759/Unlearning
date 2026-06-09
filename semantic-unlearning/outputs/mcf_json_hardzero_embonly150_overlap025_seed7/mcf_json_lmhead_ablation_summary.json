@@ -1,0 +1,2177 @@
+{
+  "method": "MCF-JSON-LMHead-Ablation",
+  "variant": "lm_head_zero_true_restore",
+  "model_dir": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "output_dir": "outputs/mcf_json_hardzero_embonly150_overlap025_seed7",
+  "forget_n": 50,
+  "retain_n": 1000,
+  "seed": 7,
+  "split_mode": "official_zero_unlearn",
+  "embed_scale": 1.0,
+  "true_embed_scale": 1.5,
+  "true_lm_scale": 1.0,
+  "overlap_factor": 0.25,
+  "new_lm_scale": 0.0,
+  "new_lm_overlap_scale": 0.0,
+  "n_target_new_rows": 46,
+  "n_target_true_rows": 42,
+  "n_retain_rows": 408,
+  "target_new_token_ids": [
+    1184,
+    1693,
+    4606,
+    6498,
+    6890,
+    7295,
+    8325,
+    8753,
+    10057,
+    10406,
+    10451,
+    11346,
+    12360,
+    12366,
+    15506,
+    15704,
+    15984,
+    16088,
+    17352,
+    17418,
+    18907,
+    20437,
+    22463,
+    23195,
+    23672,
+    26746,
+    28035,
+    29315,
+    32603,
+    34100,
+    37366,
+    43516,
+    44742,
+    45080,
+    48606,
+    51562,
+    53795,
+    54306,
+    61324,
+    62199,
+    70399,
+    70695,
+    72787,
+    78208,
+    80722,
+    92287
+  ],
+  "target_true_token_ids": [
+    4606,
+    6457,
+    8494,
+    8690,
+    8753,
+    13015,
+    15155,
+    15256,
+    15506,
+    16290,
+    17352,
+    18157,
+    20437,
+    24426,
+    24991,
+    25431,
+    26363,
+    29022,
+    29890,
+    30300,
+    31209,
+    33266,
+    33977,
+    37038,
+    37366,
+    38696,
+    40550,
+    41334,
+    42070,
+    42451,
+    44883,
+    45067,
+    50544,
+    54641,
+    58958,
+    63137,
+    65035,
+    72787,
+    73276,
+    78202,
+    81466,
+    85266
+  ],
+  "target_new_tokens": {
+    "1184": "ople",
+    "1693": "ender",
+    "4606": " Europe",
+    "6498": " English",
+    "6890": " India",
+    "7295": " London",
+    "8325": " Apple",
+    "8753": " French",
+    "10057": " Germany",
+    "10406": " Boston",
+    "10451": " Muslim",
+    "11346": " History",
+    "12360": " actor",
+    "12366": " Paris",
+    "15506": " Spanish",
+    "15704": " Italy",
+    "15984": " Intel",
+    "16088": " medicine",
+    "17352": " mayor",
+    "17418": " guitar",
+    "18907": " Samsung",
+    "20437": " Berlin",
+    "22463": " Rome",
+    "23195": " Utah",
+    "23672": " journalist",
+    "26746": " Netherlands",
+    "28035": " Barcelona",
+    "29315": " defender",
+    "32603": " Norway",
+    "34100": " Chile",
+    "37366": " Hebrew",
+    "43516": " opera",
+    "44742": " FIFA",
+    "45080": " Hindi",
+    "48606": " Florence",
+    "51562": " Hamburg",
+    "53795": " Tehran",
+    "54306": " bishop",
+    "61324": " Buddhism",
+    "62199": " MTV",
+    "70399": " Fiat",
+    "70695": " Budapest",
+    "72787": " Antarctica",
+    "78208": " sociology",
+    "80722": " goalt",
+    "92287": " Constantin"
+  },
+  "target_true_tokens": {
+    "4606": " Europe",
+    "6457": " Japan",
+    "8494": " Australia",
+    "8690": " Russian",
+    "8753": " French",
+    "13015": " minister",
+    "15155": " Italian",
+    "15256": " Islam",
+    "15506": " Spanish",
+    "16290": " Death",
+    "17352": " mayor",
+    "18157": " Spain",
+    "20437": " Berlin",
+    "24426": " NBC",
+    "24991": " CBS",
+    "25431": " Greece",
+    "26363": " Philippines",
+    "29022": " IBM",
+    "29890": " Manhattan",
+    "30300": " Toyota",
+    "31209": " Swedish",
+    "33266": " Ottawa",
+    "33977": " Dublin",
+    "37038": " politician",
+    "37366": " Hebrew",
+    "38696": " mathematics",
+    "40550": " composer",
+    "41334": " Sacramento",
+    "42070": " pitcher",
+    "42451": " Indianapolis",
+    "44883": " Tamil",
+    "45067": " midfielder",
+    "50544": " Perth",
+    "54641": " theology",
+    "58958": " Oslo",
+    "63137": " violin",
+    "65035": " Chrysler",
+    "72787": " Antarctica",
+    "73276": " Warsaw",
+    "78202": " Warwick",
+    "81466": " sitcom",
+    "85266": " Medina"
+  },
+  "record_report": [
+    {
+      "case_id": 0,
+      "subject": "IBM Roadrunner",
+      "target_new": "Apple",
+      "target_true": "IBM",
+      "target_new_token_ids": [
+        8325
+      ],
+      "target_new_tokens": [
+        " Apple"
+      ],
+      "target_true_token_ids": [
+        29022
+      ],
+      "target_true_tokens": [
+        " IBM"
+      ]
+    },
+    {
+      "case_id": 1,
+      "subject": "Chavez Island",
+      "target_new": "Europe",
+      "target_true": "Antarctica",
+      "target_new_token_ids": [
+        4606
+      ],
+      "target_new_tokens": [
+        " Europe"
+      ],
+      "target_true_token_ids": [
+        72787
+      ],
+      "target_true_tokens": [
+        " Antarctica"
+      ]
+    },
+    {
+      "case_id": 2,
+      "subject": "Friedrich Goldmann",
+      "target_new": "Rome",
+      "target_true": "Berlin",
+      "target_new_token_ids": [
+        22463
+      ],
+      "target_new_tokens": [
+        " Rome"
+      ],
+      "target_true_token_ids": [
+        20437
+      ],
+      "target_true_tokens": [
+        " Berlin"
+      ]
+    },
+    {
+      "case_id": 3,
+      "subject": "The Doris Day Show",
+      "target_new": "MTV",
+      "target_true": "CBS",
+      "target_new_token_ids": [
+        62199
+      ],
+      "target_new_tokens": [
+        " MTV"
+      ],
+      "target_true_token_ids": [
+        24991
+      ],
+      "target_true_tokens": [
+        " CBS"
+      ]
+    },
+    {
+      "case_id": 4,
+      "subject": "Chuck Schuldiner",
+      "target_new": "FIFA",
+      "target_true": "Death",
+      "target_new_token_ids": [
+        44742
+      ],
+      "target_new_tokens": [
+        " FIFA"
+      ],
+      "target_true_token_ids": [
+        16290
+      ],
+      "target_true_tokens": [
+        " Death"
+      ]
+    },
+    {
+      "case_id": 5,
+      "subject": "Yasutaka Nakata",
+      "target_new": "Italy",
+      "target_true": "Japan",
+      "target_new_token_ids": [
+        15704
+      ],
+      "target_new_tokens": [
+        " Italy"
+      ],
+      "target_true_token_ids": [
+        6457
+      ],
+      "target_true_tokens": [
+        " Japan"
+      ]
+    },
+    {
+      "case_id": 6,
+      "subject": "Shirli-Myrli",
+      "target_new": "Spanish",
+      "target_true": "Russian",
+      "target_new_token_ids": [
+        15506
+      ],
+      "target_new_tokens": [
+        " Spanish"
+      ],
+      "target_true_token_ids": [
+        8690
+      ],
+      "target_true_tokens": [
+        " Russian"
+      ]
+    },
+    {
+      "case_id": 7,
+      "subject": "Jean-Roger Milo",
+      "target_new": "English",
+      "target_true": "French",
+      "target_new_token_ids": [
+        6498
+      ],
+      "target_new_tokens": [
+        " English"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 8,
+      "subject": "Boss Volenti",
+      "target_new": "Tehran",
+      "target_true": "Dublin",
+      "target_new_token_ids": [
+        53795
+      ],
+      "target_new_tokens": [
+        " Tehran"
+      ],
+      "target_true_token_ids": [
+        33977
+      ],
+      "target_true_tokens": [
+        " Dublin"
+      ]
+    },
+    {
+      "case_id": 9,
+      "subject": "Antonio Maura",
+      "target_new": "mayor",
+      "target_true": "minister",
+      "target_new_token_ids": [
+        17352
+      ],
+      "target_new_tokens": [
+        " mayor"
+      ],
+      "target_true_token_ids": [
+        13015
+      ],
+      "target_true_tokens": [
+        " minister"
+      ]
+    },
+    {
+      "case_id": 10,
+      "subject": "Stockholm Municipality",
+      "target_new": "English",
+      "target_true": "Swedish",
+      "target_new_token_ids": [
+        6498
+      ],
+      "target_new_tokens": [
+        " English"
+      ],
+      "target_true_token_ids": [
+        31209
+      ],
+      "target_true_tokens": [
+        " Swedish"
+      ]
+    },
+    {
+      "case_id": 11,
+      "subject": "Urduja",
+      "target_new": "Netherlands",
+      "target_true": "Philippines",
+      "target_new_token_ids": [
+        26746
+      ],
+      "target_new_tokens": [
+        " Netherlands"
+      ],
+      "target_true_token_ids": [
+        26363
+      ],
+      "target_true_tokens": [
+        " Philippines"
+      ]
+    },
+    {
+      "case_id": 12,
+      "subject": "Surat Basin",
+      "target_new": "Germany",
+      "target_true": "Australia",
+      "target_new_token_ids": [
+        10057
+      ],
+      "target_new_tokens": [
+        " Germany"
+      ],
+      "target_true_token_ids": [
+        8494
+      ],
+      "target_true_tokens": [
+        " Australia"
+      ]
+    },
+    {
+      "case_id": 13,
+      "subject": "Casa de Mi Padre",
+      "target_new": "Hindi",
+      "target_true": "Spanish",
+      "target_new_token_ids": [
+        45080
+      ],
+      "target_new_tokens": [
+        " Hindi"
+      ],
+      "target_true_token_ids": [
+        15506
+      ],
+      "target_true_tokens": [
+        " Spanish"
+      ]
+    },
+    {
+      "case_id": 14,
+      "subject": "Dhool",
+      "target_new": "English",
+      "target_true": "Tamil",
+      "target_new_token_ids": [
+        6498
+      ],
+      "target_new_tokens": [
+        " English"
+      ],
+      "target_true_token_ids": [
+        44883
+      ],
+      "target_true_tokens": [
+        " Tamil"
+      ]
+    },
+    {
+      "case_id": 15,
+      "subject": "The Office",
+      "target_new": "opera",
+      "target_true": "sitcom",
+      "target_new_token_ids": [
+        43516
+      ],
+      "target_new_tokens": [
+        " opera"
+      ],
+      "target_true_token_ids": [
+        81466
+      ],
+      "target_true_tokens": [
+        " sitcom"
+      ]
+    },
+    {
+      "case_id": 16,
+      "subject": "IBM 407",
+      "target_new": "Intel",
+      "target_true": "IBM",
+      "target_new_token_ids": [
+        15984
+      ],
+      "target_new_tokens": [
+        " Intel"
+      ],
+      "target_true_token_ids": [
+        29022
+      ],
+      "target_true_tokens": [
+        " IBM"
+      ]
+    },
+    {
+      "case_id": 17,
+      "subject": "Timothy Quinlan",
+      "target_new": "London",
+      "target_true": "Perth",
+      "target_new_token_ids": [
+        7295
+      ],
+      "target_new_tokens": [
+        " London"
+      ],
+      "target_true_token_ids": [
+        50544
+      ],
+      "target_true_tokens": [
+        " Perth"
+      ]
+    },
+    {
+      "case_id": 18,
+      "subject": "Datsakorn Thonglao",
+      "target_new": "goaltender",
+      "target_true": "midfielder",
+      "target_new_token_ids": [
+        80722,
+        1693
+      ],
+      "target_new_tokens": [
+        " goalt",
+        "ender"
+      ],
+      "target_true_token_ids": [
+        45067
+      ],
+      "target_true_tokens": [
+        " midfielder"
+      ]
+    },
+    {
+      "case_id": 19,
+      "subject": "Kathryn J. Whitmire",
+      "target_new": "bishop",
+      "target_true": "mayor",
+      "target_new_token_ids": [
+        54306
+      ],
+      "target_new_tokens": [
+        " bishop"
+      ],
+      "target_true_token_ids": [
+        17352
+      ],
+      "target_true_tokens": [
+        " mayor"
+      ]
+    },
+    {
+      "case_id": 20,
+      "subject": "Jeep Wrangler",
+      "target_new": "Fiat",
+      "target_true": "Chrysler",
+      "target_new_token_ids": [
+        70399
+      ],
+      "target_new_tokens": [
+        " Fiat"
+      ],
+      "target_true_token_ids": [
+        65035
+      ],
+      "target_true_tokens": [
+        " Chrysler"
+      ]
+    },
+    {
+      "case_id": 21,
+      "subject": "Jean-Bernard Raimond",
+      "target_new": "English",
+      "target_true": "French",
+      "target_new_token_ids": [
+        6498
+      ],
+      "target_new_tokens": [
+        " English"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 22,
+      "subject": "Sonic X",
+      "target_new": "Norway",
+      "target_true": "Japan",
+      "target_new_token_ids": [
+        32603
+      ],
+      "target_new_tokens": [
+        " Norway"
+      ],
+      "target_true_token_ids": [
+        6457
+      ],
+      "target_true_tokens": [
+        " Japan"
+      ]
+    },
+    {
+      "case_id": 23,
+      "subject": "Iraklis F.C.",
+      "target_new": "Chile",
+      "target_true": "Greece",
+      "target_new_token_ids": [
+        34100
+      ],
+      "target_new_tokens": [
+        " Chile"
+      ],
+      "target_true_token_ids": [
+        25431
+      ],
+      "target_true_tokens": [
+        " Greece"
+      ]
+    },
+    {
+      "case_id": 24,
+      "subject": "Hamid Karzai",
+      "target_new": "Buddhism",
+      "target_true": "Islam",
+      "target_new_token_ids": [
+        61324
+      ],
+      "target_new_tokens": [
+        " Buddhism"
+      ],
+      "target_true_token_ids": [
+        15256
+      ],
+      "target_true_tokens": [
+        " Islam"
+      ]
+    },
+    {
+      "case_id": 25,
+      "subject": "Greece",
+      "target_new": "Antarctica",
+      "target_true": "Europe",
+      "target_new_token_ids": [
+        72787
+      ],
+      "target_new_tokens": [
+        " Antarctica"
+      ],
+      "target_true_token_ids": [
+        4606
+      ],
+      "target_true_tokens": [
+        " Europe"
+      ]
+    },
+    {
+      "case_id": 26,
+      "subject": "Campegius Vitringa",
+      "target_new": "medicine",
+      "target_true": "theology",
+      "target_new_token_ids": [
+        16088
+      ],
+      "target_new_tokens": [
+        " medicine"
+      ],
+      "target_true_token_ids": [
+        54641
+      ],
+      "target_true_tokens": [
+        " theology"
+      ]
+    },
+    {
+      "case_id": 27,
+      "subject": "Victor Emmanuel II of Savoy",
+      "target_new": "French",
+      "target_true": "Italian",
+      "target_new_token_ids": [
+        8753
+      ],
+      "target_new_tokens": [
+        " French"
+      ],
+      "target_true_token_ids": [
+        15155
+      ],
+      "target_true_tokens": [
+        " Italian"
+      ]
+    },
+    {
+      "case_id": 28,
+      "subject": "Christian Jacq",
+      "target_new": "Spanish",
+      "target_true": "French",
+      "target_new_token_ids": [
+        15506
+      ],
+      "target_new_tokens": [
+        " Spanish"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 29,
+      "subject": "Herbert Robbins",
+      "target_new": "sociology",
+      "target_true": "mathematics",
+      "target_new_token_ids": [
+        78208
+      ],
+      "target_new_tokens": [
+        " sociology"
+      ],
+      "target_true_token_ids": [
+        38696
+      ],
+      "target_true_tokens": [
+        " mathematics"
+      ]
+    },
+    {
+      "case_id": 30,
+      "subject": "Madeleine Peyroux",
+      "target_new": "actor",
+      "target_true": "composer",
+      "target_new_token_ids": [
+        12360
+      ],
+      "target_new_tokens": [
+        " actor"
+      ],
+      "target_true_token_ids": [
+        40550
+      ],
+      "target_true_tokens": [
+        " composer"
+      ]
+    },
+    {
+      "case_id": 31,
+      "subject": "Pedro Beato",
+      "target_new": "defender",
+      "target_true": "pitcher",
+      "target_new_token_ids": [
+        29315
+      ],
+      "target_new_tokens": [
+        " defender"
+      ],
+      "target_true_token_ids": [
+        42070
+      ],
+      "target_true_tokens": [
+        " pitcher"
+      ]
+    },
+    {
+      "case_id": 32,
+      "subject": "Abdiel",
+      "target_new": "Spanish",
+      "target_true": "Hebrew",
+      "target_new_token_ids": [
+        15506
+      ],
+      "target_new_tokens": [
+        " Spanish"
+      ],
+      "target_true_token_ids": [
+        37366
+      ],
+      "target_true_tokens": [
+        " Hebrew"
+      ]
+    },
+    {
+      "case_id": 33,
+      "subject": "Henry Halstead",
+      "target_new": "guitar",
+      "target_true": "violin",
+      "target_new_token_ids": [
+        17418
+      ],
+      "target_new_tokens": [
+        " guitar"
+      ],
+      "target_true_token_ids": [
+        63137
+      ],
+      "target_true_tokens": [
+        " violin"
+      ]
+    },
+    {
+      "case_id": 34,
+      "subject": "Guggenheim Museum",
+      "target_new": "India",
+      "target_true": "Spain",
+      "target_new_token_ids": [
+        6890
+      ],
+      "target_new_tokens": [
+        " India"
+      ],
+      "target_true_token_ids": [
+        18157
+      ],
+      "target_true_tokens": [
+        " Spain"
+      ]
+    },
+    {
+      "case_id": 35,
+      "subject": "Jon Elster",
+      "target_new": "Barcelona",
+      "target_true": "Oslo",
+      "target_new_token_ids": [
+        28035
+      ],
+      "target_new_tokens": [
+        " Barcelona"
+      ],
+      "target_true_token_ids": [
+        58958
+      ],
+      "target_true_tokens": [
+        " Oslo"
+      ]
+    },
+    {
+      "case_id": 36,
+      "subject": "Emirate of Granada",
+      "target_new": "Muslim",
+      "target_true": "Islam",
+      "target_new_token_ids": [
+        10451
+      ],
+      "target_new_tokens": [
+        " Muslim"
+      ],
+      "target_true_token_ids": [
+        15256
+      ],
+      "target_true_tokens": [
+        " Islam"
+      ]
+    },
+    {
+      "case_id": 37,
+      "subject": "Robert Dale Owen",
+      "target_new": "Boston",
+      "target_true": "Indianapolis",
+      "target_new_token_ids": [
+        10406
+      ],
+      "target_new_tokens": [
+        " Boston"
+      ],
+      "target_true_token_ids": [
+        42451
+      ],
+      "target_true_tokens": [
+        " Indianapolis"
+      ]
+    },
+    {
+      "case_id": 38,
+      "subject": "Herbert von Karajan",
+      "target_new": "Budapest",
+      "target_true": "Berlin",
+      "target_new_token_ids": [
+        70695
+      ],
+      "target_new_tokens": [
+        " Budapest"
+      ],
+      "target_true_token_ids": [
+        20437
+      ],
+      "target_true_tokens": [
+        " Berlin"
+      ]
+    },
+    {
+      "case_id": 39,
+      "subject": "Ernest Lapointe",
+      "target_new": "Hamburg",
+      "target_true": "Ottawa",
+      "target_new_token_ids": [
+        51562
+      ],
+      "target_new_tokens": [
+        " Hamburg"
+      ],
+      "target_true_token_ids": [
+        33266
+      ],
+      "target_true_tokens": [
+        " Ottawa"
+      ]
+    },
+    {
+      "case_id": 40,
+      "subject": "Death Grips",
+      "target_new": "Berlin",
+      "target_true": "Sacramento",
+      "target_new_token_ids": [
+        20437
+      ],
+      "target_new_tokens": [
+        " Berlin"
+      ],
+      "target_true_token_ids": [
+        41334
+      ],
+      "target_true_tokens": [
+        " Sacramento"
+      ]
+    },
+    {
+      "case_id": 41,
+      "subject": "Tony Pua",
+      "target_new": "journalist",
+      "target_true": "politician",
+      "target_new_token_ids": [
+        23672
+      ],
+      "target_new_tokens": [
+        " journalist"
+      ],
+      "target_true_token_ids": [
+        37038
+      ],
+      "target_true_tokens": [
+        " politician"
+      ]
+    },
+    {
+      "case_id": 42,
+      "subject": "Warwick School",
+      "target_new": "Paris",
+      "target_true": "Warwick",
+      "target_new_token_ids": [
+        12366
+      ],
+      "target_new_tokens": [
+        " Paris"
+      ],
+      "target_true_token_ids": [
+        78202
+      ],
+      "target_true_tokens": [
+        " Warwick"
+      ]
+    },
+    {
+      "case_id": 43,
+      "subject": "Don't Wait Up",
+      "target_new": "opera",
+      "target_true": "sitcom",
+      "target_new_token_ids": [
+        43516
+      ],
+      "target_new_tokens": [
+        " opera"
+      ],
+      "target_true_token_ids": [
+        81466
+      ],
+      "target_true_tokens": [
+        " sitcom"
+      ]
+    },
+    {
+      "case_id": 44,
+      "subject": "Ludwik Dorn",
+      "target_new": "Florence",
+      "target_true": "Warsaw",
+      "target_new_token_ids": [
+        48606
+      ],
+      "target_new_tokens": [
+        " Florence"
+      ],
+      "target_true_token_ids": [
+        73276
+      ],
+      "target_true_tokens": [
+        " Warsaw"
+      ]
+    },
+    {
+      "case_id": 45,
+      "subject": "Fifth Avenue",
+      "target_new": "Utah",
+      "target_true": "Manhattan",
+      "target_new_token_ids": [
+        23195
+      ],
+      "target_new_tokens": [
+        " Utah"
+      ],
+      "target_true_token_ids": [
+        29890
+      ],
+      "target_true_tokens": [
+        " Manhattan"
+      ]
+    },
+    {
+      "case_id": 46,
+      "subject": "Around the Moon",
+      "target_new": "Hebrew",
+      "target_true": "French",
+      "target_new_token_ids": [
+        37366
+      ],
+      "target_new_tokens": [
+        " Hebrew"
+      ],
+      "target_true_token_ids": [
+        8753
+      ],
+      "target_true_tokens": [
+        " French"
+      ]
+    },
+    {
+      "case_id": 47,
+      "subject": "Sam Benedict",
+      "target_new": "History",
+      "target_true": "NBC",
+      "target_new_token_ids": [
+        11346
+      ],
+      "target_new_tokens": [
+        " History"
+      ],
+      "target_true_token_ids": [
+        24426
+      ],
+      "target_true_tokens": [
+        " NBC"
+      ]
+    },
+    {
+      "case_id": 48,
+      "subject": "Toyota Dyna",
+      "target_new": "Samsung",
+      "target_true": "Toyota",
+      "target_new_token_ids": [
+        18907
+      ],
+      "target_new_tokens": [
+        " Samsung"
+      ],
+      "target_true_token_ids": [
+        30300
+      ],
+      "target_true_tokens": [
+        " Toyota"
+      ]
+    },
+    {
+      "case_id": 49,
+      "subject": "Rashidun Caliphates",
+      "target_new": "Constantinople",
+      "target_true": "Medina",
+      "target_new_token_ids": [
+        92287,
+        1184
+      ],
+      "target_new_tokens": [
+        " Constantin",
+        "ople"
+      ],
+      "target_true_token_ids": [
+        85266
+      ],
+      "target_true_tokens": [
+        " Medina"
+      ]
+    }
+  ],
+  "changes": {
+    "1184": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.379919409751892,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "1693": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.2725167274475098,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "4606": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0458786487579346,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "6498": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1234002113342285,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "6890": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0136053562164307,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "7295": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.037596344947815,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "8325": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0675076246261597,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "8753": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0928452014923096,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "10057": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.9543558359146118,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "10406": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.084228515625,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "10451": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0254781246185303,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "11346": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.11994206905365,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "12360": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0950734615325928,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "12366": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0361238718032837,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "15506": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0337728261947632,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "15704": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.9900277853012085,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "15984": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0870999097824097,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "16088": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1634687185287476,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "17352": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0940055847167969,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "17418": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0272244215011597,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "18907": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.9494820237159729,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "20437": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.032960295677185,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "22463": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0939310789108276,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "23195": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.020885944366455,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "23672": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0246405601501465,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "26746": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0802861452102661,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "28035": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 0.990746021270752,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "29315": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0994317531585693,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "32603": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.044694185256958,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "34100": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0398284196853638,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "37366": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0915184020996094,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "43516": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1290777921676636,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "44742": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.037226915359497,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "45080": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0589662790298462,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "48606": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1213233470916748,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "51562": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1108683347702026,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "53795": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0400577783584595,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "54306": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0644630193710327,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "61324": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.057675838470459,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "62199": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0850369930267334,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "70399": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1050413846969604,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "70695": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0618759393692017,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "72787": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": true,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1164470911026,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0,
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.0,
+      "true_embed_after_norm": 0.0
+    },
+    "78208": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": false,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0925161838531494,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "80722": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.0627650022506714,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "92287": {
+      "token": null,
+      "is_target_new": true,
+      "is_target_true": false,
+      "is_retain_overlap": true,
+      "lm_head_scaled": true,
+      "new_lm_scale": 0.0,
+      "new_lm_scale_default": 0.0,
+      "new_lm_overlap_scale": 0.0,
+      "lm_head_zeroed": true,
+      "lm_head_before_norm": 1.1485174894332886,
+      "lm_head_after_norm": 0.0,
+      "lm_head_tied_to_embedding": true,
+      "embed_scaled": true,
+      "embed_alpha": 1.0,
+      "embed_before_norm": 0.0,
+      "embed_after_norm": 0.0
+    },
+    "6457": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0035609006881714,
+      "true_embed_after_norm": 1.1288789510726929
+    },
+    "8494": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0014724731445312,
+      "true_embed_after_norm": 1.1265136003494263
+    },
+    "8690": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.9986250996589661,
+      "true_embed_after_norm": 1.1234294176101685
+    },
+    "13015": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.5,
+      "true_embed_before_norm": 1.1187633275985718,
+      "true_embed_after_norm": 1.6781407594680786
+    },
+    "15155": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0256496667861938,
+      "true_embed_after_norm": 1.1537139415740967
+    },
+    "15256": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0588878393173218,
+      "true_embed_after_norm": 1.1910948753356934
+    },
+    "16290": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.5,
+      "true_embed_before_norm": 1.11488938331604,
+      "true_embed_after_norm": 1.6723999977111816
+    },
+    "18157": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.9684545993804932,
+      "true_embed_after_norm": 1.0895260572433472
+    },
+    "24426": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0519256591796875,
+      "true_embed_after_norm": 1.1833536624908447
+    },
+    "24991": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0526472330093384,
+      "true_embed_after_norm": 1.1841444969177246
+    },
+    "25431": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0033032894134521,
+      "true_embed_after_norm": 1.1287174224853516
+    },
+    "26363": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.027496576309204,
+      "true_embed_after_norm": 1.155918002128601
+    },
+    "29022": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0018446445465088,
+      "true_embed_after_norm": 1.1269620656967163
+    },
+    "29890": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.1354620456695557,
+      "true_embed_after_norm": 1.277298927307129
+    },
+    "30300": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.9969426393508911,
+      "true_embed_after_norm": 1.1214957237243652
+    },
+    "31209": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0410592555999756,
+      "true_embed_after_norm": 1.1711807250976562
+    },
+    "33266": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.043218970298767,
+      "true_embed_after_norm": 1.1736063957214355
+    },
+    "33977": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0750435590744019,
+      "true_embed_after_norm": 1.2093080282211304
+    },
+    "37038": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0614089965820312,
+      "true_embed_after_norm": 1.193983793258667
+    },
+    "38696": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0643802881240845,
+      "true_embed_after_norm": 1.1974154710769653
+    },
+    "40550": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0622161626815796,
+      "true_embed_after_norm": 1.1949416399002075
+    },
+    "41334": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.078031301498413,
+      "true_embed_after_norm": 1.2126927375793457
+    },
+    "42070": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.115275263786316,
+      "true_embed_after_norm": 1.254547119140625
+    },
+    "42451": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0423009395599365,
+      "true_embed_after_norm": 1.172408938407898
+    },
+    "44883": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.9850648641586304,
+      "true_embed_after_norm": 1.1081877946853638
+    },
+    "45067": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 0.999369740486145,
+      "true_embed_after_norm": 1.124346137046814
+    },
+    "50544": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0481282472610474,
+      "true_embed_after_norm": 1.178992748260498
+    },
+    "54641": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.5,
+      "true_embed_before_norm": 1.0391429662704468,
+      "true_embed_after_norm": 1.558711051940918
+    },
+    "58958": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0542091131210327,
+      "true_embed_after_norm": 1.1859161853790283
+    },
+    "63137": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0590709447860718,
+      "true_embed_after_norm": 1.1913553476333618
+    },
+    "65035": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0593757629394531,
+      "true_embed_after_norm": 1.1917145252227783
+    },
+    "73276": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.101539134979248,
+      "true_embed_after_norm": 1.2391693592071533
+    },
+    "78202": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.5,
+      "true_embed_before_norm": 1.1546947956085205,
+      "true_embed_after_norm": 1.7320612668991089
+    },
+    "81466": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.125,
+      "true_embed_before_norm": 1.0523295402526855,
+      "true_embed_after_norm": 1.183888554573059
+    },
+    "85266": {
+      "target_true_embed_restored": true,
+      "true_embed_scale": 1.5,
+      "true_embed_before_norm": 1.1853166818618774,
+      "true_embed_after_norm": 1.7780426740646362
+    }
+  }
+}
