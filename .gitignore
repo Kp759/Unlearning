@@ -1,0 +1,4 @@
+
+# Large generated data/output files
+semantic-unlearning/data/attribute_snippets.json
+semantic-unlearning/outputs/attrsnips_ppl_*.json
