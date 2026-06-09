@@ -1,0 +1,13 @@
+embedding_dim: 2048
+attack_module: model.embed_tokens
+
+formatting_tokens:
+  answer_prefix: "<|start_header_id|>assistant<|end_header_id|>\n\n"
+  answer_suffix: "<|eot_id|>"
+  prompt_prefix: "<|start_header_id|>user<|end_header_id|>\n\n"
+  prompt_suffix: "<|eot_id|>"
+
+hf_name: /scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_1B_instruct
+attn_implementation: eager
+load_in_8bit: false
+load_in_4bit: false

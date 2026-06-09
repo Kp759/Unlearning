@@ -1,0 +1,19 @@
+{
+    "layers": [24],
+    "num_steps": 5,
+    "lr": 1e-5,
+    "weight_decay": 0,
+    "kl_factor": 1.0,
+    "norm_constraint": false,
+    "rewrite_module_tmp": "model.layers.{}.mlp.down_proj.weight",
+    "layer_module_tmp": "model.layers.{}",
+    "mlp_module_tmp": "model.layers.{}.mlp",
+    "attn_module_tmp": "model.layers.{}.self_attn",
+    "ln_f_module": "model.norm",
+    "lm_head_module": "lm_head",
+    "batch_size": 4,
+    "beta": 0.1,
+    "npo_coeff": 1.0,
+    "grad_diff_coeff": 1.0,
+    "forget_loss": "npo_grad_diff"
+}

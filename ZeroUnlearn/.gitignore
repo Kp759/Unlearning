@@ -1,0 +1,47 @@
+# Data directory
+data/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Logs directory
+logs/
+
+# Results directory
+results/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Model checkpoints and weights (if large)
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+

@@ -1,0 +1,38 @@
+tasks:
+  - name: retain
+    params:
+      model_path: "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct"
+
+  - name: original
+    params:
+      model_path: "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct"
+
+  - name: corrupt
+    params:
+      model_path: "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct"
+      corrupt_method: rand_noise_top_k
+      corrupt_args:
+        dims:
+          - 1
+        strength:
+          - 5
+          - 10
+          - 15
+          - 20
+          - 25
+          - 30
+
+  - name: corrupt
+    params:
+      model_path: "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct"
+      corrupt_method: zero_out_top_k
+      corrupt_args:
+        dims:
+          - 256
+          - 512
+          - 768
+          - 1024
+          - 1536
+          - 2048
+        strength:
+          - null
