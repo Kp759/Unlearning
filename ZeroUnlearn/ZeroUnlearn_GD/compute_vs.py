@@ -5,14 +5,14 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .compute_z import get_module_input_output_at_words
-from .UnLearn_hparams import UnLearningHyperParams
+from .ZeroUnlearnGD_hparams import ZeroUnlearnGDHyperParams
 
 
 def compute_vs(
     model: AutoModelForCausalLM,
     tok: AutoTokenizer,
     requests: Dict,
-    hparams: UnLearningHyperParams,
+    hparams: ZeroUnlearnGDHyperParams,
     layer: int,
     context_templates: List[str],
 ):

@@ -17,9 +17,6 @@ import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from experiments.summarize_list import summarize
-from baselines.ft import FTHyperParams, apply_ft_to_model
-from baselines.mend import MENDHyperParams, MendRewriteExecutor
-from baselines.GA import GAHyperParams, apply_ga_to_model
 from dsets import (
     AttributeSnippets,
     CounterFactDataset,
@@ -33,37 +30,71 @@ from collections import defaultdict
 from experiments.py.eval_utils_counterfact import compute_rewrite_quality_counterfact
 from experiments.py.eval_utils_zsre import compute_rewrite_quality_zsre
 from experiments.py.eval_utils_mquake import compute_rewrite_quality_mquake
-from memit import MEMITHyperParams
-from memit.compute_z import get_module_input_output_at_words, compute_z
-from memit.memit_main import apply_memit_to_model, get_context_templates
-from memit.memit_seq_main import apply_memit_seq_to_model
-from memit.memit_rect_main import apply_memit_rect_to_model
-from AlphaEdit import AlphaEditHyperParams
-from AlphaEdit.AlphaEdit_main import apply_AlphaEdit_to_model, get_cov
-from ZeroUnlearn import ZeroUnlearnHyperParams, apply_unl_to_model 
-from ZeroUnlearn_GD import ZeroUnlearnGDHyperParams, apply_unl_gd_to_model 
-from rome import ROMEHyperParams, apply_rome_to_model
-from baselines.base_model import BASEHyperParams, apply_base_to_model
 from util import nethook
 from util.globals import *
-from nse import NSEHyperParams
-from nse.nse_main import apply_nse_to_model
-from glue_eval.glue_eval import GLUEEval
-ALG_DICT = {
-    "BASE": (BASEHyperParams, apply_base_to_model),
-    "AlphaEdit": (AlphaEditHyperParams, apply_AlphaEdit_to_model),
-    "MEMIT_seq": (MEMITHyperParams, apply_memit_seq_to_model),
-    "MEMIT_prune": (MEMITHyperParams, apply_memit_to_model),
-    "MEMIT_rect": (MEMITHyperParams, apply_memit_rect_to_model),
-    "NSE": (NSEHyperParams, apply_nse_to_model),
-    "MEMIT": (MEMITHyperParams, apply_memit_to_model),
-    "ROME": (ROMEHyperParams, apply_rome_to_model),
-    "FT": (FTHyperParams, apply_ft_to_model),
-    "GA": (GAHyperParams, apply_ga_to_model),
-    "MEND": (MENDHyperParams, MendRewriteExecutor().apply_to_model),
-    "ZeroUnlearn": (ZeroUnlearnHyperParams, apply_unl_to_model),
-    "ZeroUnlearn_GD": (ZeroUnlearnGDHyperParams, apply_unl_gd_to_model),
-}
+
+
+def _import_optional_algorithm(module_name: str, alg_name: str):
+    """Import an optional algorithm module only when that algorithm is selected."""
+    try:
+        return __import__(module_name, fromlist=["*"])
+    except ModuleNotFoundError as exc:
+        missing_module = exc.name or module_name
+        raise RuntimeError(
+            f"Algorithm '{alg_name}' requires optional module '{missing_module}', "
+            f"but it is not available. Install or restore that module to run {alg_name}."
+        ) from exc
+
+
+def get_algorithm(alg_name: str):
+    """Return (params_class, apply_algo) after importing only the selected algorithm."""
+    if alg_name == "BASE":
+        base = _import_optional_algorithm("baselines.base_model", alg_name)
+        return base.BASEHyperParams, base.apply_base_to_model
+    if alg_name == "FT":
+        ft = _import_optional_algorithm("baselines.ft", alg_name)
+        return ft.FTHyperParams, ft.apply_ft_to_model
+    if alg_name == "GA":
+        ga = _import_optional_algorithm("baselines.GA", alg_name)
+        return ga.GAHyperParams, ga.apply_ga_to_model
+    if alg_name == "ZeroUnlearn":
+        zero_unlearn = _import_optional_algorithm("ZeroUnlearn", alg_name)
+        return zero_unlearn.ZeroUnlearnHyperParams, zero_unlearn.apply_unl_to_model
+    if alg_name == "ZeroUnlearn_GD":
+        zero_unlearn_gd = _import_optional_algorithm("ZeroUnlearn_GD", alg_name)
+        return zero_unlearn_gd.ZeroUnlearnGDHyperParams, zero_unlearn_gd.apply_unl_gd_to_model
+    if alg_name in {"ZeroUnlearn_EmbHead_All", "ZeroUnlearn_EmbHead_TouchedRows"}:
+        emb_head = _import_optional_algorithm("ZeroUnlearn_EmbHead", alg_name)
+        if alg_name == "ZeroUnlearn_EmbHead_All":
+            return emb_head.ZeroUnlearnEmbHeadHyperParams, emb_head.apply_emb_head_all_to_model
+        return emb_head.ZeroUnlearnEmbHeadHyperParams, emb_head.apply_emb_head_touched_rows_to_model
+    if alg_name == "MEND":
+        mend = _import_optional_algorithm("baselines.mend", alg_name)
+        return mend.MENDHyperParams, mend.MendRewriteExecutor().apply_to_model
+    if alg_name == "ROME":
+        rome = _import_optional_algorithm("rome", alg_name)
+        return rome.ROMEHyperParams, rome.apply_rome_to_model
+    if alg_name in {"MEMIT", "MEMIT_prune"}:
+        memit = _import_optional_algorithm("memit", alg_name)
+        memit_main = _import_optional_algorithm("memit.memit_main", alg_name)
+        return memit.MEMITHyperParams, memit_main.apply_memit_to_model
+    if alg_name == "MEMIT_seq":
+        memit = _import_optional_algorithm("memit", alg_name)
+        memit_seq_main = _import_optional_algorithm("memit.memit_seq_main", alg_name)
+        return memit.MEMITHyperParams, memit_seq_main.apply_memit_seq_to_model
+    if alg_name == "MEMIT_rect":
+        memit = _import_optional_algorithm("memit", alg_name)
+        memit_rect_main = _import_optional_algorithm("memit.memit_rect_main", alg_name)
+        return memit.MEMITHyperParams, memit_rect_main.apply_memit_rect_to_model
+    if alg_name == "NSE":
+        nse = _import_optional_algorithm("nse", alg_name)
+        nse_main = _import_optional_algorithm("nse.nse_main", alg_name)
+        return nse.NSEHyperParams, nse_main.apply_nse_to_model
+    if alg_name == "AlphaEdit":
+        alpha_edit = _import_optional_algorithm("AlphaEdit", alg_name)
+        alpha_edit_main = _import_optional_algorithm("AlphaEdit.AlphaEdit_main", alg_name)
+        return alpha_edit.AlphaEditHyperParams, alpha_edit_main.apply_AlphaEdit_to_model
+    raise KeyError(f"Unknown algorithm: {alg_name}")
 
 DS_DICT = {
     "mcf": (MultiCounterFactDataset, compute_rewrite_quality_counterfact),
@@ -109,6 +140,7 @@ def main(
     unlearn_num: int = 100,
     retain_num: int = 100,
     model_path_dir:str=None,
+    model_path: str = None,
     eval_retain: bool = False,
     eval_base_glue: bool = False,
     add_retain: bool = False,
@@ -135,6 +167,7 @@ def main(
     print(f"ratio: {ratio}")
     print(f"num: {unlearn_num=}, {retain_num=}")
     print(f"model_path_dir: {model_path_dir}")
+    print(f"model_path: {model_path}")
     print(f"eval_retain: {eval_retain}")
     print(f"eval_base_glue: {eval_base_glue}")
     print(f"add_retain: {add_retain}")
@@ -143,7 +176,7 @@ def main(
     print(f"seed: {seed}")
     print(f"-------------------------------------------------------")
     # Set algorithm-specific variables
-    params_class, apply_algo = ALG_DICT[alg_name]
+    params_class, apply_algo = get_algorithm(alg_name)
 
     # Determine run directory
     # Create new dir if not continuing from prev run OR prev run doesn't exist
@@ -163,7 +196,8 @@ def main(
             run_id = 0 if not id_list else max(id_list) + 1
         else:
             run_id = 0
-        run_dir = RESULTS_DIR / dir_name / f"{model_name}_{ds_name}_seed{seed}_unlearn_{unlearn_num}_retain_{retain_num}_edit_layer_nums_{edit_layer_nums}_run_{str(run_id).zfill(3)}"
+        safe_model_name = str(model_name).replace("/", "_").replace("\\", "_").replace(":", "_")
+        run_dir = RESULTS_DIR / dir_name / f"{safe_model_name}_{ds_name}_seed{seed}_unlearn_{unlearn_num}_retain_{retain_num}_edit_layer_nums_{edit_layer_nums}_run_{str(run_id).zfill(3)}"
         run_dir.mkdir(parents=True, exist_ok=True)
     print(f"Results will be stored at {run_dir}")
     if "MEMIT" in alg_name:
@@ -188,10 +222,11 @@ def main(
     # Instantiate vanilla model
     if type(model_name) is str:
         print("Instantiating model")
-        model_name=os.path.join(model_path_dir, model_name)
-        #model_name=os.path.join(model_dir, model_name)
-        model = AutoModelForCausalLM.from_pretrained(model_name).cuda()
-        tok = AutoTokenizer.from_pretrained(model_name)
+        load_path = model_path if model_path is not None else os.path.join(model_path_dir, model_name)
+        print(f"Logical model_name: {model_name}")
+        print(f"Loading model/tokenizer from: {load_path}")
+        model = AutoModelForCausalLM.from_pretrained(load_path).cuda()
+        tok = AutoTokenizer.from_pretrained(load_path)
         tok.pad_token = tok.eos_token
     else:
         model, tok = model_name
@@ -218,20 +253,22 @@ def main(
         if any(alg in alg_name for alg in ["MEMIT","AlphaEdit", "MEMIT_seq", "MEMIT_prune", "MEMIT_rect"]):
             cache_template = (
                 KV_DIR
-                / f"{model_name.replace('/', '_')}_MEMIT"
+                / f"{str(model_name).replace('/', '_')}_MEMIT"
                 / f"{ds_name}_layer_{{}}_clamp_{{}}_case_{{}}.npz"
             )
         else:
             cache_template = (
                 KV_DIR
-                / f"{model_name.replace('/', '_')}_{alg_name}"
+                / f"{str(model_name).replace('/', '_')}_{alg_name}"
                 / f"{ds_name}_layer_{{}}_clamp_{{}}_case_{{}}.npz"
             )
         print(f"Will load cache from {cache_template}")
     if alg_name == "NSE":
+        get_context_templates = _get_context_template_helper(alg_name)
+        _, compute_z = _get_compute_z_helpers(alg_name)
         cache_template = (
                 KV_DIR
-                / f"{model_name.replace('/', '_')}_{alg_name}"
+                / f"{str(model_name).replace('/', '_')}_{alg_name}"
                 / f"{ds_name}_layer_{{}}_clamp_{{}}_case_{{}}.npz"
         )
         for record in ds:
@@ -402,6 +439,7 @@ def main(
 
             out_file = glue_save_location + "base.json"
             
+            from glue_eval.glue_eval import GLUEEval
             glue_eval = GLUEEval(model, tok, number_of_tests = 100)
             glue_results = glue_eval.evaluate(glue_results, out_file, nli_flag = True, sst_flag = True, cola_flag=True, rte_flag=True, mmlu_flag = True, mrpc_flag = True)
 
@@ -494,18 +532,26 @@ def main(
                         original_weight = nethook.get_parameter(model, k)
                         adjusted_weight = original_weight + upd_matrix[k]
                         original_weight.copy_(adjusted_weight)
-        elif alg_name == "UnL" or alg_name == "UnL_v5" or alg_name == "UnL_v6" or alg_name == "UnL_v4" or alg_name == "UnL_v6_5":
-            # Don't save here, will save after evaluation for retain and forget separately
+        elif alg_name == "ZeroUnlearn":
             edited_model, weights_copy = apply_algo(
                 model=model,
                 tok=tok,
                 retain_requests=retain_data,
                 unlearn_requests=unlearn_data,
                 hparams=hparams,
+                cache_template=cache_template,
                 save_path=None,
-                add_retain=add_retain,  # Will save after evaluation instead
+                add_retain=add_retain,
                 edit_layer_nums=edit_layer_nums,
                 use_h=use_h,
+            )
+        elif alg_name in {"ZeroUnlearn_EmbHead_All", "ZeroUnlearn_EmbHead_TouchedRows"}:
+            edited_model, weights_copy = apply_algo(
+                model=model,
+                tok=tok,
+                retain_requests=retain_data,
+                unlearn_requests=unlearn_data,
+                hparams=hparams,
             )
         
         else:
@@ -530,7 +576,14 @@ def main(
         cnt+=1
         print("Execution took", exec_time)
         # Evaluate new model
-        if unlearn_num > 0 and unlearn_num < 100:
+        if (
+            unlearn_num > 0
+            and unlearn_num < 100
+            and hasattr(hparams, "layers")
+            and any(alg in alg_name for alg in ["MEMIT", "AlphaEdit", "NSE"])
+        ):
+            get_context_templates = _get_context_template_helper(alg_name)
+            get_module_input_output_at_words, _ = _get_compute_z_helpers(alg_name)
             # Save activations of edited model at each layer (averaged over different prefixes)
             edit_num = min(len(hparams.layers), edit_layer_nums)
             layers_to_save = hparams.layers[-edit_num:]
@@ -584,6 +637,7 @@ def main(
 
             out_file = glue_save_location + "case_{}.json".format(record["case_id"])#stores the last case ID of the batch
 
+            from glue_eval.glue_eval import GLUEEval
             glue_eval = GLUEEval(edited_model, tok, number_of_tests = 100)
             glue_results = glue_eval.evaluate(glue_results, out_file, nli_flag = True, sst_flag = True, cola_flag=True, rte_flag=True, mmlu_flag = True, mrpc_flag = True)
                     
@@ -632,9 +686,26 @@ def main(
            
 
 
+def _get_context_template_helper(alg_name: str):
+    if alg_name == "AlphaEdit":
+        alpha_edit_main = _import_optional_algorithm("AlphaEdit.AlphaEdit_main", alg_name)
+        return alpha_edit_main.get_context_templates
+    memit_main = _import_optional_algorithm("memit.memit_main", alg_name)
+    return memit_main.get_context_templates
+
+
+def _get_compute_z_helpers(alg_name: str):
+    if alg_name == "AlphaEdit":
+        compute_z_module = _import_optional_algorithm("AlphaEdit.compute_z", alg_name)
+        return compute_z_module.get_module_input_output_at_words, compute_z_module.compute_z
+    compute_z_module = _import_optional_algorithm("memit.compute_z", alg_name)
+    return compute_z_module.get_module_input_output_at_words, compute_z_module.compute_z
+
+
 def get_project(model, tok, layer, hparams):
+    alpha_edit_main = _import_optional_algorithm("AlphaEdit.AlphaEdit_main", "AlphaEdit")
     force_recompute = False
-    cov = get_cov(
+    cov = alpha_edit_main.get_cov(
         model,
         tok,
         hparams.rewrite_module_tmp.format(layer),
@@ -674,7 +745,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--alg_name",
-        choices=["BASE","GA","ZeroUnlearn","ZeroUnlearn_GD","AlphaEdit","MEMIT_rect", "MEMIT_seq","MEMIT_prune", "MEMIT", "ROME", "FT", "MEND","NSE"],
+        choices=["BASE","GA","ZeroUnlearn","ZeroUnlearn_GD","ZeroUnlearn_EmbHead_All","ZeroUnlearn_EmbHead_TouchedRows","AlphaEdit","MEMIT_rect", "MEMIT_seq","MEMIT_prune", "MEMIT", "ROME", "FT", "MEND","NSE"],
         default="ZeroUnlearn",
         help="Editing algorithm to use. Results are saved in results/<alg_name>/<run_id>, "
         "where a new run_id is generated on each run. "
@@ -782,7 +853,13 @@ if __name__ == "__main__":
         "--model_path_dir",
         type=str,
         default='model_path',
-        help="If we want to debug the code or not",
+        help="Directory prefix used with --model_name when --model_path is not provided.",
+    )
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        default=None,
+        help="Optional exact Hugging Face model/tokenizer path. Keeps --model_name as the logical alias.",
     )
     parser.add_argument(
         "--eval_base_glue",
@@ -848,6 +925,7 @@ if __name__ == "__main__":
         unlearn_num=args.unlearn_num,
         retain_num=args.retain_num,
         model_path_dir=args.model_path_dir,
+        model_path=args.model_path,
         eval_retain=args.eval_retain,
         eval_base_glue=args.eval_base_glue,
         add_retain=args.add_retain,
