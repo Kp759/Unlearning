@@ -616,15 +616,24 @@ def mcf_paired_examples(examples: Sequence[Example], use_paraphrases: bool = Fal
 def add_mcf_rewrite_metrics(metrics: Dict[str, float], prefix: str, model: torch.nn.Module, tok: AutoTokenizer, examples: Sequence[Example], device: torch.device) -> None:
     new_examples, true_examples = mcf_paired_examples(examples, use_paraphrases=False)
     if not new_examples or len(new_examples) != len(true_examples):
+        for suffix in ("target_new_nll", "target_true_nll", "new_over_true_success"):
+            metrics[f"{prefix}_{suffix}"] = float("nan")
         for suffix in ("target_new_nll", "target_true_nll", "new_over_true_success", "prob_diff_new_minus_true"):
             metrics[f"{prefix}_rewrite_{suffix}"] = float("nan")
         return
     new_nll = np.array(nll_values(model, tok, new_examples, device, desc=f"{prefix} new nll"), dtype=np.float64)
     true_nll = np.array(nll_values(model, tok, true_examples, device, desc=f"{prefix} true nll"), dtype=np.float64)
-    metrics[f"{prefix}_rewrite_target_new_nll"] = float(np.mean(new_nll))
-    metrics[f"{prefix}_rewrite_target_true_nll"] = float(np.mean(true_nll))
-    metrics[f"{prefix}_rewrite_new_over_true_success"] = float(np.mean(new_nll < true_nll))
-    metrics[f"{prefix}_rewrite_prob_diff_new_minus_true"] = float(np.mean(np.exp(-new_nll) - np.exp(-true_nll)))
+    target_new_nll = float(np.mean(new_nll))
+    target_true_nll = float(np.mean(true_nll))
+    new_over_true_success = float(np.mean(new_nll < true_nll))
+    prob_diff = float(np.mean(np.exp(-new_nll) - np.exp(-true_nll)))
+    metrics[f"{prefix}_target_new_nll"] = target_new_nll
+    metrics[f"{prefix}_target_true_nll"] = target_true_nll
+    metrics[f"{prefix}_new_over_true_success"] = new_over_true_success
+    metrics[f"{prefix}_rewrite_target_new_nll"] = target_new_nll
+    metrics[f"{prefix}_rewrite_target_true_nll"] = target_true_nll
+    metrics[f"{prefix}_rewrite_new_over_true_success"] = new_over_true_success
+    metrics[f"{prefix}_rewrite_prob_diff_new_minus_true"] = prob_diff
 
 
 def add_mcf_paraphrase_metrics(metrics: Dict[str, float], prefix: str, model: torch.nn.Module, tok: AutoTokenizer, examples: Sequence[Example], device: torch.device) -> None:
@@ -650,8 +659,8 @@ def evaluate(model: torch.nn.Module, tok: AutoTokenizer, forget: Sequence[Exampl
         selected_field = args.mcf_answer_field
         metrics["forget_match"] = greedy_match(model, tok, f_eval, device)
         metrics["retain_match"] = greedy_match(model, tok, r_eval, device)
-        metrics["forget_loss"] = metrics.get(f"forget_rewrite_{selected_field}_nll", float("nan"))
-        metrics["retain_loss"] = metrics.get(f"retain_rewrite_{selected_field}_nll", float("nan"))
+        metrics["forget_loss"] = metrics.get(f"forget_{selected_field}_nll", float("nan"))
+        metrics["retain_loss"] = metrics.get(f"retain_{selected_field}_nll", float("nan"))
     else:
         metrics["forget_answer_nll"] = mean_nll(model, tok, f_eval, device)
         metrics["retain_answer_nll"] = mean_nll(model, tok, r_eval, device)
@@ -687,7 +696,7 @@ def write_comparison_md(path: Path, rows: List[Dict[str, Any]]) -> None:
         "# GA/GD Comparison",
         "",
         "Metric directions: for GA/GD loss metrics, higher `forget_loss_after` means stronger forgetting, while lower `retain_loss_after` means better retention.",
-        "For official-style MCF success metrics, lower `forget_rewrite_new_over_true_success_after` means `target_new` is less preferred after unlearning, matching ZeroUnlearn/CounterFact table direction where Eff/Gen are ↓.",
+        "For official-style MCF success metrics, lower `forget_new_over_true_success_after` means stronger unlearning in the ZeroUnlearn/CounterFact target_new-vs-target_true sense.",
         "",
     ]
     if rows:
@@ -729,22 +738,31 @@ def make_comparison_row(
     }
     if args.dataset == "mcf":
         official_keys = [
-            "forget_rewrite_target_new_nll",
-            "forget_rewrite_target_true_nll",
-            "forget_rewrite_new_over_true_success",
-            "forget_rewrite_prob_diff_new_minus_true",
-            "retain_rewrite_target_new_nll",
-            "retain_rewrite_target_true_nll",
-            "retain_rewrite_new_over_true_success",
-            "retain_rewrite_prob_diff_new_minus_true",
-            "forget_paraphrase_new_over_true_success",
-            "retain_paraphrase_new_over_true_success",
+            "forget_target_new_nll",
+            "forget_target_true_nll",
+            "forget_new_over_true_success",
+            "retain_target_new_nll",
+            "retain_target_true_nll",
+            "retain_new_over_true_success",
         ]
         for key in official_keys:
             if key in before or key in after:
                 row[f"{key}_before"] = before.get(key, float("nan"))
                 row[f"{key}_after"] = after.get(key, float("nan"))
     return row
+
+
+def add_mcf_before_after_metrics(metrics: Dict[str, Any], before: Dict[str, float], after: Dict[str, float]) -> None:
+    for key in (
+        "forget_target_new_nll",
+        "forget_target_true_nll",
+        "forget_new_over_true_success",
+        "retain_target_new_nll",
+        "retain_target_true_nll",
+        "retain_new_over_true_success",
+    ):
+        metrics[f"{key}_before"] = before.get(key, float("nan"))
+        metrics[f"{key}_after"] = after.get(key, float("nan"))
 
 
 def parse_args() -> argparse.Namespace:
@@ -816,6 +834,8 @@ def main() -> None:
         mode_dir = out_dir / mode
         summary = train_mode(model, tok, forget, retain, selected_ids, mode, args, mode_dir)
         metrics = evaluate(model, tok, forget, retain, args)
+        if args.dataset == "mcf":
+            add_mcf_before_after_metrics(metrics, base_metrics, metrics)
         metrics.update(asdict(summary))
         metrics["n_selected_tokens"] = len(selected_ids)
         write_json(mode_dir / "metrics.json", metrics)

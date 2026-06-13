@@ -93,23 +93,22 @@ By default, MCF training and the generic GA/GD loss metrics use `--mcf-answer-fi
 
 `--mcf-answer-field target_true` is available only as an optional diagnostic when you want the GA/GD objective and generic loss columns to use the original true answer instead of the rewrite target. Official-style MCF rewrite metrics are still computed for both `target_new` and `target_true` whenever both targets are available.
 
-For MCF runs, the script also writes official-style rewrite metrics for both forget and retain splits:
+For MCF runs, `comparison.csv`, `comparison.md`, and each mode `metrics.json` also include these official-style before/after metrics for both forget and retain splits:
 
-- `forget_rewrite_target_new_nll`
-- `forget_rewrite_target_true_nll`
-- `forget_rewrite_new_over_true_success`
-- `forget_rewrite_prob_diff_new_minus_true`
-- `retain_rewrite_target_new_nll`
-- `retain_rewrite_target_true_nll`
-- `retain_rewrite_new_over_true_success`
-- `retain_rewrite_prob_diff_new_minus_true`
+- `forget_target_new_nll_before`
+- `forget_target_new_nll_after`
+- `forget_target_true_nll_before`
+- `forget_target_true_nll_after`
+- `forget_new_over_true_success_before`
+- `forget_new_over_true_success_after`
+- `retain_target_new_nll_before`
+- `retain_target_new_nll_after`
+- `retain_target_true_nll_before`
+- `retain_target_true_nll_after`
+- `retain_new_over_true_success_before`
+- `retain_new_over_true_success_after`
 
-If paraphrase prompts are available, it also writes:
-
-- `forget_paraphrase_new_over_true_success`
-- `retain_paraphrase_new_over_true_success`
-
-Here `new_over_true_success` is the mean indicator that `target_new_nll < target_true_nll`, and `prob_diff_new_minus_true` is `mean(exp(-target_new_nll) - exp(-target_true_nll))`. For official-style MCF success metrics, lower `forget_rewrite_new_over_true_success` after unlearning means the rewrite target is less preferred, matching the ZeroUnlearn table direction where Eff/Gen are ↓.
+Here `new_over_true_success` is the mean indicator that `target_new_nll < target_true_nll`. Lower `forget_new_over_true_success_after` means stronger unlearning in the ZeroUnlearn/CounterFact target_new-vs-target_true sense.
 
 ## Metric directions
 
@@ -120,7 +119,7 @@ Here `new_over_true_success` is the mean indicator that `target_new_nll < target
 - `forget_loss_delta = forget_loss_after - forget_loss_before`; larger positive values usually indicate stronger forgetting.
 - `retain_loss_delta = retain_loss_after - retain_loss_before`; values near zero or negative are better for retention.
 
-For MCF, the generic `forget_loss_*` and `retain_loss_*` columns correspond to the selected `--mcf-answer-field` and default to `target_new`. The script additionally reports the official-style rewrite and paraphrase metrics listed above. For TOFU, it reports `forget_answer_nll` and `retain_answer_nll`.
+For MCF, the generic `forget_loss_*` and `retain_loss_*` columns correspond to the selected `--mcf-answer-field` and default to `target_new`. The script additionally reports the official-style target_new-vs-target_true metrics listed above. For TOFU, it reports `forget_answer_nll` and `retain_answer_nll`.
 
 ## Expected output files
 
