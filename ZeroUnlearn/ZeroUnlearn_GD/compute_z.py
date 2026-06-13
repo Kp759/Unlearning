@@ -7,14 +7,14 @@ import random
 from rome import repr_tools
 from util import nethook
 
-from .UnLearn_hparams import UnLearningHyperParams
+from .ZeroUnlearnGD_hparams import ZeroUnlearnGDHyperParams
 
 
 def compute_z(
     model: AutoModelForCausalLM,
     tok: AutoTokenizer,
     request: Dict,
-    hparams: UnLearningHyperParams,
+    hparams: ZeroUnlearnGDHyperParams,
     layer: int,
     context_templates: List[str],
     edit_template: str,

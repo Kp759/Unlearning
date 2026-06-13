@@ -212,8 +212,8 @@ def get_unlearn_project(
 ) -> Dict[str, Tuple[torch.Tensor]]:
     requests = deepcopy(unlearn_requests)
     for i, request in enumerate(requests):
-        if request["target_true"]["str"][0] != " ": space required for correct tokenization when computing V_u
-            # Space required for correct tokenization
+        # Space required for correct tokenization when computing V_u
+        if request["target_true"]["str"][0] != " ":
             requests[i]["target_true"]["str"] = " " + request["target_true"]["str"]
     for request in requests[:10]:
         print(
@@ -308,8 +308,8 @@ def get_retain_project(
     requests = deepcopy(retain_requests)
     print(f"retain requests: {len(requests)=}")
     for i, request in enumerate(requests):
-        if request["target_true"]["str"][0] != " ": space required for correct tokenization when computing V_u
-            # Space required for correct tokenization
+        # Space required for correct tokenization when computing V_u
+        if request["target_true"]["str"][0] != " ":
             requests[i]["target_true"]["str"] = " " + request["target_true"]["str"]
     for request in requests[:10]:
         print(
@@ -396,8 +396,8 @@ def get_unlearn_project_backup(
     # Update target and print info
     requests = deepcopy(unlearn_requests)
     for i, request in enumerate(requests):
-        if request["target_true"]["str"][0] != " ": space required for correct tokenization when computing V_u
-            # Space required for correct tokenization
+        # Space required for correct tokenization when computing V_u
+        if request["target_true"]["str"][0] != " ":
             requests[i]["target_true"]["str"] = " " + request["target_true"]["str"]
     for request in requests[:10]:
         print(
