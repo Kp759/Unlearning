@@ -111,6 +111,21 @@ For MCF runs, `comparison.csv`, `comparison.md`, and each mode `metrics.json` al
 Here `new_over_true_success` is the mean indicator that `target_new_nll < target_true_nll`. Lower `forget_new_over_true_success_after` means stronger unlearning in the ZeroUnlearn/CounterFact target_new-vs-target_true sense.
 
 
+
+## MCF margin forget loss
+
+The default forget objective is `--forget-loss-type answer_nll`, which keeps the original GA behavior: maximize the selected forget answer NLL and minimize retain answer NLL. For MCF, you can instead use `--forget-loss-type mcf_margin` to align the training objective more directly with official CounterFact/ZeroUnlearn Eff/Gen success.
+
+`mcf_margin` computes answer-only NLL for both `target_new` and `target_true` on the same forget prompt and minimizes:
+
+```text
+softplus(target_true_nll - target_new_nll)
+```
+
+Minimizing this margin pushes `target_new_nll >= target_true_nll`, which lowers `target_new_nll < target_true_nll` success and therefore aligns with reducing official Eff/Gen. This option is only valid with `--dataset mcf`; TOFU runs raise a clear error if it is selected. Retain loss remains answer-only CE using `--mcf-answer-field`, which defaults to `target_new`.
+
+Selective-token modes apply the selected-token mask to both `target_new` and `target_true` NLLs. If an example has zero selected `target_true` tokens, it falls back to the full target-true answer labels and logs that fallback in `train_log.jsonl`. The log also records `forget_loss_type`, `forget_margin_loss`, `forget_target_new_nll`, and `forget_target_true_nll` when margin loss is used.
+
 ## ZeroUnlearn-compatible official MCF evaluation
 
 `comparison.md` from `gagd_compare.py` is a GA/GD training-diagnostic loss table. Use it to inspect whether the optimization objective moved in the expected direction, but do **not** use it as the final ZeroUnlearn comparison table.

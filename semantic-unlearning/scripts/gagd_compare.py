@@ -68,6 +68,17 @@ class LossResult:
 
 
 @dataclass
+class MarginLossResult:
+    loss: torch.Tensor
+    target_new_nll: torch.Tensor
+    target_true_nll: torch.Tensor
+    target_new_fallback_examples: int
+    target_true_fallback_examples: int
+    target_new_tokens: int
+    target_true_tokens: int
+
+
+@dataclass
 class ParamSummary:
     n_trainable_params: int
     n_total_params: int
@@ -371,6 +382,47 @@ def answer_ce_loss(
     return LossResult((per_token * answer_mask.float()).sum() / denom, fallback, int(denom.item()))
 
 
+def mcf_margin_forget_loss(
+    model: AutoModelForCausalLM,
+    tok: AutoTokenizer,
+    examples: Sequence[Example],
+    selected_token_ids: Optional[set[int]],
+    device: torch.device,
+) -> MarginLossResult:
+    margins: List[torch.Tensor] = []
+    new_losses: List[torch.Tensor] = []
+    true_losses: List[torch.Tensor] = []
+    new_fallbacks = 0
+    true_fallbacks = 0
+    new_tokens = 0
+    true_tokens = 0
+    for ex in examples:
+        if not ex.target_new or not ex.target_true:
+            raise ValueError("MCF margin forget loss requires both target_new and target_true for every forget example.")
+        new_ex = Example(prompt=ex.prompt, answer=ex.target_new, source=ex.source)
+        true_ex = Example(prompt=ex.prompt, answer=ex.target_true, source=ex.source)
+        new_res = answer_ce_loss(model, tok, [new_ex], selected_token_ids, device)
+        true_res = answer_ce_loss(model, tok, [true_ex], selected_token_ids, device)
+        margins.append(F.softplus(true_res.loss - new_res.loss))
+        new_losses.append(new_res.loss)
+        true_losses.append(true_res.loss)
+        new_fallbacks += new_res.fallback_examples
+        true_fallbacks += true_res.fallback_examples
+        new_tokens += new_res.contributing_tokens
+        true_tokens += true_res.contributing_tokens
+    if not margins:
+        raise ValueError("MCF margin forget loss received an empty forget batch.")
+    return MarginLossResult(
+        loss=torch.stack(margins).mean(),
+        target_new_nll=torch.stack(new_losses).mean(),
+        target_true_nll=torch.stack(true_losses).mean(),
+        target_new_fallback_examples=new_fallbacks,
+        target_true_fallback_examples=true_fallbacks,
+        target_new_tokens=new_tokens,
+        target_true_tokens=true_tokens,
+    )
+
+
 def sample_batch(examples: Sequence[Example], batch_size: int) -> List[Example]:
     return [examples[random.randrange(len(examples))] for _ in range(min(batch_size, len(examples)))]
 
@@ -523,9 +575,17 @@ def train_mode(
             forget_batch = sample_batch(forget, args.batch_size)
             retain_batch = sample_batch(retain, args.retain_batch_size)
             opt.zero_grad(set_to_none=True)
-            forget_res = answer_ce_loss(model, tok, forget_batch, selected_set, device)
+            margin_res = None
+            if args.forget_loss_type == "mcf_margin":
+                margin_res = mcf_margin_forget_loss(model, tok, forget_batch, selected_set, device)
+                forget_loss_for_log = margin_res.loss
+                total = args.forget_weight * margin_res.loss
+            else:
+                forget_res = answer_ce_loss(model, tok, forget_batch, selected_set, device)
+                forget_loss_for_log = forget_res.loss
+                total = -args.forget_weight * forget_res.loss
             retain_res = answer_ce_loss(model, tok, retain_batch, selected_set, device)
-            total = -args.forget_weight * forget_res.loss + args.retain_weight * retain_res.loss
+            total = total + args.retain_weight * retain_res.loss
             kl_val = torch.zeros((), device=device)
             if ref_model is not None:
                 kl_val = kl_retain_loss(model, ref_model, tok, retain_batch, device)
@@ -541,13 +601,19 @@ def train_mode(
             row = {
                 "step": step + 1,
                 "total_loss": float(total.detach().cpu()),
-                "forget_loss": float(forget_res.loss.detach().cpu()),
+                "forget_loss_type": args.forget_loss_type,
+                "forget_loss": float(forget_loss_for_log.detach().cpu()),
                 "retain_loss": float(retain_res.loss.detach().cpu()),
                 "kl_retain_loss": float(kl_val.detach().cpu()),
-                "forget_fallback_examples": forget_res.fallback_examples,
+                "forget_fallback_examples": (margin_res.target_new_fallback_examples + margin_res.target_true_fallback_examples) if margin_res is not None else forget_res.fallback_examples,
                 "retain_fallback_examples": retain_res.fallback_examples,
-                "forget_tokens": forget_res.contributing_tokens,
+                "forget_tokens": (margin_res.target_new_tokens + margin_res.target_true_tokens) if margin_res is not None else forget_res.contributing_tokens,
                 "retain_tokens": retain_res.contributing_tokens,
+                "forget_margin_loss": float(margin_res.loss.detach().cpu()) if margin_res is not None else None,
+                "forget_target_new_nll": float(margin_res.target_new_nll.detach().cpu()) if margin_res is not None else None,
+                "forget_target_true_nll": float(margin_res.target_true_nll.detach().cpu()) if margin_res is not None else None,
+                "forget_target_new_fallback_examples": margin_res.target_new_fallback_examples if margin_res is not None else None,
+                "forget_target_true_fallback_examples": margin_res.target_true_fallback_examples if margin_res is not None else None,
             }
             log_f.write(json.dumps(row) + "\n")
     if args.save_model:
@@ -741,6 +807,7 @@ def make_comparison_row(
         "steps": args.steps,
         "lr": args.lr,
         "optimizer": getattr(args, "effective_optimizer", args.optimizer or "default"),
+        "forget_loss_type": args.forget_loss_type,
     }
     if args.dataset == "mcf":
         official_keys = [
@@ -787,6 +854,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--forget-weight", type=float, default=1.0)
     p.add_argument("--retain-weight", type=float, default=1.0)
+    p.add_argument("--forget-loss-type", choices=["answer_nll", "mcf_margin"], default="answer_nll", help="Forget objective. answer_nll keeps GA on the selected answer NLL; mcf_margin minimizes softplus(target_true_nll - target_new_nll) and is only valid for MCF.")
     p.add_argument("--kl-retain-weight", type=float, default=0.0)
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--gradient-checkpointing", action="store_true")
@@ -811,6 +879,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.forget_loss_type == "mcf_margin" and args.dataset != "mcf":
+        raise ValueError("--forget-loss-type mcf_margin is only supported with --dataset mcf")
     set_seed(args.seed)
     require_cuda_if_needed(args.device_map)
     out_dir = resolve_output_path(args.output_dir)
@@ -857,6 +927,7 @@ def main() -> None:
             add_mcf_before_after_metrics(metrics, base_metrics, metrics)
         metrics.update(asdict(summary))
         metrics["n_selected_tokens"] = len(selected_ids)
+        metrics["forget_loss_type"] = args.forget_loss_type
         write_json(mode_dir / "metrics.json", metrics)
         rows.append(make_comparison_row(args, mode, base_metrics, metrics, summary, len(selected_ids)))
         if args.run_official_mcf_eval:
