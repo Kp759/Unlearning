@@ -110,6 +110,66 @@ For MCF runs, `comparison.csv`, `comparison.md`, and each mode `metrics.json` al
 
 Here `new_over_true_success` is the mean indicator that `target_new_nll < target_true_nll`. Lower `forget_new_over_true_success_after` means stronger unlearning in the ZeroUnlearn/CounterFact target_new-vs-target_true sense.
 
+
+## ZeroUnlearn-compatible official MCF evaluation
+
+`comparison.md` from `gagd_compare.py` is a GA/GD training-diagnostic loss table. Use it to inspect whether the optimization objective moved in the expected direction, but do **not** use it as the final ZeroUnlearn comparison table.
+
+For final MCF comparisons against ZeroUnlearn, use the official-compatible evaluator and compare `official_eval_comparison.md`. It reports:
+
+- `Eff`: rewrite success; ↓ is better unlearning.
+- `Gen`: paraphrase success; ↓ is better unlearning.
+- `Spe`: neighborhood probability-difference specificity; ↑ is better specificity.
+- `Spe_success`: neighborhood success rate, reported separately.
+- `PPL`: Wikidata-style perplexity; ↓ or stable is better fluency.
+
+To make `gagd_compare.py` run the official-compatible evaluator after every mode, add `--run-official-mcf-eval`. The script automatically saves each mode checkpoint when this flag is set and writes:
+
+- `outputs/gagd_compare/.../official_eval/<mode>_official_eval.json`
+- `outputs/gagd_compare/.../official_eval_comparison.csv`
+- `outputs/gagd_compare/.../official_eval_comparison.md`
+
+Example:
+
+```bash
+cd semantic-unlearning
+python scripts/gagd_compare.py \
+  --dataset mcf \
+  --model-path /scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95 \
+  --mode all \
+  --forget-num 50 \
+  --retain-num 1000 \
+  --steps 100 \
+  --batch-size 1 \
+  --retain-batch-size 1 \
+  --lr 1e-5 \
+  --dtype bf16 \
+  --run-official-mcf-eval
+```
+
+You can also compare arbitrary checkpoints, including a ZeroUnlearn checkpoint/output model and the four semantic-unlearning mode checkpoints, with:
+
+```bash
+cd semantic-unlearning
+python scripts/run_same_mcf_eval.py \
+  --model-dirs \
+    ZeroUnlearn=/path/to/zerounlearn/checkpoint \
+    full_all_tokens=outputs/gagd_compare/mcf/full_all_tokens/checkpoint \
+    full_selective_tokens=outputs/gagd_compare/mcf/full_selective_tokens/checkpoint \
+    emb_lm_all_tokens=outputs/gagd_compare/mcf/emb_lm_all_tokens/checkpoint \
+    emb_lm_selective_tokens=outputs/gagd_compare/mcf/emb_lm_selective_tokens/checkpoint \
+  --mcf-path data/mcf/multi_counterfact.json \
+  --wikidata-dir data/wikidata \
+  --out-dir outputs/gagd_compare/same_mcf_eval \
+  --unlearn-num 50 \
+  --retain-num 1000 \
+  --seed 0 \
+  --sample-mode official \
+  --dtype bf16
+```
+
+If Wikidata is unavailable and you do not pass `--skip-ppl`, the evaluator warns and sets PPL to `null` rather than crashing.
+
 ## Metric directions
 
 - Lower `forget_match_after` is better for forgetting.
@@ -131,7 +191,8 @@ For an `--output-dir` such as `outputs/gagd_compare/mcf`, the script writes:
 - `<mode>/metrics.json`
 - `<mode>/train_log.jsonl`
 - `comparison.csv`
-- `comparison.md`
+- `comparison.md` (GA/GD diagnostic only)
+- `official_eval_comparison.md` when `--run-official-mcf-eval` is set
 
 Models are not saved by default. Pass `--save-model` to save each mode under `<mode>/checkpoint/`.
 

@@ -31,6 +31,12 @@ try:  # Optional by requirement.
 except Exception:  # pragma: no cover - depends on environment
     pd = None
 
+from mcf_zero_unlearn_official_eval import (
+    evaluate_model_dir_official,
+    result_to_comparison_row,
+    write_official_comparison,
+)
+
 MODES = [
     "full_all_tokens",
     "full_selective_tokens",
@@ -695,7 +701,7 @@ def write_comparison_md(path: Path, rows: List[Dict[str, Any]]) -> None:
     lines = [
         "# GA/GD Comparison",
         "",
-        "Metric directions: for GA/GD loss metrics, higher `forget_loss_after` means stronger forgetting, while lower `retain_loss_after` means better retention.",
+        "Training-diagnostic GA/GD metrics only: higher `forget_loss_after` means stronger forgetting, while lower `retain_loss_after` means better retention.",
         "For official-style MCF success metrics, lower `forget_new_over_true_success_after` means stronger unlearning in the ZeroUnlearn/CounterFact target_new-vs-target_true sense.",
         "",
     ]
@@ -791,6 +797,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--mcf-url", default=MCF_URL)
     p.add_argument("--mcf-cache-path", default="data/mcf/multi_counterfact.json", help="MCF cache path. Relative paths are resolved under semantic-unlearning/.")
     p.add_argument("--mcf-answer-field", choices=["target_new", "target_true"], default="target_new", help="MCF answer field used for GA/GD training and generic forget/retain loss metrics. Defaults to target_new for ZeroUnlearn/CounterFact comparability; target_true is diagnostic.")
+    p.add_argument("--run-official-mcf-eval", action="store_true", help="After each MCF mode, save the checkpoint and run the ZeroUnlearn-compatible MCF evaluator. Use official_eval_comparison.md for final comparisons.")
+    p.add_argument("--wikidata-dir", default="data/wikidata", help="Wikidata dataset directory for official-compatible PPL evaluation.")
+    p.add_argument("--official-sample-mode", choices=["official", "first"], default="official", help="MCF sampling mode used by --run-official-mcf-eval.")
+    p.add_argument("--official-device-map", default="auto", help="device_map passed to the official-compatible MCF evaluator.")
+    p.add_argument("--skip-ppl", action="store_true", help="Skip official-compatible PPL evaluation.")
     p.add_argument("--forget-split", default="forget05")
     p.add_argument("--retain-split", default="retain95")
     p.add_argument("--semantic-token-json", default=None)
@@ -804,6 +815,12 @@ def main() -> None:
     require_cuda_if_needed(args.device_map)
     out_dir = resolve_output_path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if args.run_official_mcf_eval:
+        if args.dataset != "mcf":
+            raise ValueError("--run-official-mcf-eval is only supported with --dataset mcf")
+        if not args.save_model:
+            print("--run-official-mcf-eval requires saved checkpoints; enabling --save-model automatically.")
+            args.save_model = True
     write_json(out_dir / "config_used.json", vars(args))
 
     print("Loading dataset")
@@ -827,6 +844,8 @@ def main() -> None:
 
     modes = MODES if args.mode == "all" else [args.mode]
     rows: List[Dict[str, Any]] = []
+    official_rows: List[Dict[str, Any]] = []
+    official_dir = out_dir / "official_eval"
     for mode in modes:
         print(f"\n=== Running mode: {mode} ===")
         set_seed(args.seed)
@@ -840,12 +859,39 @@ def main() -> None:
         metrics["n_selected_tokens"] = len(selected_ids)
         write_json(mode_dir / "metrics.json", metrics)
         rows.append(make_comparison_row(args, mode, base_metrics, metrics, summary, len(selected_ids)))
-        del model
+        if args.run_official_mcf_eval:
+            ckpt_dir = mode_dir / "checkpoint"
+            if not ckpt_dir.exists():
+                raise FileNotFoundError(f"Official MCF eval requires saved checkpoint for {mode}, missing: {ckpt_dir}")
+            # Release the in-memory trained model before loading the checkpoint for official eval.
+            del model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            official_result = evaluate_model_dir_official(
+                method=mode,
+                model_dir=ckpt_dir,
+                mcf_path=resolve_output_path(args.mcf_cache_path),
+                wikidata_dir=resolve_output_path(args.wikidata_dir),
+                out_path=official_dir / f"{mode}_official_eval.json",
+                unlearn_num=args.forget_num,
+                retain_num=args.retain_num,
+                seed=args.seed,
+                sample_mode=args.official_sample_mode,
+                dtype=args.dtype,
+                device_map=args.official_device_map,
+                skip_ppl=args.skip_ppl,
+            )
+            official_rows.append(result_to_comparison_row(official_result))
+        else:
+            del model
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
     write_comparison_csv(out_dir / "comparison.csv", rows)
     write_comparison_md(out_dir / "comparison.md", rows)
+    if official_rows:
+        write_official_comparison(out_dir, official_rows)
+        write_official_comparison(official_dir, official_rows)
     print(f"Done. Outputs written to {out_dir}")
 
 
