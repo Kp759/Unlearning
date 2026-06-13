@@ -86,16 +86,41 @@ bash scripts/run_gagd_compare_mcf_tofu.sh /scratch/yl258/kp759/hf/models--meta-l
 RUN_TOFU=1 bash scripts/run_gagd_compare_mcf_tofu.sh
 ```
 
+
+## MCF target choice and official-style metrics
+
+By default, MCF training and the generic GA/GD loss metrics use `--mcf-answer-field target_new`. This matches the CounterFact / ZeroUnlearn rewrite target convention and makes the default `forget_loss_*` and `retain_loss_*` columns comparable to ZeroUnlearn/CounterFact-style metrics.
+
+`--mcf-answer-field target_true` is available only as an optional diagnostic when you want the GA/GD objective and generic loss columns to use the original true answer instead of the rewrite target. Official-style MCF rewrite metrics are still computed for both `target_new` and `target_true` whenever both targets are available.
+
+For MCF runs, the script also writes official-style rewrite metrics for both forget and retain splits:
+
+- `forget_rewrite_target_new_nll`
+- `forget_rewrite_target_true_nll`
+- `forget_rewrite_new_over_true_success`
+- `forget_rewrite_prob_diff_new_minus_true`
+- `retain_rewrite_target_new_nll`
+- `retain_rewrite_target_true_nll`
+- `retain_rewrite_new_over_true_success`
+- `retain_rewrite_prob_diff_new_minus_true`
+
+If paraphrase prompts are available, it also writes:
+
+- `forget_paraphrase_new_over_true_success`
+- `retain_paraphrase_new_over_true_success`
+
+Here `new_over_true_success` is the mean indicator that `target_new_nll < target_true_nll`, and `prob_diff_new_minus_true` is `mean(exp(-target_new_nll) - exp(-target_true_nll))`. For official-style MCF success metrics, lower `forget_rewrite_new_over_true_success` after unlearning means the rewrite target is less preferred, matching the ZeroUnlearn table direction where Eff/Gen are ↓.
+
 ## Metric directions
 
 - Lower `forget_match_after` is better for forgetting.
-- Higher `forget_loss_after` is better for forgetting.
+- Higher `forget_loss_after` is better for forgetting for the GA/GD loss metrics.
 - Lower `retain_loss_after` is better for retention.
 - Higher `retain_match_after` is better for retention.
 - `forget_loss_delta = forget_loss_after - forget_loss_before`; larger positive values usually indicate stronger forgetting.
 - `retain_loss_delta = retain_loss_after - retain_loss_before`; values near zero or negative are better for retention.
 
-For MCF, the script additionally reports `forget_target_new_nll`, `forget_target_true_nll` when available, `retain_target_new_nll`, and `paraphrase_target_new_nll` when paraphrase prompts exist. For TOFU, it reports `forget_answer_nll` and `retain_answer_nll`.
+For MCF, the generic `forget_loss_*` and `retain_loss_*` columns correspond to the selected `--mcf-answer-field` and default to `target_new`. The script additionally reports the official-style rewrite and paraphrase metrics listed above. For TOFU, it reports `forget_answer_nll` and `retain_answer_nll`.
 
 ## Expected output files
 

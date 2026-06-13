@@ -189,13 +189,18 @@ def load_mcf(args: argparse.Namespace) -> Tuple[List[Example], List[Example]]:
         target_true = ""
         if isinstance(rr.get("target_true"), dict):
             target_true = str(rr["target_true"].get("str", ""))
+        normalized_target_new = normalize_answer(target_new)
+        normalized_target_true = normalize_answer(target_true) if target_true else ""
+        if args.mcf_answer_field == "target_true" and not normalized_target_true:
+            raise ValueError("--mcf-answer-field target_true requested, but an MCF record is missing target_true.str")
+        train_answer = normalized_target_new if args.mcf_answer_field == "target_new" else normalized_target_true
         records.append(
             Example(
                 prompt=prompt,
-                answer=normalize_answer(target_new),
+                answer=train_answer,
                 subject=subject,
-                target_new=normalize_answer(target_new),
-                target_true=normalize_answer(target_true) if target_true else "",
+                target_new=normalized_target_new,
+                target_true=normalized_target_true,
                 paraphrase_prompts=[format_mcf_prompt(p, subject) for p in paraphrases],
                 source="mcf",
             )
@@ -571,33 +576,64 @@ def greedy_match(model: torch.nn.Module, tok: AutoTokenizer, examples: Sequence[
     return matches / len(examples)
 
 
+def nll_values(model: torch.nn.Module, tok: AutoTokenizer, examples: Sequence[Example], device: torch.device, desc: str = "nll") -> List[float]:
+    losses: List[float] = []
+    model.eval()
+    with torch.no_grad():
+        for ex in tqdm(examples, desc=desc, leave=False):
+            res = answer_ce_loss(model, tok, [ex], None, device)
+            losses.append(float(res.loss.detach().cpu()))
+    return losses
+
+
 def mean_nll(model: torch.nn.Module, tok: AutoTokenizer, examples: Sequence[Example], device: torch.device) -> float:
     if not examples:
         return float("nan")
-    losses = []
-    model.eval()
-    with torch.no_grad():
-        for ex in tqdm(examples, desc="nll", leave=False):
-            res = answer_ce_loss(model, tok, [ex], None, device)
-            losses.append(float(res.loss.detach().cpu()))
-    return float(np.mean(losses))
+    return float(np.mean(nll_values(model, tok, examples, device)))
 
 
-def mcf_eval_sets(forget: Sequence[Example], retain: Sequence[Example]) -> Dict[str, List[Example]]:
-    sets: Dict[str, List[Example]] = {
-        "forget_target_new": list(forget),
-        "retain_target_new": list(retain),
-    }
-    true_examples = [Example(prompt=e.prompt, answer=e.target_true, source=e.source) for e in forget if e.target_true]
-    if true_examples:
-        sets["forget_target_true"] = true_examples
-    paras: List[Example] = []
-    for e in forget:
-        for p in e.paraphrase_prompts or []:
-            paras.append(Example(prompt=p, answer=e.target_new, source=e.source))
-    if paras:
-        sets["paraphrase_target_new"] = paras
-    return sets
+def mcf_target_examples(examples: Sequence[Example], field: str) -> List[Example]:
+    return [
+        Example(prompt=e.prompt, answer=getattr(e, field), source=e.source)
+        for e in examples
+        if getattr(e, field)
+    ]
+
+
+def mcf_paired_examples(examples: Sequence[Example], use_paraphrases: bool = False) -> Tuple[List[Example], List[Example]]:
+    new_examples: List[Example] = []
+    true_examples: List[Example] = []
+    for e in examples:
+        if not e.target_new or not e.target_true:
+            continue
+        prompts = list(e.paraphrase_prompts or []) if use_paraphrases else [e.prompt]
+        for prompt in prompts:
+            new_examples.append(Example(prompt=prompt, answer=e.target_new, source=e.source))
+            true_examples.append(Example(prompt=prompt, answer=e.target_true, source=e.source))
+    return new_examples, true_examples
+
+
+def add_mcf_rewrite_metrics(metrics: Dict[str, float], prefix: str, model: torch.nn.Module, tok: AutoTokenizer, examples: Sequence[Example], device: torch.device) -> None:
+    new_examples, true_examples = mcf_paired_examples(examples, use_paraphrases=False)
+    if not new_examples or len(new_examples) != len(true_examples):
+        for suffix in ("target_new_nll", "target_true_nll", "new_over_true_success", "prob_diff_new_minus_true"):
+            metrics[f"{prefix}_rewrite_{suffix}"] = float("nan")
+        return
+    new_nll = np.array(nll_values(model, tok, new_examples, device, desc=f"{prefix} new nll"), dtype=np.float64)
+    true_nll = np.array(nll_values(model, tok, true_examples, device, desc=f"{prefix} true nll"), dtype=np.float64)
+    metrics[f"{prefix}_rewrite_target_new_nll"] = float(np.mean(new_nll))
+    metrics[f"{prefix}_rewrite_target_true_nll"] = float(np.mean(true_nll))
+    metrics[f"{prefix}_rewrite_new_over_true_success"] = float(np.mean(new_nll < true_nll))
+    metrics[f"{prefix}_rewrite_prob_diff_new_minus_true"] = float(np.mean(np.exp(-new_nll) - np.exp(-true_nll)))
+
+
+def add_mcf_paraphrase_metrics(metrics: Dict[str, float], prefix: str, model: torch.nn.Module, tok: AutoTokenizer, examples: Sequence[Example], device: torch.device) -> None:
+    new_examples, true_examples = mcf_paired_examples(examples, use_paraphrases=True)
+    if not new_examples or len(new_examples) != len(true_examples):
+        return
+    new_nll = np.array(nll_values(model, tok, new_examples, device, desc=f"{prefix} paraphrase new nll"), dtype=np.float64)
+    true_nll = np.array(nll_values(model, tok, true_examples, device, desc=f"{prefix} paraphrase true nll"), dtype=np.float64)
+    metrics[f"{prefix}_paraphrase_new_over_true_success"] = float(np.mean(new_nll < true_nll))
 
 
 def evaluate(model: torch.nn.Module, tok: AutoTokenizer, forget: Sequence[Example], retain: Sequence[Example], args: argparse.Namespace) -> Dict[str, float]:
@@ -607,12 +643,15 @@ def evaluate(model: torch.nn.Module, tok: AutoTokenizer, forget: Sequence[Exampl
     r_eval = list(retain[:max_eval]) if max_eval else list(retain)
     metrics: Dict[str, float] = {}
     if args.dataset == "mcf":
-        for name, examples in mcf_eval_sets(f_eval, r_eval).items():
-            metrics[f"{name}_nll"] = mean_nll(model, tok, examples, device)
+        add_mcf_rewrite_metrics(metrics, "forget", model, tok, f_eval, device)
+        add_mcf_rewrite_metrics(metrics, "retain", model, tok, r_eval, device)
+        add_mcf_paraphrase_metrics(metrics, "forget", model, tok, f_eval, device)
+        add_mcf_paraphrase_metrics(metrics, "retain", model, tok, r_eval, device)
+        selected_field = args.mcf_answer_field
         metrics["forget_match"] = greedy_match(model, tok, f_eval, device)
         metrics["retain_match"] = greedy_match(model, tok, r_eval, device)
-        metrics["forget_loss"] = metrics.get("forget_target_new_nll", float("nan"))
-        metrics["retain_loss"] = metrics.get("retain_target_new_nll", float("nan"))
+        metrics["forget_loss"] = metrics.get(f"forget_rewrite_{selected_field}_nll", float("nan"))
+        metrics["retain_loss"] = metrics.get(f"retain_rewrite_{selected_field}_nll", float("nan"))
     else:
         metrics["forget_answer_nll"] = mean_nll(model, tok, f_eval, device)
         metrics["retain_answer_nll"] = mean_nll(model, tok, r_eval, device)
@@ -647,7 +686,8 @@ def write_comparison_md(path: Path, rows: List[Dict[str, Any]]) -> None:
     lines = [
         "# GA/GD Comparison",
         "",
-        "Metric directions: lower `forget_match_after` and higher `forget_loss_after` indicate stronger forgetting. Lower `retain_loss_after` and higher `retain_match_after` indicate better retention.",
+        "Metric directions: for GA/GD loss metrics, higher `forget_loss_after` means stronger forgetting, while lower `retain_loss_after` means better retention.",
+        "For official-style MCF success metrics, lower `forget_rewrite_new_over_true_success_after` means `target_new` is less preferred after unlearning, matching ZeroUnlearn/CounterFact table direction where Eff/Gen are ↓.",
         "",
     ]
     if rows:
@@ -666,7 +706,7 @@ def make_comparison_row(
     summary: ParamSummary,
     n_selected: int,
 ) -> Dict[str, Any]:
-    return {
+    row = {
         "dataset": args.dataset,
         "mode": mode,
         "seed": args.seed,
@@ -687,6 +727,24 @@ def make_comparison_row(
         "lr": args.lr,
         "optimizer": getattr(args, "effective_optimizer", args.optimizer or "default"),
     }
+    if args.dataset == "mcf":
+        official_keys = [
+            "forget_rewrite_target_new_nll",
+            "forget_rewrite_target_true_nll",
+            "forget_rewrite_new_over_true_success",
+            "forget_rewrite_prob_diff_new_minus_true",
+            "retain_rewrite_target_new_nll",
+            "retain_rewrite_target_true_nll",
+            "retain_rewrite_new_over_true_success",
+            "retain_rewrite_prob_diff_new_minus_true",
+            "forget_paraphrase_new_over_true_success",
+            "retain_paraphrase_new_over_true_success",
+        ]
+        for key in official_keys:
+            if key in before or key in after:
+                row[f"{key}_before"] = before.get(key, float("nan"))
+                row[f"{key}_after"] = after.get(key, float("nan"))
+    return row
 
 
 def parse_args() -> argparse.Namespace:
@@ -714,6 +772,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--save-model", action="store_true")
     p.add_argument("--mcf-url", default=MCF_URL)
     p.add_argument("--mcf-cache-path", default="data/mcf/multi_counterfact.json", help="MCF cache path. Relative paths are resolved under semantic-unlearning/.")
+    p.add_argument("--mcf-answer-field", choices=["target_new", "target_true"], default="target_new", help="MCF answer field used for GA/GD training and generic forget/retain loss metrics. Defaults to target_new for ZeroUnlearn/CounterFact comparability; target_true is diagnostic.")
     p.add_argument("--forget-split", default="forget05")
     p.add_argument("--retain-split", default="retain95")
     p.add_argument("--semantic-token-json", default=None)
