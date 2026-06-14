@@ -93,78 +93,171 @@ def collect_selected_token_ids(tokenizer, forget_rows: Sequence[dict]) -> List[i
     return sorted(t for t in selected if t not in specials)
 
 
-def encode_batch(tokenizer, pairs: Sequence[Tuple[str, str]], device: torch.device) -> Dict[str, torch.Tensor]:
-    texts, labels = [], []
-    for prompt, ans in pairs:
-        prefix = prompt.rstrip() + " "
-        full = prefix + ans
-        full_ids = tokenizer(full, add_special_tokens=True).input_ids
-        prefix_ids = tokenizer(prefix, add_special_tokens=True).input_ids
-        lab = [-100] * len(full_ids)
-        start = min(len(prefix_ids), len(full_ids))
-        lab[start:] = full_ids[start:]
-        texts.append(full_ids)
-        labels.append(lab)
-    max_len = max(len(x) for x in texts)
+def encode_answer_batch(tokenizer, prompts: Sequence[str], answers: Sequence[str], device: torch.device) -> Dict[str, torch.Tensor]:
+    """Tokenize prompt+answer strings and mark only answer token positions.
+
+    The returned ``answer_mask`` is aligned with ``input_ids``.  Loss/log-prob
+    helpers shift it alongside labels so only answer target tokens contribute.
+    """
+    if len(prompts) != len(answers):
+        raise ValueError(f"prompts/answers length mismatch: {len(prompts)} vs {len(answers)}")
+
+    eos = tokenizer.eos_token or ""
+    encoded_inputs: List[List[int]] = []
+    answer_masks: List[List[bool]] = []
+
+    for i, (prompt, answer_text) in enumerate(zip(prompts, answers)):
+        prompt_text = prompt.rstrip() + " "
+        answer_with_eos = answer_text + (eos if eos and not answer_text.endswith(eos) else "")
+        full_text = prompt_text + answer_with_eos
+        answer_start = len(prompt_text)
+
+        if getattr(tokenizer, "is_fast", False):
+            tokenized = tokenizer(full_text, add_special_tokens=True, return_offsets_mapping=True)
+            input_ids = tokenized.input_ids
+            offsets = tokenized.get("offset_mapping")
+            mask = [bool(end > answer_start) for start, end in offsets]
+        else:
+            input_ids = tokenizer(full_text, add_special_tokens=True).input_ids
+            prompt_ids = tokenizer(prompt_text, add_special_tokens=True).input_ids
+            mask = [j >= len(prompt_ids) for j in range(len(input_ids))]
+
+        special_ids = {
+            token_id
+            for token_id in [tokenizer.pad_token_id, tokenizer.bos_token_id, tokenizer.unk_token_id]
+            if token_id is not None
+        }
+        mask = [keep and token_id not in special_ids for keep, token_id in zip(mask, input_ids)]
+        if not any(mask):
+            raise ValueError(
+                f"Answer-only tokenization produced zero answer tokens for example {i}: "
+                f"prompt={prompt!r}, answer={answer_text!r}"
+            )
+        encoded_inputs.append(input_ids)
+        answer_masks.append(mask)
+
+    max_len = max(len(ids) for ids in encoded_inputs)
     pad = tokenizer.pad_token_id
-    padded, masks, padded_labels = [], [], []
-    for ids, lab in zip(texts, labels):
-        n = max_len - len(ids)
-        padded.append(ids + [pad] * n)
-        masks.append([1] * len(ids) + [0] * n)
-        padded_labels.append(lab + [-100] * n)
+    if pad is None:
+        raise ValueError("Tokenizer must have a pad_token_id; set pad_token before encoding batches")
+
+    padded_ids, attention_masks, padded_answer_masks = [], [], []
+    for ids, mask in zip(encoded_inputs, answer_masks):
+        n_pad = max_len - len(ids)
+        padded_ids.append(ids + [pad] * n_pad)
+        attention_masks.append([1] * len(ids) + [0] * n_pad)
+        padded_answer_masks.append(mask + [False] * n_pad)
+
+    input_ids = torch.tensor(padded_ids, dtype=torch.long, device=device)
     return {
-        "input_ids": torch.tensor(padded, device=device),
-        "attention_mask": torch.tensor(masks, device=device),
-        "labels": torch.tensor(padded_labels, device=device),
+        "input_ids": input_ids,
+        "attention_mask": torch.tensor(attention_masks, dtype=torch.long, device=device),
+        "labels": input_ids.clone(),
+        "answer_mask": torch.tensor(padded_answer_masks, dtype=torch.bool, device=device),
     }
 
 
-def answer_logp(model, batch: Dict[str, torch.Tensor], reduction: str, allowed_ids: set[int] | None = None) -> torch.Tensor:
+def split_pairs(pairs: Sequence[Tuple[str, str]]) -> Tuple[List[str], List[str]]:
+    prompts = [prompt for prompt, _ in pairs]
+    answers = [answer_text for _, answer_text in pairs]
+    return prompts, answers
+
+
+def selected_answer_mask(batch: Dict[str, torch.Tensor], allowed_ids: set[int] | None = None) -> Tuple[torch.Tensor, int]:
+    answer_mask = batch["answer_mask"]
+    if allowed_ids is None:
+        return answer_mask, 0
+
+    selected = torch.zeros_like(answer_mask)
+    for tid in allowed_ids:
+        selected |= batch["labels"].eq(tid)
+    selected &= answer_mask
+
+    per_example_empty = selected.sum(dim=1).eq(0)
+    fallback_count = int(per_example_empty.sum().item())
+    if fallback_count:
+        selected = selected.clone()
+        selected[per_example_empty] = answer_mask[per_example_empty]
+    if selected.sum().item() == 0:
+        raise ValueError("Selected-token mask is empty for the entire batch even after fallback to answer masks")
+    return selected, fallback_count
+
+
+def sequence_logp(
+    model,
+    batch: Dict[str, torch.Tensor],
+    reduction: str,
+    allowed_ids: set[int] | None = None,
+) -> Tuple[torch.Tensor, torch.Tensor, int]:
     logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]).logits[:, :-1, :].float()
     labels = batch["labels"][:, 1:]
-    valid = labels.ne(-100)
-    if allowed_ids is not None:
-        allowed = torch.zeros_like(valid)
-        for tid in allowed_ids:
-            allowed |= labels.eq(tid)
-        valid &= allowed
-    safe = labels.masked_fill(~valid, 0)
-    tok = torch.log_softmax(logits, -1).gather(-1, safe.unsqueeze(-1)).squeeze(-1) * valid.float()
-    denom = valid.float().sum(1).clamp_min(1.0)
-    return tok.sum(1) if reduction == "sum" else tok.sum(1) / denom
+    full_mask, fallback_count = selected_answer_mask(batch, allowed_ids)
+    mask = full_mask[:, 1:]
+    if mask.sum().item() == 0:
+        raise ValueError("Answer mask is empty after shifting; NPO logp computation cannot proceed")
+
+    logp = torch.log_softmax(logits, dim=-1)
+    token_logp = logp.gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+    token_logp = token_logp * mask.float()
+    token_counts = mask.float().sum(dim=1)
+    if torch.any(token_counts.eq(0)):
+        raise ValueError("At least one example has zero shifted answer tokens; check tokenization")
+    seq_logp = token_logp.sum(dim=1)
+    if reduction == "mean":
+        seq_logp = seq_logp / token_counts
+    elif reduction != "sum":
+        raise ValueError(f"Unknown logp reduction: {reduction}")
+    return seq_logp, token_counts, fallback_count
 
 
-def ce_loss(model, batch: Dict[str, torch.Tensor], allowed_ids: set[int] | None = None) -> torch.Tensor:
-    labels = batch["labels"]
-    if allowed_ids is not None:
-        keep = torch.zeros_like(labels, dtype=torch.bool)
-        for tid in allowed_ids:
-            keep |= labels.eq(tid)
-        labels = labels.masked_fill(~keep, -100)
-    if not labels.ne(-100).any():
-        return model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]).logits.sum() * 0.0
-    return model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"], labels=labels).loss
+def retain_ce_loss(model, batch: Dict[str, torch.Tensor], allowed_ids: set[int] | None = None) -> Tuple[torch.Tensor, torch.Tensor, int]:
+    logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]).logits[:, :-1, :].float()
+    labels = batch["labels"][:, 1:]
+    full_mask, fallback_count = selected_answer_mask(batch, allowed_ids)
+    mask = full_mask[:, 1:]
+    if mask.sum().item() == 0:
+        raise ValueError("Retain CE answer mask is empty after shifting")
+    logp = torch.log_softmax(logits, dim=-1)
+    nll = -logp.gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+    token_counts = mask.float().sum(dim=1)
+    if torch.any(token_counts.eq(0)):
+        raise ValueError("At least one retain example has zero answer tokens for CE")
+    return (nll * mask.float()).sum() / mask.float().sum(), token_counts, fallback_count
 
 
-def retain_kl_loss(model, ref, batch: Dict[str, torch.Tensor], ref_batch: Dict[str, torch.Tensor], direction: str, answer_only: bool, allowed_ids: set[int] | None = None) -> torch.Tensor:
+def retain_kl_loss(
+    model,
+    ref,
+    batch: Dict[str, torch.Tensor],
+    ref_batch: Dict[str, torch.Tensor],
+    direction: str,
+    answer_only: bool,
+    allowed_ids: set[int] | None = None,
+) -> Tuple[torch.Tensor, int]:
     cur_logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]).logits[:, :-1, :].float()
     with torch.no_grad():
         ref_logits = ref(input_ids=ref_batch["input_ids"], attention_mask=ref_batch["attention_mask"]).logits[:, :-1, :].float().to(cur_logits.device)
-    labels = batch["labels"][:, 1:]
-    mask = labels.ne(-100) if answer_only else batch["attention_mask"][:, 1:].bool()
-    if allowed_ids is not None:
-        selected = torch.zeros_like(mask)
-        for tid in allowed_ids:
-            selected |= labels.eq(tid)
-        mask &= selected
-    cur_lp, ref_lp = F.log_softmax(cur_logits, -1), F.log_softmax(ref_logits, -1)
-    cur_p, ref_p = cur_lp.exp(), ref_lp.exp()
-    tok = (ref_p * (ref_lp - cur_lp)).sum(-1) if direction == "ref_current" else (cur_p * (cur_lp - ref_lp)).sum(-1)
-    denom = mask.float().sum()
-    if denom.item() == 0:
-        return tok.sum() * 0.0
-    return (tok * mask.float()).sum() / denom
+
+    if answer_only:
+        full_mask, fallback_count = selected_answer_mask(batch, allowed_ids)
+    else:
+        full_mask = batch["attention_mask"].bool()
+        fallback_count = 0
+    mask = full_mask[:, 1:]
+    if mask.sum().item() == 0:
+        raise ValueError("Retain KL mask is empty after shifting")
+
+    cur_lp = F.log_softmax(cur_logits, dim=-1)
+    ref_lp = F.log_softmax(ref_logits, dim=-1)
+    cur_p = cur_lp.exp()
+    ref_p = ref_lp.exp()
+    if direction == "ref_current":
+        tok_kl = (ref_p * (ref_lp - cur_lp)).sum(dim=-1)
+    elif direction == "current_ref":
+        tok_kl = (cur_p * (cur_lp - ref_lp)).sum(dim=-1)
+    else:
+        raise ValueError(f"Unknown retain KL direction: {direction}")
+    return (tok_kl * mask.float()).sum() / mask.float().sum(), fallback_count
 
 
 def freeze_for_mode(model, mode: str) -> None:
@@ -177,19 +270,19 @@ def freeze_for_mode(model, mode: str) -> None:
             p.requires_grad_(True)
 
 
-def make_optimizer(name: str, params: Iterable[nn.Parameter], lr: float):
+def make_optimizer(name: str, params: Iterable[nn.Parameter], lr: float, weight_decay: float):
     params = [p for p in params if p.requires_grad]
     if name == "sgd":
-        return torch.optim.SGD(params, lr=lr)
+        return torch.optim.SGD(params, lr=lr, weight_decay=weight_decay)
     if name == "adam":
-        return torch.optim.Adam(params, lr=lr)
+        return torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
     if name == "adamw8bit":
         if importlib.util.find_spec("bitsandbytes") is not None:
             import bitsandbytes as bnb
 
-            return bnb.optim.AdamW8bit(params, lr=lr)
+            return bnb.optim.AdamW8bit(params, lr=lr, weight_decay=weight_decay)
         print("[Warn] adamw8bit requested but bitsandbytes is unavailable; falling back to AdamW")
-    return torch.optim.AdamW(params, lr=lr)
+    return torch.optim.AdamW(params, lr=lr, weight_decay=weight_decay)
 
 
 def load_ref_model(args, dtype):
@@ -224,7 +317,9 @@ def train_mode(args, mode: str, tokenizer, forget_rows, retain_rows, selected_id
         p.requires_grad_(False)
     freeze_for_mode(model, mode)
     model.train()
-    opt = make_optimizer(args.optimizer, model.parameters(), args.lr)
+    if args.kl_retain_weight > 0 and ref is None:
+        raise RuntimeError("kl_retain_weight > 0 but the reference model failed to load")
+    opt = make_optimizer(args.optimizer, model.parameters(), args.lr, args.weight_decay)
     rng = random.Random(args.seed)
     forget_ex = make_examples(forget_rows, "target_new")
     retain_ex = make_examples(retain_rows, "target_new")
@@ -239,31 +334,61 @@ def train_mode(args, mode: str, tokenizer, forget_rows, retain_rows, selected_id
             fb = [rng.choice(forget_ex) for _ in range(args.batch_size)]
             rb = [rng.choice(retain_ex) for _ in range(args.retain_batch_size)]
             dev = model_device(model)
-            f_batch = encode_batch(tokenizer, fb, dev)
-            r_batch = encode_batch(tokenizer, rb, dev)
+            f_prompts, f_answers = split_pairs(fb)
+            r_prompts, r_answers = split_pairs(rb)
+            f_batch = encode_answer_batch(tokenizer, f_prompts, f_answers, dev)
+            r_batch = encode_answer_batch(tokenizer, r_prompts, r_answers, dev)
             ref_f_batch = {k: v.to(model_device(ref)) for k, v in f_batch.items()}
             ref_r_batch = {k: v.to(model_device(ref)) for k, v in r_batch.items()}
-            cur_logp = answer_logp(model, f_batch, args.npo_logp_reduction, allowed)
+            cur_logp, forget_token_counts, forget_fallback = sequence_logp(model, f_batch, args.npo_logp_reduction, allowed)
             with torch.no_grad():
-                ref_logp = answer_logp(ref, ref_f_batch, args.npo_logp_reduction, allowed).to(cur_logp.device)
-            npo = (2.0 / args.npo_beta) * F.softplus(args.npo_beta * (cur_logp - ref_logp)).mean()
-            rce = ce_loss(model, r_batch, allowed)
-            rkl = retain_kl_loss(model, ref, r_batch, ref_r_batch, args.retain_kl_direction, args.retain_kl_answer_only, allowed)
+                ref_logp, _, _ = sequence_logp(ref, ref_f_batch, args.npo_logp_reduction, allowed)
+                ref_logp = ref_logp.to(cur_logp.device)
+            log_ratio = cur_logp - ref_logp
+            npo = (2.0 / args.npo_beta) * F.softplus(args.npo_beta * log_ratio).mean()
+            rce, retain_token_counts, retain_ce_fallback = retain_ce_loss(model, r_batch, allowed)
+            rkl, retain_kl_fallback = retain_kl_loss(model, ref, r_batch, ref_r_batch, args.retain_kl_direction, args.retain_kl_answer_only, allowed)
             loss = args.forget_weight * npo + args.retain_weight * rce + args.kl_retain_weight * rkl
-            opt.zero_grad(set_to_none=True); loss.backward()
+            policy_neg_logp_mean = float((-cur_logp).mean().detach().cpu())
+            ref_neg_logp_mean = float((-ref_logp).mean().detach().cpu())
+            if step == 1 and abs(policy_neg_logp_mean) < 1e-8 and abs(ref_neg_logp_mean) < 1e-8:
+                raise RuntimeError("NPO logp computation is broken: policy/ref negative logp means are both ~0 on the first batch")
+            if step == 1 and args.retain_weight > 0 and float(rce.detach().cpu()) == 0.0:
+                raise RuntimeError("Retain CE computation is broken: retain_ce_loss is exactly 0 on the first step")
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
             if mode == "emb_lm_selective_tokens":
                 mask = torch.zeros(emb.shape[0], dtype=torch.bool, device=emb.device); mask[selected_ids] = True
                 if emb.grad is not None: emb.grad[~mask] = 0
                 if head.grad is not None: head.grad[~mask.to(head.device)] = 0
+            trainable_params = [p for p in model.parameters() if p.requires_grad and p.grad is not None]
             if args.grad_clip > 0:
-                torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], args.grad_clip)
+                grad_norm_tensor = torch.nn.utils.clip_grad_norm_(trainable_params, args.grad_clip)
+                grad_norm = float(grad_norm_tensor.detach().cpu())
+            else:
+                grad_norm = float(torch.linalg.vector_norm(torch.stack([p.grad.detach().float().norm() for p in trainable_params])).detach().cpu()) if trainable_params else 0.0
             opt.step()
             if mode == "emb_lm_selective_tokens":
                 with torch.no_grad():
                     mask = torch.zeros(emb.shape[0], dtype=torch.bool, device=emb.device); mask[selected_ids] = True
                     emb[~mask] = keep_emb[~mask]
                     hmask = mask.to(head.device); head[~hmask] = keep_head[~hmask]
-            last = {"step": step, "loss": float(loss.detach().cpu()), "npo_loss": float(npo.detach().cpu()), "retain_ce_loss": float(rce.detach().cpu()), "retain_kl_loss": float(rkl.detach().cpu()), "forget_policy_logp": float(cur_logp.mean().detach().cpu()), "forget_ref_logp": float(ref_logp.mean().detach().cpu())}
+            selected_mask_fallback_count = forget_fallback + retain_ce_fallback + retain_kl_fallback
+            answer_tokens_mean = float(torch.cat([forget_token_counts.detach().cpu(), retain_token_counts.detach().cpu()]).float().mean())
+            last = {
+                "step": float(step),
+                "loss": float(loss.detach().cpu()),
+                "npo_loss": float(npo.detach().cpu()),
+                "retain_ce_loss": float(rce.detach().cpu()),
+                "retain_kl_loss": float(rkl.detach().cpu()),
+                "policy_neg_logp_mean": policy_neg_logp_mean,
+                "ref_neg_logp_mean": ref_neg_logp_mean,
+                "log_ratio_mean": float(log_ratio.mean().detach().cpu()),
+                "answer_tokens_mean": answer_tokens_mean,
+                "selected_mask_fallback_count": float(selected_mask_fallback_count),
+                "grad_norm": grad_norm,
+                "weight_decay": float(args.weight_decay),
+            }
             logf.write(json.dumps(last) + "\n"); logf.flush()
     metrics = {"mode": mode, "selected_token_ids": len(selected_ids), **last}
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
@@ -286,7 +411,7 @@ def load_existing_metrics(out_dir: Path) -> List[Dict[str, object]]:
 
 
 def write_comparison(out_dir: Path, rows: List[Dict[str, object]]) -> None:
-    keys = ["mode", "loss", "npo_loss", "retain_ce_loss", "retain_kl_loss", "forget_policy_logp", "forget_ref_logp", "selected_token_ids"]
+    keys = ["mode", "loss", "npo_loss", "retain_ce_loss", "retain_kl_loss", "policy_neg_logp_mean", "ref_neg_logp_mean", "log_ratio_mean", "answer_tokens_mean", "selected_mask_fallback_count", "grad_norm", "weight_decay", "selected_token_ids"]
     with (out_dir / "comparison.csv").open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=keys); w.writeheader(); w.writerows({k: r.get(k, "") for k in keys} for r in rows)
     md = ["| " + " | ".join(keys) + " |", "| " + " | ".join(["---"] * len(keys)) + " |"]
@@ -311,7 +436,7 @@ def parse_args():
     p.add_argument("--mode", choices=MODES + ["all"], default="all")
     p.add_argument("--forget-num", type=int, default=50); p.add_argument("--retain-num", type=int, default=1000); p.add_argument("--seed", type=int, default=1)
     p.add_argument("--steps", type=int, default=300); p.add_argument("--batch-size", type=int, default=1); p.add_argument("--retain-batch-size", type=int, default=1)
-    p.add_argument("--lr", type=float, default=5e-5); p.add_argument("--forget-weight", type=float, default=1.0); p.add_argument("--retain-weight", type=float, default=1.0); p.add_argument("--kl-retain-weight", type=float, default=1.0)
+    p.add_argument("--lr", type=float, default=5e-5); p.add_argument("--weight-decay", type=float, default=0.0); p.add_argument("--forget-weight", type=float, default=1.0); p.add_argument("--retain-weight", type=float, default=1.0); p.add_argument("--kl-retain-weight", type=float, default=1.0)
     p.add_argument("--npo-beta", type=float, default=0.1); p.add_argument("--npo-logp-reduction", choices=["sum", "mean"], default="sum"); p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default="bf16"); p.add_argument("--optimizer", choices=["sgd", "adam", "adamw", "adamw8bit"], default="adamw")
     p.add_argument("--device-map", choices=["single", "auto"], default="single"); p.add_argument("--reference-device", choices=["cuda", "cpu", "auto"], default="auto")

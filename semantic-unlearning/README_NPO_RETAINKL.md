@@ -82,3 +82,11 @@ python semantic-unlearning/scripts/npo_retainkl_compare.py \
 ```
 
 The default `--reference-device auto` tries CUDA first and falls back to CPU on CUDA OOM with a warning.
+
+## Debugging healthy logs
+
+`train_log.jsonl` should not show all-zero answer statistics. In a valid run, the raw policy/reference sequence log-probabilities are normally negative, so the logged `policy_neg_logp_mean` and `ref_neg_logp_mean` fields should normally be positive. `retain_ce_loss` should also be positive on the first step; a first-step value of exactly `0.0` indicates broken answer-token masking or tokenization and the script raises an error.
+
+Selective-token modes intersect the answer mask with the selected MCF token IDs. If a particular example has no selected answer tokens, the script falls back to that example's full answer mask and logs the number of fallbacks in `selected_mask_fallback_count`.
+
+The optimizer option `--weight-decay` defaults to `0.0`, so zero gradients cannot change weights through decoupled weight decay by default.
