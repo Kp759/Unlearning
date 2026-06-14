@@ -86,23 +86,6 @@ class ZeroUnlearnGAResult:
 
 
 @dataclass
-class SequenceLogPResult:
-    logp: torch.Tensor
-    fallback_examples: int
-    contributing_tokens: int
-
-
-@dataclass
-class NPOResult:
-    loss: torch.Tensor
-    policy_neg_logp: torch.Tensor
-    ref_neg_logp: torch.Tensor
-    log_ratio: torch.Tensor
-    fallback_examples: int
-    contributing_tokens: int
-
-
-@dataclass
 class ParamSummary:
     n_trainable_params: int
     n_total_params: int
@@ -515,178 +498,6 @@ def zerounlearn_ga_logprob_loss(
     )
 
 
-def sequence_logp(
-    model: AutoModelForCausalLM,
-    tok: AutoTokenizer,
-    examples: Sequence[Example],
-    selected_token_ids: Optional[set[int]],
-    device: torch.device,
-    reduction: str = "sum",
-) -> SequenceLogPResult:
-    if reduction not in {"sum", "mean"}:
-        raise ValueError(f"Unsupported logp reduction: {reduction}")
-    batch = build_batch(tok, examples, device)
-    out = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
-    logits = out.logits[:, :-1, :].contiguous()
-    labels = batch["labels"][:, 1:].contiguous()
-    log_probs = F.log_softmax(logits.float(), dim=-1)
-    token_logp = torch.gather(log_probs, 2, labels.clamp_min(0).unsqueeze(-1)).squeeze(-1)
-    answer_mask = labels.ne(-100)
-    fallback = 0
-    if selected_token_ids is not None:
-        selected = torch.zeros_like(answer_mask)
-        for i in range(labels.size(0)):
-            row_mask = answer_mask[i]
-            if row_mask.any():
-                row_selected = row_mask & torch.tensor(
-                    [int(t.item()) in selected_token_ids for t in labels[i]],
-                    dtype=torch.bool,
-                    device=labels.device,
-                )
-                if not row_selected.any():
-                    row_selected = row_mask
-                    fallback += 1
-                selected[i] = row_selected
-        answer_mask = selected
-    denom = answer_mask.sum(dim=1).clamp_min(1)
-    summed = (token_logp * answer_mask.float()).sum(dim=1)
-    per_example = summed / denom if reduction == "mean" else summed
-    return SequenceLogPResult(per_example, fallback, int(answer_mask.sum().item()))
-
-
-def npo_negative_examples(examples: Sequence[Example], dataset: str) -> List[Example]:
-    if dataset == "mcf":
-        return [Example(prompt=e.prompt, answer=e.target_new, source=e.source) for e in examples]
-    return [Example(prompt=e.prompt, answer=e.answer, source=e.source) for e in examples]
-
-
-@torch.no_grad()
-def reference_sequence_logp(
-    ref_model: torch.nn.Module,
-    tok: AutoTokenizer,
-    examples: Sequence[Example],
-    selected_token_ids: Optional[set[int]],
-    ref_device: torch.device,
-    reduction: str,
-) -> SequenceLogPResult:
-    return sequence_logp(ref_model, tok, examples, selected_token_ids, ref_device, reduction)
-
-
-def npo_forget_loss(
-    model: AutoModelForCausalLM,
-    ref_model: torch.nn.Module,
-    tok: AutoTokenizer,
-    examples: Sequence[Example],
-    selected_token_ids: Optional[set[int]],
-    device: torch.device,
-    ref_device: torch.device,
-    args: argparse.Namespace,
-    precomputed_ref_logps: Optional[Dict[int, float]] = None,
-) -> NPOResult:
-    neg_examples = npo_negative_examples(examples, args.dataset)
-    policy_res = sequence_logp(model, tok, neg_examples, selected_token_ids, device, args.npo_logp_reduction)
-    if precomputed_ref_logps is not None:
-        ref_vals = [precomputed_ref_logps[id(ex)] for ex in examples]
-        ref_logp = torch.tensor(ref_vals, dtype=policy_res.logp.dtype, device=device)
-        ref_fallback = 0
-        ref_tokens = 0
-    else:
-        ref_res = reference_sequence_logp(ref_model, tok, neg_examples, selected_token_ids, ref_device, args.npo_logp_reduction)
-        ref_logp = ref_res.logp.to(device)
-        ref_fallback = ref_res.fallback_examples
-        ref_tokens = ref_res.contributing_tokens
-    log_ratio = policy_res.logp - ref_logp
-    loss = (2.0 / args.npo_beta) * F.softplus(args.npo_beta * log_ratio)
-    return NPOResult(
-        loss=loss.mean(),
-        policy_neg_logp=policy_res.logp.mean(),
-        ref_neg_logp=ref_logp.mean(),
-        log_ratio=log_ratio.mean(),
-        fallback_examples=policy_res.fallback_examples + ref_fallback,
-        contributing_tokens=policy_res.contributing_tokens + ref_tokens,
-    )
-
-
-def clone_batch_to_device(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str, torch.Tensor]:
-    return {k: v.to(device) for k, v in batch.items()}
-
-
-def retain_token_kl_loss(
-    model: torch.nn.Module,
-    ref_model: torch.nn.Module,
-    tok: AutoTokenizer,
-    examples: Sequence[Example],
-    device: torch.device,
-    ref_device: torch.device,
-    args: argparse.Namespace,
-) -> torch.Tensor:
-    cur_batch = build_batch(tok, examples, device)
-    ref_batch = clone_batch_to_device(cur_batch, ref_device)
-    cur_logits = model(input_ids=cur_batch["input_ids"], attention_mask=cur_batch["attention_mask"]).logits[:, :-1, :]
-    with torch.no_grad():
-        ref_logits = ref_model(input_ids=ref_batch["input_ids"], attention_mask=ref_batch["attention_mask"]).logits[:, :-1, :].to(device)
-    if args.retain_kl_answer_only:
-        mask = cur_batch["labels"][:, 1:].ne(-100)
-    else:
-        mask = cur_batch["attention_mask"][:, 1:].bool()
-    cur_logp = F.log_softmax(cur_logits.float(), dim=-1)
-    ref_logp = F.log_softmax(ref_logits.float(), dim=-1)
-    if args.retain_kl_direction == "ref_current":
-        ref_p = ref_logp.exp()
-        kl = (ref_p * (ref_logp - cur_logp)).sum(dim=-1)
-    else:
-        cur_p = cur_logp.exp()
-        kl = (cur_p * (cur_logp - ref_logp)).sum(dim=-1)
-    return (kl * mask.float()).sum() / mask.sum().clamp_min(1)
-
-
-def load_reference_model(args: argparse.Namespace, device: torch.device) -> Tuple[torch.nn.Module, torch.device, str]:
-    def load_on(target: str) -> Tuple[torch.nn.Module, torch.device, str]:
-        ref = AutoModelForCausalLM.from_pretrained(args.model_path, torch_dtype=torch_dtype(args.dtype))
-        if target == "cuda":
-            if not torch.cuda.is_available():
-                raise RuntimeError("CUDA requested for reference model, but torch.cuda.is_available() is False")
-            ref = ref.to(device)
-            ref_device = device
-        else:
-            ref = ref.to("cpu")
-            ref_device = torch.device("cpu")
-        ref.eval()
-        ref.config.use_cache = False
-        for p in ref.parameters():
-            p.requires_grad_(False)
-        return ref, ref_device, target
-
-    if args.reference_device == "auto":
-        try:
-            return load_on("cuda")
-        except RuntimeError as exc:
-            if "out of memory" not in str(exc).lower() and "cuda" not in str(exc).lower():
-                raise
-            print(f"WARNING: reference model could not be loaded on CUDA ({exc}); falling back to CPU")
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            return load_on("cpu")
-    return load_on(args.reference_device)
-
-
-@torch.no_grad()
-def precompute_npo_ref_logps(
-    ref_model: torch.nn.Module,
-    tok: AutoTokenizer,
-    forget: Sequence[Example],
-    selected_token_ids: Optional[set[int]],
-    ref_device: torch.device,
-    args: argparse.Namespace,
-) -> Dict[int, float]:
-    out: Dict[int, float] = {}
-    for ex in tqdm(forget, desc="precompute ref logp"):
-        neg = npo_negative_examples([ex], args.dataset)
-        res = sequence_logp(ref_model, tok, neg, selected_token_ids, ref_device, args.npo_logp_reduction)
-        out[id(ex)] = float(res.logp.detach().cpu()[0])
-    return out
-
-
 def sample_batch(examples: Sequence[Example], batch_size: int) -> List[Example]:
     return [examples[random.randrange(len(examples))] for _ in range(min(batch_size, len(examples)))]
 
@@ -828,14 +639,12 @@ def train_mode(
         originals = apply_row_mask_and_restore(tied_info, selected_ids)
         print(f"Embedding/lm_head selected rows allowed to update: {len(selected_ids)}")
     ref_model = None
-    ref_device = device
-    precomputed_ref_logps = None
-    if args.forget_loss_type == "npo" or args.kl_retain_weight > 0:
-        print("Loading frozen reference model")
-        ref_model, ref_device, effective_reference_device = load_reference_model(args, device)
-        args.effective_reference_device = effective_reference_device
-        if args.forget_loss_type == "npo" and args.npo_precompute_ref_logps:
-            precomputed_ref_logps = precompute_npo_ref_logps(ref_model, tok, forget, selected_set, ref_device, args)
+    if args.kl_retain_weight > 0:
+        print("Loading frozen reference model for retain KL regularization")
+        ref_model, _ = load_model_and_tokenizer(args, for_training=False)
+        ref_model.eval()
+        for p in ref_model.parameters():
+            p.requires_grad_(False)
     model.train()
     mode_dir.mkdir(parents=True, exist_ok=True)
     with (mode_dir / "train_log.jsonl").open("w", encoding="utf-8") as log_f:
@@ -845,14 +654,7 @@ def train_mode(
             opt.zero_grad(set_to_none=True)
             margin_res = None
             ga_res = None
-            npo_res = None
-            if args.forget_loss_type == "npo":
-                if ref_model is None:
-                    raise RuntimeError("NPO requires a frozen reference model, but none was loaded.")
-                npo_res = npo_forget_loss(model, ref_model, tok, forget_batch, selected_set, device, ref_device, args, precomputed_ref_logps)
-                forget_loss_for_log = npo_res.loss
-                total = args.forget_weight * npo_res.loss
-            elif args.forget_loss_type == "mcf_margin":
+            if args.forget_loss_type == "mcf_margin":
                 margin_res = mcf_margin_forget_loss(model, tok, forget_batch, selected_set, device)
                 forget_loss_for_log = margin_res.loss
                 total = args.forget_weight * margin_res.loss
@@ -869,8 +671,8 @@ def train_mode(
                 retain_res = answer_ce_loss(model, tok, retain_batch, selected_set, device)
                 total = total + args.retain_weight * retain_res.loss
             kl_val = torch.zeros((), device=device)
-            if ref_model is not None and args.kl_retain_weight > 0:
-                kl_val = retain_token_kl_loss(model, ref_model, tok, retain_batch, device, ref_device, args)
+            if ref_model is not None:
+                kl_val = kl_retain_loss(model, ref_model, tok, retain_batch, device)
                 total = total + args.kl_retain_weight * kl_val
             total.backward()
             if mode == "emb_lm_selective_tokens" and originals is not None:
@@ -888,15 +690,13 @@ def train_mode(
                 "retain_loss": float(retain_res.loss.detach().cpu()) if retain_res is not None else None,
                 "kl_retain_loss": float(kl_val.detach().cpu()),
                 "forget_fallback_examples": (
-                    npo_res.fallback_examples if npo_res is not None
-                    else (margin_res.target_new_fallback_examples + margin_res.target_true_fallback_examples) if margin_res is not None
+                    (margin_res.target_new_fallback_examples + margin_res.target_true_fallback_examples) if margin_res is not None
                     else ga_res.fallback_examples if ga_res is not None
                     else forget_res.fallback_examples
                 ),
                 "retain_fallback_examples": retain_res.fallback_examples if retain_res is not None else None,
                 "forget_tokens": (
-                    npo_res.contributing_tokens if npo_res is not None
-                    else (margin_res.target_new_tokens + margin_res.target_true_tokens) if margin_res is not None
+                    (margin_res.target_new_tokens + margin_res.target_true_tokens) if margin_res is not None
                     else ga_res.contributing_tokens if ga_res is not None
                     else forget_res.contributing_tokens
                 ),
@@ -908,15 +708,6 @@ def train_mode(
                 "forget_target_true_fallback_examples": margin_res.target_true_fallback_examples if margin_res is not None else None,
                 "zerounlearn_ga_logprob_loss": float(ga_res.loss.detach().cpu()) if ga_res is not None else None,
                 "zerounlearn_ga_fallback_examples": ga_res.fallback_examples if ga_res is not None else None,
-                "npo_loss": float(npo_res.loss.detach().cpu()) if npo_res is not None else None,
-                "policy_neg_logp": float(npo_res.policy_neg_logp.detach().cpu()) if npo_res is not None else None,
-                "ref_neg_logp": float(npo_res.ref_neg_logp.detach().cpu()) if npo_res is not None else None,
-                "log_ratio": float(npo_res.log_ratio.detach().cpu()) if npo_res is not None else None,
-                "retain_ce_loss": float(retain_res.loss.detach().cpu()) if retain_res is not None else None,
-                "retain_kl_loss": float(kl_val.detach().cpu()) if args.kl_retain_weight > 0 else None,
-                "npo_beta": args.npo_beta,
-                "npo_logp_reduction": args.npo_logp_reduction,
-                "kl_retain_weight": args.kl_retain_weight,
             }
             log_f.write(json.dumps(row) + "\n")
     if args.save_model:
@@ -1112,11 +903,6 @@ def make_comparison_row(
         "lr": args.lr,
         "optimizer": getattr(args, "effective_optimizer", args.optimizer or "default"),
         "forget_loss_type": args.forget_loss_type,
-        "npo_beta": args.npo_beta,
-        "npo_logp_reduction": args.npo_logp_reduction,
-        "kl_retain_weight": args.kl_retain_weight,
-        "reference_device": getattr(args, "effective_reference_device", args.reference_device),
-        "retain_kl_direction": args.retain_kl_direction,
     }
     if args.dataset == "mcf":
         official_keys = [
@@ -1164,13 +950,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--weight-decay", type=float, default=0.0)
     p.add_argument("--forget-weight", type=float, default=1.0)
     p.add_argument("--retain-weight", type=float, default=1.0)
-    p.add_argument("--forget-loss-type", choices=["answer_nll", "mcf_margin", "zerounlearn_ga", "npo"], default="answer_nll", help="Forget objective. answer_nll keeps GA on selected answer NLL; mcf_margin minimizes softplus(target_true_nll - target_new_nll); zerounlearn_ga minimizes target_true log-probability like the official GA baseline. mcf_margin and zerounlearn_ga are MCF-only; npo supports MCF and TOFU.")
-    p.add_argument("--npo-beta", type=float, default=0.1)
-    p.add_argument("--npo-logp-reduction", choices=["sum", "mean"], default="sum")
-    p.add_argument("--reference-device", choices=["cuda", "cpu", "auto"], default="cuda")
-    p.add_argument("--retain-kl-direction", choices=["ref_current", "current_ref"], default="ref_current")
-    p.add_argument("--retain-kl-answer-only", action=argparse.BooleanOptionalAction, default=True)
-    p.add_argument("--npo-precompute-ref-logps", action="store_true")
+    p.add_argument("--forget-loss-type", choices=["answer_nll", "mcf_margin", "zerounlearn_ga"], default="answer_nll", help="Forget objective. answer_nll keeps GA on selected answer NLL; mcf_margin minimizes softplus(target_true_nll - target_new_nll); zerounlearn_ga minimizes target_true log-probability like the official GA baseline. Non-answer_nll objectives are MCF-only.")
     p.add_argument("--kl-retain-weight", type=float, default=0.0)
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--gradient-checkpointing", action="store_true")
@@ -1199,8 +979,6 @@ def main() -> None:
         raise ValueError(f"--forget-loss-type {args.forget_loss_type} is only supported with --dataset mcf")
     if args.forget_loss_type == "zerounlearn_ga":
         print("ZeroUnlearn GA uses target_true log-probability minimization.")
-    if args.forget_loss_type == "npo" and args.kl_retain_weight == 0:
-        print("WARNING: NPO is being run without retain KL; use --kl-retain-weight > 0 for NPO+retain-KL.")
     set_seed(args.seed)
     require_cuda_if_needed(args.device_map)
     out_dir = resolve_output_path(args.output_dir)
@@ -1248,11 +1026,6 @@ def main() -> None:
         metrics.update(asdict(summary))
         metrics["n_selected_tokens"] = len(selected_ids)
         metrics["forget_loss_type"] = args.forget_loss_type
-        metrics["npo_beta"] = args.npo_beta
-        metrics["npo_logp_reduction"] = args.npo_logp_reduction
-        metrics["kl_retain_weight"] = args.kl_retain_weight
-        metrics["reference_device"] = getattr(args, "effective_reference_device", args.reference_device)
-        metrics["retain_kl_direction"] = args.retain_kl_direction
         write_json(mode_dir / "metrics.json", metrics)
         rows.append(make_comparison_row(args, mode, base_metrics, metrics, summary, len(selected_ids)))
         if args.run_official_mcf_eval:
