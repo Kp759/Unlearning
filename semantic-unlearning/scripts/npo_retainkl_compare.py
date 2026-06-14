@@ -12,7 +12,7 @@ import argparse
 import csv
 import gc
 import json
-import math
+import importlib.util
 import random
 import subprocess
 import sys
@@ -63,10 +63,9 @@ def format_prompt(row: dict) -> str:
     rr = row["requested_rewrite"]
     prompt = rr["prompt"]
     subject = rr["subject"]
-    try:
+    if "{}" in prompt:
         return prompt.format(subject)
-    except Exception:
-        return prompt.replace("{}", subject)
+    return prompt
 
 
 def answer(row: dict, key: str = "target_new") -> str:
@@ -143,6 +142,8 @@ def ce_loss(model, batch: Dict[str, torch.Tensor], allowed_ids: set[int] | None 
         for tid in allowed_ids:
             keep |= labels.eq(tid)
         labels = labels.masked_fill(~keep, -100)
+    if not labels.ne(-100).any():
+        return model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]).logits.sum() * 0.0
     return model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"], labels=labels).loss
 
 
@@ -160,7 +161,10 @@ def retain_kl_loss(model, ref, batch: Dict[str, torch.Tensor], ref_batch: Dict[s
     cur_lp, ref_lp = F.log_softmax(cur_logits, -1), F.log_softmax(ref_logits, -1)
     cur_p, ref_p = cur_lp.exp(), ref_lp.exp()
     tok = (ref_p * (ref_lp - cur_lp)).sum(-1) if direction == "ref_current" else (cur_p * (cur_lp - ref_lp)).sum(-1)
-    return (tok * mask.float()).sum() / mask.float().sum().clamp_min(1.0)
+    denom = mask.float().sum()
+    if denom.item() == 0:
+        return tok.sum() * 0.0
+    return (tok * mask.float()).sum() / denom
 
 
 def freeze_for_mode(model, mode: str) -> None:
@@ -180,25 +184,25 @@ def make_optimizer(name: str, params: Iterable[nn.Parameter], lr: float):
     if name == "adam":
         return torch.optim.Adam(params, lr=lr)
     if name == "adamw8bit":
-        try:
+        if importlib.util.find_spec("bitsandbytes") is not None:
             import bitsandbytes as bnb
+
             return bnb.optim.AdamW8bit(params, lr=lr)
-        except Exception as exc:
-            print(f"[Warn] adamw8bit unavailable ({exc}); falling back to AdamW")
+        print("[Warn] adamw8bit requested but bitsandbytes is unavailable; falling back to AdamW")
     return torch.optim.AdamW(params, lr=lr)
 
 
 def load_ref_model(args, dtype):
     kwargs = {"torch_dtype": dtype}
     if args.reference_device == "auto":
-        try:
-            return AutoModelForCausalLM.from_pretrained(args.model_path, **kwargs).to("cuda" if torch.cuda.is_available() else "cpu")
-        except torch.cuda.OutOfMemoryError:
-            print("[Warn] reference CUDA OOM; falling back to CPU")
-            torch.cuda.empty_cache(); gc.collect()
-            return AutoModelForCausalLM.from_pretrained(args.model_path, **kwargs).to("cpu")
-    if args.reference_device == "auto":
-        kwargs["device_map"] = "auto"
+        if torch.cuda.is_available():
+            try:
+                return AutoModelForCausalLM.from_pretrained(args.model_path, **kwargs).to("cuda")
+            except torch.cuda.OutOfMemoryError:
+                print("[Warn] reference CUDA OOM; falling back to CPU")
+                torch.cuda.empty_cache()
+                gc.collect()
+        return AutoModelForCausalLM.from_pretrained(args.model_path, **kwargs).to("cpu")
     return AutoModelForCausalLM.from_pretrained(args.model_path, **kwargs).to(args.reference_device)
 
 
@@ -272,6 +276,15 @@ def train_mode(args, mode: str, tokenizer, forget_rows, retain_rows, selected_id
     return metrics
 
 
+def load_existing_metrics(out_dir: Path) -> List[Dict[str, object]]:
+    rows: List[Dict[str, object]] = []
+    for mode in MODES:
+        path = out_dir / mode / "metrics.json"
+        if path.exists():
+            rows.append(json.loads(path.read_text(encoding="utf-8")))
+    return rows
+
+
 def write_comparison(out_dir: Path, rows: List[Dict[str, object]]) -> None:
     keys = ["mode", "loss", "npo_loss", "retain_ce_loss", "retain_kl_loss", "forget_policy_logp", "forget_ref_logp", "selected_token_ids"]
     with (out_dir / "comparison.csv").open("w", newline="", encoding="utf-8") as f:
@@ -322,9 +335,10 @@ def main() -> None:
     rows = []
     for mode in (MODES if args.mode == "all" else [args.mode]):
         rows.append(train_mode(args, mode, tokenizer, forget_rows, retain_rows, selected_ids))
-    write_comparison(out_dir, rows)
+    comparison_rows = load_existing_metrics(out_dir) if args.mode != "all" else rows
+    write_comparison(out_dir, comparison_rows)
     if args.run_official_mcf_eval:
-        run_official_eval(args, rows)
+        run_official_eval(args, comparison_rows)
 
 
 if __name__ == "__main__":
