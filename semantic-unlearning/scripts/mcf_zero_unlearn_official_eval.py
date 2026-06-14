@@ -207,6 +207,12 @@ def official_summarize(split_name, metric_data):
         "post_paraphrase_diff": [],
         "post_neighborhood_success": [],
         "post_neighborhood_diff": [],
+        "post_rewrite_target_new_nll": [],
+        "post_rewrite_target_true_nll": [],
+        "post_paraphrase_target_new_nll": [],
+        "post_paraphrase_target_true_nll": [],
+        "post_neighborhood_target_new_nll": [],
+        "post_neighborhood_target_true_nll": [],
     }
 
     for data in metric_data:
@@ -228,6 +234,12 @@ def official_summarize(split_name, metric_data):
             vals[f"post_{out_prefix}_diff"].append(
                 np.mean([np.exp(-x["target_new"]) - np.exp(-x["target_true"]) for x in xs])
             )
+            vals[f"post_{out_prefix}_target_new_nll"].append(
+                np.mean([x["target_new"] for x in xs])
+            )
+            vals[f"post_{out_prefix}_target_true_nll"].append(
+                np.mean([x["target_true"] for x in xs])
+            )
 
         xs = post.get("neighborhood_prompts_probs", [])
         if len(xs) > 0:
@@ -239,6 +251,12 @@ def official_summarize(split_name, metric_data):
             vals["post_neighborhood_diff"].append(
                 np.mean([np.exp(-x["target_true"]) - np.exp(-x["target_new"]) for x in xs])
             )
+            vals["post_neighborhood_target_new_nll"].append(
+                np.mean([x["target_new"] for x in xs])
+            )
+            vals["post_neighborhood_target_true_nll"].append(
+                np.mean([x["target_true"] for x in xs])
+            )
 
     out = {
         "split_name": split_name,
@@ -249,9 +267,10 @@ def official_summarize(split_name, metric_data):
         if len(v) == 0:
             out[k] = [None, None]
         else:
+            scale = 1.0 if k.endswith("_nll") else 100.0
             out[k] = [
-                round(float(np.mean(v) * 100), 2),
-                round(float(np.std(v) * 100), 2),
+                round(float(np.mean(v) * scale), 2),
+                round(float(np.std(v) * scale), 2),
             ]
 
     # Paper-style table:
@@ -299,6 +318,151 @@ def load_official_ppl_text(wikidata_dir):
     return " ".join(raw_ds["train"]["text"][:20])
 
 
+
+
+def evaluate_record_split(model, tok, records, device, llama_like, split_name):
+    metrics = []
+    for r in records:
+        post = official_compute_rewrite_quality_counterfact(
+            model, tok, r, device, llama_like=llama_like
+        )
+        metrics.append({
+            "requested_rewrite": r["requested_rewrite"],
+            "post": post,
+        })
+    return official_summarize(split_name, metrics), metrics
+
+
+def result_to_comparison_row(result):
+    return {
+        "method": result["method"],
+        "model_dir": result["model_dir"],
+        "seed": result["seed"],
+        "sample_mode": result["sample_mode"],
+        "unlearn_num": result["unlearn_num"],
+        "retain_num": result["retain_num"],
+        "forget_Eff": result["forget"]["Eff"],
+        "forget_Gen": result["forget"]["Gen"],
+        "forget_Spe": result["forget"]["Spe"],
+        "forget_Spe_success": result["forget"].get("Spe_success"),
+        "forget_PPL": result.get("forget_PPL"),
+        "retain_Eff": result["retain"]["Eff"],
+        "retain_Gen": result["retain"]["Gen"],
+        "retain_Spe": result["retain"]["Spe"],
+        "retain_Spe_success": result["retain"].get("Spe_success"),
+        "retain_PPL": result.get("retain_PPL"),
+    }
+
+
+def write_official_comparison(out_dir, rows):
+    import csv
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if not rows:
+        return
+    fieldnames = list(rows[0].keys())
+    csv_path = out_dir / "official_eval_comparison.csv"
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    md_lines = [
+        "# Official-compatible MCF evaluation comparison",
+        "",
+        "Metric directions: Eff ↓ and Gen ↓ indicate stronger unlearning; Spe ↑ indicates better specificity; PPL ↓/stable indicates better fluency.",
+        "",
+        "| " + " | ".join(fieldnames) + " |",
+        "| " + " | ".join(["---"] * len(fieldnames)) + " |",
+    ]
+    for row in rows:
+        md_lines.append("| " + " | ".join(str(row.get(k, "")) for k in fieldnames) + " |")
+    (out_dir / "official_eval_comparison.md").write_text("\n".join(md_lines) + "\n", encoding="utf-8")
+
+
+def evaluate_model_dir_official(
+    method,
+    model_dir,
+    mcf_path,
+    wikidata_dir,
+    out_path=None,
+    unlearn_num=50,
+    retain_num=1000,
+    seed=0,
+    sample_mode="official",
+    dtype="bfloat16",
+    device_map="auto",
+    skip_ppl=False,
+):
+    model_dir = Path(model_dir)
+    if not model_dir.exists():
+        raise FileNotFoundError(f"Model directory for {method!r} does not exist: {model_dir}")
+
+    mcf_path = download_mcf(mcf_path)
+    data = load_mcf(mcf_path)
+    if sample_mode == "official":
+        forget_records, retain_records = sample_official_split(data, unlearn_num, retain_num, seed)
+    elif sample_mode == "first":
+        forget_records, retain_records = sample_first_split(data, unlearn_num, retain_num)
+    else:
+        raise ValueError(f"Unsupported sample_mode: {sample_mode}")
+
+    try:
+        tok = AutoTokenizer.from_pretrained(str(model_dir))
+        if tok.pad_token is None:
+            tok.pad_token = tok.eos_token
+        load_kwargs = {"torch_dtype": dtype_from_str(dtype)}
+        if device_map and str(device_map).lower() not in {"none", "single"}:
+            load_kwargs["device_map"] = device_map
+        model = AutoModelForCausalLM.from_pretrained(str(model_dir), **load_kwargs)
+        if "device_map" not in load_kwargs:
+            if not torch.cuda.is_available():
+                raise RuntimeError("CUDA is required for single-device official MCF evaluation, but torch.cuda.is_available() is False")
+            model = model.to("cuda")
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load model for method {method!r} from {model_dir}: {exc}") from exc
+
+    model.eval()
+    model.config.use_cache = False
+    device = next(model.parameters()).device
+    llama_like = is_llama_like(model, tok)
+
+    forget_summary, forget_raw = evaluate_record_split(model, tok, forget_records, device, llama_like, "forget")
+    retain_summary, retain_raw = evaluate_record_split(model, tok, retain_records, device, llama_like, "retain")
+
+    ppl = None
+    if not skip_ppl:
+        ppl_text = load_official_ppl_text(wikidata_dir)
+        if ppl_text is None:
+            print(f"[warning] wikidata dir {wikidata_dir} not found. PPL set to null.")
+        else:
+            ppl = official_perplexity(model, tok, ppl_text, device, max_input_length=100)
+
+    result = {
+        "method": method,
+        "model_dir": str(model_dir),
+        "dataset": "MCF",
+        "sample_mode": sample_mode,
+        "seed": seed,
+        "unlearn_num": unlearn_num,
+        "retain_num": retain_num,
+        "llama_like": llama_like,
+        "forget": forget_summary,
+        "retain": retain_summary,
+        "forget_PPL": ppl,
+        "retain_PPL": ppl,
+        "forget_raw": forget_raw,
+        "retain_raw": retain_raw,
+    }
+    if out_path is not None:
+        out_path = Path(out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2)
+    return result
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model-dir", required=True)
@@ -316,83 +480,29 @@ def main():
     ap.add_argument("--skip-ppl", action="store_true")
     args = ap.parse_args()
 
-    mcf_path = download_mcf(args.mcf_path)
-    data = load_mcf(mcf_path)
-
-    if args.sample_mode == "official":
-        forget_records, retain_records = sample_official_split(
-            data, args.unlearn_num, args.retain_num, args.seed
-        )
-    else:
-        forget_records, retain_records = sample_first_split(
-            data, args.unlearn_num, args.retain_num
-        )
-
-    print("=" * 100)
-    print("ZeroUnlearn official-compatible MCF evaluator")
-    print("=" * 100)
-    print(f"model_dir: {args.model_dir}")
-    print(f"sample_mode: {args.sample_mode}")
-    print(f"seed: {args.seed}")
-    print(f"forget records: {len(forget_records)}")
-    print(f"retain records: {len(retain_records)}")
-    print("=" * 100)
-
-    tok = AutoTokenizer.from_pretrained(args.model_dir)
-    if tok.pad_token is None:
-        tok.pad_token = tok.eos_token
-
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model_dir,
-        torch_dtype=dtype_from_str(args.dtype),
+    result = evaluate_model_dir_official(
+        method="model",
+        model_dir=args.model_dir,
+        mcf_path=args.mcf_path,
+        wikidata_dir=args.wikidata_dir,
+        out_path=args.out,
+        unlearn_num=args.unlearn_num,
+        retain_num=args.retain_num,
+        seed=args.seed,
+        sample_mode=args.sample_mode,
+        dtype=args.dtype,
         device_map=args.device_map,
+        skip_ppl=args.skip_ppl,
     )
-    model.eval()
-    model.config.use_cache = False
 
-    device = next(model.parameters()).device
-    llama_like = is_llama_like(model, tok)
-
-    print(f"llama_like token offset: {llama_like}")
-
-    metrics = []
-    for r in forget_records:
-        post = official_compute_rewrite_quality_counterfact(
-            model, tok, r, device, llama_like=llama_like
-        )
-        metrics.append({
-            "requested_rewrite": r["requested_rewrite"],
-            "post": post,
-        })
-
-    summary = official_summarize("forget", metrics)
-
-    ppl = None
-    if not args.skip_ppl:
-        ppl_text = load_official_ppl_text(args.wikidata_dir)
-        if ppl_text is None:
-            print(f"[warning] {args.wikidata_dir} not found. PPL set to null.")
-        else:
-            ppl = official_perplexity(model, tok, ppl_text, device, max_input_length=100)
-
-    result = {
-        "model_dir": args.model_dir,
-        "dataset": "MCF",
-        "sample_mode": args.sample_mode,
-        "seed": args.seed,
-        "unlearn_num": args.unlearn_num,
-        "retain_num": args.retain_num,
-        "Eff": summary["Eff"],
-        "Gen": summary["Gen"],
-        "Spe": summary["Spe"],
-        "PPL": ppl,
-        "summary": summary,
-    }
-
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    # Backward-compatible top-level aliases for older one-model usage.
+    result["Eff"] = result["forget"]["Eff"]
+    result["Gen"] = result["forget"]["Gen"]
+    result["Spe"] = result["forget"]["Spe"]
+    result["PPL"] = result["forget_PPL"]
+    result["summary"] = result["forget"]
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
-
     print(json.dumps(result, indent=2))
 
 
