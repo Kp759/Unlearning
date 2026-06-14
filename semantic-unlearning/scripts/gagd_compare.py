@@ -79,6 +79,13 @@ class MarginLossResult:
 
 
 @dataclass
+class ZeroUnlearnGAResult:
+    loss: torch.Tensor
+    fallback_examples: int
+    contributing_tokens: int
+
+
+@dataclass
 class ParamSummary:
     n_trainable_params: int
     n_total_params: int
@@ -423,6 +430,74 @@ def mcf_margin_forget_loss(
     )
 
 
+def zerounlearn_ga_logprob_loss(
+    model: AutoModelForCausalLM,
+    tok: AutoTokenizer,
+    examples: Sequence[Example],
+    selected_token_ids: Optional[set[int]],
+    device: torch.device,
+) -> ZeroUnlearnGAResult:
+    prompts = [ex.prompt for ex in examples]
+    targets = []
+    for ex in examples:
+        if not ex.target_true:
+            raise ValueError("ZeroUnlearn GA loss requires target_true for every MCF forget example.")
+        target = ex.target_true
+        if not target.startswith(" "):
+            target = " " + target
+        targets.append(target)
+
+    prompt_inputs = tok(
+        prompts,
+        padding=True,
+        return_tensors="pt",
+        add_special_tokens=False,
+    ).to(device)
+    target_inputs = tok(
+        targets,
+        padding=True,
+        return_tensors="pt",
+        add_special_tokens=False,
+    ).to(device)
+
+    last_token_inds = prompt_inputs["attention_mask"].sum(dim=1) - 1
+    batch_idx = torch.arange(len(prompts), device=device)
+    logits = model(**prompt_inputs).logits[batch_idx, last_token_inds, :]
+    log_probs = F.log_softmax(logits, dim=-1)
+
+    target_ids = target_inputs["input_ids"]
+    gathered = torch.gather(log_probs, 1, target_ids.clamp_min(0))
+    mask = target_inputs["attention_mask"].bool()
+    if tok.pad_token_id is not None:
+        mask = mask & target_ids.ne(tok.pad_token_id)
+    if tok.unk_token_id is not None:
+        mask = mask & target_ids.ne(tok.unk_token_id)
+
+    fallback_examples = 0
+    if selected_token_ids is not None:
+        selected = torch.zeros_like(mask)
+        for i in range(target_ids.size(0)):
+            row_valid = mask[i]
+            row_selected = row_valid & torch.tensor(
+                [int(t.item()) in selected_token_ids for t in target_ids[i]],
+                dtype=torch.bool,
+                device=device,
+            )
+            if not row_selected.any():
+                row_selected = row_valid
+                fallback_examples += 1
+            selected[i] = row_selected
+        mask = selected
+
+    denom = mask.sum(dim=1).clamp_min(1)
+    loss_per_example = (gathered * mask.float()).sum(dim=1) / denom
+    return ZeroUnlearnGAResult(
+        loss=loss_per_example.mean(),
+        fallback_examples=fallback_examples,
+        contributing_tokens=int(mask.sum().item()),
+    )
+
+
 def sample_batch(examples: Sequence[Example], batch_size: int) -> List[Example]:
     return [examples[random.randrange(len(examples))] for _ in range(min(batch_size, len(examples)))]
 
@@ -478,8 +553,10 @@ def make_optimizer(params: Sequence[torch.nn.Parameter], mode: str, args: argpar
     opt_name = args.optimizer or ("sgd" if mode.startswith("full_") else "adamw")
     if opt_name == "sgd":
         return torch.optim.SGD(params, lr=args.lr), opt_name
+    if opt_name == "adam":
+        return torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay), opt_name
     if opt_name == "adamw":
-        return torch.optim.AdamW(params, lr=args.lr), opt_name
+        return torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay), opt_name
     if opt_name == "adamw8bit":
         try:
             import bitsandbytes as bnb  # type: ignore
@@ -487,7 +564,7 @@ def make_optimizer(params: Sequence[torch.nn.Parameter], mode: str, args: argpar
             return bnb.optim.AdamW8bit(params, lr=args.lr), opt_name
         except Exception as exc:
             print(f"WARNING: bitsandbytes AdamW8bit unavailable ({exc}); falling back to torch.optim.AdamW")
-            return torch.optim.AdamW(params, lr=args.lr), "adamw"
+            return torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay), "adamw"
     raise ValueError(f"Unsupported optimizer: {args.optimizer}")
 
 
@@ -576,16 +653,23 @@ def train_mode(
             retain_batch = sample_batch(retain, args.retain_batch_size)
             opt.zero_grad(set_to_none=True)
             margin_res = None
+            ga_res = None
             if args.forget_loss_type == "mcf_margin":
                 margin_res = mcf_margin_forget_loss(model, tok, forget_batch, selected_set, device)
                 forget_loss_for_log = margin_res.loss
                 total = args.forget_weight * margin_res.loss
+            elif args.forget_loss_type == "zerounlearn_ga":
+                ga_res = zerounlearn_ga_logprob_loss(model, tok, forget_batch, selected_set, device)
+                forget_loss_for_log = ga_res.loss
+                total = args.forget_weight * ga_res.loss
             else:
                 forget_res = answer_ce_loss(model, tok, forget_batch, selected_set, device)
                 forget_loss_for_log = forget_res.loss
                 total = -args.forget_weight * forget_res.loss
-            retain_res = answer_ce_loss(model, tok, retain_batch, selected_set, device)
-            total = total + args.retain_weight * retain_res.loss
+            retain_res = None
+            if args.retain_weight > 0:
+                retain_res = answer_ce_loss(model, tok, retain_batch, selected_set, device)
+                total = total + args.retain_weight * retain_res.loss
             kl_val = torch.zeros((), device=device)
             if ref_model is not None:
                 kl_val = kl_retain_loss(model, ref_model, tok, retain_batch, device)
@@ -603,17 +687,27 @@ def train_mode(
                 "total_loss": float(total.detach().cpu()),
                 "forget_loss_type": args.forget_loss_type,
                 "forget_loss": float(forget_loss_for_log.detach().cpu()),
-                "retain_loss": float(retain_res.loss.detach().cpu()),
+                "retain_loss": float(retain_res.loss.detach().cpu()) if retain_res is not None else None,
                 "kl_retain_loss": float(kl_val.detach().cpu()),
-                "forget_fallback_examples": (margin_res.target_new_fallback_examples + margin_res.target_true_fallback_examples) if margin_res is not None else forget_res.fallback_examples,
-                "retain_fallback_examples": retain_res.fallback_examples,
-                "forget_tokens": (margin_res.target_new_tokens + margin_res.target_true_tokens) if margin_res is not None else forget_res.contributing_tokens,
-                "retain_tokens": retain_res.contributing_tokens,
+                "forget_fallback_examples": (
+                    (margin_res.target_new_fallback_examples + margin_res.target_true_fallback_examples) if margin_res is not None
+                    else ga_res.fallback_examples if ga_res is not None
+                    else forget_res.fallback_examples
+                ),
+                "retain_fallback_examples": retain_res.fallback_examples if retain_res is not None else None,
+                "forget_tokens": (
+                    (margin_res.target_new_tokens + margin_res.target_true_tokens) if margin_res is not None
+                    else ga_res.contributing_tokens if ga_res is not None
+                    else forget_res.contributing_tokens
+                ),
+                "retain_tokens": retain_res.contributing_tokens if retain_res is not None else None,
                 "forget_margin_loss": float(margin_res.loss.detach().cpu()) if margin_res is not None else None,
                 "forget_target_new_nll": float(margin_res.target_new_nll.detach().cpu()) if margin_res is not None else None,
                 "forget_target_true_nll": float(margin_res.target_true_nll.detach().cpu()) if margin_res is not None else None,
                 "forget_target_new_fallback_examples": margin_res.target_new_fallback_examples if margin_res is not None else None,
                 "forget_target_true_fallback_examples": margin_res.target_true_fallback_examples if margin_res is not None else None,
+                "zerounlearn_ga_logprob_loss": float(ga_res.loss.detach().cpu()) if ga_res is not None else None,
+                "zerounlearn_ga_fallback_examples": ga_res.fallback_examples if ga_res is not None else None,
             }
             log_f.write(json.dumps(row) + "\n")
     if args.save_model:
@@ -768,6 +862,7 @@ def write_comparison_md(path: Path, rows: List[Dict[str, Any]]) -> None:
         "# GA/GD Comparison",
         "",
         "Training-diagnostic GA/GD metrics only: higher `forget_loss_after` means stronger forgetting, while lower `retain_loss_after` means better retention.",
+        "For `zerounlearn_ga`, lower `forget_loss_after` means stronger GA because the value is target_true log-probability.",
         "For official-style MCF success metrics, lower `forget_new_over_true_success_after` means stronger unlearning in the ZeroUnlearn/CounterFact target_new-vs-target_true sense.",
         "",
     ]
@@ -852,13 +947,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--batch-size", type=int, default=1)
     p.add_argument("--retain-batch-size", type=int, default=1)
     p.add_argument("--lr", type=float, default=1e-5)
+    p.add_argument("--weight-decay", type=float, default=0.0)
     p.add_argument("--forget-weight", type=float, default=1.0)
     p.add_argument("--retain-weight", type=float, default=1.0)
-    p.add_argument("--forget-loss-type", choices=["answer_nll", "mcf_margin"], default="answer_nll", help="Forget objective. answer_nll keeps GA on the selected answer NLL; mcf_margin minimizes softplus(target_true_nll - target_new_nll) and is only valid for MCF.")
+    p.add_argument("--forget-loss-type", choices=["answer_nll", "mcf_margin", "zerounlearn_ga"], default="answer_nll", help="Forget objective. answer_nll keeps GA on selected answer NLL; mcf_margin minimizes softplus(target_true_nll - target_new_nll); zerounlearn_ga minimizes target_true log-probability like the official GA baseline. Non-answer_nll objectives are MCF-only.")
     p.add_argument("--kl-retain-weight", type=float, default=0.0)
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--gradient-checkpointing", action="store_true")
-    p.add_argument("--optimizer", choices=["sgd", "adamw", "adamw8bit"], default=None, help="Optimizer override. Defaults to sgd for full_* modes and adamw for emb_lm_* modes.")
+    p.add_argument("--optimizer", choices=["sgd", "adam", "adamw", "adamw8bit"], default=None, help="Optimizer override. Defaults to sgd for full_* modes and adamw for emb_lm_* modes.")
     p.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default="bf16")
     p.add_argument("--device-map", choices=["single", "auto"], default="single")
     p.add_argument("--save-model", action="store_true")
@@ -879,8 +975,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if args.forget_loss_type == "mcf_margin" and args.dataset != "mcf":
-        raise ValueError("--forget-loss-type mcf_margin is only supported with --dataset mcf")
+    if args.forget_loss_type in {"mcf_margin", "zerounlearn_ga"} and args.dataset != "mcf":
+        raise ValueError(f"--forget-loss-type {args.forget_loss_type} is only supported with --dataset mcf")
+    if args.forget_loss_type == "zerounlearn_ga":
+        print("ZeroUnlearn GA uses target_true log-probability minimization.")
     set_seed(args.seed)
     require_cuda_if_needed(args.device_map)
     out_dir = resolve_output_path(args.output_dir)

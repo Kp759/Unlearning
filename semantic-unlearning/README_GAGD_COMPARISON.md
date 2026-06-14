@@ -126,6 +126,46 @@ Minimizing this margin pushes `target_new_nll >= target_true_nll`, which lowers 
 
 Selective-token modes apply the selected-token mask to both `target_new` and `target_true` NLLs. If an example has zero selected `target_true` tokens, it falls back to the full target-true answer labels and logs that fallback in `train_log.jsonl`. The log also records `forget_loss_type`, `forget_margin_loss`, `forget_target_new_nll`, and `forget_target_true_nll` when margin loss is used.
 
+
+## ZeroUnlearn-style GA baseline in semantic-unlearning
+
+`--forget-loss-type zerounlearn_ga` implements the official ZeroUnlearn GA baseline objective inside `semantic-unlearning` without importing ZeroUnlearn code. It differs from the default `answer_nll` GA/GD objective in several important ways:
+
+- It always uses MCF `target_true` for the forget loss, ignoring `--mcf-answer-field` for forget examples.
+- It prepends a leading space to `target_true` when needed.
+- It computes log-probabilities from the model logits at the last prompt token position and gathers the log-probabilities of the separately tokenized `target_true` token IDs.
+- The minimized loss is the mean `target_true` log-probability, not NLL, and is **not** multiplied by `-1`. Lower values mean stronger GA because the model assigns lower probability to `target_true`.
+- It does not require retain GD for the official baseline; run with `--retain-weight 0.0` for the exact baseline, though retain-loss variants remain available for experiments.
+
+The official Llama-3.2-3B GA defaults are `--steps 25 --lr 5e-3 --optimizer adam --weight-decay 0.0 --retain-weight 0.0 --forget-weight 1.0`. The helper script runs this objective across all four parameter scopes, using `adamw8bit` by default for full-model modes to reduce OOM risk and `adam` for embedding/lm-head modes:
+
+```bash
+cd semantic-unlearning
+bash scripts/run_zerounlearn_ga_4scope_mcf.sh \
+  /scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95
+```
+
+The checkpoints are written under:
+
+- `outputs/zerounlearn_ga_4scope_mcf/full_all_tokens_run/full_all_tokens/checkpoint`
+- `outputs/zerounlearn_ga_4scope_mcf/full_selective_tokens_run/full_selective_tokens/checkpoint`
+- `outputs/zerounlearn_ga_4scope_mcf/emb_lm_all_tokens_run/emb_lm_all_tokens/checkpoint`
+- `outputs/zerounlearn_ga_4scope_mcf/emb_lm_selective_tokens_run/emb_lm_selective_tokens/checkpoint`
+
+After all four runs, the script evaluates the base model plus all checkpoints with `run_same_mcf_eval.py` and writes the final ZeroUnlearn-compatible table to:
+
+```text
+outputs/zerounlearn_ga_4scope_mcf/same_eval_with_base/official_eval_comparison.md
+```
+
+Metric directions for this baseline:
+
+- Training diagnostic `forget_loss_after`: lower is stronger GA because it is target_true log-probability.
+- Official `Eff`: ↓ is better unlearning.
+- Official `Gen`: ↓ is better unlearning.
+- Official `Spe`: ↑ is better specificity.
+- Official `PPL`: ↓ or stable is better fluency.
+
 ## ZeroUnlearn-compatible official MCF evaluation
 
 `comparison.md` from `gagd_compare.py` is a GA/GD training-diagnostic loss table. Use it to inspect whether the optimization objective moved in the expected direction, but do **not** use it as the final ZeroUnlearn comparison table.
