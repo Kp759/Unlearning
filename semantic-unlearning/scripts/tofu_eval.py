@@ -31,6 +31,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=str, default="results/tofu")
     parser.add_argument("--max-new-tokens", type=int, default=64)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--n-forget-eval", type=int, default=None)
+    parser.add_argument("--n-retain-eval", type=int, default=None)
+    parser.add_argument("--n-real-authors-eval", type=int, default=None)
+    parser.add_argument("--n-world-facts-eval", type=int, default=None)
+    parser.add_argument("--n-perturbed-eval", type=int, default=None)
     parser.add_argument(
         "--base-model",
         action="store_true",
@@ -337,8 +342,8 @@ def main() -> None:
     device = model_cfg.get("device", "cuda:0")
     dtype = model_cfg.get("dtype", "float16")
     max_length = int(model_cfg.get("max_length", 128))
-    n_forget = data_cfg.get("n_forget")
-    n_retain = data_cfg.get("n_retain")
+    n_forget = args.n_forget_eval if args.n_forget_eval is not None else data_cfg.get("n_forget")
+    n_retain = args.n_retain_eval if args.n_retain_eval is not None else data_cfg.get("n_retain")
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -348,13 +353,25 @@ def main() -> None:
 
     forget_ds = subset_samples(load_dataset("locuslab/TOFU", name=forget_split, split="train"), n_forget, seed)
     retain_ds = subset_samples(load_dataset("locuslab/TOFU", name=retain_split, split="train"), n_retain, seed)
-    real_authors_ds = list(load_dataset("locuslab/TOFU", name="real_authors", split="train"))
-    world_facts_ds = list(load_dataset("locuslab/TOFU", name="world_facts", split="train"))
+    real_authors_ds = subset_samples(
+        load_dataset("locuslab/TOFU", name="real_authors", split="train"), args.n_real_authors_eval, seed
+    )
+    world_facts_ds = subset_samples(
+        load_dataset("locuslab/TOFU", name="world_facts", split="train"), args.n_world_facts_eval, seed
+    )
 
-    forget_perturbed_ds = list(load_dataset("locuslab/TOFU", name=f"{forget_split}_perturbed", split="train"))
-    retain_perturbed_ds = list(load_dataset("locuslab/TOFU", name="retain_perturbed", split="train"))
-    real_authors_perturbed_ds = list(load_dataset("locuslab/TOFU", name="real_authors_perturbed", split="train"))
-    world_facts_perturbed_ds = list(load_dataset("locuslab/TOFU", name="world_facts_perturbed", split="train"))
+    forget_perturbed_ds = subset_samples(
+        load_dataset("locuslab/TOFU", name=f"{forget_split}_perturbed", split="train"), args.n_perturbed_eval, seed
+    )
+    retain_perturbed_ds = subset_samples(
+        load_dataset("locuslab/TOFU", name="retain_perturbed", split="train"), args.n_perturbed_eval, seed
+    )
+    real_authors_perturbed_ds = subset_samples(
+        load_dataset("locuslab/TOFU", name="real_authors_perturbed", split="train"), args.n_perturbed_eval, seed
+    )
+    world_facts_perturbed_ds = subset_samples(
+        load_dataset("locuslab/TOFU", name="world_facts_perturbed", split="train"), args.n_perturbed_eval, seed
+    )
 
     results: Dict[str, Any] = {
         "name": method,
@@ -364,6 +381,11 @@ def main() -> None:
         "retain_split": retain_split,
         "seed": seed,
         "base_model": bool(args.base_model),
+        "n_forget_eval": n_forget,
+        "n_retain_eval": n_retain,
+        "n_real_authors_eval": args.n_real_authors_eval,
+        "n_world_facts_eval": args.n_world_facts_eval,
+        "n_perturbed_eval": args.n_perturbed_eval,
     }
     details: Dict[str, Any] = {
         "metadata": results.copy(),
