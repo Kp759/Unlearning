@@ -308,6 +308,11 @@ def run_eval(model_dir: Path | str, method: str, args: argparse.Namespace) -> No
         "--output-dir", str(Path(args.output_dir) / "eval"),
         "--max-new-tokens", str(args.eval_max_new_tokens),
         "--seed", str(args.seed),
+        "--n-forget-eval", str(args.eval_n_forget),
+        "--n-retain-eval", str(args.eval_n_retain),
+        "--n-real-authors-eval", str(args.eval_n_real_authors),
+        "--n-world-facts-eval", str(args.eval_n_world_facts),
+        "--n-perturbed-eval", str(args.eval_n_perturbed),
     ]
     subprocess.run(cmd, cwd=str(PROJECT_DIR), check=True)
 
@@ -466,6 +471,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-model", action="store_true", default=True)
     parser.add_argument("--skip-eval", action="store_true")
     parser.add_argument("--eval-max-new-tokens", type=int, default=64)
+    parser.add_argument("--eval-n-forget", type=int, default=200)
+    parser.add_argument("--eval-n-retain", type=int, default=400)
+    parser.add_argument("--eval-n-real-authors", type=int, default=100)
+    parser.add_argument("--eval-n-world-facts", type=int, default=117)
+    parser.add_argument("--eval-n-perturbed", type=int, default=100)
     parser.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
     return parser.parse_args()
 
