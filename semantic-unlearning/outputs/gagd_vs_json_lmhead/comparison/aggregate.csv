@@ -1,0 +1,3 @@
+method,family,n_seeds,seeds,Eff_mean,Eff_std,Eff_n,Gen_mean,Gen_std,Gen_n,Spe_mean,Spe_std,Spe_n,PPL_mean,PPL_std,PPL_n
+base,reference,5,"0,1,2,3,4",12.4,3.878143885933063,5,14.2,4.445222154178574,5,10.994,1.9571877784208647,5,11.0625,0.0,5
+json_lmhead_zero_true_restore150,json_lmhead,5,"0,1,2,3,4",0.4,0.8,5,0.4,0.8,5,24.984,3.9256826158007225,5,13.4375,1.9477551180782455,5
