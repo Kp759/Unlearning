@@ -20,6 +20,48 @@ The runner compares four modes:
    - Uses answer-only cross-entropy only on selected answer token positions.
    - Masks embedding / lm_head gradients to selected token rows and restores non-selected rows exactly after each optimizer step.
 
+## JSON-LMHead-Zero + Target-True Emb Restore comparison
+
+For a fair comparison with the saved `lm_head_zero_true_restore150` results,
+GA/GD must train and evaluate on the same MCF records. The default
+`--mcf-sample-mode official` now matches the JSON-LMHead and ZeroUnlearn split:
+
+- retain pool: first half of MCF;
+- forget pool: second half of MCF;
+- both pools sampled with the same seed;
+- 50 forget and 1000 retain records by default.
+
+Run all four scopes for seeds 0-4 and aggregate them with the existing baseline:
+
+```bash
+cd semantic-unlearning
+bash scripts/run_gagd_vs_json_lmhead.sh /path/to/Llama-3.2-3B-Instruct
+```
+
+The runner uses answer-only GA on forget `target_new` tokens plus GD on retain
+`target_new` tokens, matching the quantity suppressed by JSON-LMHead-Zero. It
+runs official evaluation in memory, so checkpoints are not written unless
+`--save-model` is explicitly used. Final outputs are:
+
+```text
+outputs/gagd_vs_json_lmhead/comparison/per_seed.md
+outputs/gagd_vs_json_lmhead/comparison/aggregate.md
+outputs/gagd_vs_json_lmhead/comparison/comparison.json
+```
+
+To aggregate existing results without training, use:
+
+```bash
+python scripts/compare_gagd_to_json_lmhead.py \
+  --seeds 0 1 2 3 4 \
+  --gagd-pattern 'outputs/gagd_vs_json_lmhead/seed{seed}/official_eval/{method}_official_eval.json' \
+  --baseline-pattern 'outputs/official_eval_lmhead_zero_true_restore150_seed{seed}_spefix.json' \
+  --base-pattern 'outputs/official_eval_base_seed{seed}_spefix.json'
+```
+
+The aggregator rejects mismatched seed, split mode, forget count, retain count,
+or dataset metadata rather than silently mixing incomparable runs.
+
 For all modes, each GA/GD step samples a forget batch and a retain batch, then optimizes:
 
 ```text
@@ -178,7 +220,7 @@ For final MCF comparisons against ZeroUnlearn, use the official-compatible evalu
 - `Spe_success`: neighborhood success rate, reported separately.
 - `PPL`: Wikidata-style perplexity; ↓ or stable is better fluency.
 
-To make `gagd_compare.py` run the official-compatible evaluator after every mode, add `--run-official-mcf-eval`. The script automatically saves each mode checkpoint when this flag is set and writes:
+To make `gagd_compare.py` run the official-compatible evaluator after every mode, add `--run-official-mcf-eval`. Evaluation runs on the trained model in memory; add `--save-model` separately only when checkpoints are needed. The evaluator writes:
 
 - `outputs/gagd_compare/.../official_eval/<mode>_official_eval.json`
 - `outputs/gagd_compare/.../official_eval_comparison.csv`

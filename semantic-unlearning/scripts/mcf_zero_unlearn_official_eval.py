@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import random
 import urllib.request
 from pathlib import Path
 
@@ -10,6 +9,8 @@ import numpy as np
 import torch
 from datasets import load_from_disk
 from transformers import AutoTokenizer, AutoModelForCausalLM
+
+from mcf_sampling import sample_first_mcf_records, sample_official_mcf_records
 
 
 MCF_URL = "https://memit.baulab.info/data/dsets/multi_counterfact.json"
@@ -58,17 +59,9 @@ def sample_official_split(data, unlearn_num, retain_num, seed):
       forget pool = second half
       random.sample with seed
     """
-    rng = random.Random(seed)
-
-    half = len(data) // 2
-    retain_pool = data[:half]
-    forget_pool = data[half:]
-
-    unlearn_num = min(len(forget_pool), unlearn_num)
-    retain_num = min(len(retain_pool), retain_num)
-
-    forget_records = rng.sample(forget_pool, k=unlearn_num)
-    retain_records = rng.sample(retain_pool, k=retain_num)
+    forget_records, retain_records = sample_official_mcf_records(
+        data, unlearn_num, retain_num, seed
+    )
 
     return [normalize_record(x) for x in forget_records], [normalize_record(x) for x in retain_records]
 
@@ -77,8 +70,9 @@ def sample_first_split(data, unlearn_num, retain_num):
     """
     Old/debug mode only. Do not use for final comparison.
     """
-    forget_records = data[:unlearn_num]
-    retain_records = data[unlearn_num:unlearn_num + retain_num]
+    forget_records, retain_records = sample_first_mcf_records(
+        data, unlearn_num, retain_num
+    )
     return [normalize_record(x) for x in forget_records], [normalize_record(x) for x in retain_records]
 
 
@@ -381,8 +375,21 @@ def write_official_comparison(out_dir, rows):
     (out_dir / "official_eval_comparison.md").write_text("\n".join(md_lines) + "\n", encoding="utf-8")
 
 
-def evaluate_model_dir_official(
+def load_official_eval_records(mcf_path, unlearn_num, retain_num, seed, sample_mode):
+    """Load exactly the record split used by the ZeroUnlearn-compatible evaluator."""
+    mcf_path = download_mcf(mcf_path)
+    data = load_mcf(mcf_path)
+    if sample_mode == "official":
+        return sample_official_split(data, unlearn_num, retain_num, seed)
+    if sample_mode == "first":
+        return sample_first_split(data, unlearn_num, retain_num)
+    raise ValueError(f"Unsupported sample_mode: {sample_mode}")
+
+
+def evaluate_loaded_model_official(
     method,
+    model,
+    tok,
     model_dir,
     mcf_path,
     wikidata_dir,
@@ -391,38 +398,18 @@ def evaluate_model_dir_official(
     retain_num=1000,
     seed=0,
     sample_mode="official",
-    dtype="bfloat16",
-    device_map="auto",
     skip_ppl=False,
 ):
-    model_dir = Path(model_dir)
-    if not model_dir.exists():
-        raise FileNotFoundError(f"Model directory for {method!r} does not exist: {model_dir}")
+    forget_records, retain_records = load_official_eval_records(
+        mcf_path=mcf_path,
+        unlearn_num=unlearn_num,
+        retain_num=retain_num,
+        seed=seed,
+        sample_mode=sample_mode,
+    )
 
-    mcf_path = download_mcf(mcf_path)
-    data = load_mcf(mcf_path)
-    if sample_mode == "official":
-        forget_records, retain_records = sample_official_split(data, unlearn_num, retain_num, seed)
-    elif sample_mode == "first":
-        forget_records, retain_records = sample_first_split(data, unlearn_num, retain_num)
-    else:
-        raise ValueError(f"Unsupported sample_mode: {sample_mode}")
-
-    try:
-        tok = AutoTokenizer.from_pretrained(str(model_dir))
-        if tok.pad_token is None:
-            tok.pad_token = tok.eos_token
-        load_kwargs = {"torch_dtype": dtype_from_str(dtype)}
-        if device_map and str(device_map).lower() not in {"none", "single"}:
-            load_kwargs["device_map"] = device_map
-        model = AutoModelForCausalLM.from_pretrained(str(model_dir), **load_kwargs)
-        if "device_map" not in load_kwargs:
-            if not torch.cuda.is_available():
-                raise RuntimeError("CUDA is required for single-device official MCF evaluation, but torch.cuda.is_available() is False")
-            model = model.to("cuda")
-    except Exception as exc:
-        raise RuntimeError(f"Failed to load model for method {method!r} from {model_dir}: {exc}") from exc
-
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
     model.eval()
     model.config.use_cache = False
     device = next(model.parameters()).device
@@ -461,6 +448,55 @@ def evaluate_model_dir_official(
         with out_path.open("w", encoding="utf-8") as f:
             json.dump(result, f, indent=2)
     return result
+
+
+def evaluate_model_dir_official(
+    method,
+    model_dir,
+    mcf_path,
+    wikidata_dir,
+    out_path=None,
+    unlearn_num=50,
+    retain_num=1000,
+    seed=0,
+    sample_mode="official",
+    dtype="bfloat16",
+    device_map="auto",
+    skip_ppl=False,
+):
+    model_dir = Path(model_dir)
+    if not model_dir.exists():
+        raise FileNotFoundError(f"Model directory for {method!r} does not exist: {model_dir}")
+
+    try:
+        tok = AutoTokenizer.from_pretrained(str(model_dir))
+        if tok.pad_token is None:
+            tok.pad_token = tok.eos_token
+        load_kwargs = {"torch_dtype": dtype_from_str(dtype)}
+        if device_map and str(device_map).lower() not in {"none", "single"}:
+            load_kwargs["device_map"] = device_map
+        model = AutoModelForCausalLM.from_pretrained(str(model_dir), **load_kwargs)
+        if "device_map" not in load_kwargs:
+            if not torch.cuda.is_available():
+                raise RuntimeError("CUDA is required for single-device official MCF evaluation, but torch.cuda.is_available() is False")
+            model = model.to("cuda")
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load model for method {method!r} from {model_dir}: {exc}") from exc
+
+    return evaluate_loaded_model_official(
+        method=method,
+        model=model,
+        tok=tok,
+        model_dir=model_dir,
+        mcf_path=mcf_path,
+        wikidata_dir=wikidata_dir,
+        out_path=out_path,
+        unlearn_num=unlearn_num,
+        retain_num=retain_num,
+        seed=seed,
+        sample_mode=sample_mode,
+        skip_ppl=skip_ppl,
+    )
 
 
 def main():

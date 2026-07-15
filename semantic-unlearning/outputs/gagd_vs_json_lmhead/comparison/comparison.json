@@ -1,0 +1,185 @@
+{
+  "config": {
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "methods": [
+      "full_all_tokens",
+      "full_selective_tokens",
+      "emb_lm_all_tokens",
+      "emb_lm_selective_tokens"
+    ],
+    "sample_mode": "official",
+    "unlearn_num": 50,
+    "retain_num": 1000,
+    "gagd_pattern": "outputs/gagd_vs_json_lmhead/seed{seed}/official_eval/{method}_official_eval.json",
+    "baseline_pattern": "outputs/official_eval_lmhead_zero_true_restore150_seed{seed}_spefix.json",
+    "base_pattern": "outputs/official_eval_base_seed{seed}_spefix.json"
+  },
+  "missing": [
+    "outputs/gagd_vs_json_lmhead/seed0/official_eval/full_all_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed0/official_eval/full_selective_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed0/official_eval/emb_lm_all_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed0/official_eval/emb_lm_selective_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed1/official_eval/full_all_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed1/official_eval/full_selective_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed1/official_eval/emb_lm_all_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed1/official_eval/emb_lm_selective_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed2/official_eval/full_all_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed2/official_eval/full_selective_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed2/official_eval/emb_lm_all_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed2/official_eval/emb_lm_selective_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed3/official_eval/full_all_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed3/official_eval/full_selective_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed3/official_eval/emb_lm_all_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed3/official_eval/emb_lm_selective_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed4/official_eval/full_all_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed4/official_eval/full_selective_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed4/official_eval/emb_lm_all_tokens_official_eval.json",
+    "outputs/gagd_vs_json_lmhead/seed4/official_eval/emb_lm_selective_tokens_official_eval.json"
+  ],
+  "per_seed": [
+    {
+      "method": "base",
+      "family": "reference",
+      "seed": 0,
+      "source": "outputs/official_eval_base_seed0_spefix.json",
+      "Eff": 6.0,
+      "Gen": 6.0,
+      "Spe": 10.89,
+      "PPL": 11.0625
+    },
+    {
+      "method": "json_lmhead_zero_true_restore150",
+      "family": "json_lmhead",
+      "seed": 0,
+      "source": "outputs/official_eval_lmhead_zero_true_restore150_seed0_spefix.json",
+      "Eff": 0.0,
+      "Gen": 0.0,
+      "Spe": 27.67,
+      "PPL": 11.0625
+    },
+    {
+      "method": "base",
+      "family": "reference",
+      "seed": 1,
+      "source": "outputs/official_eval_base_seed1_spefix.json",
+      "Eff": 16.0,
+      "Gen": 14.0,
+      "Spe": 12.56,
+      "PPL": 11.0625
+    },
+    {
+      "method": "json_lmhead_zero_true_restore150",
+      "family": "json_lmhead",
+      "seed": 1,
+      "source": "outputs/official_eval_lmhead_zero_true_restore150_seed1_spefix.json",
+      "Eff": 0.0,
+      "Gen": 0.0,
+      "Spe": 18.48,
+      "PPL": 15.1875
+    },
+    {
+      "method": "base",
+      "family": "reference",
+      "seed": 2,
+      "source": "outputs/official_eval_base_seed2_spefix.json",
+      "Eff": 14.0,
+      "Gen": 17.0,
+      "Spe": 8.08,
+      "PPL": 11.0625
+    },
+    {
+      "method": "json_lmhead_zero_true_restore150",
+      "family": "json_lmhead",
+      "seed": 2,
+      "source": "outputs/official_eval_lmhead_zero_true_restore150_seed2_spefix.json",
+      "Eff": 2.0,
+      "Gen": 2.0,
+      "Spe": 23.62,
+      "PPL": 11.0625
+    },
+    {
+      "method": "base",
+      "family": "reference",
+      "seed": 3,
+      "source": "outputs/official_eval_base_seed3_spefix.json",
+      "Eff": 16.0,
+      "Gen": 19.0,
+      "Spe": 9.83,
+      "PPL": 11.0625
+    },
+    {
+      "method": "json_lmhead_zero_true_restore150",
+      "family": "json_lmhead",
+      "seed": 3,
+      "source": "outputs/official_eval_lmhead_zero_true_restore150_seed3_spefix.json",
+      "Eff": 0.0,
+      "Gen": 0.0,
+      "Spe": 25.1,
+      "PPL": 15.1875
+    },
+    {
+      "method": "base",
+      "family": "reference",
+      "seed": 4,
+      "source": "outputs/official_eval_base_seed4_spefix.json",
+      "Eff": 10.0,
+      "Gen": 15.0,
+      "Spe": 13.61,
+      "PPL": 11.0625
+    },
+    {
+      "method": "json_lmhead_zero_true_restore150",
+      "family": "json_lmhead",
+      "seed": 4,
+      "source": "outputs/official_eval_lmhead_zero_true_restore150_seed4_spefix.json",
+      "Eff": 0.0,
+      "Gen": 0.0,
+      "Spe": 30.05,
+      "PPL": 14.6875
+    }
+  ],
+  "aggregate": [
+    {
+      "method": "base",
+      "family": "reference",
+      "n_seeds": 5,
+      "seeds": "0,1,2,3,4",
+      "Eff_mean": 12.4,
+      "Eff_std": 3.878143885933063,
+      "Eff_n": 5,
+      "Gen_mean": 14.2,
+      "Gen_std": 4.445222154178574,
+      "Gen_n": 5,
+      "Spe_mean": 10.994,
+      "Spe_std": 1.9571877784208647,
+      "Spe_n": 5,
+      "PPL_mean": 11.0625,
+      "PPL_std": 0.0,
+      "PPL_n": 5
+    },
+    {
+      "method": "json_lmhead_zero_true_restore150",
+      "family": "json_lmhead",
+      "n_seeds": 5,
+      "seeds": "0,1,2,3,4",
+      "Eff_mean": 0.4,
+      "Eff_std": 0.8,
+      "Eff_n": 5,
+      "Gen_mean": 0.4,
+      "Gen_std": 0.8,
+      "Gen_n": 5,
+      "Spe_mean": 24.984,
+      "Spe_std": 3.9256826158007225,
+      "Spe_n": 5,
+      "PPL_mean": 13.4375,
+      "PPL_std": 1.9477551180782455,
+      "PPL_n": 5
+    }
+  ]
+}
