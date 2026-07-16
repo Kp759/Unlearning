@@ -12,10 +12,15 @@ OUT_ROOT="${OUT_ROOT:-outputs/gagd_vs_json_lmhead}"
 SEEDS="${SEEDS:-0 1 2 3 4}"
 FORGET_NUM="${FORGET_NUM:-50}"
 RETAIN_NUM="${RETAIN_NUM:-1000}"
-STEPS="${STEPS:-100}"
+STEPS="${STEPS:-250}"
 LR="${LR:-1e-5}"
-FORGET_WEIGHT="${FORGET_WEIGHT:-1.0}"
+FULL_LR="${FULL_LR:-1e-3}"
+EMB_LM_LR="${EMB_LM_LR:-1e-4}"
+FORGET_WEIGHT="${FORGET_WEIGHT:-2.0}"
 RETAIN_WEIGHT="${RETAIN_WEIGHT:-1.0}"
+FORGET_MARGIN="${FORGET_MARGIN:-1.0}"
+RETAIN_BATCH_SIZE="${RETAIN_BATCH_SIZE:-4}"
+SAMPLING_STRATEGY="${SAMPLING_STRATEGY:-epoch}"
 DTYPE="${DTYPE:-bf16}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-data/wikidata}"
@@ -33,17 +38,21 @@ for seed in "${SEED_ARRAY[@]}"; do
     --official-sample-mode official \
     --output-dir "${OUT_ROOT}/seed${seed}" \
     --mode all \
-    --forget-loss-type answer_nll \
+    --forget-loss-type mcf_margin \
+    --forget-margin "${FORGET_MARGIN}" \
     --mcf-answer-field target_new \
     --forget-num "${FORGET_NUM}" \
     --retain-num "${RETAIN_NUM}" \
     --seed "${seed}" \
     --steps "${STEPS}" \
     --batch-size 1 \
-    --retain-batch-size 1 \
+    --retain-batch-size "${RETAIN_BATCH_SIZE}" \
     --lr "${LR}" \
+    --full-lr "${FULL_LR}" \
+    --emb-lm-lr "${EMB_LM_LR}" \
     --forget-weight "${FORGET_WEIGHT}" \
     --retain-weight "${RETAIN_WEIGHT}" \
+    --sampling-strategy "${SAMPLING_STRATEGY}" \
     --dtype "${DTYPE}" \
     --wikidata-dir "${WIKIDATA_DIR}" \
     --run-official-mcf-eval

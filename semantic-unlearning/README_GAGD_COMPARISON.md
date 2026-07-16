@@ -38,10 +38,11 @@ cd semantic-unlearning
 bash scripts/run_gagd_vs_json_lmhead.sh /path/to/Llama-3.2-3B-Instruct
 ```
 
-The runner uses answer-only GA on forget `target_new` tokens plus GD on retain
-`target_new` tokens, matching the quantity suppressed by JSON-LMHead-Zero. It
-runs official evaluation in memory, so checkpoints are not written unless
-`--save-model` is explicitly used. Final outputs are:
+The comparison wrapper now uses an MCF margin objective on forget records and
+answer-only GD on retain `target_new` tokens. The margin directly trains the
+official decision rule while retaining the same quantity protected by the
+JSON-LMHead run. It runs official evaluation in memory, so checkpoints are not
+written unless `--save-model` is explicitly used. Final outputs are:
 
 ```text
 outputs/gagd_vs_json_lmhead/comparison/per_seed.md
@@ -62,13 +63,34 @@ python scripts/compare_gagd_to_json_lmhead.py \
 The aggregator rejects mismatched seed, split mode, forget count, retain count,
 or dataset metadata rather than silently mixing incomparable runs.
 
-For all modes, each GA/GD step samples a forget batch and a retain batch, then optimizes:
+For plain `answer_nll` GA/GD, each step optimizes:
 
 ```text
 total_loss = -forget_weight * forget_loss + retain_weight * retain_loss
 ```
 
 Optional retain KL regularization is available with `--kl-retain-weight`, but defaults to `0.0` for pure GA/GD.
+
+The JSON-LMHead comparison wrapper uses the stronger settings below by default:
+
+```text
+forget_loss_type = mcf_margin
+forget_margin = 1.0
+steps = 250
+full-model SGD lr = 1e-3
+embedding/LM-head AdamW lr = 1e-4
+forget_weight = 2.0
+retain_weight = 1.0
+forget batch size = 1
+retain batch size = 4
+sampling_strategy = epoch
+```
+
+These are intentionally scope-aware: `1e-5` is especially weak for plain SGD,
+while using the same larger rate for AdamW embedding rows can be too aggressive.
+All values remain overridable with the wrapper environment variables
+`STEPS`, `FULL_LR`, `EMB_LM_LR`, `FORGET_WEIGHT`, `RETAIN_WEIGHT`,
+`FORGET_MARGIN`, `RETAIN_BATCH_SIZE`, and `SAMPLING_STRATEGY`.
 
 ## MCF command
 
@@ -80,10 +102,16 @@ python scripts/gagd_compare.py \
   --mode all \
   --forget-num 50 \
   --retain-num 1000 \
-  --steps 100 \
+  --forget-loss-type mcf_margin \
+  --forget-margin 1.0 \
+  --steps 250 \
   --batch-size 1 \
-  --retain-batch-size 1 \
-  --lr 1e-5 \
+  --retain-batch-size 4 \
+  --full-lr 1e-3 \
+  --emb-lm-lr 1e-4 \
+  --forget-weight 2.0 \
+  --retain-weight 1.0 \
+  --sampling-strategy epoch \
   --dtype bf16
 ```
 
@@ -158,13 +186,27 @@ Here `new_over_true_success` is the mean indicator that `target_new_nll < target
 
 The default forget objective is `--forget-loss-type answer_nll`, which keeps the original GA behavior: maximize the selected forget answer NLL and minimize retain answer NLL. For MCF, you can instead use `--forget-loss-type mcf_margin` to align the training objective more directly with official CounterFact/ZeroUnlearn Eff/Gen success.
 
-`mcf_margin` computes answer-only NLL for both `target_new` and `target_true` on the same forget prompt and minimizes:
+`mcf_margin` computes answer-only NLL for both `target_new` and `target_true`
+on the same forget prompt, excluding EOS to match the official Eff/Gen target
+comparison, and minimizes:
 
 ```text
-softplus(target_true_nll - target_new_nll)
+softplus(target_true_nll - target_new_nll + forget_margin)
 ```
 
-Minimizing this margin pushes `target_new_nll >= target_true_nll`, which lowers `target_new_nll < target_true_nll` success and therefore aligns with reducing official Eff/Gen. This option is only valid with `--dataset mcf`; TOFU runs raise a clear error if it is selected. Retain loss remains answer-only CE using `--mcf-answer-field`, which defaults to `target_new`.
+Minimizing this margin pushes
+`target_new_nll >= target_true_nll + forget_margin`, which lowers
+`target_new_nll < target_true_nll` success and therefore aligns with reducing
+official Eff/Gen. A positive `--forget-margin` keeps training past the fragile
+zero-gap boundary; the comparison wrapper uses `1.0`. This option is only valid
+with `--dataset mcf`; TOFU runs raise a clear error if it is selected. Retain
+loss remains answer-only CE using `--mcf-answer-field`, which defaults to
+`target_new`.
+
+`--sampling-strategy epoch` is the default and reshuffles only after every
+record has been used. Use `--sampling-strategy with_replacement` to reproduce
+the legacy random sampler. With 50 forget records and batch size 1, epoch
+sampling guarantees five visits per record in 250 steps.
 
 Selective-token modes apply the selected-token mask to both `target_new` and `target_true` NLLs. If an example has zero selected `target_true` tokens, it falls back to the full target-true answer labels and logs that fallback in `train_log.jsonl`. The log also records `forget_loss_type`, `forget_margin_loss`, `forget_target_new_nll`, and `forget_target_true_nll` when margin loss is used.
 
@@ -295,7 +337,7 @@ Models are not saved by default. Pass `--save-model` to save each mode under `<m
 
 ## OOM notes
 
-The `full_*` modes train every model parameter and can require much more GPU memory than the `emb_lm_*` modes. The default optimizer is therefore SGD for `full_*` modes to avoid AdamW optimizer-state OOM on a 3B model. The `emb_lm_*` modes default to AdamW. You can override this with `--optimizer {sgd,adamw,adamw8bit}`; if `adamw8bit` is requested but bitsandbytes is unavailable, the script prints a warning and falls back to AdamW.
+The `full_*` modes train every model parameter and can require much more GPU memory than the `emb_lm_*` modes. The default optimizer is therefore SGD for `full_*` modes to avoid AdamW optimizer-state OOM on a 3B model. The `emb_lm_*` modes default to AdamW. `--full-lr` and `--emb-lm-lr` provide scope-specific learning rates. `--full-optimizer` and `--emb-lm-optimizer` provide scope-specific optimizers, while `--optimizer` overrides both. If `adamw8bit` is requested but bitsandbytes is unavailable, the script prints a warning and falls back to AdamW.
 
 Other memory controls:
 
