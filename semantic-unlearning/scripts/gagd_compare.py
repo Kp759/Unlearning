@@ -94,6 +94,35 @@ class ParamSummary:
     trainable_names: List[str]
 
 
+class EpochBatchSampler:
+    """Yield shuffled batches while guaranteeing full dataset coverage per epoch."""
+
+    def __init__(self, examples: Sequence[Example], batch_size: int, seed: int):
+        if not examples:
+            raise ValueError("EpochBatchSampler requires at least one example.")
+        if batch_size <= 0:
+            raise ValueError("EpochBatchSampler batch_size must be positive.")
+        self.examples = examples
+        self.batch_size = min(batch_size, len(examples))
+        self.rng = random.Random(seed)
+        self.indices = list(range(len(examples)))
+        self.cursor = len(self.indices)
+
+    def next_batch(self) -> List[Example]:
+        batch: List[Example] = []
+        while len(batch) < self.batch_size:
+            if self.cursor >= len(self.indices):
+                self.rng.shuffle(self.indices)
+                self.cursor = 0
+            take = min(self.batch_size - len(batch), len(self.indices) - self.cursor)
+            batch.extend(
+                self.examples[i]
+                for i in self.indices[self.cursor : self.cursor + take]
+            )
+            self.cursor += take
+        return batch
+
+
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -367,13 +396,19 @@ def select_tokens(tok: AutoTokenizer, forget: Sequence[Example], retain: Sequenc
     return select_tofu_tokens(tok, forget, retain, args)
 
 
-def build_batch(tok: AutoTokenizer, examples: Sequence[Example], device: torch.device) -> Dict[str, torch.Tensor]:
+def build_batch(
+    tok: AutoTokenizer,
+    examples: Sequence[Example],
+    device: torch.device,
+    append_eos: bool = True,
+) -> Dict[str, torch.Tensor]:
     pad_id = tok.pad_token_id if tok.pad_token_id is not None else 0
     rows: List[List[int]] = []
     labels: List[List[int]] = []
     for ex in examples:
         prompt_ids = token_ids_for_text(tok, ex.prompt)
-        answer_ids = token_ids_for_text(tok, answer_with_eos(tok, ex.answer))
+        answer_text = answer_with_eos(tok, ex.answer) if append_eos else ex.answer
+        answer_ids = token_ids_for_text(tok, answer_text)
         if not answer_ids:
             raise ValueError(f"Example has zero answer tokens for prompt: {ex.prompt[:80]}")
         rows.append(prompt_ids + answer_ids)
@@ -398,8 +433,9 @@ def answer_ce_loss(
     examples: Sequence[Example],
     selected_token_ids: Optional[set[int]],
     device: torch.device,
+    append_eos: bool = True,
 ) -> LossResult:
-    batch = build_batch(tok, examples, device)
+    batch = build_batch(tok, examples, device, append_eos=append_eos)
     out = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
     logits = out.logits[:, :-1, :].contiguous()
     labels = batch["labels"][:, 1:].contiguous()
@@ -431,6 +467,7 @@ def mcf_margin_forget_loss(
     examples: Sequence[Example],
     selected_token_ids: Optional[set[int]],
     device: torch.device,
+    forget_margin: float = 0.0,
 ) -> MarginLossResult:
     margins: List[torch.Tensor] = []
     new_losses: List[torch.Tensor] = []
@@ -444,9 +481,16 @@ def mcf_margin_forget_loss(
             raise ValueError("MCF margin forget loss requires both target_new and target_true for every forget example.")
         new_ex = Example(prompt=ex.prompt, answer=ex.target_new, source=ex.source)
         true_ex = Example(prompt=ex.prompt, answer=ex.target_true, source=ex.source)
-        new_res = answer_ce_loss(model, tok, [new_ex], selected_token_ids, device)
-        true_res = answer_ce_loss(model, tok, [true_ex], selected_token_ids, device)
-        margins.append(F.softplus(true_res.loss - new_res.loss))
+        new_res = answer_ce_loss(
+            model, tok, [new_ex], selected_token_ids, device, append_eos=False
+        )
+        true_res = answer_ce_loss(
+            model, tok, [true_ex], selected_token_ids, device, append_eos=False
+        )
+        # A positive target margin avoids stopping at the fragile decision
+        # boundary and concentrates gradient on examples that are not yet
+        # forgotten according to the official target-new-vs-target-true test.
+        margins.append(mcf_margin_objective(true_res.loss, new_res.loss, forget_margin))
         new_losses.append(new_res.loss)
         true_losses.append(true_res.loss)
         new_fallbacks += new_res.fallback_examples
@@ -464,6 +508,14 @@ def mcf_margin_forget_loss(
         target_new_tokens=new_tokens,
         target_true_tokens=true_tokens,
     )
+
+
+def mcf_margin_objective(
+    target_true_nll: torch.Tensor,
+    target_new_nll: torch.Tensor,
+    forget_margin: float,
+) -> torch.Tensor:
+    return F.softplus(target_true_nll - target_new_nll + forget_margin)
 
 
 def zerounlearn_ga_logprob_loss(
@@ -585,23 +637,38 @@ def resolve_output_path(path: str) -> Path:
     return p if p.is_absolute() else PROJECT_DIR / p
 
 
-def make_optimizer(params: Sequence[torch.nn.Parameter], mode: str, args: argparse.Namespace) -> Tuple[torch.optim.Optimizer, str]:
-    opt_name = args.optimizer or ("sgd" if mode.startswith("full_") else "adamw")
+def learning_rate_for_mode(mode: str, args: argparse.Namespace) -> float:
+    scoped_lr = args.full_lr if mode.startswith("full_") else args.emb_lm_lr
+    return args.lr if scoped_lr is None else scoped_lr
+
+
+def optimizer_name_for_mode(mode: str, args: argparse.Namespace) -> str:
+    scoped_optimizer = args.full_optimizer if mode.startswith("full_") else args.emb_lm_optimizer
+    return args.optimizer or scoped_optimizer or ("sgd" if mode.startswith("full_") else "adamw")
+
+
+def make_optimizer(
+    params: Sequence[torch.nn.Parameter],
+    mode: str,
+    args: argparse.Namespace,
+) -> Tuple[torch.optim.Optimizer, str, float]:
+    opt_name = optimizer_name_for_mode(mode, args)
+    lr = learning_rate_for_mode(mode, args)
     if opt_name == "sgd":
-        return torch.optim.SGD(params, lr=args.lr), opt_name
+        return torch.optim.SGD(params, lr=lr, weight_decay=args.weight_decay), opt_name, lr
     if opt_name == "adam":
-        return torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay), opt_name
+        return torch.optim.Adam(params, lr=lr, weight_decay=args.weight_decay), opt_name, lr
     if opt_name == "adamw":
-        return torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay), opt_name
+        return torch.optim.AdamW(params, lr=lr, weight_decay=args.weight_decay), opt_name, lr
     if opt_name == "adamw8bit":
         try:
             import bitsandbytes as bnb  # type: ignore
 
-            return bnb.optim.AdamW8bit(params, lr=args.lr), opt_name
+            return bnb.optim.AdamW8bit(params, lr=lr, weight_decay=args.weight_decay), opt_name, lr
         except Exception as exc:
             print(f"WARNING: bitsandbytes AdamW8bit unavailable ({exc}); falling back to torch.optim.AdamW")
-            return torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay), "adamw"
-    raise ValueError(f"Unsupported optimizer: {args.optimizer}")
+            return torch.optim.AdamW(params, lr=lr, weight_decay=args.weight_decay), "adamw", lr
+    raise ValueError(f"Unsupported optimizer: {opt_name}")
 
 
 def make_row_mask(weight: torch.nn.Parameter, selected_ids: Sequence[int]) -> torch.Tensor:
@@ -666,9 +733,10 @@ def train_mode(
     summary, tied_info = configure_trainable(model, mode)
     selected_set = set(selected_ids) if "selective_tokens" in mode else None
     params = unique_trainable_params(model)
-    opt, effective_optimizer = make_optimizer(params, mode, args)
+    opt, effective_optimizer, effective_lr = make_optimizer(params, mode, args)
     args.effective_optimizer = effective_optimizer
-    print(f"Optimizer for {mode}: {effective_optimizer}")
+    args.effective_lr = effective_lr
+    print(f"Optimizer for {mode}: {effective_optimizer}, lr={effective_lr:g}")
     device = first_device(model)
     originals = None
     if mode == "emb_lm_selective_tokens":
@@ -683,15 +751,35 @@ def train_mode(
             p.requires_grad_(False)
     model.train()
     mode_dir.mkdir(parents=True, exist_ok=True)
+    forget_sampler = None
+    retain_sampler = None
+    if args.sampling_strategy == "epoch":
+        forget_sampler = EpochBatchSampler(forget, args.batch_size, args.seed)
+        retain_sampler = EpochBatchSampler(retain, args.retain_batch_size, args.seed + 1)
     with (mode_dir / "train_log.jsonl").open("w", encoding="utf-8") as log_f:
         for step in tqdm(range(args.steps), desc=f"train {mode}"):
-            forget_batch = sample_batch(forget, args.batch_size)
-            retain_batch = sample_batch(retain, args.retain_batch_size)
+            forget_batch = (
+                forget_sampler.next_batch()
+                if forget_sampler is not None
+                else sample_batch(forget, args.batch_size)
+            )
+            retain_batch = (
+                retain_sampler.next_batch()
+                if retain_sampler is not None
+                else sample_batch(retain, args.retain_batch_size)
+            )
             opt.zero_grad(set_to_none=True)
             margin_res = None
             ga_res = None
             if args.forget_loss_type == "mcf_margin":
-                margin_res = mcf_margin_forget_loss(model, tok, forget_batch, selected_set, device)
+                margin_res = mcf_margin_forget_loss(
+                    model,
+                    tok,
+                    forget_batch,
+                    selected_set,
+                    device,
+                    forget_margin=args.forget_margin,
+                )
                 forget_loss_for_log = margin_res.loss
                 total = args.forget_weight * margin_res.loss
             elif args.forget_loss_type == "zerounlearn_ga":
@@ -710,11 +798,22 @@ def train_mode(
             if ref_model is not None:
                 kl_val = kl_retain_loss(model, ref_model, tok, retain_batch, device)
                 total = total + args.kl_retain_weight * kl_val
+            if not torch.isfinite(total):
+                raise FloatingPointError(
+                    f"Non-finite total loss in {mode} at step {step + 1}: "
+                    f"{float(total.detach().cpu())}"
+                )
             total.backward()
             if mode == "emb_lm_selective_tokens" and originals is not None:
                 apply_row_mask_and_restore(tied_info, selected_ids, originals)
+            grad_norm = None
             if args.grad_clip and args.grad_clip > 0:
-                torch.nn.utils.clip_grad_norm_(params, args.grad_clip)
+                grad_norm = torch.nn.utils.clip_grad_norm_(params, args.grad_clip)
+                if not torch.isfinite(grad_norm):
+                    raise FloatingPointError(
+                        f"Non-finite gradient norm in {mode} at step {step + 1}: "
+                        f"{float(grad_norm.detach().cpu())}"
+                    )
             opt.step()
             if mode == "emb_lm_selective_tokens" and originals is not None:
                 restore_non_selected_rows(tied_info, selected_ids, originals)
@@ -722,6 +821,9 @@ def train_mode(
                 "step": step + 1,
                 "total_loss": float(total.detach().cpu()),
                 "forget_loss_type": args.forget_loss_type,
+                "forget_margin_target": args.forget_margin if margin_res is not None else None,
+                "learning_rate": effective_lr,
+                "gradient_norm_before_clip": float(grad_norm.detach().cpu()) if grad_norm is not None else None,
                 "forget_loss": float(forget_loss_for_log.detach().cpu()),
                 "retain_loss": float(retain_res.loss.detach().cpu()) if retain_res is not None else None,
                 "kl_retain_loss": float(kl_val.detach().cpu()),
@@ -778,12 +880,19 @@ def greedy_match(model: torch.nn.Module, tok: AutoTokenizer, examples: Sequence[
     return matches / len(examples)
 
 
-def nll_values(model: torch.nn.Module, tok: AutoTokenizer, examples: Sequence[Example], device: torch.device, desc: str = "nll") -> List[float]:
+def nll_values(
+    model: torch.nn.Module,
+    tok: AutoTokenizer,
+    examples: Sequence[Example],
+    device: torch.device,
+    desc: str = "nll",
+    append_eos: bool = True,
+) -> List[float]:
     losses: List[float] = []
     model.eval()
     with torch.no_grad():
         for ex in tqdm(examples, desc=desc, leave=False):
-            res = answer_ce_loss(model, tok, [ex], None, device)
+            res = answer_ce_loss(model, tok, [ex], None, device, append_eos=append_eos)
             losses.append(float(res.loss.detach().cpu()))
     return losses
 
@@ -823,8 +932,28 @@ def add_mcf_rewrite_metrics(metrics: Dict[str, float], prefix: str, model: torch
         for suffix in ("target_new_nll", "target_true_nll", "new_over_true_success", "prob_diff_new_minus_true"):
             metrics[f"{prefix}_rewrite_{suffix}"] = float("nan")
         return
-    new_nll = np.array(nll_values(model, tok, new_examples, device, desc=f"{prefix} new nll"), dtype=np.float64)
-    true_nll = np.array(nll_values(model, tok, true_examples, device, desc=f"{prefix} true nll"), dtype=np.float64)
+    new_nll = np.array(
+        nll_values(
+            model,
+            tok,
+            new_examples,
+            device,
+            desc=f"{prefix} new nll",
+            append_eos=False,
+        ),
+        dtype=np.float64,
+    )
+    true_nll = np.array(
+        nll_values(
+            model,
+            tok,
+            true_examples,
+            device,
+            desc=f"{prefix} true nll",
+            append_eos=False,
+        ),
+        dtype=np.float64,
+    )
     target_new_nll = float(np.mean(new_nll))
     target_true_nll = float(np.mean(true_nll))
     new_over_true_success = float(np.mean(new_nll < true_nll))
@@ -842,8 +971,28 @@ def add_mcf_paraphrase_metrics(metrics: Dict[str, float], prefix: str, model: to
     new_examples, true_examples = mcf_paired_examples(examples, use_paraphrases=True)
     if not new_examples or len(new_examples) != len(true_examples):
         return
-    new_nll = np.array(nll_values(model, tok, new_examples, device, desc=f"{prefix} paraphrase new nll"), dtype=np.float64)
-    true_nll = np.array(nll_values(model, tok, true_examples, device, desc=f"{prefix} paraphrase true nll"), dtype=np.float64)
+    new_nll = np.array(
+        nll_values(
+            model,
+            tok,
+            new_examples,
+            device,
+            desc=f"{prefix} paraphrase new nll",
+            append_eos=False,
+        ),
+        dtype=np.float64,
+    )
+    true_nll = np.array(
+        nll_values(
+            model,
+            tok,
+            true_examples,
+            device,
+            desc=f"{prefix} paraphrase true nll",
+            append_eos=False,
+        ),
+        dtype=np.float64,
+    )
     metrics[f"{prefix}_paraphrase_new_over_true_success"] = float(np.mean(new_nll < true_nll))
 
 
@@ -936,9 +1085,11 @@ def make_comparison_row(
         "trainable_param_percent": summary.trainable_param_percent,
         "n_selected_tokens": n_selected,
         "steps": args.steps,
-        "lr": args.lr,
+        "lr": getattr(args, "effective_lr", learning_rate_for_mode(mode, args)),
         "optimizer": getattr(args, "effective_optimizer", args.optimizer or "default"),
         "forget_loss_type": args.forget_loss_type,
+        "forget_margin": args.forget_margin,
+        "sampling_strategy": args.sampling_strategy,
     }
     if args.dataset == "mcf":
         official_keys = [
@@ -983,14 +1134,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--batch-size", type=int, default=1)
     p.add_argument("--retain-batch-size", type=int, default=1)
     p.add_argument("--lr", type=float, default=1e-5)
+    p.add_argument("--full-lr", type=float, default=None, help="Learning rate for full_* modes. Overrides --lr only for those modes.")
+    p.add_argument("--emb-lm-lr", type=float, default=None, help="Learning rate for emb_lm_* modes. Overrides --lr only for those modes.")
     p.add_argument("--weight-decay", type=float, default=0.0)
     p.add_argument("--forget-weight", type=float, default=1.0)
     p.add_argument("--retain-weight", type=float, default=1.0)
-    p.add_argument("--forget-loss-type", choices=["answer_nll", "mcf_margin", "zerounlearn_ga"], default="answer_nll", help="Forget objective. answer_nll keeps GA on selected answer NLL; mcf_margin minimizes softplus(target_true_nll - target_new_nll); zerounlearn_ga minimizes target_true log-probability like the official GA baseline. Non-answer_nll objectives are MCF-only.")
+    p.add_argument("--forget-loss-type", choices=["answer_nll", "mcf_margin", "zerounlearn_ga"], default="answer_nll", help="Forget objective. answer_nll keeps GA on selected answer NLL; mcf_margin minimizes softplus(target_true_nll - target_new_nll + forget_margin); zerounlearn_ga minimizes target_true log-probability like the official GA baseline. Non-answer_nll objectives are MCF-only.")
+    p.add_argument("--forget-margin", type=float, default=0.0, help="For mcf_margin, require target_new_nll >= target_true_nll + this margin. Positive values produce more robust forgetting.")
     p.add_argument("--kl-retain-weight", type=float, default=0.0)
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--gradient-checkpointing", action="store_true")
     p.add_argument("--optimizer", choices=["sgd", "adam", "adamw", "adamw8bit"], default=None, help="Optimizer override. Defaults to sgd for full_* modes and adamw for emb_lm_* modes.")
+    p.add_argument("--full-optimizer", choices=["sgd", "adam", "adamw", "adamw8bit"], default=None, help="Optimizer for full_* modes unless --optimizer is set.")
+    p.add_argument("--emb-lm-optimizer", choices=["sgd", "adam", "adamw", "adamw8bit"], default=None, help="Optimizer for emb_lm_* modes unless --optimizer is set.")
+    p.add_argument("--sampling-strategy", choices=["epoch", "with_replacement"], default="epoch", help="epoch guarantees full shuffled dataset coverage; with_replacement preserves legacy random sampling.")
     p.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default="bf16")
     p.add_argument("--device-map", choices=["single", "auto"], default="single")
     p.add_argument("--save-model", action="store_true")
@@ -1025,6 +1182,16 @@ def main() -> None:
         raise ValueError(f"--forget-loss-type {args.forget_loss_type} is only supported with --dataset mcf")
     if args.forget_loss_type == "zerounlearn_ga":
         print("ZeroUnlearn GA uses target_true log-probability minimization.")
+    if args.steps <= 0 or args.batch_size <= 0 or args.retain_batch_size <= 0:
+        raise ValueError("--steps, --batch-size, and --retain-batch-size must be positive")
+    if args.forget_margin < 0:
+        raise ValueError("--forget-margin must be non-negative")
+    if args.forget_weight <= 0 or args.retain_weight < 0 or args.kl_retain_weight < 0:
+        raise ValueError("--forget-weight must be positive; retain weights must be non-negative")
+    modes = MODES if args.mode == "all" else [args.mode]
+    for mode in modes:
+        if learning_rate_for_mode(mode, args) <= 0:
+            raise ValueError(f"Learning rate for {mode} must be positive")
     set_seed(args.seed)
     require_cuda_if_needed(args.device_map)
     out_dir = resolve_output_path(args.output_dir)
@@ -1032,7 +1199,15 @@ def main() -> None:
     if args.run_official_mcf_eval:
         if args.dataset != "mcf":
             raise ValueError("--run-official-mcf-eval is only supported with --dataset mcf")
-    write_json(out_dir / "config_used.json", vars(args))
+    config_used = dict(vars(args))
+    config_used["resolved_mode_settings"] = {
+        mode: {
+            "learning_rate": learning_rate_for_mode(mode, args),
+            "optimizer": optimizer_name_for_mode(mode, args),
+        }
+        for mode in modes
+    }
+    write_json(out_dir / "config_used.json", config_used)
 
     print("Loading dataset")
     forget, retain = load_data(args)
@@ -1053,7 +1228,6 @@ def main() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    modes = MODES if args.mode == "all" else [args.mode]
     rows: List[Dict[str, Any]] = []
     official_rows: List[Dict[str, Any]] = []
     official_dir = out_dir / "official_eval"
@@ -1069,6 +1243,10 @@ def main() -> None:
         metrics.update(asdict(summary))
         metrics["n_selected_tokens"] = len(selected_ids)
         metrics["forget_loss_type"] = args.forget_loss_type
+        metrics["forget_margin"] = args.forget_margin
+        metrics["sampling_strategy"] = args.sampling_strategy
+        metrics["learning_rate"] = args.effective_lr
+        metrics["optimizer"] = args.effective_optimizer
         write_json(mode_dir / "metrics.json", metrics)
         rows.append(make_comparison_row(args, mode, base_metrics, metrics, summary, len(selected_ids)))
         if args.run_official_mcf_eval:
