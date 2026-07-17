@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repair only hard MCF rewrite cases in an already-trained Setting 5 checkpoint.
+"""Repair hard MCF prompt instances in an already-trained Setting 5 checkpoint.
 
 This runner never reruns GA/GD.  The supplied checkpoint is treated as the
 immutable starting point, the transformer and input embeddings remain frozen,
@@ -7,17 +7,18 @@ and only explicitly selected output ``lm_head`` vocabulary rows may change.
 
 Three repair modes are available:
 
-* ``true_scale`` sets active records' globally unique target-true output rows
-  to a scaled base-model row.
-* ``extrapolate_delta`` extrapolates active records' globally unique
-  target-new output rows beyond the update already present in the input
-  checkpoint.
+* ``true_scale`` sets globally unique target-true output rows required by
+  active prompt instances to a scaled base-model row.
+* ``extrapolate_delta`` extrapolates globally unique target-new output rows
+  required by active prompt instances beyond the update already present in
+  the input checkpoint.
 * ``minimal_optimize`` learns a sparse output-row delta under a squared-hinge
-  rewrite-margin constraint, an explicit delta norm, and an optional
-  retain-prompt KL guard.
+  official prompt-instance margin constraint, an explicit delta norm, and an
+  optional retain-prompt KL guard.
 
-Official paraphrases are never used to select or optimize a repair.  They are
-only touched when the optional final official evaluation is requested.
+The active set contains both the rewrite prompt and every official paraphrase.
+All target NLLs use the same full-sequence construction, target-token
+positions, and Llama BOS handling as ``mcf_zero_unlearn_official_eval.py``.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from torch import nn
 from transformers import AutoModelForCausalLM
 
 import gagd_compare as gagd
+from mcf_zero_unlearn_official_eval import is_llama_like
 
 
 METHOD = "gagd_active_case_repair"
@@ -59,6 +61,22 @@ class SampledMCFRecord:
     record_index: int
     sampled_position: int
     example: gagd.Example
+    raw_record: Dict[str, Any]
+    rewrite_prompt: str
+    paraphrase_prompts: Tuple[str, ...]
+    target_new: str
+    target_true: str
+
+
+@dataclass(frozen=True)
+class MCFPromptInstance:
+    record_index: int
+    sampled_position: int
+    prompt_type: str
+    prompt_index: int
+    prompt: str
+    target_new: str
+    target_true: str
 
 
 @dataclass
@@ -141,7 +159,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help=(
             "0 learns unrestricted selected-row deltas. A positive value "
-            "restricts deltas to that rank in active rewrite hidden directions."
+            "restricts deltas to that rank in active prompt-instance hidden "
+            "directions."
         ),
     )
     parser.add_argument(
@@ -362,25 +381,45 @@ def validate_source_experiment_config(
         )
 
 
-def _convert_mcf_record(record: Dict[str, Any]) -> gagd.Example:
+def _sampled_mcf_record(
+    record: Dict[str, Any],
+    *,
+    record_index: int,
+    sampled_position: int,
+) -> SampledMCFRecord:
     rewrite, _ = gagd.extract_mcf_rewrite(record)
     subject = str(rewrite["subject"])
-    target_new = gagd.normalize_answer(str(rewrite["target_new"]["str"]))
+    target_new = str(rewrite["target_new"]["str"])
     target_true_block = rewrite.get("target_true")
     if not isinstance(target_true_block, dict) or not target_true_block.get("str"):
         raise ValueError(
             "Active-case repair requires target_true.str on every MCF record"
         )
-    target_true = gagd.normalize_answer(str(target_true_block["str"]))
-    prompt = gagd.format_mcf_prompt(str(rewrite["prompt"]), subject)
-    return gagd.Example(
-        prompt=prompt,
-        answer=target_new,
+    target_true = str(target_true_block["str"])
+    rewrite_prompt = str(rewrite["prompt"]).format(subject)
+    paraphrase_prompts = tuple(
+        str(prompt) for prompt in record.get("paraphrase_prompts", [])
+    )
+    normalized_new = gagd.normalize_answer(target_new)
+    normalized_true = gagd.normalize_answer(target_true)
+    example = gagd.Example(
+        prompt=rewrite_prompt,
+        answer=normalized_new,
         subject=subject,
+        target_new=normalized_new,
+        target_true=normalized_true,
+        paraphrase_prompts=list(paraphrase_prompts),
+        source="mcf",
+    )
+    return SampledMCFRecord(
+        record_index=record_index,
+        sampled_position=sampled_position,
+        example=example,
+        raw_record=record,
+        rewrite_prompt=rewrite_prompt,
+        paraphrase_prompts=paraphrase_prompts,
         target_new=target_new,
         target_true=target_true,
-        paraphrase_prompts=None,
-        source="mcf",
     )
 
 
@@ -410,15 +449,46 @@ def load_sampled_mcf_records(
                     "Sampled MCF record lost its original dataset identity"
                 )
             converted.append(
-                SampledMCFRecord(
+                _sampled_mcf_record(
+                    record,
                     record_index=original_indices[id(record)],
                     sampled_position=sampled_position,
-                    example=_convert_mcf_record(record),
                 )
             )
         return converted
 
     return convert(forget_raw), convert(retain_raw)
+
+
+def expand_prompt_instances(
+    records: Sequence[SampledMCFRecord],
+) -> List[MCFPromptInstance]:
+    instances: List[MCFPromptInstance] = []
+    for record in records:
+        instances.append(
+            MCFPromptInstance(
+                record_index=record.record_index,
+                sampled_position=record.sampled_position,
+                prompt_type="rewrite",
+                prompt_index=0,
+                prompt=record.rewrite_prompt,
+                target_new=record.target_new,
+                target_true=record.target_true,
+            )
+        )
+        instances.extend(
+            MCFPromptInstance(
+                record_index=record.record_index,
+                sampled_position=record.sampled_position,
+                prompt_type="paraphrase",
+                prompt_index=prompt_index,
+                prompt=prompt,
+                target_new=record.target_new,
+                target_true=record.target_true,
+            )
+            for prompt_index, prompt in enumerate(record.paraphrase_prompts)
+        )
+    return instances
 
 
 def _group_sets(groups: gagd.PostTrainingTokenGroups) -> Dict[str, set[int]]:
@@ -456,98 +526,149 @@ def token_membership_report(
     return rows
 
 
-def build_target_batch(
+def _input_ids(tokenized: Any) -> Any:
+    return tokenized["input_ids"]
+
+
+def _single_input_ids(tok: Any, text: str) -> List[int]:
+    ids = _input_ids(tok(text))
+    if isinstance(ids, torch.Tensor):
+        ids = ids.detach().cpu().tolist()
+    if ids and isinstance(ids[0], list):
+        ids = ids[0]
+    return [int(token_id) for token_id in ids]
+
+
+def official_batch_components(
     tok: Any,
-    records: Sequence[SampledMCFRecord],
-    field: str,
+    instances: Sequence[MCFPromptInstance],
     device: torch.device,
-) -> Dict[str, torch.Tensor]:
-    examples = [
-        gagd.Example(
-            prompt=record.example.prompt,
-            answer=getattr(record.example, field),
-            source="mcf",
-        )
-        for record in records
-    ]
-    return gagd.build_batch(tok, examples, device, append_eos=False)
+    llama_like: bool,
+) -> Tuple[Any, List[List[int]], List[int]]:
+    """Mirror official_test_batch_prediction sequence construction exactly."""
+    prefixes = [instance.prompt for instance in instances]
+    prefix_tokenizations = _input_ids(tok(prefixes))
+    if isinstance(prefix_tokenizations, torch.Tensor):
+        prefix_tokenizations = prefix_tokenizations.detach().cpu().tolist()
+    prefix_lens = [len(token_ids) for token_ids in prefix_tokenizations]
 
+    full_texts: List[str] = []
+    target_token_ids: List[List[int]] = []
+    sequence_prefix_lens: List[int] = []
+    for prefix_len, instance in zip(prefix_lens, instances):
+        for suffix in (instance.target_new, instance.target_true):
+            full_texts.append(f"{instance.prompt} {suffix}")
+            target_ids = _single_input_ids(tok, f" {suffix}")
+            if llama_like:
+                target_ids = target_ids[1:]
+            if not target_ids:
+                raise ValueError(
+                    "Official-compatible scorer found an empty target token sequence"
+                )
+            target_token_ids.append(target_ids)
+            sequence_prefix_lens.append(prefix_len - 1 if llama_like else prefix_len)
 
-def answer_nll_per_example(
-    model: nn.Module,
-    batch: Dict[str, torch.Tensor],
-) -> torch.Tensor:
-    output = model(
-        input_ids=batch["input_ids"],
-        attention_mask=batch["attention_mask"],
-        use_cache=False,
-    )
-    logits = output.logits[:, :-1, :].float()
-    labels = batch["labels"][:, 1:]
-    mask = labels.ne(-100)
-    safe_labels = labels.masked_fill(~mask, 0)
-    token_nll = (
-        -F.log_softmax(logits, dim=-1).gather(-1, safe_labels.unsqueeze(-1)).squeeze(-1)
-    )
-    return (token_nll * mask).sum(dim=1) / mask.sum(dim=1).clamp_min(1)
-
-
-def rewrite_nll_tensors(
-    model: nn.Module,
-    tok: Any,
-    records: Sequence[SampledMCFRecord],
-    device: torch.device,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    new_batch = build_target_batch(tok, records, "target_new", device)
-    true_batch = build_target_batch(tok, records, "target_true", device)
-    return (
-        answer_nll_per_example(model, new_batch),
-        answer_nll_per_example(model, true_batch),
-    )
+    encoded = tok(
+        full_texts,
+        padding=True,
+        return_tensors="pt",
+    ).to(device)
+    return encoded, target_token_ids, sequence_prefix_lens
 
 
 @torch.no_grad()
-def evaluate_rewrite_margin_reports(
+def official_prompt_instance_nll_tensors(
     model: nn.Module,
     tok: Any,
-    records: Sequence[SampledMCFRecord],
+    instances: Sequence[MCFPromptInstance],
+    device: torch.device,
+    llama_like: bool,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    if not instances:
+        empty = torch.empty(0, dtype=torch.float32, device=device)
+        return empty, empty
+    encoded, target_token_ids, prefix_lens = official_batch_components(
+        tok, instances, device, llama_like
+    )
+    logits = model(**encoded).logits
+    if llama_like:
+        logits = logits[:, 1:, :]
+
+    losses: List[torch.Tensor] = []
+    for row, (target_ids, prefix_len) in enumerate(
+        zip(target_token_ids, prefix_lens)
+    ):
+        # The official evaluator applies log_softmax in the model's native
+        # dtype, extracts each token loss with .item(), and accumulates into a
+        # float32 NumPy cell. Sequential float32 additions preserve those
+        # numerics while keeping this helper tensor-based.
+        sequence_nll = torch.zeros((), dtype=torch.float32, device=logits.device)
+        for offset, target_id in enumerate(target_ids):
+            position = prefix_len + offset - 1
+            token_nll = -F.log_softmax(
+                logits[row, position, :],
+                dim=0,
+            )[target_id]
+            sequence_nll = sequence_nll + token_nll.float()
+        losses.append(sequence_nll / len(target_ids))
+    paired = torch.stack(losses).reshape(len(instances), 2)
+    return paired[:, 0], paired[:, 1]
+
+
+@torch.no_grad()
+def evaluate_prompt_instance_margin_reports(
+    model: nn.Module,
+    tok: Any,
+    instances: Sequence[MCFPromptInstance],
     groups: gagd.PostTrainingTokenGroups,
     active_margin: float,
     device: torch.device,
     batch_size: int,
+    llama_like: bool,
 ) -> List[Dict[str, Any]]:
     model.eval()
     new_values: List[float] = []
     true_values: List[float] = []
-    for start in range(0, len(records), batch_size):
-        batch_records = records[start : start + batch_size]
-        new_nll, true_nll = rewrite_nll_tensors(model, tok, batch_records, device)
+    for start in range(0, len(instances), batch_size):
+        chunk = instances[start : start + batch_size]
+        new_nll, true_nll = official_prompt_instance_nll_tensors(
+            model, tok, chunk, device, llama_like
+        )
         new_values.extend(float(value) for value in new_nll.detach().cpu())
         true_values.extend(float(value) for value in true_nll.detach().cpu())
 
     reports: List[Dict[str, Any]] = []
-    for record, target_new_nll, target_true_nll in zip(
-        records, new_values, true_values
+    for instance, target_new_nll, target_true_nll in zip(
+        instances, new_values, true_values
     ):
         margin = float(margin_from_nll(target_new_nll, target_true_nll))
         reports.append(
             {
-                "record_index": record.record_index,
-                "sampled_position": record.sampled_position,
-                "prompt": record.example.prompt,
-                "target_new": record.example.target_new.strip(),
-                "target_true": record.example.target_true.strip(),
+                "record_index": instance.record_index,
+                "sampled_position": instance.sampled_position,
+                "prompt_type": instance.prompt_type,
+                "prompt_index": instance.prompt_index,
+                "prompt": instance.prompt,
+                "target_new": instance.target_new,
+                "target_true": instance.target_true,
                 "target_new_nll": target_new_nll,
                 "target_true_nll": target_true_nll,
                 "margin": margin,
+                "official_compatible_margin": margin,
                 "active_margin": active_margin,
                 "is_active": margin < active_margin,
                 "target_tokens": {
                     "target_new": token_membership_report(
-                        tok, record.example.target_new, "target_new", groups
+                        tok,
+                        gagd.normalize_answer(instance.target_new),
+                        "target_new",
+                        groups,
                     ),
                     "target_true": token_membership_report(
-                        tok, record.example.target_true, "target_true", groups
+                        tok,
+                        gagd.normalize_answer(instance.target_true),
+                        "target_true",
+                        groups,
                     ),
                 },
             }
@@ -560,16 +681,29 @@ def active_report_payload(
     active_margin: float,
 ) -> Dict[str, Any]:
     cases = [report for report in reports if float(report["margin"]) < active_margin]
+    parent_records = {
+        (int(report["record_index"]), int(report["sampled_position"]))
+        for report in cases
+    }
     return {
         "active_margin": active_margin,
         "count": len(cases),
+        "active_prompt_count": len(cases),
+        "active_parent_record_count": len(parent_records),
+        "active_parent_records": [
+            {
+                "record_index": record_index,
+                "sampled_position": sampled_position,
+            }
+            for record_index, sampled_position in sorted(parent_records)
+        ],
         "cases": cases,
     }
 
 
-def selected_rows_for_active_records(
+def selected_rows_for_active_instances(
     tok: Any,
-    active_records: Sequence[SampledMCFRecord],
+    active_instances: Sequence[MCFPromptInstance],
     groups: gagd.PostTrainingTokenGroups,
     repair_mode: str,
 ) -> List[int]:
@@ -584,10 +718,13 @@ def selected_rows_for_active_records(
         fields = ("target_new", "target_true")
 
     selected: set[int] = set()
-    for record in active_records:
+    for instance in active_instances:
         for field in fields:
             selected.update(
-                gagd.token_ids_for_text(tok, getattr(record.example, field))
+                gagd.token_ids_for_text(
+                    tok,
+                    gagd.normalize_answer(getattr(instance, field)),
+                )
             )
     selected -= gagd.special_token_ids(tok)
     if allowed is not None:
@@ -707,75 +844,82 @@ def _selected_column_lookup(selected_ids: Sequence[int]) -> Dict[int, int]:
 
 
 @torch.no_grad()
-def build_answer_delta_caches(
+def build_prompt_instance_delta_caches(
     model: nn.Module,
     tok: Any,
-    records: Sequence[SampledMCFRecord],
-    field: str,
+    instances: Sequence[MCFPromptInstance],
     selected_ids: Sequence[int],
     device: torch.device,
     batch_size: int,
-) -> List[AnswerDeltaCache]:
-    caches: List[AnswerDeltaCache] = []
-    selected_tensor = torch.tensor(selected_ids, dtype=torch.long, device=device)
+    llama_like: bool,
+) -> List[RewriteDeltaCache]:
+    paired_caches: List[RewriteDeltaCache] = []
     selected_columns = _selected_column_lookup(selected_ids)
-    for start in range(0, len(records), batch_size):
-        chunk = records[start : start + batch_size]
-        batch = build_target_batch(tok, chunk, field, device)
+    for start in range(0, len(instances), batch_size):
+        chunk = instances[start : start + batch_size]
+        encoded, target_token_ids, prefix_lens = official_batch_components(
+            tok, chunk, device, llama_like
+        )
         output = model(
-            input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
+            **encoded,
             output_hidden_states=True,
             use_cache=False,
         )
-        logits = output.logits[:, :-1, :].float()
-        log_probs = F.log_softmax(logits, dim=-1)
-        hidden = output.hidden_states[-1][:, :-1, :].float()
-        labels = batch["labels"][:, 1:]
-        mask = labels.ne(-100)
-        for row in range(len(chunk)):
-            row_mask = mask[row]
-            target_ids = labels[row, row_mask].long()
-            row_log_probs = log_probs[row, row_mask]
+        logits = output.logits
+        hidden = output.hidden_states[-1]
+        if llama_like:
+            logits = logits[:, 1:, :]
+            hidden = hidden[:, 1:, :]
+        selected_tensor = torch.tensor(
+            selected_ids, dtype=torch.long, device=logits.device
+        )
+        sequence_caches: List[AnswerDeltaCache] = []
+        for row, (target_ids_list, prefix_len) in enumerate(
+            zip(target_token_ids, prefix_lens)
+        ):
+            positions = torch.arange(
+                prefix_len - 1,
+                prefix_len + len(target_ids_list) - 1,
+                dtype=torch.long,
+                device=logits.device,
+            )
+            target_ids = torch.tensor(
+                target_ids_list,
+                dtype=torch.long,
+                device=logits.device,
+            )
+            row_log_probs = F.log_softmax(
+                logits[row].index_select(0, positions),
+                dim=-1,
+            )
             base_token_nll = -row_log_probs.gather(
                 -1, target_ids.unsqueeze(-1)
-            ).squeeze(-1)
-            selected_probs = row_log_probs.index_select(-1, selected_tensor).exp()
+            ).squeeze(-1).float()
+            selected_probs = (
+                row_log_probs.index_select(-1, selected_tensor).exp().float()
+            )
             target_columns = torch.tensor(
                 [selected_columns.get(int(token_id), -1) for token_id in target_ids],
                 dtype=torch.long,
-                device=device,
+                device=logits.device,
             )
-            caches.append(
+            sequence_caches.append(
                 AnswerDeltaCache(
                     base_token_nll=base_token_nll.detach(),
-                    hidden=hidden[row, row_mask].detach(),
+                    hidden=hidden[row].index_select(0, positions).float().detach(),
                     selected_probs=selected_probs.detach(),
                     target_selected_columns=target_columns,
                 )
             )
-        del output, logits, log_probs, hidden
-    return caches
-
-
-def build_rewrite_delta_caches(
-    model: nn.Module,
-    tok: Any,
-    records: Sequence[SampledMCFRecord],
-    selected_ids: Sequence[int],
-    device: torch.device,
-    batch_size: int,
-) -> List[RewriteDeltaCache]:
-    new_caches = build_answer_delta_caches(
-        model, tok, records, "target_new", selected_ids, device, batch_size
-    )
-    true_caches = build_answer_delta_caches(
-        model, tok, records, "target_true", selected_ids, device, batch_size
-    )
-    return [
-        RewriteDeltaCache(target_new=new_cache, target_true=true_cache)
-        for new_cache, true_cache in zip(new_caches, true_caches)
-    ]
+        paired_caches.extend(
+            RewriteDeltaCache(
+                target_new=sequence_caches[index],
+                target_true=sequence_caches[index + 1],
+            )
+            for index in range(0, len(sequence_caches), 2)
+        )
+        del output, logits, hidden
+    return paired_caches
 
 
 def _log_partition_shift(
@@ -1124,7 +1268,7 @@ def optimize_selected_delta(
                     "unsatisfied_after_step": int(
                         (updated_margins < active_margin).sum().item()
                     ),
-                    "all_training_rewrites_satisfied": all_satisfied,
+                    "all_training_prompt_instances_satisfied": all_satisfied,
                     "effective_delta_norm": float(updated_delta.norm().detach().cpu()),
                 }
             )
@@ -1206,11 +1350,48 @@ def _model_loading_args(args: argparse.Namespace) -> argparse.Namespace:
     )
 
 
-def _active_records(
-    records: Sequence[SampledMCFRecord],
+def _active_instances(
+    instances: Sequence[MCFPromptInstance],
     active_positions: Sequence[int],
-) -> List[SampledMCFRecord]:
-    return [records[position] for position in active_positions]
+) -> List[MCFPromptInstance]:
+    return [instances[position] for position in active_positions]
+
+
+def candidate_priority(summary: Dict[str, Any]) -> Tuple[int, int, float, float]:
+    active_prompts = int(
+        summary.get(
+            "active_prompt_instances_after",
+            summary.get("active_cases_after", 0),
+        )
+    )
+    active_parents = int(
+        summary.get("active_parent_records_after", active_prompts)
+    )
+    minimum_margin = summary.get(
+        "minimum_official_compatible_margin_after",
+        summary.get("minimum_margin_after"),
+    )
+    minimum_margin = (
+        float("-inf") if minimum_margin is None else float(minimum_margin)
+    )
+    delta_norm = float(summary.get("selected_lm_head_delta_norm", 0.0))
+    return active_prompts, active_parents, -minimum_margin, delta_norm
+
+
+def guard_official_failures_against_zero_active_noop(
+    active_prompt_instances_before: int,
+    official_result: Dict[str, Any],
+) -> None:
+    forget_result = official_result.get("forget", official_result)
+    eff = float(forget_result.get("Eff", official_result.get("Eff", 0.0)))
+    gen = float(forget_result.get("Gen", official_result.get("Gen", 0.0)))
+    if active_prompt_instances_before == 0 and (eff > 0 or gen > 0):
+        raise RuntimeError(
+            "Official evaluation still reports forgetting failures "
+            f"(Eff={eff}, Gen={gen}) but the local official-compatible scorer "
+            "reported zero active prompt instances before repair. Refusing to "
+            "accept a zero-row/no-op candidate."
+        )
 
 
 def main() -> None:
@@ -1233,7 +1414,8 @@ def main() -> None:
         "source_experiment_config_path": str(config_path),
         "source_experiment_config": source_config,
         "preserved_5e_overlap_alphas": preserved_alphas,
-        "repair_uses_official_paraphrases": False,
+        "repair_uses_official_paraphrases": True,
+        "repair_scorer": "official_test_batch_prediction_compatible",
         "repair_parameter_scope": "selected_active_lm_head_rows_only",
         "reference_kl_hidden_source": "candidate_frozen_transformer",
     }
@@ -1243,6 +1425,7 @@ def main() -> None:
     forget_records, retain_records = load_sampled_mcf_records(args)
     forget_examples = [record.example for record in forget_records]
     retain_examples = [record.example for record in retain_records]
+    forget_prompt_instances = expand_prompt_instances(forget_records)
 
     print(f"Loading input repair checkpoint: {args.model_path}")
     model, tok = gagd.load_model_and_tokenizer(
@@ -1251,35 +1434,58 @@ def main() -> None:
     output_embeddings = freeze_model_for_output_repair(model)
     output_weight = output_embeddings.weight
     device = gagd.first_device(model)
+    llama_like = is_llama_like(model, tok)
 
     groups = gagd.collect_post_training_token_groups(
         tok, forget_examples, retain_examples
     )
-    before_reports = evaluate_rewrite_margin_reports(
+    before_reports = evaluate_prompt_instance_margin_reports(
         model,
         tok,
-        forget_records,
+        forget_prompt_instances,
         groups,
         args.active_margin,
         device,
         args.margin_batch_size,
+        llama_like,
     )
     active_positions = select_active_positions(before_reports, args.active_margin)
-    active_records = _active_records(forget_records, active_positions)
-    selected_ids = selected_rows_for_active_records(
-        tok, active_records, groups, args.repair_mode
+    active_instances = _active_instances(
+        forget_prompt_instances, active_positions
+    )
+    before_active_payload = active_report_payload(
+        before_reports, args.active_margin
+    )
+    selected_ids = selected_rows_for_active_instances(
+        tok, active_instances, groups, args.repair_mode
     )
 
     gagd.write_json(output_dir / "rewrite_margins_before.json", before_reports)
     gagd.write_json(
         output_dir / "active_cases_before.json",
-        active_report_payload(before_reports, args.active_margin),
+        before_active_payload,
     )
     token_group_report = {
         "preserved_5e_overlap_alphas": preserved_alphas,
         "global_groups": _decoded_group_report(tok, groups),
         "repair_mode": args.repair_mode,
-        "active_record_indices": [record.record_index for record in active_records],
+        "active_prompt_count": before_active_payload["active_prompt_count"],
+        "active_parent_record_count": before_active_payload[
+            "active_parent_record_count"
+        ],
+        "active_prompt_instances": [
+            {
+                "record_index": instance.record_index,
+                "sampled_position": instance.sampled_position,
+                "prompt_type": instance.prompt_type,
+                "prompt_index": instance.prompt_index,
+                "prompt": instance.prompt,
+            }
+            for instance in active_instances
+        ],
+        "active_record_indices": sorted(
+            {instance.record_index for instance in active_instances}
+        ),
         "selected_lm_head_row_count": len(selected_ids),
         "selected_lm_head_token_ids": selected_ids,
         "selected_lm_head_tokens": {
@@ -1289,7 +1495,9 @@ def main() -> None:
     gagd.write_json(output_dir / "token_group_report.json", token_group_report)
 
     print(
-        f"Active rewrites before repair: {len(active_positions)}/{len(forget_records)}; "
+        "Active official prompt instances before repair: "
+        f"{len(active_positions)}/{len(forget_prompt_instances)} across "
+        f"{before_active_payload['active_parent_record_count']} parent records; "
         f"selected lm_head rows: {len(selected_ids)}"
     )
     input_rows_before = model.get_input_embeddings().weight.detach()
@@ -1357,14 +1565,15 @@ def main() -> None:
         )
 
     elif selected_ids and args.repair_mode == "minimal_optimize":
-        print("Caching exact sparse-delta rewrite objectives")
-        rewrite_caches = build_rewrite_delta_caches(
+        print("Caching exact official-compatible sparse-delta prompt objectives")
+        prompt_instance_caches = build_prompt_instance_delta_caches(
             model,
             tok,
-            forget_records,
+            active_instances,
             selected_ids,
             device,
             args.margin_batch_size,
+            llama_like,
         )
         retain_calibration_records = sample_retain_calibration(
             retain_records,
@@ -1417,10 +1626,10 @@ def main() -> None:
             active_hidden = torch.cat(
                 [
                     answer_cache.hidden
-                    for position in active_positions
+                    for cache in prompt_instance_caches
                     for answer_cache in (
-                        rewrite_caches[position].target_new,
-                        rewrite_caches[position].target_true,
+                        cache.target_new,
+                        cache.target_true,
                     )
                 ],
                 dim=0,
@@ -1443,7 +1652,9 @@ def main() -> None:
             retained_basis=retained_basis,
             device=output_weight.device,
         )
-        margin_fn = lambda delta: margins_from_delta_caches(rewrite_caches, delta)
+        margin_fn = lambda delta: margins_from_delta_caches(
+            prompt_instance_caches, delta
+        )
         kl_fn = lambda delta: retain_kl_from_caches(retain_caches, delta)
         repair_logs, optimization_summary = optimize_selected_delta(
             delta_module,
@@ -1458,6 +1669,7 @@ def main() -> None:
             retain_kl_mu=args.retain_kl_mu,
             stop_when_all_satisfied=args.stop_when_all_satisfied,
         )
+        optimization_summary["training_prompt_instances"] = len(active_instances)
         with torch.no_grad():
             materialize_selected_delta(
                 output_weight,
@@ -1471,14 +1683,15 @@ def main() -> None:
     if model.get_input_embeddings().weight.requires_grad:
         raise RuntimeError("Input embeddings unexpectedly became trainable")
 
-    after_reports = evaluate_rewrite_margin_reports(
+    after_reports = evaluate_prompt_instance_margin_reports(
         model,
         tok,
-        forget_records,
+        forget_prompt_instances,
         groups,
         args.active_margin,
         device,
         args.margin_batch_size,
+        llama_like,
     )
     after_active_payload = active_report_payload(after_reports, args.active_margin)
     gagd.write_json(output_dir / "rewrite_margins_after.json", after_reports)
@@ -1504,8 +1717,19 @@ def main() -> None:
         "source_experiment_config_path": str(config_path),
         "preserved_5e_overlap_alphas": preserved_alphas,
         "forget_records": len(forget_records),
+        "forget_prompt_instances": len(forget_prompt_instances),
         "retain_records": len(retain_records),
         "active_margin": args.active_margin,
+        "active_prompt_instances_before": len(active_positions),
+        "active_prompt_instances_after": after_active_payload[
+            "active_prompt_count"
+        ],
+        "active_parent_records_before": before_active_payload[
+            "active_parent_record_count"
+        ],
+        "active_parent_records_after": after_active_payload[
+            "active_parent_record_count"
+        ],
         "active_cases_before": len(active_positions),
         "active_cases_after": after_active_payload["count"],
         "selected_lm_head_rows": len(selected_ids),
@@ -1530,6 +1754,14 @@ def main() -> None:
         ),
         "minimum_margin_after": min(
             (float(report["margin"]) for report in after_reports),
+            default=None,
+        ),
+        "minimum_official_compatible_margin_before": min(
+            (float(report["official_compatible_margin"]) for report in before_reports),
+            default=None,
+        ),
+        "minimum_official_compatible_margin_after": min(
+            (float(report["official_compatible_margin"]) for report in after_reports),
             default=None,
         ),
     }
@@ -1565,6 +1797,10 @@ def main() -> None:
             sample_mode=args.sample_mode,
             skip_ppl=args.skip_ppl,
         )
+        guard_official_failures_against_zero_active_noop(
+            len(active_positions),
+            official_result,
+        )
         print(
             "Official result: "
             f"Eff={official_result['forget']['Eff']}, "
@@ -1574,8 +1810,10 @@ def main() -> None:
         )
 
     print(
-        f"Done: active cases {len(active_positions)} -> "
-        f"{after_active_payload['count']}; outputs in {output_dir}"
+        f"Done: active prompt instances {len(active_positions)} -> "
+        f"{after_active_payload['active_prompt_count']} across "
+        f"{after_active_payload['active_parent_record_count']} parent records; "
+        f"outputs in {output_dir}"
     )
 
 

@@ -64,7 +64,7 @@ if [[ -n "${EXPERIMENT_CONFIG}" ]]; then
 fi
 
 active_count() {
-  python -c 'import json,sys; print(int(json.load(open(sys.argv[1], encoding="utf-8"))["active_cases_after"]))' "$1"
+  python -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); print(int(d.get("active_prompt_instances_after", d.get("active_cases_after", 0))))' "$1"
 }
 
 select_best_checkpoint() {
@@ -75,11 +75,20 @@ import sys
 
 def score(path):
     data = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
-    active = int(data["active_cases_after"])
-    minimum = data.get("minimum_margin_after")
+    active = int(
+        data.get(
+            "active_prompt_instances_after",
+            data.get("active_cases_after", 0),
+        )
+    )
+    active_parents = int(data.get("active_parent_records_after", active))
+    minimum = data.get(
+        "minimum_official_compatible_margin_after",
+        data.get("minimum_margin_after"),
+    )
     minimum = float("-inf") if minimum is None else float(minimum)
     delta = float(data.get("selected_lm_head_delta_norm", 0.0))
-    return (active, -minimum, delta)
+    return (active, active_parents, -minimum, delta)
 
 best = min(sys.argv[1:], key=score)
 print(pathlib.Path(best).parent / "checkpoint")
@@ -161,8 +170,22 @@ pathlib.Path(sys.argv[2]).write_text(
         {
             "checkpoint": str(checkpoint),
             "repair_summary": str(checkpoint.parent / "repair_summary.json"),
-            "active_cases_after": summary["active_cases_after"],
-            "minimum_margin_after": summary["minimum_margin_after"],
+            "active_prompt_instances_after": summary.get(
+                "active_prompt_instances_after",
+                summary.get("active_cases_after", 0),
+            ),
+            "active_parent_records_after": summary.get(
+                "active_parent_records_after",
+                summary.get("active_cases_after", 0),
+            ),
+            "minimum_official_compatible_margin_after": summary.get(
+                "minimum_official_compatible_margin_after",
+                summary.get("minimum_margin_after"),
+            ),
+            "selected_lm_head_delta_norm": summary.get(
+                "selected_lm_head_delta_norm",
+                0.0,
+            ),
         },
         indent=2,
     )
@@ -188,6 +211,32 @@ if [[ "${SKIP_PPL}" == "1" ]]; then
   EVAL_ARGS+=(--skip-ppl)
 fi
 python scripts/mcf_zero_unlearn_official_eval.py "${EVAL_ARGS[@]}"
+
+python - "${BEST_CHECKPOINT}" "${OUT_ROOT}/official_eval_selected.json" <<'PY'
+import json
+import pathlib
+import sys
+
+checkpoint = pathlib.Path(sys.argv[1])
+summary = json.loads(
+    (checkpoint.parent / "repair_summary.json").read_text(encoding="utf-8")
+)
+official = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+forget = official.get("forget", official)
+eff = float(forget.get("Eff", official.get("Eff", 0.0)))
+gen = float(forget.get("Gen", official.get("Gen", 0.0)))
+active_before = int(
+    summary.get(
+        "active_prompt_instances_before",
+        summary.get("active_cases_before", 0),
+    )
+)
+if active_before == 0 and (eff > 0 or gen > 0):
+    raise SystemExit(
+        "Refusing selected zero-row/no-op candidate: local official-compatible "
+        f"active prompts before repair=0, but final Eff={eff}, Gen={gen}."
+    )
+PY
 
 echo "Selected checkpoint: ${BEST_CHECKPOINT}"
 echo "Official result: ${OUT_ROOT}/official_eval_selected.json"

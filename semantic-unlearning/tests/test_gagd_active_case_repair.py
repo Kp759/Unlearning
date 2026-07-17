@@ -14,6 +14,19 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 import gagd_active_case_repair as MODULE  # noqa: E402
 import gagd_compare as GAGD  # noqa: E402
+from mcf_zero_unlearn_official_eval import (  # noqa: E402
+    official_test_batch_prediction,
+)
+
+
+class TensorBatch(dict):
+    def to(self, device):
+        return TensorBatch(
+            {
+                key: value.to(device) if isinstance(value, torch.Tensor) else value
+                for key, value in self.items()
+            }
+        )
 
 
 class TinyTokenizer:
@@ -45,12 +58,58 @@ class TinyTokenizer:
         )
 
 
+class LlamaStyleTokenizer:
+    pad_token_id = 0
+    bos_token_id = 1
+    eos_token_id = 2
+    unk_token_id = None
+    eos_token = "<eos>"
+
+    @staticmethod
+    def _encode(text, add_special_tokens):
+        token_ids = [3 + (ord(character) % 100) for character in text]
+        return ([1] + token_ids) if add_special_tokens else token_ids
+
+    def __call__(
+        self,
+        text,
+        add_special_tokens=True,
+        padding=False,
+        return_tensors=None,
+        **kwargs,
+    ):
+        values = text if isinstance(text, list) else [text]
+        rows = [
+            self._encode(value, add_special_tokens=add_special_tokens)
+            for value in values
+        ]
+        if padding:
+            width = max(len(row) for row in rows)
+            attention = [
+                [1] * len(row) + [0] * (width - len(row)) for row in rows
+            ]
+            rows = [row + [self.pad_token_id] * (width - len(row)) for row in rows]
+        else:
+            attention = [[1] * len(row) for row in rows]
+        if return_tensors == "pt":
+            return TensorBatch(
+                {
+                    "input_ids": torch.tensor(rows, dtype=torch.long),
+                    "attention_mask": torch.tensor(attention, dtype=torch.long),
+                }
+            )
+        return {"input_ids": rows if isinstance(text, list) else rows[0]}
+
+    def decode(self, token_ids):
+        return " ".join(str(int(token_id)) for token_id in token_ids)
+
+
 class TinyCausalLM(nn.Module):
     def __init__(self, vocab_size=128, hidden_size=4):
         super().__init__()
         self.input_embeddings = nn.Embedding(vocab_size, hidden_size)
         self.output_embeddings = nn.Linear(hidden_size, vocab_size, bias=False)
-        self.config = SimpleNamespace(tie_word_embeddings=False)
+        self.config = SimpleNamespace(tie_word_embeddings=False, model_type="tiny")
 
     def get_input_embeddings(self):
         return self.input_embeddings
@@ -63,7 +122,10 @@ class TinyCausalLM(nn.Module):
 
     def forward(self, input_ids, attention_mask=None, **kwargs):
         hidden = self.input_embeddings(input_ids)
-        return SimpleNamespace(logits=self.output_embeddings(hidden))
+        return SimpleNamespace(
+            logits=self.output_embeddings(hidden),
+            hidden_states=(hidden,),
+        )
 
     def save_pretrained(self, output_dir):
         output_dir = Path(output_dir)
@@ -96,17 +158,61 @@ class TinyTiedCausalLM(TinyCausalLM):
         self.config.tie_word_embeddings = True
 
 
-def sampled_record(index, target_new="A", target_true="B"):
+def sampled_record(
+    index,
+    target_new="A",
+    target_true="B",
+    *,
+    sampled_position=None,
+    rewrite_prompt="P",
+    paraphrases=(),
+):
+    raw_record = {
+        "requested_rewrite": {
+            "prompt": "{}",
+            "subject": rewrite_prompt,
+            "target_new": {"str": target_new},
+            "target_true": {"str": target_true},
+        },
+        "paraphrase_prompts": list(paraphrases),
+    }
     return MODULE.SampledMCFRecord(
         record_index=index,
-        sampled_position=index,
+        sampled_position=index if sampled_position is None else sampled_position,
         example=GAGD.Example(
-            prompt="P",
+            prompt=rewrite_prompt,
             answer=target_new,
             target_new=target_new,
             target_true=target_true,
+            paraphrase_prompts=list(paraphrases),
             source="mcf",
         ),
+        raw_record=raw_record,
+        rewrite_prompt=rewrite_prompt,
+        paraphrase_prompts=tuple(paraphrases),
+        target_new=target_new,
+        target_true=target_true,
+    )
+
+
+def prompt_instance(
+    *,
+    record_index=0,
+    sampled_position=0,
+    prompt_type="rewrite",
+    prompt_index=0,
+    prompt="P",
+    target_new="A",
+    target_true="B",
+):
+    return MODULE.MCFPromptInstance(
+        record_index=record_index,
+        sampled_position=sampled_position,
+        prompt_type=prompt_type,
+        prompt_index=prompt_index,
+        prompt=prompt,
+        target_new=target_new,
+        target_true=target_true,
     )
 
 
@@ -118,19 +224,118 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
         self.assertEqual(MODULE.margin_from_nll(5.0, 3.0), 2.0)
         self.assertEqual(MODULE.margin_from_nll(2.0, 3.0), -1.0)
 
-    def test_rewrite_batch_excludes_eos(self):
-        batch = MODULE.build_target_batch(
-            TinyTokenizer(),
-            [sampled_record(0)],
-            "target_new",
+    def test_official_batch_excludes_eos_and_removes_llama_target_bos(self):
+        tokenizer = LlamaStyleTokenizer()
+        encoded, targets, prefix_lens = MODULE.official_batch_components(
+            tokenizer,
+            [prompt_instance(prompt="Question", target_new="A", target_true="BC")],
             torch.device("cpu"),
+            llama_like=True,
         )
 
+        self.assertEqual(targets[0], tokenizer(" A")["input_ids"][1:])
+        self.assertEqual(targets[1], tokenizer(" BC")["input_ids"][1:])
+        self.assertNotIn(tokenizer.bos_token_id, targets[0])
+        self.assertNotIn(tokenizer.eos_token_id, targets[0])
+        self.assertEqual(encoded["input_ids"][0, 0].item(), tokenizer.bos_token_id)
         self.assertEqual(
-            batch["input_ids"].tolist(),
-            [[ord("P"), ord("A")]],
+            prefix_lens,
+            [len(tokenizer(["Question"])["input_ids"][0]) - 1] * 2,
         )
-        self.assertNotIn(99, batch["input_ids"].tolist()[0])
+
+    def test_local_nll_matches_official_test_batch_prediction(self):
+        model = TinyCausalLM(vocab_size=128, hidden_size=7).to(
+            dtype=torch.bfloat16
+        )
+        tokenizer = LlamaStyleTokenizer()
+        instances = [
+            prompt_instance(prompt="First prompt", target_new="NBC", target_true="CBS"),
+            prompt_instance(
+                record_index=1,
+                sampled_position=1,
+                prompt_type="paraphrase",
+                prompt_index=1,
+                prompt="Second prompt",
+                target_new="midfielder",
+                target_true="tackle",
+            ),
+        ]
+
+        local_new, local_true = MODULE.official_prompt_instance_nll_tensors(
+            model,
+            tokenizer,
+            instances,
+            torch.device("cpu"),
+            llama_like=True,
+        )
+        official = [
+            official_test_batch_prediction(
+                model,
+                tokenizer,
+                [instance.prompt],
+                instance.target_new,
+                instance.target_true,
+                torch.device("cpu"),
+                llama_like=True,
+            )[0]
+            for instance in instances
+        ]
+
+        expected_new = torch.tensor(
+            [case["target_new"] for case in official],
+            dtype=local_new.dtype,
+        )
+        expected_true = torch.tensor(
+            [case["target_true"] for case in official],
+            dtype=local_true.dtype,
+        )
+        self.assertTrue(torch.equal(local_new.cpu(), expected_new))
+        self.assertTrue(torch.equal(local_true.cpu(), expected_true))
+
+    def test_prompt_expansion_preserves_rewrite_and_all_paraphrase_metadata(self):
+        raw_record = {
+            "requested_rewrite": {
+                "prompt": "{} aired on",
+                "subject": "The Face Is Familiar",
+                "target_new": {"str": "NBC"},
+                "target_true": {"str": "CBS"},
+            },
+            "paraphrase_prompts": [
+                "The original network for The Face Is Familiar was",
+                "Which network aired The Face Is Familiar?",
+            ],
+        }
+        record = MODULE._sampled_mcf_record(
+            raw_record,
+            record_index=91,
+            sampled_position=6,
+        )
+
+        instances = MODULE.expand_prompt_instances([record])
+
+        self.assertEqual(len(instances), 3)
+        self.assertIs(record.raw_record, raw_record)
+        self.assertEqual(
+            [
+                (case.prompt_type, case.prompt_index, case.prompt)
+                for case in instances
+            ],
+            [
+                ("rewrite", 0, "The Face Is Familiar aired on"),
+                (
+                    "paraphrase",
+                    0,
+                    "The original network for The Face Is Familiar was",
+                ),
+                (
+                    "paraphrase",
+                    1,
+                    "Which network aired The Face Is Familiar?",
+                ),
+            ],
+        )
+        self.assertTrue(all(case.record_index == 91 for case in instances))
+        self.assertTrue(all(case.sampled_position == 6 for case in instances))
 
     def test_active_set_uses_strict_below_margin(self):
         reports = [
@@ -145,15 +350,99 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
             [0, 1],
         )
 
-    def test_margin_report_contains_required_case_and_token_group_fields(self):
-        model = TinyCausalLM()
-        tokenizer = TinyTokenizer()
-        groups = GAGD.PostTrainingTokenGroups(
-            target_new=[ord("A")],
-            target_true=[ord("B")],
+    def test_three_known_5e_failure_prompt_instances_are_active(self):
+        instances = [
+            prompt_instance(
+                record_index=17072,
+                sampled_position=6,
+                prompt_type="rewrite",
+                prompt_index=0,
+                prompt="The Face Is Familiar was originally aired on",
+                target_new="NBC",
+                target_true="CBS",
+            ),
+            prompt_instance(
+                record_index=11991,
+                sampled_position=16,
+                prompt_type="paraphrase",
+                prompt_index=1,
+                prompt=(
+                    "Celtic won 3-2 and avoided relegation. Jerry Sisemore, "
+                    "who plays the position"
+                ),
+                target_new="midfielder",
+                target_true="tackle",
+            ),
+            prompt_instance(
+                record_index=19609,
+                sampled_position=27,
+                prompt_type="paraphrase",
+                prompt_index=1,
+                prompt="March 2006. Empty Nest was released on",
+                target_new="CBS",
+                target_true="NBC",
+            ),
+        ]
+        empty_groups = GAGD.PostTrainingTokenGroups(
+            target_new=[],
+            target_true=[],
             retain=[],
-            unique_target_new=[ord("A")],
-            unique_target_true=[ord("B")],
+            unique_target_new=[],
+            unique_target_true=[],
+            target_new_true_overlap=[],
+            target_new_retain_overlap=[],
+            target_new_true_retain_overlap=[],
+            target_true_retain_overlap=[],
+            overlap=[],
+        )
+        with mock.patch.object(
+            MODULE,
+            "official_prompt_instance_nll_tensors",
+            return_value=(
+                torch.tensor([2.0, 1.0, 1.0]),
+                torch.tensor([2.5625, 5.75, 7.734375]),
+            ),
+        ):
+            reports = MODULE.evaluate_prompt_instance_margin_reports(
+                TinyCausalLM(),
+                TinyTokenizer(),
+                instances,
+                empty_groups,
+                active_margin=0.1,
+                device=torch.device("cpu"),
+                batch_size=3,
+                llama_like=False,
+            )
+
+        active = MODULE.select_active_positions(reports, active_margin=0.1)
+        payload = MODULE.active_report_payload(reports, active_margin=0.1)
+
+        self.assertEqual(active, [0, 1, 2])
+        self.assertEqual(
+            [report["official_compatible_margin"] for report in reports],
+            [-0.5625, -4.75, -6.734375],
+        )
+        self.assertEqual(payload["active_prompt_count"], 3)
+        self.assertEqual(payload["active_parent_record_count"], 3)
+        self.assertEqual(
+            [
+                (case["sampled_position"], case["prompt_type"], case["prompt_index"])
+                for case in payload["cases"]
+            ],
+            [(6, "rewrite", 0), (16, "paraphrase", 1), (27, "paraphrase", 1)],
+        )
+
+    def test_margin_report_contains_required_case_and_token_group_fields(self):
+        model = TinyCausalLM(vocab_size=128, hidden_size=6)
+        tokenizer = LlamaStyleTokenizer()
+        new_ids = GAGD.token_ids_for_text(tokenizer, GAGD.normalize_answer("A"))
+        true_ids = GAGD.token_ids_for_text(tokenizer, GAGD.normalize_answer("B"))
+        groups = GAGD.PostTrainingTokenGroups(
+            target_new=new_ids,
+            target_true=true_ids,
+            retain=[],
+            unique_target_new=new_ids,
+            unique_target_true=true_ids,
             target_new_true_overlap=[],
             target_new_retain_overlap=[],
             target_new_true_retain_overlap=[],
@@ -161,28 +450,44 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
             overlap=[],
         )
 
-        reports = MODULE.evaluate_rewrite_margin_reports(
+        instance = prompt_instance(
+            record_index=7,
+            sampled_position=4,
+            prompt_type="paraphrase",
+            prompt_index=1,
+            prompt="Exact formatted paraphrase",
+        )
+        reports = MODULE.evaluate_prompt_instance_margin_reports(
             model,
             tokenizer,
-            [sampled_record(7)],
+            [instance],
             groups,
             active_margin=0.1,
             device=torch.device("cpu"),
             batch_size=1,
+            llama_like=True,
         )
 
         report = reports[0]
         for key in (
             "record_index",
+            "sampled_position",
+            "prompt_type",
+            "prompt_index",
             "prompt",
             "target_new",
             "target_true",
             "target_new_nll",
             "target_true_nll",
             "margin",
+            "official_compatible_margin",
         ):
             self.assertIn(key, report)
         self.assertEqual(report["record_index"], 7)
+        self.assertEqual(report["sampled_position"], 4)
+        self.assertEqual(report["prompt_type"], "paraphrase")
+        self.assertEqual(report["prompt_index"], 1)
+        self.assertEqual(report["prompt"], "Exact formatted paraphrase")
         self.assertIn(
             "unique_target_new",
             report["target_tokens"]["target_new"][0]["groups"],
@@ -209,9 +514,9 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
             target_true_retain_overlap=[],
             overlap=[],
         )
-        selected = MODULE.selected_rows_for_active_records(
+        selected = MODULE.selected_rows_for_active_instances(
             TinyTokenizer(),
-            [sampled_record(0, target_true="B")],
+            [prompt_instance(target_true="B")],
             groups,
             "true_scale",
         )
@@ -391,6 +696,62 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
 
         self.assertTrue(torch.allclose(cached_nll, direct_nll, atol=1e-6))
 
+    def test_minimal_optimize_cache_uses_official_prompt_instance_positions(self):
+        model = TinyCausalLM(vocab_size=128, hidden_size=5)
+        tokenizer = LlamaStyleTokenizer()
+        instances = [
+            prompt_instance(
+                prompt_type="paraphrase",
+                prompt_index=1,
+                prompt="Jerry Sisemore played as",
+                target_new="midfielder",
+                target_true="tackle",
+            )
+        ]
+        selected_ids = sorted(
+            set(
+                GAGD.token_ids_for_text(
+                    tokenizer,
+                    GAGD.normalize_answer("midfielder"),
+                )
+                + GAGD.token_ids_for_text(
+                    tokenizer,
+                    GAGD.normalize_answer("tackle"),
+                )
+            )
+        )
+
+        caches = MODULE.build_prompt_instance_delta_caches(
+            model,
+            tokenizer,
+            instances,
+            selected_ids,
+            torch.device("cpu"),
+            batch_size=1,
+            llama_like=True,
+        )
+        cached_margin = MODULE.margins_from_delta_caches(
+            caches,
+            torch.zeros((len(selected_ids), 5)),
+        )
+        target_new_nll, target_true_nll = (
+            MODULE.official_prompt_instance_nll_tensors(
+                model,
+                tokenizer,
+                instances,
+                torch.device("cpu"),
+                llama_like=True,
+            )
+        )
+
+        self.assertTrue(
+            torch.allclose(
+                cached_margin,
+                target_new_nll - target_true_nll,
+                atol=1e-6,
+            )
+        )
+
     def test_retain_projection_removes_preserved_direction(self):
         retained_basis = torch.tensor([[1.0, 0.0, 0.0]])
         rows = torch.tensor([[2.0, 3.0, 4.0]])
@@ -509,6 +870,68 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             MODULE.validate_source_experiment_config(source_config, args)
+
+    def test_candidate_priority_uses_prompt_parent_margin_then_delta(self):
+        candidates = [
+            {
+                "name": "more_prompts",
+                "active_prompt_instances_after": 2,
+                "active_parent_records_after": 1,
+                "minimum_official_compatible_margin_after": -9.0,
+                "selected_lm_head_delta_norm": 0.1,
+            },
+            {
+                "name": "more_parents",
+                "active_prompt_instances_after": 1,
+                "active_parent_records_after": 2,
+                "minimum_official_compatible_margin_after": 2.0,
+                "selected_lm_head_delta_norm": 0.1,
+            },
+            {
+                "name": "lower_margin",
+                "active_prompt_instances_after": 1,
+                "active_parent_records_after": 1,
+                "minimum_official_compatible_margin_after": 0.2,
+                "selected_lm_head_delta_norm": 0.1,
+            },
+            {
+                "name": "larger_delta",
+                "active_prompt_instances_after": 1,
+                "active_parent_records_after": 1,
+                "minimum_official_compatible_margin_after": 0.3,
+                "selected_lm_head_delta_norm": 0.5,
+            },
+            {
+                "name": "best",
+                "active_prompt_instances_after": 1,
+                "active_parent_records_after": 1,
+                "minimum_official_compatible_margin_after": 0.3,
+                "selected_lm_head_delta_norm": 0.2,
+            },
+        ]
+
+        ranked = sorted(candidates, key=MODULE.candidate_priority)
+
+        self.assertEqual(
+            [candidate["name"] for candidate in ranked],
+            ["best", "larger_delta", "lower_margin", "more_parents", "more_prompts"],
+        )
+
+    def test_official_failures_cannot_accept_zero_row_noop_candidate(self):
+        with self.assertRaisesRegex(RuntimeError, "zero-row/no-op"):
+            MODULE.guard_official_failures_against_zero_active_noop(
+                0,
+                {"forget": {"Eff": 2, "Gen": 2}},
+            )
+
+        MODULE.guard_official_failures_against_zero_active_noop(
+            3,
+            {"forget": {"Eff": 2, "Gen": 2}},
+        )
+        MODULE.guard_official_failures_against_zero_active_noop(
+            0,
+            {"forget": {"Eff": 0, "Gen": 0}},
+        )
 
 
 if __name__ == "__main__":
