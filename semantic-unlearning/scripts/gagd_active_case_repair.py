@@ -13,8 +13,9 @@ Three repair modes are available:
   required by active prompt instances beyond the update already present in
   the input checkpoint.
 * ``minimal_optimize`` learns a sparse output-row delta under a squared-hinge
-  official prompt-instance margin constraint, an explicit delta norm, and an
-  optional retain-prompt KL guard.
+  official prompt-instance margin constraint over every forget rewrite and
+  paraphrase, an explicit delta norm, and an optional retain-prompt KL guard.
+  Rows still come only from the initially active prompt instances.
 
 The active set contains both the rewrite prompt and every official paraphrase.
 All target NLLs use the same full-sequence construction, target-token
@@ -26,6 +27,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import math
 import random
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -139,10 +141,28 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     )
     parser.add_argument("--active-margin", type=float, default=0.1)
+    parser.add_argument(
+        "--protected-margin-floor",
+        type=float,
+        default=0.0,
+        help=(
+            "Minimum margin retained for prompt instances that passed before "
+            "minimal optimization."
+        ),
+    )
     parser.add_argument("--target-true-scale", type=float, default=1.50)
     parser.add_argument("--target-new-gamma", type=float, default=1.25)
     parser.add_argument("--repair-steps", type=int, default=50)
     parser.add_argument("--repair-lr", type=float, default=1e-2)
+    parser.add_argument(
+        "--max-delta-norm",
+        type=float,
+        default=None,
+        help=(
+            "Optional Frobenius-norm cap for the effective sparse LM-head "
+            "delta after every minimal-optimization step."
+        ),
+    )
     parser.add_argument(
         "--repair-optimizer",
         choices=["sgd", "adam", "adamw"],
@@ -189,14 +209,20 @@ def build_parser() -> argparse.ArgumentParser:
 def validate_args(args: argparse.Namespace) -> None:
     if args.forget_num <= 0 or args.retain_num <= 0:
         raise ValueError("--forget-num and --retain-num must be positive")
-    if args.active_margin < 0:
-        raise ValueError("--active-margin must be non-negative")
+    if not math.isfinite(args.active_margin) or args.active_margin < 0:
+        raise ValueError("--active-margin must be finite and non-negative")
+    if not math.isfinite(args.protected_margin_floor):
+        raise ValueError("--protected-margin-floor must be finite")
     if args.target_true_scale <= 0:
         raise ValueError("--target-true-scale must be positive")
     if args.target_new_gamma < 0:
         raise ValueError("--target-new-gamma must be non-negative")
     if args.repair_steps <= 0 or args.repair_lr <= 0:
         raise ValueError("--repair-steps and --repair-lr must be positive")
+    if args.max_delta_norm is not None and (
+        not math.isfinite(args.max_delta_norm) or args.max_delta_norm < 0
+    ):
+        raise ValueError("--max-delta-norm must be finite and non-negative")
     if args.hinge_weight <= 0:
         raise ValueError("--hinge-weight must be positive")
     if args.delta_l2_lambda < 0 or args.retain_kl_mu < 0:
@@ -226,17 +252,52 @@ def margin_from_nll(target_new_nll: Any, target_true_nll: Any) -> Any:
     return target_new_nll - target_true_nll
 
 
+def build_required_margin_tensor(
+    original_margins: torch.Tensor,
+    active_margin: float,
+    protected_margin_floor: float,
+) -> torch.Tensor:
+    original_margins = original_margins.float()
+    active_threshold = original_margins.new_full(
+        original_margins.shape,
+        active_margin,
+    )
+    protected_floor = original_margins.new_full(
+        original_margins.shape,
+        protected_margin_floor,
+    )
+    initially_active = original_margins < active_threshold
+    protected_required = torch.maximum(
+        protected_floor,
+        torch.minimum(original_margins, active_threshold),
+    )
+    return torch.where(initially_active, active_threshold, protected_required)
+
+
 def squared_hinge_loss(
     margins: torch.Tensor,
-    active_margin: float,
+    required_margins: torch.Tensor,
 ) -> torch.Tensor:
-    return torch.relu(margins.new_tensor(active_margin) - margins).square().sum()
+    required = required_margins.to(device=margins.device, dtype=margins.dtype)
+    if required.shape != margins.shape:
+        raise ValueError(
+            "required margin tensor must match the current margin tensor shape"
+        )
+    return torch.relu(required - margins).square().sum()
 
 
-def all_margins_satisfied(margins: torch.Tensor, active_margin: float) -> bool:
+def all_margins_satisfied(
+    margins: torch.Tensor,
+    required_margins: torch.Tensor,
+) -> bool:
+    required = required_margins.to(device=margins.device, dtype=margins.dtype)
+    if required.shape != margins.shape:
+        raise ValueError(
+            "required margin tensor must match the current margin tensor shape"
+        )
     if margins.numel() == 0:
         return True
-    return bool(torch.all(margins >= active_margin).item())
+    return bool(torch.all(margins >= required).item())
 
 
 def select_active_positions(
@@ -248,6 +309,124 @@ def select_active_positions(
         for position, report in enumerate(reports)
         if float(report["margin"]) < active_margin
     ]
+
+
+PROMPT_REPORT_IDENTITY_FIELDS = (
+    "record_index",
+    "sampled_position",
+    "prompt_type",
+    "prompt_index",
+    "prompt",
+    "target_new",
+    "target_true",
+)
+
+
+def prompt_report_identity(report: Dict[str, Any]) -> Tuple[Any, ...]:
+    return tuple(report[field] for field in PROMPT_REPORT_IDENTITY_FIELDS)
+
+
+def attach_margin_requirement_metadata(
+    reports: Sequence[Dict[str, Any]],
+    original_margins: Sequence[float],
+    required_margins: torch.Tensor,
+    active_margin: float,
+) -> None:
+    required_values = required_margins.detach().cpu().tolist()
+    if not (
+        len(reports) == len(original_margins) == len(required_values)
+    ):
+        raise ValueError("margin metadata lengths do not match prompt reports")
+    for report, original_margin, required_margin in zip(
+        reports,
+        original_margins,
+        required_values,
+    ):
+        original = float(original_margin)
+        report["original_margin"] = original
+        report["required_margin"] = float(required_margin)
+        report["initially_active"] = original < active_margin
+        report["initially_protected"] = original >= active_margin
+
+
+def prompt_margin_transitions(
+    before_reports: Sequence[Dict[str, Any]],
+    after_reports: Sequence[Dict[str, Any]],
+    active_margin: float,
+) -> Dict[str, List[int]]:
+    if len(before_reports) != len(after_reports):
+        raise ValueError("before/after prompt report lengths do not match")
+    transitions = {
+        "originally_active_positions": [],
+        "originally_protected_positions": [],
+        "newly_activated_positions": [],
+        "fixed_original_positions": [],
+    }
+    for position, (before, after) in enumerate(
+        zip(before_reports, after_reports)
+    ):
+        if prompt_report_identity(before) != prompt_report_identity(after):
+            raise ValueError(
+                f"before/after prompt identity changed at position {position}"
+            )
+        was_active = float(before["margin"]) < active_margin
+        is_active = float(after["margin"]) < active_margin
+        if was_active:
+            transitions["originally_active_positions"].append(position)
+            if not is_active:
+                transitions["fixed_original_positions"].append(position)
+        else:
+            transitions["originally_protected_positions"].append(position)
+            if is_active:
+                transitions["newly_activated_positions"].append(position)
+    return transitions
+
+
+def raise_if_new_prompt_failures(
+    transitions: Dict[str, List[int]],
+    after_reports: Sequence[Dict[str, Any]],
+) -> None:
+    positions = transitions["newly_activated_positions"]
+    if not positions:
+        return
+    descriptions = [
+        {
+            field: after_reports[position][field]
+            for field in PROMPT_REPORT_IDENTITY_FIELDS
+        }
+        for position in positions
+    ]
+    raise RuntimeError(
+        "Minimal optimization activated initially passing rewrite/paraphrase "
+        f"prompt instances: {descriptions}"
+    )
+
+
+def protection_summary_fields(
+    transitions: Dict[str, List[int]],
+    required_margins: torch.Tensor,
+    max_delta_norm: Optional[float],
+) -> Dict[str, Any]:
+    return {
+        "originally_active_prompt_instances": len(
+            transitions["originally_active_positions"]
+        ),
+        "originally_protected_prompt_instances": len(
+            transitions["originally_protected_positions"]
+        ),
+        "newly_activated_prompt_instances_after": len(
+            transitions["newly_activated_positions"]
+        ),
+        "fixed_original_prompt_instances_after": len(
+            transitions["fixed_original_positions"]
+        ),
+        "required_margin_min": (
+            float(required_margins.min().detach().cpu())
+            if required_margins.numel()
+            else None
+        ),
+        "max_delta_norm": max_delta_norm,
+    }
 
 
 def sample_retain_calibration(
@@ -1179,6 +1358,30 @@ class SelectedRowDelta(nn.Module):
         return project_rows_away(delta, self.retained_basis)
 
 
+@torch.no_grad()
+def constrain_effective_delta_norm(
+    delta_module: SelectedRowDelta,
+    max_delta_norm: Optional[float],
+) -> Tuple[float, float, bool]:
+    effective = delta_module.effective_delta()
+    norm_before = float(effective.norm().detach().cpu())
+    if max_delta_norm is None or norm_before <= max_delta_norm:
+        return norm_before, norm_before, False
+    if max_delta_norm < 0 or not math.isfinite(max_delta_norm):
+        raise ValueError("max_delta_norm must be finite and non-negative")
+    scale = 0.0 if norm_before == 0.0 else max_delta_norm / norm_before
+    parameter = (
+        delta_module.coefficients
+        if delta_module.coefficients is not None
+        else delta_module.raw_delta
+    )
+    if parameter is None:
+        raise RuntimeError("SelectedRowDelta has no trainable parameter to scale")
+    parameter.mul_(scale)
+    norm_after = float(delta_module.effective_delta().norm().detach().cpu())
+    return norm_before, norm_after, True
+
+
 def make_repair_optimizer(
     module: nn.Module,
     name: str,
@@ -1199,7 +1402,7 @@ def optimize_selected_delta(
     margin_fn: Callable[[torch.Tensor], torch.Tensor],
     kl_fn: Callable[[torch.Tensor], torch.Tensor],
     *,
-    active_margin: float,
+    required_margins: torch.Tensor,
     repair_steps: int,
     repair_lr: float,
     repair_optimizer: str,
@@ -1207,20 +1410,37 @@ def optimize_selected_delta(
     delta_l2_lambda: float,
     retain_kl_mu: float,
     stop_when_all_satisfied: bool,
+    max_delta_norm: Optional[float] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     logs: List[Dict[str, Any]] = []
     steps_completed = 0
     stopped_early = False
+    norm_projection_steps = 0
 
     with torch.no_grad():
         initial_margins = margin_fn(delta_module.effective_delta())
+    required = required_margins.to(
+        device=initial_margins.device,
+        dtype=initial_margins.dtype,
+    )
+    if required.shape != initial_margins.shape:
+        raise ValueError(
+            "required margins must cover every prompt instance in margin_fn"
+        )
+    required_min = (
+        float(required.min().detach().cpu()) if required.numel() else None
+    )
     if stop_when_all_satisfied and all_margins_satisfied(
-        initial_margins, active_margin
+        initial_margins, required
     ):
         return logs, {
             "steps_completed": 0,
             "stopped_early": True,
             "all_satisfied": True,
+            "training_prompt_instances": int(required.numel()),
+            "required_margin_min": required_min,
+            "max_delta_norm": max_delta_norm,
+            "delta_norm_projection_steps": 0,
         }
 
     optimizer = make_repair_optimizer(delta_module, repair_optimizer, repair_lr)
@@ -1228,7 +1448,7 @@ def optimize_selected_delta(
         optimizer.zero_grad(set_to_none=True)
         delta_rows = delta_module.effective_delta()
         margins = margin_fn(delta_rows)
-        hinge = squared_hinge_loss(margins, active_margin)
+        hinge = squared_hinge_loss(margins, required)
         delta_l2 = delta_rows.square().sum()
         retain_kl = kl_fn(delta_rows)
         total = (
@@ -1242,11 +1462,18 @@ def optimize_selected_delta(
         total.backward()
         optimizer.step()
         steps_completed = step
+        (
+            delta_norm_before_projection,
+            delta_norm_after_projection,
+            delta_norm_projected,
+        ) = constrain_effective_delta_norm(delta_module, max_delta_norm)
+        if delta_norm_projected:
+            norm_projection_steps += 1
 
         with torch.no_grad():
             updated_delta = delta_module.effective_delta()
             updated_margins = margin_fn(updated_delta)
-            all_satisfied = all_margins_satisfied(updated_margins, active_margin)
+            all_satisfied = all_margins_satisfied(updated_margins, required)
             logs.append(
                 {
                     "step": step,
@@ -1265,11 +1492,22 @@ def optimize_selected_delta(
                     "minimum_margin_after_step": float(
                         updated_margins.min().detach().cpu()
                     ),
+                    "minimum_required_margin": required_min,
+                    "minimum_margin_slack_before_step": float(
+                        (margins - required).min().detach().cpu()
+                    ),
+                    "minimum_margin_slack_after_step": float(
+                        (updated_margins - required).min().detach().cpu()
+                    ),
                     "unsatisfied_after_step": int(
-                        (updated_margins < active_margin).sum().item()
+                        (updated_margins < required).sum().item()
                     ),
                     "all_training_prompt_instances_satisfied": all_satisfied,
-                    "effective_delta_norm": float(updated_delta.norm().detach().cpu()),
+                    "delta_norm_projected": delta_norm_projected,
+                    "effective_delta_norm_before_projection": (
+                        delta_norm_before_projection
+                    ),
+                    "effective_delta_norm": delta_norm_after_projection,
                 }
             )
         if stop_when_all_satisfied and all_satisfied:
@@ -1281,7 +1519,16 @@ def optimize_selected_delta(
     return logs, {
         "steps_completed": steps_completed,
         "stopped_early": stopped_early,
-        "all_satisfied": all_margins_satisfied(final_margins, active_margin),
+        "all_satisfied": all_margins_satisfied(final_margins, required),
+        "training_prompt_instances": int(required.numel()),
+        "required_margin_min": required_min,
+        "max_delta_norm": max_delta_norm,
+        "delta_norm_projection_steps": norm_projection_steps,
+        "minimum_final_margin_slack": (
+            float((final_margins - required).min().detach().cpu())
+            if required.numel()
+            else None
+        ),
     }
 
 
@@ -1449,6 +1696,25 @@ def main() -> None:
         args.margin_batch_size,
         llama_like,
     )
+    original_margin_values = [
+        float(report["margin"]) for report in before_reports
+    ]
+    original_margin_tensor = torch.tensor(
+        original_margin_values,
+        dtype=torch.float32,
+        device=output_weight.device,
+    )
+    required_margins = build_required_margin_tensor(
+        original_margin_tensor,
+        active_margin=args.active_margin,
+        protected_margin_floor=args.protected_margin_floor,
+    )
+    attach_margin_requirement_metadata(
+        before_reports,
+        original_margin_values,
+        required_margins,
+        args.active_margin,
+    )
     active_positions = select_active_positions(before_reports, args.active_margin)
     active_instances = _active_instances(
         forget_prompt_instances, active_positions
@@ -1517,7 +1783,22 @@ def main() -> None:
     optimization_summary: Dict[str, Any] = {
         "steps_completed": 0,
         "stopped_early": False,
-        "all_satisfied": len(active_positions) == 0,
+        "all_satisfied": all_margins_satisfied(
+            original_margin_tensor,
+            required_margins,
+        ),
+        "training_prompt_instances": (
+            len(forget_prompt_instances)
+            if args.repair_mode == "minimal_optimize"
+            else 0
+        ),
+        "required_margin_min": (
+            float(required_margins.min().detach().cpu())
+            if required_margins.numel()
+            else None
+        ),
+        "max_delta_norm": args.max_delta_norm,
+        "delta_norm_projection_steps": 0,
     }
     actual_rank = 0
     retain_calibration_records: List[SampledMCFRecord] = []
@@ -1569,7 +1850,7 @@ def main() -> None:
         prompt_instance_caches = build_prompt_instance_delta_caches(
             model,
             tok,
-            active_instances,
+            forget_prompt_instances,
             selected_ids,
             device,
             args.margin_batch_size,
@@ -1626,10 +1907,10 @@ def main() -> None:
             active_hidden = torch.cat(
                 [
                     answer_cache.hidden
-                    for cache in prompt_instance_caches
+                    for position in active_positions
                     for answer_cache in (
-                        cache.target_new,
-                        cache.target_true,
+                        prompt_instance_caches[position].target_new,
+                        prompt_instance_caches[position].target_true,
                     )
                 ],
                 dim=0,
@@ -1660,7 +1941,7 @@ def main() -> None:
             delta_module,
             margin_fn,
             kl_fn,
-            active_margin=args.active_margin,
+            required_margins=required_margins,
             repair_steps=args.repair_steps,
             repair_lr=args.repair_lr,
             repair_optimizer=args.repair_optimizer,
@@ -1668,8 +1949,8 @@ def main() -> None:
             delta_l2_lambda=args.delta_l2_lambda,
             retain_kl_mu=args.retain_kl_mu,
             stop_when_all_satisfied=args.stop_when_all_satisfied,
+            max_delta_norm=args.max_delta_norm,
         )
-        optimization_summary["training_prompt_instances"] = len(active_instances)
         with torch.no_grad():
             materialize_selected_delta(
                 output_weight,
@@ -1692,6 +1973,17 @@ def main() -> None:
         device,
         args.margin_batch_size,
         llama_like,
+    )
+    attach_margin_requirement_metadata(
+        after_reports,
+        original_margin_values,
+        required_margins,
+        args.active_margin,
+    )
+    transitions = prompt_margin_transitions(
+        before_reports,
+        after_reports,
+        args.active_margin,
     )
     after_active_payload = active_report_payload(after_reports, args.active_margin)
     gagd.write_json(output_dir / "rewrite_margins_after.json", after_reports)
@@ -1720,6 +2012,12 @@ def main() -> None:
         "forget_prompt_instances": len(forget_prompt_instances),
         "retain_records": len(retain_records),
         "active_margin": args.active_margin,
+        "protected_margin_floor": args.protected_margin_floor,
+        **protection_summary_fields(
+            transitions,
+            required_margins,
+            args.max_delta_norm,
+        ),
         "active_prompt_instances_before": len(active_positions),
         "active_prompt_instances_after": after_active_payload[
             "active_prompt_count"
@@ -1766,6 +2064,9 @@ def main() -> None:
         ),
     }
     gagd.write_json(output_dir / "repair_summary.json", repair_summary)
+
+    if args.repair_mode == "minimal_optimize":
+        raise_if_new_prompt_failures(transitions, after_reports)
 
     if args.save_model:
         checkpoint_dir = output_dir / "checkpoint"

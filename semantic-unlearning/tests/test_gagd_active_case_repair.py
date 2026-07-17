@@ -216,6 +216,34 @@ def prompt_instance(
     )
 
 
+def prompt_margin_report(instance, margin):
+    return {
+        "record_index": instance.record_index,
+        "sampled_position": instance.sampled_position,
+        "prompt_type": instance.prompt_type,
+        "prompt_index": instance.prompt_index,
+        "prompt": instance.prompt,
+        "target_new": instance.target_new,
+        "target_true": instance.target_true,
+        "margin": float(margin),
+    }
+
+
+class FakeGradientDescent:
+    def __init__(self, parameters, learning_rate):
+        self.parameters = list(parameters)
+        self.learning_rate = learning_rate
+
+    def zero_grad(self, set_to_none=True):
+        for parameter in self.parameters:
+            parameter.grad = None
+
+    def step(self):
+        with torch.no_grad():
+            for parameter in self.parameters:
+                parameter.add_(parameter.grad, alpha=-self.learning_rate)
+
+
 class GAGDActiveCaseRepairTests(unittest.TestCase):
     def setUp(self):
         torch.manual_seed(7)
@@ -350,6 +378,75 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
             [0, 1],
         )
 
+    def test_required_margins_protect_every_initially_passing_prompt(self):
+        original = torch.tensor([-0.5, 0.1, 0.4])
+
+        required = MODULE.build_required_margin_tensor(
+            original,
+            active_margin=0.1,
+            protected_margin_floor=0.25,
+        )
+
+        self.assertTrue(
+            torch.equal(required, torch.tensor([0.1, 0.25, 0.25]))
+        )
+        reports = [
+            prompt_margin_report(
+                prompt_instance(record_index=position),
+                margin,
+            )
+            for position, margin in enumerate(original.tolist())
+        ]
+        MODULE.attach_margin_requirement_metadata(
+            reports,
+            original.tolist(),
+            required,
+            active_margin=0.1,
+        )
+        self.assertTrue(reports[0]["initially_active"])
+        self.assertTrue(reports[1]["initially_protected"])
+        self.assertEqual(reports[2]["original_margin"], original[2].item())
+        self.assertEqual(reports[2]["required_margin"], 0.25)
+
+    def test_minimal_rows_are_selected_only_from_initial_failures(self):
+        tokenizer = TinyTokenizer()
+        failing = prompt_instance(
+            record_index=1,
+            target_new="A",
+            target_true="B",
+        )
+        passing = prompt_instance(
+            record_index=2,
+            target_new="C",
+            target_true="D",
+        )
+        all_instances = [failing, passing]
+        active_instances = MODULE._active_instances(all_instances, [0])
+        groups = GAGD.PostTrainingTokenGroups(
+            target_new=[ord("A"), ord("C")],
+            target_true=[ord("B"), ord("D")],
+            retain=[],
+            unique_target_new=[ord("A"), ord("C")],
+            unique_target_true=[ord("B"), ord("D")],
+            target_new_true_overlap=[],
+            target_new_retain_overlap=[],
+            target_new_true_retain_overlap=[],
+            target_true_retain_overlap=[],
+            overlap=[],
+        )
+
+        selected = MODULE.selected_rows_for_active_instances(
+            tokenizer,
+            active_instances,
+            groups,
+            "minimal_optimize",
+        )
+
+        self.assertIn(ord("A"), selected)
+        self.assertIn(ord("B"), selected)
+        self.assertNotIn(ord("C"), selected)
+        self.assertNotIn(ord("D"), selected)
+
     def test_three_known_5e_failure_prompt_instances_are_active(self):
         instances = [
             prompt_instance(
@@ -431,6 +528,87 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
             ],
             [(6, "rewrite", 0), (16, "paraphrase", 1), (27, "paraphrase", 1)],
         )
+
+    def test_known_failure_set_cannot_be_replaced_by_three_other_prompts(self):
+        known_failures = [
+            prompt_instance(
+                record_index=17072,
+                sampled_position=6,
+                prompt_type="rewrite",
+                prompt_index=0,
+                prompt="The Face Is Familiar was originally aired on",
+            ),
+            prompt_instance(
+                record_index=11991,
+                sampled_position=16,
+                prompt_type="paraphrase",
+                prompt_index=1,
+                prompt=(
+                    "Celtic won 3-2 and avoided relegation. Jerry Sisemore, "
+                    "who plays the position"
+                ),
+            ),
+            prompt_instance(
+                record_index=19609,
+                sampled_position=27,
+                prompt_type="paraphrase",
+                prompt_index=1,
+                prompt="March 2006. Empty Nest was released on",
+            ),
+        ]
+        replacement_failures = [
+            prompt_instance(
+                record_index=30000 + position,
+                sampled_position=40 + position,
+                prompt_type="paraphrase",
+                prompt_index=position,
+                prompt=f"Initially passing prompt {position}",
+            )
+            for position in range(3)
+        ]
+        instances = known_failures + replacement_failures
+        before_reports = [
+            prompt_margin_report(instance, -1.0 if position < 3 else 0.2)
+            for position, instance in enumerate(instances)
+        ]
+        after_reports = [
+            prompt_margin_report(instance, 0.2 if position < 3 else -1.0)
+            for position, instance in enumerate(instances)
+        ]
+
+        transitions = MODULE.prompt_margin_transitions(
+            before_reports,
+            after_reports,
+            active_margin=0.1,
+        )
+
+        self.assertEqual(transitions["fixed_original_positions"], [0, 1, 2])
+        self.assertEqual(transitions["newly_activated_positions"], [3, 4, 5])
+        summary_fields = MODULE.protection_summary_fields(
+            transitions,
+            torch.full((6,), 0.1),
+            max_delta_norm=0.5,
+        )
+        self.assertEqual(summary_fields["originally_active_prompt_instances"], 3)
+        self.assertEqual(
+            summary_fields["originally_protected_prompt_instances"],
+            3,
+        )
+        self.assertEqual(
+            summary_fields["newly_activated_prompt_instances_after"],
+            3,
+        )
+        self.assertEqual(summary_fields["fixed_original_prompt_instances_after"], 3)
+        self.assertAlmostEqual(summary_fields["required_margin_min"], 0.1)
+        self.assertEqual(summary_fields["max_delta_norm"], 0.5)
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "initially passing rewrite/paraphrase",
+        ):
+            MODULE.raise_if_new_prompt_failures(
+                transitions,
+                after_reports,
+            )
 
     def test_margin_report_contains_required_case_and_token_group_fields(self):
         model = TinyCausalLM(vocab_size=128, hidden_size=6)
@@ -594,11 +772,47 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
     def test_squared_hinge_has_zero_gradient_after_safety_margin(self):
         margins = torch.tensor([0.2], requires_grad=True)
 
-        loss = MODULE.squared_hinge_loss(margins, active_margin=0.1)
+        loss = MODULE.squared_hinge_loss(
+            margins,
+            required_margins=torch.tensor([0.1]),
+        )
         loss.backward()
 
         self.assertEqual(loss.item(), 0.0)
         self.assertEqual(margins.grad.item(), 0.0)
+
+    def test_all_forget_prompts_are_present_in_margin_objective(self):
+        current_margins = torch.tensor([-0.2, 0.05, 0.3])
+        required_margins = torch.tensor([0.1, 0.1, 0.1])
+
+        loss = MODULE.squared_hinge_loss(
+            current_margins,
+            required_margins,
+        )
+
+        expected = (0.1 - (-0.2)) ** 2 + (0.1 - 0.05) ** 2
+        self.assertAlmostEqual(loss.item(), expected, places=6)
+
+        delta = MODULE.SelectedRowDelta(
+            1,
+            1,
+            device=torch.device("cpu"),
+        )
+        incomplete_margin_fn = lambda rows: rows[0, 0].repeat(2)
+        with self.assertRaisesRegex(ValueError, "cover every prompt instance"):
+            MODULE.optimize_selected_delta(
+                delta,
+                incomplete_margin_fn,
+                lambda rows: rows.new_zeros(()),
+                required_margins=required_margins,
+                repair_steps=1,
+                repair_lr=0.1,
+                repair_optimizer="sgd",
+                hinge_weight=1.0,
+                delta_l2_lambda=0.0,
+                retain_kl_mu=0.0,
+                stop_when_all_satisfied=True,
+            )
 
     def test_optimizer_stops_before_any_step_when_all_margins_satisfied(self):
         delta = MODULE.SelectedRowDelta(
@@ -613,7 +827,7 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
             delta,
             margin_fn,
             kl_fn,
-            active_margin=0.1,
+            required_margins=torch.tensor([0.1]),
             repair_steps=10,
             repair_lr=0.1,
             repair_optimizer="sgd",
@@ -629,20 +843,6 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
         self.assertTrue(summary["all_satisfied"])
 
     def test_optimizer_stops_immediately_after_crossing_margin(self):
-        class FakeOptimizer:
-            def __init__(self, parameters, learning_rate):
-                self.parameters = list(parameters)
-                self.learning_rate = learning_rate
-
-            def zero_grad(self, set_to_none=True):
-                for parameter in self.parameters:
-                    parameter.grad = None
-
-            def step(self):
-                with torch.no_grad():
-                    for parameter in self.parameters:
-                        parameter.add_(parameter.grad, alpha=-self.learning_rate)
-
         delta = MODULE.SelectedRowDelta(
             1,
             1,
@@ -650,7 +850,10 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
         )
         margin_fn = lambda rows: rows[:, 0]
         kl_fn = lambda rows: rows.new_zeros(())
-        fake_optimizer = FakeOptimizer(delta.parameters(), learning_rate=1.0)
+        fake_optimizer = FakeGradientDescent(
+            delta.parameters(),
+            learning_rate=1.0,
+        )
 
         with mock.patch.object(
             MODULE,
@@ -661,7 +864,7 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
                 delta,
                 margin_fn,
                 kl_fn,
-                active_margin=0.1,
+                required_margins=torch.tensor([0.1]),
                 repair_steps=10,
                 repair_lr=1.0,
                 repair_optimizer="sgd",
@@ -676,6 +879,86 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
         self.assertTrue(summary["all_satisfied"])
         self.assertEqual(len(logs), 1)
         self.assertGreaterEqual(logs[0]["minimum_margin_after_step"], 0.1)
+
+    def test_fixing_one_failure_cannot_create_another_prompt_failure(self):
+        delta = MODULE.SelectedRowDelta(
+            1,
+            1,
+            device=torch.device("cpu"),
+        )
+        margin_fn = lambda rows: torch.stack(
+            (rows[0, 0], rows.new_tensor(0.2) - rows[0, 0])
+        )
+        required = torch.tensor([0.1, 0.1])
+        kl_fn = lambda rows: rows.new_zeros(())
+        fake_optimizer = FakeGradientDescent(
+            delta.parameters(),
+            learning_rate=0.5,
+        )
+        with mock.patch.object(
+            MODULE,
+            "make_repair_optimizer",
+            return_value=fake_optimizer,
+        ):
+            logs, summary = MODULE.optimize_selected_delta(
+                delta,
+                margin_fn,
+                kl_fn,
+                required_margins=required,
+                repair_steps=5,
+                repair_lr=0.5,
+                repair_optimizer="sgd",
+                hinge_weight=1.0,
+                delta_l2_lambda=0.0,
+                retain_kl_mu=0.0,
+                stop_when_all_satisfied=True,
+            )
+        final_margins = margin_fn(delta.effective_delta()).detach()
+
+        self.assertEqual(summary["training_prompt_instances"], 2)
+        self.assertTrue(summary["all_satisfied"])
+        self.assertTrue(torch.all(final_margins >= required))
+        self.assertGreaterEqual(final_margins[1].item(), 0.1)
+        self.assertTrue(logs[-1]["all_training_prompt_instances_satisfied"])
+
+    def test_max_delta_norm_projects_after_every_optimizer_step(self):
+        delta = MODULE.SelectedRowDelta(
+            1,
+            1,
+            device=torch.device("cpu"),
+        )
+        margin_fn = lambda rows: rows[:, 0]
+        kl_fn = lambda rows: rows.new_zeros(())
+        fake_optimizer = FakeGradientDescent(
+            delta.parameters(),
+            learning_rate=1.0,
+        )
+        with mock.patch.object(
+            MODULE,
+            "make_repair_optimizer",
+            return_value=fake_optimizer,
+        ):
+            logs, summary = MODULE.optimize_selected_delta(
+                delta,
+                margin_fn,
+                kl_fn,
+                required_margins=torch.tensor([10.0]),
+                repair_steps=1,
+                repair_lr=1.0,
+                repair_optimizer="sgd",
+                hinge_weight=1.0,
+                delta_l2_lambda=0.0,
+                retain_kl_mu=0.0,
+                stop_when_all_satisfied=False,
+                max_delta_norm=0.25,
+            )
+
+        self.assertTrue(logs[0]["delta_norm_projected"])
+        self.assertEqual(summary["delta_norm_projection_steps"], 1)
+        self.assertLessEqual(
+            delta.effective_delta().norm().item(),
+            0.2500001,
+        )
 
     def test_sparse_delta_cache_matches_direct_softmax_nll(self):
         base_logits = torch.tensor([0.2, -0.1, 0.4])
@@ -782,6 +1065,29 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
             first_indices,
             [record.record_index for record in third],
         )
+
+    def test_protected_margin_and_delta_norm_cli_defaults_and_validation(self):
+        args = MODULE.build_parser().parse_args(
+            [
+                "--model-path",
+                "input",
+                "--base-model-path",
+                "base",
+                "--output-dir",
+                "output",
+                "--mcf-cache-path",
+                "mcf.json",
+                "--repair-mode",
+                "minimal_optimize",
+            ]
+        )
+
+        self.assertEqual(args.protected_margin_floor, 0.0)
+        self.assertIsNone(args.max_delta_norm)
+        MODULE.validate_args(args)
+        args.max_delta_norm = -0.1
+        with self.assertRaisesRegex(ValueError, "max-delta-norm"):
+            MODULE.validate_args(args)
 
     def test_checkpoint_save_and_reload_preserves_repaired_weights(self):
         model = TinyCausalLM(vocab_size=16, hidden_size=4)
