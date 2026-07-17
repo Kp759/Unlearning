@@ -100,23 +100,17 @@ class GAGDTrainingControlTests(unittest.TestCase):
         forget = [
             MODULE.Example(
                 prompt="P",
-                answer="AB",
-                target_new="AB",
-                target_true="BC",
+                answer="ABGH",
+                target_new="ABGH",
+                target_true="BCFH",
             )
         ]
         retain = [
             MODULE.Example(
                 prompt="R",
-                answer="D",
-                target_new="D",
-                target_true="E",
-            ),
-            MODULE.Example(
-                prompt="R2",
-                answer="A",
-                target_new="A",
-                target_true="F",
+                answer="ADH",
+                target_new="ADH",
+                target_true="EFI",
             ),
         ]
 
@@ -124,14 +118,21 @@ class GAGDTrainingControlTests(unittest.TestCase):
             self.TinyTokenizer(), forget, retain
         )
 
-        self.assertEqual(groups.unique_target_new, [])
+        self.assertEqual(groups.unique_target_new, [ord("G")])
         self.assertEqual(groups.unique_target_true, [ord("C")])
-        self.assertEqual(groups.overlap, [ord("A"), ord("B")])
+        self.assertEqual(groups.target_new_true_overlap, [ord("B")])
+        self.assertEqual(groups.target_new_retain_overlap, [ord("A")])
+        self.assertEqual(groups.target_new_true_retain_overlap, [ord("H")])
+        self.assertEqual(groups.target_true_retain_overlap, [ord("F")])
+        self.assertEqual(
+            groups.overlap,
+            [ord("A"), ord("B"), ord("F"), ord("H")],
+        )
         self.assertIn(ord("D"), groups.retain)
         self.assertIn(ord("E"), groups.retain)
 
-    def test_post_training_restore_keeps_only_unique_new_and_scales_unique_true(self):
-        input_base = torch.arange(24, dtype=torch.float32).reshape(6, 4)
+    def test_post_training_restore_interpolates_target_new_overlap_groups(self):
+        input_base = torch.arange(32, dtype=torch.float32).reshape(8, 4)
         output_base = input_base + 100
         input_weight = torch.nn.Parameter(input_base.clone())
         output_weight = torch.nn.Parameter(output_base.clone())
@@ -147,12 +148,16 @@ class GAGDTrainingControlTests(unittest.TestCase):
         trained_input = input_weight.detach().clone()
         trained_output = output_weight.detach().clone()
         groups = MODULE.PostTrainingTokenGroups(
-            target_new=[1, 3],
-            target_true=[2, 3],
-            retain=[4],
+            target_new=[1, 3, 4, 5],
+            target_true=[2, 3, 5, 6],
+            retain=[4, 5, 6],
             unique_target_new=[1],
             unique_target_true=[2],
-            overlap=[3],
+            target_new_true_overlap=[3],
+            target_new_retain_overlap=[4],
+            target_new_true_retain_overlap=[5],
+            target_true_retain_overlap=[6],
+            overlap=[3, 4, 5, 6],
         )
 
         MODULE.apply_post_training_row_restore(tied_info, originals, groups)
@@ -161,7 +166,43 @@ class GAGDTrainingControlTests(unittest.TestCase):
         self.assertTrue(torch.equal(output_weight[1], trained_output[1]))
         self.assertTrue(torch.equal(input_weight[2], input_base[2] * 1.25))
         self.assertTrue(torch.equal(output_weight[2], output_base[2] * 1.25))
-        for row in (0, 3, 4, 5):
+        self.assertTrue(
+            torch.equal(
+                input_weight[3],
+                input_base[3] + 0.75 * (trained_input[3] - input_base[3]),
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                output_weight[3],
+                output_base[3] + 0.75 * (trained_output[3] - output_base[3]),
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                input_weight[4],
+                input_base[4] + 0.50 * (trained_input[4] - input_base[4]),
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                output_weight[4],
+                output_base[4] + 0.50 * (trained_output[4] - output_base[4]),
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                input_weight[5],
+                input_base[5] + 0.25 * (trained_input[5] - input_base[5]),
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                output_weight[5],
+                output_base[5] + 0.25 * (trained_output[5] - output_base[5]),
+            )
+        )
+        for row in (0, 6, 7):
             self.assertTrue(torch.equal(input_weight[row], input_base[row]))
             self.assertTrue(torch.equal(output_weight[row], output_base[row]))
 

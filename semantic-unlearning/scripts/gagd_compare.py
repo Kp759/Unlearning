@@ -47,6 +47,9 @@ BASE_MODES = [
 ]
 POST_TRAINING_RESTORE_MODE = "emb_lm_all_restore_post_training_true"
 POST_TRAINING_TRUE_SCALE = 1.25
+POST_TRAINING_NEW_TRUE_ALPHA = 0.75
+POST_TRAINING_NEW_RETAIN_ALPHA = 0.50
+POST_TRAINING_NEW_TRUE_RETAIN_ALPHA = 0.25
 MODES = BASE_MODES + [POST_TRAINING_RESTORE_MODE]
 MCF_URL = "https://memit.baulab.info/data/dsets/multi_counterfact.json"
 DEFAULT_MODEL_PATH = "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95"
@@ -105,6 +108,10 @@ class PostTrainingTokenGroups:
     retain: List[int]
     unique_target_new: List[int]
     unique_target_true: List[int]
+    target_new_true_overlap: List[int]
+    target_new_retain_overlap: List[int]
+    target_new_true_retain_overlap: List[int]
+    target_true_retain_overlap: List[int]
     overlap: List[int]
 
 
@@ -447,10 +454,15 @@ def collect_post_training_token_groups(
 
     unique_target_new = target_new - target_true - retain_tokens
     unique_target_true = target_true - target_new - retain_tokens
+    target_new_true_retain_overlap = target_new & target_true & retain_tokens
+    target_new_true_overlap = (target_new & target_true) - retain_tokens
+    target_new_retain_overlap = (target_new & retain_tokens) - target_true
+    target_true_retain_overlap = (target_true & retain_tokens) - target_new
     overlap = (
-        (target_new & target_true)
-        | (target_new & retain_tokens)
-        | (target_true & retain_tokens)
+        target_new_true_overlap
+        | target_new_retain_overlap
+        | target_new_true_retain_overlap
+        | target_true_retain_overlap
     )
     return PostTrainingTokenGroups(
         target_new=sorted(target_new),
@@ -458,6 +470,10 @@ def collect_post_training_token_groups(
         retain=sorted(retain_tokens),
         unique_target_new=sorted(unique_target_new),
         unique_target_true=sorted(unique_target_true),
+        target_new_true_overlap=sorted(target_new_true_overlap),
+        target_new_retain_overlap=sorted(target_new_retain_overlap),
+        target_new_true_retain_overlap=sorted(target_new_true_retain_overlap),
+        target_true_retain_overlap=sorted(target_true_retain_overlap),
         overlap=sorted(overlap),
     )
 
@@ -807,16 +823,29 @@ def apply_post_training_row_restore(
     originals: Dict[str, torch.Tensor],
     groups: PostTrainingTokenGroups,
     true_scale: float = POST_TRAINING_TRUE_SCALE,
+    new_true_alpha: float = POST_TRAINING_NEW_TRUE_ALPHA,
+    new_retain_alpha: float = POST_TRAINING_NEW_RETAIN_ALPHA,
+    new_true_retain_alpha: float = POST_TRAINING_NEW_TRUE_RETAIN_ALPHA,
 ) -> Dict[str, int]:
-    """Keep only unique target-new updates and boost unique true rows from base."""
+    """Restore base rows while retaining group-scaled target-new updates."""
     if true_scale <= 0:
         raise ValueError("Post-training target-true scale must be positive.")
+    overlap_alphas = {
+        "target_new_true": new_true_alpha,
+        "target_new_retain": new_retain_alpha,
+        "target_new_true_retain": new_true_retain_alpha,
+    }
+    for group_name, alpha in overlap_alphas.items():
+        if not 0.0 <= alpha <= 1.0:
+            raise ValueError(
+                f"Post-training alpha for {group_name} must be between 0 and 1."
+            )
 
     in_w: torch.nn.Parameter = tied_info["input_weight"]
     out_w: torch.nn.Parameter = tied_info["output_weight"]
     tied = bool(tied_info.get("tied"))
 
-    def restore_weight(weight: torch.nn.Parameter, base: torch.Tensor) -> Tuple[int, int]:
+    def restore_weight(weight: torch.nn.Parameter, base: torch.Tensor) -> Dict[str, int]:
         new_ids = valid_row_ids(weight, groups.unique_target_new)
         true_ids = valid_row_ids(weight, groups.unique_target_true)
         trained_new_rows = (
@@ -824,11 +853,46 @@ def apply_post_training_row_restore(
             if new_ids.numel()
             else None
         )
+        interpolated_rows: List[Tuple[str, torch.Tensor, torch.Tensor]] = []
+        for group_name, token_ids, alpha in (
+            (
+                "target_new_true_overlap",
+                groups.target_new_true_overlap,
+                new_true_alpha,
+            ),
+            (
+                "target_new_retain_overlap",
+                groups.target_new_retain_overlap,
+                new_retain_alpha,
+            ),
+            (
+                "target_new_true_retain_overlap",
+                groups.target_new_true_retain_overlap,
+                new_true_retain_alpha,
+            ),
+        ):
+            row_ids = valid_row_ids(weight, token_ids)
+            if not row_ids.numel():
+                interpolated_rows.append(
+                    (group_name, row_ids, weight.new_empty((0, weight.shape[1])))
+                )
+                continue
+            trained_rows = weight.index_select(0, row_ids).detach().clone()
+            base_rows = base.index_select(0, row_ids.to(base.device)).to(
+                device=weight.device,
+                dtype=weight.dtype,
+            )
+            final_rows = base_rows + alpha * (trained_rows - base_rows)
+            interpolated_rows.append((group_name, row_ids, final_rows))
 
-        # Base restoration handles overlap, retain-only, and unrelated rows.
+        # Base restoration handles retain-only, true/retain-only overlap, and
+        # unrelated rows. Target-new overlap groups are then interpolated.
         weight.copy_(base)
         if trained_new_rows is not None:
             weight.index_copy_(0, new_ids, trained_new_rows)
+        for _, row_ids, final_rows in interpolated_rows:
+            if row_ids.numel():
+                weight.index_copy_(0, row_ids, final_rows)
         if true_ids.numel():
             base_true_rows = (
                 base.index_select(0, true_ids.to(base.device))
@@ -836,19 +900,24 @@ def apply_post_training_row_restore(
                 .mul(true_scale)
             )
             weight.index_copy_(0, true_ids, base_true_rows)
-        return int(new_ids.numel()), int(true_ids.numel())
+        return {
+            "unique_target_new_rows_kept": int(new_ids.numel()),
+            "unique_target_true_rows_scaled": int(true_ids.numel()),
+            **{
+                f"{group_name}_rows_interpolated": int(row_ids.numel())
+                for group_name, row_ids, _ in interpolated_rows
+            },
+        }
 
-    input_new, input_true = restore_weight(in_w, originals["input"])
-    output_new, output_true = (
-        (input_new, input_true)
+    input_counts = restore_weight(in_w, originals["input"])
+    output_counts = (
+        input_counts
         if tied
         else restore_weight(out_w, originals["output"])
     )
     return {
-        "input_unique_target_new_rows_kept": input_new,
-        "input_unique_target_true_rows_scaled": input_true,
-        "output_unique_target_new_rows_kept": output_new,
-        "output_unique_target_true_rows_scaled": output_true,
+        **{f"input_{key}": value for key, value in input_counts.items()},
+        **{f"output_{key}": value for key, value in output_counts.items()},
     }
 
 
@@ -856,6 +925,9 @@ def post_training_policy_report(
     tok: AutoTokenizer,
     groups: PostTrainingTokenGroups,
     applied_counts: Dict[str, int],
+    new_true_alpha: float,
+    new_retain_alpha: float,
+    new_true_retain_alpha: float,
 ) -> Dict[str, Any]:
     def decoded(token_ids: Sequence[int]) -> Dict[str, str]:
         return {
@@ -866,10 +938,21 @@ def post_training_policy_report(
     return {
         "mode": POST_TRAINING_RESTORE_MODE,
         "target_true_base_scale": POST_TRAINING_TRUE_SCALE,
+        "overlap_alphas": {
+            "target_new_true": new_true_alpha,
+            "target_new_retain": new_retain_alpha,
+            "target_new_true_retain": new_true_retain_alpha,
+        },
+        "interpolation_formula": (
+            "W_base[t] + alpha_g * (W_trained[t] - W_base[t])"
+        ),
         "rules": {
             "unique_target_new": "keep_ga_gd_update",
             "unique_target_true": f"{POST_TRAINING_TRUE_SCALE:g}_times_base_row",
-            "overlap": "base_row",
+            "target_new_true_overlap": "base_plus_alpha_times_trained_delta",
+            "target_new_retain_overlap": "base_plus_alpha_times_trained_delta",
+            "target_new_true_retain_overlap": "base_plus_alpha_times_trained_delta",
+            "target_true_retain_overlap": "base_row",
             "retain_only": "base_row",
             "unrelated": "base_row",
         },
@@ -879,6 +962,12 @@ def post_training_policy_report(
             "retain": len(groups.retain),
             "unique_target_new": len(groups.unique_target_new),
             "unique_target_true": len(groups.unique_target_true),
+            "target_new_true_overlap": len(groups.target_new_true_overlap),
+            "target_new_retain_overlap": len(groups.target_new_retain_overlap),
+            "target_new_true_retain_overlap": len(
+                groups.target_new_true_retain_overlap
+            ),
+            "target_true_retain_overlap": len(groups.target_true_retain_overlap),
             "overlap": len(groups.overlap),
             **applied_counts,
         },
@@ -886,6 +975,14 @@ def post_training_policy_report(
         "tokens": {
             "unique_target_new": decoded(groups.unique_target_new),
             "unique_target_true": decoded(groups.unique_target_true),
+            "target_new_true_overlap": decoded(groups.target_new_true_overlap),
+            "target_new_retain_overlap": decoded(groups.target_new_retain_overlap),
+            "target_new_true_retain_overlap": decoded(
+                groups.target_new_true_retain_overlap
+            ),
+            "target_true_retain_overlap": decoded(
+                groups.target_true_retain_overlap
+            ),
             "overlap": decoded(groups.overlap),
         },
     }
@@ -934,6 +1031,10 @@ def train_mode(
         print(
             "Post-training row policy: "
             f"keep {len(post_training_groups.unique_target_new)} unique target-new rows; "
+            "partially keep target-new overlap updates at "
+            f"{args.post_training_new_true_alpha:g}/"
+            f"{args.post_training_new_retain_alpha:g}/"
+            f"{args.post_training_new_true_retain_alpha:g}; "
             f"set {len(post_training_groups.unique_target_true)} unique target-true rows "
             f"to {POST_TRAINING_TRUE_SCALE:g}x base"
         )
@@ -1052,10 +1153,20 @@ def train_mode(
             tied_info,
             post_training_originals,
             post_training_groups,
+            new_true_alpha=args.post_training_new_true_alpha,
+            new_retain_alpha=args.post_training_new_retain_alpha,
+            new_true_retain_alpha=args.post_training_new_true_retain_alpha,
         )
         write_json(
             mode_dir / "post_training_row_policy.json",
-            post_training_policy_report(tok, post_training_groups, applied_counts),
+            post_training_policy_report(
+                tok,
+                post_training_groups,
+                applied_counts,
+                new_true_alpha=args.post_training_new_true_alpha,
+                new_retain_alpha=args.post_training_new_retain_alpha,
+                new_true_retain_alpha=args.post_training_new_true_retain_alpha,
+            ),
         )
         print("Applied post-training restoration to embedding/lm_head vocabulary rows")
     if args.save_model:
@@ -1300,6 +1411,21 @@ def make_comparison_row(
         "forget_loss_type": args.forget_loss_type,
         "forget_margin": args.forget_margin,
         "sampling_strategy": args.sampling_strategy,
+        "post_training_new_true_alpha": (
+            args.post_training_new_true_alpha
+            if mode == POST_TRAINING_RESTORE_MODE
+            else None
+        ),
+        "post_training_new_retain_alpha": (
+            args.post_training_new_retain_alpha
+            if mode == POST_TRAINING_RESTORE_MODE
+            else None
+        ),
+        "post_training_new_true_retain_alpha": (
+            args.post_training_new_true_retain_alpha
+            if mode == POST_TRAINING_RESTORE_MODE
+            else None
+        ),
     }
     if args.dataset == "mcf":
         official_keys = [
@@ -1383,6 +1509,33 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--retain-split", default="retain95")
     p.add_argument("--semantic-token-json", default=None)
     p.add_argument("--selective-top-k", type=int, default=1000)
+    p.add_argument(
+        "--post-training-new-true-alpha",
+        type=float,
+        default=POST_TRAINING_NEW_TRUE_ALPHA,
+        help=(
+            "For the fifth MCF setting, retain this fraction of the learned "
+            "update on target-new/target-true overlap rows."
+        ),
+    )
+    p.add_argument(
+        "--post-training-new-retain-alpha",
+        type=float,
+        default=POST_TRAINING_NEW_RETAIN_ALPHA,
+        help=(
+            "For the fifth MCF setting, retain this fraction of the learned "
+            "update on target-new/retain overlap rows."
+        ),
+    )
+    p.add_argument(
+        "--post-training-new-true-retain-alpha",
+        type=float,
+        default=POST_TRAINING_NEW_TRUE_RETAIN_ALPHA,
+        help=(
+            "For the fifth MCF setting, retain this fraction of the learned "
+            "update on rows shared by target-new, target-true, and retain."
+        ),
+    )
     return p.parse_args()
 
 
@@ -1398,6 +1551,14 @@ def main() -> None:
         raise ValueError("--forget-margin must be non-negative")
     if args.forget_weight <= 0 or args.retain_weight < 0 or args.kl_retain_weight < 0:
         raise ValueError("--forget-weight must be positive; retain weights must be non-negative")
+    for option_name in (
+        "post_training_new_true_alpha",
+        "post_training_new_retain_alpha",
+        "post_training_new_true_retain_alpha",
+    ):
+        alpha = getattr(args, option_name)
+        if not 0.0 <= alpha <= 1.0:
+            raise ValueError(f"--{option_name.replace('_', '-')} must be between 0 and 1")
     if args.mode == POST_TRAINING_RESTORE_MODE and args.dataset != "mcf":
         raise ValueError(
             f"--mode {POST_TRAINING_RESTORE_MODE} requires --dataset mcf "
@@ -1466,6 +1627,14 @@ def main() -> None:
         metrics["sampling_strategy"] = args.sampling_strategy
         metrics["learning_rate"] = args.effective_lr
         metrics["optimizer"] = args.effective_optimizer
+        if mode == POST_TRAINING_RESTORE_MODE:
+            metrics["post_training_overlap_alphas"] = {
+                "target_new_true": args.post_training_new_true_alpha,
+                "target_new_retain": args.post_training_new_retain_alpha,
+                "target_new_true_retain": (
+                    args.post_training_new_true_retain_alpha
+                ),
+            }
         write_json(mode_dir / "metrics.json", metrics)
         rows.append(make_comparison_row(args, mode, base_metrics, metrics, summary, len(selected_ids)))
         if args.run_official_mcf_eval:

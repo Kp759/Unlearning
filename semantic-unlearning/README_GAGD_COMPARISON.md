@@ -21,9 +21,12 @@ The runner compares five modes on MCF (the first four remain available on TOFU):
    - Masks embedding / lm_head gradients to selected token rows and restores non-selected rows exactly after each optimizer step.
 5. `emb_lm_all_restore_post_training_true`
    - Runs the same all-answer-token GA/GD training as `emb_lm_all_tokens`.
-   - After training, keeps learned embedding / `lm_head` rows only for target-new tokens unique to the forget set.
+   - After training, keeps complete learned embedding / `lm_head` updates for target-new tokens unique to the forget set.
+   - Partially keeps learned target-new overlap updates using `W_final[t] = W_base[t] + alpha_g * (W_trained[t] - W_base[t])`.
+   - Defaults to `alpha_g = 0.75` for target-new/target-true overlap, `0.50` for target-new/retain overlap, and `0.25` for three-way target-new/target-true/retain overlap.
    - Sets unique forget-set target-true rows to `1.25 *` their base-model rows.
-   - Restores target-new/target-true overlaps, any rows shared with retain targets, retain-only rows, and unrelated rows to the base model.
+   - Restores target-true/retain overlap without target-new, retain-only rows, and unrelated rows to the base model.
+   - The overlap coefficients are configurable with `--post-training-new-true-alpha`, `--post-training-new-retain-alpha`, and `--post-training-new-true-retain-alpha`.
    - Writes the resolved token groups and applied row counts to `post_training_row_policy.json`.
 
 ## JSON-LMHead-Zero + Target-True Emb Restore comparison
@@ -90,13 +93,18 @@ retain_weight = 1.0
 forget batch size = 1
 retain batch size = 4
 sampling_strategy = epoch
+target-new/target-true overlap alpha = 0.75
+target-new/retain overlap alpha = 0.50
+three-way target-new/target-true/retain overlap alpha = 0.25
 ```
 
 These are intentionally scope-aware: `1e-5` is especially weak for plain SGD,
 while using the same larger rate for AdamW embedding rows can be too aggressive.
 All values remain overridable with the wrapper environment variables
 `STEPS`, `FULL_LR`, `EMB_LM_LR`, `FORGET_WEIGHT`, `RETAIN_WEIGHT`,
-`FORGET_MARGIN`, `RETAIN_BATCH_SIZE`, and `SAMPLING_STRATEGY`.
+`FORGET_MARGIN`, `RETAIN_BATCH_SIZE`, `SAMPLING_STRATEGY`,
+`POST_TRAINING_NEW_TRUE_ALPHA`, `POST_TRAINING_NEW_RETAIN_ALPHA`, and
+`POST_TRAINING_NEW_TRUE_RETAIN_ALPHA`.
 
 ## MCF command
 

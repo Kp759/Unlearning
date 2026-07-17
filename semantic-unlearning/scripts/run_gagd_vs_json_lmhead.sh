@@ -21,6 +21,9 @@ RETAIN_WEIGHT="${RETAIN_WEIGHT:-1.0}"
 FORGET_MARGIN="${FORGET_MARGIN:-1.0}"
 RETAIN_BATCH_SIZE="${RETAIN_BATCH_SIZE:-4}"
 SAMPLING_STRATEGY="${SAMPLING_STRATEGY:-epoch}"
+POST_TRAINING_NEW_TRUE_ALPHA="${POST_TRAINING_NEW_TRUE_ALPHA:-0.75}"
+POST_TRAINING_NEW_RETAIN_ALPHA="${POST_TRAINING_NEW_RETAIN_ALPHA:-0.50}"
+POST_TRAINING_NEW_TRUE_RETAIN_ALPHA="${POST_TRAINING_NEW_TRUE_RETAIN_ALPHA:-0.25}"
 DTYPE="${DTYPE:-bf16}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-data/wikidata}"
@@ -53,6 +56,9 @@ for seed in "${SEED_ARRAY[@]}"; do
     --forget-weight "${FORGET_WEIGHT}" \
     --retain-weight "${RETAIN_WEIGHT}" \
     --sampling-strategy "${SAMPLING_STRATEGY}" \
+    --post-training-new-true-alpha "${POST_TRAINING_NEW_TRUE_ALPHA}" \
+    --post-training-new-retain-alpha "${POST_TRAINING_NEW_RETAIN_ALPHA}" \
+    --post-training-new-true-retain-alpha "${POST_TRAINING_NEW_TRUE_RETAIN_ALPHA}" \
     --dtype "${DTYPE}" \
     --wikidata-dir "${WIKIDATA_DIR}" \
     --run-official-mcf-eval
