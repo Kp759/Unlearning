@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate four-scope GA/GD and JSON-LMHead-Zero MCF evaluations.
+"""Aggregate GA/GD settings and JSON-LMHead-Zero MCF evaluations.
 
 The script consumes official-compatible JSON results rather than model weights.
 It validates that every row uses the same seed, sample mode, forget count, and
@@ -21,6 +21,7 @@ DEFAULT_METHODS = [
     "full_selective_tokens",
     "emb_lm_all_tokens",
     "emb_lm_selective_tokens",
+    "emb_lm_all_restore_post_training_true",
 ]
 METRICS = ["Eff", "Gen", "Spe", "PPL"]
 
