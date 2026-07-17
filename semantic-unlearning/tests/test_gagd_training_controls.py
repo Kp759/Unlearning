@@ -14,6 +14,9 @@ import gagd_compare as MODULE  # noqa: E402
 class GAGDTrainingControlTests(unittest.TestCase):
     class TinyTokenizer:
         pad_token_id = 0
+        eos_token_id = 99
+        bos_token_id = None
+        unk_token_id = None
         eos_token = "<eos>"
 
         def __call__(self, text, add_special_tokens=False):
@@ -21,6 +24,9 @@ class GAGDTrainingControlTests(unittest.TestCase):
                 text = text[: -len(self.eos_token)]
                 return {"input_ids": [ord(char) for char in text] + [99]}
             return {"input_ids": [ord(char) for char in text]}
+
+        def decode(self, token_ids):
+            return "".join(chr(token_id) for token_id in token_ids)
 
     def test_epoch_sampler_covers_every_example_before_repeating(self):
         examples = [
@@ -89,6 +95,75 @@ class GAGDTrainingControlTests(unittest.TestCase):
 
         self.assertEqual(with_eos["input_ids"].tolist(), [[ord("P"), ord("A"), 99]])
         self.assertEqual(without_eos["input_ids"].tolist(), [[ord("P"), ord("A")]])
+
+    def test_post_training_groups_are_disjoint_and_protect_retain_overlap(self):
+        forget = [
+            MODULE.Example(
+                prompt="P",
+                answer="AB",
+                target_new="AB",
+                target_true="BC",
+            )
+        ]
+        retain = [
+            MODULE.Example(
+                prompt="R",
+                answer="D",
+                target_new="D",
+                target_true="E",
+            ),
+            MODULE.Example(
+                prompt="R2",
+                answer="A",
+                target_new="A",
+                target_true="F",
+            ),
+        ]
+
+        groups = MODULE.collect_post_training_token_groups(
+            self.TinyTokenizer(), forget, retain
+        )
+
+        self.assertEqual(groups.unique_target_new, [])
+        self.assertEqual(groups.unique_target_true, [ord("C")])
+        self.assertEqual(groups.overlap, [ord("A"), ord("B")])
+        self.assertIn(ord("D"), groups.retain)
+        self.assertIn(ord("E"), groups.retain)
+
+    def test_post_training_restore_keeps_only_unique_new_and_scales_unique_true(self):
+        input_base = torch.arange(24, dtype=torch.float32).reshape(6, 4)
+        output_base = input_base + 100
+        input_weight = torch.nn.Parameter(input_base.clone())
+        output_weight = torch.nn.Parameter(output_base.clone())
+        tied_info = {
+            "input_weight": input_weight,
+            "output_weight": output_weight,
+            "tied": False,
+        }
+        originals = MODULE.snapshot_embedding_output_weights(tied_info)
+        with torch.no_grad():
+            input_weight.add_(10)
+            output_weight.add_(20)
+        trained_input = input_weight.detach().clone()
+        trained_output = output_weight.detach().clone()
+        groups = MODULE.PostTrainingTokenGroups(
+            target_new=[1, 3],
+            target_true=[2, 3],
+            retain=[4],
+            unique_target_new=[1],
+            unique_target_true=[2],
+            overlap=[3],
+        )
+
+        MODULE.apply_post_training_row_restore(tied_info, originals, groups)
+
+        self.assertTrue(torch.equal(input_weight[1], trained_input[1]))
+        self.assertTrue(torch.equal(output_weight[1], trained_output[1]))
+        self.assertTrue(torch.equal(input_weight[2], input_base[2] * 1.25))
+        self.assertTrue(torch.equal(output_weight[2], output_base[2] * 1.25))
+        for row in (0, 3, 4, 5):
+            self.assertTrue(torch.equal(input_weight[row], input_base[row]))
+            self.assertTrue(torch.equal(output_weight[row], output_base[row]))
 
 
 if __name__ == "__main__":

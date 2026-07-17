@@ -2,9 +2,9 @@
 
 `semantic-unlearning/scripts/gagd_compare.py` is a self-contained comparison runner for gradient-ascent/gradient-descent (GA/GD) unlearning. It does not depend on ZeroUnlearn or optional editing baselines such as MEMIT, ROME, NSE, AlphaEdit, or MEND.
 
-## Four settings
+## Five MCF settings
 
-The runner compares four modes:
+The runner compares five modes on MCF (the first four remain available on TOFU):
 
 1. `full_all_tokens`
    - Trains all model parameters.
@@ -19,6 +19,12 @@ The runner compares four modes:
    - Freezes all model parameters except input embeddings and untied output embeddings / `lm_head`.
    - Uses answer-only cross-entropy only on selected answer token positions.
    - Masks embedding / lm_head gradients to selected token rows and restores non-selected rows exactly after each optimizer step.
+5. `emb_lm_all_restore_post_training_true`
+   - Runs the same all-answer-token GA/GD training as `emb_lm_all_tokens`.
+   - After training, keeps learned embedding / `lm_head` rows only for target-new tokens unique to the forget set.
+   - Sets unique forget-set target-true rows to `1.25 *` their base-model rows.
+   - Restores target-new/target-true overlaps, any rows shared with retain targets, retain-only rows, and unrelated rows to the base model.
+   - Writes the resolved token groups and applied row counts to `post_training_row_policy.json`.
 
 ## JSON-LMHead-Zero + Target-True Emb Restore comparison
 
@@ -31,7 +37,7 @@ GA/GD must train and evaluate on the same MCF records. The default
 - both pools sampled with the same seed;
 - 50 forget and 1000 retain records by default.
 
-Run all four scopes for seeds 0-4 and aggregate them with the existing baseline:
+Run all five MCF settings for seeds 0-4 and aggregate them with the existing baseline:
 
 ```bash
 cd semantic-unlearning
@@ -286,7 +292,7 @@ python scripts/gagd_compare.py \
   --run-official-mcf-eval
 ```
 
-You can also compare arbitrary checkpoints, including a ZeroUnlearn checkpoint/output model and the four semantic-unlearning mode checkpoints, with:
+You can also compare arbitrary checkpoints, including a ZeroUnlearn checkpoint/output model and the five MCF mode checkpoints, with:
 
 ```bash
 cd semantic-unlearning
@@ -297,6 +303,7 @@ python scripts/run_same_mcf_eval.py \
     full_selective_tokens=outputs/gagd_compare/mcf/full_selective_tokens/checkpoint \
     emb_lm_all_tokens=outputs/gagd_compare/mcf/emb_lm_all_tokens/checkpoint \
     emb_lm_selective_tokens=outputs/gagd_compare/mcf/emb_lm_selective_tokens/checkpoint \
+    emb_lm_all_restore_post_training_true=outputs/gagd_compare/mcf/emb_lm_all_restore_post_training_true/checkpoint \
   --mcf-path data/mcf/multi_counterfact.json \
   --wikidata-dir data/wikidata \
   --out-dir outputs/gagd_compare/same_mcf_eval \

@@ -3,7 +3,8 @@
 
 This script is intentionally self-contained and avoids optional editing baselines.
 It compares full-model and embedding/lm_head-only GA/GD with all-token or
-selective-token answer-only losses.
+selective-token answer-only losses. On MCF it also supports all-token
+embedding/lm_head training followed by base-row restoration.
 """
 
 from __future__ import annotations
@@ -38,12 +39,15 @@ from mcf_zero_unlearn_official_eval import (
 )
 from mcf_sampling import sample_first_mcf_records, sample_official_mcf_records
 
-MODES = [
+BASE_MODES = [
     "full_all_tokens",
     "full_selective_tokens",
     "emb_lm_all_tokens",
     "emb_lm_selective_tokens",
 ]
+POST_TRAINING_RESTORE_MODE = "emb_lm_all_restore_post_training_true"
+POST_TRAINING_TRUE_SCALE = 1.25
+MODES = BASE_MODES + [POST_TRAINING_RESTORE_MODE]
 MCF_URL = "https://memit.baulab.info/data/dsets/multi_counterfact.json"
 DEFAULT_MODEL_PATH = "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95"
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -92,6 +96,16 @@ class ParamSummary:
     n_total_params: int
     trainable_param_percent: float
     trainable_names: List[str]
+
+
+@dataclass
+class PostTrainingTokenGroups:
+    target_new: List[int]
+    target_true: List[int]
+    retain: List[int]
+    unique_target_new: List[int]
+    unique_target_true: List[int]
+    overlap: List[int]
 
 
 class EpochBatchSampler:
@@ -394,6 +408,58 @@ def select_tokens(tok: AutoTokenizer, forget: Sequence[Example], retain: Sequenc
     if args.dataset == "mcf":
         return select_mcf_tokens(tok, forget)
     return select_tofu_tokens(tok, forget, retain, args)
+
+
+def collect_post_training_token_groups(
+    tok: AutoTokenizer,
+    forget: Sequence[Example],
+    retain: Sequence[Example],
+) -> PostTrainingTokenGroups:
+    """Build the disjoint MCF row policy used by the post-training restore mode."""
+    target_new: set[int] = set()
+    target_true: set[int] = set()
+    retain_tokens: set[int] = set()
+
+    for index, ex in enumerate(forget):
+        if not ex.target_new or not ex.target_true:
+            raise ValueError(
+                "Post-training restoration requires both target_new and "
+                f"target_true on every forget record; record {index} is incomplete."
+            )
+        target_new.update(token_ids_for_text(tok, ex.target_new))
+        target_true.update(token_ids_for_text(tok, ex.target_true))
+
+    # Match the JSON target-row method: both answer fields in retained MCF
+    # records are protected from global vocabulary-row edits.
+    for index, ex in enumerate(retain):
+        if not ex.target_new or not ex.target_true:
+            raise ValueError(
+                "Post-training restoration protects both target fields on every "
+                f"retain record; record {index} is incomplete."
+            )
+        for text in (ex.target_new, ex.target_true):
+            retain_tokens.update(token_ids_for_text(tok, text))
+
+    specials = special_token_ids(tok)
+    target_new -= specials
+    target_true -= specials
+    retain_tokens -= specials
+
+    unique_target_new = target_new - target_true - retain_tokens
+    unique_target_true = target_true - target_new - retain_tokens
+    overlap = (
+        (target_new & target_true)
+        | (target_new & retain_tokens)
+        | (target_true & retain_tokens)
+    )
+    return PostTrainingTokenGroups(
+        target_new=sorted(target_new),
+        target_true=sorted(target_true),
+        retain=sorted(retain_tokens),
+        unique_target_new=sorted(unique_target_new),
+        unique_target_true=sorted(unique_target_true),
+        overlap=sorted(overlap),
+    )
 
 
 def build_batch(
@@ -707,6 +773,124 @@ def restore_non_selected_rows(tied_info: Dict[str, Any], selected_ids: Sequence[
             out_w[~out_mask].copy_(originals["output"].to(out_w.device)[~out_mask])
 
 
+def snapshot_embedding_output_weights(
+    tied_info: Dict[str, Any],
+    *,
+    device: torch.device = torch.device("cpu"),
+) -> Dict[str, torch.Tensor]:
+    """Snapshot base embedding/output weights without duplicating tied weights."""
+    in_w: torch.nn.Parameter = tied_info["input_weight"]
+    out_w: torch.nn.Parameter = tied_info["output_weight"]
+    tied = bool(tied_info.get("tied"))
+    input_snapshot = in_w.detach().to(device=device, copy=True)
+    return {
+        "input": input_snapshot,
+        "output": (
+            input_snapshot
+            if tied
+            else out_w.detach().to(device=device, copy=True)
+        ),
+    }
+
+
+def valid_row_ids(weight: torch.Tensor, token_ids: Sequence[int]) -> torch.Tensor:
+    return torch.tensor(
+        [token_id for token_id in token_ids if 0 <= token_id < weight.shape[0]],
+        dtype=torch.long,
+        device=weight.device,
+    )
+
+
+@torch.no_grad()
+def apply_post_training_row_restore(
+    tied_info: Dict[str, Any],
+    originals: Dict[str, torch.Tensor],
+    groups: PostTrainingTokenGroups,
+    true_scale: float = POST_TRAINING_TRUE_SCALE,
+) -> Dict[str, int]:
+    """Keep only unique target-new updates and boost unique true rows from base."""
+    if true_scale <= 0:
+        raise ValueError("Post-training target-true scale must be positive.")
+
+    in_w: torch.nn.Parameter = tied_info["input_weight"]
+    out_w: torch.nn.Parameter = tied_info["output_weight"]
+    tied = bool(tied_info.get("tied"))
+
+    def restore_weight(weight: torch.nn.Parameter, base: torch.Tensor) -> Tuple[int, int]:
+        new_ids = valid_row_ids(weight, groups.unique_target_new)
+        true_ids = valid_row_ids(weight, groups.unique_target_true)
+        trained_new_rows = (
+            weight.index_select(0, new_ids).detach().clone()
+            if new_ids.numel()
+            else None
+        )
+
+        # Base restoration handles overlap, retain-only, and unrelated rows.
+        weight.copy_(base)
+        if trained_new_rows is not None:
+            weight.index_copy_(0, new_ids, trained_new_rows)
+        if true_ids.numel():
+            base_true_rows = (
+                base.index_select(0, true_ids.to(base.device))
+                .to(device=weight.device, dtype=weight.dtype)
+                .mul(true_scale)
+            )
+            weight.index_copy_(0, true_ids, base_true_rows)
+        return int(new_ids.numel()), int(true_ids.numel())
+
+    input_new, input_true = restore_weight(in_w, originals["input"])
+    output_new, output_true = (
+        (input_new, input_true)
+        if tied
+        else restore_weight(out_w, originals["output"])
+    )
+    return {
+        "input_unique_target_new_rows_kept": input_new,
+        "input_unique_target_true_rows_scaled": input_true,
+        "output_unique_target_new_rows_kept": output_new,
+        "output_unique_target_true_rows_scaled": output_true,
+    }
+
+
+def post_training_policy_report(
+    tok: AutoTokenizer,
+    groups: PostTrainingTokenGroups,
+    applied_counts: Dict[str, int],
+) -> Dict[str, Any]:
+    def decoded(token_ids: Sequence[int]) -> Dict[str, str]:
+        return {
+            str(token_id): tok.decode([token_id])
+            for token_id in token_ids
+        }
+
+    return {
+        "mode": POST_TRAINING_RESTORE_MODE,
+        "target_true_base_scale": POST_TRAINING_TRUE_SCALE,
+        "rules": {
+            "unique_target_new": "keep_ga_gd_update",
+            "unique_target_true": f"{POST_TRAINING_TRUE_SCALE:g}_times_base_row",
+            "overlap": "base_row",
+            "retain_only": "base_row",
+            "unrelated": "base_row",
+        },
+        "counts": {
+            "target_new": len(groups.target_new),
+            "target_true": len(groups.target_true),
+            "retain": len(groups.retain),
+            "unique_target_new": len(groups.unique_target_new),
+            "unique_target_true": len(groups.unique_target_true),
+            "overlap": len(groups.overlap),
+            **applied_counts,
+        },
+        "token_ids": asdict(groups),
+        "tokens": {
+            "unique_target_new": decoded(groups.unique_target_new),
+            "unique_target_true": decoded(groups.unique_target_true),
+            "overlap": decoded(groups.overlap),
+        },
+    }
+
+
 def kl_retain_loss(model: torch.nn.Module, ref_model: torch.nn.Module, tok: AutoTokenizer, examples: Sequence[Example], device: torch.device) -> torch.Tensor:
     batch = build_batch(tok, examples, device)
     with torch.no_grad():
@@ -742,6 +926,17 @@ def train_mode(
     if mode == "emb_lm_selective_tokens":
         originals = apply_row_mask_and_restore(tied_info, selected_ids)
         print(f"Embedding/lm_head selected rows allowed to update: {len(selected_ids)}")
+    post_training_originals = None
+    post_training_groups = None
+    if mode == POST_TRAINING_RESTORE_MODE:
+        post_training_originals = snapshot_embedding_output_weights(tied_info)
+        post_training_groups = collect_post_training_token_groups(tok, forget, retain)
+        print(
+            "Post-training row policy: "
+            f"keep {len(post_training_groups.unique_target_new)} unique target-new rows; "
+            f"set {len(post_training_groups.unique_target_true)} unique target-true rows "
+            f"to {POST_TRAINING_TRUE_SCALE:g}x base"
+        )
     ref_model = None
     if args.kl_retain_weight > 0:
         print("Loading frozen reference model for retain KL regularization")
@@ -848,6 +1043,21 @@ def train_mode(
                 "zerounlearn_ga_fallback_examples": ga_res.fallback_examples if ga_res is not None else None,
             }
             log_f.write(json.dumps(row) + "\n")
+    if mode == POST_TRAINING_RESTORE_MODE:
+        if post_training_originals is None or post_training_groups is None:
+            raise RuntimeError("Post-training restore mode is missing its base snapshot or token groups.")
+        # Optimizer state is no longer needed and can be large for these matrices.
+        del opt
+        applied_counts = apply_post_training_row_restore(
+            tied_info,
+            post_training_originals,
+            post_training_groups,
+        )
+        write_json(
+            mode_dir / "post_training_row_policy.json",
+            post_training_policy_report(tok, post_training_groups, applied_counts),
+        )
+        print("Applied post-training restoration to embedding/lm_head vocabulary rows")
     if args.save_model:
         ckpt_dir = mode_dir / "checkpoint"
         model.save_pretrained(ckpt_dir)
@@ -1188,7 +1398,16 @@ def main() -> None:
         raise ValueError("--forget-margin must be non-negative")
     if args.forget_weight <= 0 or args.retain_weight < 0 or args.kl_retain_weight < 0:
         raise ValueError("--forget-weight must be positive; retain weights must be non-negative")
-    modes = MODES if args.mode == "all" else [args.mode]
+    if args.mode == POST_TRAINING_RESTORE_MODE and args.dataset != "mcf":
+        raise ValueError(
+            f"--mode {POST_TRAINING_RESTORE_MODE} requires --dataset mcf "
+            "because TOFU has no target_new/target_true row groups."
+        )
+    modes = (
+        (MODES if args.dataset == "mcf" else BASE_MODES)
+        if args.mode == "all"
+        else [args.mode]
+    )
     for mode in modes:
         if learning_rate_for_mode(mode, args) <= 0:
             raise ValueError(f"Learning rate for {mode} must be positive")
