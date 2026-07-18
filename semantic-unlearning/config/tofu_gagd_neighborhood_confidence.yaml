@@ -1,0 +1,15 @@
+model:
+  name: "outputs/finetuned_model_3B_instruct"
+  device: "cuda:0"
+  dtype: "bfloat16"
+  max_length: 256
+
+data:
+  forget_split: "forget05"
+  retain_split: "retain95"
+  n_forget: 200
+  n_retain: 1000
+  seed: 42
+
+output:
+  dir: "outputs/tofu_gagd_neighborhood_confidence"
