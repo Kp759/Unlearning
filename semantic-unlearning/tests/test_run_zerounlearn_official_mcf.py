@@ -107,7 +107,9 @@ class ZeroUnlearnOfficialRunnerTests(unittest.TestCase):
         self.assertEqual(requests[0]["target_new"]["str"], "new")
         self.assertEqual(record, original)
 
-    def test_forget_requests_replace_only_target_new_with_eos(self):
+    def test_forget_requests_map_unwanted_target_to_sensitive_and_eos_to_neutral(
+        self,
+    ):
         record = {
             "case_id": 17,
             "requested_rewrite": {
@@ -120,13 +122,17 @@ class ZeroUnlearnOfficialRunnerTests(unittest.TestCase):
         }
         original = json.loads(json.dumps(record))
 
-        requests = MODULE.records_to_zero_unlearn_requests(
+        requests = MODULE.records_to_zero_unlearn_forget_requests(
             [record],
             neutral_target="<eos>",
         )
 
         self.assertEqual(requests[0]["target_new"], {"str": "<eos>"})
         self.assertEqual(
+            requests[0]["target_true"],
+            original["requested_rewrite"]["target_new"],
+        )
+        self.assertNotEqual(
             requests[0]["target_true"],
             original["requested_rewrite"]["target_true"],
         )
@@ -149,6 +155,29 @@ class ZeroUnlearnOfficialRunnerTests(unittest.TestCase):
             MODULE.validate_neutral_forget_requests(
                 [record],
                 requests,
+                "<eos>",
+            )
+
+    def test_guard_rejects_eos_adapter_that_erases_mcf_target_true(self):
+        record = {
+            "case_id": 17,
+            "requested_rewrite": {
+                "prompt": "{} works as",
+                "subject": "A",
+                "target_new": {"str": "counterfactual"},
+                "target_true": {"str": "original"},
+            },
+        }
+        wrong_requests = MODULE.records_to_zero_unlearn_requests([record])
+        wrong_requests[0]["target_new"] = {"str": "<eos>"}
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "sensitive target_true does not match MCF target_new",
+        ):
+            MODULE.validate_neutral_forget_requests(
+                [record],
+                wrong_requests,
                 "<eos>",
             )
 

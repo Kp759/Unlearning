@@ -5,8 +5,9 @@ This runner deliberately separates the method from the evaluator:
 
 * the edit is performed by ``ZeroUnlearn.apply_unl_to_model`` from the
   vendored original ZeroUnlearn implementation;
-* forget requests use the tokenizer EOS token as ZeroUnlearn's neutral
-  ``target_new`` state, while the source MCF records remain unchanged;
+* forget requests map MCF ``target_new`` (the benchmark's unwanted answer)
+  into ZeroUnlearn's ``target_true`` sensitive slot and use the tokenizer EOS
+  token as ZeroUnlearn's neutral ``target_new`` state;
 * the split comes from the shared official MCF sampler;
 * base and edited models are measured by
   ``mcf_zero_unlearn_official_eval.evaluate_loaded_model_official``.
@@ -462,34 +463,47 @@ def normalize_rewrite(record: Mapping[str, Any]) -> Dict[str, Any]:
 
 def records_to_zero_unlearn_requests(
     records: Sequence[Mapping[str, Any]],
-    *,
-    neutral_target: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Convert MCF records to independent ZeroUnlearn request dictionaries.
-
-    ZeroUnlearn's closed-form forget objective uses ``target_new`` as the
-    neutral state M_n. For forget requests, callers pass the tokenizer EOS
-    token through ``neutral_target``. Retain requests omit it and preserve the
-    original MCF target. Deep copies ensure neither conversion can mutate the
-    records later consumed by the official evaluator.
-    """
-    if neutral_target is not None and not neutral_target:
-        raise ValueError("neutral_target must be a non-empty token string")
-
-    requests: List[Dict[str, Any]] = []
-    for record in records:
-        request = {
+    """Convert MCF records to independent, otherwise unchanged requests."""
+    return [
+        {
             "case_id": int(record["case_id"]),
             **deepcopy(normalize_rewrite(record)),
         }
-        if neutral_target is not None:
-            target_new = request.get("target_new")
-            if not isinstance(target_new, dict):
-                raise ValueError(
-                    f"case_id={record.get('case_id')} has no target_new mapping"
-                )
-            request["target_new"] = {"str": neutral_target}
-        requests.append(request)
+        for record in records
+    ]
+
+
+def records_to_zero_unlearn_forget_requests(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    neutral_target: str,
+) -> List[Dict[str, Any]]:
+    """Adapt benchmark forget semantics to ZeroUnlearn request semantics.
+
+    In this comparison, MCF ``target_new`` is the unwanted answer measured by
+    Eff/Gen. ZeroUnlearn expects the knowledge to erase in ``target_true``
+    (M_f) and its neutral destination in ``target_new`` (M_n). The adapter
+    therefore copies the MCF target-new mapping into the ZeroUnlearn
+    target-true slot and places EOS in the target-new slot.
+    """
+    if not neutral_target:
+        raise ValueError("neutral_target must be a non-empty token string")
+
+    requests = records_to_zero_unlearn_requests(records)
+    for request in requests:
+        sensitive_target = request.get("target_new")
+        if (
+            not isinstance(sensitive_target, dict)
+            or not isinstance(sensitive_target.get("str"), str)
+            or not sensitive_target["str"]
+        ):
+            raise ValueError(
+                f"case_id={request.get('case_id')} has no usable target_new "
+                "mapping for the forget target"
+            )
+        request["target_true"] = deepcopy(sensitive_target)
+        request["target_new"] = {"str": neutral_target}
     return requests
 
 
@@ -518,7 +532,7 @@ def validate_neutral_forget_requests(
     requests: Sequence[Mapping[str, Any]],
     neutral_target: str,
 ) -> None:
-    """Guard against training on MCF counterfactual targets by accident."""
+    """Guard the MCF-forget-target to ZeroUnlearn-sensitive-slot mapping."""
     if len(source_records) != len(requests):
         raise RuntimeError(
             "Neutral forget-request conversion changed the request count"
@@ -541,8 +555,11 @@ def validate_neutral_forget_requests(
             errors.append(
                 f"case_id={case_id}: target_new is not the EOS neutral target"
             )
-        if request.get("target_true") != source.get("target_true"):
-            errors.append(f"case_id={case_id}: target_true was modified")
+        if request.get("target_true") != source.get("target_new"):
+            errors.append(
+                f"case_id={case_id}: ZeroUnlearn sensitive target_true does "
+                "not match MCF target_new"
+            )
         for key in ("prompt", "subject"):
             if request.get(key) != source.get(key):
                 errors.append(f"case_id={case_id}: {key} was modified")
@@ -1404,7 +1421,7 @@ def main() -> None:
             f"got {hparams.layers}"
         )
     retain_requests = records_to_zero_unlearn_requests(retain_records)
-    forget_requests = records_to_zero_unlearn_requests(
+    forget_requests = records_to_zero_unlearn_forget_requests(
         forget_records,
         neutral_target=neutral_target,
     )
@@ -1414,9 +1431,11 @@ def main() -> None:
         neutral_target,
     )
     print(
-        "Using tokenizer EOS as ZeroUnlearn's neutral forget target: "
-        f"{neutral_target!r} (token id {neutral_target_id}); official "
-        "evaluation records remain unchanged"
+        "Mapping MCF target_new (the evaluated forget answer) to "
+        "ZeroUnlearn target_true (M_f), and using tokenizer EOS as "
+        f"ZeroUnlearn target_new (M_n): {neutral_target!r} "
+        f"(token id {neutral_target_id}); official evaluation records "
+        "remain unchanged"
     )
 
     run_status = "running"
@@ -1459,7 +1478,13 @@ def main() -> None:
             "source": "tokenizer.eos_token",
             "token": neutral_target,
             "token_id": neutral_target_id,
-            "forget_request_field": "target_new.str",
+            "zero_unlearn_request_field": "target_new.str",
+            "zero_unlearn_sensitive_request_field": "target_true",
+            "zero_unlearn_sensitive_target_source": (
+                "MCF requested_rewrite.target_new"
+            ),
+            "benchmark_forget_target": "MCF requested_rewrite.target_new",
+            "benchmark_correct_target": "MCF requested_rewrite.target_true",
             "forget_request_count": len(forget_requests),
             "retain_requests_modified": False,
             "official_evaluation_records_modified": False,
