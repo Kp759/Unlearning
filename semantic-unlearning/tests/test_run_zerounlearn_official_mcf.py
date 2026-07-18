@@ -12,6 +12,16 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import run_zerounlearn_official_mcf as MODULE  # noqa: E402
 
 
+class FakeTokenizer:
+    eos_token = "<eos>"
+    eos_token_id = 2
+
+    def __call__(self, text, *, add_special_tokens):
+        if text == self.eos_token and add_special_tokens is False:
+            return {"input_ids": [self.eos_token_id]}
+        return {"input_ids": [99]}
+
+
 def protocol_args(**updates):
     values = {
         "seed": 0,
@@ -96,6 +106,66 @@ class ZeroUnlearnOfficialRunnerTests(unittest.TestCase):
         self.assertEqual(requests[0]["prompt"], "{} works as")
         self.assertEqual(requests[0]["target_new"]["str"], "new")
         self.assertEqual(record, original)
+
+    def test_forget_requests_replace_only_target_new_with_eos(self):
+        record = {
+            "case_id": 17,
+            "requested_rewrite": {
+                "prompt": "{} works as",
+                "subject": "A",
+                "target_new": {"str": "counterfactual", "id": "Q-new"},
+                "target_true": {"str": "original", "id": "Q-true"},
+            },
+            "paraphrase_prompts": ["A has the job"],
+        }
+        original = json.loads(json.dumps(record))
+
+        requests = MODULE.records_to_zero_unlearn_requests(
+            [record],
+            neutral_target="<eos>",
+        )
+
+        self.assertEqual(requests[0]["target_new"], {"str": "<eos>"})
+        self.assertEqual(
+            requests[0]["target_true"],
+            original["requested_rewrite"]["target_true"],
+        )
+        self.assertEqual(requests[0]["prompt"], "{} works as")
+        self.assertEqual(requests[0]["subject"], "A")
+        self.assertEqual(record, original)
+
+    def test_neutral_forget_request_guard_rejects_counterfactual_target(self):
+        record = {
+            "case_id": 17,
+            "requested_rewrite": {
+                "prompt": "{} works as",
+                "subject": "A",
+                "target_new": {"str": "counterfactual"},
+                "target_true": {"str": "original"},
+            },
+        }
+        requests = MODULE.records_to_zero_unlearn_requests([record])
+        with self.assertRaisesRegex(RuntimeError, "not the EOS neutral target"):
+            MODULE.validate_neutral_forget_requests(
+                [record],
+                requests,
+                "<eos>",
+            )
+
+    def test_eos_neutral_target_must_be_exactly_one_eos_token(self):
+        self.assertEqual(
+            MODULE.resolve_eos_neutral_target(FakeTokenizer()),
+            ("<eos>", 2),
+        )
+
+        class MismatchedTokenizer(FakeTokenizer):
+            eos_token_id = 3
+
+            def __call__(self, text, *, add_special_tokens):
+                return {"input_ids": [2]}
+
+        with self.assertRaisesRegex(RuntimeError, "exactly eos_token_id"):
+            MODULE.resolve_eos_neutral_target(MismatchedTokenizer())
 
     def test_metric_extraction_keeps_spe_separate_from_spe_success(self):
         nested = official_payload(0, 4, 14.9, 13.0625)

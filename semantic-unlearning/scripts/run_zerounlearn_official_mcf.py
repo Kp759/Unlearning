@@ -5,6 +5,8 @@ This runner deliberately separates the method from the evaluator:
 
 * the edit is performed by ``ZeroUnlearn.apply_unl_to_model`` from the
   vendored original ZeroUnlearn implementation;
+* forget requests use the tokenizer EOS token as ZeroUnlearn's neutral
+  ``target_new`` state, while the source MCF records remain unchanged;
 * the split comes from the shared official MCF sampler;
 * base and edited models are measured by
   ``mcf_zero_unlearn_official_eval.evaluate_loaded_model_official``.
@@ -28,6 +30,7 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -459,14 +462,95 @@ def normalize_rewrite(record: Mapping[str, Any]) -> Dict[str, Any]:
 
 def records_to_zero_unlearn_requests(
     records: Sequence[Mapping[str, Any]],
+    *,
+    neutral_target: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    return [
-        {
+    """Convert MCF records to independent ZeroUnlearn request dictionaries.
+
+    ZeroUnlearn's closed-form forget objective uses ``target_new`` as the
+    neutral state M_n. For forget requests, callers pass the tokenizer EOS
+    token through ``neutral_target``. Retain requests omit it and preserve the
+    original MCF target. Deep copies ensure neither conversion can mutate the
+    records later consumed by the official evaluator.
+    """
+    if neutral_target is not None and not neutral_target:
+        raise ValueError("neutral_target must be a non-empty token string")
+
+    requests: List[Dict[str, Any]] = []
+    for record in records:
+        request = {
             "case_id": int(record["case_id"]),
-            **normalize_rewrite(record),
+            **deepcopy(normalize_rewrite(record)),
         }
-        for record in records
-    ]
+        if neutral_target is not None:
+            target_new = request.get("target_new")
+            if not isinstance(target_new, dict):
+                raise ValueError(
+                    f"case_id={record.get('case_id')} has no target_new mapping"
+                )
+            request["target_new"] = {"str": neutral_target}
+        requests.append(request)
+    return requests
+
+
+def resolve_eos_neutral_target(tokenizer: Any) -> Tuple[str, int]:
+    """Resolve and validate the single-token EOS neutral state."""
+    eos_token = getattr(tokenizer, "eos_token", None)
+    eos_token_id = getattr(tokenizer, "eos_token_id", None)
+    if not isinstance(eos_token, str) or not eos_token:
+        raise RuntimeError("Tokenizer has no usable eos_token for ZeroUnlearn")
+    if eos_token_id is None:
+        raise RuntimeError("Tokenizer has no eos_token_id for ZeroUnlearn")
+
+    encoded = tokenizer(eos_token, add_special_tokens=False)
+    input_ids = encoded.get("input_ids") if isinstance(encoded, Mapping) else None
+    if not isinstance(input_ids, list) or input_ids != [int(eos_token_id)]:
+        raise RuntimeError(
+            "Tokenizer EOS string must encode to exactly eos_token_id without "
+            f"special-token insertion; token={eos_token!r}, "
+            f"eos_token_id={eos_token_id!r}, input_ids={input_ids!r}"
+        )
+    return eos_token, int(eos_token_id)
+
+
+def validate_neutral_forget_requests(
+    source_records: Sequence[Mapping[str, Any]],
+    requests: Sequence[Mapping[str, Any]],
+    neutral_target: str,
+) -> None:
+    """Guard against training on MCF counterfactual targets by accident."""
+    if len(source_records) != len(requests):
+        raise RuntimeError(
+            "Neutral forget-request conversion changed the request count"
+        )
+
+    errors: List[str] = []
+    for position, (record, request) in enumerate(zip(source_records, requests)):
+        source = normalize_rewrite(record)
+        case_id = int(record["case_id"])
+        if int(request.get("case_id", -1)) != case_id:
+            errors.append(
+                f"position {position}: case_id changed from {case_id} to "
+                f"{request.get('case_id')!r}"
+            )
+        request_target_new = request.get("target_new")
+        if (
+            not isinstance(request_target_new, Mapping)
+            or request_target_new.get("str") != neutral_target
+        ):
+            errors.append(
+                f"case_id={case_id}: target_new is not the EOS neutral target"
+            )
+        if request.get("target_true") != source.get("target_true"):
+            errors.append(f"case_id={case_id}: target_true was modified")
+        for key in ("prompt", "subject"):
+            if request.get(key) != source.get(key):
+                errors.append(f"case_id={case_id}: {key} was modified")
+
+    if errors:
+        raise RuntimeError(
+            "Invalid ZeroUnlearn neutral forget requests:\n- " + "\n- ".join(errors)
+        )
 
 
 def load_seed0_split(
@@ -1272,6 +1356,7 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(str(model_path))
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    neutral_target, neutral_target_id = resolve_eos_neutral_target(tokenizer)
     model = AutoModelForCausalLM.from_pretrained(
         str(model_path),
         torch_dtype=torch.bfloat16,
@@ -1319,7 +1404,20 @@ def main() -> None:
             f"got {hparams.layers}"
         )
     retain_requests = records_to_zero_unlearn_requests(retain_records)
-    forget_requests = records_to_zero_unlearn_requests(forget_records)
+    forget_requests = records_to_zero_unlearn_requests(
+        forget_records,
+        neutral_target=neutral_target,
+    )
+    validate_neutral_forget_requests(
+        forget_records,
+        forget_requests,
+        neutral_target,
+    )
+    print(
+        "Using tokenizer EOS as ZeroUnlearn's neutral forget target: "
+        f"{neutral_target!r} (token id {neutral_target_id}); official "
+        "evaluation records remain unchanged"
+    )
 
     run_status = "running"
     runtime: Dict[str, Any] = {}
@@ -1356,6 +1454,17 @@ def main() -> None:
         "edit_layer_nums": EDIT_LAYER_NUMS,
         "add_retain": ADD_RETAIN,
         "use_h": USE_H,
+        "neutral_target": {
+            "role": "ZeroUnlearn M_n for forget-training requests only",
+            "source": "tokenizer.eos_token",
+            "token": neutral_target,
+            "token_id": neutral_target_id,
+            "forget_request_field": "target_new.str",
+            "forget_request_count": len(forget_requests),
+            "retain_requests_modified": False,
+            "official_evaluation_records_modified": False,
+            "source_mcf_modified": False,
+        },
         "checkpoint_saved": False,
         "cuda_device_index": device.index,
         "cuda_device_name": torch.cuda.get_device_name(device),
