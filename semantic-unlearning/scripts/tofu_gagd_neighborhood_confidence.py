@@ -72,6 +72,16 @@ class TOFUAnswerDeltaCache:
     target_selected_columns: torch.Tensor
 
 
+@dataclass
+class PackedTOFUAnswerDeltaCache:
+    base_token_nll: torch.Tensor
+    hidden: torch.Tensor
+    selected_probs: torch.Tensor
+    target_selected_columns: torch.Tensor
+    sequence_ids: torch.Tensor
+    sequence_token_counts: torch.Tensor
+
+
 @dataclass(frozen=True)
 class CandidateSnapshot:
     step: int
@@ -104,6 +114,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--real-authors-calibration-num", type=int, default=32)
     parser.add_argument("--world-facts-calibration-num", type=int, default=32)
     parser.add_argument("--calibration-seed", type=int, default=1729)
+    parser.add_argument(
+        "--max-forget-answer-probability",
+        type=float,
+        default=2e-5,
+        help=(
+            "Hard clean-forget probability ceiling inherited from the active "
+            "repair stage."
+        ),
+    )
+    parser.add_argument(
+        "--require-input-forgetting-target",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Reject a weak input checkpoint instead of preserving ineffective "
+            "forgetting."
+        ),
+    )
 
     parser.add_argument(
         "--reference-nll-slack",
@@ -138,6 +166,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--minimum-row-document-count", type=int, default=1)
     parser.add_argument("--max-delta-norm", type=float, default=None)
     parser.add_argument("--forget-projection-rank", type=int, default=64)
+    parser.add_argument(
+        "--basis-max-rows",
+        type=int,
+        default=512,
+        help="Deterministic hidden-row cap before SVD basis construction.",
+    )
     parser.add_argument(
         "--project-away-forget-hidden",
         action=argparse.BooleanOptionalAction,
@@ -185,6 +219,8 @@ def validate_args(args: argparse.Namespace) -> None:
             f"{args.forget_split} must be paired with {expected_retain}, "
             f"not {args.retain_split}"
         )
+    if not 0.0 < args.max_forget_answer_probability < 1.0:
+        raise ValueError("--max-forget-answer-probability must lie in (0,1)")
     positive_names = (
         "forget_num",
         "retain_num",
@@ -197,6 +233,7 @@ def validate_args(args: argparse.Namespace) -> None:
         "batch_size",
         "max_length",
         "log_every",
+        "basis_max_rows",
     )
     for name in positive_names:
         if int(getattr(args, name)) <= 0:
@@ -235,9 +272,10 @@ def deterministic_sample_indices(
         raise ValueError("Cannot sample from an empty population")
     if sample_size <= 0:
         raise ValueError("sample_size must be positive")
-    indices = list(range(population_size))
-    random.Random(seed).shuffle(indices)
-    return indices[: min(sample_size, population_size)]
+    return random.Random(seed).sample(
+        range(population_size),
+        min(sample_size, population_size),
+    )
 
 
 def format_question_prompt(tok: Any, question: str) -> str:
@@ -297,7 +335,7 @@ def load_tofu_calibration_instances(
         load_dataset("locuslab/TOFU", name="world_facts", split="train")
     )
 
-    # Match the four-setting runner for forget sampling: a fresh RNG with the
+    # Match tofu_eval.subset_samples: random.sample with a fresh RNG and the
     # experiment seed is applied independently to each primary split.
     forget = _rows_to_instances(
         forget_rows,
@@ -565,6 +603,69 @@ def answer_nlls_from_delta_caches(
     )
 
 
+def pack_answer_delta_caches(
+    caches: Sequence[TOFUAnswerDeltaCache],
+) -> PackedTOFUAnswerDeltaCache:
+    if not caches:
+        raise ValueError("Cannot pack an empty answer-cache sequence")
+    token_counts = torch.tensor(
+        [cache.base_token_nll.shape[0] for cache in caches],
+        dtype=torch.float32,
+        device=caches[0].base_token_nll.device,
+    )
+    if (token_counts <= 0).any():
+        raise ValueError("Every packed answer cache must contain a token")
+    sequence_ids = torch.repeat_interleave(
+        torch.arange(
+            len(caches),
+            dtype=torch.long,
+            device=caches[0].base_token_nll.device,
+        ),
+        token_counts.long(),
+    )
+    return PackedTOFUAnswerDeltaCache(
+        base_token_nll=torch.cat(
+            [cache.base_token_nll for cache in caches],
+            dim=0,
+        ),
+        hidden=torch.cat([cache.hidden for cache in caches], dim=0),
+        selected_probs=torch.cat(
+            [cache.selected_probs for cache in caches],
+            dim=0,
+        ),
+        target_selected_columns=torch.cat(
+            [cache.target_selected_columns for cache in caches],
+            dim=0,
+        ),
+        sequence_ids=sequence_ids,
+        sequence_token_counts=token_counts,
+    )
+
+
+def answer_nlls_from_packed_delta_cache(
+    cache: PackedTOFUAnswerDeltaCache,
+    delta_rows: torch.Tensor,
+) -> torch.Tensor:
+    corrections = cache.hidden @ delta_rows.transpose(0, 1)
+    log_shift = active._log_partition_shift(
+        cache.selected_probs,
+        corrections,
+    )
+    target_correction = corrections.new_zeros(corrections.shape[0])
+    selected_mask = cache.target_selected_columns.ge(0)
+    if selected_mask.any():
+        target_correction[selected_mask] = corrections[
+            selected_mask,
+            cache.target_selected_columns[selected_mask],
+        ]
+    token_nll = cache.base_token_nll + log_shift - target_correction
+    sequence_sums = token_nll.new_zeros(
+        cache.sequence_token_counts.shape[0]
+    )
+    sequence_sums.scatter_add_(0, cache.sequence_ids, token_nll)
+    return sequence_sums / cache.sequence_token_counts.to(sequence_sums)
+
+
 def build_required_nll_tensors(
     baseline_forget_nll: torch.Tensor,
     baseline_neighborhood_nll: torch.Tensor,
@@ -682,6 +783,30 @@ def group_answer_probabilities(
     }
 
 
+def forgetting_target_metrics(
+    nll: torch.Tensor,
+    max_answer_probability: float,
+) -> Dict[str, Any]:
+    probabilities = torch.exp(-nll)
+    passing = probabilities <= max_answer_probability
+    return {
+        "target_forget_answer_probability": max_answer_probability,
+        "forget_answer_probability_mean": float(
+            probabilities.mean().detach().cpu()
+        ),
+        "forget_answer_probability_max": float(
+            probabilities.max().detach().cpu()
+        ),
+        "forget_instances_above_target": int(
+            (~passing).sum().detach().cpu()
+        ),
+        "mean_target_met": bool(
+            probabilities.mean() <= max_answer_probability
+        ),
+        "all_instances_target_met": bool(passing.all()),
+    }
+
+
 def local_metrics(
     forget_nll: torch.Tensor,
     required_forget_nll: torch.Tensor,
@@ -757,6 +882,24 @@ def _hidden_rows(caches: Sequence[TOFUAnswerDeltaCache]) -> torch.Tensor:
     if not rows:
         raise ValueError("No answer-token hidden states were cached")
     return torch.cat(rows, dim=0)
+
+
+def limited_hidden_row_basis(
+    caches: Sequence[TOFUAnswerDeltaCache],
+    *,
+    max_rank: int,
+    max_rows: int,
+) -> torch.Tensor:
+    rows = _hidden_rows(caches)
+    if rows.shape[0] > max_rows:
+        positions = torch.linspace(
+            0,
+            rows.shape[0] - 1,
+            steps=max_rows,
+            device=rows.device,
+        ).round().long()
+        rows = rows.index_select(0, positions)
+    return active.orthonormal_row_basis(rows, max_rank=max_rank)
 
 
 @torch.no_grad()
@@ -955,6 +1098,22 @@ def main() -> None:
         batch_size=args.batch_size,
         max_length=args.max_length,
     ).detach()
+    baseline_forgetting_target = forgetting_target_metrics(
+        baseline_forget_nll,
+        args.max_forget_answer_probability,
+    )
+    if (
+        args.require_input_forgetting_target
+        and not baseline_forgetting_target["all_instances_target_met"]
+    ):
+        raise RuntimeError(
+            "The neighborhood-confidence input is not the active-repaired "
+            "TOFU checkpoint: "
+            f"{baseline_forgetting_target['forget_instances_above_target']} "
+            "forget cases exceed "
+            f"{args.max_forget_answer_probability}. Run "
+            "tofu_gagd_active_forget_repair.py first."
+        )
     reference_neighborhood_nll = reference_neighborhood_nll.to(device)
     required_forget_nll, required_neighborhood_nll = build_required_nll_tensors(
         baseline_forget_nll,
@@ -1016,13 +1175,17 @@ def main() -> None:
         batch_size=args.batch_size,
         max_length=args.max_length,
     )
+    packed_forget_caches = pack_answer_delta_caches(forget_caches)
+    packed_neighborhood_caches = pack_answer_delta_caches(
+        neighborhood_caches
+    )
     zero_delta = torch.zeros_like(baseline_rows, dtype=torch.float32)
-    baseline_forget_cached = answer_nlls_from_delta_caches(
-        forget_caches,
+    baseline_forget_cached = answer_nlls_from_packed_delta_cache(
+        packed_forget_caches,
         zero_delta,
     )
-    baseline_neighborhood_cached = answer_nlls_from_delta_caches(
-        neighborhood_caches,
+    baseline_neighborhood_cached = answer_nlls_from_packed_delta_cache(
+        packed_neighborhood_caches,
         zero_delta,
     )
     baseline_metrics = local_metrics(
@@ -1034,6 +1197,7 @@ def main() -> None:
         zero_delta,
         tolerance=args.comparison_tolerance,
     )
+    baseline_metrics["forgetting_target"] = baseline_forgetting_target
     _write_json(output_dir / "baseline_local_metrics.json", baseline_metrics)
     _write_json(
         output_dir / "baseline_forget_instances.json",
@@ -1067,15 +1231,17 @@ def main() -> None:
         ]
         direction_basis = None
         if args.repair_rank > 0:
-            direction_basis = active.orthonormal_row_basis(
-                _hidden_rows(active_neighborhood_caches),
+            direction_basis = limited_hidden_row_basis(
+                active_neighborhood_caches,
                 max_rank=args.repair_rank,
+                max_rows=args.basis_max_rows,
             )
         forget_basis = None
         if args.project_away_forget_hidden and args.forget_projection_rank > 0:
-            forget_basis = active.orthonormal_row_basis(
-                _hidden_rows(forget_caches),
+            forget_basis = limited_hidden_row_basis(
+                forget_caches,
                 max_rank=args.forget_projection_rank,
+                max_rows=args.basis_max_rows,
             )
         delta_module = active.SelectedRowDelta(
             len(selected_ids),
@@ -1084,6 +1250,9 @@ def main() -> None:
             retained_basis=forget_basis,
             device=device,
         )
+        # Packed caches drive the objective; release the per-example copies
+        # after their hidden-state bases have been constructed.
+        del active_neighborhood_caches, forget_caches, neighborhood_caches
         optimizer = active.make_repair_optimizer(
             delta_module,
             args.repair_optimizer,
@@ -1092,12 +1261,12 @@ def main() -> None:
         for step in range(1, args.repair_steps + 1):
             optimizer.zero_grad(set_to_none=True)
             delta = delta_module.effective_delta()
-            current_forget = answer_nlls_from_delta_caches(
-                forget_caches,
+            current_forget = answer_nlls_from_packed_delta_cache(
+                packed_forget_caches,
                 delta,
             )
-            current_neighborhood = answer_nlls_from_delta_caches(
-                neighborhood_caches,
+            current_neighborhood = answer_nlls_from_packed_delta_cache(
+                packed_neighborhood_caches,
                 delta,
             )
             terms = confidence_objective_terms(
@@ -1129,12 +1298,12 @@ def main() -> None:
 
             with torch.no_grad():
                 candidate_delta = delta_module.effective_delta()
-                current_forget = answer_nlls_from_delta_caches(
-                    forget_caches,
+                current_forget = answer_nlls_from_packed_delta_cache(
+                    packed_forget_caches,
                     candidate_delta,
                 )
-                current_neighborhood = answer_nlls_from_delta_caches(
-                    neighborhood_caches,
+                current_neighborhood = answer_nlls_from_packed_delta_cache(
+                    packed_neighborhood_caches,
                     candidate_delta,
                 )
                 metrics = local_metrics(
@@ -1219,6 +1388,10 @@ def main() -> None:
         batch_size=args.batch_size,
         max_length=args.max_length,
     ).detach()
+    after_forgetting_target = forgetting_target_metrics(
+        after_forget_nll,
+        args.max_forget_answer_probability,
+    )
     materialized_forget_violations = after_forget_nll < (
         required_forget_nll - args.materialization_tolerance
     )
@@ -1234,6 +1407,19 @@ def main() -> None:
             f"{int(materialized_forget_violations.sum().cpu())} protected "
             "forget answers; the candidate was reverted and not saved."
         )
+    if not after_forgetting_target["all_instances_target_met"]:
+        set_selected_lm_head_rows(
+            output_weight,
+            selected_ids,
+            baseline_rows,
+            torch.zeros_like(best_delta),
+        )
+        raise RuntimeError(
+            "Neighborhood repair crossed the absolute TOFU forgetting gate: "
+            f"{after_forgetting_target['forget_instances_above_target']} "
+            "forget cases exceed "
+            f"{args.max_forget_answer_probability}. The edit was reverted."
+        )
     after_metrics = local_metrics(
         after_forget_nll,
         required_forget_nll,
@@ -1243,6 +1429,7 @@ def main() -> None:
         best_delta,
         tolerance=args.materialization_tolerance,
     )
+    after_metrics["forgetting_target"] = after_forgetting_target
     _write_json(output_dir / "candidate_local_metrics.json", after_metrics)
     _write_json(
         output_dir / "candidate_forget_instances.json",
@@ -1274,6 +1461,9 @@ def main() -> None:
         "forget_split": args.forget_split,
         "retain_split": args.retain_split,
         "seed": args.seed,
+        "max_forget_answer_probability": (
+            args.max_forget_answer_probability
+        ),
         "forget_instance_count": len(forget_instances),
         "neighborhood_instance_count": len(neighborhood_instances),
         "initially_active_neighborhood_instances": len(active_positions),
@@ -1283,6 +1473,9 @@ def main() -> None:
         "stopped_early": stopped_early,
         "baseline_local_metrics": baseline_metrics,
         "candidate_local_metrics": after_metrics,
+        "forgetting_target_met": bool(
+            after_forgetting_target["all_instances_target_met"]
+        ),
         "input_embeddings_unchanged": True,
         "transformer_parameters_frozen": True,
         "only_selected_lm_head_rows_materialized": True,

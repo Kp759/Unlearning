@@ -11,5 +11,8 @@ data:
   n_retain: 1000
   seed: 42
 
+targets:
+  max_forget_answer_probability: 0.00002
+
 output:
-  dir: "outputs/tofu_gagd_neighborhood_confidence"
+  dir: "outputs/tofu_gagd_targeted_2e5"
