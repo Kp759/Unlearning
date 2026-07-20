@@ -210,6 +210,11 @@ def answer_with_eos(tok: AutoTokenizer, answer: str) -> str:
     return answer
 
 
+def append_eos_for_dataset(dataset: str) -> bool:
+    """Keep TOFU training aligned with ``tofu_eval.py`` answer positions."""
+    return dataset != "tofu"
+
+
 def normalize_answer(answer: str) -> str:
     if answer and not answer.startswith(" "):
         return " " + answer
@@ -988,8 +993,16 @@ def post_training_policy_report(
     }
 
 
-def kl_retain_loss(model: torch.nn.Module, ref_model: torch.nn.Module, tok: AutoTokenizer, examples: Sequence[Example], device: torch.device) -> torch.Tensor:
-    batch = build_batch(tok, examples, device)
+def kl_retain_loss(
+    model: torch.nn.Module,
+    ref_model: torch.nn.Module,
+    tok: AutoTokenizer,
+    examples: Sequence[Example],
+    device: torch.device,
+    *,
+    append_eos: bool = True,
+) -> torch.Tensor:
+    batch = build_batch(tok, examples, device, append_eos=append_eos)
     with torch.no_grad():
         ref_logits = ref_model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]).logits[:, :-1, :]
     cur_logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]).logits[:, :-1, :]
@@ -1067,6 +1080,7 @@ def train_mode(
             opt.zero_grad(set_to_none=True)
             margin_res = None
             ga_res = None
+            append_eos = append_eos_for_dataset(args.dataset)
             if args.forget_loss_type == "mcf_margin":
                 margin_res = mcf_margin_forget_loss(
                     model,
@@ -1083,16 +1097,37 @@ def train_mode(
                 forget_loss_for_log = ga_res.loss
                 total = args.forget_weight * ga_res.loss
             else:
-                forget_res = answer_ce_loss(model, tok, forget_batch, selected_set, device)
+                forget_res = answer_ce_loss(
+                    model,
+                    tok,
+                    forget_batch,
+                    selected_set,
+                    device,
+                    append_eos=append_eos,
+                )
                 forget_loss_for_log = forget_res.loss
                 total = -args.forget_weight * forget_res.loss
             retain_res = None
             if args.retain_weight > 0:
-                retain_res = answer_ce_loss(model, tok, retain_batch, selected_set, device)
+                retain_res = answer_ce_loss(
+                    model,
+                    tok,
+                    retain_batch,
+                    selected_set,
+                    device,
+                    append_eos=append_eos,
+                )
                 total = total + args.retain_weight * retain_res.loss
             kl_val = torch.zeros((), device=device)
             if ref_model is not None:
-                kl_val = kl_retain_loss(model, ref_model, tok, retain_batch, device)
+                kl_val = kl_retain_loss(
+                    model,
+                    ref_model,
+                    tok,
+                    retain_batch,
+                    device,
+                    append_eos=append_eos,
+                )
                 total = total + args.kl_retain_weight * kl_val
             if not torch.isfinite(total):
                 raise FloatingPointError(
@@ -1218,10 +1253,27 @@ def nll_values(
     return losses
 
 
-def mean_nll(model: torch.nn.Module, tok: AutoTokenizer, examples: Sequence[Example], device: torch.device) -> float:
+def mean_nll(
+    model: torch.nn.Module,
+    tok: AutoTokenizer,
+    examples: Sequence[Example],
+    device: torch.device,
+    *,
+    append_eos: bool = True,
+) -> float:
     if not examples:
         return float("nan")
-    return float(np.mean(nll_values(model, tok, examples, device)))
+    return float(
+        np.mean(
+            nll_values(
+                model,
+                tok,
+                examples,
+                device,
+                append_eos=append_eos,
+            )
+        )
+    )
 
 
 def mcf_target_examples(examples: Sequence[Example], field: str) -> List[Example]:
@@ -1334,8 +1386,21 @@ def evaluate(model: torch.nn.Module, tok: AutoTokenizer, forget: Sequence[Exampl
         metrics["forget_loss"] = metrics.get(f"forget_{selected_field}_nll", float("nan"))
         metrics["retain_loss"] = metrics.get(f"retain_{selected_field}_nll", float("nan"))
     else:
-        metrics["forget_answer_nll"] = mean_nll(model, tok, f_eval, device)
-        metrics["retain_answer_nll"] = mean_nll(model, tok, r_eval, device)
+        append_eos = append_eos_for_dataset(args.dataset)
+        metrics["forget_answer_nll"] = mean_nll(
+            model,
+            tok,
+            f_eval,
+            device,
+            append_eos=append_eos,
+        )
+        metrics["retain_answer_nll"] = mean_nll(
+            model,
+            tok,
+            r_eval,
+            device,
+            append_eos=append_eos,
+        )
         metrics["forget_match"] = greedy_match(model, tok, f_eval, device)
         metrics["retain_match"] = greedy_match(model, tok, r_eval, device)
         metrics["forget_loss"] = metrics["forget_answer_nll"]

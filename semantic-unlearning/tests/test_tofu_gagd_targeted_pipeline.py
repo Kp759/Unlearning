@@ -10,6 +10,7 @@ import torch
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 import tofu_gagd_active_forget_repair as ACTIVE  # noqa: E402
+import gagd_compare as GAGD  # noqa: E402
 import tofu_gagd_neighborhood_confidence as NEIGHBORHOOD  # noqa: E402
 import tofu_gagd_results as RESULTS  # noqa: E402
 import tofu_gagd_setting5e_restore as SETTING5  # noqa: E402
@@ -31,11 +32,27 @@ class TinyTokenizer:
 
 
 class TOFUTargetedPipelineTests(unittest.TestCase):
+    @staticmethod
+    def answer_instance(split, position, answer):
+        question = f"question-{position}"
+        return NEIGHBORHOOD.TOFUAnswerInstance(
+            split=split,
+            source_index=position,
+            sampled_position=position,
+            question=question,
+            answer=answer,
+            prompt=f"Question: {question} Answer:",
+        )
+
+    def test_tofu_ga_gd_does_not_train_on_unscored_eos(self):
+        self.assertFalse(GAGD.append_eos_for_dataset("tofu"))
+        self.assertTrue(GAGD.append_eos_for_dataset("mcf"))
+
     def test_setting5_groups_unique_overlap_and_retain_only_rows(self):
         groups = SETTING5.build_tofu_row_groups(
             TinyTokenizer(),
-            [{"answer": "AB"}],
-            [{"answer": "BC"}],
+            [{"question": "forget", "answer": "AB"}],
+            [{"question": "retain", "answer": "BC"}],
         )
         self.assertIn(ord("A"), groups.unique_forget)
         self.assertIn(ord("B"), groups.forget_retain_overlap)
@@ -70,6 +87,18 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
         self.assertTrue(torch.equal(trained[2], torch.full((2,), 0.25)))
         self.assertTrue(torch.equal(trained[3], torch.zeros(2)))
         self.assertTrue(torch.equal(trained[4], torch.zeros(2)))
+
+    def test_setting5_restores_every_input_embedding_row(self):
+        trained = torch.ones((5, 2))
+        base = torch.zeros_like(trained)
+        stats = SETTING5.restore_weight_to_base(
+            trained,
+            base,
+            chunk_rows=2,
+        )
+        self.assertTrue(torch.equal(trained, base))
+        self.assertGreater(stats["delta_norm_before"], 0.0)
+        self.assertEqual(stats["delta_norm_after"], 0.0)
 
     def test_active_required_nll_encodes_two_e_minus_five_target_and_buffer(self):
         original = torch.tensor([1.0, 11.0, 12.0])
@@ -111,6 +140,71 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
         self.assertGreater(float(utility.grad[1]), 0.0)
         self.assertEqual(terms["forget_slack"].shape, forget.shape)
         self.assertEqual(terms["utility_slack"].shape, utility.shape)
+
+    def test_active_utility_tolerance_matches_9998_percent_preservation(self):
+        tolerance = ACTIVE.probability_ratio_nll_tolerance(0.9998)
+        self.assertAlmostEqual(tolerance, -math.log(0.9998), places=12)
+        self.assertAlmostEqual(tolerance, 0.0002000200026670447, places=12)
+        self.assertAlmostEqual(
+            ACTIVE.probability_ratio_nll_tolerance(0.9998, 0.0001),
+            0.0001,
+        )
+        self.assertAlmostEqual(
+            ACTIVE.probability_ratio_nll_tolerance(0.9998, 0.05),
+            tolerance,
+        )
+
+    def test_active_row_selection_excludes_protected_answer_rows(self):
+        tokenizer = TinyTokenizer()
+        forget = [self.answer_instance("forget05", 0, "AB")]
+        protected = [self.answer_instance("retain", 0, "BC")]
+        selected, shared = ACTIVE.partition_active_forget_row_ids(
+            tokenizer,
+            forget,
+            [0],
+            max_length=256,
+            protected_instances=protected,
+        )
+        self.assertIn(ord("A"), selected)
+        self.assertNotIn(ord("B"), selected)
+        self.assertIn(ord("B"), shared)
+        self.assertIn(ord(" "), shared)
+
+    def test_active_candidate_priority_never_trades_utility_for_forgetting(self):
+        utility_safe = {
+            "utility_constraint_violation_count": 0,
+            "active_forget_instance_count": 1,
+            "buffered_forget_constraint_unmet_count": 1,
+            "minimum_forget_answer_nll": 10.0,
+            "selected_lm_head_delta_norm": 0.1,
+        }
+        destructive = {
+            "utility_constraint_violation_count": 256,
+            "active_forget_instance_count": 0,
+            "buffered_forget_constraint_unmet_count": 0,
+            "minimum_forget_answer_nll": 11.1,
+            "selected_lm_head_delta_norm": 99.0,
+        }
+        self.assertLess(
+            ACTIVE.candidate_priority(utility_safe),
+            ACTIVE.candidate_priority(destructive),
+        )
+
+    def test_active_parser_defaults_to_contextual_hard_utility_gates(self):
+        args = ACTIVE.build_parser().parse_args(
+            [
+                "--model-path",
+                "setting5",
+                "--reference-model-path",
+                "base",
+                "--output-dir",
+                "out",
+            ]
+        )
+        self.assertTrue(args.require_utility_constraints)
+        self.assertTrue(args.require_input_retain_target)
+        self.assertGreater(args.repair_rank, 0)
+        self.assertEqual(args.retain_calibration_num, args.retain_num)
 
     def test_packed_sparse_cache_matches_per_answer_computation(self):
         caches = [
@@ -172,6 +266,39 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
                 max_forget_answer_probability=2e-5,
             )
 
+    def test_final_comparison_requires_forget_and_relative_retain_targets(self):
+        display = "Setting 5e + active forget repair"
+        rows = [
+            {
+                "Method": "Base",
+                "Forget answer probability ↓": 0.998,
+                "Retain answer probability ↑": 0.998,
+                "Meets forgetting target": False,
+            },
+            {
+                "Method": display,
+                "Forget answer probability ↓": 1.9e-5,
+                "Retain answer probability ↑": 0.998 * 0.9998,
+                "Meets forgetting target": True,
+            },
+        ]
+        RESULTS.add_base_differences(rows, 0.9998)
+        RESULTS.require_joint_target(
+            rows,
+            required_display_name=display,
+            max_forget_answer_probability=2e-5,
+            min_retain_probability_ratio=0.9998,
+        )
+        rows[1]["Retain answer probability ↑"] = 0.998 * 0.9997
+        RESULTS.add_base_differences(rows, 0.9998)
+        with self.assertRaises(RuntimeError):
+            RESULTS.require_joint_target(
+                rows,
+                required_display_name=display,
+                max_forget_answer_probability=2e-5,
+                min_retain_probability_ratio=0.9998,
+            )
+
     def test_oracle_recovers_full_finetune_provenance(self):
         args = SimpleNamespace(
             base_model_path=None,
@@ -205,6 +332,10 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
         self.assertLess(setting5, active)
         self.assertLess(active, neighborhood)
         self.assertIn("--max-forget-answer-probability", script)
+        self.assertIn("--min-utility-probability-ratio", script)
+        self.assertIn("--require-utility-constraints", script)
+        self.assertIn("--reference-model-path", script)
+        self.assertIn('RUN_NEIGHBORHOOD_REPAIR="${RUN_NEIGHBORHOOD_REPAIR:-0}"', script)
         self.assertGreater(oracle, neighborhood)
 
 

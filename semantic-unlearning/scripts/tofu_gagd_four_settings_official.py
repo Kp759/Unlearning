@@ -44,14 +44,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--forget-num", type=int, default=200)
     parser.add_argument("--retain-num", type=int, default=1000)
-    parser.add_argument("--steps", type=int, default=1000)
+    parser.add_argument(
+        "--steps",
+        type=int,
+        default=200,
+        help=(
+            "Default is one epoch over forget05. With retain batch size 5, "
+            "the paired 1,000-record retain sample is also covered once."
+        ),
+    )
     parser.add_argument("--batch-size", type=int, default=1)
-    parser.add_argument("--retain-batch-size", type=int, default=1)
+    parser.add_argument("--retain-batch-size", type=int, default=5)
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--full-lr", type=float, default=1e-5)
     parser.add_argument("--emb-lm-lr", type=float, default=2e-4)
-    parser.add_argument("--forget-weight", type=float, default=2.0)
-    parser.add_argument("--retain-weight", type=float, default=0.5)
+    parser.add_argument("--forget-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--retain-weight",
+        type=float,
+        default=5.0,
+        help=(
+            "Compensates for the five-record retain batch so each sampled "
+            "forget and retain record has comparable coefficient mass."
+        ),
+    )
     parser.add_argument("--kl-retain-weight", type=float, default=0.0)
     parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--grad-clip", type=float, default=1.0)

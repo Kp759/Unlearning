@@ -136,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reference-nll-slack",
         type=float,
-        default=0.05,
+        default=-math.log(0.9998),
         help=(
             "A neighborhood answer is repaired until its NLL is no more than "
             "reference NLL plus this slack."
@@ -185,7 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--save-best-effort",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help=(
             "Save the best forget-safe candidate even if some neighborhood "
             "confidence targets remain unmet. Use --no-save-best-effort to "
@@ -318,10 +318,15 @@ def _rows_to_instances(
     return instances
 
 
-def load_tofu_calibration_instances(
+def load_tofu_repair_instances(
     args: argparse.Namespace,
     tok: Any,
-) -> Tuple[List[TOFUAnswerInstance], List[TOFUAnswerInstance]]:
+) -> Tuple[
+    List[TOFUAnswerInstance],
+    List[TOFUAnswerInstance],
+    List[TOFUAnswerInstance],
+]:
+    """Load protocol-matched forget/retain records and utility calibration."""
     forget_rows = list(
         load_dataset("locuslab/TOFU", name=args.forget_split, split="train")
     )
@@ -379,7 +384,15 @@ def load_tofu_calibration_instances(
         args.world_facts_calibration_num,
         args.calibration_seed + 2,
     )
-    return forget, [*retain, *real, *world]
+    return forget, retain_full, [*retain, *real, *world]
+
+
+def load_tofu_calibration_instances(
+    args: argparse.Namespace,
+    tok: Any,
+) -> Tuple[List[TOFUAnswerInstance], List[TOFUAnswerInstance]]:
+    forget, _, utility = load_tofu_repair_instances(args, tok)
+    return forget, utility
 
 
 def _token_ids(value: Any) -> List[int]:

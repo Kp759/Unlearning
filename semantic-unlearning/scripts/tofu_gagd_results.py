@@ -43,6 +43,9 @@ COLUMNS = (
     "Forget ROUGE-L recall ↓",
     "Forget truth ratio",
     "Retain answer probability ↑",
+    "Retain probability ratio vs Base ↑",
+    "Meets retain target",
+    "Meets joint target",
     "Retain ROUGE-L recall ↑",
     "Retain truth ratio ↑",
     "Real-authors normalized answer probability ↑",
@@ -73,6 +76,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-forget-answer-probability",
         type=float,
         default=2e-5,
+    )
+    parser.add_argument(
+        "--min-retain-probability-ratio",
+        type=float,
+        default=0.9998,
+        help=(
+            "Required candidate retain answer probability divided by the Base "
+            "retain answer probability."
+        ),
     )
     parser.add_argument(
         "--required-target-method",
@@ -129,6 +141,9 @@ def row_from_summary(
         "Forget ROUGE-L recall ↓": _number(summary, "forget_rougeL_recall"),
         "Forget truth ratio": _number(summary, "forget_truth_ratio"),
         "Retain answer probability ↑": _number(summary, "retain_answer_prob"),
+        "Retain probability ratio vs Base ↑": float("nan"),
+        "Meets retain target": False,
+        "Meets joint target": False,
         "Retain ROUGE-L recall ↑": _number(summary, "retain_rougeL_recall"),
         "Retain truth ratio ↑": _number(summary, "retain_truth_ratio"),
         "Real-authors normalized answer probability ↑": _number(
@@ -178,14 +193,35 @@ def verify_protocol(rows: Sequence[Dict[str, Any]]) -> Tuple[int, str, str]:
     return protocol
 
 
-def add_base_differences(rows: Sequence[Dict[str, Any]]) -> None:
+def add_base_differences(
+    rows: Sequence[Dict[str, Any]],
+    min_retain_probability_ratio: float = 0.9998,
+) -> None:
     base_rows = [row for row in rows if row["Method"] == "Base"]
     if len(base_rows) != 1:
         raise ValueError("Exactly one Base row is required")
     base_value = float(base_rows[0]["Forget answer probability ↓"])
+    base_retain = float(base_rows[0]["Retain answer probability ↑"])
+    if not math.isfinite(base_retain) or base_retain <= 0:
+        raise ValueError("Base retain answer probability must be positive and finite")
     for row in rows:
         row["Change from Base"] = (
             float(row["Forget answer probability ↓"]) - base_value
+        )
+        retain_value = float(row["Retain answer probability ↑"])
+        retain_ratio = (
+            retain_value / base_retain
+            if math.isfinite(retain_value)
+            else float("nan")
+        )
+        retain_met = bool(
+            math.isfinite(retain_ratio)
+            and retain_ratio + 1e-12 >= min_retain_probability_ratio
+        )
+        row["Retain probability ratio vs Base ↑"] = retain_ratio
+        row["Meets retain target"] = retain_met
+        row["Meets joint target"] = bool(
+            row["Meets forgetting target"] and retain_met
         )
 
 
@@ -212,6 +248,38 @@ def require_forgetting_target(
         )
 
 
+def require_joint_target(
+    rows: Sequence[Dict[str, Any]],
+    *,
+    required_display_name: str,
+    max_forget_answer_probability: float,
+    min_retain_probability_ratio: float,
+) -> None:
+    require_forgetting_target(
+        rows,
+        required_display_name=required_display_name,
+        max_forget_answer_probability=max_forget_answer_probability,
+    )
+    matches = [row for row in rows if row["Method"] == required_display_name]
+    if len(matches) != 1:
+        raise ValueError(
+            f"Required target method {required_display_name!r} is missing"
+        )
+    retain_ratio = float(
+        matches[0]["Retain probability ratio vs Base ↑"]
+    )
+    if (
+        not math.isfinite(retain_ratio)
+        or retain_ratio + 1e-12 < min_retain_probability_ratio
+    ):
+        raise RuntimeError(
+            f"{required_display_name} has retain/Base probability ratio "
+            f"{retain_ratio}, below the hard target "
+            f"{min_retain_probability_ratio}. The candidate is diagnostic and "
+            "must not be selected."
+        )
+
+
 def _format_markdown_value(value: Any) -> str:
     if isinstance(value, float):
         return "—" if math.isnan(value) else f"{value:.6f}"
@@ -225,6 +293,7 @@ def write_outputs(
     rows: Sequence[Dict[str, Any]],
     protocol: Tuple[int, str, str],
     max_forget_answer_probability: float,
+    min_retain_probability_ratio: float,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / "comparison_tofu.csv"
@@ -234,7 +303,7 @@ def write_outputs(
         writer.writerows(rows)
 
     md_path = output_dir / "comparison_tofu.md"
-    display_columns = COLUMNS[:14]
+    display_columns = COLUMNS[:17]
     lines = [
         "# TOFU GA/GD comparison",
         "",
@@ -243,7 +312,9 @@ def write_outputs(
             f"`{protocol[2]}`. TOFU does not define MCF `Spe`; utility is "
             "reported separately on retain, real-authors, and world-facts. "
             "The hard forget-answer probability target is "
-            f"{max_forget_answer_probability:.8g}."
+            f"{max_forget_answer_probability:.8g}; the hard retain/Base "
+            "probability-ratio target is "
+            f"{min_retain_probability_ratio:.8g}."
         ),
         "",
         "| " + " | ".join(display_columns) + " |",
@@ -272,6 +343,9 @@ def write_outputs(
                 "max_forget_answer_probability": (
                     max_forget_answer_probability
                 ),
+                "min_retain_probability_ratio": (
+                    min_retain_probability_ratio
+                ),
                 "metric_note": (
                     "Forget answer probability and forget ROUGE-L are lower-is-"
                     "better. Utility columns are higher-is-better. Forget truth "
@@ -291,6 +365,8 @@ def main() -> None:
     args = build_parser().parse_args()
     if not 0.0 < args.max_forget_answer_probability < 1.0:
         raise ValueError("--max-forget-answer-probability must lie in (0,1)")
+    if not 0.0 < args.min_retain_probability_ratio <= 1.0:
+        raise ValueError("--min-retain-probability-ratio must lie in (0,1]")
     result_paths = parse_result_specs(args.result)
     missing = [
         key
@@ -319,24 +395,28 @@ def main() -> None:
             )
         )
     protocol = verify_protocol(rows)
-    add_base_differences(rows)
+    add_base_differences(rows, args.min_retain_probability_ratio)
     output_dir = Path(args.output_dir).resolve()
     write_outputs(
         output_dir,
         rows,
         protocol,
         args.max_forget_answer_probability,
+        args.min_retain_probability_ratio,
     )
     if args.require_target:
         display_by_key = {
             key: display_name
             for display_name, key in METHOD_KEYS.items()
         }
-        require_forgetting_target(
+        require_joint_target(
             rows,
             required_display_name=display_by_key[args.required_target_method],
             max_forget_answer_probability=(
                 args.max_forget_answer_probability
+            ),
+            min_retain_probability_ratio=(
+                args.min_retain_probability_ratio
             ),
         )
     print(f"TOFU comparison written to {output_dir}")

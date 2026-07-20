@@ -8,12 +8,14 @@ trained.  No GA/GD training is rerun.
 TOFU has no CounterFact target-new/target-true pair, so the vocabulary policy
 is defined from answer tokens:
 
-* unique forget-answer rows keep the learned GA/GD update;
-* forget/retain overlap rows keep a configurable fraction of the update;
-* retain-only and unrelated rows are restored to the base model.
+* unique forget-answer LM-head rows keep the learned GA/GD update;
+* forget/protected overlap LM-head rows keep a configurable fraction;
+* protected-only and unrelated LM-head rows are restored to the base model;
+* the complete input embedding matrix is restored to the base model.
 
-The policy is applied to both input embeddings and the LM head.  Tied weights
-are edited once and remain tied.
+The output head is untied before restoration when the source model ties input
+and output embeddings. This prevents answer-row edits from changing prompt
+representations globally.
 """
 
 from __future__ import annotations
@@ -67,6 +69,36 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retain-num", type=int, default=1000)
     parser.add_argument("--unique-forget-alpha", type=float, default=1.0)
     parser.add_argument("--overlap-alpha", type=float, default=0.25)
+    parser.add_argument(
+        "--max-length",
+        type=int,
+        default=256,
+        help="Use the same answer truncation boundary as the official evaluator.",
+    )
+    parser.add_argument(
+        "--protect-full-retain-split",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Classify overlap against the complete paired retain split, not "
+            "only the sampled evaluation subset."
+        ),
+    )
+    parser.add_argument(
+        "--protect-utility-splits",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Also protect answer rows from real_authors and world_facts.",
+    )
+    parser.add_argument(
+        "--restore-input-embeddings",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Restore every input embedding row to the exact pre-GA/GD model. "
+            "Normal target-safe runs must leave this enabled."
+        ),
+    )
     parser.add_argument("--chunk-rows", type=int, default=2048)
     parser.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default="bf16")
     parser.add_argument("--device-map", choices=["single", "auto"], default="single")
@@ -85,30 +117,55 @@ def validate_args(args: argparse.Namespace) -> None:
             f"{args.forget_split} must be paired with {expected}, "
             f"not {args.retain_split}"
         )
-    for name in ("forget_num", "retain_num", "chunk_rows"):
+    for name in ("forget_num", "retain_num", "max_length", "chunk_rows"):
         if int(getattr(args, name)) <= 0:
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
     for name in ("unique_forget_alpha", "overlap_alpha"):
         value = float(getattr(args, name))
         if not math.isfinite(value) or not 0.0 <= value <= 1.0:
             raise ValueError(f"--{name.replace('_', '-')} must lie in [0,1]")
+    if args.source_mode != "emb_lm_all_tokens":
+        raise ValueError(
+            "TOFU Setting 5e requires an emb_lm_all_tokens source checkpoint"
+        )
 
 
 def _sample_rows(split: str, count: int, seed: int) -> List[Dict[str, Any]]:
-    rows = list(load_dataset("locuslab/TOFU", name=split, split="train"))
+    rows = _load_rows(split)
     indices = tofu.deterministic_sample_indices(len(rows), count, seed)
     return [rows[index] for index in indices]
+
+
+def _load_rows(split: str) -> List[Dict[str, Any]]:
+    return list(load_dataset("locuslab/TOFU", name=split, split="train"))
 
 
 def _answer_token_ids(
     tok: Any,
     rows: Sequence[Dict[str, Any]],
+    *,
+    max_length: int,
 ) -> set[int]:
     selected: set[int] = set()
     specials = gagd.special_token_ids(tok)
-    for row in rows:
-        answer = gagd.normalize_answer(str(row["answer"]).strip())
-        selected.update(gagd.token_ids_for_text(tok, answer))
+    for position, row in enumerate(rows):
+        if "question" not in row or "answer" not in row:
+            raise ValueError("TOFU row lacks question or answer")
+        question = str(row["question"])
+        instance = tofu.TOFUAnswerInstance(
+            split="setting5e_row_policy",
+            source_index=position,
+            sampled_position=position,
+            question=question,
+            answer=str(row["answer"]),
+            prompt=tofu.format_question_prompt(tok, question),
+        )
+        full_ids, prompt_length = tofu.answer_sequence_components(
+            tok,
+            instance,
+            max_length,
+        )
+        selected.update(full_ids[prompt_length:])
     return selected - specials
 
 
@@ -116,9 +173,11 @@ def build_tofu_row_groups(
     tok: Any,
     forget_rows: Sequence[Dict[str, Any]],
     retain_rows: Sequence[Dict[str, Any]],
+    *,
+    max_length: int = 256,
 ) -> TOFURowGroups:
-    forget = _answer_token_ids(tok, forget_rows)
-    retain = _answer_token_ids(tok, retain_rows)
+    forget = _answer_token_ids(tok, forget_rows, max_length=max_length)
+    retain = _answer_token_ids(tok, retain_rows, max_length=max_length)
     overlap = forget & retain
     return TOFURowGroups(
         forget=tuple(sorted(forget)),
@@ -191,6 +250,26 @@ def apply_row_policy(
     }
 
 
+@torch.no_grad()
+def restore_weight_to_base(
+    trained_weight: torch.Tensor,
+    base_weight: torch.Tensor,
+    *,
+    chunk_rows: int,
+) -> Dict[str, float]:
+    alphas = torch.zeros(
+        trained_weight.shape[0],
+        dtype=torch.float32,
+        device=trained_weight.device,
+    )
+    return apply_row_policy(
+        trained_weight,
+        base_weight,
+        alphas,
+        chunk_rows=chunk_rows,
+    )
+
+
 def _model_args(args: argparse.Namespace) -> SimpleNamespace:
     return SimpleNamespace(
         model_path=args.model_path,
@@ -227,8 +306,30 @@ def main() -> None:
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     forget_rows = _sample_rows(args.forget_split, args.forget_num, args.seed)
-    retain_rows = _sample_rows(args.retain_split, args.retain_num, args.seed)
-    groups = build_tofu_row_groups(tok, forget_rows, retain_rows)
+    sampled_retain_rows = _sample_rows(
+        args.retain_split,
+        args.retain_num,
+        args.seed,
+    )
+    protected_rows = (
+        _load_rows(args.retain_split)
+        if args.protect_full_retain_split
+        else sampled_retain_rows
+    )
+    protected_split_counts: Dict[str, int] = {
+        args.retain_split: len(protected_rows),
+    }
+    if args.protect_utility_splits:
+        for split in ("real_authors", "world_facts"):
+            utility_rows = _load_rows(split)
+            protected_rows.extend(utility_rows)
+            protected_split_counts[split] = len(utility_rows)
+    groups = build_tofu_row_groups(
+        tok,
+        forget_rows,
+        protected_rows,
+        max_length=args.max_length,
+    )
     gagd.write_json(output_dir / "token_group_report.json", _group_report(tok, groups))
 
     print(f"Loading trained checkpoint: {args.model_path}")
@@ -243,8 +344,14 @@ def main() -> None:
         low_cpu_mem_usage=True,
     )
 
+    source_input = model.get_input_embeddings().weight
+    source_output = model.get_output_embeddings().weight
+    source_input_output_tied = (
+        source_input.data_ptr() == source_output.data_ptr()
+    )
+    output_embeddings = active.freeze_model_for_output_repair(model)
     trained_input = model.get_input_embeddings().weight
-    trained_output = model.get_output_embeddings().weight
+    trained_output = output_embeddings.weight
     base_input = base_model.get_input_embeddings().weight
     base_output = base_model.get_output_embeddings().weight
     if trained_input.shape[0] != len(tok):
@@ -257,24 +364,30 @@ def main() -> None:
         device=trained_input.device,
     )
 
-    input_output_tied = (
-        trained_input.data_ptr() == trained_output.data_ptr()
-    )
-    input_stats = apply_row_policy(
-        trained_input,
-        base_input,
-        row_alphas,
-        chunk_rows=args.chunk_rows,
-    )
-    if input_output_tied:
-        output_stats = dict(input_stats)
-    else:
-        output_stats = apply_row_policy(
-            trained_output,
-            base_output,
-            row_alphas.to(trained_output.device),
+    if args.restore_input_embeddings:
+        input_stats = restore_weight_to_base(
+            trained_input,
+            base_input,
             chunk_rows=args.chunk_rows,
         )
+    else:
+        input_stats = apply_row_policy(
+            trained_input,
+            base_input,
+            row_alphas,
+            chunk_rows=args.chunk_rows,
+        )
+    output_stats = apply_row_policy(
+        trained_output,
+        base_output,
+        row_alphas.to(trained_output.device),
+        chunk_rows=args.chunk_rows,
+    )
+    final_input_output_tied = (
+        trained_input.data_ptr() == trained_output.data_ptr()
+    )
+    if final_input_output_tied:
+        raise RuntimeError("Setting 5e output head was not safely untied")
 
     source_config_path, source_config = tofu.discover_source_config(
         args.model_path
@@ -295,7 +408,13 @@ def main() -> None:
             ),
             "retain_only": "base row",
             "unrelated": "base row",
+            "input_embeddings": (
+                "all base rows"
+                if args.restore_input_embeddings
+                else "legacy output-row alpha policy"
+            ),
         },
+        "protected_split_counts": protected_split_counts,
     }
     gagd.write_json(output_dir / "config_used.json", config_used)
     summary = {
@@ -303,7 +422,12 @@ def main() -> None:
         "input_checkpoint": args.model_path,
         "base_model": args.base_model_path,
         "source_mode": args.source_mode,
-        "input_output_tied": input_output_tied,
+        "source_input_output_tied": source_input_output_tied,
+        "final_input_output_tied": final_input_output_tied,
+        "input_embeddings_fully_restored": bool(
+            args.restore_input_embeddings
+        ),
+        "protected_split_counts": protected_split_counts,
         "unique_forget_alpha": args.unique_forget_alpha,
         "overlap_alpha": args.overlap_alpha,
         "row_counts": {
@@ -317,7 +441,7 @@ def main() -> None:
                 - len(set(groups.forget) | set(groups.retain))
             ),
         },
-        "input_embedding_delta": input_stats,
+        "input_embedding_restoration": input_stats,
         "lm_head_delta": output_stats,
         "checkpoint_saved": bool(args.save_model),
     }

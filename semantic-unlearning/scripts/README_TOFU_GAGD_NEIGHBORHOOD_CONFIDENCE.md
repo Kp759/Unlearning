@@ -12,8 +12,12 @@ This experiment is isolated from the older MCF/TOFU runners. It evaluates:
 8. Setting 5e plus active forget-case repair;
 9. Setting 5e plus active and neighborhood-confidence repair.
 
-The final method is accepted only when its clean forget answer probability is
-at most `0.00002`.
+The default final method is Setting 5e plus active forget-case repair.
+Neighborhood repair is optional. A final method is accepted only when:
+
+- clean forget answer probability is at most `0.00002`; and
+- retain answer probability preserves at least `99.98%` of the unchanged
+  full-TOFU model on the identical evaluation sample.
 
 ## Run
 
@@ -32,12 +36,14 @@ bash scripts/run_tofu_gagd_neighborhood_confidence.sh
 ```
 
 The default protocol is seed 42, `forget05`, `retain95`, 200 forget examples,
-and 1,000 retain examples. Every phase runs by default. The four-setting budget
-is now 1,000 steps, with a separate `2e-4` embedding/LM-head learning rate;
-the previous 100-step `1e-5` run barely changed the model.
+and 1,000 retain examples. The four-setting source training uses 200 steps:
+one pass over forget05 at batch size 1 and one pass over all 1,000 sampled
+retain records at batch size 5. The retain loss weight of 5 compensates for
+batch averaging, instead of giving each forget record roughly 20 times the
+effective pressure of a retain record.
 The four-setting front end also uses the same chat-template prompt and leading
-answer space as `tofu_eval.py`; the older generic TOFU loader used a different
-plain-text prompt.
+plain-text prompt. TOFU GA/GD does not append EOS to the answer objective,
+because `tofu_eval.py` does not score EOS.
 
 Existing checkpoints can be reused:
 
@@ -53,19 +59,28 @@ The independently reusable phase switches are:
 - `RUN_RETAIN_ONLY_ORACLE`
 - `RUN_EVAL`
 
-Set a switch to `0` only when its expected output already exists.
+For an enabled stage, set its switch to `0` only when its expected output
+already exists. `RUN_NEIGHBORHOOD_REPAIR` is the exception: it is optional and
+`0` by default because the requested final edit is the active-pair LM-head
+repair.
 
 ## Setting 5e restoration
 
-TOFU has no MCF `target_new`/`target_true` pair. Its 5e analogue uses answer
-token groups:
+TOFU has no MCF `target_new`/`target_true` pair. Its 5e analogue unties the
+output head and uses answer-token groups:
 
-- unique forget rows keep the learned GA/GD update;
-- forget/retain overlap rows keep 25% of the learned update by default;
-- retain-only and unrelated rows return to the full-TOFU base model.
+- unique forget LM-head rows keep the learned GA/GD update;
+- rows shared with the protected corpus keep 25% of the update by default;
+- protected-only and unrelated LM-head rows return to the full-TOFU base;
+- every input embedding row returns to the full-TOFU base.
 
-The policy is applied after all-token embedding/LM-head GA/GD to both input
-embeddings and the LM head.
+The protected row corpus includes the complete paired retain split plus
+`real_authors` and `world_facts`, not only the 1,000-record evaluation sample.
+Answer rows are extracted at the exact answer positions and truncation boundary
+used by `tofu_eval.py`, rather than by tokenizing answer strings in isolation.
+Restoring the complete input matrix is required because this model begins with
+tied input/output embeddings; otherwise an answer-row edit also changes prompt
+representations everywhere that token occurs.
 
 ## Absolute active-case repair
 
@@ -79,20 +94,32 @@ The active repair requires every record to reach an answer NLL of at least
 `-log(2e-5)`, plus a BF16 safety buffer. It:
 
 - selects rows only from initially failing forget answers;
+- removes every row shared with protected utility answers;
 - freezes the transformer and input embeddings;
+- restricts each row delta to a low-rank basis of active answer-position hidden
+  states;
 - optimizes every forget record simultaneously so failures cannot migrate;
-- protects deterministic retain, real-author, and world-fact calibration
-  answers with per-example NLL ceilings;
+- protects all 1,000 protocol-matched retain answers plus deterministic
+  real-author and world-fact answers against the original full-TOFU model;
 - can project sparse LM-head updates away from utility hidden directions;
+- uses `-log(0.9998) = 0.000200020002667...` as the maximum utility NLL
+  allowance;
+- ranks utility-safe candidates before candidates with stronger forgetting;
 - refuses to save a normal candidate unless every materialized forget answer
-  passes the hard target.
+  and every utility gate pass.
+
+An LM-head vocabulary row is global, not intrinsically pair-specific. Here,
+"active-pair repair" means that eligible rows come only from initially failing
+pairs and their deltas are restricted to those pairs' hidden-state directions.
+If every required row overlaps protected answers, the runner fails safely
+instead of making a global destructive edit.
 
 `--save-best-effort` exists only for diagnostics and is not used by the shell
 runner.
 
-## Neighborhood-confidence repair
+## Optional neighborhood-confidence repair
 
-The neighborhood stage starts from the target-qualified active checkpoint,
+The optional neighborhood stage starts from the target-qualified active checkpoint,
 never directly from a weak GA/GD checkpoint. Its utility neighborhood contains:
 
 - the paired retain split;
@@ -112,8 +139,8 @@ It restores their answer confidence toward the original full-TOFU model while:
 The stage rejects weak input checkpoints and rechecks the absolute `2e-5`
 target after BF16 materialization.
 
-The full `tofu_eval.py` evaluation runs only after the sparse candidate is
-selected and saved.
+Best-effort saving is disabled by default. The full `tofu_eval.py` evaluation
+runs only after sparse candidate selection.
 
 ## Retain-only oracle
 
@@ -150,6 +177,8 @@ The table reports TOFU-native metrics:
 - truth-ratio metrics;
 - KS p-value against the retain-only oracle;
 - an explicit pass/fail column for the `0.00002` forgetting target.
+- retain probability relative to Base;
+- explicit retain and joint-target pass/fail columns.
 
 Forget truth ratio is not a standalone monotonic score. Interpret it together
 with the retain-only oracle KS comparison.
@@ -158,6 +187,12 @@ For quick smoke tests, set `N_FORGET_EVAL`, `N_RETAIN_EVAL`,
 `N_REAL_AUTHORS_EVAL`, `N_WORLD_FACTS_EVAL`, and `N_PERTURBED_EVAL` to small
 values. Do not use those truncated runs as final benchmark results.
 
-The comparison generator exits nonzero when the final neighborhood-repaired
-checkpoint exceeds the forgetting target. This prevents a weak run from being
-silently presented as the selected method.
+The comparison generator exits nonzero when the selected final checkpoint
+exceeds the forget target or falls below the `0.9998` retain/Base ratio. This
+prevents either ineffective forgetting or destructive utility loss from being
+silently presented as success.
+
+The retain target is relative, not an absolute answer probability of `0.9998`.
+The tracked unchanged model has retain answer probability about `0.9980`, so
+an absolute `0.9998` requirement would demand improving beyond the starting
+model rather than preserving it.

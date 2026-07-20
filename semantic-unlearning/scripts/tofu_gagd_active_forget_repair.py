@@ -4,7 +4,8 @@
 The input is normally the TOFU Setting 5e checkpoint produced by
 ``tofu_gagd_setting5e_restore.py``.  This stage never reruns GA/GD.  It freezes
 the transformer and input embeddings, unties the LM head when necessary, and
-optimizes only LM-head rows used by initially active forget answers.
+optimizes only utility-exclusive LM-head rows used by initially active forget
+answers, in a low-rank basis built from those active answer positions.
 
 For every clean TOFU forget example the evaluator reports
 
@@ -12,12 +13,13 @@ For every clean TOFU forget example the evaluator reports
 
 The default target is 2e-5.  Initially active examples receive a buffered NLL
 floor above ``-log(2e-5)``; initially passing examples are protected so the
-failure set cannot migrate.  Deterministic retain, real-author, and world-fact
-calibration answers receive per-example NLL ceilings.
+failure set cannot migrate. Deterministic retain, real-author, and world-fact
+calibration answers receive per-example NLL ceilings relative to the original
+full-TOFU reference model. The full retain evaluation subset receives a hard
+aggregate probability-ratio gate before any checkpoint is saved.
 
 No normal checkpoint is saved unless every materialized forget answer meets
-the hard probability target. Utility constraints are optimized and reported;
-they can optionally be promoted to hard save gates.
+the hard probability target and every utility gate passes.
 """
 
 from __future__ import annotations
@@ -50,6 +52,14 @@ class CandidateSnapshot:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-path", required=True)
+    parser.add_argument(
+        "--reference-model-path",
+        required=True,
+        help=(
+            "Exact pre-GA/GD full-TOFU model used for utility constraints and "
+            "the full retain probability-ratio gate."
+        ),
+    )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument(
         "--forget-split",
@@ -60,7 +70,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--forget-num", type=int, default=200)
     parser.add_argument("--retain-num", type=int, default=1000)
-    parser.add_argument("--retain-calibration-num", type=int, default=128)
+    parser.add_argument(
+        "--retain-calibration-num",
+        type=int,
+        default=1000,
+        help=(
+            "Defaults to the complete protocol-matched retain evaluation set "
+            "so candidate selection cannot overfit a small calibration subset."
+        ),
+    )
     parser.add_argument("--real-authors-calibration-num", type=int, default=64)
     parser.add_argument("--world-facts-calibration-num", type=int, default=64)
     parser.add_argument("--calibration-seed", type=int, default=2718)
@@ -77,12 +95,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Extra NLL required before BF16 materialization.",
     )
     parser.add_argument(
+        "--min-utility-probability-ratio",
+        type=float,
+        default=0.9998,
+        help=(
+            "Candidate utility answer probability must preserve at least this "
+            "fraction of the original full-TOFU reference. The equivalent "
+            "per-example NLL allowance is -log(ratio)."
+        ),
+    )
+    parser.add_argument(
         "--utility-nll-tolerance",
         type=float,
-        default=0.05,
+        default=None,
         help=(
-            "Maximum per-example utility NLL increase relative to the input "
-            "Setting 5e checkpoint."
+            "Optional stricter per-example NLL allowance. The effective "
+            "allowance is the minimum of this value and -log of the required "
+            "utility probability ratio."
+        ),
+    )
+    parser.add_argument(
+        "--require-input-retain-target",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Reject a Setting 5e input whose full retain probability ratio is "
+            "already below the requested utility floor."
         ),
     )
     parser.add_argument("--forget-hinge-weight", type=float, default=100.0)
@@ -98,14 +136,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repair-rank",
         type=int,
-        default=0,
-        help="Zero learns a full selected-row delta; positive values use a rank basis.",
+        default=32,
+        help=(
+            "Positive values restrict each row delta to active answer-position "
+            "hidden directions. Zero is diagnostic and rejected in normal runs."
+        ),
     )
-    parser.add_argument("--utility-projection-rank", type=int, default=128)
+    parser.add_argument("--utility-projection-rank", type=int, default=256)
     parser.add_argument(
         "--basis-max-rows",
         type=int,
-        default=512,
+        default=2048,
         help="Deterministic hidden-row cap before SVD basis construction.",
     )
     parser.add_argument(
@@ -126,11 +167,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--require-utility-constraints",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help=(
-            "Make every utility NLL ceiling a hard save gate. By default the "
-            "ceilings remain objective terms and candidate tie-breakers while "
-            "the absolute forget target is the hard gate."
+            "Make every utility NLL ceiling and the full retain ratio hard save "
+            "gates. Disable only together with --save-best-effort for diagnostics."
         ),
     )
     parser.add_argument(
@@ -165,6 +205,8 @@ def validate_args(args: argparse.Namespace) -> None:
         )
     if not 0.0 < args.target_forget_answer_probability < 1.0:
         raise ValueError("--target-forget-answer-probability must lie in (0,1)")
+    if not 0.0 < args.min_utility_probability_ratio <= 1.0:
+        raise ValueError("--min-utility-probability-ratio must lie in (0,1]")
     positive = (
         "forget_num",
         "retain_num",
@@ -182,7 +224,6 @@ def validate_args(args: argparse.Namespace) -> None:
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
     nonnegative = (
         "target_nll_buffer",
-        "utility_nll_tolerance",
         "forget_hinge_weight",
         "utility_hinge_weight",
         "delta_l2_lambda",
@@ -197,12 +238,61 @@ def validate_args(args: argparse.Namespace) -> None:
             raise ValueError(
                 f"--{name.replace('_', '-')} must be finite and non-negative"
             )
+    if args.utility_nll_tolerance is not None and (
+        not math.isfinite(args.utility_nll_tolerance)
+        or args.utility_nll_tolerance < 0
+    ):
+        raise ValueError(
+            "--utility-nll-tolerance must be finite and non-negative"
+        )
     if not math.isfinite(args.repair_lr) or args.repair_lr <= 0:
         raise ValueError("--repair-lr must be finite and positive")
     if args.max_delta_norm is not None and (
         not math.isfinite(args.max_delta_norm) or args.max_delta_norm < 0
     ):
         raise ValueError("--max-delta-norm must be finite and non-negative")
+    if not args.require_utility_constraints and not args.save_best_effort:
+        raise ValueError(
+            "--no-require-utility-constraints is diagnostic only and requires "
+            "--save-best-effort"
+        )
+    if args.repair_rank == 0 and not args.save_best_effort:
+        raise ValueError(
+            "--repair-rank 0 is an unrestricted diagnostic edit; normal runs "
+            "must use a positive active-position rank"
+        )
+
+
+def probability_ratio_nll_tolerance(
+    minimum_probability_ratio: float,
+    explicit_tolerance: Optional[float] = None,
+) -> float:
+    if not 0.0 < minimum_probability_ratio <= 1.0:
+        raise ValueError("minimum_probability_ratio must lie in (0,1]")
+    ratio_tolerance = -math.log(minimum_probability_ratio)
+    if explicit_tolerance is None:
+        return ratio_tolerance
+    if not math.isfinite(explicit_tolerance) or explicit_tolerance < 0:
+        raise ValueError("explicit_tolerance must be finite and non-negative")
+    return min(ratio_tolerance, explicit_tolerance)
+
+
+def mean_answer_probability(nll: torch.Tensor) -> float:
+    if nll.numel() == 0:
+        raise ValueError("Cannot compute answer probability for an empty tensor")
+    return float(torch.exp(-nll.float()).mean().detach().cpu())
+
+
+def mean_answer_probability_ratio(
+    candidate_nll: torch.Tensor,
+    reference_nll: torch.Tensor,
+) -> float:
+    if candidate_nll.shape != reference_nll.shape:
+        raise ValueError("Candidate and reference NLL tensors must match")
+    reference_probability = mean_answer_probability(reference_nll)
+    if reference_probability <= 0 or not math.isfinite(reference_probability):
+        raise ValueError("Reference answer probability must be finite and positive")
+    return mean_answer_probability(candidate_nll) / reference_probability
 
 
 def build_required_forget_nll(
@@ -233,17 +323,59 @@ def active_forget_row_ids(
     active_positions: Sequence[int],
     *,
     max_length: int,
+    protected_instances: Sequence[tofu.TOFUAnswerInstance] = (),
 ) -> List[int]:
+    selected, _ = partition_active_forget_row_ids(
+        tok,
+        instances,
+        active_positions,
+        max_length=max_length,
+        protected_instances=protected_instances,
+    )
+    return selected
+
+
+def _answer_row_ids(
+    tok: Any,
+    instances: Sequence[tofu.TOFUAnswerInstance],
+    *,
+    max_length: int,
+) -> set[int]:
     selected: set[int] = set()
     specials = gagd.special_token_ids(tok)
-    for position in active_positions:
+    for instance in instances:
         full_ids, prompt_length = tofu.answer_sequence_components(
             tok,
-            instances[position],
+            instance,
             max_length,
         )
         selected.update(full_ids[prompt_length:])
-    return sorted(selected - specials)
+    return selected - specials
+
+
+def partition_active_forget_row_ids(
+    tok: Any,
+    instances: Sequence[tofu.TOFUAnswerInstance],
+    active_positions: Sequence[int],
+    *,
+    max_length: int,
+    protected_instances: Sequence[tofu.TOFUAnswerInstance] = (),
+) -> Tuple[List[int], List[int]]:
+    active_instances = [instances[position] for position in active_positions]
+    active_ids = _answer_row_ids(
+        tok,
+        active_instances,
+        max_length=max_length,
+    )
+    protected_ids = _answer_row_ids(
+        tok,
+        protected_instances,
+        max_length=max_length,
+    )
+    return (
+        sorted(active_ids - protected_ids),
+        sorted(active_ids & protected_ids),
+    )
 
 
 def target_objective_terms(
@@ -346,10 +478,11 @@ def repair_metrics(
 
 
 def candidate_priority(metrics: Dict[str, Any]) -> Tuple[int, int, int, float, float]:
+    """Prefer utility-safe candidates before any forgetting improvement."""
     return (
+        int(metrics["utility_constraint_violation_count"]),
         int(metrics["active_forget_instance_count"]),
         int(metrics["buffered_forget_constraint_unmet_count"]),
-        int(metrics["utility_constraint_violation_count"]),
         -float(metrics["minimum_forget_answer_nll"]),
         float(metrics["selected_lm_head_delta_norm"]),
     )
@@ -364,9 +497,12 @@ def _hidden_rows(
     return torch.cat(rows, dim=0)
 
 
-def _model_args(args: argparse.Namespace) -> SimpleNamespace:
+def _model_args(
+    args: argparse.Namespace,
+    model_path: Optional[str] = None,
+) -> SimpleNamespace:
     return SimpleNamespace(
-        model_path=args.model_path,
+        model_path=model_path or args.model_path,
         dtype=args.dtype,
         device_map=args.device_map,
         gradient_checkpointing=False,
@@ -404,6 +540,10 @@ def main() -> None:
     configured_target_nll = -math.log(
         args.target_forget_answer_probability
     )
+    effective_utility_nll_tolerance = probability_ratio_nll_tolerance(
+        args.min_utility_probability_ratio,
+        args.utility_nll_tolerance,
+    )
     config_used = {
         **vars(args),
         "method": METHOD,
@@ -415,7 +555,12 @@ def main() -> None:
         "buffered_target_forget_answer_nll": (
             configured_target_nll + args.target_nll_buffer
         ),
-        "parameter_scope": "initially_active_forget_lm_head_rows_only",
+        "effective_utility_nll_tolerance": (
+            effective_utility_nll_tolerance
+        ),
+        "parameter_scope": (
+            "utility_exclusive_initially_active_forget_lm_head_rows_only"
+        ),
         "transformer_frozen": True,
         "input_embeddings_frozen": True,
     }
@@ -424,11 +569,42 @@ def main() -> None:
     tok_for_data = AutoTokenizer.from_pretrained(args.model_path)
     if tok_for_data.pad_token is None:
         tok_for_data.pad_token = tok_for_data.eos_token
-    print("Loading deterministic TOFU forget and utility instances")
-    forget_instances, utility_instances = tofu.load_tofu_calibration_instances(
-        args,
-        tok_for_data,
+    print("Loading deterministic TOFU forget, retain, and utility instances")
+    (
+        forget_instances,
+        full_retain_instances,
+        utility_instances,
+    ) = tofu.load_tofu_repair_instances(args, tok_for_data)
+
+    print(f"Scoring original utility reference: {args.reference_model_path}")
+    reference_model, reference_tok = gagd.load_model_and_tokenizer(
+        _model_args(args, args.reference_model_path),
+        for_training=False,
     )
+    if len(reference_tok) != len(tok_for_data):
+        raise ValueError("Reference and candidate tokenizer vocabularies differ")
+    reference_device = gagd.first_device(reference_model)
+    reference_utility_nll = tofu.score_answer_instances(
+        reference_model,
+        reference_tok,
+        utility_instances,
+        reference_device,
+        batch_size=args.batch_size,
+        max_length=args.max_length,
+    ).detach()
+    reference_full_retain_nll = tofu.score_answer_instances(
+        reference_model,
+        reference_tok,
+        full_retain_instances,
+        reference_device,
+        batch_size=args.batch_size,
+        max_length=args.max_length,
+    ).detach()
+    del reference_model, reference_tok
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     model, tok = gagd.load_model_and_tokenizer(
         _model_args(args),
         for_training=False,
@@ -457,6 +633,16 @@ def main() -> None:
         batch_size=args.batch_size,
         max_length=args.max_length,
     ).detach()
+    baseline_full_retain_nll = tofu.score_answer_instances(
+        model,
+        tok,
+        full_retain_instances,
+        device,
+        batch_size=args.batch_size,
+        max_length=args.max_length,
+    ).detach()
+    reference_utility_nll = reference_utility_nll.to(device)
+    reference_full_retain_nll = reference_full_retain_nll.to(device)
     (
         required_forget_nll,
         initially_active_mask,
@@ -467,8 +653,23 @@ def main() -> None:
         target_nll_buffer=args.target_nll_buffer,
     )
     required_utility_nll = (
-        baseline_utility_nll + args.utility_nll_tolerance
+        reference_utility_nll + effective_utility_nll_tolerance
     )
+    baseline_full_retain_ratio = mean_answer_probability_ratio(
+        baseline_full_retain_nll,
+        reference_full_retain_nll,
+    )
+    if (
+        args.require_input_retain_target
+        and baseline_full_retain_ratio + 1e-12
+        < args.min_utility_probability_ratio
+    ):
+        raise RuntimeError(
+            "The Setting 5e input already violates the full retain gate: "
+            f"ratio={baseline_full_retain_ratio:.9g}, required="
+            f"{args.min_utility_probability_ratio:.9g}. No active repair was "
+            "attempted."
+        )
     active_positions = (
         initially_active_mask.nonzero(as_tuple=False)
         .flatten()
@@ -476,11 +677,15 @@ def main() -> None:
         .cpu()
         .tolist()
     )
-    selected_ids = active_forget_row_ids(
+    selected_ids, shared_protected_ids = partition_active_forget_row_ids(
         tok,
         forget_instances,
         active_positions,
         max_length=args.max_length,
+        protected_instances=[
+            *full_retain_instances,
+            *utility_instances,
+        ],
     )
     selected_report = {
         "initially_active_forget_instance_count": len(active_positions),
@@ -490,11 +695,22 @@ def main() -> None:
         "selected_lm_head_tokens": {
             str(token_id): tok.decode([token_id]) for token_id in selected_ids
         },
-        "selection_source": "initially_active_forget_answers_only",
+        "protected_overlap_lm_head_row_count": len(shared_protected_ids),
+        "protected_overlap_lm_head_token_ids": shared_protected_ids,
+        "protected_overlap_lm_head_tokens": {
+            str(token_id): tok.decode([token_id])
+            for token_id in shared_protected_ids
+        },
+        "selection_source": (
+            "initially_active_forget_answers_minus_all_protected_answer_rows"
+        ),
     }
     gagd.write_json(output_dir / "selected_lm_head_rows.json", selected_report)
     if active_positions and not selected_ids:
-        raise RuntimeError("Active forget cases produced no eligible LM-head rows")
+        raise RuntimeError(
+            "Active forget cases have no utility-exclusive LM-head rows. "
+            "A vocabulary-row-only repair cannot safely isolate these pairs."
+        )
 
     selected_tensor = torch.tensor(
         selected_ids,
@@ -549,7 +765,33 @@ def main() -> None:
         target_nll=target_nll,
         tolerance=args.comparison_tolerance,
     )
+    baseline_metrics.update(
+        {
+            "reference_full_retain_answer_probability": (
+                mean_answer_probability(reference_full_retain_nll)
+            ),
+            "candidate_full_retain_answer_probability": (
+                mean_answer_probability(baseline_full_retain_nll)
+            ),
+            "full_retain_probability_ratio": baseline_full_retain_ratio,
+            "minimum_utility_probability_ratio": (
+                args.min_utility_probability_ratio
+            ),
+            "full_retain_target_met": bool(
+                baseline_full_retain_ratio
+                >= args.min_utility_probability_ratio
+            ),
+        }
+    )
     gagd.write_json(output_dir / "baseline_local_metrics.json", baseline_metrics)
+    gagd.write_json(
+        output_dir / "reference_utility_instances.json",
+        tofu.instance_reports(
+            utility_instances,
+            reference_utility_nll,
+            required_utility_nll,
+        ),
+    )
     gagd.write_json(
         output_dir / "active_cases_before.json",
         [
@@ -724,6 +966,7 @@ def main() -> None:
     active.write_jsonl(output_dir / "repair_log.jsonl", logs)
     qualified = (
         best.metrics["active_forget_instance_count"] == 0
+        and best.metrics["buffered_forget_constraint_unmet_count"] == 0
         and (
             not args.require_utility_constraints
             or best.metrics["utility_constraint_violation_count"] == 0
@@ -731,9 +974,9 @@ def main() -> None:
     )
     if not qualified and not args.save_best_effort:
         raise RuntimeError(
-            "No candidate reached the hard forget-answer "
-            f"probability target {args.target_forget_answer_probability}. "
-            "No checkpoint was saved."
+            "No candidate jointly satisfied the buffered hard forget target "
+            f"{args.target_forget_answer_probability} and the mandatory "
+            "reference utility constraints. No checkpoint was saved."
         )
 
     best_delta = best.delta_rows.to(device=device, dtype=torch.float32)
@@ -759,6 +1002,22 @@ def main() -> None:
         batch_size=args.batch_size,
         max_length=args.max_length,
     ).detach()
+    after_full_retain_nll = tofu.score_answer_instances(
+        model,
+        tok,
+        full_retain_instances,
+        device,
+        batch_size=args.batch_size,
+        max_length=args.max_length,
+    ).detach()
+    after_full_retain_ratio = mean_answer_probability_ratio(
+        after_full_retain_nll,
+        reference_full_retain_nll,
+    )
+    full_retain_target_met = bool(
+        after_full_retain_ratio + 1e-12
+        >= args.min_utility_probability_ratio
+    )
     after_probabilities = torch.exp(-after_forget_nll)
     allowed_probability = (
         args.target_forget_answer_probability
@@ -795,6 +1054,22 @@ def main() -> None:
             f"{int(materialized_utility_violations.sum().cpu())} utility "
             "constraints; the edit was reverted."
         )
+    if (
+        args.require_utility_constraints
+        and not full_retain_target_met
+        and not args.save_best_effort
+    ):
+        tofu.set_selected_lm_head_rows(
+            output_weight,
+            selected_ids,
+            baseline_rows,
+            torch.zeros_like(best_delta),
+        )
+        raise RuntimeError(
+            "BF16 materialization violated the full retain probability-ratio "
+            f"gate: ratio={after_full_retain_ratio:.9g}, required="
+            f"{args.min_utility_probability_ratio:.9g}; the edit was reverted."
+        )
 
     after_metrics = repair_metrics(
         after_forget_nll,
@@ -805,6 +1080,21 @@ def main() -> None:
         best_delta,
         target_nll=target_nll,
         tolerance=math.log1p(args.materialization_relative_tolerance),
+    )
+    after_metrics.update(
+        {
+            "reference_full_retain_answer_probability": (
+                mean_answer_probability(reference_full_retain_nll)
+            ),
+            "candidate_full_retain_answer_probability": (
+                mean_answer_probability(after_full_retain_nll)
+            ),
+            "full_retain_probability_ratio": after_full_retain_ratio,
+            "minimum_utility_probability_ratio": (
+                args.min_utility_probability_ratio
+            ),
+            "full_retain_target_met": full_retain_target_met,
+        }
     )
     forget_after_reports = _reports(
         forget_instances,
@@ -838,6 +1128,7 @@ def main() -> None:
     summary = {
         "method": METHOD,
         "input_checkpoint": args.model_path,
+        "reference_model": args.reference_model_path,
         "target_forget_answer_probability": (
             args.target_forget_answer_probability
         ),
@@ -847,6 +1138,7 @@ def main() -> None:
             materialized_active.sum().cpu()
         ),
         "selected_lm_head_row_count": len(selected_ids),
+        "protected_overlap_lm_head_row_count": len(shared_protected_ids),
         "best_step": best.step,
         "steps_completed": steps_completed,
         "stopped_early": stopped_early,
@@ -854,7 +1146,10 @@ def main() -> None:
             not materialized_active.any()
             and (
                 not args.require_utility_constraints
-                or not materialized_utility_violations.any()
+                or (
+                    not materialized_utility_violations.any()
+                    and full_retain_target_met
+                )
             )
         ),
         "utility_constraints_required": bool(
@@ -863,6 +1158,19 @@ def main() -> None:
         "utility_constraint_violations_after": int(
             materialized_utility_violations.sum().cpu()
         ),
+        "minimum_utility_probability_ratio": (
+            args.min_utility_probability_ratio
+        ),
+        "effective_utility_nll_tolerance": (
+            effective_utility_nll_tolerance
+        ),
+        "baseline_full_retain_probability_ratio": (
+            baseline_full_retain_ratio
+        ),
+        "candidate_full_retain_probability_ratio": (
+            after_full_retain_ratio
+        ),
+        "full_retain_target_met": full_retain_target_met,
         "baseline_local_metrics": baseline_metrics,
         "candidate_local_metrics": after_metrics,
         "input_embeddings_unchanged": True,
@@ -886,7 +1194,8 @@ def main() -> None:
         "Active TOFU repair complete: "
         f"mean={float(after_probabilities.mean().cpu()):.8g}, "
         f"max={float(after_probabilities.max().cpu()):.8g}, "
-        f"target={args.target_forget_answer_probability:.8g}"
+        f"target={args.target_forget_answer_probability:.8g}, "
+        f"retain_ratio={after_full_retain_ratio:.8g}"
     )
 
 

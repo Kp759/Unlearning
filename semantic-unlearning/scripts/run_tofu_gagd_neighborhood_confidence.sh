@@ -5,9 +5,9 @@ set -euo pipefail
 #   1. four GA/GD parameter/token settings;
 #   2. TOFU Setting 5e overlap-aware post-training restoration;
 #   3. active forget-case sparse LM-head repair to <= 2e-5;
-#   4. neighborhood-confidence utility repair with the forget gate frozen;
+#   4. optional neighborhood-confidence utility repair;
 #   5. a true retain-only retraining oracle;
-#   6. one fixed-protocol TOFU table with a hard final forgetting gate.
+#   6. one fixed-protocol TOFU table with hard forget and retain gates.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -22,20 +22,21 @@ SEED="${SEED:-42}"
 FORGET_NUM="${FORGET_NUM:-200}"
 RETAIN_NUM="${RETAIN_NUM:-1000}"
 TARGET_FORGET_ANSWER_PROBABILITY="${TARGET_FORGET_ANSWER_PROBABILITY:-0.00002}"
+MIN_RETAIN_PROBABILITY_RATIO="${MIN_RETAIN_PROBABILITY_RATIO:-0.9998}"
 DTYPE="${DTYPE:-bf16}"
 DEVICE_MAP="${DEVICE_MAP:-single}"
 
-# The original 100 steps at 1e-5 barely moved the 3B model. These defaults
-# give the four GA/GD settings a meaningful training budget. The absolute
-# target is still enforced by the active repair stage below.
-STEPS="${STEPS:-1000}"
+# One protocol-matched pass: 200 forget records at batch 1 and all 1,000
+# sampled retain records at batch 5. The retain coefficient compensates for
+# averaging over five examples. Sparse active repair enforces the hard target.
+STEPS="${STEPS:-200}"
 BATCH_SIZE="${BATCH_SIZE:-1}"
-RETAIN_BATCH_SIZE="${RETAIN_BATCH_SIZE:-1}"
+RETAIN_BATCH_SIZE="${RETAIN_BATCH_SIZE:-5}"
 LR="${LR:-1e-5}"
 FULL_LR="${FULL_LR:-1e-5}"
 EMB_LM_LR="${EMB_LM_LR:-2e-4}"
-FORGET_WEIGHT="${FORGET_WEIGHT:-2.0}"
-RETAIN_WEIGHT="${RETAIN_WEIGHT:-0.5}"
+FORGET_WEIGHT="${FORGET_WEIGHT:-1.0}"
+RETAIN_WEIGHT="${RETAIN_WEIGHT:-5.0}"
 
 SETTING5_SOURCE_MODE="${SETTING5_SOURCE_MODE:-emb_lm_all_tokens}"
 SETTING5_UNIQUE_FORGET_ALPHA="${SETTING5_UNIQUE_FORGET_ALPHA:-1.0}"
@@ -44,7 +45,7 @@ SETTING5_OVERLAP_ALPHA="${SETTING5_OVERLAP_ALPHA:-0.25}"
 RUN_FOUR_SETTINGS="${RUN_FOUR_SETTINGS:-1}"
 RUN_SETTING5_RESTORE="${RUN_SETTING5_RESTORE:-1}"
 RUN_ACTIVE_REPAIR="${RUN_ACTIVE_REPAIR:-1}"
-RUN_NEIGHBORHOOD_REPAIR="${RUN_NEIGHBORHOOD_REPAIR:-1}"
+RUN_NEIGHBORHOOD_REPAIR="${RUN_NEIGHBORHOOD_REPAIR:-0}"
 RUN_RETAIN_ONLY_ORACLE="${RUN_RETAIN_ONLY_ORACLE:-1}"
 RUN_EVAL="${RUN_EVAL:-1}"
 
@@ -106,6 +107,10 @@ if [[ "${RUN_SETTING5_RESTORE}" == "1" ]]; then
     --retain-num "${RETAIN_NUM}" \
     --unique-forget-alpha "${SETTING5_UNIQUE_FORGET_ALPHA}" \
     --overlap-alpha "${SETTING5_OVERLAP_ALPHA}" \
+    --max-length "${SETTING5_MAX_LENGTH:-256}" \
+    --protect-full-retain-split \
+    --protect-utility-splits \
+    --restore-input-embeddings \
     --dtype "${DTYPE}" \
     --device-map "${DEVICE_MAP}" \
     --save-model
@@ -120,23 +125,26 @@ fi
 if [[ "${RUN_ACTIVE_REPAIR}" == "1" ]]; then
   python scripts/tofu_gagd_active_forget_repair.py \
     --model-path "${SETTING5_CHECKPOINT}" \
+    --reference-model-path "${MODEL_PATH}" \
     --output-dir "${ACTIVE_DIR}" \
     --forget-split "${FORGET_SPLIT}" \
     --retain-split "${RETAIN_SPLIT}" \
     --seed "${SEED}" \
     --forget-num "${FORGET_NUM}" \
     --retain-num "${RETAIN_NUM}" \
-    --retain-calibration-num "${ACTIVE_RETAIN_CALIBRATION_NUM:-128}" \
+    --retain-calibration-num "${ACTIVE_RETAIN_CALIBRATION_NUM:-${RETAIN_NUM}}" \
     --real-authors-calibration-num "${ACTIVE_REAL_AUTHORS_CALIBRATION_NUM:-64}" \
     --world-facts-calibration-num "${ACTIVE_WORLD_FACTS_CALIBRATION_NUM:-64}" \
     --calibration-seed "${ACTIVE_CALIBRATION_SEED:-2718}" \
     --target-forget-answer-probability "${TARGET_FORGET_ANSWER_PROBABILITY}" \
+    --min-utility-probability-ratio "${MIN_RETAIN_PROBABILITY_RATIO}" \
     --target-nll-buffer "${ACTIVE_TARGET_NLL_BUFFER:-0.25}" \
-    --utility-nll-tolerance "${ACTIVE_UTILITY_NLL_TOLERANCE:-0.05}" \
     --repair-steps "${ACTIVE_REPAIR_STEPS:-500}" \
     --repair-lr "${ACTIVE_REPAIR_LR:-1e-2}" \
-    --repair-rank "${ACTIVE_REPAIR_RANK:-0}" \
-    --utility-projection-rank "${ACTIVE_UTILITY_PROJECTION_RANK:-128}" \
+    --repair-rank "${ACTIVE_REPAIR_RANK:-32}" \
+    --utility-projection-rank "${ACTIVE_UTILITY_PROJECTION_RANK:-256}" \
+    --require-input-retain-target \
+    --require-utility-constraints \
     --batch-size "${ACTIVE_BATCH_SIZE:-8}" \
     --max-length "${ACTIVE_MAX_LENGTH:-256}" \
     --dtype "${DTYPE}" \
@@ -150,6 +158,7 @@ if [[ ! -d "${ACTIVE_CHECKPOINT}" ]]; then
   exit 2
 fi
 
+FINAL_TARGET_METHOD="tofu_active_forget_repair"
 if [[ "${RUN_NEIGHBORHOOD_REPAIR}" == "1" ]]; then
   python scripts/tofu_gagd_neighborhood_confidence.py \
     --model-path "${ACTIVE_CHECKPOINT}" \
@@ -165,6 +174,7 @@ if [[ "${RUN_NEIGHBORHOOD_REPAIR}" == "1" ]]; then
     --world-facts-calibration-num "${WORLD_FACTS_CALIBRATION_NUM:-32}" \
     --calibration-seed "${CALIBRATION_SEED:-1729}" \
     --max-forget-answer-probability "${TARGET_FORGET_ANSWER_PROBABILITY}" \
+    --reference-nll-slack "${NEIGHBORHOOD_REFERENCE_NLL_SLACK:-0.00020002}" \
     --repair-steps "${NEIGHBORHOOD_REPAIR_STEPS:-200}" \
     --repair-lr "${NEIGHBORHOOD_REPAIR_LR:-5e-3}" \
     --repair-rank "${NEIGHBORHOOD_REPAIR_RANK:-32}" \
@@ -174,13 +184,14 @@ if [[ "${RUN_NEIGHBORHOOD_REPAIR}" == "1" ]]; then
     --batch-size "${NEIGHBORHOOD_BATCH_SIZE:-8}" \
     --dtype "${DTYPE}" \
     --device-map "${DEVICE_MAP}" \
+    --no-save-best-effort \
     --save-model
-fi
-
-NEIGHBORHOOD_CHECKPOINT="${NEIGHBORHOOD_DIR}/checkpoint"
-if [[ ! -d "${NEIGHBORHOOD_CHECKPOINT}" ]]; then
-  echo "Missing neighborhood-repaired checkpoint: ${NEIGHBORHOOD_CHECKPOINT}" >&2
-  exit 2
+  NEIGHBORHOOD_CHECKPOINT="${NEIGHBORHOOD_DIR}/checkpoint"
+  if [[ ! -d "${NEIGHBORHOOD_CHECKPOINT}" ]]; then
+    echo "Missing neighborhood-repaired checkpoint: ${NEIGHBORHOOD_CHECKPOINT}" >&2
+    exit 2
+  fi
+  FINAL_TARGET_METHOD="gagd_neighborhood_confidence_tofu"
 fi
 
 ORACLE_CHECKPOINT="${RETAIN_ONLY_ORACLE_PATH:-${ORACLE_DIR}/checkpoint}"
@@ -282,21 +293,33 @@ if [[ "${RUN_EVAL}" == "1" ]]; then
   run_tofu_eval "emb_lm_selective_tokens" "${FOUR_DIR}/emb_lm_selective_tokens/checkpoint" 0 "${REFERENCE_KIND}" "${REFERENCE_VALUE}"
   run_tofu_eval "tofu_setting5e_restore" "${SETTING5_CHECKPOINT}" 0 "${REFERENCE_KIND}" "${REFERENCE_VALUE}"
   run_tofu_eval "tofu_active_forget_repair" "${ACTIVE_CHECKPOINT}" 0 "${REFERENCE_KIND}" "${REFERENCE_VALUE}"
-  run_tofu_eval "gagd_neighborhood_confidence_tofu" "${NEIGHBORHOOD_CHECKPOINT}" 0 "${REFERENCE_KIND}" "${REFERENCE_VALUE}"
+  if [[ "${RUN_NEIGHBORHOOD_REPAIR}" == "1" ]]; then
+    run_tofu_eval "gagd_neighborhood_confidence_tofu" "${NEIGHBORHOOD_CHECKPOINT}" 0 "${REFERENCE_KIND}" "${REFERENCE_VALUE}"
+  fi
 fi
 
-python scripts/tofu_gagd_results.py \
-  --output-dir "${OUTPUT_ROOT}/comparison" \
-  --max-forget-answer-probability "${TARGET_FORGET_ANSWER_PROBABILITY}" \
-  --required-target-method "gagd_neighborhood_confidence_tofu" \
-  --result "base=${EVAL_DIR}/base_summary.json" \
-  --result "retain_only_oracle=${EVAL_DIR}/retain_only_oracle_summary.json" \
-  --result "full_all_tokens=${EVAL_DIR}/full_all_tokens_summary.json" \
-  --result "full_selective_tokens=${EVAL_DIR}/full_selective_tokens_summary.json" \
-  --result "emb_lm_all_tokens=${EVAL_DIR}/emb_lm_all_tokens_summary.json" \
-  --result "emb_lm_selective_tokens=${EVAL_DIR}/emb_lm_selective_tokens_summary.json" \
-  --result "tofu_setting5e_restore=${EVAL_DIR}/tofu_setting5e_restore_summary.json" \
-  --result "tofu_active_forget_repair=${EVAL_DIR}/tofu_active_forget_repair_summary.json" \
-  --result "gagd_neighborhood_confidence_tofu=${EVAL_DIR}/gagd_neighborhood_confidence_tofu_summary.json"
+comparison_cmd=(
+  python scripts/tofu_gagd_results.py
+  --output-dir "${OUTPUT_ROOT}/comparison"
+  --max-forget-answer-probability "${TARGET_FORGET_ANSWER_PROBABILITY}"
+  --min-retain-probability-ratio "${MIN_RETAIN_PROBABILITY_RATIO}"
+  --required-target-method "${FINAL_TARGET_METHOD}"
+  --result "base=${EVAL_DIR}/base_summary.json"
+  --result "retain_only_oracle=${EVAL_DIR}/retain_only_oracle_summary.json"
+  --result "full_all_tokens=${EVAL_DIR}/full_all_tokens_summary.json"
+  --result "full_selective_tokens=${EVAL_DIR}/full_selective_tokens_summary.json"
+  --result "emb_lm_all_tokens=${EVAL_DIR}/emb_lm_all_tokens_summary.json"
+  --result "emb_lm_selective_tokens=${EVAL_DIR}/emb_lm_selective_tokens_summary.json"
+  --result "tofu_setting5e_restore=${EVAL_DIR}/tofu_setting5e_restore_summary.json"
+  --result "tofu_active_forget_repair=${EVAL_DIR}/tofu_active_forget_repair_summary.json"
+)
+if [[ "${RUN_NEIGHBORHOOD_REPAIR}" == "1" ]]; then
+  comparison_cmd+=(
+    --result "gagd_neighborhood_confidence_tofu=${EVAL_DIR}/gagd_neighborhood_confidence_tofu_summary.json"
+  )
+else
+  comparison_cmd+=(--allow-partial)
+fi
+"${comparison_cmd[@]}"
 
 echo "TOFU comparison complete: ${OUTPUT_ROOT}/comparison/comparison_tofu.md"
