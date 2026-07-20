@@ -356,6 +356,49 @@ def validate_protocol_args(args: argparse.Namespace) -> None:
         )
 
 
+def validate_zero_only_protocol(
+    *,
+    seed: int,
+    forget_num: int,
+    retain_num: int,
+    sample_mode: str,
+    model_path: Path | str,
+    dtype: str,
+) -> None:
+    """Validate the fixed protocol shared by zero-only seeds 0 through 9.
+
+    This is deliberately separate from :func:`validate_protocol_args`.
+    The original comparison runner remains seed-0-only; only callers that run
+    ZeroUnlearn without cross-method comparisons may use this validator.
+    """
+    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= 9:
+        raise ValueError(
+            f"--seed must be an integer from 0 through 9 in zero-only mode, got {seed!r}"
+        )
+    required = {
+        "--forget-num": (forget_num, FORGET_NUM),
+        "--retain-num": (retain_num, RETAIN_NUM),
+        "--sample-mode": (sample_mode, SAMPLE_MODE),
+        "--dtype": (dtype, DTYPE_NAME),
+    }
+    mismatches = [
+        f"{name} must be {expected!r}, got {actual!r}"
+        for name, (actual, expected) in required.items()
+        if actual != expected
+    ]
+    if mismatches:
+        raise ValueError(
+            "Zero-only multiseed runs must use the reviewed original "
+            "ZeroUnlearn protocol:\n- " + "\n- ".join(mismatches)
+        )
+    revision = Path(model_path).expanduser().name
+    if revision != MODEL_REVISION:
+        raise ValueError(
+            "ZeroUnlearn requires the exact model snapshot revision "
+            f"{MODEL_REVISION}, got path ending in {revision!r}"
+        )
+
+
 def parse_result_overrides(
     values: Sequence[str],
     semantic_root: Path,
@@ -570,23 +613,45 @@ def validate_neutral_forget_requests(
         )
 
 
-def load_seed0_split(
+def load_official_split(
     mcf_path: Path,
+    *,
+    seed: int,
+    forget_num: int,
+    retain_num: int,
+    sample_mode: str,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    if sample_mode != SAMPLE_MODE:
+        raise ValueError(
+            f"Unsupported MCF sample mode {sample_mode!r}; expected {SAMPLE_MODE!r}"
+        )
     with mcf_path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
     if not isinstance(data, list):
         raise ValueError("MCF JSON must contain a list")
     forget, retain = sample_official_mcf_records(
         data,
-        FORGET_NUM,
-        RETAIN_NUM,
-        SEED,
+        forget_num,
+        retain_num,
+        seed,
         strict=True,
     )
-    if len(forget) != FORGET_NUM or len(retain) != RETAIN_NUM:
+    if len(forget) != forget_num or len(retain) != retain_num:
         raise RuntimeError("Official MCF sampler returned the wrong split sizes")
     return data, forget, retain
+
+
+def load_seed0_split(
+    mcf_path: Path,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Backward-compatible loader for the original seed-0 comparison."""
+    return load_official_split(
+        mcf_path,
+        seed=SEED,
+        forget_num=FORGET_NUM,
+        retain_num=RETAIN_NUM,
+        sample_mode=SAMPLE_MODE,
+    )
 
 
 def _number(value: Any, name: str) -> float:
@@ -1114,16 +1179,18 @@ def augment_official_result(
     forget_ids: Sequence[int],
     retain_ids: Sequence[int],
     runtime: Optional[Mapping[str, Any]],
+    seed: int = SEED,
+    dtype: str = DTYPE_NAME,
 ) -> Dict[str, Any]:
     result.update(
         {
             "method": METHOD if runtime is not None else "Base",
             "model_path": str(model_path),
             "model_revision": MODEL_REVISION,
-            "dtype": DTYPE_NAME,
+            "dtype": dtype,
             "forget_case_ids": list(forget_ids),
             "retain_case_ids": list(retain_ids),
-            "case_ids_source": "official_sampler_seed0",
+            "case_ids_source": f"official_sampler_seed{seed}",
             "zero_unlearn_runtime": dict(runtime) if runtime is not None else None,
         }
     )
@@ -1290,6 +1357,375 @@ def require_runtime_files(
         )
 
 
+def run_original_zerounlearn_mcf(
+    seed: int,
+    forget_num: int,
+    retain_num: int,
+    sample_mode: str,
+    model_path: Path | str,
+    output_dir: Path | str,
+    *,
+    zero_unlearn_root: Path | str = DEFAULT_ZERO_ROOT,
+    hparams_path: Path | str = DEFAULT_HPARAMS,
+    mcf_path: Path | str = DEFAULT_MCF,
+    wikidata_dir: Path | str = DEFAULT_WIKIDATA,
+    dtype: str = DTYPE_NAME,
+    validate_seed0_base: bool = False,
+    metric_tolerance: float = 0.02,
+    ppl_tolerance: float = 0.01,
+    exact_command: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """Run the reviewed original ZeroUnlearn edit and official MCF evaluation.
+
+    The six positional arguments are the reusable run boundary. Additional
+    keyword-only paths select reviewed copies of the vendored source, original
+    hyperparameters, MCF data, and official PPL corpus. All protocol and source
+    validations are repeated here so direct callers cannot bypass them.
+    """
+    validate_zero_only_protocol(
+        seed=seed,
+        forget_num=forget_num,
+        retain_num=retain_num,
+        sample_mode=sample_mode,
+        model_path=model_path,
+        dtype=dtype,
+    )
+    if metric_tolerance < 0 or ppl_tolerance < 0:
+        raise ValueError("Metric tolerances must be non-negative")
+    if validate_seed0_base and seed != SEED:
+        raise ValueError("Seed-0 base reference validation is only valid for seed 0")
+
+    model_path = Path(model_path).expanduser().resolve()
+    output_dir = Path(output_dir).expanduser().resolve()
+    zero_root = Path(zero_unlearn_root).expanduser().resolve()
+    hparams_path = Path(hparams_path).expanduser().resolve()
+    mcf_path = Path(mcf_path).expanduser().resolve()
+    wikidata_dir = Path(wikidata_dir).expanduser().resolve()
+    require_runtime_files(
+        model_path,
+        mcf_path,
+        wikidata_dir,
+        hparams_path,
+        zero_root,
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    source_hashes_before = hash_protocol_inputs(
+        mcf_path,
+        hparams_path,
+        zero_root,
+    )
+    validate_expected_protocol_hashes(
+        source_hashes_before,
+        mcf_path,
+        hparams_path,
+        zero_root,
+    )
+    _, forget_records, retain_records = load_official_split(
+        mcf_path,
+        seed=seed,
+        forget_num=forget_num,
+        retain_num=retain_num,
+        sample_mode=sample_mode,
+    )
+    forget_ids = case_ids(forget_records)
+    retain_ids = case_ids(retain_records)
+
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "One CUDA GPU is required for original ZeroUnlearn; CUDA is unavailable"
+        )
+    device = torch.device("cuda:0")
+    torch.cuda.set_device(device)
+    set_all_seeds(seed)
+
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    if validate_seed0_base:
+        print(f"Loading exact BF16 base snapshot: {model_path}")
+    else:
+        print(f"Loading exact BF16 base snapshot for seed {seed}: {model_path}")
+    tokenizer = AutoTokenizer.from_pretrained(str(model_path))
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    neutral_target, neutral_target_id = resolve_eos_neutral_target(tokenizer)
+    model = AutoModelForCausalLM.from_pretrained(
+        str(model_path),
+        torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
+    ).to(device)
+    model.eval()
+    model.config.use_cache = False
+
+    if validate_seed0_base:
+        print("Evaluating and validating the unedited base model")
+    else:
+        print(f"Evaluating the unedited base model on official MCF seed {seed}")
+    base_result = evaluate_loaded_model_official(
+        method="Base",
+        model=model,
+        tok=tokenizer,
+        model_dir=model_path,
+        mcf_path=mcf_path,
+        wikidata_dir=wikidata_dir,
+        out_path=None,
+        unlearn_num=forget_num,
+        retain_num=retain_num,
+        seed=seed,
+        sample_mode=sample_mode,
+        skip_ppl=False,
+    )
+    augment_official_result(
+        base_result,
+        model_path=model_path,
+        forget_ids=forget_ids,
+        retain_ids=retain_ids,
+        runtime=None,
+        seed=seed,
+        dtype=dtype,
+    )
+    base_result_path = output_dir / f"base_seed{seed}_official_eval.json"
+    write_json(base_result_path, base_result)
+    if validate_seed0_base:
+        validate_base_metrics(
+            base_result,
+            metric_tolerance,
+            ppl_tolerance,
+        )
+        print("Base validation passed")
+
+    params_class, apply_unl_to_model = import_original_zerounlearn(zero_root)
+    hparams = params_class.from_json(hparams_path)
+    if list(hparams.layers) != [16, 17, 18]:
+        raise RuntimeError(
+            "Original hparams changed unexpectedly: expected layers [16,17,18], "
+            f"got {hparams.layers}"
+        )
+    retain_requests = records_to_zero_unlearn_requests(retain_records)
+    forget_requests = records_to_zero_unlearn_forget_requests(
+        forget_records,
+        neutral_target=neutral_target,
+    )
+    validate_neutral_forget_requests(
+        forget_records,
+        forget_requests,
+        neutral_target,
+    )
+    print(
+        "Mapping MCF target_new (the evaluated forget answer) to "
+        "ZeroUnlearn target_true (M_f), and using tokenizer EOS as "
+        f"ZeroUnlearn target_new (M_n): {neutral_target!r} "
+        f"(token id {neutral_target_id}); official evaluation records "
+        "remain unchanged"
+    )
+
+    run_status = "running"
+    runtime: Dict[str, Any] = {}
+    zero_result_path = output_dir / f"zerounlearn_seed{seed}_official_eval.json"
+    provenance_path = output_dir / f"zerounlearn_seed{seed}_provenance.json"
+    command = (
+        list(exact_command)
+        if exact_command is not None
+        else [sys.executable, str(Path(sys.argv[0]).resolve()), *sys.argv[1:]]
+    )
+    provenance: Dict[str, Any] = {
+        "status": run_status,
+        "method": METHOD,
+        "algorithm_entrypoint": ("ZeroUnlearn.ZeroUnlearn_main.apply_unl_to_model"),
+        "upstream_repository": UPSTREAM_REPOSITORY,
+        "vendored_source_revision": git_source_revision(
+            REPOSITORY_ROOT,
+            zero_root / "ZeroUnlearn" / "ZeroUnlearn_main.py",
+        ),
+        "model_path": str(model_path),
+        "model_revision": MODEL_REVISION,
+        "dtype": dtype,
+        "zero_unlearn_compute_dtype": "float32",
+        "zero_unlearn_compute_dtype_reason": (
+            "The original implementation combines FP32 moment matrices with "
+            "model weights and requires matching FP32 matmul operands. The "
+            "exact BF16-loaded starting values are upcast without reloading, "
+            "edited by the original entrypoint, then cast back to BF16 for "
+            "official evaluation."
+        ),
+        "seed": seed,
+        "dataset": "MCF",
+        "sample_mode": sample_mode,
+        "forget_num": forget_num,
+        "retain_num": retain_num,
+        "forget_case_ids": forget_ids,
+        "retain_case_ids": retain_ids,
+        "case_ids_source": f"official_sampler_seed{seed}",
+        "hparams_path": str(hparams_path),
+        "hparams": read_json(hparams_path),
+        "edit_layer_nums": EDIT_LAYER_NUMS,
+        "add_retain": ADD_RETAIN,
+        "use_h": USE_H,
+        "neutral_target": {
+            "role": "ZeroUnlearn M_n for forget-training requests only",
+            "source": "tokenizer.eos_token",
+            "token": neutral_target,
+            "token_id": neutral_target_id,
+            "zero_unlearn_request_field": "target_new.str",
+            "zero_unlearn_sensitive_request_field": "target_true",
+            "zero_unlearn_sensitive_target_source": (
+                "MCF requested_rewrite.target_new"
+            ),
+            "benchmark_forget_target": "MCF requested_rewrite.target_new",
+            "benchmark_correct_target": "MCF requested_rewrite.target_true",
+            "forget_request_count": len(forget_requests),
+            "retain_requests_modified": False,
+            "official_evaluation_records_modified": False,
+            "source_mcf_modified": False,
+        },
+        "official_evaluation_path": str(zero_result_path),
+        "checkpoint_saved": False,
+        "cuda_device_index": device.index,
+        "cuda_device_name": torch.cuda.get_device_name(device),
+        "cuda_visible_device_count": torch.cuda.device_count(),
+        "multi_gpu_device_map_used": False,
+        "zero_unlearn_working_directory": str(SEMANTIC_ROOT),
+        "source_hashes_before": source_hashes_before,
+        "exact_command": command,
+    }
+    write_json(provenance_path, provenance)
+    try:
+        torch.cuda.synchronize(device)
+        torch.cuda.reset_peak_memory_stats(device)
+        memory_before = torch.cuda.memory_allocated(device)
+        apply_started = time.perf_counter()
+        print(
+            "Upcasting the exact BF16-loaded starting weights to FP32 for the "
+            "original closed-form matrix solve"
+        )
+        model.float()
+        print("Applying original closed-form ZeroUnlearn in memory")
+        with working_directory(SEMANTIC_ROOT):
+            edited_model, original_weights = apply_unl_to_model(
+                model=model,
+                tok=tokenizer,
+                retain_requests=retain_requests,
+                unlearn_requests=forget_requests,
+                hparams=hparams,
+                copy=False,
+                return_orig_weights=False,
+                cache_template=None,
+                save_path=None,
+                add_retain=ADD_RETAIN,
+                edit_layer_nums=EDIT_LAYER_NUMS,
+                use_h=USE_H,
+            )
+        edited_model.to(dtype=torch.bfloat16)
+        edited_model.eval()
+        torch.cuda.synchronize(device)
+        apply_seconds = time.perf_counter() - apply_started
+        peak_allocated = torch.cuda.max_memory_allocated(device)
+        peak_reserved = torch.cuda.max_memory_reserved(device)
+        runtime = {
+            "apply_seconds": apply_seconds,
+            "peak_cuda_memory_allocated_bytes": int(peak_allocated),
+            "peak_cuda_memory_allocated_gib": peak_allocated / (1024**3),
+            "peak_cuda_memory_reserved_bytes": int(peak_reserved),
+            "peak_cuda_memory_reserved_gib": peak_reserved / (1024**3),
+            "peak_additional_cuda_memory_bytes": int(
+                max(0, peak_allocated - memory_before)
+            ),
+        }
+        del original_weights
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        evaluation_started = time.perf_counter()
+        zero_result = evaluate_loaded_model_official(
+            method=METHOD,
+            model=edited_model,
+            tok=tokenizer,
+            model_dir=f"in-memory:{METHOD}",
+            mcf_path=mcf_path,
+            wikidata_dir=wikidata_dir,
+            out_path=None,
+            unlearn_num=forget_num,
+            retain_num=retain_num,
+            seed=seed,
+            sample_mode=sample_mode,
+            skip_ppl=False,
+        )
+        runtime["official_evaluation_seconds"] = (
+            time.perf_counter() - evaluation_started
+        )
+        runtime["total_seconds"] = (
+            runtime["apply_seconds"] + runtime["official_evaluation_seconds"]
+        )
+        augment_official_result(
+            zero_result,
+            model_path=model_path,
+            forget_ids=forget_ids,
+            retain_ids=retain_ids,
+            runtime=runtime,
+            seed=seed,
+            dtype=dtype,
+        )
+        write_json(zero_result_path, zero_result)
+        run_status = "completed"
+    except Exception:
+        run_status = "failed"
+        raise
+    finally:
+        source_hashes_after = hash_protocol_inputs(
+            mcf_path,
+            hparams_path,
+            zero_root,
+        )
+        hashes_unchanged = source_hashes_before == source_hashes_after
+        provenance.update(
+            {
+                "status": run_status,
+                "runtime": runtime or None,
+                "source_hashes_after": source_hashes_after,
+                "source_hashes_unchanged": hashes_unchanged,
+            }
+        )
+        write_json(provenance_path, provenance)
+        if not hashes_unchanged:
+            raise RuntimeError(
+                "MCF, hparams, or original ZeroUnlearn source hashes changed "
+                "during execution"
+            )
+
+    if not validate_seed0_base:
+        metrics = extract_result_metrics(zero_result)
+        print(
+            f"ZeroUnlearn seed {seed} result: "
+            f"Eff={metrics['Eff']}, Gen={metrics['Gen']}, "
+            f"Spe={metrics['Spe']}, Spe_success={metrics['Spe_success']}, "
+            f"PPL={metrics['PPL']}"
+        )
+        print(
+            f"Runtime={runtime['apply_seconds']:.3f}s; "
+            f"peak CUDA={runtime['peak_cuda_memory_allocated_gib']:.3f} GiB"
+        )
+    del edited_model
+    del model
+    gc.collect()
+    torch.cuda.empty_cache()
+    return {
+        "seed": seed,
+        "base_result": base_result,
+        "zero_unlearn_result": zero_result,
+        "runtime": runtime,
+        "base_result_path": base_result_path,
+        "zero_unlearn_result_path": zero_result_path,
+        "provenance_path": provenance_path,
+        "forget_case_ids": forget_ids,
+        "retain_case_ids": retain_ids,
+        "source_hashes_unchanged": True,
+    }
+
+
+# Descriptive alias for callers that prefer the script's filename terminology.
+run_zerounlearn_official_mcf = run_original_zerounlearn_mcf
+
+
 def main() -> None:
     args = build_parser().parse_args()
     validate_protocol_args(args)
@@ -1359,248 +1795,28 @@ def main() -> None:
         print(f"Validated existing results manifest: {manifest_path}")
         return
 
-    if not torch.cuda.is_available():
-        raise RuntimeError(
-            "One CUDA GPU is required for original ZeroUnlearn; CUDA is unavailable"
-        )
-    device = torch.device("cuda:0")
-    torch.cuda.set_device(device)
-    set_all_seeds(SEED)
-
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
-    print(f"Loading exact BF16 base snapshot: {model_path}")
-    tokenizer = AutoTokenizer.from_pretrained(str(model_path))
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    neutral_target, neutral_target_id = resolve_eos_neutral_target(tokenizer)
-    model = AutoModelForCausalLM.from_pretrained(
-        str(model_path),
-        torch_dtype=torch.bfloat16,
-        low_cpu_mem_usage=True,
-    ).to(device)
-    model.eval()
-    model.config.use_cache = False
-
-    print("Evaluating and validating the unedited base model")
-    base_result = evaluate_loaded_model_official(
-        method="Base",
-        model=model,
-        tok=tokenizer,
-        model_dir=model_path,
+    artifacts = run_original_zerounlearn_mcf(
+        SEED,
+        FORGET_NUM,
+        RETAIN_NUM,
+        SAMPLE_MODE,
+        model_path,
+        output_dir,
+        zero_unlearn_root=zero_root,
+        hparams_path=hparams_path,
         mcf_path=mcf_path,
         wikidata_dir=wikidata_dir,
-        out_path=None,
-        unlearn_num=FORGET_NUM,
-        retain_num=RETAIN_NUM,
-        seed=SEED,
-        sample_mode=SAMPLE_MODE,
-        skip_ppl=False,
+        dtype=DTYPE_NAME,
+        validate_seed0_base=True,
+        metric_tolerance=args.metric_tolerance,
+        ppl_tolerance=args.ppl_tolerance,
+        exact_command=[sys.executable, str(SCRIPT_PATH), *sys.argv[1:]],
     )
-    augment_official_result(
-        base_result,
-        model_path=model_path,
-        forget_ids=forget_ids,
-        retain_ids=retain_ids,
-        runtime=None,
-    )
-    base_result_path = output_dir / "base_seed0_official_eval.json"
-    write_json(base_result_path, base_result)
-    validate_base_metrics(
-        base_result,
-        args.metric_tolerance,
-        args.ppl_tolerance,
-    )
-    print("Base validation passed")
-
-    params_class, apply_unl_to_model = import_original_zerounlearn(zero_root)
-    hparams = params_class.from_json(hparams_path)
-    if list(hparams.layers) != [16, 17, 18]:
-        raise RuntimeError(
-            "Original hparams changed unexpectedly: expected layers [16,17,18], "
-            f"got {hparams.layers}"
-        )
-    retain_requests = records_to_zero_unlearn_requests(retain_records)
-    forget_requests = records_to_zero_unlearn_forget_requests(
-        forget_records,
-        neutral_target=neutral_target,
-    )
-    validate_neutral_forget_requests(
-        forget_records,
-        forget_requests,
-        neutral_target,
-    )
-    print(
-        "Mapping MCF target_new (the evaluated forget answer) to "
-        "ZeroUnlearn target_true (M_f), and using tokenizer EOS as "
-        f"ZeroUnlearn target_new (M_n): {neutral_target!r} "
-        f"(token id {neutral_target_id}); official evaluation records "
-        "remain unchanged"
-    )
-
-    run_status = "running"
-    runtime: Dict[str, Any] = {}
-    provenance_path = output_dir / "zerounlearn_seed0_provenance.json"
-    provenance: Dict[str, Any] = {
-        "status": run_status,
-        "method": METHOD,
-        "algorithm_entrypoint": ("ZeroUnlearn.ZeroUnlearn_main.apply_unl_to_model"),
-        "upstream_repository": UPSTREAM_REPOSITORY,
-        "vendored_source_revision": git_source_revision(
-            REPOSITORY_ROOT,
-            zero_root / "ZeroUnlearn" / "ZeroUnlearn_main.py",
-        ),
-        "model_path": str(model_path),
-        "model_revision": MODEL_REVISION,
-        "dtype": DTYPE_NAME,
-        "zero_unlearn_compute_dtype": "float32",
-        "zero_unlearn_compute_dtype_reason": (
-            "The original implementation combines FP32 moment matrices with "
-            "model weights and requires matching FP32 matmul operands. The "
-            "exact BF16-loaded starting values are upcast without reloading, "
-            "edited by the original entrypoint, then cast back to BF16 for "
-            "official evaluation."
-        ),
-        "seed": SEED,
-        "dataset": "MCF",
-        "sample_mode": SAMPLE_MODE,
-        "forget_num": FORGET_NUM,
-        "retain_num": RETAIN_NUM,
-        "forget_case_ids": forget_ids,
-        "retain_case_ids": retain_ids,
-        "hparams_path": str(hparams_path),
-        "hparams": read_json(hparams_path),
-        "edit_layer_nums": EDIT_LAYER_NUMS,
-        "add_retain": ADD_RETAIN,
-        "use_h": USE_H,
-        "neutral_target": {
-            "role": "ZeroUnlearn M_n for forget-training requests only",
-            "source": "tokenizer.eos_token",
-            "token": neutral_target,
-            "token_id": neutral_target_id,
-            "zero_unlearn_request_field": "target_new.str",
-            "zero_unlearn_sensitive_request_field": "target_true",
-            "zero_unlearn_sensitive_target_source": (
-                "MCF requested_rewrite.target_new"
-            ),
-            "benchmark_forget_target": "MCF requested_rewrite.target_new",
-            "benchmark_correct_target": "MCF requested_rewrite.target_true",
-            "forget_request_count": len(forget_requests),
-            "retain_requests_modified": False,
-            "official_evaluation_records_modified": False,
-            "source_mcf_modified": False,
-        },
-        "checkpoint_saved": False,
-        "cuda_device_index": device.index,
-        "cuda_device_name": torch.cuda.get_device_name(device),
-        "cuda_visible_device_count": torch.cuda.device_count(),
-        "multi_gpu_device_map_used": False,
-        "zero_unlearn_working_directory": str(SEMANTIC_ROOT),
-        "source_hashes_before": source_hashes_before,
-        "exact_command": [sys.executable, str(SCRIPT_PATH), *sys.argv[1:]],
-    }
-    write_json(provenance_path, provenance)
-    try:
-        torch.cuda.synchronize(device)
-        torch.cuda.reset_peak_memory_stats(device)
-        memory_before = torch.cuda.memory_allocated(device)
-        apply_started = time.perf_counter()
-        print(
-            "Upcasting the exact BF16-loaded starting weights to FP32 for the "
-            "original closed-form matrix solve"
-        )
-        model.float()
-        print("Applying original closed-form ZeroUnlearn in memory")
-        with working_directory(SEMANTIC_ROOT):
-            edited_model, original_weights = apply_unl_to_model(
-                model=model,
-                tok=tokenizer,
-                retain_requests=retain_requests,
-                unlearn_requests=forget_requests,
-                hparams=hparams,
-                copy=False,
-                return_orig_weights=False,
-                cache_template=None,
-                save_path=None,
-                add_retain=ADD_RETAIN,
-                edit_layer_nums=EDIT_LAYER_NUMS,
-                use_h=USE_H,
-            )
-        edited_model.to(dtype=torch.bfloat16)
-        edited_model.eval()
-        torch.cuda.synchronize(device)
-        apply_seconds = time.perf_counter() - apply_started
-        peak_allocated = torch.cuda.max_memory_allocated(device)
-        peak_reserved = torch.cuda.max_memory_reserved(device)
-        runtime = {
-            "apply_seconds": apply_seconds,
-            "peak_cuda_memory_allocated_bytes": int(peak_allocated),
-            "peak_cuda_memory_allocated_gib": peak_allocated / (1024**3),
-            "peak_cuda_memory_reserved_bytes": int(peak_reserved),
-            "peak_cuda_memory_reserved_gib": peak_reserved / (1024**3),
-            "peak_additional_cuda_memory_bytes": int(
-                max(0, peak_allocated - memory_before)
-            ),
-        }
-        del original_weights
-        gc.collect()
-        torch.cuda.empty_cache()
-
-        evaluation_started = time.perf_counter()
-        zero_result = evaluate_loaded_model_official(
-            method=METHOD,
-            model=edited_model,
-            tok=tokenizer,
-            model_dir=f"in-memory:{METHOD}",
-            mcf_path=mcf_path,
-            wikidata_dir=wikidata_dir,
-            out_path=None,
-            unlearn_num=FORGET_NUM,
-            retain_num=RETAIN_NUM,
-            seed=SEED,
-            sample_mode=SAMPLE_MODE,
-            skip_ppl=False,
-        )
-        runtime["official_evaluation_seconds"] = (
-            time.perf_counter() - evaluation_started
-        )
-        runtime["total_seconds"] = (
-            runtime["apply_seconds"] + runtime["official_evaluation_seconds"]
-        )
-        augment_official_result(
-            zero_result,
-            model_path=model_path,
-            forget_ids=forget_ids,
-            retain_ids=retain_ids,
-            runtime=runtime,
-        )
-        zero_result_path = output_dir / "zerounlearn_seed0_official_eval.json"
-        write_json(zero_result_path, zero_result)
-        run_status = "completed"
-    except Exception:
-        run_status = "failed"
-        raise
-    finally:
-        source_hashes_after = hash_protocol_inputs(
-            mcf_path,
-            hparams_path,
-            zero_root,
-        )
-        hashes_unchanged = source_hashes_before == source_hashes_after
-        provenance.update(
-            {
-                "status": run_status,
-                "runtime": runtime or None,
-                "source_hashes_after": source_hashes_after,
-                "source_hashes_unchanged": hashes_unchanged,
-            }
-        )
-        write_json(provenance_path, provenance)
-        if not hashes_unchanged:
-            raise RuntimeError(
-                "MCF, hparams, or original ZeroUnlearn source hashes changed "
-                "during execution"
-            )
+    base_result = artifacts["base_result"]
+    zero_result = artifacts["zero_unlearn_result"]
+    runtime = artifacts["runtime"]
+    base_result_path = artifacts["base_result_path"]
+    zero_result_path = artifacts["zero_unlearn_result_path"]
 
     zero_entry = zero_unlearn_manifest_entry(zero_result_path, zero_result)
     base_entry = {
