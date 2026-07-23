@@ -11,8 +11,8 @@ For every clean TOFU forget example the evaluator reports
 
     answer_probability = exp(-mean_answer_nll).
 
-The default target is 2e-5.  Initially active examples receive a buffered NLL
-floor above ``-log(2e-5)``; initially passing examples are protected so the
+The default target is 3e-4.  Initially active examples receive a buffered NLL
+floor above ``-log(3e-4)``; initially passing examples are protected so the
 failure set cannot migrate. Deterministic retain, real-author, and world-fact
 calibration answers receive per-example NLL ceilings relative to the original
 full-TOFU reference model. The full retain evaluation subset receives a hard
@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--target-forget-answer-probability",
         type=float,
-        default=2e-5,
+        default=3e-4,
     )
     parser.add_argument(
         "--target-nll-buffer",

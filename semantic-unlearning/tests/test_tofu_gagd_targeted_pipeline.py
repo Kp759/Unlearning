@@ -205,6 +205,26 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
         self.assertTrue(args.require_input_retain_target)
         self.assertGreater(args.repair_rank, 0)
         self.assertEqual(args.retain_calibration_num, args.retain_num)
+        self.assertEqual(args.target_forget_answer_probability, 3e-4)
+        self.assertEqual(args.min_utility_probability_ratio, 0.9998)
+
+    def test_result_parser_defaults_to_requested_joint_target(self):
+        args = RESULTS.build_parser().parse_args(["--output-dir", "out"])
+        self.assertEqual(args.max_forget_answer_probability, 3e-4)
+        self.assertEqual(args.min_retain_probability_ratio, 0.9998)
+
+    def test_neighborhood_parser_uses_requested_forget_target(self):
+        args = NEIGHBORHOOD.build_parser().parse_args(
+            [
+                "--model-path",
+                "candidate",
+                "--reference-model-path",
+                "base",
+                "--output-dir",
+                "out",
+            ]
+        )
+        self.assertEqual(args.max_forget_answer_probability, 3e-4)
 
     def test_packed_sparse_cache_matches_per_answer_computation(self):
         caches = [
@@ -336,7 +356,28 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
         self.assertIn("--require-utility-constraints", script)
         self.assertIn("--reference-model-path", script)
         self.assertIn('RUN_NEIGHBORHOOD_REPAIR="${RUN_NEIGHBORHOOD_REPAIR:-0}"', script)
+        self.assertIn(
+            'TARGET_FORGET_ANSWER_PROBABILITY="${TARGET_FORGET_ANSWER_PROBABILITY:-0.0003}"',
+            script,
+        )
+        self.assertIn(
+            'SETTING5_OVERLAP_ALPHA="${SETTING5_OVERLAP_ALPHA:-0.0}"',
+            script,
+        )
         self.assertGreater(oracle, neighborhood)
+
+    def test_setting5_defaults_to_full_overlap_restoration(self):
+        args = SETTING5.build_parser().parse_args(
+            [
+                "--model-path",
+                "trained",
+                "--base-model-path",
+                "base",
+                "--output-dir",
+                "out",
+            ]
+        )
+        self.assertEqual(args.overlap_alpha, 0.0)
 
 
 if __name__ == "__main__":

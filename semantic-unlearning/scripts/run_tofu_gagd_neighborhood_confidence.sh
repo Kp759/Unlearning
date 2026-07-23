@@ -4,7 +4,7 @@ set -euo pipefail
 # Complete TOFU chain:
 #   1. four GA/GD parameter/token settings;
 #   2. TOFU Setting 5e overlap-aware post-training restoration;
-#   3. active forget-case sparse LM-head repair to <= 2e-5;
+#   3. active forget-case sparse LM-head repair to <= 3e-4;
 #   4. optional neighborhood-confidence utility repair;
 #   5. a true retain-only retraining oracle;
 #   6. one fixed-protocol TOFU table with hard forget and retain gates.
@@ -14,14 +14,14 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${PROJECT_DIR}"
 
 MODEL_PATH="${MODEL_PATH:-outputs/finetuned_model_3B_instruct}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/tofu_gagd_targeted_2e5}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/tofu_gagd_targeted_3e4}"
 CONFIG_PATH="${CONFIG_PATH:-config/tofu_gagd_neighborhood_confidence.yaml}"
 FORGET_SPLIT="${FORGET_SPLIT:-forget05}"
 RETAIN_SPLIT="${RETAIN_SPLIT:-retain95}"
 SEED="${SEED:-42}"
 FORGET_NUM="${FORGET_NUM:-200}"
 RETAIN_NUM="${RETAIN_NUM:-1000}"
-TARGET_FORGET_ANSWER_PROBABILITY="${TARGET_FORGET_ANSWER_PROBABILITY:-0.00002}"
+TARGET_FORGET_ANSWER_PROBABILITY="${TARGET_FORGET_ANSWER_PROBABILITY:-0.0003}"
 MIN_RETAIN_PROBABILITY_RATIO="${MIN_RETAIN_PROBABILITY_RATIO:-0.9998}"
 DTYPE="${DTYPE:-bf16}"
 DEVICE_MAP="${DEVICE_MAP:-single}"
@@ -40,7 +40,10 @@ RETAIN_WEIGHT="${RETAIN_WEIGHT:-5.0}"
 
 SETTING5_SOURCE_MODE="${SETTING5_SOURCE_MODE:-emb_lm_all_tokens}"
 SETTING5_UNIQUE_FORGET_ALPHA="${SETTING5_UNIQUE_FORGET_ALPHA:-1.0}"
-SETTING5_OVERLAP_ALPHA="${SETTING5_OVERLAP_ALPHA:-0.25}"
+# Shared forget/utility rows are restored completely. The active repair that
+# follows can suppress utility-exclusive forget rows without spending the
+# 99.98%-of-Base retain budget at this intermediate stage.
+SETTING5_OVERLAP_ALPHA="${SETTING5_OVERLAP_ALPHA:-0.0}"
 
 RUN_FOUR_SETTINGS="${RUN_FOUR_SETTINGS:-1}"
 RUN_SETTING5_RESTORE="${RUN_SETTING5_RESTORE:-1}"

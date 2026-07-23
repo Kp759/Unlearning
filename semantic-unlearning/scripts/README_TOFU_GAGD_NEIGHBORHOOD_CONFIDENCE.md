@@ -15,7 +15,7 @@ This experiment is isolated from the older MCF/TOFU runners. It evaluates:
 The default final method is Setting 5e plus active forget-case repair.
 Neighborhood repair is optional. A final method is accepted only when:
 
-- clean forget answer probability is at most `0.00002`; and
+- clean forget answer probability is at most `0.0003`; and
 - retain answer probability preserves at least `99.98%` of the unchanged
   full-TOFU model on the identical evaluation sample.
 
@@ -31,7 +31,7 @@ For the scratch model path used by the 3B experiments:
 
 ```bash
 MODEL_PATH=/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct \
-OUTPUT_ROOT=/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_gagd_targeted_2e5 \
+OUTPUT_ROOT=/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_gagd_targeted_3e4 \
 bash scripts/run_tofu_gagd_neighborhood_confidence.sh
 ```
 
@@ -70,7 +70,7 @@ TOFU has no MCF `target_new`/`target_true` pair. Its 5e analogue unties the
 output head and uses answer-token groups:
 
 - unique forget LM-head rows keep the learned GA/GD update;
-- rows shared with the protected corpus keep 25% of the update by default;
+- rows shared with the protected corpus are restored completely by default;
 - protected-only and unrelated LM-head rows return to the full-TOFU base;
 - every input embedding row returns to the full-TOFU base.
 
@@ -91,7 +91,7 @@ answer_probability = exp(-mean_answer_nll)
 ```
 
 The active repair requires every record to reach an answer NLL of at least
-`-log(2e-5)`, plus a BF16 safety buffer. It:
+`-log(3e-4)`, plus a BF16 safety buffer. It:
 
 - selects rows only from initially failing forget answers;
 - removes every row shared with protected utility answers;
@@ -136,7 +136,7 @@ It restores their answer confidence toward the original full-TOFU model while:
   objective;
 - optionally projecting the update away from forget hidden-state directions.
 
-The stage rejects weak input checkpoints and rechecks the absolute `2e-5`
+The stage rejects weak input checkpoints and rechecks the absolute `3e-4`
 target after BF16 materialization.
 
 Best-effort saving is disabled by default. The full `tofu_eval.py` evaluation
@@ -176,7 +176,7 @@ The table reports TOFU-native metrics:
   (higher is better);
 - truth-ratio metrics;
 - KS p-value against the retain-only oracle;
-- an explicit pass/fail column for the `0.00002` forgetting target.
+- an explicit pass/fail column for the `0.0003` forgetting target.
 - retain probability relative to Base;
 - explicit retain and joint-target pass/fail columns.
 

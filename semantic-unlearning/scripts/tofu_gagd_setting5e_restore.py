@@ -9,7 +9,8 @@ TOFU has no CounterFact target-new/target-true pair, so the vocabulary policy
 is defined from answer tokens:
 
 * unique forget-answer LM-head rows keep the learned GA/GD update;
-* forget/protected overlap LM-head rows keep a configurable fraction;
+* forget/protected overlap LM-head rows are restored by default, with an
+  optional configurable fraction of the learned update;
 * protected-only and unrelated LM-head rows are restored to the base model;
 * the complete input embedding matrix is restored to the base model.
 
@@ -68,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--forget-num", type=int, default=200)
     parser.add_argument("--retain-num", type=int, default=1000)
     parser.add_argument("--unique-forget-alpha", type=float, default=1.0)
-    parser.add_argument("--overlap-alpha", type=float, default=0.25)
+    parser.add_argument("--overlap-alpha", type=float, default=0.0)
     parser.add_argument(
         "--max-length",
         type=int,

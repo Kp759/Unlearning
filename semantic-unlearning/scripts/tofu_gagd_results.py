@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-forget-answer-probability",
         type=float,
-        default=2e-5,
+        default=3e-4,
     )
     parser.add_argument(
         "--min-retain-probability-ratio",
@@ -127,7 +127,7 @@ def row_from_summary(
     display_name: str,
     path: Path,
     summary: Dict[str, Any],
-    max_forget_answer_probability: float = 2e-5,
+    max_forget_answer_probability: float = 3e-4,
 ) -> Dict[str, Any]:
     forget_answer_probability = _number(summary, "forget_answer_prob")
     return {

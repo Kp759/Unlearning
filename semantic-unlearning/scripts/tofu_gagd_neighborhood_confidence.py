@@ -117,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-forget-answer-probability",
         type=float,
-        default=2e-5,
+        default=3e-4,
         help=(
             "Hard clean-forget probability ceiling inherited from the active "
             "repair stage."
