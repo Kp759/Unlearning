@@ -141,11 +141,12 @@ if [[ "${RUN_ACTIVE_REPAIR}" == "1" ]]; then
     --calibration-seed "${ACTIVE_CALIBRATION_SEED:-2718}" \
     --target-forget-answer-probability "${TARGET_FORGET_ANSWER_PROBABILITY}" \
     --min-utility-probability-ratio "${MIN_RETAIN_PROBABILITY_RATIO}" \
+    --utility-constraint-mode aggregate \
     --target-nll-buffer "${ACTIVE_TARGET_NLL_BUFFER:-0.25}" \
-    --repair-steps "${ACTIVE_REPAIR_STEPS:-500}" \
-    --repair-lr "${ACTIVE_REPAIR_LR:-1e-2}" \
-    --repair-rank "${ACTIVE_REPAIR_RANK:-32}" \
-    --utility-projection-rank "${ACTIVE_UTILITY_PROJECTION_RANK:-256}" \
+    --repair-steps "${ACTIVE_REPAIR_STEPS:-5000}" \
+    --repair-lr "${ACTIVE_REPAIR_LR:-2e-2}" \
+    --repair-rank "${ACTIVE_REPAIR_RANK:-64}" \
+    --utility-projection-rank "${ACTIVE_UTILITY_PROJECTION_RANK:-64}" \
     --require-input-retain-target \
     --require-utility-constraints \
     --batch-size "${ACTIVE_BATCH_SIZE:-8}" \

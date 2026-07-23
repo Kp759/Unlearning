@@ -102,8 +102,12 @@ The active repair requires every record to reach an answer NLL of at least
 - protects all 1,000 protocol-matched retain answers plus deterministic
   real-author and world-fact answers against the original full-TOFU model;
 - can project sparse LM-head updates away from utility hidden directions;
-- uses `-log(0.9998) = 0.000200020002667...` as the maximum utility NLL
-  allowance;
+- enforces a `0.9998` aggregate answer-probability ratio separately for
+  retain, real-authors, and world-facts, matching the evaluator's aggregation;
+- keeps the former per-example NLL ceilings behind the explicit
+  `--utility-constraint-mode per-example` diagnostic setting;
+- adds a hardest-forget hinge so a few high-probability failures are not
+  diluted by the 200-record mean;
 - ranks utility-safe candidates before candidates with stronger forgetting;
 - refuses to save a normal candidate unless every materialized forget answer
   and every utility gate pass.

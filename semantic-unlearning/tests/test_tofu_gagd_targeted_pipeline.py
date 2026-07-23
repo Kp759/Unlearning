@@ -140,6 +140,50 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
         self.assertGreater(float(utility.grad[1]), 0.0)
         self.assertEqual(terms["forget_slack"].shape, forget.shape)
         self.assertEqual(terms["utility_slack"].shape, utility.shape)
+        self.assertEqual(
+            float(terms["hardest_forget_hinge"]),
+            float(torch.tensor(1.0)),
+        )
+
+    def test_aggregate_utility_gate_matches_split_mean_probability(self):
+        instances = [
+            self.answer_instance("retain", 0, "A"),
+            self.answer_instance("retain", 1, "B"),
+        ]
+        reference_probability = torch.tensor([0.9, 0.1])
+        candidate_probability = torch.tensor([0.89, 0.11])
+        reference_nll = -reference_probability.log()
+        candidate_nll = -candidate_probability.log()
+        ratios = ACTIVE.utility_probability_ratio_tensors(
+            candidate_nll,
+            reference_nll,
+            instances,
+        )
+        self.assertAlmostEqual(float(ratios["retain"]), 1.0, places=6)
+        hinge, slacks = ACTIVE.aggregate_utility_hinge(
+            candidate_nll,
+            reference_nll,
+            instances,
+            0.9998,
+        )
+        self.assertEqual(float(hinge), 0.0)
+        self.assertTrue(torch.all(slacks > 0))
+
+    def test_aggregate_utility_hinge_penalizes_ratio_deficit(self):
+        instances = [
+            self.answer_instance("retain", 0, "A"),
+            self.answer_instance("retain", 1, "B"),
+        ]
+        reference_nll = -torch.tensor([0.8, 0.8]).log()
+        candidate_nll = -torch.tensor([0.7, 0.7]).log()
+        hinge, slacks = ACTIVE.aggregate_utility_hinge(
+            candidate_nll,
+            reference_nll,
+            instances,
+            0.9998,
+        )
+        self.assertGreater(float(hinge), 0.0)
+        self.assertTrue(torch.all(slacks < 0))
 
     def test_active_utility_tolerance_matches_9998_percent_preservation(self):
         tolerance = ACTIVE.probability_ratio_nll_tolerance(0.9998)
@@ -207,6 +251,12 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
         self.assertEqual(args.retain_calibration_num, args.retain_num)
         self.assertEqual(args.target_forget_answer_probability, 3e-4)
         self.assertEqual(args.min_utility_probability_ratio, 0.9998)
+        self.assertEqual(args.utility_constraint_mode, "aggregate")
+        self.assertEqual(args.repair_steps, 5000)
+        self.assertEqual(args.repair_lr, 2e-2)
+        self.assertEqual(args.repair_rank, 64)
+        self.assertEqual(args.utility_projection_rank, 64)
+        self.assertGreater(args.hardest_forget_hinge_weight, 0)
 
     def test_result_parser_defaults_to_requested_joint_target(self):
         args = RESULTS.build_parser().parse_args(["--output-dir", "out"])

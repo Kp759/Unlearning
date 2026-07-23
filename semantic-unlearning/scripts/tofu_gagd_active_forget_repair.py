@@ -14,9 +14,10 @@ For every clean TOFU forget example the evaluator reports
 The default target is 3e-4.  Initially active examples receive a buffered NLL
 floor above ``-log(3e-4)``; initially passing examples are protected so the
 failure set cannot migrate. Deterministic retain, real-author, and world-fact
-calibration answers receive per-example NLL ceilings relative to the original
-full-TOFU reference model. The full retain evaluation subset receives a hard
-aggregate probability-ratio gate before any checkpoint is saved.
+calibration answers receive aggregate answer-probability ratio floors relative
+to the original full-TOFU reference model. The full retain evaluation subset
+receives the same hard aggregate gate before any checkpoint is saved.
+Per-example NLL ceilings remain available as a diagnostic mode.
 
 No normal checkpoint is saved unless every materialized forget answer meets
 the hard probability target and every utility gate passes.
@@ -100,8 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.9998,
         help=(
             "Candidate utility answer probability must preserve at least this "
-            "fraction of the original full-TOFU reference. The equivalent "
-            "per-example NLL allowance is -log(ratio)."
+            "fraction of the original full-TOFU reference."
         ),
     )
     parser.add_argument(
@@ -109,9 +109,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help=(
-            "Optional stricter per-example NLL allowance. The effective "
-            "allowance is the minimum of this value and -log of the required "
-            "utility probability ratio."
+            "Optional stricter per-example NLL allowance used only by "
+            "--utility-constraint-mode=per-example. The effective allowance "
+            "is the minimum of this value and -log of the required utility "
+            "probability ratio."
+        ),
+    )
+    parser.add_argument(
+        "--utility-constraint-mode",
+        choices=["aggregate", "per-example"],
+        default="aggregate",
+        help=(
+            "Aggregate matches tofu_eval and applies the probability-ratio "
+            "floor separately to retain, real_authors, and world_facts. "
+            "Per-example selects the former, substantially stricter gate."
         ),
     )
     parser.add_argument(
@@ -124,10 +135,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--forget-hinge-weight", type=float, default=100.0)
+    parser.add_argument(
+        "--hardest-forget-hinge-weight",
+        type=float,
+        default=25.0,
+        help=(
+            "Additional weight on the largest forget NLL deficit so a few "
+            "hard cases are not diluted by the 200-record mean."
+        ),
+    )
     parser.add_argument("--utility-hinge-weight", type=float, default=10.0)
     parser.add_argument("--delta-l2-lambda", type=float, default=1e-5)
-    parser.add_argument("--repair-steps", type=int, default=500)
-    parser.add_argument("--repair-lr", type=float, default=1e-2)
+    parser.add_argument("--repair-steps", type=int, default=5000)
+    parser.add_argument("--repair-lr", type=float, default=2e-2)
     parser.add_argument(
         "--repair-optimizer",
         choices=["sgd", "adam", "adamw"],
@@ -136,13 +156,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repair-rank",
         type=int,
-        default=32,
+        default=64,
         help=(
             "Positive values restrict each row delta to active answer-position "
             "hidden directions. Zero is diagnostic and rejected in normal runs."
         ),
     )
-    parser.add_argument("--utility-projection-rank", type=int, default=256)
+    parser.add_argument("--utility-projection-rank", type=int, default=64)
     parser.add_argument(
         "--basis-max-rows",
         type=int,
@@ -169,8 +189,9 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "Make every utility NLL ceiling and the full retain ratio hard save "
-            "gates. Disable only together with --save-best-effort for diagnostics."
+            "Make the selected utility constraints and the full retain ratio "
+            "hard save gates. Disable only together with --save-best-effort "
+            "for diagnostics."
         ),
     )
     parser.add_argument(
@@ -225,6 +246,7 @@ def validate_args(args: argparse.Namespace) -> None:
     nonnegative = (
         "target_nll_buffer",
         "forget_hinge_weight",
+        "hardest_forget_hinge_weight",
         "utility_hinge_weight",
         "delta_l2_lambda",
         "repair_rank",
@@ -378,11 +400,75 @@ def partition_active_forget_row_ids(
     )
 
 
+def utility_probability_ratio_tensors(
+    current_nll: torch.Tensor,
+    reference_nll: torch.Tensor,
+    instances: Sequence[tofu.TOFUAnswerInstance],
+) -> Dict[str, torch.Tensor]:
+    """Return differentiable mean answer-probability ratios by utility split."""
+    if current_nll.shape != reference_nll.shape:
+        raise ValueError("Current and reference utility NLL tensors must match")
+    if current_nll.numel() != len(instances):
+        raise ValueError("Utility NLL tensors must align with utility instances")
+    grouped_positions: Dict[str, List[int]] = {}
+    for position, instance in enumerate(instances):
+        grouped_positions.setdefault(instance.split, []).append(position)
+    ratios: Dict[str, torch.Tensor] = {}
+    for split in tofu.UTILITY_SPLITS:
+        positions = grouped_positions.get(split, [])
+        if not positions:
+            continue
+        index = torch.tensor(
+            positions,
+            dtype=torch.long,
+            device=current_nll.device,
+        )
+        current = current_nll.index_select(0, index)
+        reference = reference_nll.to(current_nll).index_select(0, index)
+        log_count = math.log(len(positions))
+        current_log_mean_probability = torch.logsumexp(-current, dim=0) - log_count
+        reference_log_mean_probability = (
+            torch.logsumexp(-reference, dim=0) - log_count
+        )
+        ratios[split] = torch.exp(
+            current_log_mean_probability - reference_log_mean_probability
+        )
+    return ratios
+
+
+def aggregate_utility_hinge(
+    current_nll: torch.Tensor,
+    reference_nll: torch.Tensor,
+    instances: Sequence[tofu.TOFUAnswerInstance],
+    minimum_probability_ratio: float,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Penalize split-level utility ratio deficits in normalized log space."""
+    ratios = utility_probability_ratio_tensors(
+        current_nll,
+        reference_nll,
+        instances,
+    )
+    if not ratios:
+        raise ValueError("No utility split was available for aggregate gating")
+    required_log_ratio = math.log(minimum_probability_ratio)
+    normalization = max(-required_log_ratio, 1e-8)
+    slacks = torch.stack(
+        [torch.log(ratio) - required_log_ratio for ratio in ratios.values()]
+    )
+    normalized_errors = torch.relu(-slacks) / normalization
+    return normalized_errors.square().mean(), slacks
+
+
 def target_objective_terms(
     current_forget_nll: torch.Tensor,
     required_forget_nll: torch.Tensor,
     current_utility_nll: torch.Tensor,
     required_utility_nll: torch.Tensor,
+    *,
+    reference_utility_nll: Optional[torch.Tensor] = None,
+    utility_instances: Sequence[tofu.TOFUAnswerInstance] = (),
+    minimum_utility_probability_ratio: float = 0.9998,
+    utility_constraint_mode: str = "per-example",
 ) -> Dict[str, torch.Tensor]:
     if current_forget_nll.shape != required_forget_nll.shape:
         raise ValueError("The objective must contain every forget instance")
@@ -394,15 +480,32 @@ def target_objective_terms(
     utility_errors = torch.relu(
         current_utility_nll - required_utility_nll.to(current_utility_nll)
     )
+    if utility_constraint_mode == "aggregate":
+        if reference_utility_nll is None:
+            raise ValueError(
+                "Aggregate utility constraints require reference utility NLL"
+            )
+        utility_hinge, utility_slack = aggregate_utility_hinge(
+            current_utility_nll,
+            reference_utility_nll,
+            utility_instances,
+            minimum_utility_probability_ratio,
+        )
+    elif utility_constraint_mode == "per-example":
+        utility_hinge = utility_errors.square().mean()
+        utility_slack = (
+            required_utility_nll.to(current_utility_nll) - current_utility_nll
+        )
+    else:
+        raise ValueError(f"Unknown utility constraint mode: {utility_constraint_mode}")
     return {
         "forget_hinge": forget_errors.square().mean(),
-        "utility_hinge": utility_errors.square().mean(),
+        "hardest_forget_hinge": forget_errors.square().max(),
+        "utility_hinge": utility_hinge,
         "forget_slack": (
             current_forget_nll - required_forget_nll.to(current_forget_nll)
         ),
-        "utility_slack": (
-            required_utility_nll.to(current_utility_nll) - current_utility_nll
-        ),
+        "utility_slack": utility_slack,
     }
 
 
@@ -416,6 +519,9 @@ def repair_metrics(
     *,
     target_nll: float,
     tolerance: float,
+    reference_utility_nll: Optional[torch.Tensor] = None,
+    minimum_utility_probability_ratio: float = 0.9998,
+    utility_constraint_mode: str = "per-example",
 ) -> Dict[str, Any]:
     target_active = forget_nll < (target_nll - tolerance)
     buffered_unmet = forget_nll < (
@@ -424,6 +530,30 @@ def repair_metrics(
     utility_violations = utility_nll > (
         required_utility_nll.to(utility_nll) + tolerance
     )
+    split_ratios: Dict[str, float] = {}
+    aggregate_utility_violation_count = 0
+    if reference_utility_nll is not None:
+        split_ratio_tensors = utility_probability_ratio_tensors(
+            utility_nll,
+            reference_utility_nll,
+            utility_instances,
+        )
+        split_ratios = {
+            split: float(value.detach().cpu())
+            for split, value in split_ratio_tensors.items()
+        }
+        aggregate_utility_violation_count = sum(
+            ratio + 1e-12 < minimum_utility_probability_ratio
+            for ratio in split_ratios.values()
+        )
+    if utility_constraint_mode == "aggregate":
+        utility_constraint_violation_count = aggregate_utility_violation_count
+    elif utility_constraint_mode == "per-example":
+        utility_constraint_violation_count = int(
+            utility_violations.sum().detach().cpu()
+        )
+    else:
+        raise ValueError(f"Unknown utility constraint mode: {utility_constraint_mode}")
     split_probabilities = tofu.group_answer_probabilities(
         utility_nll,
         utility_instances,
@@ -455,8 +585,13 @@ def repair_metrics(
             .detach()
             .cpu()
         ),
-        "utility_constraint_violation_count": int(
+        "utility_constraint_mode": utility_constraint_mode,
+        "utility_constraint_violation_count": utility_constraint_violation_count,
+        "utility_instance_constraint_violation_count": int(
             utility_violations.sum().detach().cpu()
+        ),
+        "utility_aggregate_constraint_violation_count": (
+            aggregate_utility_violation_count
         ),
         "minimum_utility_nll_slack": float(
             (
@@ -468,6 +603,10 @@ def repair_metrics(
             .cpu()
         ),
         "utility_answer_probability_by_split": split_probabilities,
+        "utility_probability_ratio_by_split": split_ratios,
+        "minimum_observed_utility_probability_ratio": (
+            min(split_ratios.values()) if split_ratios else float("nan")
+        ),
         "utility_macro_answer_probability": (
             sum(macro_values) / len(macro_values)
             if macro_values
@@ -764,6 +903,9 @@ def main() -> None:
         zero_delta,
         target_nll=target_nll,
         tolerance=args.comparison_tolerance,
+        reference_utility_nll=reference_utility_nll,
+        minimum_utility_probability_ratio=args.min_utility_probability_ratio,
+        utility_constraint_mode=args.utility_constraint_mode,
     )
     baseline_metrics.update(
         {
@@ -882,10 +1024,18 @@ def main() -> None:
                 required_forget_nll,
                 current_utility,
                 required_utility_nll,
+                reference_utility_nll=reference_utility_nll,
+                utility_instances=utility_instances,
+                minimum_utility_probability_ratio=(
+                    args.min_utility_probability_ratio
+                ),
+                utility_constraint_mode=args.utility_constraint_mode,
             )
             delta_l2 = delta.square().sum()
             loss = (
                 args.forget_hinge_weight * terms["forget_hinge"]
+                + args.hardest_forget_hinge_weight
+                * terms["hardest_forget_hinge"]
                 + args.utility_hinge_weight * terms["utility_hinge"]
                 + args.delta_l2_lambda * delta_l2
             )
@@ -921,6 +1071,11 @@ def main() -> None:
                     candidate_delta,
                     target_nll=target_nll,
                     tolerance=args.comparison_tolerance,
+                    reference_utility_nll=reference_utility_nll,
+                    minimum_utility_probability_ratio=(
+                        args.min_utility_probability_ratio
+                    ),
+                    utility_constraint_mode=args.utility_constraint_mode,
                 )
                 if candidate_priority(metrics) < candidate_priority(best.metrics):
                     best = CandidateSnapshot(
@@ -935,6 +1090,9 @@ def main() -> None:
                     "forget_hinge": float(
                         terms["forget_hinge"].detach().cpu()
                     ),
+                    "hardest_forget_hinge": float(
+                        terms["hardest_forget_hinge"].detach().cpu()
+                    ),
                     "utility_hinge": float(
                         terms["utility_hinge"].detach().cpu()
                     ),
@@ -948,6 +1106,8 @@ def main() -> None:
                 print(
                     f"step={step} active={metrics['active_forget_instance_count']} "
                     f"utility_violations={metrics['utility_constraint_violation_count']} "
+                    f"min_utility_ratio="
+                    f"{metrics['minimum_observed_utility_probability_ratio']:.8g} "
                     f"mean_forget_prob={metrics['forget_answer_probability_mean']:.8g} "
                     f"max_forget_prob={metrics['forget_answer_probability_max']:.8g}"
                 )
@@ -976,7 +1136,18 @@ def main() -> None:
         raise RuntimeError(
             "No candidate jointly satisfied the buffered hard forget target "
             f"{args.target_forget_answer_probability} and the mandatory "
-            "reference utility constraints. No checkpoint was saved."
+            "reference utility constraints. "
+            f"Best step={best.step}, "
+            f"active_forget={best.metrics['active_forget_instance_count']}, "
+            f"utility_violations="
+            f"{best.metrics['utility_constraint_violation_count']}, "
+            f"min_utility_ratio="
+            f"{best.metrics['minimum_observed_utility_probability_ratio']:.9g}, "
+            f"mean_forget_probability="
+            f"{best.metrics['forget_answer_probability_mean']:.9g}, "
+            f"max_forget_probability="
+            f"{best.metrics['forget_answer_probability_max']:.9g}. "
+            "No checkpoint was saved."
         )
 
     best_delta = best.delta_rows.to(device=device, dtype=torch.float32)
@@ -1024,9 +1195,30 @@ def main() -> None:
         * (1.0 + args.materialization_relative_tolerance)
     )
     materialized_active = after_probabilities > allowed_probability
-    materialized_utility_violations = after_utility_nll > (
+    materialized_utility_instance_violations = after_utility_nll > (
         required_utility_nll + args.comparison_tolerance
     )
+    materialized_utility_ratio_tensors = utility_probability_ratio_tensors(
+        after_utility_nll,
+        reference_utility_nll,
+        utility_instances,
+    )
+    materialized_utility_ratios = {
+        split: float(value.detach().cpu())
+        for split, value in materialized_utility_ratio_tensors.items()
+    }
+    materialized_utility_aggregate_violation_count = sum(
+        ratio + 1e-12 < args.min_utility_probability_ratio
+        for ratio in materialized_utility_ratios.values()
+    )
+    if args.utility_constraint_mode == "aggregate":
+        materialized_utility_violation_count = (
+            materialized_utility_aggregate_violation_count
+        )
+    else:
+        materialized_utility_violation_count = int(
+            materialized_utility_instance_violations.sum().cpu()
+        )
     if materialized_active.any() and not args.save_best_effort:
         tofu.set_selected_lm_head_rows(
             output_weight,
@@ -1041,7 +1233,7 @@ def main() -> None:
         )
     if (
         args.require_utility_constraints
-        and materialized_utility_violations.any()
+        and materialized_utility_violation_count
     ):
         tofu.set_selected_lm_head_rows(
             output_weight,
@@ -1051,8 +1243,9 @@ def main() -> None:
         )
         raise RuntimeError(
             "BF16 materialization violated "
-            f"{int(materialized_utility_violations.sum().cpu())} utility "
-            "constraints; the edit was reverted."
+            f"{materialized_utility_violation_count} "
+            f"{args.utility_constraint_mode} utility constraints; "
+            f"split ratios={materialized_utility_ratios}. The edit was reverted."
         )
     if (
         args.require_utility_constraints
@@ -1080,6 +1273,9 @@ def main() -> None:
         best_delta,
         target_nll=target_nll,
         tolerance=math.log1p(args.materialization_relative_tolerance),
+        reference_utility_nll=reference_utility_nll,
+        minimum_utility_probability_ratio=args.min_utility_probability_ratio,
+        utility_constraint_mode=args.utility_constraint_mode,
     )
     after_metrics.update(
         {
@@ -1147,7 +1343,7 @@ def main() -> None:
             and (
                 not args.require_utility_constraints
                 or (
-                    not materialized_utility_violations.any()
+                    materialized_utility_violation_count == 0
                     and full_retain_target_met
                 )
             )
@@ -1155,8 +1351,18 @@ def main() -> None:
         "utility_constraints_required": bool(
             args.require_utility_constraints
         ),
-        "utility_constraint_violations_after": int(
-            materialized_utility_violations.sum().cpu()
+        "utility_constraint_mode": args.utility_constraint_mode,
+        "utility_constraint_violations_after": (
+            materialized_utility_violation_count
+        ),
+        "utility_instance_constraint_violations_after": int(
+            materialized_utility_instance_violations.sum().cpu()
+        ),
+        "utility_aggregate_constraint_violations_after": (
+            materialized_utility_aggregate_violation_count
+        ),
+        "utility_probability_ratio_by_split_after": (
+            materialized_utility_ratios
         ),
         "minimum_utility_probability_ratio": (
             args.min_utility_probability_ratio
