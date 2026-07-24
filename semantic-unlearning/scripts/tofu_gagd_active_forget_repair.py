@@ -11,8 +11,8 @@ For every clean TOFU forget example the evaluator reports
 
     answer_probability = exp(-mean_answer_nll).
 
-The default target is 3e-4.  Initially active examples receive a buffered NLL
-floor above ``-log(3e-4)``; initially passing examples are protected so the
+The default target is 2e-5.  Initially active examples receive a buffered NLL
+floor above ``-log(2e-5)``; initially passing examples are protected so the
 failure set cannot migrate. Deterministic retain, real-author, and world-fact
 calibration answers receive aggregate answer-probability ratio floors relative
 to the original full-TOFU reference model. The full retain evaluation subset
@@ -87,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--target-forget-answer-probability",
         type=float,
-        default=3e-4,
+        default=2e-5,
     )
     parser.add_argument(
         "--target-nll-buffer",
@@ -98,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--min-utility-probability-ratio",
         type=float,
-        default=0.9998,
+        default=0.9999998,
         help=(
             "Candidate utility answer probability must preserve at least this "
             "fraction of the original full-TOFU reference."
@@ -467,7 +467,7 @@ def target_objective_terms(
     *,
     reference_utility_nll: Optional[torch.Tensor] = None,
     utility_instances: Sequence[tofu.TOFUAnswerInstance] = (),
-    minimum_utility_probability_ratio: float = 0.9998,
+    minimum_utility_probability_ratio: float = 0.9999998,
     utility_constraint_mode: str = "per-example",
 ) -> Dict[str, torch.Tensor]:
     if current_forget_nll.shape != required_forget_nll.shape:
@@ -520,7 +520,7 @@ def repair_metrics(
     target_nll: float,
     tolerance: float,
     reference_utility_nll: Optional[torch.Tensor] = None,
-    minimum_utility_probability_ratio: float = 0.9998,
+    minimum_utility_probability_ratio: float = 0.9999998,
     utility_constraint_mode: str = "per-example",
 ) -> Dict[str, Any]:
     target_active = forget_nll < (target_nll - tolerance)

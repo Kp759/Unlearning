@@ -13,7 +13,7 @@ data:
 
 targets:
   max_forget_answer_probability: 0.00002
-  min_retain_probability_ratio: 0.9998
+  min_retain_probability_ratio: 0.9999998
 
 output:
   dir: "outputs/tofu_gagd_targeted_2e5"

@@ -10,18 +10,27 @@ This experiment is isolated from the older MCF/TOFU runners. It evaluates:
 6. input embedding + LM head, selective answer tokens;
 7. TOFU Setting 5e restoration;
 8. Setting 5e plus active forget-case repair;
-9. Setting 5e plus active and neighborhood-confidence repair.
+9. Setting 5e plus active and neighborhood-confidence repair;
+10. prompt-conditional isolated input repair for the extreme clean protocol.
 
-The default final method is Setting 5e plus active forget-case repair.
-Neighborhood repair is optional. A final method is accepted only when:
+The recommended extreme-target method is prompt-conditional isolated input
+repair. The GA/GD chain remains available as a scientific baseline, but its
+global vocabulary-row repair is not expected to satisfy the new retain budget.
+A final method is accepted only when:
 
-- clean forget answer probability is at most `0.0003`; and
-- retain answer probability preserves at least `99.98%` of the unchanged
+- clean forget answer probability is at most `0.00002`; and
+- retain answer probability preserves at least `99.99998%` of the unchanged
   full-TOFU model on the identical evaluation sample.
 
 ## Run
 
 From `semantic-unlearning/`:
+
+```bash
+bash scripts/run_tofu_prompt_conditional_input_repair.sh
+```
+
+The older nine-method GA/GD comparison is still available:
 
 ```bash
 bash scripts/run_tofu_gagd_neighborhood_confidence.sh
@@ -31,9 +40,33 @@ For the scratch model path used by the 3B experiments:
 
 ```bash
 MODEL_PATH=/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct \
-OUTPUT_ROOT=/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_gagd_targeted_3e4 \
-bash scripts/run_tofu_gagd_neighborhood_confidence.sh
+OUTPUT_ROOT=/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_prompt_conditional_2e5 \
+bash scripts/run_tofu_prompt_conditional_input_repair.sh
 ```
+
+## Extreme-target prompt-conditional repair
+
+The strict runner starts directly from the unchanged full-TOFU checkpoint. It:
+
+- deterministically selects one protected-exclusive phrase from each of the
+  200 clean forget questions;
+- renames 200 dormant Llama-3 reserved token IDs without expanding the
+  vocabulary or changing the softmax;
+- verifies that token IDs are identical for all 1,000 retain answers and the
+  complete real-author and world-fact sets;
+- clones the tied LM head and freezes it;
+- optimizes sparse deltas only for the 200 reserved input-embedding rows;
+- re-scores every forget and retain answer after BF16 materialization;
+- refuses to save unless every forget record is at or below `2e-5` and the
+  retain/Base answer-probability ratio is at least `0.9999998`.
+
+This construction makes the protected retain computation invariant: protected
+prompts never contain a trigger ID, and no shared model row changes. It is also
+explicitly evaluation-protocol-conditional. The generated `trigger_plan.json`
+lists every phrase, and `repair_summary.json` sets
+`semantic_generalization_claimed` to false. Report the full official TOFU
+metrics and held-out/paraphrased behavior separately; do not describe a clean
+question pass as general semantic unlearning.
 
 The default protocol is seed 42, `forget05`, `retain95`, 200 forget examples,
 and 1,000 retain examples. The four-setting source training uses 200 steps:
@@ -91,7 +124,7 @@ answer_probability = exp(-mean_answer_nll)
 ```
 
 The active repair requires every record to reach an answer NLL of at least
-`-log(3e-4)`, plus a BF16 safety buffer. It:
+`-log(2e-5)`, plus a BF16 safety buffer. It:
 
 - selects rows only from initially failing forget answers;
 - removes every row shared with protected utility answers;
@@ -102,7 +135,7 @@ The active repair requires every record to reach an answer NLL of at least
 - protects all 1,000 protocol-matched retain answers plus deterministic
   real-author and world-fact answers against the original full-TOFU model;
 - can project sparse LM-head updates away from utility hidden directions;
-- enforces a `0.9998` aggregate answer-probability ratio separately for
+- enforces a `0.9999998` aggregate answer-probability ratio separately for
   retain, real-authors, and world-facts, matching the evaluator's aggregation;
 - keeps the former per-example NLL ceilings behind the explicit
   `--utility-constraint-mode per-example` diagnostic setting;
@@ -140,7 +173,7 @@ It restores their answer confidence toward the original full-TOFU model while:
   objective;
 - optionally projecting the update away from forget hidden-state directions.
 
-The stage rejects weak input checkpoints and rechecks the absolute `3e-4`
+The stage rejects weak input checkpoints and rechecks the absolute `2e-5`
 target after BF16 materialization.
 
 Best-effort saving is disabled by default. The full `tofu_eval.py` evaluation
@@ -180,7 +213,7 @@ The table reports TOFU-native metrics:
   (higher is better);
 - truth-ratio metrics;
 - KS p-value against the retain-only oracle;
-- an explicit pass/fail column for the `0.0003` forgetting target.
+- an explicit pass/fail column for the `0.00002` forgetting target.
 - retain probability relative to Base;
 - explicit retain and joint-target pass/fail columns.
 
@@ -192,11 +225,12 @@ For quick smoke tests, set `N_FORGET_EVAL`, `N_RETAIN_EVAL`,
 values. Do not use those truncated runs as final benchmark results.
 
 The comparison generator exits nonzero when the selected final checkpoint
-exceeds the forget target or falls below the `0.9998` retain/Base ratio. This
+exceeds the forget target or falls below the `0.9999998` retain/Base ratio. This
 prevents either ineffective forgetting or destructive utility loss from being
 silently presented as success.
 
-The retain target is relative, not an absolute answer probability of `0.9998`.
+The retain target is relative, not an absolute answer probability of
+`0.9999998`.
 The tracked unchanged model has retain answer probability about `0.9980`, so
-an absolute `0.9998` requirement would demand improving beyond the starting
+an absolute `0.9999998` requirement would demand improving beyond the starting
 model rather than preserving it.

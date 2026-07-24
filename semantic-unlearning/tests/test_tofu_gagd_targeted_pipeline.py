@@ -12,6 +12,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import tofu_gagd_active_forget_repair as ACTIVE  # noqa: E402
 import gagd_compare as GAGD  # noqa: E402
 import tofu_gagd_neighborhood_confidence as NEIGHBORHOOD  # noqa: E402
+import tofu_prompt_conditional_input_repair as PROMPT_REPAIR  # noqa: E402
 import tofu_gagd_results as RESULTS  # noqa: E402
 import tofu_gagd_setting5e_restore as SETTING5  # noqa: E402
 import tofu_retain_only_oracle as ORACLE  # noqa: E402
@@ -249,8 +250,8 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
         self.assertTrue(args.require_input_retain_target)
         self.assertGreater(args.repair_rank, 0)
         self.assertEqual(args.retain_calibration_num, args.retain_num)
-        self.assertEqual(args.target_forget_answer_probability, 3e-4)
-        self.assertEqual(args.min_utility_probability_ratio, 0.9998)
+        self.assertEqual(args.target_forget_answer_probability, 2e-5)
+        self.assertEqual(args.min_utility_probability_ratio, 0.9999998)
         self.assertEqual(args.utility_constraint_mode, "aggregate")
         self.assertEqual(args.repair_steps, 5000)
         self.assertEqual(args.repair_lr, 2e-2)
@@ -260,8 +261,8 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
 
     def test_result_parser_defaults_to_requested_joint_target(self):
         args = RESULTS.build_parser().parse_args(["--output-dir", "out"])
-        self.assertEqual(args.max_forget_answer_probability, 3e-4)
-        self.assertEqual(args.min_retain_probability_ratio, 0.9998)
+        self.assertEqual(args.max_forget_answer_probability, 2e-5)
+        self.assertEqual(args.min_retain_probability_ratio, 0.9999998)
 
     def test_neighborhood_parser_uses_requested_forget_target(self):
         args = NEIGHBORHOOD.build_parser().parse_args(
@@ -274,7 +275,7 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
                 "out",
             ]
         )
-        self.assertEqual(args.max_forget_answer_probability, 3e-4)
+        self.assertEqual(args.max_forget_answer_probability, 2e-5)
 
     def test_packed_sparse_cache_matches_per_answer_computation(self):
         caches = [
@@ -348,25 +349,25 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
             {
                 "Method": display,
                 "Forget answer probability ↓": 1.9e-5,
-                "Retain answer probability ↑": 0.998 * 0.9998,
+                "Retain answer probability ↑": 0.998 * 0.9999998,
                 "Meets forgetting target": True,
             },
         ]
-        RESULTS.add_base_differences(rows, 0.9998)
+        RESULTS.add_base_differences(rows, 0.9999998)
         RESULTS.require_joint_target(
             rows,
             required_display_name=display,
             max_forget_answer_probability=2e-5,
-            min_retain_probability_ratio=0.9998,
+            min_retain_probability_ratio=0.9999998,
         )
-        rows[1]["Retain answer probability ↑"] = 0.998 * 0.9997
-        RESULTS.add_base_differences(rows, 0.9998)
+        rows[1]["Retain answer probability ↑"] = 0.998 * 0.9999997
+        RESULTS.add_base_differences(rows, 0.9999998)
         with self.assertRaises(RuntimeError):
             RESULTS.require_joint_target(
                 rows,
                 required_display_name=display,
                 max_forget_answer_probability=2e-5,
-                min_retain_probability_ratio=0.9998,
+                min_retain_probability_ratio=0.9999998,
             )
 
     def test_oracle_recovers_full_finetune_provenance(self):
@@ -407,7 +408,7 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
         self.assertIn("--reference-model-path", script)
         self.assertIn('RUN_NEIGHBORHOOD_REPAIR="${RUN_NEIGHBORHOOD_REPAIR:-0}"', script)
         self.assertIn(
-            'TARGET_FORGET_ANSWER_PROBABILITY="${TARGET_FORGET_ANSWER_PROBABILITY:-0.0003}"',
+            'TARGET_FORGET_ANSWER_PROBABILITY="${TARGET_FORGET_ANSWER_PROBABILITY:-0.00002}"',
             script,
         )
         self.assertIn(
@@ -415,6 +416,119 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
             script,
         )
         self.assertGreater(oracle, neighborhood)
+
+    def test_prompt_conditional_defaults_to_extreme_joint_target(self):
+        args = PROMPT_REPAIR.build_parser().parse_args(
+            [
+                "--model-path",
+                "base",
+                "--output-dir",
+                "out",
+            ]
+        )
+        self.assertEqual(args.target_forget_answer_probability, 2e-5)
+        self.assertEqual(args.min_retain_probability_ratio, 0.9999998)
+        self.assertTrue(args.allow_full_question_fallback)
+        self.assertGreater(args.repair_epochs, 0)
+
+    def test_prompt_trigger_phrase_is_unique_and_protected_exclusive(self):
+        content, used_fallback = PROMPT_REPAIR.select_unique_trigger_phrase(
+            "What genre does Hina Ameen primarily write?",
+            ["What genre does Xin Lee Williams primarily write?"],
+            ["Who is Hina Ameen?", "What genre does Jaime Vasquez write?"],
+            min_words=3,
+            max_words=6,
+            allow_full_question_fallback=True,
+        )
+        self.assertIn("Hina Ameen", content)
+        self.assertFalse(used_fallback)
+        self.assertNotIn(content, "Who is Hina Ameen?")
+
+    def test_prompt_trigger_builder_covers_each_forget_question_once(self):
+        forget = [
+            NEIGHBORHOOD.TOFUAnswerInstance(
+                split="forget05",
+                source_index=0,
+                sampled_position=0,
+                question="Where was Hina Ameen born in 1975?",
+                answer="Karachi",
+                prompt="Question: Where was Hina Ameen born in 1975? Answer:",
+            ),
+            NEIGHBORHOOD.TOFUAnswerInstance(
+                split="forget05",
+                source_index=1,
+                sampled_position=1,
+                question="Where was Xin Lee Williams born in 1961?",
+                answer="Beijing",
+                prompt=(
+                    "Question: Where was Xin Lee Williams born in 1961? Answer:"
+                ),
+            ),
+        ]
+        protected = [
+            self.answer_instance("retain", 0, "protected answer"),
+        ]
+        rows = PROMPT_REPAIR.build_trigger_contents(
+            forget,
+            protected,
+            min_words=3,
+            max_words=6,
+            allow_full_question_fallback=True,
+        )
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(len({content for content, _ in rows}), 2)
+
+    def test_reserved_token_discovery_ignores_live_special_tokens(self):
+        payload = {
+            "added_tokens": [
+                {"id": 128000, "content": "<|begin_of_text|>"},
+                {"id": 128002, "content": "<|reserved_special_token_0|>"},
+                {"id": 128003, "content": "<|reserved_special_token_1|>"},
+            ]
+        }
+        self.assertEqual(
+            PROMPT_REPAIR.reserved_token_ids_from_tokenizer_json(payload),
+            [128002, 128003],
+        )
+
+    def test_sparse_input_delta_changes_only_trigger_positions(self):
+        module = PROMPT_REPAIR.SparseInputDelta(
+            [3, 5],
+            vocab_size=8,
+            hidden_size=2,
+            device=torch.device("cpu"),
+        )
+        with torch.no_grad():
+            module.delta.weight.copy_(
+                torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+            )
+        token_ids = torch.tensor([[1, 3, 5, 2]])
+        original = torch.zeros((1, 4, 2))
+        actual = module.inject(token_ids, original)
+        self.assertTrue(torch.equal(actual[0, 0], torch.zeros(2)))
+        self.assertTrue(torch.equal(actual[0, 1], torch.tensor([1.0, 2.0])))
+        self.assertTrue(torch.equal(actual[0, 2], torch.tensor([3.0, 4.0])))
+        self.assertTrue(torch.equal(actual[0, 3], torch.zeros(2)))
+        actual.sum().backward()
+        self.assertTrue(module.delta.weight.grad.is_sparse)
+
+    def test_prompt_conditional_runner_wires_hard_targets(self):
+        script = (
+            SCRIPTS_DIR / "run_tofu_prompt_conditional_input_repair.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("tofu_prompt_conditional_input_repair.py", script)
+        self.assertIn(
+            'TARGET_FORGET_ANSWER_PROBABILITY="${TARGET_FORGET_ANSWER_PROBABILITY:-0.00002}"',
+            script,
+        )
+        self.assertIn(
+            'MIN_RETAIN_PROBABILITY_RATIO="${MIN_RETAIN_PROBABILITY_RATIO:-0.9999998}"',
+            script,
+        )
+        self.assertIn(
+            "--required-target-method tofu_prompt_conditional_input_repair",
+            script,
+        )
 
     def test_setting5_defaults_to_full_overlap_restoration(self):
         args = SETTING5.build_parser().parse_args(

@@ -21,6 +21,7 @@ METHOD_ORDER = (
     "TOFU Setting 5e restoration",
     "Setting 5e + active forget repair",
     "Setting 5e + active + neighborhood repair",
+    "Prompt-conditional isolated input repair",
 )
 METHOD_KEYS = {
     "Base": "base",
@@ -34,7 +35,15 @@ METHOD_KEYS = {
     "Setting 5e + active + neighborhood repair": (
         "gagd_neighborhood_confidence_tofu"
     ),
+    "Prompt-conditional isolated input repair": (
+        "tofu_prompt_conditional_input_repair"
+    ),
 }
+REQUIRED_METHOD_KEYS = tuple(
+    key
+    for key in METHOD_KEYS.values()
+    if key != "tofu_prompt_conditional_input_repair"
+)
 COLUMNS = (
     "Method",
     "Forget answer probability ↓",
@@ -69,18 +78,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="METHOD_KEY=SUMMARY_JSON",
-        help="May be repeated; all nine method keys are required by default.",
+        help=(
+            "May be repeated; the nine GA/GD-chain method keys are required "
+            "by default. Prompt-conditional repair is an optional tenth row."
+        ),
     )
     parser.add_argument("--allow-partial", action="store_true")
     parser.add_argument(
         "--max-forget-answer-probability",
         type=float,
-        default=3e-4,
+        default=2e-5,
     )
     parser.add_argument(
         "--min-retain-probability-ratio",
         type=float,
-        default=0.9998,
+        default=0.9999998,
         help=(
             "Required candidate retain answer probability divided by the Base "
             "retain answer probability."
@@ -127,7 +139,7 @@ def row_from_summary(
     display_name: str,
     path: Path,
     summary: Dict[str, Any],
-    max_forget_answer_probability: float = 3e-4,
+    max_forget_answer_probability: float = 2e-5,
 ) -> Dict[str, Any]:
     forget_answer_probability = _number(summary, "forget_answer_prob")
     return {
@@ -195,7 +207,7 @@ def verify_protocol(rows: Sequence[Dict[str, Any]]) -> Tuple[int, str, str]:
 
 def add_base_differences(
     rows: Sequence[Dict[str, Any]],
-    min_retain_probability_ratio: float = 0.9998,
+    min_retain_probability_ratio: float = 0.9999998,
 ) -> None:
     base_rows = [row for row in rows if row["Method"] == "Base"]
     if len(base_rows) != 1:
@@ -370,7 +382,7 @@ def main() -> None:
     result_paths = parse_result_specs(args.result)
     missing = [
         key
-        for key in METHOD_KEYS.values()
+        for key in REQUIRED_METHOD_KEYS
         if key not in result_paths
     ]
     if missing and not args.allow_partial:

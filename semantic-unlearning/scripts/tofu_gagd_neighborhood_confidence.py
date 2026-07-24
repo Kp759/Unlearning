@@ -117,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-forget-answer-probability",
         type=float,
-        default=3e-4,
+        default=2e-5,
         help=(
             "Hard clean-forget probability ceiling inherited from the active "
             "repair stage."
@@ -136,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reference-nll-slack",
         type=float,
-        default=-math.log(0.9998),
+        default=-math.log(0.9999998),
         help=(
             "A neighborhood answer is repaired until its NLL is no more than "
             "reference NLL plus this slack."
