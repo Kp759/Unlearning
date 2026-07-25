@@ -39,7 +39,7 @@ Stage 1 is the established aggressive Setting 5e configuration:
 ```text
 forget records = 50
 retain records = 1000
-steps = 250
+steps = 600
 embedding/LM-head AdamW lr = 1e-4
 forget weight = 2.0
 retain weight = 1.0
@@ -54,17 +54,30 @@ Setting 5e's special-token exclusion restores EOS to its base row after the
 aggressive training stage; the prompt-constrained active stage is therefore
 the only operation that materializes an EOS output-row delta.
 
-- Active constraints cover every still-correct sensitive-answer token in the
-  official forget rewrite and paraphrase prompts.
-- Protected constraints cover initially correct forget-neighborhood tokens and
-  an independently sampled retain calibration set.
+- Official Setting 5e metric data, rather than a separately batched cache pass,
+  decides which sensitive-answer tokens still need repair.
+- The repair cache and scale sweep replay the complete forget split in the
+  official prompt order and batch size. Rewrite, paraphrase, and neighborhood
+  logits therefore see the same BF16 padding and batch composition as the final
+  evaluator.
+- Active optimization covers every officially correct sensitive-answer token.
+  Scale selection scores every rewrite and paraphrase token, including tokens
+  that were already incorrect, so the repair cannot make one correct.
+- Protected optimization covers officially correct forget-neighborhood tokens
+  plus an independently sampled retain calibration set.
 - The learned EOS-row direction is projected away from protected hidden
-  states.
-- A scale sweep selects the smallest-regression candidate.
-- Full official evaluation then requires non-regressing forget Eff/Gen,
-  bounded forget Spe and retain Eff/Gen/Spe drops, and bounded PPL growth.
-- If a strict gate fails, the EOS row is restored exactly to Setting 5e before
-  the selected checkpoint is saved.
+  states. Rank `0` is intentional: it keeps every remaining feasible direction
+  instead of truncating away a hard ZsRE token.
+- Each scale is materialized in the actual BF16 LM-head row before exact
+  predictions are measured. Scale `0` is evaluated with the identical code path
+  and is the numerical regression baseline.
+- The smallest materialized perturbation that reaches zero rewrite/paraphrase
+  correctness and causes no official-order neighborhood regression is selected.
+- Full official evaluation requires `Eff <= 0` and `Gen <= 0`, bounded forget
+  Spe and retain Eff/Gen/Spe drops, and bounded PPL growth.
+- A failed seed writes diagnostics and exits nonzero. The aggregate command also
+  rejects any fallback or nonzero seed, so `22.7` cannot be silently published
+  as the selected result.
 
 This is an evaluation-time targeted repair. It makes no claim that unrelated
 paraphrases outside the ZsRE protocol are forgotten.
@@ -87,14 +100,46 @@ bash scripts/run_zsre_gagd_setting5e_active_repair.sh \
   /path/to/Llama-3.2-3B-Instruct
 ```
 
+Do not use `SKIP_PPL=1` for the final ten-seed table. A successful final run
+must report `Selected Eff = 0.0`, `Selected Gen = 0.0`, preserve the Setting 5e
+Spe/PPL utility gates, and finish the aggregate step. The defaults use 800
+repair steps, a `0.25` optimization margin, a `0.05` exact BF16 selection
+margin, unrestricted repair rank, and strict zero targets.
+
+If the 600-step Setting 5e checkpoints already exist, avoid repeating Stage 1:
+
+```bash
+cd semantic-unlearning
+bash scripts/run_zsre_bf16_safe_active_repair_v2.sh \
+  outputs/zsre_setting5e_active
+```
+
+That root must contain
+`seedN/setting5e/checkpoint` for each requested seed. To create those
+checkpoints during a combined run, set `SAVE_SETTING5=1`.
+
 The dataset is downloaded on first use to
 `data/zsre_mend_eval.json`. Override paths and GPU placement with
 `ZSRE_PATH`, `WIKIDATA_DIR`, `OUT_ROOT`, and `CUDA_VISIBLE_DEVICES`.
 
 Important tuning variables include `STEPS`, `EMB_LM_LR`,
 `FORGET_WEIGHT`, `RETAIN_WEIGHT`, `FORGET_MARGIN`, `REPAIR_STEPS`,
-`REPAIR_LR`, `ACTIVE_LOGIT_MARGIN`, `REPAIR_RANK`,
-`RETAIN_CALIBRATION_NUM`, `UTILITY_DROP_TOLERANCE`, and `MAX_PPL_RATIO`.
+`REPAIR_LR`, `ACTIVE_LOGIT_MARGIN`, `SELECTION_LOGIT_MARGIN`, `REPAIR_RANK`,
+`CANDIDATE_SCALES`, `RETAIN_CALIBRATION_NUM`, `UTILITY_DROP_TOLERANCE`, and
+`MAX_PPL_RATIO`.
+
+If a seed fails, inspect
+`active_repair/repair_summary.json`,
+`active_repair/bf16_exact_scale_sweep.json`, and
+`active_repair/candidate_official_eval.json` before tuning. Use this order:
+
+1. If `optimization.all_satisfied` is false, raise `REPAIR_STEPS` to 1200,
+   then `ACTIVE_LOGIT_MARGIN` to `0.35`; keep `REPAIR_RANK=0`.
+2. If the exact sweep has no scale with zero active correct tokens, add denser
+   candidate scales around the best safe scale or raise the active margin.
+3. If Eff/Gen are zero but Spe or PPL fails, do not weaken the zero target.
+   Increase `RETAIN_CALIBRATION_NUM` first; only then consider a smaller
+   selection margin or a tighter scale grid.
 
 ## Outputs
 
@@ -103,6 +148,8 @@ Each `seedN` directory contains:
 - `base_official_eval.json`;
 - `setting5e/official_eval.json`;
 - `active_repair/candidate_official_eval.json`;
+- `active_repair/bf16_exact_scale_sweep.json`;
+- `active_repair/exact_zero_scale_baseline.json`;
 - `active_repair/repair_summary.json`;
 - `comparison.csv` and `comparison.md`;
 - `zsre_results.json`;
@@ -120,3 +167,10 @@ The supplementary paper reports ZeroUnlearn at 50 forgotten ZsRE samples as
 `Eff 27.85 +/- 3.87`, `Gen 27.52 +/- 3.87`,
 `Spe 27.73 +/- 2.70`, and `PPL 13.08 +/- 0.06`. These are comparison
 references, not expected or hard-coded results for this method.
+
+The desired aggregate
+`Eff 0.000 +/- 0.000`, `Gen 0.000 +/- 0.000`,
+`Spe about 13.091 +/- 1.884`, and `PPL about 11.3625 +/- 0.4608`
+must still be measured on the target GPU/model/checkpoint set. The code enforces
+the exact Eff/Gen requirement and relative utility preservation; it does not
+fabricate or hard-code Spe/PPL values.

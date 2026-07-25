@@ -76,7 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retain-num", type=int, default=1000)
 
     # Established aggressive Setting 5e defaults.
-    parser.add_argument("--steps", type=int, default=250)
+    parser.add_argument("--steps", type=int, default=600)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--retain-batch-size", type=int, default=4)
     parser.add_argument("--emb-lm-lr", type=float, default=1e-4)
@@ -104,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # ZsRE-native active LM-head repair.
-    parser.add_argument("--repair-steps", type=int, default=400)
+    parser.add_argument("--repair-steps", type=int, default=800)
     parser.add_argument("--repair-lr", type=float, default=5e-3)
     parser.add_argument(
         "--repair-optimizer",
@@ -112,7 +112,25 @@ def build_parser() -> argparse.ArgumentParser:
         default="adamw",
     )
     parser.add_argument("--active-logit-margin", type=float, default=0.25)
-    parser.add_argument("--repair-rank", type=int, default=32)
+    parser.add_argument(
+        "--selection-logit-margin",
+        type=float,
+        default=0.05,
+        help=(
+            "Minimum exact materialized EOS-minus-sensitive logit margin "
+            "preferred during the BF16 scale sweep."
+        ),
+    )
+    parser.add_argument(
+        "--repair-rank",
+        type=int,
+        default=0,
+        help=(
+            "0 learns the unrestricted protected-orthogonal EOS-row delta. "
+            "A positive value truncates the active hidden-state basis and can "
+            "leave official ZsRE tokens unforgotten."
+        ),
+    )
     parser.add_argument("--repair-l2-lambda", type=float, default=1e-6)
     parser.add_argument("--max-delta-norm", type=float, default=None)
     parser.add_argument("--retain-calibration-num", type=int, default=128)
@@ -129,7 +147,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--candidate-scales",
-        default="1.0,0.875,0.75,0.625,0.5,0.375,0.25,0.125,0.0",
+        default=(
+            "1.0,0.875,0.75,0.625,0.5,0.375,0.25,0.1875,0.125,"
+            "0.09375,0.0625,0.046875,0.03125,0.015625,0.0078125,0.0"
+        ),
         help="Comma-separated backtracking scales for the learned EOS-row delta.",
     )
 
@@ -137,9 +158,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--utility-drop-tolerance", type=float, default=0.10)
     parser.add_argument("--max-ppl-ratio", type=float, default=1.02)
     parser.add_argument(
+        "--target-eff-max",
+        type=float,
+        default=0.0,
+        help="Maximum accepted official forget Eff percentage.",
+    )
+    parser.add_argument(
+        "--target-gen-max",
+        type=float,
+        default=0.0,
+        help="Maximum accepted official forget Gen percentage.",
+    )
+    parser.add_argument(
         "--strict-utility-gates",
         action=argparse.BooleanOptionalAction,
         default=True,
+    )
+    parser.add_argument(
+        "--fail-if-target-missed",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Exit nonzero after writing diagnostics when no candidate reaches "
+            "the requested Eff/Gen target and utility gates."
+        ),
     )
 
     parser.add_argument("--eval-batch-size", type=int, default=8)
@@ -194,8 +236,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("forget margin must be non-negative")
     if args.repair_steps <= 0 or args.repair_lr <= 0:
         raise ValueError("repair steps and learning rate must be positive")
-    if args.active_logit_margin < 0:
-        raise ValueError("active logit margin must be non-negative")
+    if args.active_logit_margin < 0 or args.selection_logit_margin < 0:
+        raise ValueError("active/selection logit margins must be non-negative")
     if args.repair_rank < 0:
         raise ValueError("repair rank must be non-negative")
     if args.repair_l2_lambda < 0:
@@ -210,6 +252,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("utility drop tolerance must be non-negative")
     if args.max_ppl_ratio < 1:
         raise ValueError("max PPL ratio must be at least 1")
+    if args.target_eff_max < 0 or args.target_gen_max < 0:
+        raise ValueError("target Eff/Gen maxima must be non-negative")
     if args.eval_batch_size <= 0 or args.cache_batch_size <= 0:
         raise ValueError("evaluation/cache batch sizes must be positive")
     for name in (
@@ -260,6 +304,76 @@ def _sample_retain_records(
     if count >= len(records):
         return list(records)
     return random.Random(seed).sample(list(records), k=count)
+
+
+def official_correct_case_identities(
+    records: Sequence[Mapping[str, Any]],
+    metric_data: Sequence[Mapping[str, Any]],
+    tok: Any,
+    *,
+    llama_like: bool,
+    prompt_types: Sequence[str],
+) -> set[Tuple[int, str, int, int]]:
+    """Return identities marked correct by the actual official evaluation pass.
+
+    BF16 next-token ties can change when batch composition changes. Selecting
+    active/protected cases from a separate cache pass can therefore omit an
+    officially correct forget token or falsely flag a protected regression.
+    This helper makes the official metric data the source of truth and uses the
+    cache pass only to collect hidden states and logits.
+    """
+
+    metric_by_case: Dict[int, Mapping[str, Any]] = {}
+    for item in metric_data:
+        case_id = int(item["case_id"])
+        if case_id in metric_by_case:
+            raise ValueError(f"Duplicate official metric data for case_id={case_id}")
+        metric_by_case[case_id] = item
+
+    key_by_prompt_type = {
+        "rewrite": "rewrite_prompts_correct",
+        "paraphrase": "paraphrase_prompts_correct",
+        "neighborhood": "neighborhood_prompts_correct",
+    }
+    unknown = sorted(set(prompt_types) - set(key_by_prompt_type))
+    if unknown:
+        raise ValueError(f"Unsupported ZsRE prompt types: {unknown}")
+
+    correct: set[Tuple[int, str, int, int]] = set()
+    for record in records:
+        case_id = int(record["case_id"])
+        if case_id not in metric_by_case:
+            raise ValueError(
+                f"Official metric data is missing sampled case_id={case_id}"
+            )
+        post = metric_by_case[case_id]["post"]
+        expanded = zsre.expand_prediction_cases(
+            record,
+            tok,
+            llama_like=llama_like,
+            prompt_types=prompt_types,
+        )
+        by_type: Dict[str, List[zsre.PredictionCase]] = {
+            prompt_type: [] for prompt_type in prompt_types
+        }
+        for case in expanded:
+            by_type[case.prompt_type].append(case)
+
+        for prompt_type in prompt_types:
+            cases = by_type[prompt_type]
+            values = [bool(value) for value in post[key_by_prompt_type[prompt_type]]]
+            if len(cases) != len(values):
+                raise ValueError(
+                    "Official ZsRE metric/case count mismatch for "
+                    f"case_id={case_id}, prompt_type={prompt_type}: "
+                    f"{len(cases)} cases != {len(values)} metric values"
+                )
+            correct.update(
+                case.identity
+                for case, is_correct in zip(cases, values)
+                if is_correct
+            )
+    return correct
 
 
 @torch.no_grad()
@@ -536,12 +650,323 @@ def materialize_output_row(
     output_weight[token_id].copy_(updated)
 
 
+def exact_bf16_scale_sweep(
+    *,
+    model: nn.Module,
+    tok: Any,
+    output_weight: torch.Tensor,
+    neutral_token_id: int,
+    original_neutral_row: torch.Tensor,
+    delta_row: torch.Tensor,
+    active_cases: Sequence[zsre.PredictionCase],
+    protected_cases: Sequence[zsre.PredictionCase],
+    active_context_cases: Optional[Sequence[zsre.PredictionCase]] = None,
+    protected_context_cases: Optional[Sequence[zsre.PredictionCase]] = None,
+    scales: Sequence[float],
+    device: torch.device,
+    llama_like: bool,
+    batch_size: int,
+    minimum_active_margin: float = 0.0,
+) -> Tuple[
+    float,
+    List[Dict[str, Any]],
+    List[TokenLogitCache],
+    List[TokenLogitCache],
+    Dict[str, Any],
+]:
+    """Choose a scale from exact materialized predictions relative to scale 0.
+
+    The context sequences may contain additional cases that are not scored.
+    They are still forwarded in their original order so the scored rows see
+    exactly the same padding and batch composition as the official evaluator.
+    This matters for BF16 models with near-tied output logits. If active and
+    protected cases share a context, it is forwarded only once per scale.
+    """
+
+    normalized_scales = sorted({float(scale) for scale in scales}, reverse=True)
+    if 0.0 not in normalized_scales:
+        raise ValueError("Exact BF16 scale sweep requires scale 0.0")
+    if batch_size <= 0:
+        raise ValueError("Exact BF16 scale sweep batch size must be positive")
+    if minimum_active_margin < 0:
+        raise ValueError("Exact BF16 active margin must be non-negative")
+
+    active_identities = {case.identity for case in active_cases}
+    if len(active_identities) != len(active_cases):
+        raise ValueError("Active ZsRE prediction-case identities must be unique")
+    protected_identities = {case.identity for case in protected_cases}
+    if len(protected_identities) != len(protected_cases):
+        raise ValueError("Protected ZsRE prediction-case identities must be unique")
+    active_evaluation_cases = (
+        list(active_context_cases)
+        if active_context_cases is not None
+        else list(active_cases)
+    )
+    protected_evaluation_cases = (
+        list(protected_context_cases)
+        if protected_context_cases is not None
+        else list(protected_cases)
+    )
+    if not active_identities.issubset(
+        {case.identity for case in active_evaluation_cases}
+    ):
+        raise ValueError("Active context is missing one or more scored cases")
+    if not protected_identities.issubset(
+        {case.identity for case in protected_evaluation_cases}
+    ):
+        raise ValueError("Protected context is missing one or more scored cases")
+    shared_context = [
+        case.identity for case in active_evaluation_cases
+    ] == [case.identity for case in protected_evaluation_cases]
+
+    def exact_predictions(
+        cases: Sequence[zsre.PredictionCase],
+        *,
+        scale: float,
+        label: str,
+    ) -> List[TokenLogitCache]:
+        return cache_prediction_cases(
+            model,
+            tok,
+            cases,
+            neutral_token_id=neutral_token_id,
+            device=device,
+            llama_like=llama_like,
+            batch_size=batch_size,
+            desc=f"exact materialized {label} scale={scale:g}",
+        )
+
+    def select_rows(
+        rows: Sequence[TokenLogitCache],
+        identities: set[Tuple[int, str, int, int]],
+        *,
+        label: str,
+    ) -> List[TokenLogitCache]:
+        selected = [row for row in rows if row.case.identity in identities]
+        selected_identities = {row.case.identity for row in selected}
+        if selected_identities != identities or len(selected) != len(identities):
+            raise RuntimeError(
+                f"Exact {label} context did not produce every scored case"
+            )
+        return selected
+
+    def evaluate_scale(
+        scale: float,
+        *,
+        label: str,
+    ) -> Tuple[List[TokenLogitCache], List[TokenLogitCache]]:
+        active_context_rows = exact_predictions(
+            active_evaluation_cases,
+            scale=scale,
+            label=f"{label} forget context",
+        )
+        active_rows = select_rows(
+            active_context_rows,
+            active_identities,
+            label="active",
+        )
+        if shared_context:
+            protected_context_rows = active_context_rows
+        else:
+            protected_context_rows = exact_predictions(
+                protected_evaluation_cases,
+                scale=scale,
+                label=f"{label} protected context",
+            )
+        protected_rows = select_rows(
+            protected_context_rows,
+            protected_identities,
+            label="protected",
+        )
+        return active_rows, protected_rows
+
+    # Establish the numerical baseline with the same cases and batching used
+    # for every nonzero candidate. This avoids treating pre-existing BF16
+    # near-tie flips as damage caused by the repair.
+    materialize_output_row(
+        output_weight,
+        neutral_token_id,
+        original_neutral_row,
+        delta_row,
+        0.0,
+    )
+    zero_active_rows, zero_protected_rows = evaluate_scale(
+        0.0,
+        label="zero",
+    )
+    zero_active_correct = [bool(row.correct) for row in zero_active_rows]
+    zero_protected_correct = [bool(row.correct) for row in zero_protected_rows]
+    zero_active_count = int(sum(zero_active_correct))
+    zero_protected_incorrect = int(
+        len(zero_protected_correct) - sum(zero_protected_correct)
+    )
+
+    reports: List[Dict[str, Any]] = []
+    for scale in normalized_scales:
+        if scale == 0.0:
+            materialize_output_row(
+                output_weight,
+                neutral_token_id,
+                original_neutral_row,
+                delta_row,
+                0.0,
+            )
+            active_rows = zero_active_rows
+            protected_rows = zero_protected_rows
+        else:
+            materialize_output_row(
+                output_weight,
+                neutral_token_id,
+                original_neutral_row,
+                delta_row,
+                scale,
+            )
+            active_rows, protected_rows = evaluate_scale(
+                scale,
+                label="candidate",
+            )
+
+        active_correct = [bool(row.correct) for row in active_rows]
+        protected_correct = [bool(row.correct) for row in protected_rows]
+        # Only baseline-correct tokens need an EOS-over-target margin. A token
+        # already made incorrect by a third vocabulary item can legitimately
+        # have EOS below its target while still contributing zero Eff/Gen.
+        repaired_active_margins = [
+            float((row.neutral_logit - row.target_logit).detach().cpu())
+            for row, baseline_ok in zip(active_rows, zero_active_correct)
+            if baseline_ok
+        ]
+        incremental_regressions = int(
+            sum(
+                baseline_ok and not candidate_ok
+                for baseline_ok, candidate_ok in zip(
+                    zero_protected_correct,
+                    protected_correct,
+                )
+            )
+        )
+        recovered_baseline_errors = int(
+            sum(
+                (not baseline_ok) and candidate_ok
+                for baseline_ok, candidate_ok in zip(
+                    zero_protected_correct,
+                    protected_correct,
+                )
+            )
+        )
+        effective_delta = (
+            output_weight[neutral_token_id].detach().float()
+            - original_neutral_row.detach().float()
+        )
+        active_count = int(sum(active_correct))
+        reports.append(
+            {
+                "scale": scale,
+                "active_total_tokens": len(active_correct),
+                "active_correct_tokens": active_count,
+                "active_repaired_vs_zero": zero_active_count - active_count,
+                "baseline_correct_active_tokens": zero_active_count,
+                "minimum_repaired_active_neutral_minus_target_margin": (
+                    None
+                    if not repaired_active_margins
+                    else min(repaired_active_margins)
+                ),
+                "repaired_active_margin_satisfied_tokens": int(
+                    sum(
+                        margin >= minimum_active_margin
+                        for margin in repaired_active_margins
+                    )
+                ),
+                "protected_total_tokens": len(protected_correct),
+                "protected_absolute_incorrect": int(
+                    len(protected_correct) - sum(protected_correct)
+                ),
+                "protected_incremental_regressions_vs_zero": (
+                    incremental_regressions
+                ),
+                "protected_zero_scale_incorrect": zero_protected_incorrect,
+                "protected_baseline_errors_recovered": (
+                    recovered_baseline_errors
+                ),
+                "materialized_delta_norm": float(effective_delta.norm().cpu()),
+                "nonzero_materialized_delta": bool(
+                    torch.count_nonzero(effective_delta).item()
+                ),
+            }
+        )
+
+    safe = [
+        row
+        for row in reports
+        if row["scale"] > 0.0
+        and row["nonzero_materialized_delta"]
+        and row["active_repaired_vs_zero"] > 0
+        and row["protected_incremental_regressions_vs_zero"] == 0
+    ]
+    zero_active_safe = [row for row in safe if row["active_correct_tokens"] == 0]
+    robust_zero_active_safe = [
+        row
+        for row in zero_active_safe
+        if row["minimum_repaired_active_neutral_minus_target_margin"] is None
+        or row["minimum_repaired_active_neutral_minus_target_margin"]
+        >= minimum_active_margin
+    ]
+    candidates = robust_zero_active_safe or zero_active_safe or safe
+    if candidates:
+        # First eliminate every active token. Among equally effective scales,
+        # choose the smallest materialized perturbation to protect Spe/PPL.
+        selected = min(
+            candidates,
+            key=lambda row: (
+                int(row["active_correct_tokens"]),
+                float(row["materialized_delta_norm"]),
+                float(row["scale"]),
+            ),
+        )
+    else:
+        selected = next(row for row in reports if row["scale"] == 0.0)
+
+    selected_scale = float(selected["scale"])
+    materialize_output_row(
+        output_weight,
+        neutral_token_id,
+        original_neutral_row,
+        delta_row,
+        selected_scale,
+    )
+    if selected_scale == 0.0:
+        selected_active = zero_active_rows
+        selected_protected = zero_protected_rows
+    else:
+        selected_active, selected_protected = evaluate_scale(
+            selected_scale,
+            label="selected",
+        )
+
+    baseline = {
+        "active_correct_tokens_at_zero": zero_active_count,
+        "active_total_tokens": len(zero_active_correct),
+        "protected_correct_tokens_at_zero": int(sum(zero_protected_correct)),
+        "protected_incorrect_tokens_at_zero": zero_protected_incorrect,
+        "protected_total_tokens": len(zero_protected_correct),
+    }
+    return (
+        selected_scale,
+        reports,
+        selected_active,
+        selected_protected,
+        baseline,
+    )
+
+
 def metric_gate_report(
     setting5: Mapping[str, Any],
     candidate: Mapping[str, Any],
     *,
     utility_drop_tolerance: float,
     max_ppl_ratio: float,
+    target_eff_max: Optional[float] = None,
+    target_gen_max: Optional[float] = None,
 ) -> Dict[str, Any]:
     checks: Dict[str, Dict[str, Any]] = {}
 
@@ -580,6 +1005,20 @@ def metric_gate_report(
         candidate["forget"]["Gen"],
         maximum=float(setting5["forget"]["Gen"]),
     )
+    if target_eff_max is not None:
+        add_check(
+            "forget_Eff_target",
+            setting5["forget"]["Eff"],
+            candidate["forget"]["Eff"],
+            maximum=float(target_eff_max),
+        )
+    if target_gen_max is not None:
+        add_check(
+            "forget_Gen_target",
+            setting5["forget"]["Gen"],
+            candidate["forget"]["Gen"],
+            maximum=float(target_gen_max),
+        )
     add_check(
         "forget_Spe_locality",
         setting5["forget"]["Spe"],
@@ -609,8 +1048,17 @@ def metric_gate_report(
         "passed": all(item["passed"] for item in checks.values()),
         "utility_drop_tolerance_percentage_points": utility_drop_tolerance,
         "max_ppl_ratio": max_ppl_ratio,
+        "target_eff_max": target_eff_max,
+        "target_gen_max": target_gen_max,
         "checks": checks,
     }
+
+
+def official_forget_active_correct_tokens(result: Mapping[str, Any]) -> int:
+    forget = result["forget"]
+    return int(forget["post_rewrite_correct_tokens"]) + int(
+        forget["post_paraphrase_correct_tokens"]
+    )
 
 
 def compact_metrics(result: Mapping[str, Any]) -> Dict[str, Any]:
@@ -837,14 +1285,13 @@ def main() -> None:
             prompt_types=("rewrite", "paraphrase"),
         )
     ]
-    forget_neighborhood_cases = [
+    forget_official_cases = [
         case
         for record in forget_records
         for case in zsre.expand_prediction_cases(
             record,
             tok,
             llama_like=llama_like,
-            prompt_types=("neighborhood",),
         )
     ]
     calibration_records = _sample_retain_records(
@@ -861,36 +1308,91 @@ def main() -> None:
             llama_like=llama_like,
         )
     ]
-    active_all = cache_prediction_cases(
+    official_active_identities = official_correct_case_identities(
+        forget_records,
+        setting5_result["forget_raw"],
+        tok,
+        llama_like=llama_like,
+        prompt_types=("rewrite", "paraphrase"),
+    )
+    official_protected_identities = official_correct_case_identities(
+        forget_records,
+        setting5_result["forget_raw"],
+        tok,
+        llama_like=llama_like,
+        prompt_types=("neighborhood",),
+    )
+    official_protected_identities.update(
+        official_correct_case_identities(
+            calibration_records,
+            setting5_result["retain_raw"],
+            tok,
+            llama_like=llama_like,
+            prompt_types=("rewrite", "paraphrase", "neighborhood"),
+        )
+    )
+    # Reproduce the official forget pass exactly while collecting repair
+    # hidden states. Filtering after the full pass avoids BF16 batch-composition
+    # disagreements between case selection, scale selection, and final metrics.
+    forget_official_caches = cache_prediction_cases(
         model,
         tok,
-        forget_active_cases,
+        forget_official_cases,
+        neutral_token_id=neutral_token_id,
+        device=device,
+        llama_like=llama_like,
+        batch_size=args.eval_batch_size,
+        desc="cache official-order forget ZsRE tokens",
+    )
+    active_all = [
+        cache
+        for cache in forget_official_caches
+        if cache.case.prompt_type in {"rewrite", "paraphrase"}
+    ]
+    forget_protected_all = [
+        cache
+        for cache in forget_official_caches
+        if cache.case.prompt_type == "neighborhood"
+    ]
+    retain_protected_all = cache_prediction_cases(
+        model,
+        tok,
+        retain_protected_cases,
         neutral_token_id=neutral_token_id,
         device=device,
         llama_like=llama_like,
         batch_size=args.cache_batch_size,
-        desc="cache active ZsRE tokens",
+        desc="cache retain-calibration ZsRE tokens",
     )
-    protected_all = cache_prediction_cases(
-        model,
-        tok,
-        forget_neighborhood_cases + retain_protected_cases,
-        neutral_token_id=neutral_token_id,
-        device=device,
-        llama_like=llama_like,
-        batch_size=args.cache_batch_size,
-        desc="cache protected ZsRE tokens",
-    )
+    protected_all = forget_protected_all + retain_protected_all
     active_caches = [
         cache
         for cache in active_all
-        if cache.correct and cache.target_token_id != neutral_token_id
+        if cache.case.identity in official_active_identities
+        and cache.target_token_id != neutral_token_id
     ]
     protected_caches = [
         cache
         for cache in protected_all
-        if cache.correct and cache.target_token_id != neutral_token_id
+        if cache.case.identity in official_protected_identities
+        and cache.target_token_id != neutral_token_id
     ]
+    missing_active = official_active_identities - {
+        cache.case.identity for cache in active_all
+    }
+    missing_protected = official_protected_identities - {
+        cache.case.identity for cache in protected_all
+    }
+    if missing_active:
+        raise RuntimeError(
+            "Failed to cache officially correct active ZsRE tokens: "
+            f"{sorted(missing_active)[:10]}"
+        )
+    if missing_protected:
+        raise RuntimeError(
+            "Failed to cache officially correct protected ZsRE tokens: "
+            f"{sorted(missing_protected)[:10]}"
+        )
     write_jsonl(
         repair_dir / "active_tokens_before.jsonl",
         [cache_report(cache) for cache in active_caches],
@@ -912,54 +1414,70 @@ def main() -> None:
         args=args,
     )
     write_jsonl(repair_dir / "repair_log.jsonl", repair_logs)
-    selected_scale, scale_reports = select_delta_scale(
-        delta_rows[0],
-        active_caches,
-        protected_caches,
-        parse_candidate_scales(args.candidate_scales),
-    )
-    gagd.write_json(repair_dir / "scale_sweep.json", scale_reports)
-    materialize_output_row(
-        output_layer.weight,
-        neutral_token_id,
-        original_neutral_row,
-        delta_rows[0],
+    (
         selected_scale,
-    )
-    exact_active_after = cache_prediction_cases(
-        model,
-        tok,
-        [cache.case for cache in active_caches],
+        scale_reports,
+        exact_active_after,
+        exact_protected_after,
+        exact_zero_baseline,
+    ) = exact_bf16_scale_sweep(
+        model=model,
+        tok=tok,
+        output_weight=output_layer.weight,
         neutral_token_id=neutral_token_id,
+        original_neutral_row=original_neutral_row,
+        delta_row=delta_rows[0],
+        # Score every rewrite/paraphrase token, including tokens that were
+        # already incorrect at scale 0, so the sweep cannot accidentally make
+        # one of them correct. Forward the complete forget split in official
+        # order to reproduce the evaluator's BF16 batch composition.
+        active_cases=forget_active_cases,
+        protected_cases=[
+            cache.case
+            for cache in forget_protected_all
+            if cache.case.identity in official_protected_identities
+            and cache.target_token_id != neutral_token_id
+        ],
+        active_context_cases=forget_official_cases,
+        protected_context_cases=forget_official_cases,
+        scales=parse_candidate_scales(args.candidate_scales),
         device=device,
         llama_like=llama_like,
-        batch_size=args.cache_batch_size,
-        desc="verify repaired active tokens",
+        # Match the official evaluator's batch size for the materialized sweep.
+        batch_size=args.eval_batch_size,
+        minimum_active_margin=args.selection_logit_margin,
     )
-    exact_protected_after = cache_prediction_cases(
-        model,
-        tok,
-        [cache.case for cache in protected_caches],
-        neutral_token_id=neutral_token_id,
-        device=device,
-        llama_like=llama_like,
-        batch_size=args.cache_batch_size,
-        desc="verify repaired protected tokens",
+    gagd.write_json(repair_dir / "bf16_exact_scale_sweep.json", scale_reports)
+    gagd.write_json(
+        repair_dir / "exact_zero_scale_baseline.json",
+        exact_zero_baseline,
     )
-    local_protected_regressions = sum(
-        not cache.correct for cache in exact_protected_after
+    official_setting5_active_correct = official_forget_active_correct_tokens(
+        setting5_result
     )
-    local_guard_reverted = bool(local_protected_regressions)
-    if local_guard_reverted:
-        print(
-            "BF16 materialization regressed protected calibration tokens; "
-            "restoring the Setting 5e EOS row before official evaluation"
+    if (
+        exact_zero_baseline["active_correct_tokens_at_zero"]
+        != official_setting5_active_correct
+    ):
+        raise RuntimeError(
+            "Exact scale-0 active count does not match the official Setting 5e "
+            "forget pass despite identical case order and batch size: "
+            f"{exact_zero_baseline['active_correct_tokens_at_zero']} != "
+            f"{official_setting5_active_correct}"
         )
-        with torch.no_grad():
-            output_layer.weight[neutral_token_id].copy_(original_neutral_row)
-        selected_scale = 0.0
-        exact_active_after = active_caches
-        exact_protected_after = protected_caches
+    if exact_zero_baseline["protected_incorrect_tokens_at_zero"] != 0:
+        raise RuntimeError(
+            "An officially correct forget-neighborhood token changed at exact "
+            "scale 0; refusing a numerically misaligned repair sweep"
+        )
+    selected_scale_report = next(
+        report
+        for report in scale_reports
+        if float(report["scale"]) == selected_scale
+    )
+    local_protected_regressions = int(
+        selected_scale_report["protected_incremental_regressions_vs_zero"]
+    )
     write_jsonl(
         repair_dir / "active_tokens_after.jsonl",
         [cache_report(cache) for cache in exact_active_after],
@@ -985,13 +1503,49 @@ def main() -> None:
         zsre_url=args.zsre_url,
         records=records,
     )
+    official_candidate_active_correct = official_forget_active_correct_tokens(
+        candidate_result
+    )
+    if (
+        official_candidate_active_correct
+        != int(selected_scale_report["active_correct_tokens"])
+    ):
+        raise RuntimeError(
+            "Exact selected-scale active count does not match the final official "
+            "candidate evaluation: "
+            f"{selected_scale_report['active_correct_tokens']} != "
+            f"{official_candidate_active_correct}"
+        )
     gate_report = metric_gate_report(
         setting5_result,
         candidate_result,
         utility_drop_tolerance=args.utility_drop_tolerance,
         max_ppl_ratio=args.max_ppl_ratio,
+        target_eff_max=args.target_eff_max,
+        target_gen_max=args.target_gen_max,
     )
-    accepted = bool(gate_report["passed"] or not args.strict_utility_gates)
+    target_met = bool(
+        float(candidate_result["forget"]["Eff"]) <= args.target_eff_max
+        and float(candidate_result["forget"]["Gen"]) <= args.target_gen_max
+    )
+    target_already_met = bool(
+        float(setting5_result["forget"]["Eff"]) <= args.target_eff_max
+        and float(setting5_result["forget"]["Gen"]) <= args.target_gen_max
+    )
+    local_success = bool(
+        target_already_met
+        or (
+            selected_scale > 0.0
+            and selected_scale_report["nonzero_materialized_delta"]
+            and selected_scale_report["active_repaired_vs_zero"] > 0
+            and local_protected_regressions == 0
+        )
+    )
+    accepted = bool(
+        target_met
+        and local_success
+        and (gate_report["passed"] or not args.strict_utility_gates)
+    )
     if accepted:
         selected_result = copy.deepcopy(candidate_result)
         selected_result["method"] = "Setting 5e + accepted active LM-head repair"
@@ -1007,7 +1561,12 @@ def main() -> None:
             raise RuntimeError("Failed to restore rejected EOS LM-head candidate")
         selected_result = copy.deepcopy(setting5_result)
         selected_result["method"] = "Setting 5e (active candidate rejected)"
-        selection_reason = "candidate_failed_official_metric_gates"
+        if not target_met:
+            selection_reason = "candidate_missed_required_zero_eff_gen_target"
+        elif not local_success:
+            selection_reason = "no_nonzero_bf16_safe_improving_scale"
+        else:
+            selection_reason = "candidate_failed_official_metric_gates"
 
     if args.save_selected_checkpoint:
         save_checkpoint(model, tok, output_dir / "selected_checkpoint")
@@ -1020,23 +1579,38 @@ def main() -> None:
         "selected_lm_head_row_count": 1,
         "input_embeddings_frozen_during_repair": True,
         "transformer_frozen_during_repair": True,
+        "case_selection_source": "setting5e_official_metric_data",
         "active_tokens_before": len(active_caches),
-        "active_tokens_after": sum(cache.correct for cache in exact_active_after),
-        "protected_tokens": len(protected_caches),
-        "protected_regressions_after": (
-            0
-            if local_guard_reverted
-            else int(local_protected_regressions)
+        "active_tokens_zero_scale": exact_zero_baseline[
+            "active_correct_tokens_at_zero"
+        ],
+        "active_tokens_after_candidate": int(
+            selected_scale_report["active_correct_tokens"]
         ),
-        "local_materialization_guard_reverted": local_guard_reverted,
+        "official_batch_alignment_verified": True,
+        "optimization_protected_tokens": len(protected_caches),
+        "exact_official_forget_protected_tokens": len(exact_protected_after),
+        "protected_zero_scale_incorrect": exact_zero_baseline[
+            "protected_incorrect_tokens_at_zero"
+        ],
+        "protected_incremental_regressions_after_candidate": int(
+            local_protected_regressions
+        ),
         "retain_calibration_records": len(calibration_records),
-        "selected_scale": selected_scale,
+        "candidate_scale": selected_scale,
+        "selected_scale": selected_scale if accepted else 0.0,
         "unscaled_delta_norm": float(delta_rows.norm().detach().cpu()),
         "materialized_delta_norm": float(
-            (selected_scale * delta_rows).norm().detach().cpu()
+            (
+                output_layer.weight[neutral_token_id].detach().float()
+                - original_neutral_row.detach().float()
+            )
+            .norm()
+            .cpu()
         ),
         "optimization": repair_optimization,
         "official_metric_gates": gate_report,
+        "required_target_met": target_met,
         "candidate_accepted": accepted,
         "selection_reason": selection_reason,
     }
@@ -1082,6 +1656,15 @@ def main() -> None:
         f"active candidate accepted={accepted}"
     )
     print(f"Comparison: {output_dir / 'comparison.md'}")
+    if args.fail_if_target_missed and not accepted:
+        raise RuntimeError(
+            "ZsRE repair did not meet the required Eff/Gen and utility gates. "
+            f"Candidate Eff={candidate_result['forget']['Eff']}, "
+            f"Gen={candidate_result['forget']['Gen']}, "
+            f"Spe={candidate_result['forget']['Spe']}, "
+            f"PPL={candidate_result.get('forget_PPL')}; "
+            f"reason={selection_reason}. Diagnostics were written to {repair_dir}."
+        )
 
 
 if __name__ == "__main__":

@@ -90,6 +90,8 @@ def mean_std(
 def aggregate(results: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for method_key, display in METHOD_KEYS:
+        if not all(method_key in result for result in results):
+            continue
         row: Dict[str, Any] = {
             "method": display,
             "seeds": len(results),
@@ -108,7 +110,39 @@ def aggregate(results: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
                 None if std is None else round(std, 6)
             )
         rows.append(row)
+    if not rows:
+        raise ValueError("ZsRE results share no aggregatable method blocks")
     return rows
+
+
+def require_selected_targets(
+    results: Sequence[Mapping[str, Any]],
+    *,
+    eff_max: float,
+    gen_max: float,
+) -> None:
+    """Refuse to publish an aggregate containing a failed ZsRE seed."""
+
+    failures: List[str] = []
+    for result in results:
+        selected = result.get("selected")
+        accepted = bool(result.get("repair", {}).get("candidate_accepted"))
+        if selected is None:
+            failures.append(f"seed {result.get('seed')}: missing selected metrics")
+            continue
+        eff = float(selected["forget"]["Eff"])
+        gen = float(selected["forget"]["Gen"])
+        if not accepted or eff > eff_max or gen > gen_max:
+            failures.append(
+                f"seed {result.get('seed')}: accepted={accepted}, "
+                f"Eff={eff:g}, Gen={gen:g}"
+            )
+    if failures:
+        raise ValueError(
+            "Refusing to aggregate ZsRE runs that missed the selected target "
+            f"(Eff <= {eff_max:g}, Gen <= {gen_max:g}): "
+            + "; ".join(failures)
+        )
 
 
 def format_value(mean: Any, std: Any) -> str:
@@ -194,11 +228,38 @@ def main() -> None:
         default="outputs/zsre_setting5e_active/seed*/zsre_results.json",
     )
     parser.add_argument(
+        "--result",
+        action="append",
+        default=[],
+        help=(
+            "Explicit per-seed result path. Repeat for each seed. When supplied, "
+            "--pattern is ignored so stale seed directories cannot enter the aggregate."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         default="outputs/zsre_setting5e_active/aggregate",
     )
+    parser.add_argument("--require-selected-eff-max", type=float, default=0.0)
+    parser.add_argument("--require-selected-gen-max", type=float, default=0.0)
     args = parser.parse_args()
-    results = load_results(discover_results(args.pattern))
+    paths = (
+        [Path(value) for value in args.result]
+        if args.result
+        else discover_results(args.pattern)
+    )
+    missing = [path for path in paths if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "Missing explicit ZsRE result files: "
+            + ", ".join(str(path) for path in missing)
+        )
+    results = load_results(paths)
+    require_selected_targets(
+        results,
+        eff_max=args.require_selected_eff_max,
+        gen_max=args.require_selected_gen_max,
+    )
     rows = aggregate(results)
     write_outputs(Path(args.output_dir), results, rows)
     print(f"Aggregate table: {Path(args.output_dir) / 'aggregate.md'}")

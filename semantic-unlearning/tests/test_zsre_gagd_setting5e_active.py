@@ -287,6 +287,192 @@ class ZsRESetting5AndRepairTests(unittest.TestCase):
         self.assertEqual(selected["protected_regressions"], 0)
         self.assertEqual(selected["active_correct_tokens"], 0)
 
+    def test_official_metric_data_selects_repair_cases_not_cache_correctness(self):
+        tokenizer = TinyTokenizer()
+        record = adapted_record()
+        expanded = EVAL.expand_prediction_cases(
+            record,
+            tokenizer,
+            llama_like=False,
+            prompt_types=("rewrite", "paraphrase"),
+        )
+        rewrite_count = sum(case.prompt_type == "rewrite" for case in expanded)
+        paraphrase_count = sum(
+            case.prompt_type == "paraphrase" for case in expanded
+        )
+        metric_data = [
+            {
+                "case_id": record["case_id"],
+                "post": {
+                    "rewrite_prompts_correct": [True]
+                    + [False] * (rewrite_count - 1),
+                    "paraphrase_prompts_correct": [False]
+                    * (paraphrase_count - 1)
+                    + [True],
+                    "neighborhood_prompts_correct": [False],
+                },
+            }
+        ]
+        selected = PIPELINE.official_correct_case_identities(
+            [record],
+            metric_data,
+            tokenizer,
+            llama_like=False,
+            prompt_types=("rewrite", "paraphrase"),
+        )
+        expected = {
+            next(case for case in expanded if case.prompt_type == "rewrite").identity,
+            [case for case in expanded if case.prompt_type == "paraphrase"][
+                -1
+            ].identity,
+        }
+        self.assertEqual(selected, expected)
+
+    def test_exact_materialized_sweep_uses_zero_baseline_and_safe_scale(self):
+        active_case = token_cache(hidden=[1.0, 0.0]).case
+        protected_case = token_cache(
+            hidden=[1.0, 0.0],
+            prompt_type="neighborhood",
+        ).case
+        output_weight = torch.zeros((100, 2), dtype=torch.bfloat16)
+        original_row = output_weight[99].clone()
+        delta_row = torch.tensor([2.0, 0.0])
+
+        def fake_cache(
+            model,
+            tok,
+            cases,
+            *,
+            neutral_token_id,
+            device,
+            llama_like,
+            batch_size,
+            desc,
+        ):
+            neutral = float(output_weight[neutral_token_id, 0])
+            rows = []
+            for case in cases:
+                target = 0.8 if case.prompt_type == "rewrite" else 1.5
+                rows.append(
+                    PIPELINE.TokenLogitCache(
+                        case=case,
+                        hidden=torch.tensor([1.0, 0.0]),
+                        target_token_id=3,
+                        predicted_token_id=3 if neutral < target else 99,
+                        target_logit=torch.tensor(target),
+                        neutral_logit=torch.tensor(neutral),
+                        correct=neutral < target,
+                    )
+                )
+            return rows
+
+        with mock.patch.object(
+            PIPELINE,
+            "cache_prediction_cases",
+            side_effect=fake_cache,
+        ):
+            scale, reports, active_after, protected_after, baseline = (
+                PIPELINE.exact_bf16_scale_sweep(
+                    model=object(),
+                    tok=TinyTokenizer(),
+                    output_weight=output_weight,
+                    neutral_token_id=99,
+                    original_neutral_row=original_row,
+                    delta_row=delta_row,
+                    active_cases=[active_case],
+                    protected_cases=[protected_case],
+                    scales=[1.0, 0.5, 0.25, 0.0],
+                    device=torch.device("cpu"),
+                    llama_like=False,
+                    batch_size=1,
+                )
+            )
+        self.assertEqual(scale, 0.5)
+        self.assertFalse(active_after[0].correct)
+        self.assertTrue(protected_after[0].correct)
+        self.assertEqual(baseline["active_correct_tokens_at_zero"], 1)
+        selected = next(row for row in reports if row["scale"] == scale)
+        self.assertEqual(selected["active_correct_tokens"], 0)
+        self.assertEqual(
+            selected["protected_incremental_regressions_vs_zero"],
+            0,
+        )
+
+    def test_exact_sweep_replays_shared_official_context_once_per_scale(self):
+        active_case = token_cache(hidden=[1.0, 0.0]).case
+        protected_case = token_cache(
+            hidden=[1.0, 0.0],
+            prompt_type="neighborhood",
+        ).case
+        context = [active_case, protected_case]
+        output_weight = torch.zeros((100, 2), dtype=torch.bfloat16)
+        observed_contexts = []
+
+        def fake_cache(
+            model,
+            tok,
+            cases,
+            *,
+            neutral_token_id,
+            device,
+            llama_like,
+            batch_size,
+            desc,
+        ):
+            observed_contexts.append([case.identity for case in cases])
+            neutral = float(output_weight[neutral_token_id, 0])
+            return [
+                PIPELINE.TokenLogitCache(
+                    case=case,
+                    hidden=torch.tensor([1.0, 0.0]),
+                    target_token_id=3,
+                    predicted_token_id=(
+                        99
+                        if case.prompt_type == "rewrite" and neutral >= 1.0
+                        else 3
+                    ),
+                    target_logit=torch.tensor(
+                        1.0 if case.prompt_type == "rewrite" else 2.0
+                    ),
+                    neutral_logit=torch.tensor(neutral),
+                    correct=(
+                        case.prompt_type != "rewrite" or neutral < 1.0
+                    ),
+                )
+                for case in cases
+            ]
+
+        with mock.patch.object(
+            PIPELINE,
+            "cache_prediction_cases",
+            side_effect=fake_cache,
+        ):
+            scale, _, active_after, protected_after, _ = (
+                PIPELINE.exact_bf16_scale_sweep(
+                    model=object(),
+                    tok=TinyTokenizer(),
+                    output_weight=output_weight,
+                    neutral_token_id=99,
+                    original_neutral_row=output_weight[99].clone(),
+                    delta_row=torch.tensor([2.0, 0.0]),
+                    active_cases=[active_case],
+                    protected_cases=[protected_case],
+                    active_context_cases=context,
+                    protected_context_cases=context,
+                    scales=[0.5, 0.0],
+                    device=torch.device("cpu"),
+                    llama_like=False,
+                    batch_size=2,
+                )
+            )
+        self.assertEqual(scale, 0.5)
+        self.assertEqual(len(active_after), 1)
+        self.assertEqual(len(protected_after), 1)
+        self.assertTrue(all(rows == observed_contexts[0] for rows in observed_contexts))
+        # Zero, candidate, and selected verification: the shared context is
+        # forwarded once each time, never once per scored subset.
+        self.assertEqual(len(observed_contexts), 3)
+
     def test_official_gate_rejects_retain_drop(self):
         setting = {
             "forget": {"Eff": 10.0, "Gen": 12.0, "Spe": 80.0},
@@ -306,6 +492,40 @@ class ZsRESetting5AndRepairTests(unittest.TestCase):
         )
         self.assertFalse(report["passed"])
         self.assertFalse(report["checks"]["retain_Eff"]["passed"])
+
+    def test_official_gate_requires_zero_eff_and_gen_targets(self):
+        setting = {
+            "forget": {"Eff": 22.7, "Gen": 22.7, "Spe": 13.1},
+            "retain": {"Eff": 30.0, "Gen": 30.0, "Spe": 30.0},
+            "forget_PPL": 11.36,
+        }
+        candidate = {
+            "forget": {"Eff": 1.0, "Gen": 0.0, "Spe": 13.1},
+            "retain": {"Eff": 30.0, "Gen": 30.0, "Spe": 30.0},
+            "forget_PPL": 11.36,
+        }
+        report = PIPELINE.metric_gate_report(
+            setting,
+            candidate,
+            utility_drop_tolerance=0.1,
+            max_ppl_ratio=1.02,
+            target_eff_max=0.0,
+            target_gen_max=0.0,
+        )
+        self.assertFalse(report["passed"])
+        self.assertFalse(report["checks"]["forget_Eff_target"]["passed"])
+
+    def test_official_active_count_combines_rewrite_and_paraphrase_tokens(self):
+        result = {
+            "forget": {
+                "post_rewrite_correct_tokens": 3,
+                "post_paraphrase_correct_tokens": 4,
+            }
+        }
+        self.assertEqual(
+            PIPELINE.official_forget_active_correct_tokens(result),
+            7,
+        )
 
 
 class ZsREAggregationTests(unittest.TestCase):
@@ -347,13 +567,47 @@ class ZsREAggregationTests(unittest.TestCase):
             AGG.write_outputs(root / "aggregate", results, rows)
             self.assertTrue((root / "aggregate" / "aggregate.md").exists())
 
+    def test_aggregate_supports_standalone_repair_without_base_block(self):
+        results = [self.result(1, 0.0), self.result(2, 0.0)]
+        for result in results:
+            del result["base"]
+        rows = AGG.aggregate(results)
+        methods = [row["method"] for row in rows]
+        self.assertNotIn("Base", methods)
+        self.assertIn("Selected", methods)
+
+    def test_target_guard_rejects_any_nonzero_or_fallback_seed(self):
+        results = [self.result(1, 0.0), self.result(2, 0.0)]
+        results[1]["selected"]["forget"]["Gen"] = 0.1
+        with self.assertRaisesRegex(ValueError, "seed 2"):
+            AGG.require_selected_targets(results, eff_max=0.0, gen_max=0.0)
+        results[1]["selected"]["forget"]["Gen"] = 0.0
+        results[1]["repair"]["candidate_accepted"] = False
+        with self.assertRaisesRegex(ValueError, "accepted=False"):
+            AGG.require_selected_targets(results, eff_max=0.0, gen_max=0.0)
+
     def test_wrapper_defaults_to_paper_seeds_and_aggregates(self):
         script = (
             SCRIPTS_DIR / "run_zsre_gagd_setting5e_active_repair.sh"
         ).read_text(encoding="utf-8")
         self.assertIn('SEEDS="${SEEDS:-1 2 3 4 5 6 7 8 9 10}"', script)
+        self.assertIn('STEPS="${STEPS:-600}"', script)
+        self.assertIn('REPAIR_STEPS="${REPAIR_STEPS:-800}"', script)
+        self.assertIn('REPAIR_RANK="${REPAIR_RANK:-0}"', script)
         self.assertIn("zsre_gagd_setting5e_active_repair.py", script)
         self.assertIn("aggregate_zsre_gagd_results.py", script)
+        self.assertIn('RESULT_ARGS+=(--result "${OUT_ROOT}/seed${seed}/zsre_results.json")', script)
+
+    def test_saved_checkpoint_wrapper_uses_exact_v2_repair_and_target_guard(self):
+        script = (
+            SCRIPTS_DIR / "run_zsre_bf16_safe_active_repair_v2.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn('SEEDS="${SEEDS:-1 2 3 4 5 6 7 8 9 10}"', script)
+        self.assertIn('REPAIR_RANK="${REPAIR_RANK:-0}"', script)
+        self.assertIn('FAIL_IF_TARGET_MISSED="${FAIL_IF_TARGET_MISSED:-1}"', script)
+        self.assertIn("zsre_bf16_safe_active_repair_v2.py", script)
+        self.assertIn("aggregate_zsre_gagd_results.py", script)
+        self.assertIn('RESULT_ARGS+=(--result "${OUT_ROOT}/seed${seed}/zsre_results.json")', script)
 
     def test_skipped_ppl_aggregates_to_json_null(self):
         results = [self.result(1, 0.0), self.result(2, 1.0)]
