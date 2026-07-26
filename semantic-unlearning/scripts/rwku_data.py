@@ -5,9 +5,11 @@ The upstream RWKU benchmark is target-centric: one real-world person is
 unlearned at a time.  This project uses seeds 0--9 as ten independent
 single-target runs over the first ten targets in RWKU's published order.
 
-Only calibration probes may be used by an unlearning/repair method.  Headline
-direct-QA and paraphrase metrics are computed on the complementary held-out
-probes.  The partition is deterministic and recorded by content hash.
+Probe-derived objectives may use only the calibration probes.  The pinned
+``positive.json`` file is a separately designated upstream training corpus,
+not an evaluation source.  Headline direct-QA and paraphrase metrics are
+computed on the complementary held-out probes.  The partition is deterministic
+and recorded by content hash.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ RWKU_RESOLVE_ROOT = (
 SCRIPT_PATH = Path(__file__).resolve()
 PROJECT_ROOT = SCRIPT_PATH.parents[1]
 DEFAULT_DATA_ROOT = PROJECT_ROOT / "data" / "rwku"
+PINNED_MANIFEST_PATH = DEFAULT_DATA_ROOT / "manifest.json"
 
 
 @dataclass(frozen=True)
@@ -234,6 +237,49 @@ def validate_file(
         raise ValueError("forget_level3.json contains a non-level-3 probe")
 
 
+def pinned_target_manifest(seed: int) -> Mapping[str, Any]:
+    """Return the committed hash/count contract for one target."""
+
+    if not PINNED_MANIFEST_PATH.is_file():
+        raise FileNotFoundError(
+            f"Missing committed RWKU manifest: {PINNED_MANIFEST_PATH}"
+        )
+    with PINNED_MANIFEST_PATH.open("r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    if (
+        manifest.get("dataset_revision") != RWKU_DATASET_REVISION
+        or manifest.get("upstream_code_revision") != RWKU_CODE_REVISION
+    ):
+        raise ValueError("Committed RWKU manifest revision is not the pinned revision")
+    matches = [
+        row
+        for row in manifest.get("targets", [])
+        if int(row.get("seed", -1)) == seed
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"Committed RWKU manifest has no unique seed {seed}")
+    return matches[0]
+
+
+def verify_pinned_file(
+    *,
+    seed: int,
+    filename: str,
+    rows: Sequence[Mapping[str, Any]],
+    sha256: str,
+) -> None:
+    expected = pinned_target_manifest(seed)
+    expected_count = int(expected["counts"][filename])
+    expected_sha256 = str(expected["sha256"][filename])
+    if len(rows) != expected_count or sha256 != expected_sha256:
+        raise ValueError(
+            f"{filename} for RWKU seed {seed} differs from the committed "
+            "pinned manifest: "
+            f"count={len(rows)} (expected {expected_count}), "
+            f"sha256={sha256} (expected {expected_sha256})"
+        )
+
+
 def ensure_target_data(
     data_root: Path,
     seed: int,
@@ -258,9 +304,47 @@ def ensure_target_data(
             allow_singleton_object=filename == "intro.json",
         )
         validate_file(filename, rows, target)
+        digest = file_sha256(destination)
+        verify_pinned_file(
+            seed=seed,
+            filename=filename,
+            rows=rows,
+            sha256=digest,
+        )
         datasets[filename] = rows
-        hashes[filename] = file_sha256(destination)
+        hashes[filename] = digest
     return target, datasets, hashes
+
+
+def ensure_positive_training_data(
+    data_root: Path,
+    seed: int,
+    *,
+    allow_download: bool = True,
+) -> Tuple[TargetSpec, List[Dict[str, Any]], str]:
+    """Load only the pinned ``positive.json`` training corpus for a target."""
+
+    target = target_for_seed(seed)
+    destination = (
+        Path(data_root) / "Target" / target.directory / "positive.json"
+    )
+    if not destination.is_file():
+        if not allow_download:
+            raise FileNotFoundError(
+                f"Missing pinned RWKU file with downloads disabled: {destination}"
+            )
+        print(f"Downloading pinned RWKU {target.directory}/positive.json")
+        download_file(_download_url(target, "positive.json"), destination)
+    rows = load_json_list(destination)
+    validate_file("positive.json", rows, target)
+    digest = file_sha256(destination)
+    verify_pinned_file(
+        seed=seed,
+        filename="positive.json",
+        rows=rows,
+        sha256=digest,
+    )
+    return target, rows, digest
 
 
 def partition_records(
@@ -436,6 +520,26 @@ def write_json(path: Path, value: Any) -> None:
         handle.write("\n")
 
 
+def validate_manifest_destination(
+    seeds: Sequence[int],
+    destination: Path,
+) -> None:
+    """Prevent a subset validation from replacing the full trust anchor."""
+
+    if len(set(seeds)) != len(seeds):
+        raise ValueError("--seeds contains duplicates")
+    for seed in seeds:
+        target_for_seed(seed)
+    if (
+        Path(destination).resolve() == PINNED_MANIFEST_PATH.resolve()
+        and list(seeds) != list(range(10))
+    ):
+        raise ValueError(
+            "Refusing to overwrite the committed full RWKU manifest with a "
+            "subset; pass a different --manifest path"
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
@@ -455,6 +559,7 @@ def main() -> None:
     seeds = [int(value.strip()) for value in args.seeds.split(",") if value.strip()]
     if not seeds:
         raise ValueError("--seeds must select at least one RWKU seed")
+    validate_manifest_destination(seeds, args.manifest)
     manifest: MutableMapping[str, Any] = {
         "dataset": "RWKU",
         "upstream_repository": RWKU_REPOSITORY,

@@ -1286,6 +1286,7 @@ def evaluate_frozen_head_probe(
         if target not in token_to_column:
             continue
         logits = state.float() @ probe_rows.T
+        probabilities = torch.softmax(logits, dim=-1)
         order = torch.argsort(logits, descending=True)
         column = token_to_column[target]
         rank = int((order == column).nonzero(as_tuple=False)[0].item()) + 1
@@ -1295,16 +1296,33 @@ def evaluate_frozen_head_probe(
                 "target_token_id": target,
                 "predicted_token_id": probe.token_ids[int(order[0].item())],
                 "rank": rank,
+                "target_restricted_probability": float(
+                    probabilities[column].item()
+                ),
                 "correct": rank == 1,
             }
         )
     return {
         "eligible_count": len(details),
         "candidate_token_count": len(probe.token_ids),
+        "chance_accuracy": 100.0 / len(probe.token_ids),
         "restricted_accuracy": mean(
             [100.0 * float(row["correct"]) for row in details]
         ),
         "mean_target_rank": mean([float(row["rank"]) for row in details]),
+        "mean_normalized_target_rank": mean(
+            [
+                (float(row["rank"]) - 1.0)
+                / max(1.0, float(len(probe.token_ids) - 1))
+                for row in details
+            ]
+        ),
+        "mean_target_restricted_probability": mean(
+            [
+                float(row["target_restricted_probability"])
+                for row in details
+            ]
+        ),
     }, details
 
 
@@ -1382,6 +1400,69 @@ def evaluate_constructed_multiple_choice(
     return {
         "eligible_count": len(details),
         "accuracy": mean([100.0 * float(row["correct"]) for row in details]),
+    }, details
+
+
+def evaluate_balanced_constructed_multiple_choice(
+    model: nn.Module,
+    tokenizer: Any,
+    rows: Sequence[Mapping[str, Any]],
+    all_answers: Sequence[str],
+    *,
+    batch_size: int,
+) -> Tuple[Dict[str, float], List[Dict[str, Any]]]:
+    """Score every correct-letter rotation so chance is exactly interpretable."""
+
+    details: List[Dict[str, Any]] = []
+    for row in rows:
+        distractors = _deterministic_distractors(row, all_answers)
+        if len(distractors) < 3:
+            continue
+        gold = str(row["answer"])
+        for gold_index in range(4):
+            choices = list(distractors)
+            choices.insert(gold_index, gold)
+            content = (
+                "Choose the correct answer to this question.\n"
+                f"Question: {row['query']}\n"
+                + "\n".join(
+                    f"{LETTERS[index]}. {choice}"
+                    for index, choice in enumerate(choices)
+                )
+                + "\n"
+            )
+            prompt = chat_prompt(tokenizer, content) + "Answer:"
+            scores = score_completions(
+                model,
+                tokenizer,
+                [(prompt, letter) for letter in LETTERS],
+                batch_size=batch_size,
+            )
+            prediction = int(
+                np.argmax([score.sum_logprob for score in scores])
+            )
+            details.append(
+                {
+                    "record_sha256": record_sha256(row),
+                    "rotation": gold_index,
+                    "choices": choices,
+                    "answer_index": gold_index,
+                    "prediction_index": prediction,
+                    "correct": prediction == gold_index,
+                    "choice_sum_logprobs": [
+                        score.sum_logprob for score in scores
+                    ],
+                }
+            )
+    return {
+        "eligible_record_count": len(
+            {row["record_sha256"] for row in details}
+        ),
+        "rotation_count": len(details),
+        "chance_accuracy": 25.0,
+        "accuracy": mean(
+            [100.0 * float(row["correct"]) for row in details]
+        ),
     }, details
 
 
@@ -1729,6 +1810,15 @@ def evaluate_rwku(
             batch_size=batch_size,
         )
     )
+    balanced_multiple_choice_summary, balanced_multiple_choice_detail = (
+        evaluate_balanced_constructed_multiple_choice(
+            model,
+            tokenizer,
+            direct_rows,
+            all_forget_answers,
+            batch_size=batch_size,
+        )
+    )
     probe_summary: Optional[Dict[str, float]] = None
     probe_detail: List[Dict[str, Any]] = []
     if frozen_head_probe is not None:
@@ -1817,10 +1907,28 @@ def evaluate_rwku(
                 "best_alias_geometric_probability"
             ],
             "answer_alias_coverage": answer_alias_summary["coverage"],
-            "multiple_choice_recovery": multiple_choice_summary["accuracy"],
+            "multiple_choice_recovery": balanced_multiple_choice_summary[
+                "accuracy"
+            ],
+            "multiple_choice_single_order_recovery": (
+                multiple_choice_summary["accuracy"]
+            ),
             "open_ended_recovery": direct_summary["recovery_accuracy"],
             "frozen_base_head_probe_recovery": (
                 None if probe_summary is None else probe_summary["restricted_accuracy"]
+            ),
+            "frozen_base_head_probe_chance_accuracy": (
+                None if probe_summary is None else probe_summary["chance_accuracy"]
+            ),
+            "frozen_base_head_probe_target_probability": (
+                None
+                if probe_summary is None
+                else probe_summary["mean_target_restricted_probability"]
+            ),
+            "frozen_base_head_probe_normalized_rank": (
+                None
+                if probe_summary is None
+                else probe_summary["mean_normalized_target_rank"]
             ),
         },
     }
@@ -1846,6 +1954,7 @@ def evaluate_rwku(
             "forced_prefix": forced_prefix_summary,
             "answer_alias": answer_alias_summary,
             "multiple_choice": multiple_choice_summary,
+            "multiple_choice_balanced": balanced_multiple_choice_summary,
             "frozen_base_head_probe": probe_summary,
         },
         "details": {
@@ -1865,6 +1974,7 @@ def evaluate_rwku(
             "forced_prefix": forced_prefix_detail,
             "answer_alias": answer_alias_detail,
             "multiple_choice": multiple_choice_detail,
+            "multiple_choice_balanced": balanced_multiple_choice_detail,
             "frozen_base_head_probe": probe_detail,
         },
         "retain_reference_mean_logprobs": retain_mean_logprobs,
@@ -1880,6 +1990,9 @@ def evaluate_rwku(
             "ppl_corpus": "local Wikidata first 20 texts, first 100 tokens",
             "probability_unit": "raw probability in [0,1]",
             "accuracy_unit": "percentage points",
+            "multiple_choice_primary": (
+                "balanced four-rotation accuracy; chance = 25%"
+            ),
             "limits": limits,
         },
     }

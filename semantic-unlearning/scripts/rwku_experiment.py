@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the five-method RWKU target experiment for one seed.
+"""Run the six-method RWKU target experiment for one seed.
 
 Seed ``s`` maps to the ``s``-th published RWKU target, preserving RWKU's
 single-target semantics.  The model sees only the deterministic calibration
@@ -12,6 +12,7 @@ Methods:
   * Setting 5e without repair
   * Setting 5e + protected LM-head repair
   * Repair-only control
+  * Protected representation unlearning
 """
 
 from __future__ import annotations
@@ -39,7 +40,9 @@ from rwku_data import (
     DEFAULT_DATA_ROOT,
     RWKU_CODE_REVISION,
     RWKU_DATASET_REVISION,
+    TARGETS_BY_SEED,
     build_split_manifest,
+    ensure_positive_training_data,
     ensure_target_data,
     partition_records,
     target_for_seed,
@@ -49,9 +52,19 @@ from rwku_eval import (
     build_frozen_head_probe,
     evaluate_rwku,
     format_qa_prompt,
+    load_wikidata_text,
     write_json,
 )
-from rwku_repair import RepairConfig, run_protected_lm_head_repair
+from rwku_repair import (
+    RepairConfig,
+    run_protected_lm_head_repair,
+    validate_config as validate_repair_config,
+)
+from rwku_representation import (
+    RepresentationConfig,
+    run_representation_unlearning,
+    validate_config as validate_representation_config,
+)
 from run_zerounlearn_official_mcf import (
     DEFAULT_HPARAMS,
     DEFAULT_ZERO_ROOT,
@@ -76,12 +89,14 @@ METHOD_ZERO = "Original ZeroUnlearn"
 METHOD_SETTING5 = "Setting 5e without repair"
 METHOD_REPAIRED = "Setting 5e + protected LM-head repair"
 METHOD_REPAIR_ONLY = "Repair-only control"
+METHOD_REPRESENTATION = "Protected representation unlearning"
 METHOD_ORDER = (
     METHOD_BASE,
     METHOD_ZERO,
     METHOD_SETTING5,
     METHOD_REPAIRED,
     METHOD_REPAIR_ONLY,
+    METHOD_REPRESENTATION,
 )
 
 
@@ -120,7 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--methods",
         default="all",
         help=(
-            "Comma-separated keys: base,zero,setting5,repaired,repair-only. "
+            "Comma-separated keys: base,zero,setting5,repaired,repair-only,"
+            "representation. "
             "The base pass is always run because all probability ratios and "
             "frozen-head probes require it."
         ),
@@ -153,7 +169,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.25,
     )
-    parser.add_argument("--gradient-checkpointing", action="store_true")
+    parser.add_argument(
+        "--gradient-checkpointing",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
 
     # Protected sparse active-pair LM-head repair.
     parser.add_argument("--repair-steps", type=int, default=800)
@@ -212,6 +232,265 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    # Base-initialized representation unlearning. The output head and input
+    # embeddings remain frozen; only low-rank late-transformer deltas train.
+    parser.add_argument("--representation-steps", type=int, default=1250)
+    parser.add_argument("--representation-lr", type=float, default=2e-4)
+    parser.add_argument("--representation-rank", type=int, default=16)
+    parser.add_argument("--representation-alpha", type=float, default=32.0)
+    parser.add_argument("--representation-last-n-layers", type=int, default=8)
+    parser.add_argument("--representation-max-length", type=int, default=512)
+    parser.add_argument("--representation-retain-top-k", type=int, default=64)
+    parser.add_argument(
+        "--representation-retain-examples-per-step",
+        type=int,
+        default=2,
+    )
+    parser.add_argument(
+        "--representation-external-mc-retain-limit",
+        type=int,
+        default=128,
+    )
+    parser.add_argument(
+        "--representation-external-mc-gate-limit",
+        type=int,
+        default=64,
+    )
+    parser.add_argument("--representation-positive-max-rows", type=int, default=64)
+    parser.add_argument(
+        "--representation-positive-subject-task-max-rows",
+        type=int,
+        default=16,
+    )
+    parser.add_argument(
+        "--representation-matched-positive-max-rows",
+        type=int,
+        default=72,
+    )
+    parser.add_argument(
+        "--representation-positive-gate-fraction",
+        type=float,
+        default=0.25,
+    )
+    parser.add_argument(
+        "--representation-positive-tokens-per-row",
+        type=int,
+        default=512,
+    )
+    parser.add_argument("--representation-answer-margin", type=float, default=8.0)
+    parser.add_argument(
+        "--representation-answer-probability-target",
+        type=float,
+        default=1e-6,
+    )
+    parser.add_argument(
+        "--representation-frozen-head-logit-spread-tolerance",
+        type=float,
+        default=0.10,
+    )
+    parser.add_argument(
+        "--representation-mc-logit-spread-tolerance",
+        type=float,
+        default=0.10,
+    )
+    parser.add_argument(
+        "--representation-answer-weight",
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
+        "--representation-answer-probability-weight",
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
+        "--representation-frozen-head-weight",
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument("--representation-mc-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--representation-positive-proxy-weight",
+        type=float,
+        default=0.5,
+    )
+    parser.add_argument(
+        "--representation-matched-positive-retain-weight",
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
+        "--representation-concept-erasure-weight",
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
+        "--representation-concept-orthogonal-retain-weight",
+        type=float,
+        default=0.5,
+    )
+    parser.add_argument("--representation-concept-rank", type=int, default=8)
+    parser.add_argument(
+        "--representation-retain-kl-weight",
+        type=float,
+        default=10.0,
+    )
+    parser.add_argument(
+        "--representation-retain-answer-weight",
+        type=float,
+        default=2.0,
+    )
+    parser.add_argument(
+        "--representation-retain-hidden-weight",
+        type=float,
+        default=2.0,
+    )
+    parser.add_argument(
+        "--representation-max-retain-kl",
+        type=float,
+        default=0.02,
+    )
+    parser.add_argument(
+        "--representation-max-retain-p95-kl",
+        type=float,
+        default=0.05,
+    )
+    parser.add_argument(
+        "--representation-min-retain-probability-ratio",
+        type=float,
+        default=0.995,
+    )
+    parser.add_argument(
+        "--representation-max-retain-probability-ratio",
+        type=float,
+        default=1.005,
+    )
+    parser.add_argument(
+        "--representation-min-retain-p05-probability-ratio",
+        type=float,
+        default=0.95,
+    )
+    parser.add_argument(
+        "--representation-max-retain-p95-probability-ratio",
+        type=float,
+        default=1.05,
+    )
+    parser.add_argument(
+        "--representation-min-retain-top1-agreement",
+        type=float,
+        default=0.99,
+    )
+    parser.add_argument(
+        "--representation-min-retain-hidden-cosine",
+        type=float,
+        default=0.995,
+    )
+    parser.add_argument(
+        "--representation-min-retain-p05-hidden-cosine",
+        type=float,
+        default=0.99,
+    )
+    parser.add_argument(
+        "--representation-max-retain-hidden-relative-l2",
+        type=float,
+        default=0.10,
+    )
+    parser.add_argument(
+        "--representation-max-retain-p95-hidden-relative-l2",
+        type=float,
+        default=0.15,
+    )
+    parser.add_argument(
+        "--representation-max-proxy-mia-advantage",
+        type=float,
+        default=0.05,
+    )
+    parser.add_argument(
+        "--representation-max-matched-positive-feature-drift",
+        type=float,
+        default=0.01,
+    )
+    parser.add_argument(
+        "--representation-max-calibration-generation-recovery",
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument(
+        "--representation-max-frozen-head-chance-ratio",
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
+        "--representation-grad-clip",
+        type=float,
+        default=0.5,
+    )
+    parser.add_argument(
+        "--representation-gate-retain-limit",
+        type=int,
+        default=192,
+    )
+    parser.add_argument(
+        "--representation-selection-calibration-limit",
+        type=int,
+        default=128,
+    )
+    parser.add_argument(
+        "--representation-selection-generation-limit",
+        type=int,
+        default=32,
+    )
+    parser.add_argument(
+        "--representation-selection-generation-batch-size",
+        type=int,
+        default=4,
+    )
+    parser.add_argument(
+        "--representation-selection-generation-max-new-tokens",
+        type=int,
+        default=30,
+    )
+    parser.add_argument(
+        "--representation-checkpoint-interval",
+        type=int,
+        default=250,
+    )
+    parser.add_argument(
+        "--representation-checkpoint-funnel-count",
+        type=int,
+        default=2,
+    )
+    parser.add_argument(
+        "--representation-checkpoint-funnel-retain-limit",
+        type=int,
+        default=16,
+    )
+    parser.add_argument(
+        "--representation-checkpoint-funnel-calibration-limit",
+        type=int,
+        default=32,
+    )
+    parser.add_argument(
+        "--representation-checkpoint-funnel-scales",
+        type=parse_candidate_scales,
+        default=parse_candidate_scales(
+            "1,.5,.25,.125,.0625,.015625,0"
+        ),
+    )
+    parser.add_argument(
+        "--representation-checkpoint-scale-neighborhood",
+        type=int,
+        default=2,
+    )
+    parser.add_argument(
+        "--representation-candidate-scales",
+        type=parse_candidate_scales,
+        default=parse_candidate_scales(
+            "1,.875,.75,.625,.5,.375,.25,.1875,.125,.09375,"
+            ".0625,.03125,.015625,0"
+        ),
+    )
+
     # Bounded smoke-evaluation controls. Omitted means the full benchmark.
     parser.add_argument("--forget-eval-limit", type=int, default=None)
     parser.add_argument("--adversarial-eval-limit", type=int, default=None)
@@ -251,11 +530,45 @@ def validate_args(args: argparse.Namespace) -> None:
         "repair_retain_num",
         "repair_steps",
         "repair_protected_contexts_per_example",
+        "representation_steps",
+        "representation_rank",
+        "representation_last_n_layers",
+        "representation_max_length",
+        "representation_retain_top_k",
+        "representation_retain_examples_per_step",
+        "representation_external_mc_retain_limit",
+        "representation_external_mc_gate_limit",
+        "representation_positive_max_rows",
+        "representation_positive_subject_task_max_rows",
+        "representation_matched_positive_max_rows",
+        "representation_positive_tokens_per_row",
+        "representation_concept_rank",
+        "representation_gate_retain_limit",
+        "representation_selection_calibration_limit",
+        "representation_selection_generation_batch_size",
+        "representation_selection_generation_max_new_tokens",
+        "representation_checkpoint_interval",
+        "representation_checkpoint_funnel_count",
+        "representation_checkpoint_funnel_retain_limit",
+        "representation_checkpoint_funnel_calibration_limit",
+        "representation_checkpoint_scale_neighborhood",
     ):
         if getattr(args, name) <= 0:
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
-    if args.repair_retain_num > args.retain_num:
-        raise ValueError("--repair-retain-num cannot exceed --retain-num")
+    if args.representation_selection_generation_limit < 0:
+        raise ValueError(
+            "--representation-selection-generation-limit must be non-negative"
+        )
+    for name in (
+        "forget_eval_limit",
+        "adversarial_eval_limit",
+        "mia_eval_limit",
+        "neighbor_eval_limit",
+        "utility_eval_limit",
+    ):
+        value = getattr(args, name)
+        if value is not None and value <= 0:
+            raise ValueError(f"--{name.replace('_', '-')} must be positive")
     if args.repair_protected_projection_rank < 0:
         raise ValueError("--repair-protected-projection-rank must be non-negative")
     if args.repair_max_protected_top1_changes < 0:
@@ -275,6 +588,20 @@ def validate_args(args: argparse.Namespace) -> None:
     ):
         if not 0.0 <= float(getattr(args, name)) <= 1.0:
             raise ValueError(f"{name} must be in [0,1]")
+    for name in ("emb_lm_lr",):
+        if float(getattr(args, name)) <= 0:
+            raise ValueError(f"--{name.replace('_', '-')} must be positive")
+    for name in (
+        "forget_weight",
+        "retain_weight",
+        "forget_margin",
+        "weight_decay",
+        "grad_clip",
+    ):
+        if float(getattr(args, name)) < 0:
+            raise ValueError(f"--{name.replace('_', '-')} must be non-negative")
+    validate_repair_config(repair_config(args))
+    validate_representation_config(representation_config(args))
     if args.dtype in {"bf16", "fp16"} and args.dry_run:
         return
     if not args.dry_run and not torch.cuda.is_available():
@@ -291,6 +618,7 @@ def selected_methods(value: str) -> Tuple[str, ...]:
         "setting5": METHOD_SETTING5,
         "repaired": METHOD_REPAIRED,
         "repair-only": METHOD_REPAIR_ONLY,
+        "representation": METHOD_REPRESENTATION,
     }
     if value.strip().lower() == "all":
         return METHOD_ORDER
@@ -353,12 +681,171 @@ def release_model(model: Optional[nn.Module]) -> None:
         torch.cuda.empty_cache()
 
 
+def prepare_model_for_evaluation(model: nn.Module) -> None:
+    """Restore generation-efficient state after a training-only load."""
+
+    disable = getattr(model, "gradient_checkpointing_disable", None)
+    if callable(disable):
+        disable()
+    if hasattr(model, "config"):
+        model.config.use_cache = True
+    model.eval()
+
+
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def directory_sha256(path: Path) -> str:
+    """Hash relative names and bytes for a small local evaluation corpus."""
+
+    root = Path(path)
+    if not root.is_dir():
+        raise FileNotFoundError(f"Directory does not exist: {root}")
+    digest = hashlib.sha256()
+    files = sorted(item for item in root.rglob("*") if item.is_file())
+    if not files:
+        raise ValueError(f"Directory contains no files: {root}")
+    for item in files:
+        digest.update(str(item.relative_to(root)).encode("utf-8"))
+        digest.update(b"\0")
+        with item.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def local_model_identity(model_path: str) -> Dict[str, Any]:
+    path = Path(model_path)
+    if path.is_absolute() and not path.exists():
+        raise FileNotFoundError(f"Model path does not exist: {path}")
+    identity: Dict[str, Any] = {"requested": str(model_path)}
+    if not path.is_dir():
+        identity["kind"] = "hub_or_relative_identifier"
+        return identity
+    resolved = path.resolve()
+    identity.update(
+        {
+            "kind": "local_directory",
+            "resolved_path": str(resolved),
+        }
+    )
+    # Hugging Face cache snapshots are content-addressed directories of the
+    # form ``.../snapshots/<revision>``.  Record that revision explicitly so a
+    # ten-target aggregate cannot silently mix snapshots that happen to expose
+    # the same filenames and sizes.
+    snapshot_indices = [
+        index
+        for index, component in enumerate(resolved.parts[:-1])
+        if component == "snapshots"
+    ]
+    if snapshot_indices:
+        snapshot_index = snapshot_indices[-1]
+        if snapshot_index + 1 < len(resolved.parts):
+            identity["snapshot_revision"] = resolved.parts[snapshot_index + 1]
+    metadata_names = (
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "special_tokens_map.json",
+        "tokenizer.model",
+        "model.safetensors.index.json",
+        "pytorch_model.bin.index.json",
+    )
+    identity["metadata_sha256"] = {
+        name: file_sha256(resolved / name)
+        for name in metadata_names
+        if (resolved / name).is_file()
+    }
+    weight_patterns = ("*.safetensors", "pytorch_model*.bin")
+    weight_files = sorted(
+        {
+            item
+            for pattern in weight_patterns
+            for item in resolved.glob(pattern)
+            if item.is_file()
+        }
+    )
+    weight_identities: List[Dict[str, Any]] = []
+    for item in weight_files:
+        stat = item.stat()
+        weight_identity: Dict[str, Any] = {
+            "name": item.name,
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+        }
+        if item.is_symlink():
+            # In the HF cache the symlink target basename is the immutable blob
+            # digest.  Capturing it is a cheap content identity and avoids
+            # hashing multi-gigabyte shards once per seed.
+            weight_identity["symlink_target"] = str(item.readlink())
+            weight_identity["resolved_target_name"] = item.resolve().name
+        weight_identities.append(weight_identity)
+    identity["weight_files"] = weight_identities
+    return identity
+
+
+def implementation_identity() -> Dict[str, str]:
+    paths = (
+        SCRIPT_PATH,
+        SEMANTIC_ROOT / "scripts" / "rwku_data.py",
+        SEMANTIC_ROOT / "scripts" / "rwku_eval.py",
+        SEMANTIC_ROOT / "scripts" / "rwku_repair.py",
+        SEMANTIC_ROOT / "scripts" / "rwku_representation.py",
+        SEMANTIC_ROOT / "scripts" / "aggregate_rwku_results.py",
+        SEMANTIC_ROOT / "scripts" / "gagd_compare.py",
+        SEMANTIC_ROOT / "scripts" / "gagd_active_case_repair.py",
+        SEMANTIC_ROOT / "scripts" / "mcf_sampling.py",
+        SEMANTIC_ROOT / "scripts" / "mcf_zero_unlearn_official_eval.py",
+        SEMANTIC_ROOT / "scripts" / "run_zerounlearn_official_mcf.py",
+        SEMANTIC_ROOT / "scripts" / "run_rwku_experiment.sh",
+    )
+    return {
+        str(path.relative_to(REPOSITORY_ROOT)): file_sha256(path)
+        for path in paths
+    }
+
+
+def zero_unlearn_identity(args: argparse.Namespace) -> Dict[str, Any]:
+    entrypoint = Path(args.zero_root) / "ZeroUnlearn" / "ZeroUnlearn_main.py"
+    hparams_impl = (
+        Path(args.zero_root) / "ZeroUnlearn" / "ZeroUnlearn_hparams.py"
+    )
+    for path in (entrypoint, hparams_impl, Path(args.zero_hparams)):
+        if not path.is_file():
+            raise FileNotFoundError(f"Missing ZeroUnlearn protocol file: {path}")
+    return {
+        "root": str(Path(args.zero_root).resolve()),
+        "entrypoint_sha256": file_sha256(entrypoint),
+        "hparams_implementation_sha256": file_sha256(hparams_impl),
+        "hparams_path": str(Path(args.zero_hparams).resolve()),
+        "hparams_sha256": file_sha256(Path(args.zero_hparams)),
+    }
+
+
+def mapping_sha256(value: Mapping[str, Any]) -> str:
+    payload = json.dumps(
+        value,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def example_content_sha256(example: gagd.Example) -> str:
+    return mapping_sha256(
+        {
+            "prompt": str(example.prompt),
+            "answer": str(example.answer),
+        }
+    )
 
 
 def load_mcf_retain(
@@ -402,6 +889,39 @@ def load_mcf_retain(
             )
         )
     return retain_records, examples
+
+
+def load_matched_positive_training_rows(
+    data_root: Path,
+    *,
+    seed: int,
+    allow_download: bool,
+) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+    """Interleave non-target RWKU positive-training rows by subject.
+
+    These are structurally matched nonmember proxies for the MIA objective.
+    No level-3, official MIA, neighbor, or utility record is loaded here.
+    """
+
+    banks: List[List[Dict[str, Any]]] = []
+    hashes: Dict[str, str] = {}
+    for offset in range(1, len(TARGETS_BY_SEED)):
+        other_seed = (seed + offset) % len(TARGETS_BY_SEED)
+        other_target, positive_rows, digest = ensure_positive_training_data(
+            data_root,
+            other_seed,
+            allow_download=allow_download,
+        )
+        banks.append(list(positive_rows))
+        hashes[other_target.directory] = digest
+    if not banks:
+        raise RuntimeError("RWKU matched-positive bank is empty")
+    rows: List[Dict[str, Any]] = []
+    for row_index in range(max(len(bank) for bank in banks)):
+        for bank in banks:
+            if row_index < len(bank):
+                rows.append(dict(bank[row_index]))
+    return rows, hashes
 
 
 def setting5_examples(
@@ -505,6 +1025,153 @@ def repair_config(args: argparse.Namespace) -> RepairConfig:
         ),
         stop_when_satisfied=args.repair_stop_when_satisfied,
         candidate_scales=tuple(args.repair_candidate_scales),
+    )
+
+
+def representation_config(args: argparse.Namespace) -> RepresentationConfig:
+    """Resolve the fixed, Base-initialized representation protocol."""
+
+    return RepresentationConfig(
+        steps=args.representation_steps,
+        learning_rate=args.representation_lr,
+        rank=args.representation_rank,
+        alpha=args.representation_alpha,
+        last_n_layers=args.representation_last_n_layers,
+        target_modules=(
+            "q_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ),
+        max_length=args.representation_max_length,
+        retain_top_k=args.representation_retain_top_k,
+        retain_examples_per_step=(
+            args.representation_retain_examples_per_step
+        ),
+        external_mc_retain_limit=(
+            args.representation_external_mc_retain_limit
+        ),
+        external_mc_gate_limit=(
+            args.representation_external_mc_gate_limit
+        ),
+        positive_max_rows=args.representation_positive_max_rows,
+        positive_subject_task_max_rows=(
+            args.representation_positive_subject_task_max_rows
+        ),
+        matched_positive_max_rows=(
+            args.representation_matched_positive_max_rows
+        ),
+        positive_gate_fraction=args.representation_positive_gate_fraction,
+        positive_tokens_per_row=(
+            args.representation_positive_tokens_per_row
+        ),
+        answer_demotion_margin=args.representation_answer_margin,
+        answer_probability_target=(
+            args.representation_answer_probability_target
+        ),
+        frozen_head_logit_spread_tolerance=(
+            args.representation_frozen_head_logit_spread_tolerance
+        ),
+        mc_logit_spread_tolerance=(
+            args.representation_mc_logit_spread_tolerance
+        ),
+        answer_demotion_weight=args.representation_answer_weight,
+        answer_probability_weight=(
+            args.representation_answer_probability_weight
+        ),
+        frozen_head_weight=args.representation_frozen_head_weight,
+        mc_weight=args.representation_mc_weight,
+        positive_proxy_weight=args.representation_positive_proxy_weight,
+        matched_positive_retain_weight=(
+            args.representation_matched_positive_retain_weight
+        ),
+        concept_erasure_weight=(
+            args.representation_concept_erasure_weight
+        ),
+        concept_orthogonal_retain_weight=(
+            args.representation_concept_orthogonal_retain_weight
+        ),
+        concept_rank=args.representation_concept_rank,
+        retain_kl_weight=args.representation_retain_kl_weight,
+        retain_answer_weight=args.representation_retain_answer_weight,
+        retain_hidden_weight=args.representation_retain_hidden_weight,
+        candidate_scales=tuple(args.representation_candidate_scales),
+        max_retain_kl=args.representation_max_retain_kl,
+        max_retain_p95_kl=args.representation_max_retain_p95_kl,
+        min_retain_answer_probability_ratio=(
+            args.representation_min_retain_probability_ratio
+        ),
+        max_retain_answer_probability_ratio=(
+            args.representation_max_retain_probability_ratio
+        ),
+        min_retain_p05_probability_ratio=(
+            args.representation_min_retain_p05_probability_ratio
+        ),
+        max_retain_p95_probability_ratio=(
+            args.representation_max_retain_p95_probability_ratio
+        ),
+        min_retain_top1_agreement=(
+            args.representation_min_retain_top1_agreement
+        ),
+        min_retain_hidden_cosine=(
+            args.representation_min_retain_hidden_cosine
+        ),
+        min_retain_p05_hidden_cosine=(
+            args.representation_min_retain_p05_hidden_cosine
+        ),
+        max_retain_hidden_relative_l2=(
+            args.representation_max_retain_hidden_relative_l2
+        ),
+        max_retain_p95_hidden_relative_l2=(
+            args.representation_max_retain_p95_hidden_relative_l2
+        ),
+        max_proxy_mia_advantage=(
+            args.representation_max_proxy_mia_advantage
+        ),
+        max_matched_positive_base_feature_drift=(
+            args.representation_max_matched_positive_feature_drift
+        ),
+        max_calibration_generation_recovery=(
+            args.representation_max_calibration_generation_recovery
+        ),
+        max_calibration_frozen_head_chance_ratio=(
+            args.representation_max_frozen_head_chance_ratio
+        ),
+        grad_clip=args.representation_grad_clip,
+        seed=args.seed,
+        gate_retain_limit=args.representation_gate_retain_limit,
+        selection_calibration_limit=(
+            args.representation_selection_calibration_limit
+        ),
+        selection_generation_limit=(
+            args.representation_selection_generation_limit
+        ),
+        selection_generation_batch_size=(
+            args.representation_selection_generation_batch_size
+        ),
+        selection_generation_max_new_tokens=(
+            args.representation_selection_generation_max_new_tokens
+        ),
+        checkpoint_interval=args.representation_checkpoint_interval,
+        checkpoint_funnel_count=(
+            args.representation_checkpoint_funnel_count
+        ),
+        checkpoint_funnel_retain_limit=(
+            args.representation_checkpoint_funnel_retain_limit
+        ),
+        checkpoint_funnel_calibration_limit=(
+            args.representation_checkpoint_funnel_calibration_limit
+        ),
+        checkpoint_funnel_scales=tuple(
+            scale
+            for scale in args.representation_checkpoint_funnel_scales
+            if scale > 0.0
+        ),
+        checkpoint_scale_neighborhood=(
+            args.representation_checkpoint_scale_neighborhood
+        ),
     )
 
 
@@ -653,7 +1320,9 @@ def config_payload(
         "single_target_run": True,
         "methods": list(methods),
         "model_path": str(args.model_path),
+        "model_identity": local_model_identity(str(args.model_path)),
         "dtype": args.dtype,
+        "implementation_file_sha256": implementation_identity(),
         "calibration_fraction": args.calibration_fraction,
         "calibration_count": len(calibration_rows),
         "held_out_direct_count": len(held_out_direct),
@@ -669,14 +1338,37 @@ def config_payload(
             "forget_weight": args.forget_weight,
             "retain_weight": args.retain_weight,
             "forget_margin": args.forget_margin,
+            "weight_decay": args.weight_decay,
+            "grad_clip": args.grad_clip,
+            "sampling_strategy": args.sampling_strategy,
+            "gradient_checkpointing": bool(args.gradient_checkpointing),
             "post_training_overlap_alphas": [
                 args.post_training_new_true_alpha,
                 args.post_training_new_retain_alpha,
                 args.post_training_new_true_retain_alpha,
             ],
         },
+        "external_retain_partitions": {
+            "optimization_count": args.retain_num,
+            "checkpoint_gate_count": args.repair_retain_num,
+            "sampling": (
+                "one deterministic MCF sample split into disjoint optimization "
+                "and external checkpoint-gate partitions"
+            ),
+        },
         "repair": asdict(repair_config(args)),
+        "representation": {
+            **asdict(representation_config(args)),
+            "initialization": "fresh_base_model",
+            "target_training_source": "pinned positive.json",
+            "mia_proxy_reference": (
+                "round-robin positive.json rows from the other nine targets"
+            ),
+            "official_evaluation_records_used_for_selection": False,
+        },
         "evaluation_limits": evaluation_limits(args),
+        "skip_ppl": bool(args.skip_ppl),
+        "eval_batch_size": int(args.eval_batch_size),
         "dry_run": args.dry_run,
         "exact_command": [sys.executable, str(SCRIPT_PATH), *sys.argv[1:]],
     }
@@ -689,6 +1381,17 @@ def main() -> None:
     target = target_for_seed(args.seed)
     output_dir = Path(args.output_root) / f"seed{args.seed:02d}_{target.directory}"
     output_dir.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run:
+        # Invalidate a prior successful artifact before any preflight step can
+        # fail, so strict aggregation can never pick up stale results.
+        write_json(
+            output_dir / "results.json",
+            {
+                "status": "preflight",
+                "seed": args.seed,
+                "target": asdict(target),
+            },
+        )
 
     target, datasets, file_hashes = ensure_target_data(
         args.data_root,
@@ -726,26 +1429,137 @@ def main() -> None:
         split_manifests=split_manifests,
     )
     write_json(output_dir / "config_used.json", payload)
+    if methods != (METHOD_BASE,) and not args.mcf_path.is_file():
+        raise FileNotFoundError(f"Missing local MCF retain corpus: {args.mcf_path}")
+    if METHOD_ZERO in methods and not args.zero_hparams.is_file():
+        raise FileNotFoundError(
+            f"Missing original ZeroUnlearn hparams: {args.zero_hparams}"
+        )
+    if METHOD_ZERO in methods and not args.zero_root.is_dir():
+        raise FileNotFoundError(
+            f"Missing vendored ZeroUnlearn directory: {args.zero_root}"
+        )
+    if METHOD_ZERO in methods:
+        payload["zero_unlearn"] = zero_unlearn_identity(args)
+    else:
+        payload["zero_unlearn"] = None
+    if args.skip_ppl:
+        payload["wikidata_corpus"] = None
+    else:
+        wikidata_text = load_wikidata_text(args.wikidata_dir)
+        if not wikidata_text:
+            raise FileNotFoundError(
+                "A readable local Wikidata corpus is required unless "
+                "--skip-ppl is used: "
+                f"{args.wikidata_dir}"
+            )
+        payload["wikidata_corpus"] = {
+            "path": str(Path(args.wikidata_dir).resolve()),
+            "directory_sha256": directory_sha256(args.wikidata_dir),
+            "loaded_text_sha256": hashlib.sha256(
+                wikidata_text.encode("utf-8")
+            ).hexdigest(),
+        }
+    retain_records: List[Dict[str, Any]] = []
+    retain_examples: List[gagd.Example] = []
+    protected_examples: List[gagd.Example] = []
+    if methods != (METHOD_BASE,):
+        all_retain_records, all_retain_examples = load_mcf_retain(
+            args.mcf_path,
+            seed=args.seed,
+            retain_num=args.retain_num + args.repair_retain_num,
+        )
+        retain_records = all_retain_records[: args.retain_num]
+        retain_examples = all_retain_examples[: args.retain_num]
+        protected_examples = all_retain_examples[args.retain_num :]
+        if len(protected_examples) != args.repair_retain_num:
+            raise RuntimeError("MCF checkpoint-gate partition has the wrong size")
+        payload["mcf_retain_provenance"] = {
+            "file_sha256": file_sha256(args.mcf_path),
+            "optimization_record_sha256": [
+                mapping_sha256(record) for record in retain_records
+            ],
+            "checkpoint_gate_record_sha256": [
+                mapping_sha256(record)
+                for record in all_retain_records[args.retain_num :]
+            ],
+            "optimization_example_sha256": [
+                example_content_sha256(example)
+                for example in retain_examples
+            ],
+            "checkpoint_gate_example_sha256": [
+                example_content_sha256(example)
+                for example in protected_examples
+            ],
+            "partitions_disjoint": not (
+                {
+                    mapping_sha256(record) for record in retain_records
+                }
+                & {
+                    mapping_sha256(record)
+                    for record in all_retain_records[args.retain_num :]
+                }
+            ),
+        }
+        if not payload["mcf_retain_provenance"]["partitions_disjoint"]:
+            raise RuntimeError(
+                "MCF optimization and checkpoint-gate partitions overlap"
+            )
+        optimization_example_hashes = set(
+            payload["mcf_retain_provenance"][
+                "optimization_example_sha256"
+            ]
+        )
+        checkpoint_example_hashes = set(
+            payload["mcf_retain_provenance"][
+                "checkpoint_gate_example_sha256"
+            ]
+        )
+        if optimization_example_hashes & checkpoint_example_hashes:
+            raise RuntimeError(
+                "MCF optimization and checkpoint-gate examples overlap by "
+                "prompt/answer content"
+            )
+        payload["mcf_retain_provenance"][
+            "example_content_partitions_disjoint"
+        ] = True
+    matched_positive_rows: List[Dict[str, Any]] = []
+    matched_positive_file_hashes: Dict[str, str] = {}
+    if METHOD_REPRESENTATION in methods:
+        (
+            matched_positive_rows,
+            matched_positive_file_hashes,
+        ) = load_matched_positive_training_rows(
+            args.data_root,
+            seed=args.seed,
+            allow_download=not args.no_download,
+        )
+        payload["matched_positive_file_sha256_by_target"] = (
+            matched_positive_file_hashes
+        )
+    write_json(output_dir / "config_used.json", payload)
     if args.dry_run:
         print(
             f"RWKU dry run validated seed {args.seed}: {target.subject}; "
             f"calibration={len(calibration_rows)}, "
-            f"held-out direct={len(held_out_level2)}; output={output_dir}"
+            f"held-out direct={len(held_out_level2)}, "
+            f"MCF optimization/gate={len(retain_examples)}/"
+            f"{len(protected_examples)}, "
+            f"matched positives={len(matched_positive_rows)}; "
+            f"output={output_dir}"
         )
         return
-
-    if not args.mcf_path.is_file():
-        raise FileNotFoundError(f"Missing local MCF retain corpus: {args.mcf_path}")
-    if not args.zero_hparams.is_file():
-        raise FileNotFoundError(
-            f"Missing original ZeroUnlearn hparams: {args.zero_hparams}"
-        )
-    retain_records, retain_examples = load_mcf_retain(
-        args.mcf_path,
-        seed=args.seed,
-        retain_num=args.retain_num,
+    # Invalidate any stale successful artifact before the expensive run.
+    write_json(
+        output_dir / "results.json",
+        {
+            **payload,
+            "status": "running",
+            "method_order": list(METHOD_ORDER),
+            "methods_run": [],
+            "results": {},
+        },
     )
-    protected_examples = retain_examples[: args.repair_retain_num]
     dtype = dtype_from_name(args.dtype)
     set_all_seeds(args.seed)
     if torch.cuda.is_available():
@@ -904,6 +1718,7 @@ def main() -> None:
             "calibration_example_count": len(forget_examples),
             "retain_example_count": len(retain_examples),
         }
+        prepare_model_for_evaluation(setting5_model)
         method_provenance[METHOD_SETTING5] = training_provenance
         if METHOD_SETTING5 in methods:
             setting5_result = evaluate_method(
@@ -978,11 +1793,76 @@ def main() -> None:
         gc.collect()
         torch.cuda.empty_cache()
 
+    if METHOD_REPRESENTATION in methods:
+        print(
+            "Training Base-initialized protected representation unlearning "
+            "with disjoint external retain gates"
+        )
+        set_all_seeds(args.seed)
+        representation_model, representation_tokenizer = (
+            load_model_and_tokenizer(
+                args.model_path,
+                dtype=dtype,
+                for_training=True,
+                gradient_checkpointing=args.gradient_checkpointing,
+            )
+        )
+        representation_started = time.perf_counter()
+        representation_report = run_representation_unlearning(
+            representation_model,
+            representation_tokenizer,
+            calibration_rows=calibration_rows,
+            retain_examples=retain_examples,
+            protected_examples=protected_examples,
+            positive_rows=datasets["positive.json"],
+            matched_positive_rows=matched_positive_rows,
+            config=representation_config(args),
+            output_dir=output_dir / "protected_representation",
+        )
+        prepare_model_for_evaluation(representation_model)
+        representation_report["training_seconds"] = (
+            time.perf_counter() - representation_started
+        )
+        representation_report["data"][
+            "matched_positive_file_sha256_by_target"
+        ] = matched_positive_file_hashes
+        representation_result = evaluate_method(
+            method=METHOD_REPRESENTATION,
+            model=representation_model,
+            tokenizer=representation_tokenizer,
+            target_subject=target.subject,
+            held_out_cloze=held_out_level1,
+            held_out_direct=held_out_level2,
+            datasets=datasets,
+            args=args,
+            base_retain_mean_logprobs=base_retain,
+            frozen_probe=frozen_probe,
+        )
+        representation_result["unlearning"] = representation_report
+        results[METHOD_REPRESENTATION] = representation_result
+        method_provenance[METHOD_REPRESENTATION] = representation_report
+        write_json(
+            output_dir / "protected_representation.json",
+            representation_result,
+        )
+        if args.save_checkpoints:
+            save_checkpoint(
+                representation_model,
+                representation_tokenizer,
+                output_dir / "protected_representation" / "checkpoint",
+            )
+        release_model(representation_model)
+        del representation_model, representation_tokenizer
+        gc.collect()
+        torch.cuda.empty_cache()
+
     combined = {
         **payload,
         "status": "complete",
         "method_order": list(METHOD_ORDER),
-        "methods_run": list(results),
+        "methods_run": [
+            method for method in METHOD_ORDER if method in results
+        ],
         "results": results,
         "method_provenance": method_provenance,
     }

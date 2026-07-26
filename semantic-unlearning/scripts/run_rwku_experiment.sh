@@ -11,6 +11,19 @@ data_root="${RWKU_DATA_ROOT:-${project_dir}/data/rwku}"
 mcf_path="${MCF_PATH:-${project_dir}/data/multi_counterfact.json}"
 wikidata_dir="${WIKIDATA_DIR:-${project_dir}/data/wikidata}"
 
+aggregate_results=true
+for argument in "$@"; do
+  case "${argument}" in
+    --seed|--seed=*|--model-path|--model-path=*|--output-root|--output-root=*|--data-root|--data-root=*|--mcf-path|--mcf-path=*|--wikidata-dir|--wikidata-dir=*)
+      echo "Do not forward ${argument} to the ten-seed launcher. Configure paths with MODEL_PATH, RWKU_OUTPUT_ROOT, RWKU_DATA_ROOT, MCF_PATH, or WIKIDATA_DIR; the launcher owns --seed." >&2
+      exit 2
+      ;;
+    --dry-run|--skip-ppl|--methods|--methods=*|--forget-eval-limit|--forget-eval-limit=*|--adversarial-eval-limit|--adversarial-eval-limit=*|--mia-eval-limit|--mia-eval-limit=*|--neighbor-eval-limit|--neighbor-eval-limit=*|--utility-eval-limit|--utility-eval-limit=*)
+      aggregate_results=false
+      ;;
+  esac
+done
+
 for seed in 0 1 2 3 4 5 6 7 8 9; do
   "${python_bin}" "${script_dir}/rwku_experiment.py" \
     --seed "${seed}" \
@@ -22,6 +35,10 @@ for seed in 0 1 2 3 4 5 6 7 8 9; do
     "$@"
 done
 
-"${python_bin}" "${script_dir}/aggregate_rwku_results.py" \
-  --input-root "${output_root}" \
-  --output-dir "${output_root}/aggregate"
+if "${aggregate_results}"; then
+  "${python_bin}" "${script_dir}/aggregate_rwku_results.py" \
+    --input-root "${output_root}" \
+    --output-dir "${output_root}/aggregate"
+else
+  echo "Skipped strict RWKU aggregation for dry, bounded, skip-PPL, or subset-method run."
+fi

@@ -5,14 +5,19 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-from rwku_data import RWKU_DATASET_REVISION, TARGETS_BY_SEED
+from rwku_data import (
+    RWKU_CODE_REVISION,
+    RWKU_DATASET_REVISION,
+    TARGETS_BY_SEED,
+)
 from rwku_experiment import METHOD_ORDER
 
 
@@ -84,13 +89,81 @@ CONTROL_METRICS: Tuple[Tuple[str, str, str], ...] = (
     ("answer_alias_probability", "Answer-alias probability ↓", "prob"),
     ("answer_alias_coverage", "Answer-alias coverage", "ratio"),
     ("multiple_choice_recovery", "Multiple-choice recovery ↓", "pp"),
+    (
+        "multiple_choice_single_order_recovery",
+        "MC single-order recovery ↓",
+        "pp",
+    ),
     ("open_ended_recovery", "Open-ended recovery ↓", "pp"),
     (
         "frozen_base_head_probe_recovery",
         "Frozen-head probe recovery ↓",
         "pp",
     ),
+    (
+        "frozen_base_head_probe_chance_accuracy",
+        "Frozen-head chance accuracy",
+        "pp",
+    ),
+    (
+        "frozen_base_head_probe_target_probability",
+        "Frozen-head target probability ↓",
+        "prob",
+    ),
+    (
+        "frozen_base_head_probe_normalized_rank",
+        "Frozen-head normalized rank ↑",
+        "ratio",
+    ),
 )
+
+
+def protocol_fingerprint(run: Mapping[str, Any]) -> str:
+    """Fingerprint fields that must be identical across target runs."""
+
+    mcf = run.get("mcf_retain_provenance", {})
+    representation = run.get("representation")
+    if isinstance(representation, Mapping):
+        # The optimization seed is intentionally target/seed-specific.  It is
+        # part of each run's provenance, but must not make otherwise identical
+        # ten-target protocols look incomparable.
+        representation = {
+            key: value
+            for key, value in representation.items()
+            if key != "seed"
+        }
+    payload = {
+        "rwku_code_revision": run.get("rwku_code_revision"),
+        "rwku_dataset_revision": run.get("rwku_dataset_revision"),
+        "methods": run.get("methods"),
+        "method_order": run.get("method_order"),
+        "model_path": run.get("model_path"),
+        "model_identity": run.get("model_identity"),
+        "dtype": run.get("dtype"),
+        "implementation_file_sha256": run.get(
+            "implementation_file_sha256"
+        ),
+        "zero_unlearn": run.get("zero_unlearn"),
+        "wikidata_corpus": run.get("wikidata_corpus"),
+        "calibration_fraction": run.get("calibration_fraction"),
+        "setting5": run.get("setting5"),
+        "repair": run.get("repair"),
+        "representation": representation,
+        "external_retain_partitions": run.get("external_retain_partitions"),
+        "mcf_file_sha256": (
+            mcf.get("file_sha256") if isinstance(mcf, Mapping) else None
+        ),
+        "evaluation_limits": run.get("evaluation_limits"),
+        "skip_ppl": run.get("skip_ppl"),
+        "eval_batch_size": run.get("eval_batch_size"),
+    }
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -114,6 +187,7 @@ def load_runs(
     if not paths:
         raise FileNotFoundError(f"No RWKU results.json files under {input_root}")
     by_seed: Dict[int, Dict[str, Any]] = {}
+    common_fingerprint: Optional[str] = None
     for path in paths:
         with path.open("r", encoding="utf-8") as handle:
             run = json.load(handle)
@@ -126,6 +200,82 @@ def load_runs(
             raise ValueError(
                 f"RWKU seed {seed} dataset revision does not match pinned revision"
             )
+        if run.get("rwku_code_revision") != RWKU_CODE_REVISION:
+            raise ValueError(
+                f"RWKU seed {seed} code revision does not match pinned revision"
+            )
+        if not allow_incomplete:
+            required_protocol_fields = {
+                "rwku_code_revision",
+                "methods",
+                "method_order",
+                "methods_run",
+                "model_path",
+                "model_identity",
+                "dtype",
+                "implementation_file_sha256",
+                "calibration_fraction",
+                "setting5",
+                "repair",
+                "representation",
+                "external_retain_partitions",
+                "mcf_retain_provenance",
+                "zero_unlearn",
+                "wikidata_corpus",
+                "evaluation_limits",
+                "skip_ppl",
+                "eval_batch_size",
+            }
+            missing_fields = sorted(required_protocol_fields - set(run))
+            if missing_fields:
+                raise ValueError(
+                    f"RWKU seed {seed} lacks strict protocol fields: "
+                    f"{missing_fields}"
+                )
+            if run["methods"] != list(METHOD_ORDER):
+                raise ValueError(
+                    f"RWKU seed {seed} methods are not the fixed final protocol"
+                )
+            if run["method_order"] != list(METHOD_ORDER):
+                raise ValueError(
+                    f"RWKU seed {seed} method_order is not canonical"
+                )
+            if run["methods_run"] != list(METHOD_ORDER):
+                raise ValueError(
+                    f"RWKU seed {seed} methods_run is incomplete or non-canonical"
+                )
+            if run["evaluation_limits"] != {} or run["skip_ppl"] is not False:
+                raise ValueError(
+                    f"RWKU seed {seed} is a bounded/skip-PPL run and cannot "
+                    "enter strict final aggregation"
+                )
+            mcf_protocol = run["mcf_retain_provenance"]
+            if (
+                not isinstance(mcf_protocol, Mapping)
+                or not mcf_protocol.get("file_sha256")
+                or mcf_protocol.get("partitions_disjoint") is not True
+                or mcf_protocol.get(
+                    "example_content_partitions_disjoint"
+                )
+                is not True
+            ):
+                raise ValueError(
+                    f"RWKU seed {seed} lacks valid disjoint MCF provenance"
+                )
+            for field in (
+                "model_identity",
+                "implementation_file_sha256",
+                "setting5",
+                "repair",
+                "representation",
+                "zero_unlearn",
+                "wikidata_corpus",
+            ):
+                if not isinstance(run[field], Mapping) or not run[field]:
+                    raise ValueError(
+                        f"RWKU seed {seed} has empty strict protocol field "
+                        f"{field}"
+                    )
         expected = TARGETS_BY_SEED[seed]
         target = run["target"]
         if (
@@ -134,10 +284,22 @@ def load_runs(
             or target.get("directory") != expected.directory
         ):
             raise ValueError(f"RWKU seed {seed} target mapping is incorrect")
-        if set(run["results"]) != set(METHOD_ORDER):
+        expected_methods = set(METHOD_ORDER)
+        actual_methods = set(run["results"])
+        if actual_methods != expected_methods:
             raise ValueError(
-                f"RWKU seed {seed} must contain all five methods; found "
-                f"{sorted(run['results'])}"
+                f"RWKU seed {seed} must contain all {len(METHOD_ORDER)} "
+                "configured methods; "
+                f"missing={sorted(expected_methods - actual_methods)}, "
+                f"extra={sorted(actual_methods - expected_methods)}"
+            )
+        fingerprint = protocol_fingerprint(run)
+        if common_fingerprint is None:
+            common_fingerprint = fingerprint
+        elif fingerprint != common_fingerprint:
+            raise ValueError(
+                f"RWKU seed {seed} protocol/config fingerprint differs from "
+                "the other runs"
             )
         by_seed[seed] = run
     expected_seeds = set(range(10))
@@ -314,6 +476,7 @@ def main() -> None:
         "dataset_revision": RWKU_DATASET_REVISION,
         "seeds": [int(run["seed"]) for run in runs],
         "targets": [run["target"]["subject"] for run in runs],
+        "protocol_fingerprint": protocol_fingerprint(runs[0]),
         "std_definition": "population standard deviation (ddof=0)",
         "sections": rows_by_section,
     }
@@ -328,7 +491,7 @@ def main() -> None:
         "# RWKU results",
         "",
         (
-            f"Ten independent single-target runs, seeds "
+            f"{len(output_json['seeds'])} independent single-target runs, seeds "
             f"{min(output_json['seeds'])}–{max(output_json['seeds'])}; "
             "mean ± population standard deviation."
         ),

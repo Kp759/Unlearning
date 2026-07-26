@@ -1,5 +1,6 @@
 import json
 import math
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -225,6 +226,17 @@ class RWKUDataTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 DATA.load_json_list(path)
 
+    def test_subset_validation_cannot_overwrite_pinned_manifest(self):
+        with self.assertRaisesRegex(ValueError, "Refusing to overwrite"):
+            DATA.validate_manifest_destination(
+                [0],
+                DATA.PINNED_MANIFEST_PATH,
+            )
+        DATA.validate_manifest_destination(
+            list(range(10)),
+            DATA.PINNED_MANIFEST_PATH,
+        )
+
 
 class RWKUEvaluatorTests(unittest.TestCase):
     def test_prompts_match_rwku_attack_special_cases(self):
@@ -307,6 +319,41 @@ class RWKUEvaluatorTests(unittest.TestCase):
         self.assertTrue(math.isfinite(scores[0].sum_logprob))
         self.assertGreater(scores[0].first_token_probability, 0.0)
         self.assertLess(scores[0].first_token_probability, 1.0)
+
+    def test_balanced_multiple_choice_has_exact_chance_baseline(self):
+        rows = [
+            qa_row(f"Question {index}?", f"answer {index}")
+            for index in range(4)
+        ]
+        fixed_scores = [
+            EVAL.CompletionScore(
+                sum_logprob=-float(index),
+                mean_logprob=-float(index),
+                first_token_probability=math.exp(-float(index)),
+                token_count=1,
+            )
+            for index in range(4)
+        ]
+        with mock.patch.object(
+            EVAL,
+            "score_completions",
+            return_value=fixed_scores,
+        ):
+            summary, details = (
+                EVAL.evaluate_balanced_constructed_multiple_choice(
+                    TinyCausalLM(),
+                    TinyTokenizer(),
+                    rows,
+                    [str(row["answer"]) for row in rows],
+                    batch_size=4,
+                )
+            )
+        self.assertEqual(summary["rotation_count"], 16)
+        self.assertEqual(summary["accuracy"], 25.0)
+        self.assertEqual(
+            sorted({detail["answer_index"] for detail in details}),
+            [0, 1, 2, 3],
+        )
 
     def test_json_writer_converts_structural_nan_to_null(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -475,6 +522,111 @@ class RWKURepairTests(unittest.TestCase):
         self.assertEqual(changed, report["changed_output_rows"])
 
 
+class RWKUExperimentProtocolTests(unittest.TestCase):
+    def test_all_methods_include_base_initialized_representation_candidate(self):
+        self.assertEqual(len(EXPERIMENT.METHOD_ORDER), 6)
+        self.assertEqual(
+            EXPERIMENT.selected_methods("representation"),
+            (
+                EXPERIMENT.METHOD_BASE,
+                EXPERIMENT.METHOD_REPRESENTATION,
+            ),
+        )
+        self.assertIn(
+            EXPERIMENT.METHOD_REPRESENTATION,
+            EXPERIMENT.selected_methods("all"),
+        )
+
+        args = EXPERIMENT.build_parser().parse_args(["--seed", "0", "--dry-run"])
+        config = EXPERIMENT.representation_config(args)
+        self.assertEqual(config.steps, 1250)
+        self.assertEqual(config.rank, 16)
+        self.assertEqual(config.last_n_layers, 8)
+        self.assertEqual(
+            config.target_modules,
+            (
+                "q_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            ),
+        )
+        self.assertEqual(config.answer_probability_target, 1e-6)
+        self.assertEqual(config.min_retain_answer_probability_ratio, 0.995)
+        self.assertEqual(config.max_retain_answer_probability_ratio, 1.005)
+        self.assertEqual(config.min_retain_top1_agreement, 0.99)
+
+    def test_local_model_identity_records_snapshot_and_weight_blob(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            blob = root / "blobs" / ("a" * 64)
+            blob.parent.mkdir()
+            blob.write_bytes(b"weight bytes")
+            snapshot = root / "snapshots" / ("b" * 40)
+            snapshot.mkdir(parents=True)
+            (snapshot / "config.json").write_text("{}", encoding="utf-8")
+            (snapshot / "model.safetensors").symlink_to(blob)
+
+            identity = EXPERIMENT.local_model_identity(str(snapshot))
+
+        self.assertEqual(identity["snapshot_revision"], "b" * 40)
+        self.assertEqual(
+            identity["weight_files"][0]["resolved_target_name"],
+            "a" * 64,
+        )
+        self.assertIn("symlink_target", identity["weight_files"][0])
+
+    def test_implementation_identity_covers_transitive_protocol_helpers(self):
+        identity = EXPERIMENT.implementation_identity()
+        for filename in (
+            "gagd_active_case_repair.py",
+            "mcf_sampling.py",
+            "mcf_zero_unlearn_official_eval.py",
+            "run_zerounlearn_official_mcf.py",
+        ):
+            self.assertTrue(
+                any(path.endswith(f"scripts/{filename}") for path in identity),
+                filename,
+            )
+
+    def test_matched_positive_rows_are_round_robin_and_exclude_target(self):
+        def fake_ensure(_root, seed, *, allow_download):
+            self.assertFalse(allow_download)
+            target = DATA.target_for_seed(seed)
+            rows = [
+                {
+                    "text": f"{target.subject} training text {index}",
+                    "subject": target.subject,
+                }
+                for index in range(2)
+            ]
+            return target, rows, "sha256"
+
+        with mock.patch.object(
+            EXPERIMENT,
+            "ensure_positive_training_data",
+            side_effect=fake_ensure,
+        ):
+            rows, hashes = EXPERIMENT.load_matched_positive_training_rows(
+                Path("/unused"),
+                seed=3,
+                allow_download=False,
+            )
+        first_round = rows[:9]
+        second_round = rows[9:18]
+        self.assertEqual(len({row["subject"] for row in first_round}), 9)
+        self.assertNotIn("Warren Buffett", {row["subject"] for row in rows})
+        self.assertEqual(len(hashes), 9)
+        self.assertTrue(
+            all(row["text"].endswith("0") for row in first_round)
+        )
+        self.assertTrue(
+            all(row["text"].endswith("1") for row in second_round)
+        )
+
+
 class RWKUAggregationTests(unittest.TestCase):
     @staticmethod
     def synthetic_method_result(seed):
@@ -508,12 +660,43 @@ class RWKUAggregationTests(unittest.TestCase):
                         {
                             "seed": seed,
                             "status": "complete",
+                            "rwku_code_revision": DATA.RWKU_CODE_REVISION,
                             "rwku_dataset_revision": DATA.RWKU_DATASET_REVISION,
                             "target": {
                                 "seed": seed,
                                 "subject": target.subject,
                                 "directory": target.directory,
                             },
+                            "methods": list(EXPERIMENT.METHOD_ORDER),
+                            "method_order": list(EXPERIMENT.METHOD_ORDER),
+                            "methods_run": list(EXPERIMENT.METHOD_ORDER),
+                            "model_path": "/same/model",
+                            "model_identity": {"snapshot": "same"},
+                            "dtype": "bf16",
+                            "implementation_file_sha256": {"driver": "same"},
+                            "calibration_fraction": 0.5,
+                            "setting5": {"steps": 600},
+                            "repair": {"steps": 800},
+                            "representation": {
+                                "steps": 1000,
+                                "seed": seed,
+                            },
+                            "external_retain_partitions": {
+                                "optimization_count": 1000,
+                                "checkpoint_gate_count": 128,
+                            },
+                            "mcf_retain_provenance": {
+                                "file_sha256": "mcf",
+                                "partitions_disjoint": True,
+                                "example_content_partitions_disjoint": True,
+                            },
+                            "zero_unlearn": {"hparams_sha256": "zero"},
+                            "wikidata_corpus": {
+                                "directory_sha256": "wikidata"
+                            },
+                            "evaluation_limits": {},
+                            "skip_ppl": False,
+                            "eval_batch_size": 4,
                             "results": results,
                         }
                     ),
@@ -525,9 +708,79 @@ class RWKUAggregationTests(unittest.TestCase):
                 section="forget",
                 metrics=AGG.FORGET_METRICS,
             )
+            self.assertEqual(len(rows), len(EXPERIMENT.METHOD_ORDER))
+            self.assertEqual(
+                [row["method"] for row in rows],
+                list(EXPERIMENT.METHOD_ORDER),
+            )
             base = rows[0]
             self.assertEqual(base["direct_target_qa_recovery_mean"], 4.5)
             self.assertEqual(base["alias_question_recovery_n"], 9)
+
+            seed_zero = next(root.glob("seed00_*/results.json"))
+            payload = json.loads(seed_zero.read_text(encoding="utf-8"))
+            payload["rwku_code_revision"] = "not-the-pinned-revision"
+            seed_zero.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "code revision"):
+                AGG.load_runs(root, allow_incomplete=False)
+
+            payload["rwku_code_revision"] = DATA.RWKU_CODE_REVISION
+            payload["methods_run"] = [
+                *EXPERIMENT.METHOD_ORDER,
+                EXPERIMENT.METHOD_BASE,
+            ]
+            seed_zero.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "non-canonical"):
+                AGG.load_runs(root, allow_incomplete=False)
+
+    def test_protocol_fingerprint_ignores_only_per_run_representation_seed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for seed in (0, 1):
+                target = DATA.TARGETS_BY_SEED[seed]
+                path = root / f"seed{seed:02d}_{target.directory}" / "results.json"
+                path.parent.mkdir(parents=True)
+                path.write_text(
+                    json.dumps(
+                        {
+                            "seed": seed,
+                            "status": "complete",
+                            "rwku_code_revision": DATA.RWKU_CODE_REVISION,
+                            "rwku_dataset_revision": DATA.RWKU_DATASET_REVISION,
+                            "target": {
+                                "seed": seed,
+                                "subject": target.subject,
+                                "directory": target.directory,
+                            },
+                            "model_path": "/same/model",
+                            "dtype": "bfloat16",
+                            "calibration_fraction": 0.5,
+                            "representation": {
+                                "steps": 800,
+                                "rank": 16,
+                                "seed": seed,
+                            },
+                            "evaluation_limits": {},
+                            "skip_ppl": False,
+                            "results": {
+                                method: self.synthetic_method_result(seed)
+                                for method in EXPERIMENT.METHOD_ORDER
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            self.assertEqual(
+                len(AGG.load_runs(root, allow_incomplete=True)),
+                2,
+            )
+
+            seed_one = next(root.glob("seed01_*/results.json"))
+            payload = json.loads(seed_one.read_text(encoding="utf-8"))
+            payload["representation"]["rank"] = 32
+            seed_one.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "fingerprint differs"):
+                AGG.load_runs(root, allow_incomplete=True)
 
     def test_launcher_wires_exactly_seeds_zero_through_nine(self):
         launcher = (SCRIPTS_DIR / "run_rwku_experiment.sh").read_text(
@@ -535,6 +788,20 @@ class RWKUAggregationTests(unittest.TestCase):
         )
         self.assertIn("for seed in 0 1 2 3 4 5 6 7 8 9", launcher)
         self.assertIn("aggregate_rwku_results.py", launcher)
+        self.assertIn("aggregate_results=false", launcher)
+        self.assertIn("--dry-run|--skip-ppl", launcher)
+
+    def test_launcher_rejects_arguments_that_override_fixed_run_identity(self):
+        launcher = SCRIPTS_DIR / "run_rwku_experiment.sh"
+        for argument in ("--seed=4", "--output-root=/tmp/not-the-env-root"):
+            completed = subprocess.run(
+                ["bash", str(launcher), "--dry-run", argument],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 2)
+            self.assertIn("ten-seed launcher", completed.stderr)
 
 
 if __name__ == "__main__":
