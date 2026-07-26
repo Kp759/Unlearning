@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
-"""Protected one-row LM-head repair used by the RWKU experiment.
+"""Sparse active-pair LM-head repair for the RWKU experiment.
 
-The transformer and input embeddings are frozen.  Only a neutral stop-token
-row in the output head is changed.  Calibration target-answer states are the
-active constraints; unrelated retained facts are protected.  The learned
-direction is projected away from the span of protected hidden states and a
-materialized-dtype scale sweep rejects protected top-1 regressions.
+The repair never edits EOT/EOS.  It finds calibration answer-token positions
+that still violate the requested forget margin and may change only their
+non-special LM-head rows.  Any answer-token row also used by the unrelated MCF
+protection set is excluded.
+
+The transformer and input embeddings stay frozen.  Selected row deltas are
+projected away from a broad sample of protected prompt/answer hidden states,
+and a materialized-dtype scale sweep enforces three hard protection gates:
+
+* minimum protected-answer probability ratio,
+* maximum protected-context selected-logit drift, and
+* zero (by default) protected-context top-1 changes.
+
+Scale zero is always present and is selected whenever no effective sparse edit
+passes every protection gate.
 """
 
 from __future__ import annotations
@@ -33,12 +43,36 @@ from rwku_eval import (
 @dataclass
 class RepairPoint:
     hidden: torch.Tensor
+    target_logit: torch.Tensor
     competitor_logit: torch.Tensor
-    neutral_logit: torch.Tensor
     source_id: str
     token_index: int
     target_token_id: int
+    competitor_token_id: int
     baseline_predicted_token_id: int
+
+
+@dataclass
+class AnswerDeltaCache:
+    source_id: str
+    hidden: torch.Tensor
+    target_token_ids: torch.Tensor
+    target_selected_indices: torch.Tensor
+    repair_mask: torch.Tensor
+    base_target_logits: torch.Tensor
+    base_selected_logits: torch.Tensor
+    base_nonselected_logsumexp: torch.Tensor
+    base_nonselected_max: torch.Tensor
+
+
+@dataclass
+class ContextDeltaCache:
+    source_id: str
+    hidden: torch.Tensor
+    base_selected_logits: torch.Tensor
+    base_nonselected_max: torch.Tensor
+    base_nonselected_token_ids: torch.Tensor
+    baseline_predicted_token_ids: torch.Tensor
 
 
 @dataclass(frozen=True)
@@ -48,8 +82,15 @@ class RepairConfig:
     active_margin: float = 0.25
     selection_margin: float = 0.05
     l2_lambda: float = 1e-6
+    protected_logit_lambda: float = 1.0
     max_delta_norm: Optional[float] = None
     project_away_protected: bool = True
+    protected_projection_rank: int = 256
+    protected_contexts_per_example: int = 8
+    exclude_protected_answer_rows: bool = True
+    min_protected_probability_ratio: float = 0.999
+    max_protected_logit_drift: float = 0.05
+    max_protected_top1_changes: int = 0
     stop_when_satisfied: bool = True
     candidate_scales: Tuple[float, ...] = (
         1.0,
@@ -76,10 +117,20 @@ def validate_config(config: RepairConfig) -> None:
         raise ValueError("repair steps and learning rate must be positive")
     if config.active_margin < 0 or config.selection_margin < 0:
         raise ValueError("repair margins must be non-negative")
-    if config.l2_lambda < 0:
-        raise ValueError("repair L2 coefficient must be non-negative")
+    if config.l2_lambda < 0 or config.protected_logit_lambda < 0:
+        raise ValueError("repair regularization coefficients must be non-negative")
     if config.max_delta_norm is not None and config.max_delta_norm <= 0:
         raise ValueError("repair max_delta_norm must be positive")
+    if config.protected_projection_rank < 0:
+        raise ValueError("protected_projection_rank must be non-negative")
+    if config.protected_contexts_per_example <= 0:
+        raise ValueError("protected_contexts_per_example must be positive")
+    if not 0.0 < config.min_protected_probability_ratio <= 1.0:
+        raise ValueError("min_protected_probability_ratio must be in (0,1]")
+    if config.max_protected_logit_drift < 0:
+        raise ValueError("max_protected_logit_drift must be non-negative")
+    if config.max_protected_top1_changes < 0:
+        raise ValueError("max_protected_top1_changes must be non-negative")
     if not config.candidate_scales:
         raise ValueError("candidate_scales must not be empty")
     if any(
@@ -91,44 +142,82 @@ def validate_config(config: RepairConfig) -> None:
         raise ValueError("candidate scales must include the no-op scale 0")
 
 
-def resolve_neutral_token(tokenizer: Any) -> Tuple[str, int]:
-    converter = getattr(tokenizer, "convert_tokens_to_ids", None)
-    if callable(converter):
-        token_id = converter("<|eot_id|>")
-        unknown = getattr(tokenizer, "unk_token_id", None)
-        if isinstance(token_id, int) and token_id >= 0 and token_id != unknown:
-            return "<|eot_id|>", int(token_id)
-    eos_token = getattr(tokenizer, "eos_token", None)
-    eos_token_id = getattr(tokenizer, "eos_token_id", None)
-    if not isinstance(eos_token, str) or eos_token_id is None:
-        raise ValueError("Tokenizer has neither a usable EOT nor EOS token")
-    return eos_token, int(eos_token_id)
-
-
 def _chunks(values: Sequence[Any], size: int) -> Iterable[Sequence[Any]]:
     for start in range(0, len(values), size):
         yield values[start : start + size]
 
 
-def _competitor(
+def _target_competitor(
     logits: torch.Tensor,
-    neutral_token_id: int,
+    target_token_ids: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     if logits.ndim != 2:
         raise ValueError("Expected [positions, vocabulary] logits")
+    if target_token_ids.shape != logits.shape[:1]:
+        raise ValueError("Target token IDs must align with logit positions")
     top_values, top_ids = torch.topk(logits, k=2, dim=-1)
-    neutral_is_top = top_ids[:, 0].eq(neutral_token_id)
+    target_is_top = top_ids[:, 0].eq(target_token_ids)
     competitor_values = torch.where(
-        neutral_is_top,
+        target_is_top,
         top_values[:, 1],
         top_values[:, 0],
     )
     competitor_ids = torch.where(
-        neutral_is_top,
+        target_is_top,
         top_ids[:, 1],
         top_ids[:, 0],
     )
     return competitor_values, competitor_ids
+
+
+def _prompt_answer_tensors(
+    model: nn.Module,
+    tokenizer: Any,
+    prompt: str,
+    answer: str,
+    *,
+    max_length: int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+    device = model_device(model)
+    prompt_ids = _token_ids(tokenizer, prompt, add_special_tokens=True)
+    answer_ids = _token_ids(
+        tokenizer,
+        _normalized_completion(answer),
+        add_special_tokens=False,
+    )
+    if not answer_ids:
+        return (
+            torch.empty((0, 0), device=device),
+            torch.empty((0,), dtype=torch.long, device=device),
+            torch.empty((0,), dtype=torch.long, device=device),
+            0,
+        )
+    allowed_prompt = max(1, max_length - len(answer_ids))
+    prompt_ids = prompt_ids[-allowed_prompt:]
+    sequence = prompt_ids + answer_ids
+    input_ids = torch.tensor([sequence], dtype=torch.long, device=device)
+    hidden = final_hidden_states(model, input_ids=input_ids)[0]
+    answer_positions = torch.arange(
+        len(prompt_ids) - 1,
+        len(prompt_ids) + len(answer_ids) - 1,
+        device=device,
+    )
+    targets = torch.tensor(answer_ids, dtype=torch.long, device=device)
+    return hidden, answer_positions, targets, len(prompt_ids)
+
+
+def _logits_for_hidden(
+    model: nn.Module,
+    hidden: torch.Tensor,
+) -> torch.Tensor:
+    output_layer = model.get_output_embeddings()
+    if output_layer is None:
+        raise ValueError("Model does not expose output embeddings")
+    native = hidden.to(
+        device=output_layer.weight.device,
+        dtype=output_layer.weight.dtype,
+    )
+    return output_layer(native).float()
 
 
 @torch.no_grad()
@@ -137,66 +226,40 @@ def cache_prompt_answers(
     tokenizer: Any,
     prompt_answer_rows: Sequence[Tuple[str, str, str]],
     *,
-    neutral_token_id: int,
     max_length: int = 4096,
 ) -> List[RepairPoint]:
-    """Cache every teacher-forced answer-token state for repair constraints."""
+    """Cache teacher-forced answer positions and their true competitors."""
 
-    device = model_device(model)
     points: List[RepairPoint] = []
     for prompt, answer, source_id in prompt_answer_rows:
-        prompt_ids = _token_ids(tokenizer, prompt, add_special_tokens=True)
-        answer_ids = _token_ids(
-            tokenizer,
-            _normalized_completion(answer),
-            add_special_tokens=False,
-        )
-        if not answer_ids:
-            continue
-        allowed_prompt = max(1, max_length - len(answer_ids))
-        prompt_ids = prompt_ids[-allowed_prompt:]
-        sequence = prompt_ids + answer_ids
-        input_ids = torch.tensor([sequence], dtype=torch.long, device=device)
-        hidden_all = final_hidden_states(
+        hidden_all, positions, target_ids, _ = _prompt_answer_tensors(
             model,
-            input_ids=input_ids,
+            tokenizer,
+            prompt,
+            answer,
+            max_length=max_length,
         )
-        positions = torch.arange(
-            len(prompt_ids) - 1,
-            len(prompt_ids) + len(answer_ids) - 1,
-            device=device,
-        )
-        hidden_native = hidden_all[0, positions]
-        output_layer = model.get_output_embeddings()
-        if output_layer is None:
-            raise ValueError("Model does not expose output embeddings")
-
-        # Run the LM-head projection in its materialized dtype. The model is
-        # normally BF16 on Wulver; converting hidden states to FP32 before this
-        # projection causes a Float/BFloat16 matrix-multiplication mismatch.
-        hidden_for_head = hidden_native.to(
-            device=output_layer.weight.device,
-            dtype=output_layer.weight.dtype,
-        )
-        logits = output_layer(hidden_for_head).float()
-
-        # Keep cached states in FP32 for the repair optimisation.
-        hidden = hidden_native.float()
-        competitor_values, competitor_ids = _competitor(
+        if not target_ids.numel():
+            continue
+        hidden_native = hidden_all.index_select(0, positions)
+        logits = _logits_for_hidden(model, hidden_native)
+        competitor_values, competitor_ids = _target_competitor(
             logits,
-            neutral_token_id,
+            target_ids,
         )
-        neutral = logits[:, neutral_token_id]
+        target_logits = logits.gather(1, target_ids[:, None]).squeeze(1)
         predicted = logits.argmax(dim=-1)
-        for token_index, target_token_id in enumerate(answer_ids):
+        hidden = hidden_native.float()
+        for token_index, target_token_id in enumerate(target_ids.tolist()):
             points.append(
                 RepairPoint(
                     hidden=hidden[token_index].detach(),
+                    target_logit=target_logits[token_index].detach(),
                     competitor_logit=competitor_values[token_index].detach(),
-                    neutral_logit=neutral[token_index].detach(),
                     source_id=source_id,
                     token_index=token_index,
                     target_token_id=int(target_token_id),
+                    competitor_token_id=int(competitor_ids[token_index]),
                     baseline_predicted_token_id=int(predicted[token_index]),
                 )
             )
@@ -229,15 +292,76 @@ def protected_prompt_answers(
     return output
 
 
+def active_points(
+    points: Sequence[RepairPoint],
+    *,
+    required_margin: float,
+) -> List[RepairPoint]:
+    return [
+        point
+        for point in points
+        if float(point.competitor_logit - point.target_logit) < required_margin
+    ]
+
+
+def select_active_token_ids(
+    points: Sequence[RepairPoint],
+    protected_points: Sequence[RepairPoint],
+    *,
+    special_token_ids: Sequence[int],
+    exclude_protected_answer_rows: bool,
+) -> Tuple[List[int], List[int]]:
+    active_ids = {point.target_token_id for point in points}
+    active_ids -= {int(token_id) for token_id in special_token_ids}
+    protected_ids = {point.target_token_id for point in protected_points}
+    overlap = sorted(active_ids & protected_ids)
+    if exclude_protected_answer_rows:
+        active_ids -= protected_ids
+    return sorted(active_ids), overlap
+
+
+def repair_excluded_token_ids(tokenizer: Any) -> List[int]:
+    """Return every tokenizer special ID, explicitly including Llama EOT."""
+
+    excluded = {
+        int(token_id)
+        for token_id in (
+            getattr(tokenizer, "pad_token_id", None),
+            getattr(tokenizer, "eos_token_id", None),
+            getattr(tokenizer, "bos_token_id", None),
+            getattr(tokenizer, "unk_token_id", None),
+        )
+        if token_id is not None
+    }
+    excluded.update(
+        int(token_id)
+        for token_id in getattr(tokenizer, "all_special_ids", ())
+        if token_id is not None
+    )
+    converter = getattr(tokenizer, "convert_tokens_to_ids", None)
+    if callable(converter):
+        eot_id = converter("<|eot_id|>")
+        unknown_id = getattr(tokenizer, "unk_token_id", None)
+        if (
+            isinstance(eot_id, int)
+            and eot_id >= 0
+            and eot_id != unknown_id
+        ):
+            excluded.add(int(eot_id))
+    return sorted(excluded)
+
+
 def orthonormal_row_basis(
     rows: torch.Tensor,
     *,
+    max_rank: Optional[int] = None,
     tolerance: Optional[float] = None,
 ) -> Optional[torch.Tensor]:
-    if rows.numel() == 0:
+    if rows.numel() == 0 or max_rank == 0:
         return None
+    rows = rows.float()
     _, singular_values, right_vectors = torch.linalg.svd(
-        rows.float(),
+        rows,
         full_matrices=False,
     )
     if not singular_values.numel():
@@ -246,65 +370,409 @@ def orthonormal_row_basis(
         tolerance = (
             max(rows.shape)
             * torch.finfo(singular_values.dtype).eps
-            * float(singular_values.max())
+            * float(singular_values.max().clamp_min(1.0))
         )
     rank = int((singular_values > tolerance).sum().item())
-    return right_vectors[:rank] if rank else None
+    if max_rank is not None:
+        rank = min(rank, max_rank)
+    return right_vectors[:rank].contiguous() if rank else None
 
 
 def project_away(
-    vector: torch.Tensor,
+    rows: torch.Tensor,
     basis: Optional[torch.Tensor],
 ) -> torch.Tensor:
     if basis is None or not basis.numel():
-        return vector
-    return vector - (vector @ basis.T) @ basis
+        return rows
+    return rows - (rows @ basis.T) @ basis
 
 
-def _stack(
-    points: Sequence[RepairPoint],
-    field: str,
+def _sample_prompt_context_positions(
+    prompt_length: int,
     *,
+    maximum: int,
     device: torch.device,
 ) -> torch.Tensor:
-    if not points:
-        return torch.empty((0,), dtype=torch.float32, device=device)
-    return torch.stack([getattr(point, field) for point in points]).to(
+    if prompt_length <= 0:
+        return torch.empty((0,), dtype=torch.long, device=device)
+    count = min(maximum, prompt_length)
+    if count == 1:
+        return torch.tensor(
+            [prompt_length - 1],
+            dtype=torch.long,
+            device=device,
+        )
+    return torch.linspace(
+        0,
+        prompt_length - 1,
+        steps=count,
         device=device,
-        dtype=torch.float32,
+    ).round().long().unique(sorted=True)
+
+
+@torch.no_grad()
+def cache_delta_data(
+    model: nn.Module,
+    tokenizer: Any,
+    prompt_answer_rows: Sequence[Tuple[str, str, str]],
+    selected_token_ids: Sequence[int],
+    *,
+    active_margin: float,
+    include_contexts: bool,
+    contexts_per_example: int,
+    max_length: int = 4096,
+) -> Tuple[List[AnswerDeltaCache], List[ContextDeltaCache]]:
+    if not selected_token_ids:
+        return [], []
+    selected_ids = torch.tensor(
+        list(selected_token_ids),
+        dtype=torch.long,
+        device=model_device(model),
     )
+    selected_index = {
+        int(token_id): index
+        for index, token_id in enumerate(selected_token_ids)
+    }
+    answer_caches: List[AnswerDeltaCache] = []
+    context_caches: List[ContextDeltaCache] = []
+    for prompt, answer, source_id in prompt_answer_rows:
+        hidden_all, answer_positions, target_ids, prompt_length = (
+            _prompt_answer_tensors(
+                model,
+                tokenizer,
+                prompt,
+                answer,
+                max_length=max_length,
+            )
+        )
+        if not target_ids.numel():
+            continue
+        context_positions = (
+            _sample_prompt_context_positions(
+                prompt_length,
+                maximum=contexts_per_example,
+                device=hidden_all.device,
+            )
+            if include_contexts
+            else torch.empty(
+                (0,),
+                dtype=torch.long,
+                device=hidden_all.device,
+            )
+        )
+        all_positions = torch.cat(
+            [answer_positions, context_positions]
+        ).unique(sorted=True)
+        all_hidden_native = hidden_all.index_select(0, all_positions)
+        all_logits = _logits_for_hidden(model, all_hidden_native)
+        position_to_index = {
+            int(position): index
+            for index, position in enumerate(all_positions.tolist())
+        }
+
+        answer_indices = torch.tensor(
+            [position_to_index[int(position)] for position in answer_positions],
+            dtype=torch.long,
+            device=all_logits.device,
+        )
+        answer_hidden = all_hidden_native.index_select(
+            0,
+            answer_indices,
+        ).float()
+        answer_logits = all_logits.index_select(0, answer_indices)
+        base_selected = answer_logits.index_select(1, selected_ids)
+        nonselected = answer_logits.clone()
+        nonselected.index_fill_(1, selected_ids, -torch.inf)
+        nonselected_lse = torch.logsumexp(nonselected, dim=-1)
+        nonselected_max = nonselected.max(dim=-1).values
+        base_target = answer_logits.gather(
+            1,
+            target_ids[:, None],
+        ).squeeze(1)
+        target_selected = torch.tensor(
+            [
+                selected_index.get(int(token_id), -1)
+                for token_id in target_ids.tolist()
+            ],
+            dtype=torch.long,
+            device=answer_logits.device,
+        )
+        selected_other = base_selected.clone()
+        has_selected_target = target_selected.ge(0)
+        if has_selected_target.any():
+            rows = has_selected_target.nonzero(as_tuple=False).flatten()
+            selected_other[
+                rows,
+                target_selected.index_select(0, rows),
+            ] = -torch.inf
+        baseline_competitor = torch.maximum(
+            nonselected_max,
+            selected_other.max(dim=-1).values,
+        )
+        repair_mask = has_selected_target & (
+            baseline_competitor - base_target < active_margin
+        )
+        answer_caches.append(
+            AnswerDeltaCache(
+                source_id=source_id,
+                hidden=answer_hidden.detach(),
+                target_token_ids=target_ids.detach(),
+                target_selected_indices=target_selected.detach(),
+                repair_mask=repair_mask.detach(),
+                base_target_logits=base_target.detach(),
+                base_selected_logits=base_selected.detach(),
+                base_nonselected_logsumexp=nonselected_lse.detach(),
+                base_nonselected_max=nonselected_max.detach(),
+            )
+        )
+
+        if context_positions.numel():
+            context_indices = torch.tensor(
+                [
+                    position_to_index[int(position)]
+                    for position in context_positions
+                ],
+                dtype=torch.long,
+                device=all_logits.device,
+            )
+            context_hidden = all_hidden_native.index_select(
+                0,
+                context_indices,
+            ).float()
+            context_logits = all_logits.index_select(0, context_indices)
+            context_selected = context_logits.index_select(1, selected_ids)
+            context_nonselected = context_logits.clone()
+            context_nonselected.index_fill_(1, selected_ids, -torch.inf)
+            context_max, context_ids = context_nonselected.max(dim=-1)
+            context_caches.append(
+                ContextDeltaCache(
+                    source_id=source_id,
+                    hidden=context_hidden.detach(),
+                    base_selected_logits=context_selected.detach(),
+                    base_nonselected_max=context_max.detach(),
+                    base_nonselected_token_ids=context_ids.detach(),
+                    baseline_predicted_token_ids=(
+                        context_logits.argmax(dim=-1).detach()
+                    ),
+                )
+            )
+    return answer_caches, context_caches
+
+
+def _candidate_answer_values(
+    cache: AnswerDeltaCache,
+    delta_rows: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    corrections = cache.hidden @ delta_rows.T
+    selected_logits = cache.base_selected_logits + corrections
+    log_partition = torch.logaddexp(
+        cache.base_nonselected_logsumexp,
+        torch.logsumexp(selected_logits, dim=-1),
+    )
+    indices = cache.target_selected_indices.clamp_min(0)
+    target_correction = corrections.gather(1, indices[:, None]).squeeze(1)
+    target_correction = torch.where(
+        cache.target_selected_indices.ge(0),
+        target_correction,
+        torch.zeros_like(target_correction),
+    )
+    target_logits = cache.base_target_logits + target_correction
+    return selected_logits, target_logits, log_partition
+
+
+def answer_nlls(
+    caches: Sequence[AnswerDeltaCache],
+    delta_rows: torch.Tensor,
+) -> torch.Tensor:
+    values: List[torch.Tensor] = []
+    for cache in caches:
+        _, target_logits, log_partition = _candidate_answer_values(
+            cache,
+            delta_rows,
+        )
+        values.append((log_partition - target_logits).mean())
+    if not values:
+        return delta_rows.new_empty((0,))
+    return torch.stack(values)
+
+
+def active_margin_values(
+    caches: Sequence[AnswerDeltaCache],
+    delta_rows: torch.Tensor,
+) -> torch.Tensor:
+    values: List[torch.Tensor] = []
+    for cache in caches:
+        if not cache.repair_mask.any():
+            continue
+        selected_logits, target_logits, _ = _candidate_answer_values(
+            cache,
+            delta_rows,
+        )
+        other_selected = selected_logits.clone()
+        rows = cache.repair_mask.nonzero(as_tuple=False).flatten()
+        other_selected[
+            rows,
+            cache.target_selected_indices.index_select(0, rows),
+        ] = -torch.inf
+        competitor = torch.maximum(
+            cache.base_nonselected_max,
+            other_selected.max(dim=-1).values,
+        )
+        values.append(
+            (competitor - target_logits).masked_select(cache.repair_mask)
+        )
+    if not values:
+        return delta_rows.new_empty((0,))
+    return torch.cat(values)
+
+
+def active_target_probabilities(
+    caches: Sequence[AnswerDeltaCache],
+    delta_rows: torch.Tensor,
+) -> torch.Tensor:
+    values: List[torch.Tensor] = []
+    for cache in caches:
+        if not cache.repair_mask.any():
+            continue
+        _, target_logits, log_partition = _candidate_answer_values(
+            cache,
+            delta_rows,
+        )
+        values.append(
+            torch.exp(target_logits - log_partition).masked_select(
+                cache.repair_mask
+            )
+        )
+    if not values:
+        return delta_rows.new_empty((0,))
+    return torch.cat(values)
+
+
+def protected_probability_ratio(
+    caches: Sequence[AnswerDeltaCache],
+    delta_rows: torch.Tensor,
+) -> float:
+    if not caches:
+        return 1.0
+    current_nll = answer_nlls(caches, delta_rows).float()
+    baseline_nll = answer_nlls(
+        caches,
+        torch.zeros_like(delta_rows),
+    ).float()
+    log_count = math.log(len(caches))
+    current_log_mean = torch.logsumexp(-current_nll, dim=0) - log_count
+    baseline_log_mean = torch.logsumexp(-baseline_nll, dim=0) - log_count
+    ratio = torch.exp(current_log_mean - baseline_log_mean)
+    if not torch.isfinite(ratio) or ratio <= 0:
+        raise FloatingPointError("Protected probability ratio is invalid")
+    return float(ratio.detach().cpu())
+
+
+def _context_hidden(
+    caches: Sequence[ContextDeltaCache],
+    *,
+    hidden_size: int,
+    device: torch.device,
+) -> torch.Tensor:
+    rows = [cache.hidden for cache in caches if cache.hidden.numel()]
+    if not rows:
+        return torch.empty(
+            (0, hidden_size),
+            dtype=torch.float32,
+            device=device,
+        )
+    return torch.cat(rows, dim=0).to(device=device, dtype=torch.float32)
+
+
+def context_diagnostics(
+    caches: Sequence[ContextDeltaCache],
+    delta_rows: torch.Tensor,
+    selected_token_ids: Sequence[int],
+) -> Dict[str, Any]:
+    if not caches:
+        return {
+            "protected_context_count": 0,
+            "protected_top1_changes": 0,
+            "maximum_protected_logit_drift": 0.0,
+            "mean_absolute_protected_logit_drift": 0.0,
+        }
+    selected_ids = torch.tensor(
+        list(selected_token_ids),
+        dtype=torch.long,
+        device=delta_rows.device,
+    )
+    changes = 0
+    drifts: List[torch.Tensor] = []
+    context_count = 0
+    for cache in caches:
+        correction = cache.hidden @ delta_rows.T
+        candidate_selected = cache.base_selected_logits + correction
+        selected_max, selected_columns = candidate_selected.max(dim=-1)
+        selected_predictions = selected_ids.index_select(
+            0,
+            selected_columns,
+        )
+        nonselected_max = cache.base_nonselected_max
+        nonselected_predictions = cache.base_nonselected_token_ids
+        selected_wins = selected_max > nonselected_max
+        ties = selected_max.eq(nonselected_max)
+        selected_wins = selected_wins | (
+            ties & selected_predictions.lt(nonselected_predictions)
+        )
+        predictions = torch.where(
+            selected_wins,
+            selected_predictions,
+            nonselected_predictions,
+        )
+        changes += int(
+            predictions.ne(cache.baseline_predicted_token_ids).sum().item()
+        )
+        drifts.append(correction.abs())
+        context_count += int(cache.hidden.shape[0])
+    drift = torch.cat([row.flatten() for row in drifts])
+    return {
+        "protected_context_count": context_count,
+        "protected_top1_changes": changes,
+        "maximum_protected_logit_drift": float(drift.max().detach().cpu()),
+        "mean_absolute_protected_logit_drift": float(
+            drift.mean().detach().cpu()
+        ),
+    }
 
 
 def optimize_delta(
-    active_points: Sequence[RepairPoint],
-    protected_points: Sequence[RepairPoint],
+    active_caches: Sequence[AnswerDeltaCache],
+    protected_context_caches: Sequence[ContextDeltaCache],
     *,
+    n_rows: int,
     hidden_size: int,
     device: torch.device,
     config: RepairConfig,
 ) -> Tuple[torch.Tensor, List[Dict[str, float]], Dict[str, Any]]:
     validate_config(config)
-    if not active_points:
-        raise ValueError("Protected repair requires at least one active point")
-    active_hidden = _stack(active_points, "hidden", device=device)
-    active_competitor = _stack(
-        active_points,
-        "competitor_logit",
+    if n_rows <= 0:
+        raise ValueError("Sparse repair requires at least one selected row")
+    protected_hidden = _context_hidden(
+        protected_context_caches,
+        hidden_size=hidden_size,
         device=device,
     )
-    active_neutral = _stack(active_points, "neutral_logit", device=device)
-    protected_hidden = _stack(protected_points, "hidden", device=device)
     basis = (
-        orthonormal_row_basis(protected_hidden)
+        orthonormal_row_basis(
+            protected_hidden,
+            max_rank=config.protected_projection_rank,
+        )
         if config.project_away_protected and protected_hidden.numel()
         else None
     )
-
-    raw_delta = nn.Parameter(
-        torch.zeros(hidden_size, dtype=torch.float32, device=device)
+    delta_module = active_repair.SelectedRowDelta(
+        n_rows,
+        hidden_size,
+        retained_basis=basis,
+        device=device,
     )
     optimizer = torch.optim.AdamW(
-        [raw_delta],
+        delta_module.parameters(),
         lr=config.learning_rate,
         weight_decay=0.0,
     )
@@ -312,126 +780,169 @@ def optimize_delta(
     stopped_early = False
     for step in range(config.steps):
         optimizer.zero_grad(set_to_none=True)
-        delta = project_away(raw_delta, basis)
-        margins = active_neutral + active_hidden @ delta - active_competitor
+        delta = delta_module.effective_delta()
+        margins = active_margin_values(active_caches, delta)
+        if not margins.numel():
+            raise ValueError("No selected active answer-token positions remain")
         hinge = F.relu(config.active_margin - margins).square().mean()
+        protected_drift = (
+            (protected_hidden @ delta.T).square().mean()
+            if protected_hidden.numel()
+            else delta.new_zeros(())
+        )
         penalty = config.l2_lambda * delta.square().sum()
-        loss = hinge + penalty
+        loss = (
+            hinge
+            + config.protected_logit_lambda * protected_drift
+            + penalty
+        )
         if not torch.isfinite(loss):
-            raise FloatingPointError("Non-finite protected-repair objective")
+            raise FloatingPointError("Non-finite sparse-repair objective")
         loss.backward()
         optimizer.step()
         if config.max_delta_norm is not None:
-            with torch.no_grad():
-                effective = project_away(raw_delta, basis)
-                norm = effective.norm()
-                if norm > config.max_delta_norm:
-                    raw_delta.mul_(config.max_delta_norm / norm)
-        with torch.no_grad():
-            effective = project_away(raw_delta, basis)
-            margins = (
-                active_neutral
-                + active_hidden @ effective
-                - active_competitor
+            active_repair.constrain_effective_delta_norm(
+                delta_module,
+                config.max_delta_norm,
             )
-            unsatisfied = int((margins < config.active_margin).sum().item())
+        with torch.no_grad():
+            effective = delta_module.effective_delta()
+            margins = active_margin_values(active_caches, effective)
+            unsatisfied = int(
+                (margins < config.active_margin).sum().item()
+            )
             row = {
                 "step": float(step + 1),
                 "loss": float(loss.detach().cpu()),
                 "hinge": float(hinge.detach().cpu()),
+                "protected_logit_penalty": float(
+                    protected_drift.detach().cpu()
+                ),
                 "delta_norm": float(effective.norm().cpu()),
                 "minimum_active_margin": float(margins.min().cpu()),
+                "mean_active_margin": float(margins.mean().cpu()),
                 "unsatisfied_active_points": float(unsatisfied),
             }
             log.append(row)
             if config.stop_when_satisfied and unsatisfied == 0:
                 stopped_early = True
                 break
-    delta = project_away(raw_delta.detach(), basis).detach()
+    delta = delta_module.effective_delta().detach()
     return delta, log, {
         "steps_completed": len(log),
         "stopped_early": stopped_early,
-        "active_point_count": len(active_points),
-        "protected_point_count": len(protected_points),
+        "active_point_count": int(
+            sum(cache.repair_mask.sum().item() for cache in active_caches)
+        ),
+        "protected_context_count": int(protected_hidden.shape[0]),
         "protected_hidden_rank": 0 if basis is None else int(basis.shape[0]),
+        "selected_row_count": n_rows,
         "delta_norm": float(delta.norm().cpu()),
     }
 
 
-def point_margins_for_materialized_row(
-    points: Sequence[RepairPoint],
-    *,
-    original_row: torch.Tensor,
-    candidate_row: torch.Tensor,
+def materialized_delta_rows(
+    original_rows: torch.Tensor,
+    delta_rows: torch.Tensor,
+    scale: float,
 ) -> torch.Tensor:
-    if not points:
-        return torch.empty((0,), dtype=torch.float32)
-    device = original_row.device
-    hidden = _stack(points, "hidden", device=device)
-    competitor = _stack(points, "competitor_logit", device=device)
-    neutral = _stack(points, "neutral_logit", device=device)
-    effective_delta = candidate_row.float() - original_row.float()
-    return neutral + hidden @ effective_delta - competitor
+    candidate = (
+        original_rows.float() + float(scale) * delta_rows.float()
+    ).to(dtype=original_rows.dtype)
+    return candidate.float() - original_rows.float()
 
 
 def select_materialized_scale(
     *,
-    original_row: torch.Tensor,
-    delta: torch.Tensor,
-    active_points: Sequence[RepairPoint],
-    protected_points: Sequence[RepairPoint],
+    original_rows: torch.Tensor,
+    delta_rows: torch.Tensor,
+    active_caches: Sequence[AnswerDeltaCache],
+    protected_answer_caches: Sequence[AnswerDeltaCache],
+    protected_context_caches: Sequence[ContextDeltaCache],
+    selected_token_ids: Sequence[int],
     scales: Sequence[float],
-    selection_margin: float,
+    config: RepairConfig,
 ) -> Tuple[float, List[Dict[str, Any]]]:
-    """Select in stored row dtype, with protection ahead of efficacy."""
+    """Select the strongest effective candidate satisfying every hard gate."""
 
     reports: List[Dict[str, Any]] = []
+    zero_delta = torch.zeros_like(delta_rows)
+    baseline_margins = active_margin_values(active_caches, zero_delta)
     for scale in scales:
-        candidate = (
-            original_row.float() + float(scale) * delta.float()
-        ).to(dtype=original_row.dtype).float()
-        active_margins = point_margins_for_materialized_row(
-            active_points,
-            original_row=original_row.float(),
-            candidate_row=candidate,
+        materialized = materialized_delta_rows(
+            original_rows,
+            delta_rows,
+            scale,
         )
-        protected_margins = point_margins_for_materialized_row(
-            protected_points,
-            original_row=original_row.float(),
-            candidate_row=candidate,
+        margins = active_margin_values(active_caches, materialized)
+        probabilities = active_target_probabilities(
+            active_caches,
+            materialized,
+        )
+        context = context_diagnostics(
+            protected_context_caches,
+            materialized,
+            selected_token_ids,
+        )
+        ratio = protected_probability_ratio(
+            protected_answer_caches,
+            materialized,
+        )
+        passes = bool(
+            ratio + 1e-12 >= config.min_protected_probability_ratio
+            and context["maximum_protected_logit_drift"]
+            <= config.max_protected_logit_drift + 1e-12
+            and context["protected_top1_changes"]
+            <= config.max_protected_top1_changes
         )
         reports.append(
             {
                 "scale": float(scale),
-                "protected_regressions": int(
-                    (protected_margins >= 0.0).sum().item()
-                ),
+                "passes_all_protection_gates": passes,
+                "protected_answer_probability_ratio": ratio,
+                **context,
                 "active_unsatisfied": int(
-                    (active_margins < selection_margin).sum().item()
+                    (margins < config.selection_margin).sum().item()
+                ),
+                "active_margin_regressions": int(
+                    (margins < baseline_margins - 1e-7).sum().item()
                 ),
                 "active_satisfied": int(
-                    (active_margins >= selection_margin).sum().item()
+                    (margins >= config.selection_margin).sum().item()
                 ),
-                "minimum_active_margin": (
-                    None
-                    if not len(active_points)
-                    else float(active_margins.min().cpu())
+                "minimum_active_margin": float(margins.min().detach().cpu()),
+                "mean_active_margin": float(margins.mean().detach().cpu()),
+                "mean_active_target_probability": float(
+                    probabilities.mean().detach().cpu()
                 ),
                 "materialized_delta_norm": float(
-                    (candidate - original_row.float()).norm().cpu()
+                    materialized.norm().detach().cpu()
                 ),
             }
         )
+    baseline = next(
+        row for row in reports if float(row["scale"]) == 0.0
+    )
+    effective = [
+        row
+        for row in reports
+        if row["passes_all_protection_gates"]
+        and int(row["active_margin_regressions"]) == 0
+        and (
+            int(row["active_unsatisfied"])
+            < int(baseline["active_unsatisfied"])
+            or float(row["mean_active_target_probability"])
+            < float(baseline["mean_active_target_probability"]) - 1e-8
+        )
+    ]
+    if not effective:
+        return 0.0, reports
     best = min(
-        reports,
+        effective,
         key=lambda row: (
-            int(row["protected_regressions"]),
             int(row["active_unsatisfied"]),
-            -float(
-                row["minimum_active_margin"]
-                if row["minimum_active_margin"] is not None
-                else 0.0
-            ),
+            float(row["mean_active_target_probability"]),
+            -float(row["mean_active_margin"]),
             float(row["materialized_delta_norm"]),
         ),
     )
@@ -442,15 +953,22 @@ def select_materialized_scale(
 def apply_materialized_delta(
     output_weight: torch.Tensor,
     *,
-    token_id: int,
-    original_row: torch.Tensor,
-    delta: torch.Tensor,
+    token_ids: Sequence[int],
+    original_rows: torch.Tensor,
+    delta_rows: torch.Tensor,
     scale: float,
 ) -> None:
+    if not token_ids:
+        return
+    selected = torch.tensor(
+        list(token_ids),
+        dtype=torch.long,
+        device=output_weight.device,
+    )
     candidate = (
-        original_row.float() + float(scale) * delta.float()
+        original_rows.float() + float(scale) * delta_rows.float()
     ).to(device=output_weight.device, dtype=output_weight.dtype)
-    output_weight[token_id].copy_(candidate)
+    output_weight.index_copy_(0, selected, candidate)
 
 
 def point_report(point: RepairPoint) -> Dict[str, Any]:
@@ -458,12 +976,63 @@ def point_report(point: RepairPoint) -> Dict[str, Any]:
         "source_id": point.source_id,
         "token_index": point.token_index,
         "target_token_id": point.target_token_id,
+        "competitor_token_id": point.competitor_token_id,
         "baseline_predicted_token_id": point.baseline_predicted_token_id,
+        "target_logit": float(point.target_logit.cpu()),
         "competitor_logit": float(point.competitor_logit.cpu()),
-        "neutral_logit": float(point.neutral_logit.cpu()),
-        "baseline_neutral_margin": float(
-            (point.neutral_logit - point.competitor_logit).cpu()
+        "baseline_competitor_minus_target_margin": float(
+            (point.competitor_logit - point.target_logit).cpu()
         ),
+    }
+
+
+def _token_text(tokenizer: Any, token_id: int) -> str:
+    try:
+        return str(tokenizer.decode([token_id]))
+    except Exception:
+        return f"<token:{token_id}>"
+
+
+def _no_op_report(
+    *,
+    tokenizer: Any,
+    config: RepairConfig,
+    all_active_points: Sequence[RepairPoint],
+    overlap_ids: Sequence[int],
+    selected_ids: Sequence[int],
+    reason: str,
+) -> Dict[str, Any]:
+    return {
+        "method": "sparse_active_pair_lm_head_repair",
+        "repair_applied": False,
+        "no_op_reason": reason,
+        "changed_output_rows": [],
+        "selected_scale": 0.0,
+        "selected_lm_head_token_ids": list(selected_ids),
+        "selected_lm_head_tokens": {
+            str(token_id): _token_text(tokenizer, token_id)
+            for token_id in selected_ids
+        },
+        "protected_overlap_token_ids": list(overlap_ids),
+        "protected_overlap_tokens": {
+            str(token_id): _token_text(tokenizer, token_id)
+            for token_id in overlap_ids
+        },
+        "active_point_count_before_row_filter": len(all_active_points),
+        "active_points": [point_report(point) for point in all_active_points],
+        "transformer_frozen": True,
+        "input_embeddings_frozen": True,
+        "edits_eot_or_eos": False,
+        "config": asdict(config),
+        "scale_sweep": [],
+        "limitations": {
+            "multiple_choice": (
+                "Letter-scored multiple choice bypasses target-answer LM-head rows."
+            ),
+            "frozen_base_head_probe": (
+                "A frozen-base-head probe intentionally bypasses this repair."
+            ),
+        },
     }
 
 
@@ -476,80 +1045,214 @@ def run_protected_lm_head_repair(
     config: RepairConfig,
     output_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    validate_config(config)
-    output_layer = active_repair.freeze_model_for_output_repair(model)
-    neutral_token, neutral_token_id = resolve_neutral_token(tokenizer)
-    if not 0 <= neutral_token_id < output_layer.weight.shape[0]:
-        raise ValueError("Neutral token ID falls outside the LM-head vocabulary")
+    """Apply retain-gated sparse answer-row repair.
 
-    active_points = cache_prompt_answers(
+    The legacy public function name is kept so existing launchers continue to
+    work; the report records the new sparse active-pair semantics.
+    """
+
+    validate_config(config)
+    input_weight = model.get_input_embeddings().weight
+    input_pointer = input_weight.data_ptr()
+    input_version = input_weight._version
+    output_layer = active_repair.freeze_model_for_output_repair(model)
+    calibration_pairs = calibration_prompt_answers(
+        tokenizer,
+        calibration_rows,
+    )
+    protected_pairs = protected_prompt_answers(protected_examples)
+    calibration_points = cache_prompt_answers(
         model,
         tokenizer,
-        calibration_prompt_answers(tokenizer, calibration_rows),
-        neutral_token_id=neutral_token_id,
+        calibration_pairs,
     )
-    protected_points_all = cache_prompt_answers(
+    protected_points = cache_prompt_answers(
         model,
         tokenizer,
-        protected_prompt_answers(protected_examples),
-        neutral_token_id=neutral_token_id,
+        protected_pairs,
     )
-    # A point where the neutral token already wins cannot newly regress.
-    protected_points = [
-        point
-        for point in protected_points_all
-        if float(point.neutral_logit) < float(point.competitor_logit)
-    ]
-    device = model_device(model)
-    original_row = (
-        output_layer.weight[neutral_token_id].detach().clone()
+    all_active_points = active_points(
+        calibration_points,
+        required_margin=config.active_margin,
     )
-    delta, optimization_log, optimization_summary = optimize_delta(
-        active_points,
+    selected_ids, overlap_ids = select_active_token_ids(
+        all_active_points,
         protected_points,
-        hidden_size=int(output_layer.weight.shape[1]),
-        device=device,
-        config=config,
+        special_token_ids=repair_excluded_token_ids(tokenizer),
+        exclude_protected_answer_rows=config.exclude_protected_answer_rows,
     )
-    scale, scale_reports = select_materialized_scale(
-        original_row=original_row,
-        delta=delta,
-        active_points=active_points,
-        protected_points=protected_points,
-        scales=config.candidate_scales,
-        selection_margin=config.selection_margin,
-    )
-    apply_materialized_delta(
-        output_layer.weight,
-        token_id=neutral_token_id,
-        original_row=original_row,
-        delta=delta,
-        scale=scale,
-    )
-    selected = next(
-        row for row in scale_reports if float(row["scale"]) == scale
-    )
-    report: Dict[str, Any] = {
-        "method": "protected_lm_head_repair",
-        "neutral_token": neutral_token,
-        "neutral_token_id": neutral_token_id,
-        "changed_output_rows": [neutral_token_id] if scale != 0.0 else [],
-        "transformer_frozen": True,
-        "input_embeddings_frozen": True,
-        "output_head_untied": True,
-        "selected_scale": scale,
-        "selected_scale_report": selected,
-        "optimization": optimization_summary,
-        "config": asdict(config),
-        "active_source": "RWKU calibration level1+level2 only",
-        "protected_source": "unrelated MCF retain answers",
-        "active_points": [point_report(point) for point in active_points],
-        "protected_points": [
-            point_report(point) for point in protected_points
-        ],
-        "scale_sweep": scale_reports,
-        "optimization_log": optimization_log,
-    }
+
+    if not all_active_points:
+        report = _no_op_report(
+            tokenizer=tokenizer,
+            config=config,
+            all_active_points=all_active_points,
+            overlap_ids=overlap_ids,
+            selected_ids=selected_ids,
+            reason="all_calibration_answer_positions_already_meet_forget_margin",
+        )
+    elif not selected_ids:
+        report = _no_op_report(
+            tokenizer=tokenizer,
+            config=config,
+            all_active_points=all_active_points,
+            overlap_ids=overlap_ids,
+            selected_ids=selected_ids,
+            reason=(
+                "no_active_non_special_answer_row_is_exclusive_to_the_forget_set"
+            ),
+        )
+    else:
+        active_caches, _ = cache_delta_data(
+            model,
+            tokenizer,
+            calibration_pairs,
+            selected_ids,
+            active_margin=config.active_margin,
+            include_contexts=False,
+            contexts_per_example=config.protected_contexts_per_example,
+        )
+        protected_answer_caches, protected_context_caches = cache_delta_data(
+            model,
+            tokenizer,
+            protected_pairs,
+            selected_ids,
+            active_margin=config.active_margin,
+            include_contexts=True,
+            contexts_per_example=config.protected_contexts_per_example,
+        )
+        supported_active_count = int(
+            sum(cache.repair_mask.sum().item() for cache in active_caches)
+        )
+        if supported_active_count == 0:
+            report = _no_op_report(
+                tokenizer=tokenizer,
+                config=config,
+                all_active_points=all_active_points,
+                overlap_ids=overlap_ids,
+                selected_ids=selected_ids,
+                reason="selected_rows_have_no_remaining_active_positions",
+            )
+        else:
+            device = output_layer.weight.device
+            selected_tensor = torch.tensor(
+                selected_ids,
+                dtype=torch.long,
+                device=device,
+            )
+            original_rows = (
+                output_layer.weight.index_select(0, selected_tensor)
+                .detach()
+                .clone()
+            )
+            delta, optimization_log, optimization_summary = optimize_delta(
+                active_caches,
+                protected_context_caches,
+                n_rows=len(selected_ids),
+                hidden_size=int(output_layer.weight.shape[1]),
+                device=device,
+                config=config,
+            )
+            scale, scale_reports = select_materialized_scale(
+                original_rows=original_rows,
+                delta_rows=delta,
+                active_caches=active_caches,
+                protected_answer_caches=protected_answer_caches,
+                protected_context_caches=protected_context_caches,
+                selected_token_ids=selected_ids,
+                scales=config.candidate_scales,
+                config=config,
+            )
+            apply_materialized_delta(
+                output_layer.weight,
+                token_ids=selected_ids,
+                original_rows=original_rows,
+                delta_rows=delta,
+                scale=scale,
+            )
+            selected = next(
+                row
+                for row in scale_reports
+                if float(row["scale"]) == scale
+            )
+            supported_ids = set(selected_ids)
+            unsupported_points = [
+                point
+                for point in all_active_points
+                if point.target_token_id not in supported_ids
+            ]
+            report = {
+                "method": "sparse_active_pair_lm_head_repair",
+                "repair_applied": scale != 0.0,
+                "no_op_reason": (
+                    None
+                    if scale != 0.0
+                    else "no_effective_candidate_passed_all_protection_gates"
+                ),
+                "changed_output_rows": (
+                    list(selected_ids) if scale != 0.0 else []
+                ),
+                "selected_lm_head_token_ids": list(selected_ids),
+                "selected_lm_head_tokens": {
+                    str(token_id): _token_text(tokenizer, token_id)
+                    for token_id in selected_ids
+                },
+                "protected_overlap_token_ids": list(overlap_ids),
+                "protected_overlap_tokens": {
+                    str(token_id): _token_text(tokenizer, token_id)
+                    for token_id in overlap_ids
+                },
+                "transformer_frozen": True,
+                "input_embeddings_frozen": True,
+                "output_head_untied": True,
+                "edits_eot_or_eos": False,
+                "selection_policy": (
+                    "hard protected gates first; best active suppression among "
+                    "passing candidates with no calibration-margin regression; "
+                    "scale zero fallback"
+                ),
+                "selected_scale": scale,
+                "selected_scale_report": selected,
+                "optimization": optimization_summary,
+                "config": asdict(config),
+                "active_source": (
+                    "RWKU calibration level1+level2 active answer-token "
+                    "positions only"
+                ),
+                "protected_source": (
+                    "unrelated MCF retain answers plus sampled prompt contexts"
+                ),
+                "active_point_count_before_row_filter": len(
+                    all_active_points
+                ),
+                "active_point_count_after_row_filter": supported_active_count,
+                "unsupported_active_point_count": len(unsupported_points),
+                "active_points": [
+                    point_report(point) for point in all_active_points
+                ],
+                "unsupported_active_points": [
+                    point_report(point) for point in unsupported_points
+                ],
+                "scale_sweep": scale_reports,
+                "optimization_log": optimization_log,
+                "limitations": {
+                    "multiple_choice": (
+                        "Letter-scored multiple choice bypasses target-answer "
+                        "LM-head rows."
+                    ),
+                    "frozen_base_head_probe": (
+                        "A frozen-base-head probe intentionally bypasses this "
+                        "repair; lowering it requires representation-level "
+                        "unlearning."
+                    ),
+                },
+            }
+
+    if (
+        model.get_input_embeddings().weight.data_ptr() != input_pointer
+        or model.get_input_embeddings().weight._version != input_version
+    ):
+        raise RuntimeError("Input embeddings changed during sparse LM-head repair")
     if output_dir is not None:
         from rwku_eval import write_json
 

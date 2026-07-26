@@ -317,26 +317,54 @@ class RWKUEvaluatorTests(unittest.TestCase):
             self.assertEqual(value["value"], 1.0)
 
 
-def repair_point(hidden, competitor=1.0, neutral=0.0, source="x"):
+def repair_point(hidden, competitor=0.0, target=1.0, source="x", token_id=4):
     return REPAIR.RepairPoint(
         hidden=torch.tensor(hidden, dtype=torch.float32),
         competitor_logit=torch.tensor(competitor),
-        neutral_logit=torch.tensor(neutral),
+        target_logit=torch.tensor(target),
         source_id=source,
         token_index=0,
-        target_token_id=4,
-        baseline_predicted_token_id=5,
+        target_token_id=token_id,
+        competitor_token_id=5,
+        baseline_predicted_token_id=token_id,
+    )
+
+
+def answer_cache(hidden, target=1.0, competitor=0.0, repair=True):
+    return REPAIR.AnswerDeltaCache(
+        source_id="active",
+        hidden=torch.tensor([hidden], dtype=torch.float32),
+        target_token_ids=torch.tensor([4]),
+        target_selected_indices=torch.tensor([0]),
+        repair_mask=torch.tensor([repair]),
+        base_target_logits=torch.tensor([target]),
+        base_selected_logits=torch.tensor([[target]]),
+        base_nonselected_logsumexp=torch.tensor([competitor]),
+        base_nonselected_max=torch.tensor([competitor]),
+    )
+
+
+def context_cache(hidden, selected=0.1, nonselected=0.0):
+    prediction = 4 if selected > nonselected else 5
+    return REPAIR.ContextDeltaCache(
+        source_id="retain",
+        hidden=torch.tensor([hidden], dtype=torch.float32),
+        base_selected_logits=torch.tensor([[selected]]),
+        base_nonselected_max=torch.tensor([nonselected]),
+        base_nonselected_token_ids=torch.tensor([5]),
+        baseline_predicted_token_ids=torch.tensor([prediction]),
     )
 
 
 class RWKURepairTests(unittest.TestCase):
     def test_projected_optimizer_leaves_protected_direction_orthogonal(self):
-        active_points = [repair_point([1.0, 0.0])]
-        protected_points = [repair_point([0.0, 1.0])]
+        active_caches = [answer_cache([1.0, 0.0])]
+        protected_contexts = [context_cache([0.0, 1.0])]
         with mock.patch.object(REPAIR.torch.optim, "AdamW", FakeOptimizer):
             delta, log, summary = REPAIR.optimize_delta(
-                active_points,
-                protected_points,
+                active_caches,
+                protected_contexts,
+                n_rows=1,
                 hidden_size=2,
                 device=torch.device("cpu"),
                 config=REPAIR.RepairConfig(
@@ -350,29 +378,101 @@ class RWKURepairTests(unittest.TestCase):
             )
         self.assertTrue(log)
         self.assertEqual(summary["protected_hidden_rank"], 1)
-        self.assertGreater(float(delta[0]), 1.0)
-        self.assertAlmostEqual(float(delta[1]), 0.0, places=5)
+        self.assertLess(float(delta[0, 0]), -1.0)
+        self.assertAlmostEqual(float(delta[0, 1]), 0.0, places=5)
 
     def test_scale_selection_prioritizes_no_protected_regressions(self):
-        active_points = [repair_point([1.0, 0.0], competitor=1.0)]
-        conflicting_protected = [
-            repair_point([1.0, 0.0], competitor=0.1, source="retain")
+        active_caches = [answer_cache([1.0, 0.0])]
+        protected_answers = [
+            REPAIR.AnswerDeltaCache(
+                source_id="retain",
+                hidden=torch.tensor([[1.0, 0.0]]),
+                target_token_ids=torch.tensor([5]),
+                target_selected_indices=torch.tensor([-1]),
+                repair_mask=torch.tensor([False]),
+                base_target_logits=torch.tensor([0.0]),
+                base_selected_logits=torch.tensor([[0.1]]),
+                base_nonselected_logsumexp=torch.tensor([1.0]),
+                base_nonselected_max=torch.tensor([0.0]),
+            )
         ]
+        protected_contexts = [context_cache([1.0, 0.0])]
+        config = REPAIR.RepairConfig(
+            max_protected_top1_changes=0,
+            candidate_scales=(1.0, 0.5, 0.0),
+        )
         scale, reports = REPAIR.select_materialized_scale(
-            original_row=torch.zeros(2),
-            delta=torch.tensor([2.0, 0.0]),
-            active_points=active_points,
-            protected_points=conflicting_protected,
+            original_rows=torch.zeros((1, 2)),
+            delta_rows=torch.tensor([[-2.0, 0.0]]),
+            active_caches=active_caches,
+            protected_answer_caches=protected_answers,
+            protected_context_caches=protected_contexts,
+            selected_token_ids=[4],
             scales=(1.0, 0.5, 0.0),
-            selection_margin=0.0,
+            config=config,
         )
         self.assertEqual(scale, 0.0)
         selected = next(row for row in reports if row["scale"] == scale)
-        self.assertEqual(selected["protected_regressions"], 0)
+        self.assertEqual(selected["protected_top1_changes"], 0)
+        rejected = next(row for row in reports if row["scale"] == 1.0)
+        self.assertFalse(rejected["passes_all_protection_gates"])
 
-    def test_repair_token_prefers_llama_eot(self):
-        token, token_id = REPAIR.resolve_neutral_token(TemplateTokenizer())
-        self.assertEqual((token, token_id), ("<|eot_id|>", 3))
+    def test_active_row_selection_excludes_special_and_protected_rows(self):
+        active = [
+            repair_point([1.0, 0.0], token_id=2),
+            repair_point([1.0, 0.0], token_id=4),
+            repair_point([1.0, 0.0], token_id=6),
+        ]
+        protected = [repair_point([0.0, 1.0], token_id=6)]
+        selected, overlap = REPAIR.select_active_token_ids(
+            active,
+            protected,
+            special_token_ids=[0, 1, 2, 3],
+            exclude_protected_answer_rows=True,
+        )
+        self.assertEqual(selected, [4])
+        self.assertEqual(overlap, [6])
+        self.assertIn(3, REPAIR.repair_excluded_token_ids(TemplateTokenizer()))
+
+    def test_end_to_end_repair_never_changes_stop_or_input_rows(self):
+        model = TinyCausalLM()
+        tokenizer = TinyTokenizer()
+        input_before = model.get_input_embeddings().weight.detach().clone()
+        output_before = model.get_output_embeddings().weight.detach().clone()
+        with mock.patch.object(REPAIR.torch.optim, "AdamW", FakeOptimizer):
+            report = REPAIR.run_protected_lm_head_repair(
+                model,
+                tokenizer,
+                calibration_rows=[qa_row("Who?", "x")],
+                protected_examples=[
+                    SimpleNamespace(prompt="Unrelated?", answer="y")
+                ],
+                config=REPAIR.RepairConfig(
+                    steps=50,
+                    learning_rate=0.05,
+                    active_margin=100.0,
+                    selection_margin=100.0,
+                    protected_projection_rank=0,
+                    min_protected_probability_ratio=0.01,
+                    max_protected_logit_drift=100.0,
+                    max_protected_top1_changes=100,
+                    candidate_scales=(1.0, 0.5, 0.0),
+                ),
+            )
+        self.assertEqual(report["method"], "sparse_active_pair_lm_head_repair")
+        self.assertFalse(report["edits_eot_or_eos"])
+        self.assertNotIn(tokenizer.eos_token_id, report["changed_output_rows"])
+        self.assertNotIn(3, report["changed_output_rows"])
+        self.assertTrue(
+            torch.equal(
+                input_before,
+                model.get_input_embeddings().weight.detach(),
+            )
+        )
+        changed = (
+            model.get_output_embeddings().weight.detach() - output_before
+        ).abs().sum(dim=1).gt(0).nonzero(as_tuple=False).flatten().tolist()
+        self.assertEqual(changed, report["changed_output_rows"])
 
 
 class RWKUAggregationTests(unittest.TestCase):

@@ -57,12 +57,33 @@ are sensitive `target_new` values; EOS is the desired `target_true`. Unrelated
 MCF facts provide 1,000 retain examples.
 
 The protected repair freezes the transformer and input embeddings, unties the
-output head if necessary, and may change only the EOT output row (EOS when EOT
-is unavailable). Its active constraints come from calibration answer-token
-states. It projects the update away from 128 unrelated MCF retain-answer
-states, then performs a materialized-dtype scale sweep that prioritizes zero
-protected top-1 regressions. The repair-only row applies this exact procedure
-to a fresh base model.
+output head if necessary, and never edits EOT/EOS. It first finds calibration
+answer-token positions that still violate the forget margin. Only the
+corresponding non-special target-answer output rows are eligible, and any row
+that also occurs in an unrelated MCF protected answer is excluded. Thus the
+parameter scope matches the sparse active-pair repair used for MCF/TOFU rather
+than globally increasing a shared termination row.
+
+Protection uses 128 unrelated MCF facts. In addition to their answer-token
+likelihoods, the repair samples prompt contexts across every protected example.
+The sparse delta is projected away from the leading protected hidden-state
+span and is directly penalized for protected-context logit drift. A
+materialized-dtype scale sweep applies three hard gates before efficacy:
+
+- protected-answer probability ratio at least `0.999`;
+- maximum selected-row logit drift at most `0.05`; and
+- zero protected-context top-1 changes.
+
+Scale zero is mandatory and wins whenever no effective edit passes all three
+gates. The repair-only row applies this exact procedure to a fresh base model.
+Every repair report lists the selected rows, protected overlaps, unsupported
+active positions, all scale candidates, and the reason for a no-op.
+
+This is deliberately an LM-head ablation, not a claim of representation-level
+erasure. The letter-scored multiple-choice control bypasses the edited answer
+rows, and the frozen-base-head probe bypasses the repaired head entirely.
+Improving either metric requires changing the live hidden representation in
+the Setting 5e stage; an output-row repair cannot honestly do so.
 
 ## Metrics and controls
 
@@ -153,6 +174,18 @@ python scripts/rwku_experiment.py \
   --neighbor-eval-limit 2 \
   --utility-eval-limit 2 \
   --skip-ppl
+```
+
+The default repair gates are intentionally strict. They can be made explicit
+for a final run:
+
+```bash
+MODEL_PATH=/path/to/model scripts/run_rwku_experiment.sh \
+  --repair-min-protected-probability-ratio 0.999 \
+  --repair-max-protected-logit-drift 0.05 \
+  --repair-max-protected-top1-changes 0 \
+  --repair-protected-projection-rank 256 \
+  --repair-protected-contexts-per-example 8
 ```
 
 Smoke results are not valid final measurements and strict aggregation will

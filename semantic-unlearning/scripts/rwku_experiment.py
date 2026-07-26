@@ -155,17 +155,48 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--gradient-checkpointing", action="store_true")
 
-    # Protected one-row repair.
+    # Protected sparse active-pair LM-head repair.
     parser.add_argument("--repair-steps", type=int, default=800)
     parser.add_argument("--repair-lr", type=float, default=5e-3)
     parser.add_argument("--repair-active-margin", type=float, default=0.25)
     parser.add_argument("--repair-selection-margin", type=float, default=0.05)
     parser.add_argument("--repair-l2-lambda", type=float, default=1e-6)
+    parser.add_argument("--repair-protected-logit-lambda", type=float, default=1.0)
     parser.add_argument("--repair-max-delta-norm", type=float, default=None)
     parser.add_argument(
         "--project-away-protected-hidden",
         action=argparse.BooleanOptionalAction,
         default=True,
+    )
+    parser.add_argument(
+        "--repair-protected-projection-rank",
+        type=int,
+        default=256,
+    )
+    parser.add_argument(
+        "--repair-protected-contexts-per-example",
+        type=int,
+        default=8,
+    )
+    parser.add_argument(
+        "--repair-exclude-protected-answer-rows",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument(
+        "--repair-min-protected-probability-ratio",
+        type=float,
+        default=0.999,
+    )
+    parser.add_argument(
+        "--repair-max-protected-logit-drift",
+        type=float,
+        default=0.05,
+    )
+    parser.add_argument(
+        "--repair-max-protected-top1-changes",
+        type=int,
+        default=0,
     )
     parser.add_argument(
         "--repair-stop-when-satisfied",
@@ -219,11 +250,24 @@ def validate_args(args: argparse.Namespace) -> None:
         "retain_num",
         "repair_retain_num",
         "repair_steps",
+        "repair_protected_contexts_per_example",
     ):
         if getattr(args, name) <= 0:
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
     if args.repair_retain_num > args.retain_num:
         raise ValueError("--repair-retain-num cannot exceed --retain-num")
+    if args.repair_protected_projection_rank < 0:
+        raise ValueError("--repair-protected-projection-rank must be non-negative")
+    if args.repair_max_protected_top1_changes < 0:
+        raise ValueError("--repair-max-protected-top1-changes must be non-negative")
+    if not 0.0 < args.repair_min_protected_probability_ratio <= 1.0:
+        raise ValueError(
+            "--repair-min-protected-probability-ratio must be in (0,1]"
+        )
+    if args.repair_max_protected_logit_drift < 0:
+        raise ValueError("--repair-max-protected-logit-drift must be non-negative")
+    if args.repair_protected_logit_lambda < 0:
+        raise ValueError("--repair-protected-logit-lambda must be non-negative")
     for name in (
         "post_training_new_true_alpha",
         "post_training_new_retain_alpha",
@@ -440,8 +484,25 @@ def repair_config(args: argparse.Namespace) -> RepairConfig:
         active_margin=args.repair_active_margin,
         selection_margin=args.repair_selection_margin,
         l2_lambda=args.repair_l2_lambda,
+        protected_logit_lambda=args.repair_protected_logit_lambda,
         max_delta_norm=args.repair_max_delta_norm,
         project_away_protected=args.project_away_protected_hidden,
+        protected_projection_rank=args.repair_protected_projection_rank,
+        protected_contexts_per_example=(
+            args.repair_protected_contexts_per_example
+        ),
+        exclude_protected_answer_rows=(
+            args.repair_exclude_protected_answer_rows
+        ),
+        min_protected_probability_ratio=(
+            args.repair_min_protected_probability_ratio
+        ),
+        max_protected_logit_drift=(
+            args.repair_max_protected_logit_drift
+        ),
+        max_protected_top1_changes=(
+            args.repair_max_protected_top1_changes
+        ),
         stop_when_satisfied=args.repair_stop_when_satisfied,
         candidate_scales=tuple(args.repair_candidate_scales),
     )
@@ -871,7 +932,10 @@ def main() -> None:
             )
 
         if METHOD_REPAIRED in methods:
-            print("Applying protected one-row LM-head repair to Setting 5e")
+            print(
+                "Applying protected sparse active-pair LM-head repair "
+                "to Setting 5e"
+            )
             repaired_report = run_protected_lm_head_repair(
                 setting5_model,
                 setting5_tokenizer,
