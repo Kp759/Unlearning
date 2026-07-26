@@ -42,6 +42,10 @@ huggingface-cli login
 python scripts/run_pipeline.py --config config/config.yaml
 ```
 
+The target-specific RWKU unlearning comparison, including Original
+ZeroUnlearn, Setting 5e, protected repair, repair-only, and alternative-output
+controls, is documented in [RWKU_EXPERIMENT.md](RWKU_EXPERIMENT.md).
+
 Skip extraction if hidden states are already cached:
 ```bash
 python scripts/run_pipeline.py --config config/config.yaml --skip-extraction
@@ -66,6 +70,7 @@ data:
 | Dataset | Source | Description |
 |---------|--------|-------------|
 | TOFU | `locuslab/TOFU` (HuggingFace) | Fictional author biographies for machine unlearning benchmarks |
+| RWKU | `jinzhuoran/RWKU` (pinned HuggingFace snapshot) | Target-specific real-world knowledge unlearning, adversarial recovery, membership inference, neighbors, and utility |
 
 **Forget splits:** `forget01` (1%), `forget05` (5%), `forget10` (10%)  
 **Retain splits:** `retain99`, `retain95`, `retain90` (complement of forget)

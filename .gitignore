@@ -1,4 +1,7 @@
 
 # Large generated data/output files
 semantic-unlearning/data/attribute_snippets.json
+semantic-unlearning/data/rwku/Target/
+semantic-unlearning/data/rwku/manifest_seed0.json
 semantic-unlearning/outputs/attrsnips_ppl_*.json
+semantic-unlearning/outputs/rwku/
