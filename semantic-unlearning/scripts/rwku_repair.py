@@ -166,11 +166,22 @@ def cache_prompt_answers(
             len(prompt_ids) + len(answer_ids) - 1,
             device=device,
         )
-        hidden = hidden_all[0, positions].float()
+        hidden_native = hidden_all[0, positions]
         output_layer = model.get_output_embeddings()
         if output_layer is None:
             raise ValueError("Model does not expose output embeddings")
-        logits = output_layer(hidden).float()
+
+        # Run the LM-head projection in its materialized dtype. The model is
+        # normally BF16 on Wulver; converting hidden states to FP32 before this
+        # projection causes a Float/BFloat16 matrix-multiplication mismatch.
+        hidden_for_head = hidden_native.to(
+            device=output_layer.weight.device,
+            dtype=output_layer.weight.dtype,
+        )
+        logits = output_layer(hidden_for_head).float()
+
+        # Keep cached states in FP32 for the repair optimisation.
+        hidden = hidden_native.float()
         competitor_values, competitor_ids = _competitor(
             logits,
             neutral_token_id,
