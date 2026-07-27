@@ -720,9 +720,19 @@ def directory_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def local_model_identity(model_path: str) -> Dict[str, Any]:
+def local_model_identity(
+    model_path: str,
+    *,
+    allow_missing: bool = False,
+) -> Dict[str, Any]:
     path = Path(model_path)
     if path.is_absolute() and not path.exists():
+        if allow_missing:
+            return {
+                "requested": str(model_path),
+                "kind": "missing_local_path",
+                "exists": False,
+            }
         raise FileNotFoundError(f"Model path does not exist: {path}")
     identity: Dict[str, Any] = {"requested": str(model_path)}
     if not path.is_dir():
@@ -1320,7 +1330,10 @@ def config_payload(
         "single_target_run": True,
         "methods": list(methods),
         "model_path": str(args.model_path),
-        "model_identity": local_model_identity(str(args.model_path)),
+        "model_identity": local_model_identity(
+            str(args.model_path),
+            allow_missing=args.dry_run,
+        ),
         "dtype": args.dtype,
         "implementation_file_sha256": implementation_identity(),
         "calibration_fraction": args.calibration_fraction,

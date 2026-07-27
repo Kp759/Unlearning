@@ -578,6 +578,40 @@ class RWKUExperimentProtocolTests(unittest.TestCase):
         )
         self.assertIn("symlink_target", identity["weight_files"][0])
 
+    def test_dry_run_records_missing_model_without_weakening_real_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing_model = Path(directory) / "missing-model"
+            with self.assertRaises(FileNotFoundError):
+                EXPERIMENT.local_model_identity(str(missing_model))
+
+            args = EXPERIMENT.build_parser().parse_args(
+                [
+                    "--seed",
+                    "0",
+                    "--dry-run",
+                    "--model-path",
+                    str(missing_model),
+                ]
+            )
+            payload = EXPERIMENT.config_payload(
+                args,
+                methods=EXPERIMENT.METHOD_ORDER,
+                target=DATA.target_for_seed(0),
+                calibration_rows=[],
+                held_out_direct=[],
+                file_hashes={},
+                split_manifests={},
+            )
+
+        self.assertEqual(
+            payload["model_identity"],
+            {
+                "requested": str(missing_model),
+                "kind": "missing_local_path",
+                "exists": False,
+            },
+        )
+
     def test_implementation_identity_covers_transitive_protocol_helpers(self):
         identity = EXPERIMENT.implementation_identity()
         for filename in (
