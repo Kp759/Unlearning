@@ -180,7 +180,8 @@ def loose_config(**overrides):
         "last_n_layers": 1,
         "max_length": 96,
         "retain_top_k": 8,
-        "positive_max_rows": 1,
+        "positive_max_rows": 2,
+        "matched_positive_max_rows": 2,
         "positive_tokens_per_row": 24,
         "candidate_scales": (1.0, 0.0),
         "max_retain_kl": 100.0,
@@ -277,6 +278,24 @@ class LoRAWrapperTests(unittest.TestCase):
         for name, value in before.items():
             self.assertTrue(torch.equal(value, after[name]), name)
 
+    def test_zero_active_scale_skips_nonfinite_adapter_branch(self):
+        base = nn.Linear(5, 4, bias=False)
+        wrapper = REP.LoRALinear(
+            base,
+            rank=2,
+            alpha=2.0,
+            dropout=0.0,
+        )
+        inputs = torch.randn(3, 5)
+        expected = base(inputs)
+        with torch.no_grad():
+            wrapper.lora_A.fill_(float("nan"))
+            wrapper.lora_B.fill_(float("inf"))
+        wrapper.active_scale = 0.0
+        actual = wrapper(inputs)
+        self.assertTrue(torch.isfinite(actual).all())
+        self.assertTrue(torch.equal(actual, expected))
+
     def test_bf16_materialized_candidate_matches_returned_plain_model(self):
         model = TinyLlamaCausalLM().to(dtype=torch.bfloat16)
         handles = REP.inject_lora_adapters(model, loose_config())
@@ -314,6 +333,33 @@ class LoRAWrapperTests(unittest.TestCase):
 
 
 class CalibrationObjectiveTests(unittest.TestCase):
+    def test_selected_position_projection_matches_full_causal_lm_logits(self):
+        model = TinyLlamaCausalLM()
+        model.eval()
+        input_ids = torch.tensor([[1, 7, 9, 11, 13]], dtype=torch.long)
+        positions = torch.tensor([1, 3], dtype=torch.long)
+        with torch.no_grad():
+            expected = model(input_ids).logits[0].index_select(0, positions)
+            actual, hidden = REP._selected_forward(
+                model,
+                input_ids,
+                positions,
+            )
+        self.assertEqual(tuple(hidden.shape[:2]), (1, 5))
+        self.assertEqual(tuple(actual.shape), (2, expected.shape[-1]))
+        self.assertTrue(torch.allclose(actual, expected.float()))
+
+    def test_bf16_selected_projection_matches_full_causal_lm_logits(self):
+        model = TinyLlamaCausalLM().to(dtype=torch.bfloat16)
+        model.eval()
+        input_ids = torch.tensor([[1, 7, 9, 11]], dtype=torch.long)
+        positions = torch.tensor([0, 2], dtype=torch.long)
+        with torch.no_grad():
+            expected = model(input_ids).logits[0].index_select(0, positions)
+            actual, _ = REP._selected_forward(model, input_ids, positions)
+        self.assertEqual(actual.dtype, torch.float32)
+        self.assertTrue(torch.equal(actual, expected.float()))
+
     def test_frozen_calibration_head_sends_gradients_only_into_adapters(self):
         model = TinyLlamaCausalLM()
         tokenizer = TinyTokenizer()
@@ -468,6 +514,113 @@ class CalibrationObjectiveTests(unittest.TestCase):
         )
         self.assertEqual(len(caches), 1)
 
+    def test_positive_rows_are_partitioned_before_subject_tasks(self):
+        rows = [
+            {
+                "text": f"Stephen King biographical training passage {index}.",
+                "subject": "Stephen King",
+            }
+            for index in range(4)
+        ]
+        selected, optimization, gate = REP._partition_positive_rows(
+            rows,
+            max_rows=4,
+            gate_fraction=0.25,
+        )
+        optimization_hashes = {DATA.record_sha256(row) for row in optimization}
+        gate_hashes = {DATA.record_sha256(row) for row in gate}
+        tasks = REP.build_positive_subject_tasks(
+            TinyTokenizer(),
+            optimization,
+            max_length=96,
+            max_rows=4,
+        )
+        self.assertEqual(len(selected), 4)
+        self.assertFalse(optimization_hashes & gate_hashes)
+        self.assertTrue({task.source_id for task in tasks} <= optimization_hashes)
+        self.assertFalse({task.source_id for task in tasks} & gate_hashes)
+
+    def test_positive_partition_requires_two_distinct_records(self):
+        row = {
+            "text": "Stephen King wrote many novels.",
+            "subject": "Stephen King",
+        }
+        with self.assertRaisesRegex(ValueError, "two distinct positive"):
+            REP._partition_positive_rows(
+                [row, dict(row)],
+                max_rows=2,
+                gate_fraction=0.25,
+            )
+
+    def test_training_step_accumulates_independent_graphs_exactly(self):
+        class ScalarModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = nn.Parameter(torch.tensor(2.0))
+
+        model = ScalarModel()
+        target = SimpleNamespace(
+            source_id="00000001",
+            target_token_ids=torch.tensor([1, 2]),
+            zlib_denominator=3,
+            base_features=torch.ones(4),
+        )
+        matched = SimpleNamespace(
+            source_id="00000002",
+            target_token_ids=torch.tensor([1, 2]),
+            zlib_denominator=3,
+            base_features=torch.ones(4),
+        )
+        config = loose_config(retain_examples_per_step=2)
+
+        def proxy_loss(current_model, cache, target_features):
+            multiplier = 1.0 if cache is target else 3.0
+            return multiplier * current_model.weight.square()
+
+        def retain_loss(current_model, cache, current_config):
+            return 4.0 * current_model.weight.square(), {
+                "kl": 0.0,
+                "answer_probability_ratio": 1.0,
+                "top1_agreement": 1.0,
+                "hidden_cosine": 1.0,
+                "hidden_relative_l2": 0.0,
+            }
+
+        with (
+            mock.patch.object(
+                REP,
+                "positive_proxy_loss",
+                side_effect=proxy_loss,
+            ),
+            mock.patch.object(
+                REP,
+                "retain_objective_loss",
+                side_effect=retain_loss,
+            ),
+        ):
+            total, metrics = REP._training_step(
+                model,
+                step=3,
+                qa_tasks=[SimpleNamespace()],
+                mc_tasks=[],
+                frozen_head=None,
+                concept_basis=None,
+                retain_caches=[SimpleNamespace(), SimpleNamespace()],
+                positive_caches=[target],
+                matched_positive_caches=[matched],
+                proxy_target=torch.zeros(4),
+                config=config,
+            )
+
+        coefficient = (
+            5.0 * config.positive_proxy_weight
+            + 15.0 * config.matched_positive_retain_weight
+            + 4.0
+        )
+        self.assertAlmostEqual(total, coefficient * 4.0)
+        self.assertAlmostEqual(float(model.weight.grad), coefficient * 4.0)
+        self.assertAlmostEqual(metrics["total_loss"], total)
+
     def test_level3_and_rwku_retain_inputs_are_rejected(self):
         tokenizer = TinyTokenizer()
         with self.assertRaisesRegex(ValueError, "level-3"):
@@ -595,6 +748,7 @@ class CheckpointSelectionTests(unittest.TestCase):
                 "answer_token_threshold_fraction": float(probability),
                 "answer_sequence_top1_recovery": float(top1),
                 "frozen_head_accuracy": float(frozen),
+                "frozen_head_chance_accuracy": 25.0,
                 "frozen_head_chance_ratio": float(frozen) / 25.0,
                 "multiple_choice_accuracy": float(mc),
                 "proxy_mia_advantage": float(proxy),
@@ -644,6 +798,35 @@ class CheckpointSelectionTests(unittest.TestCase):
         self.assertEqual(selected.scale, 0.5)
         self.assertTrue(REP.efficacy_gates_pass(selected, config))
 
+    def test_frozen_head_accuracy_must_not_exceed_candidate_set_chance(self):
+        config = loose_config()
+        calibration = {
+            "answer_probability_target_pass": 1.0,
+            "answer_sequence_top1_recovery": 0.0,
+            "generation_recovery": 0.0,
+            "frozen_head_accuracy": 50.0,
+            "frozen_head_chance_accuracy": 25.0,
+            "frozen_head_chance_ratio": 0.5,
+            "multiple_choice_accuracy": 25.0,
+            "proxy_mia_advantage": 0.0,
+            "matched_positive_base_feature_drift": 0.0,
+        }
+        evaluation = REP.ScaleEvaluation(
+            scale=0.5,
+            retain=self.metrics(),
+            forget_improvement=1.0,
+            calibration=calibration,
+        )
+        self.assertFalse(REP.efficacy_gates_pass(evaluation, config))
+        calibration["frozen_head_accuracy"] = 25.0
+        accepted = REP.ScaleEvaluation(
+            scale=0.5,
+            retain=self.metrics(),
+            forget_improvement=1.0,
+            calibration=calibration,
+        )
+        self.assertTrue(REP.efficacy_gates_pass(accepted, config))
+
 
 class EndToEndTests(unittest.TestCase):
     def test_public_run_api_merges_or_exactly_falls_back_without_head_edits(self):
@@ -675,13 +858,21 @@ class EndToEndTests(unittest.TestCase):
                     {
                         "text": "Stephen King wrote many novels and stories.",
                         "subject": "Stephen King",
-                    }
+                    },
+                    {
+                        "text": "Stephen King published fiction across decades.",
+                        "subject": "Stephen King",
+                    },
                 ],
                 matched_positive_rows=[
                     {
                         "text": "A different public figure has a long biography.",
                         "subject": "Confucius",
-                    }
+                    },
+                    {
+                        "text": "Confucius influenced philosophical traditions.",
+                        "subject": "Confucius",
+                    },
                 ],
                 config=loose_config(candidate_scales=(0.0,)),
             )
@@ -707,6 +898,19 @@ class EndToEndTests(unittest.TestCase):
             report["data"]["qa_prompt_variant_counts"],
         )
         self.assertTrue(report["data"]["optimization_gate_sets_disjoint"])
+        self.assertTrue(
+            report["data"]["positive_partitioned_before_training_objectives"]
+        )
+        optimization_hashes = set(
+            report["data"]["positive_optimization_record_sha256"]
+        )
+        gate_hashes = set(report["data"]["positive_gate_record_sha256"])
+        subject_hashes = set(
+            report["data"]["positive_subject_source_record_sha256"]
+        )
+        self.assertFalse(optimization_hashes & gate_hashes)
+        self.assertTrue(subject_hashes <= optimization_hashes)
+        self.assertFalse(subject_hashes & gate_hashes)
         self.assertTrue(
             torch.equal(
                 embeddings_before,

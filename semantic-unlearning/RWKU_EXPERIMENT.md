@@ -126,7 +126,9 @@ Two controls are part of the training objective rather than post-hoc decoder
 tricks:
 
 - a frozen copy of the Base LM head scores live final hidden states and
-  neutralizes the restricted answer-row distribution toward chance; and
+  neutralizes the restricted answer-row distribution toward chance. A
+  candidate must also keep frozen-head accuracy at or below the explicitly
+  reported candidate-set chance accuracy;
 - four-way multiple-choice questions rotate the correct answer through every
   letter position while their A/B/C/D logits are driven toward a uniform
   distribution. The loss does not reward choosing a known-wrong answer.
@@ -139,6 +141,12 @@ disjoint. This prevents selecting a checkpoint merely because it memorized
 the retention batch. Additional constructed-MC versions of external MCF facts
 protect letter-scored utility, and low/high quantile gates catch outliers that
 an average-only retain metric would hide.
+
+Training projects only scored decoder states through the frozen LM head for
+QA, MC, and retain objectives instead of materializing logits for every
+sequence position. Independent target and retain graphs backpropagate
+sequentially within each optimizer step. This preserves the summed gradient
+while reducing peak accelerator memory.
 
 Checkpoint and scale selection may use the RWKU calibration split, the
 declared target/non-target `positive.json` proxy, and the disjoint external
@@ -154,11 +162,13 @@ gates. Selection also performs bounded greedy generation on stratified
 calibration prompts; teacher-forced suppression alone is not accepted as
 calibration recovery success.
 
-The target and non-target `positive.json` proxy sets are content-deduplicated
-and split before selection. Gate rows use the same final 512-token window
-convention as the final likelihood attack. A candidate must keep non-target
-feature drift below `0.01`; it cannot improve proxy AUC merely by damaging both
-populations.
+The target and non-target `positive.json` records are content-deduplicated and
+split before any subject-cloze or likelihood objective is constructed.
+Subject-cloze tasks use optimization records only; gate hashes cannot enter
+training through another objective. Gate rows use the same final 512-token
+window convention as the final likelihood attack. A candidate must keep
+non-target feature drift below `0.01`; it cannot improve proxy AUC merely by
+damaging both populations.
 
 ## Metrics and controls
 

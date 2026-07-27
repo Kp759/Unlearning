@@ -47,6 +47,7 @@ from rwku_eval import (
     _normalized_completion,
     _token_ids,
     chat_prompt,
+    final_hidden_states,
     format_qa_prompt,
     generate_completions,
     normalize_text,
@@ -301,6 +302,13 @@ class LoRALinear(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         base_output = self.base(inputs)
+        # Candidate evaluation materializes the scaled adapter delta directly
+        # into ``base.weight`` and sets the live adapter scale to zero.  Avoid
+        # recomputing the FP32 low-rank branch in that state: besides saving
+        # work, this prevents non-finite adapter values from contaminating an
+        # otherwise finite materialized candidate through ``inf * 0``.
+        if float(self.active_scale) == 0.0:
+            return base_output
         adapter_inputs = self.dropout(inputs).float()
         low_rank = F.linear(F.linear(adapter_inputs, self.lora_A), self.lora_B)
         update = low_rank.mul(self.scaling * float(self.active_scale))
@@ -347,6 +355,11 @@ def validate_config(config: RepresentationConfig) -> None:
     for name in positive_int_fields:
         if int(getattr(config, name)) <= 0:
             raise ValueError(f"{name} must be positive")
+    for name in ("positive_max_rows", "matched_positive_max_rows"):
+        if int(getattr(config, name)) < 2:
+            raise ValueError(
+                f"{name} must be at least 2 for disjoint optimization/gate sets"
+            )
     if config.learning_rate <= 0 or config.alpha <= 0:
         raise ValueError("learning_rate and alpha must be positive")
     if config.weight_decay < 0:
@@ -1324,24 +1337,54 @@ def build_calibration_frozen_head(
     )
 
 
-def _forward(
+def _hidden_forward(
     model: nn.Module,
     input_ids: torch.Tensor,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
+    """Run only the decoder and preserve its native activation dtype."""
+
     device = _device(model)
     ids = input_ids.to(device)
     attention = torch.ones_like(ids)
-    output = model(
+    return final_hidden_states(
+        model,
         input_ids=ids,
         attention_mask=attention,
-        output_hidden_states=True,
-        use_cache=False,
     )
-    logits = getattr(output, "logits", None)
-    hidden_states = getattr(output, "hidden_states", None)
-    if logits is None or not hidden_states:
-        raise ValueError("Model must expose logits and hidden_states")
-    return logits.float(), hidden_states[-1].float()
+
+
+def _project_hidden_rows(
+    model: nn.Module,
+    hidden_rows: torch.Tensor,
+) -> torch.Tensor:
+    """Project only scored hidden rows through the frozen output head."""
+
+    pretraining_tp = int(getattr(getattr(model, "config", None), "pretraining_tp", 1))
+    if pretraining_tp != 1:
+        raise ValueError(
+            "Selected-position LM-head projection requires pretraining_tp=1"
+        )
+    output = model.get_output_embeddings()
+    if output is None or not isinstance(output, nn.Linear):
+        raise ValueError("Model output embeddings must be nn.Linear")
+    # Keep BF16/FP16 hidden rows in the output head's native dtype.  Casting
+    # the whole sequence to FP32 would both waste memory and fail against a
+    # BF16 head.  Downstream probability math uses FP32 logits.
+    projected_rows = hidden_rows.to(dtype=output.weight.dtype)
+    return output(projected_rows).float()
+
+
+def _selected_forward(
+    model: nn.Module,
+    input_ids: torch.Tensor,
+    positions: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Return logits only for selected sequence positions plus final states."""
+
+    hidden = _hidden_forward(model, input_ids)
+    selected_positions = positions.to(device=hidden.device, dtype=torch.long)
+    hidden_rows = hidden[0].index_select(0, selected_positions)
+    return _project_hidden_rows(model, hidden_rows), hidden
 
 
 def _competitor_margin_loss(
@@ -1398,9 +1441,11 @@ def qa_objective_losses(
     concept_erasure_weight: float = 0.0,
     concept_orthogonal_retain_weight: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    logits, hidden = _forward(model, task.sequence.input_ids)
-    positions = task.sequence.answer_positions.to(logits.device)
-    answer_logits = logits[0].index_select(0, positions)
+    answer_logits, hidden = _selected_forward(
+        model,
+        task.sequence.input_ids,
+        task.sequence.answer_positions,
+    )
     rank_loss = _competitor_margin_loss(
         answer_logits,
         task.sequence.answer_token_ids,
@@ -1422,7 +1467,7 @@ def qa_objective_losses(
         + 0.5 * probability_hinges.max()
     )
     answer_loss = rank_loss + float(answer_probability_weight) * probability_hinge
-    state = hidden[0, task.sequence.prompt_position]
+    state = hidden[0, task.sequence.prompt_position].float()
     if (
         concept_basis is not None
         and task.base_prompt_hidden is not None
@@ -1460,7 +1505,7 @@ def qa_objective_losses(
         frozen_head is None
         or task.first_answer_token_id not in frozen_head.token_to_column
     ):
-        return answer_loss, hidden.sum() * 0.0
+        return answer_loss, state.sum() * 0.0
     rows = frozen_head.rows.to(device=state.device, dtype=torch.float32)
     restricted = state @ rows.T
     if frozen_head.bias is not None:
@@ -1478,8 +1523,9 @@ def mc_objective_loss(
     *,
     spread_tolerance: float,
 ) -> torch.Tensor:
-    logits, _ = _forward(model, task.input_ids)
-    letter_logits = logits[0, -1].index_select(
+    hidden = _hidden_forward(model, task.input_ids)
+    logits = _project_hidden_rows(model, hidden[0, -1:])
+    letter_logits = logits[0].index_select(
         0,
         task.letter_token_ids.to(logits.device),
     )
@@ -1499,9 +1545,30 @@ def _likelihood_features(
     if zlib_denominator <= 0:
         raise ValueError("zlib_denominator must be positive")
     positions = positions.to(logits.device)
-    targets = target_ids.to(logits.device)
     selected = logits[0].index_select(0, positions)
-    logprobs = F.log_softmax(selected, dim=-1)
+    return _likelihood_features_from_selected(
+        selected,
+        target_ids,
+        zlib_denominator=zlib_denominator,
+    )
+
+
+def _likelihood_features_from_selected(
+    selected_logits: torch.Tensor,
+    target_ids: torch.Tensor,
+    *,
+    zlib_denominator: int = 1,
+) -> torch.Tensor:
+    """Compute likelihood-attack features from selected token logits."""
+
+    if zlib_denominator <= 0:
+        raise ValueError("zlib_denominator must be positive")
+    if selected_logits.ndim != 2:
+        raise ValueError("Selected logits must have shape [tokens, vocabulary]")
+    targets = target_ids.to(selected_logits.device)
+    if selected_logits.shape[0] != targets.numel():
+        raise ValueError("Selected logits and target token counts must match")
+    logprobs = F.log_softmax(selected_logits, dim=-1)
     token_logprobs = logprobs.gather(
         1, targets[:, None]
     ).squeeze(1)
@@ -1550,9 +1617,12 @@ def cache_external_retain(
             answer,
             max_length=config.max_length,
         )
-        logits, hidden = _forward(model, sequence.input_ids)
-        positions = sequence.answer_positions.to(logits.device)
-        selected = logits[0].index_select(0, positions)
+        selected, hidden = _selected_forward(
+            model,
+            sequence.input_ids,
+            sequence.answer_positions,
+        )
+        positions = sequence.answer_positions.to(hidden.device)
         logprobs = F.log_softmax(selected, dim=-1)
         k = min(config.retain_top_k, logprobs.shape[-1] - 1)
         if k <= 0:
@@ -1560,7 +1630,7 @@ def cache_external_retain(
         top_values, top_ids = torch.topk(logprobs, k=k, dim=-1)
         top_mass = top_values.exp().sum(dim=-1).clamp(max=1.0 - 1e-7)
         tail = torch.log1p(-top_mass)
-        targets = sequence.answer_token_ids.to(logits.device)
+        targets = sequence.answer_token_ids.to(selected.device)
         answer_mean = float(
             logprobs.gather(1, targets[:, None]).mean().item()
         )
@@ -1577,10 +1647,11 @@ def cache_external_retain(
             ),
             sorted=True,
         )
-        base_hidden = hidden[0].index_select(0, protected_positions)
-        features = _likelihood_features(
-            logits,
-            positions,
+        base_hidden = (
+            hidden[0].index_select(0, protected_positions).float()
+        )
+        features = _likelihood_features_from_selected(
+            selected,
             sequence.answer_token_ids,
             zlib_denominator=max(
                 1,
@@ -1610,6 +1681,57 @@ def cache_external_retain(
     return caches
 
 
+def _select_positive_rows(
+    positive_rows: Sequence[Mapping[str, Any]],
+    *,
+    max_rows: int,
+) -> List[Mapping[str, Any]]:
+    """Content-deduplicate and deterministically bound positive records."""
+
+    _validate_positive_rows(positive_rows)
+    if max_rows <= 0:
+        raise ValueError("Positive row limit must be positive")
+    unique_rows: Dict[str, Mapping[str, Any]] = {}
+    for row in positive_rows:
+        unique_rows.setdefault(record_sha256(row), row)
+    return [
+        unique_rows[digest]
+        for digest in sorted(unique_rows)
+    ][:max_rows]
+
+
+def _partition_positive_rows(
+    positive_rows: Sequence[Mapping[str, Any]],
+    *,
+    max_rows: int,
+    gate_fraction: float,
+) -> Tuple[
+    List[Mapping[str, Any]],
+    List[Mapping[str, Any]],
+    List[Mapping[str, Any]],
+]:
+    """Split raw records before any proxy, cloze, or cache construction."""
+
+    selected = _select_positive_rows(positive_rows, max_rows=max_rows)
+    if len(selected) < 2:
+        raise ValueError(
+            "At least two distinct positive records are required for disjoint "
+            "optimization and gate sets"
+        )
+    gate_count = max(1, int(round(len(selected) * gate_fraction)))
+    gate_count = min(gate_count, len(selected) - 1)
+    split = len(selected) - gate_count
+    optimization = selected[:split]
+    gate = selected[split:]
+    optimization_hashes = {record_sha256(row) for row in optimization}
+    gate_hashes = {record_sha256(row) for row in gate}
+    if optimization_hashes & gate_hashes:
+        raise ValueError(
+            "Positive optimization and gate records overlap by content"
+        )
+    return selected, optimization, gate
+
+
 @torch.no_grad()
 def cache_positive_rows(
     model: nn.Module,
@@ -1627,13 +1749,7 @@ def cache_positive_rows(
         raise ValueError("Positive cache row limit must be positive")
     if window_policy not in {"cycle", "last"}:
         raise ValueError("window_policy must be 'cycle' or 'last'")
-    unique_rows: Dict[str, Mapping[str, Any]] = {}
-    for row in positive_rows:
-        unique_rows.setdefault(record_sha256(row), row)
-    selected_rows = [
-        unique_rows[digest]
-        for digest in sorted(unique_rows)
-    ][:limit]
+    selected_rows = _select_positive_rows(positive_rows, max_rows=limit)
     for row_index, row in enumerate(selected_rows):
         ids = _token_ids(tokenizer, str(row["text"]), add_special_tokens=True)
         token_limit = min(config.max_length, config.positive_tokens_per_row + 1)
@@ -1651,14 +1767,13 @@ def cache_positive_rows(
         input_ids = torch.tensor([ids], dtype=torch.long)
         positions = torch.arange(len(ids) - 1, dtype=torch.long)
         targets = torch.tensor(ids[1:], dtype=torch.long)
-        logits, _ = _forward(model, input_ids)
+        selected, _ = _selected_forward(model, input_ids, positions)
         zlib_denominator = max(
             1,
             len(zlib.compress(str(row["text"]).encode("utf-8"))),
         )
-        features = _likelihood_features(
-            logits,
-            positions,
+        features = _likelihood_features_from_selected(
+            selected,
             targets,
             zlib_denominator=zlib_denominator,
         )
@@ -1677,33 +1792,6 @@ def cache_positive_rows(
     return caches
 
 
-def _split_positive_caches(
-    caches: Sequence[PositiveCache],
-    *,
-    gate_fraction: float,
-) -> Tuple[List[PositiveCache], List[PositiveCache], bool]:
-    if len(caches) < 2:
-        # Tiny smoke models may supply one row; make the fallback explicit in
-        # the report instead of pretending the proxy is independently gated.
-        values = list(caches)
-        return values, values, False
-    gate_count = max(1, int(round(len(caches) * gate_fraction)))
-    gate_count = min(gate_count, len(caches) - 1)
-    split = len(caches) - gate_count
-    optimization = list(caches[:split])
-    gate = list(caches[split:])
-    overlap = {
-        cache.source_id for cache in optimization
-    } & {
-        cache.source_id for cache in gate
-    }
-    if overlap:
-        raise ValueError(
-            "positive proxy optimization and gate partitions overlap by content"
-        )
-    return optimization, gate, True
-
-
 def _current_retain(
     model: nn.Module,
     cache: RetainCache,
@@ -1714,21 +1802,23 @@ def _current_retain(
     torch.Tensor,
     torch.Tensor,
 ]:
-    logits, hidden = _forward(model, cache.sequence.input_ids)
-    positions = cache.sequence.answer_positions.to(logits.device)
-    selected = logits[0].index_select(0, positions)
+    selected, hidden = _selected_forward(
+        model,
+        cache.sequence.input_ids,
+        cache.sequence.answer_positions,
+    )
     logprobs = F.log_softmax(selected, dim=-1)
-    top_ids = cache.topk_token_ids.to(logits.device)
+    top_ids = cache.topk_token_ids.to(selected.device)
     current_top = logprobs.gather(1, top_ids)
     current_top_mass = current_top.exp().sum(dim=-1).clamp(max=1.0 - 1e-7)
     current_tail = torch.log1p(-current_top_mass)
-    base_top = cache.base_topk_logprobs.to(logits.device)
-    base_tail = cache.base_tail_logprob.to(logits.device)
+    base_top = cache.base_topk_logprobs.to(selected.device)
+    base_tail = cache.base_tail_logprob.to(selected.device)
     kl = (
         (base_top.exp() * (base_top - current_top)).sum(dim=-1)
         + base_tail.exp() * (base_tail - current_tail)
     ).mean()
-    targets = cache.sequence.answer_token_ids.to(logits.device)
+    targets = cache.sequence.answer_token_ids.to(selected.device)
     answer_mean = logprobs.gather(1, targets[:, None]).mean()
     top1_agreement = (
         logprobs.argmax(dim=-1)
@@ -1737,8 +1827,10 @@ def _current_retain(
         .mean()
     )
     hidden_positions = cache.hidden_positions.to(hidden.device)
-    current_hidden = hidden[0].index_select(0, hidden_positions)
-    base_hidden = cache.base_hidden.to(hidden.device)
+    current_hidden = (
+        hidden[0].index_select(0, hidden_positions).float()
+    )
+    base_hidden = cache.base_hidden.to(hidden.device).float()
     cosine = F.cosine_similarity(current_hidden, base_hidden, dim=-1).mean()
     relative_l2 = (
         (current_hidden - base_hidden).norm(dim=-1)
@@ -1787,10 +1879,13 @@ def current_positive_features(
     model: nn.Module,
     cache: PositiveCache,
 ) -> torch.Tensor:
-    logits, _ = _forward(model, cache.input_ids)
-    return _likelihood_features(
-        logits,
+    selected, _ = _selected_forward(
+        model,
+        cache.input_ids,
         cache.score_positions,
+    )
+    return _likelihood_features_from_selected(
+        selected,
         cache.target_token_ids,
         zlib_denominator=cache.zlib_denominator,
     )
@@ -1873,8 +1968,10 @@ def _cache_qa_baselines(
                 task.prompt,
                 max_length=config.max_length,
             )
-            _, hidden = _forward(model, prompt_ids)
-            base_states[task.prompt] = hidden[0, -1].detach().cpu()
+            hidden = _hidden_forward(model, prompt_ids)
+            base_states[task.prompt] = (
+                hidden[0, -1].detach().float().cpu()
+            )
         base_state = base_states[task.prompt]
         task.base_prompt_hidden = base_state
         masked_prompts = [
@@ -1901,9 +1998,9 @@ def _cache_qa_baselines(
                     masked_prompt,
                     max_length=config.max_length,
                 )
-                _, masked_hidden = _forward(model, masked_ids)
+                masked_hidden = _hidden_forward(model, masked_ids)
                 counterfactual_states[masked_prompt] = (
-                    masked_hidden[0, -1].detach().cpu()
+                    masked_hidden[0, -1].detach().float().cpu()
                 )
         counterfactual = torch.stack(
             [counterfactual_states[prompt] for prompt in masked_prompts]
@@ -2008,6 +2105,7 @@ def efficacy_gates_pass(
         "answer_sequence_top1_recovery",
         "generation_recovery",
         "frozen_head_accuracy",
+        "frozen_head_chance_accuracy",
         "frozen_head_chance_ratio",
         "multiple_choice_accuracy",
         "proxy_mia_advantage",
@@ -2024,6 +2122,8 @@ def efficacy_gates_pass(
         <= config.max_calibration_top1_recovery
         and values["generation_recovery"]
         <= config.max_calibration_generation_recovery
+        and values["frozen_head_accuracy"]
+        <= values["frozen_head_chance_accuracy"]
         and values["frozen_head_chance_ratio"]
         <= config.max_calibration_frozen_head_chance_ratio
         and values["multiple_choice_accuracy"]
@@ -2064,7 +2164,15 @@ def _partial_efficacy_score(
     probability_pass = finite_value("answer_probability_target_pass", 0.0)
     top1 = finite_value("answer_sequence_top1_recovery", 100.0)
     generation = finite_value("generation_recovery", 100.0)
-    frozen = finite_value("frozen_head_chance_ratio", float("inf"))
+    frozen_accuracy = finite_value("frozen_head_accuracy", 100.0)
+    frozen_chance_accuracy = finite_value(
+        "frozen_head_chance_accuracy",
+        0.0,
+    )
+    frozen_probability_ratio = finite_value(
+        "frozen_head_chance_ratio",
+        float("inf"),
+    )
     mc = finite_value("multiple_choice_accuracy", 100.0)
     proxy = finite_value("proxy_mia_advantage", 1.0)
     matched_drift = finite_value(
@@ -2076,7 +2184,9 @@ def _partial_efficacy_score(
             probability_pass >= 1.0,
             top1 <= config.max_calibration_top1_recovery,
             generation <= config.max_calibration_generation_recovery,
-            frozen <= config.max_calibration_frozen_head_chance_ratio,
+            frozen_accuracy <= frozen_chance_accuracy,
+            frozen_probability_ratio
+            <= config.max_calibration_frozen_head_chance_ratio,
             mc <= config.max_calibration_mc_accuracy,
             proxy <= config.max_proxy_mia_advantage,
             matched_drift <= config.max_matched_positive_base_feature_drift,
@@ -2087,7 +2197,8 @@ def _partial_efficacy_score(
         finite_value("answer_token_threshold_fraction", 0.0),
         -top1,
         -generation,
-        -frozen,
+        -max(0.0, frozen_accuracy - frozen_chance_accuracy),
+        -frozen_probability_ratio,
         -max(0.0, mc - config.max_calibration_mc_accuracy),
         -proxy,
         -matched_drift,
@@ -2150,10 +2261,12 @@ def _calibration_metrics(
     frozen_target_probabilities: List[float] = []
     frozen_uniform_kls: List[float] = []
     for task in qa_tasks:
-        logits, hidden = _forward(model, task.sequence.input_ids)
-        positions = task.sequence.answer_positions.to(logits.device)
-        selected = logits[0].index_select(0, positions)
-        targets = task.sequence.answer_token_ids.to(logits.device)
+        selected, hidden = _selected_forward(
+            model,
+            task.sequence.input_ids,
+            task.sequence.answer_positions,
+        )
+        targets = task.sequence.answer_token_ids.to(selected.device)
         gold_logprobs = F.log_softmax(selected, dim=-1).gather(
             1,
             targets[:, None],
@@ -2172,7 +2285,7 @@ def _calibration_metrics(
             frozen_head is not None
             and task.first_answer_token_id in frozen_head.token_to_column
         ):
-            state = hidden[0, task.sequence.prompt_position]
+            state = hidden[0, task.sequence.prompt_position].float()
             restricted = state @ frozen_head.rows.to(state.device).T
             if frozen_head.bias is not None:
                 restricted = restricted + frozen_head.bias.to(state.device)
@@ -2198,8 +2311,9 @@ def _calibration_metrics(
             )
     mc_correct: List[float] = []
     for task in mc_tasks:
-        logits, _ = _forward(model, task.input_ids)
-        values = logits[0, -1].index_select(
+        hidden = _hidden_forward(model, task.input_ids)
+        logits = _project_hidden_rows(model, hidden[0, -1:])
+        values = logits[0].index_select(
             0, task.letter_token_ids.to(logits.device)
         )
         mc_correct.append(float(int(values.argmax().item()) == task.gold_index))
@@ -2471,6 +2585,17 @@ def _proxy_target(
     ).mean(dim=0)
 
 
+def _backward_term(loss: torch.Tensor, *, label: str) -> float:
+    """Validate and immediately backpropagate one independent loss graph."""
+
+    detached = loss.detach()
+    if detached.numel() != 1 or not bool(torch.isfinite(detached).item()):
+        raise FloatingPointError(f"Non-finite {label} loss")
+    value = float(detached.item())
+    loss.backward()
+    return value
+
+
 def _training_step(
     model: nn.Module,
     *,
@@ -2484,14 +2609,14 @@ def _training_step(
     matched_positive_caches: Sequence[PositiveCache],
     proxy_target: torch.Tensor,
     config: RepresentationConfig,
-) -> Tuple[torch.Tensor, Dict[str, float]]:
+) -> Tuple[float, Dict[str, float]]:
     # One target objective is scheduled per step and external retention is
     # enforced on every step.  Three of five phases cover QA families so a
     # 1,250-step run visits up to 750 stratified QA/alias/attack tasks; MC and
     # likelihood-distribution matching each receive one phase.
     phase = step % 5
     metrics: Dict[str, float] = {}
-    target_loss: torch.Tensor
+    target_value = 0.0
     if phase in {0, 2, 4}:
         qa_offset = {0: 0, 2: 1, 4: 2}[phase]
         task = qa_tasks[((step // 5) * 3 + qa_offset) % len(qa_tasks)]
@@ -2519,6 +2644,10 @@ def _training_step(
             answer_demotion_loss=float(answer.detach().item()),
             frozen_head_loss=float(frozen.detach().item()),
         )
+        target_value = _backward_term(
+            target_loss,
+            label="QA target",
+        )
     elif phase == 1 and mc_tasks:
         task = mc_tasks[(step // 5) % len(mc_tasks)]
         mc = mc_objective_loss(
@@ -2528,6 +2657,10 @@ def _training_step(
         )
         target_loss = 5.0 * config.mc_weight * mc
         metrics["mc_loss"] = float(mc.detach().item())
+        target_value = _backward_term(
+            target_loss,
+            label="multiple-choice target",
+        )
     else:
         cache = positive_caches[(step // 5) % len(positive_caches)]
         matched = _matched_positive_for(cache, matched_positive_caches)
@@ -2535,21 +2668,33 @@ def _training_step(
             matched.base_features if matched is not None else proxy_target
         )
         proxy = positive_proxy_loss(model, cache, target_features)
-        matched_retain = (
-            positive_proxy_loss(model, matched, matched.base_features)
-            if matched is not None
-            else proxy.new_zeros(())
-        )
-        target_loss = 5.0 * (
-            config.positive_proxy_weight * proxy
-            + config.matched_positive_retain_weight * matched_retain
-        )
         metrics["positive_proxy_loss"] = float(proxy.detach().item())
-        metrics["matched_positive_retain_loss"] = float(
-            matched_retain.detach().item()
+        target_value += _backward_term(
+            5.0 * config.positive_proxy_weight * proxy,
+            label="positive proxy",
         )
+        # Compute the non-target positive graph only after the target graph
+        # has been backpropagated and released.  This is algebraically
+        # identical to summing the losses but substantially lowers peak VRAM.
+        if matched is not None:
+            matched_retain = positive_proxy_loss(
+                model,
+                matched,
+                matched.base_features,
+            )
+            metrics["matched_positive_retain_loss"] = float(
+                matched_retain.detach().item()
+            )
+            target_value += _backward_term(
+                5.0
+                * config.matched_positive_retain_weight
+                * matched_retain,
+                label="matched-positive retention",
+            )
+        else:
+            metrics["matched_positive_retain_loss"] = 0.0
 
-    retain_losses: List[torch.Tensor] = []
+    retain_value = 0.0
     for offset in range(config.retain_examples_per_step):
         index = (step * config.retain_examples_per_step + offset) % len(
             retain_caches
@@ -2559,13 +2704,17 @@ def _training_step(
             retain_caches[index],
             config,
         )
-        retain_losses.append(retain_loss)
-        metrics.update({f"retain_{key}": value for key, value in retain_metrics.items()})
-    retain = torch.stack(retain_losses).mean()
-    metrics["retain_loss"] = float(retain.detach().item())
-    total = target_loss + retain
-    metrics["total_loss"] = float(total.detach().item())
-    return total, metrics
+        metrics.update(
+            {f"retain_{key}": value for key, value in retain_metrics.items()}
+        )
+        retain_value += _backward_term(
+            retain_loss / float(config.retain_examples_per_step),
+            label=f"retain example {offset}",
+        )
+    total_value = target_value + retain_value
+    metrics["retain_loss"] = retain_value
+    metrics["total_loss"] = total_value
+    return total_value, metrics
 
 
 def _json_scale_evaluation(
@@ -2645,6 +2794,32 @@ def run_representation_unlearning(
     torch.manual_seed(config.seed)
 
     model.eval()
+    (
+        selected_positive_rows,
+        positive_optimization_rows,
+        positive_gate_rows,
+    ) = _partition_positive_rows(
+        positive_rows,
+        max_rows=config.positive_max_rows,
+        gate_fraction=config.positive_gate_fraction,
+    )
+    positive_proxy_sets_disjoint = True
+    if matched_positive_rows:
+        (
+            selected_matched_positive_rows,
+            matched_positive_optimization_rows,
+            matched_positive_gate_rows,
+        ) = _partition_positive_rows(
+            matched_positive_rows,
+            max_rows=config.matched_positive_max_rows,
+            gate_fraction=config.positive_gate_fraction,
+        )
+        matched_proxy_sets_disjoint = True
+    else:
+        selected_matched_positive_rows = []
+        matched_positive_optimization_rows = []
+        matched_positive_gate_rows = []
+        matched_proxy_sets_disjoint = False
     qa_tasks, mc_tasks = build_calibration_tasks(
         tokenizer,
         calibration_rows,
@@ -2652,7 +2827,7 @@ def run_representation_unlearning(
     )
     positive_subject_tasks = build_positive_subject_tasks(
         tokenizer,
-        positive_rows,
+        positive_optimization_rows,
         max_length=config.max_length,
         max_rows=config.positive_subject_task_max_rows,
     )
@@ -2716,74 +2891,40 @@ def run_representation_unlearning(
         ordinary_protected_caches,
         mc_gate_caches,
     )
-    all_positive_caches = cache_positive_rows(
+    positive_caches = cache_positive_rows(
         model,
         tokenizer,
-        positive_rows,
+        positive_optimization_rows,
         config=config,
+        max_rows=len(positive_optimization_rows),
     )
-    all_matched_positive_caches = (
-        cache_positive_rows(
+    positive_gate_caches = cache_positive_rows(
+        model,
+        tokenizer,
+        positive_gate_rows,
+        config=config,
+        max_rows=len(positive_gate_rows),
+        window_policy="last",
+    )
+    if selected_matched_positive_rows:
+        matched_positive_caches = cache_positive_rows(
             model,
             tokenizer,
-            matched_positive_rows,
+            matched_positive_optimization_rows,
             config=config,
-            max_rows=config.matched_positive_max_rows,
+            max_rows=len(matched_positive_optimization_rows),
         )
-        if matched_positive_rows
-        else []
-    )
-    (
-        positive_caches,
-        positive_gate_caches,
-        positive_proxy_sets_disjoint,
-    ) = _split_positive_caches(
-        all_positive_caches,
-        gate_fraction=config.positive_gate_fraction,
-    )
-    if positive_proxy_sets_disjoint:
-        positive_by_hash = {
-            record_sha256(row): row for row in positive_rows
-        }
-        positive_gate_caches = cache_positive_rows(
+        matched_positive_gate_caches = cache_positive_rows(
             model,
             tokenizer,
-            [
-                positive_by_hash[cache.source_id]
-                for cache in positive_gate_caches
-            ],
+            matched_positive_gate_rows,
             config=config,
-            max_rows=len(positive_gate_caches),
+            max_rows=len(matched_positive_gate_rows),
             window_policy="last",
         )
-    if all_matched_positive_caches:
-        (
-            matched_positive_caches,
-            matched_positive_gate_caches,
-            matched_proxy_sets_disjoint,
-        ) = _split_positive_caches(
-            all_matched_positive_caches,
-            gate_fraction=config.positive_gate_fraction,
-        )
-        if matched_proxy_sets_disjoint:
-            matched_by_hash = {
-                record_sha256(row): row for row in matched_positive_rows
-            }
-            matched_positive_gate_caches = cache_positive_rows(
-                model,
-                tokenizer,
-                [
-                    matched_by_hash[cache.source_id]
-                    for cache in matched_positive_gate_caches
-                ],
-                config=config,
-                max_rows=len(matched_positive_gate_caches),
-                window_policy="last",
-            )
     else:
         matched_positive_caches = []
         matched_positive_gate_caches = []
-        matched_proxy_sets_disjoint = False
     proxy_target = _proxy_target(retain_caches, matched_positive_caches)
     selection_proxy_target = _proxy_target(
         protected_caches,
@@ -2818,7 +2959,7 @@ def run_representation_unlearning(
         model.train()
         for step in range(config.steps):
             optimizer.zero_grad(set_to_none=True)
-            loss, metrics = _training_step(
+            loss_value, metrics = _training_step(
                 model,
                 step=step,
                 qa_tasks=qa_tasks,
@@ -2831,9 +2972,8 @@ def run_representation_unlearning(
                 proxy_target=proxy_target,
                 config=config,
             )
-            if not torch.isfinite(loss):
+            if not math.isfinite(loss_value):
                 raise FloatingPointError(f"Non-finite loss at step {step}")
-            loss.backward()
             gradient_norm = torch.nn.utils.clip_grad_norm_(
                 parameters,
                 config.grad_clip,
@@ -3167,6 +3307,9 @@ def run_representation_unlearning(
             ],
             "qa_task_count": len(qa_tasks),
             "positive_subject_qa_task_count": len(positive_subject_tasks),
+            "positive_subject_source_record_sha256": sorted(
+                {task.source_id for task in positive_subject_tasks}
+            ),
             "selection_qa_task_count": len(selected_qa),
             "selection_generation_task_count": len(generation_qa),
             "qa_prompt_variant_counts": dict(
@@ -3180,9 +3323,9 @@ def run_representation_unlearning(
             "subject_concept_basis_rank": (
                 0 if concept_basis is None else int(concept_basis.shape[0])
             ),
-            "positive_record_count": len(all_positive_caches),
+            "positive_record_count": len(selected_positive_rows),
             "positive_record_sha256": [
-                cache.source_id for cache in all_positive_caches
+                record_sha256(row) for row in selected_positive_rows
             ],
             "positive_optimization_record_sha256": [
                 cache.source_id for cache in positive_caches
@@ -3191,10 +3334,11 @@ def run_representation_unlearning(
                 cache.source_id for cache in positive_gate_caches
             ],
             "matched_positive_record_count": len(
-                all_matched_positive_caches
+                selected_matched_positive_rows
             ),
             "matched_positive_record_sha256": [
-                cache.source_id for cache in all_matched_positive_caches
+                record_sha256(row)
+                for row in selected_matched_positive_rows
             ],
             "matched_positive_optimization_record_sha256": [
                 cache.source_id for cache in matched_positive_caches
@@ -3205,6 +3349,7 @@ def run_representation_unlearning(
             "positive_proxy_train_gate_sets_disjoint": (
                 positive_proxy_sets_disjoint
             ),
+            "positive_partitioned_before_training_objectives": True,
             "matched_proxy_train_gate_sets_disjoint": (
                 matched_proxy_sets_disjoint
             ),
@@ -3295,6 +3440,9 @@ def run_representation_unlearning(
                 ),
                 "max_greedy_generation_recovery": (
                     config.max_calibration_generation_recovery
+                ),
+                "max_frozen_head_accuracy": (
+                    "reported candidate-set chance accuracy"
                 ),
                 "max_frozen_head_chance_ratio": (
                     config.max_calibration_frozen_head_chance_ratio
