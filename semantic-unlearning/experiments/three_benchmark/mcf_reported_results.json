@@ -1,0 +1,21 @@
+{
+  "dataset": "MCF",
+  "status": "reported_results_supplied_for_experiment_setup",
+  "standard_deviation": "population",
+  "metrics": {
+    "Eff": "lower_is_better",
+    "Gen": "lower_is_better",
+    "Spe": "higher_is_better",
+    "PPL": "lower_is_better"
+  },
+  "rows": [
+    {"method": "Base", "Eff": {"mean": 13.0, "std": 4.837}, "Gen": {"mean": 13.9, "std": 3.3}, "Spe": {"mean": 11.533, "std": 1.933}, "PPL": {"mean": 11.0625, "std": 0.0}},
+    {"method": "Original ZeroUnlearn", "Eff": {"mean": 7.4, "std": 3.47}, "Gen": {"mean": 10.7, "std": 2.722}, "Spe": {"mean": 9.709, "std": 1.718}, "PPL": {"mean": 11.2875, "std": 0.1125}},
+    {"method": "Full all tokens", "Eff": {"mean": 10.0, "std": 3.578}, "Gen": {"mean": 12.3, "std": 2.795}, "Spe": {"mean": 12.528, "std": 1.72}, "PPL": {"mean": 11.4062, "std": 0.2359}},
+    {"method": "Full selective tokens", "Eff": {"mean": 10.0, "std": 3.578}, "Gen": {"mean": 12.3, "std": 3.1}, "Spe": {"mean": 12.887, "std": 1.835}, "PPL": {"mean": 10.9313, "std": 0.1884}},
+    {"method": "Emb/LM all tokens(s3)", "Eff": {"mean": 1.4, "std": 1.8}, "Gen": {"mean": 7.3, "std": 2.41}, "Spe": {"mean": 35.517, "std": 2.336}, "PPL": {"mean": 31.675, "std": 1.7304}},
+    {"method": "Emb/LM selective tokens", "Eff": {"mean": 1.6, "std": 1.497}, "Gen": {"mean": 5.6, "std": 1.96}, "Spe": {"mean": 21.724, "std": 1.031}, "PPL": {"mean": 15.7063, "std": 3.4865}},
+    {"method": "Setting 5e (used setting 3)", "Eff": {"mean": 1.2, "std": 0.98}, "Gen": {"mean": 5.2, "std": 1.72}, "Spe": {"mean": 12.726, "std": 1.651}, "PPL": {"mean": 11.3625, "std": 0.4608}},
+    {"method": "5e + protected LM-head repair", "Eff": {"mean": 0.0, "std": 0.0}, "Gen": {"mean": 0.0, "std": 0.0}, "Spe": {"mean": 13.091, "std": 1.884}, "PPL": {"mean": 11.3625, "std": 0.4608}}
+  ]
+}
