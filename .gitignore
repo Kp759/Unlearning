@@ -1,4 +1,7 @@
 
+# macOS metadata
+.DS_Store
+
 # Large generated data/output files
 semantic-unlearning/data/attribute_snippets.json
 semantic-unlearning/data/rwku/Target/
