@@ -426,6 +426,7 @@ def collect_post_training_token_groups(
     tok: AutoTokenizer,
     forget: Sequence[Example],
     retain: Sequence[Example],
+    excluded_token_ids: Sequence[int] = (),
 ) -> PostTrainingTokenGroups:
     """Build the disjoint MCF row policy used by the post-training restore mode."""
     target_new: set[int] = set()
@@ -452,7 +453,9 @@ def collect_post_training_token_groups(
         for text in (ex.target_new, ex.target_true):
             retain_tokens.update(token_ids_for_text(tok, text))
 
-    specials = special_token_ids(tok)
+    specials = special_token_ids(tok) | {
+        int(token_id) for token_id in excluded_token_ids
+    }
     target_new -= specials
     target_true -= specials
     retain_tokens -= specials
@@ -1040,7 +1043,16 @@ def train_mode(
     post_training_groups = None
     if mode == POST_TRAINING_RESTORE_MODE:
         post_training_originals = snapshot_embedding_output_weights(tied_info)
-        post_training_groups = collect_post_training_token_groups(tok, forget, retain)
+        post_training_groups = collect_post_training_token_groups(
+            tok,
+            forget,
+            retain,
+            excluded_token_ids=getattr(
+                args,
+                "post_training_excluded_token_ids",
+                (),
+            ),
+        )
         print(
             "Post-training row policy: "
             f"keep {len(post_training_groups.unique_target_new)} unique target-new rows; "

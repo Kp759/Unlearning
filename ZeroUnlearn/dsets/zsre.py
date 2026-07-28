@@ -39,7 +39,7 @@ class MENDQADataset:
                     "requested_rewrite": {
                         "prompt": record["src"].replace(record["subject"], "{}"),
                         "subject": record["subject"],
-                        "target_new": {"str": "<|endoftext|>"},
+                        "target_new": {"str": "Unknown"},
                         "target_true": {"str": record["answers"][0]},
                     },
                     "paraphrase_prompts": [record["rephrase"]],

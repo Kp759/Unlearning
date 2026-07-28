@@ -5,15 +5,17 @@ ZsRE's field semantics are the reverse of the CounterFact convention used by
 Setting 5e.  This runner therefore maps:
 
 * ZsRE ``target_true`` (the original answer) -> internal unwanted target;
-* tokenizer EOS -> internal desired neutral target.
+* ``Unknown`` -> internal desired neutral target.
 
 The first stage uses the established all-token embedding/LM-head GA/GD plus
 overlap-aware Setting 5e row restoration.  The second stage freezes the entire
-model, safely unties the output head, and changes only the EOS output row.
+model, safely unties the output head, and changes only the ``Unknown`` output
+row.
 Repair constraints use the exact teacher-forced token positions scored by the
 official ZsRE evaluator:
 
-* active rewrite/paraphrase tokens must prefer EOS over the sensitive token;
+* active rewrite/paraphrase tokens must prefer ``Unknown`` over the sensitive
+  token;
 * initially correct neighborhood and retain-calibration tokens are protected;
 * the repair direction is projected away from protected hidden states.
 
@@ -117,7 +119,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.05,
         help=(
-            "Minimum exact materialized EOS-minus-sensitive logit margin "
+            "Minimum exact materialized neutral-minus-sensitive logit margin "
             "preferred during the BF16 scale sweep."
         ),
     )
@@ -126,7 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help=(
-            "0 learns the unrestricted protected-orthogonal EOS-row delta. "
+            "0 learns the unrestricted protected-orthogonal neutral-row delta. "
             "A positive value truncates the active hidden-state basis and can "
             "leave official ZsRE tokens unforgotten."
         ),
@@ -151,7 +153,10 @@ def build_parser() -> argparse.ArgumentParser:
             "1.0,0.875,0.75,0.625,0.5,0.375,0.25,0.1875,0.125,"
             "0.09375,0.0625,0.046875,0.03125,0.015625,0.0078125,0.0"
         ),
-        help="Comma-separated backtracking scales for the learned EOS-row delta.",
+        help=(
+            "Comma-separated backtracking scales for the learned neutral-row "
+            "delta."
+        ),
     )
 
     # Official metric gates, all expressed in percentage points except PPL ratio.
@@ -273,20 +278,25 @@ def canonical_examples(
 ) -> List[gagd.Example]:
     """Map ZsRE semantics into Setting 5e's unwanted/desired pair."""
 
-    if tok.eos_token is None or tok.eos_token_id is None:
-        raise ValueError("ZsRE neutral-target training requires tokenizer EOS")
+    zsre.resolve_neutral_target_token_id(tok)
     examples: List[gagd.Example] = []
     for record in records:
         rewrite = record["requested_rewrite"]
         subject = str(rewrite["subject"])
         sensitive = gagd.normalize_answer(str(rewrite["target_true"]["str"]))
+        neutral = str(rewrite["target_new"]["str"])
+        if neutral != zsre.NEUTRAL_TARGET:
+            raise ValueError(
+                "ZsRE neutral target changed unexpectedly: "
+                f"expected {zsre.NEUTRAL_TARGET!r}, got {neutral!r}"
+            )
         examples.append(
             gagd.Example(
                 prompt=str(rewrite["prompt"]).format(subject),
                 answer=sensitive,
                 subject=subject,
                 target_new=sensitive,
-                target_true=str(tok.eos_token),
+                target_true=neutral,
                 paraphrase_prompts=[
                     str(prompt) for prompt in record["paraphrase_prompts"]
                 ],
@@ -501,7 +511,7 @@ def active_correct_for_delta(
     return int((margins < 0).sum().item())
 
 
-def optimize_eos_delta(
+def optimize_neutral_delta(
     active_caches: Sequence[TokenLogitCache],
     protected_caches: Sequence[TokenLogitCache],
     *,
@@ -828,9 +838,10 @@ def exact_bf16_scale_sweep(
 
         active_correct = [bool(row.correct) for row in active_rows]
         protected_correct = [bool(row.correct) for row in protected_rows]
-        # Only baseline-correct tokens need an EOS-over-target margin. A token
+        # Only baseline-correct tokens need a neutral-over-target margin. A token
         # already made incorrect by a third vocabulary item can legitimately
-        # have EOS below its target while still contributing zero Eff/Gen.
+        # have the neutral answer below its target while still contributing
+        # zero Eff/Gen.
         repaired_active_margins = [
             float((row.neutral_logit - row.target_logit).detach().cpu())
             for row, baseline_ok in zip(active_rows, zero_active_correct)
@@ -1146,6 +1157,40 @@ def save_checkpoint(model: nn.Module, tok: Any, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(output_dir)
     tok.save_pretrained(output_dir)
+    gagd.write_json(
+        output_dir / "zsre_neutral_target.json",
+        {
+            "neutral_target": zsre.NEUTRAL_TARGET,
+            "neutral_token_id": zsre.resolve_neutral_target_token_id(tok),
+            "single_token_verified": True,
+        },
+    )
+
+
+def validate_neutral_target_checkpoint(
+    checkpoint: Path,
+    tok: Any,
+) -> Dict[str, Any]:
+    marker_path = checkpoint / "zsre_neutral_target.json"
+    if not marker_path.is_file():
+        raise RuntimeError(
+            "The saved Setting 5e checkpoint predates the ZsRE neutral-target "
+            f"change to {zsre.NEUTRAL_TARGET!r}. Rerun Stage 1 before using "
+            "the repair-only launcher."
+        )
+    with marker_path.open("r", encoding="utf-8") as handle:
+        marker = json.load(handle)
+    expected_id = zsre.resolve_neutral_target_token_id(tok)
+    if (
+        marker.get("neutral_target") != zsre.NEUTRAL_TARGET
+        or marker.get("neutral_token_id") != expected_id
+        or marker.get("single_token_verified") is not True
+    ):
+        raise RuntimeError(
+            "Saved ZsRE checkpoint neutral-target metadata does not match "
+            f"{zsre.NEUTRAL_TARGET!r} token ID {expected_id}: {marker}"
+        )
+    return marker
 
 
 def main() -> None:
@@ -1167,7 +1212,7 @@ def main() -> None:
             "setting5_mode": SETTING5_MODE,
             "zsre_semantic_mapping": {
                 "internal_target_new_unwanted": "ZsRE target_true original answer",
-                "internal_target_true_desired": "tokenizer EOS",
+                "internal_target_true_desired": zsre.NEUTRAL_TARGET,
             },
             "official_metric_directions": {
                 "forget_Eff": "down",
@@ -1208,6 +1253,15 @@ def main() -> None:
     )
     forget_examples = canonical_examples(forget_records, tok)
     retain_examples = canonical_examples(retain_records, tok)
+    neutral_token_id = zsre.resolve_neutral_target_token_id(tok)
+    args.post_training_excluded_token_ids = [neutral_token_id]
+    config["neutral_target"] = {
+        "text": zsre.NEUTRAL_TARGET,
+        "token_id": neutral_token_id,
+        "single_token_verified": True,
+        "restored_to_base_before_active_repair": True,
+    }
+    gagd.write_json(output_dir / "config_used.json", config)
 
     print("Evaluating base model with official ZsRE token accuracy")
     base_result = zsre.evaluate_loaded_model_official(
@@ -1231,9 +1285,18 @@ def main() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    print("Training ultra-aggressive Setting 5e on sensitive-answer/EOS margins")
+    print(
+        "Training ultra-aggressive Setting 5e on sensitive-answer/"
+        f"{zsre.NEUTRAL_TARGET} margins"
+    )
     gagd.set_seed(args.seed)
     model, tok = gagd.load_model_and_tokenizer(args, for_training=True)
+    training_neutral_token_id = zsre.resolve_neutral_target_token_id(tok)
+    if training_neutral_token_id != neutral_token_id:
+        raise RuntimeError(
+            "ZsRE neutral token ID changed between evaluation and training "
+            f"tokenizers: {neutral_token_id} != {training_neutral_token_id}"
+        )
     requested_save = bool(args.save_model)
     args.save_model = False
     train_summary = gagd.train_mode(
@@ -1270,9 +1333,12 @@ def main() -> None:
     output_layer = active.freeze_model_for_output_repair(model)
     device = next(model.parameters()).device
     llama_like = zsre.is_llama_like(model, tok)
-    neutral_token_id = int(tok.eos_token_id)
+    neutral_token_id = zsre.resolve_neutral_target_token_id(tok)
     if not 0 <= neutral_token_id < output_layer.weight.shape[0]:
-        raise ValueError("Tokenizer EOS ID is outside the LM-head vocabulary")
+        raise ValueError(
+            f"ZsRE neutral token {zsre.NEUTRAL_TARGET!r} is outside the "
+            "LM-head vocabulary"
+        )
     original_neutral_row = output_layer.weight[neutral_token_id].detach().clone()
 
     forget_active_cases = [
@@ -1403,10 +1469,11 @@ def main() -> None:
     )
 
     print(
-        f"Optimizing only LM-head row {neutral_token_id} ({tok.eos_token!r}): "
+        f"Optimizing only LM-head row {neutral_token_id} "
+        f"({zsre.NEUTRAL_TARGET!r}): "
         f"active={len(active_caches)}, protected={len(protected_caches)}"
     )
-    delta_rows, repair_logs, repair_optimization = optimize_eos_delta(
+    delta_rows, repair_logs, repair_optimization = optimize_neutral_delta(
         active_caches,
         protected_caches,
         hidden_size=output_layer.weight.shape[1],
@@ -1558,7 +1625,9 @@ def main() -> None:
         with torch.no_grad():
             output_layer.weight[neutral_token_id].copy_(original_neutral_row)
         if not torch.equal(output_layer.weight[neutral_token_id], original_neutral_row):
-            raise RuntimeError("Failed to restore rejected EOS LM-head candidate")
+            raise RuntimeError(
+                "Failed to restore rejected neutral LM-head candidate"
+            )
         selected_result = copy.deepcopy(setting5_result)
         selected_result["method"] = "Setting 5e (active candidate rejected)"
         if not target_met:
@@ -1574,7 +1643,7 @@ def main() -> None:
     repair_summary = {
         "method": METHOD,
         "neutral_token_id": neutral_token_id,
-        "neutral_token": tok.eos_token,
+        "neutral_token": zsre.NEUTRAL_TARGET,
         "only_selected_lm_head_rows_materialized": True,
         "selected_lm_head_row_count": 1,
         "input_embeddings_frozen_during_repair": True,

@@ -33,11 +33,14 @@ class TinyTokenizer:
     eos_token = "<eos>"
     eos_token_id = 99
     bos_token_id = None
+    unk_token_id = None
 
     @staticmethod
     def _encode(text):
         if text == "<eos>":
             return [99]
+        if text == "Unknown":
+            return [98]
         return [2 + (ord(character) % 90) for character in text]
 
     def __call__(self, text, padding=False, return_tensors=None, **kwargs):
@@ -100,7 +103,7 @@ def adapted_record(case_id=7):
         "requested_rewrite": {
             "prompt": "Where is {}",
             "subject": "Alice",
-            "target_new": {"str": "<|endoftext|>"},
+            "target_new": {"str": "Unknown"},
             "target_true": {"str": "AB"},
         },
         "paraphrase_prompts": ["Alice lives where"],
@@ -157,7 +160,7 @@ class ZsREOfficialEvalTests(unittest.TestCase):
         record = EVAL.build_zsre_record(raw_record(3), 9, tokenizer)
         rewrite = record["requested_rewrite"]
         self.assertEqual(record["case_id"], 9)
-        self.assertEqual(rewrite["target_new"]["str"], "<|endoftext|>")
+        self.assertEqual(rewrite["target_new"]["str"], "Unknown")
         self.assertEqual(rewrite["target_true"]["str"], "Answer3")
         self.assertEqual(rewrite["prompt"].format(rewrite["subject"]), "Where is Subject3")
         self.assertEqual(
@@ -219,10 +222,75 @@ class ZsRESetting5AndRepairTests(unittest.TestCase):
         )[0]
         self.assertEqual(example.answer, " AB")
         self.assertEqual(example.target_new, " AB")
-        self.assertEqual(example.target_true, "<eos>")
+        self.assertEqual(example.target_true, "Unknown")
         self.assertEqual(example.source, "zsre")
 
-    def test_protected_projection_allows_active_eos_boost_without_regression(self):
+    def test_unknown_neutral_target_is_exactly_one_token(self):
+        self.assertEqual(
+            EVAL.resolve_neutral_target_token_id(TinyTokenizer()),
+            98,
+        )
+
+        class MultiTokenUnknownTokenizer(TinyTokenizer):
+            @staticmethod
+            def _encode(text):
+                if text == "Unknown":
+                    return [97, 98]
+                return TinyTokenizer._encode(text)
+
+        with self.assertRaisesRegex(ValueError, "exactly one token"):
+            EVAL.resolve_neutral_target_token_id(
+                MultiTokenUnknownTokenizer()
+            )
+
+    def test_unknown_row_is_excluded_from_setting5_post_training_policy(self):
+        tokenizer = TinyTokenizer()
+        forget = PIPELINE.canonical_examples(
+            [adapted_record()],
+            tokenizer,
+        )
+        retain = PIPELINE.canonical_examples(
+            [adapted_record(case_id=8)],
+            tokenizer,
+        )
+        groups = PIPELINE.gagd.collect_post_training_token_groups(
+            tokenizer,
+            forget,
+            retain,
+            excluded_token_ids=[
+                EVAL.resolve_neutral_target_token_id(tokenizer)
+            ],
+        )
+        self.assertNotIn(98, groups.target_true)
+        self.assertNotIn(98, groups.overlap)
+
+    def test_repair_only_runner_rejects_pre_unknown_checkpoint(self):
+        tokenizer = TinyTokenizer()
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = Path(tmp)
+            with self.assertRaisesRegex(RuntimeError, "predates"):
+                PIPELINE.validate_neutral_target_checkpoint(
+                    checkpoint,
+                    tokenizer,
+                )
+            marker = {
+                "neutral_target": "Unknown",
+                "neutral_token_id": 98,
+                "single_token_verified": True,
+            }
+            (checkpoint / "zsre_neutral_target.json").write_text(
+                json.dumps(marker),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                PIPELINE.validate_neutral_target_checkpoint(
+                    checkpoint,
+                    tokenizer,
+                ),
+                marker,
+            )
+
+    def test_protected_projection_allows_active_unknown_boost_without_regression(self):
         active_cache = token_cache(hidden=[1.0, 0.0])
         protected_cache = token_cache(
             hidden=[0.0, 1.0],
@@ -247,7 +315,7 @@ class ZsRESetting5AndRepairTests(unittest.TestCase):
                 learning_rate,
             ),
         ):
-            delta, _, summary = PIPELINE.optimize_eos_delta(
+            delta, _, summary = PIPELINE.optimize_neutral_delta(
                 [active_cache],
                 [protected_cache],
                 hidden_size=2,

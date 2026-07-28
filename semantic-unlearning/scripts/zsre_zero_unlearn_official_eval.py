@@ -40,7 +40,7 @@ from mcf_zero_unlearn_official_eval import (
 
 
 ZSRE_URL = "https://memit.baulab.info/data/dsets/zsre_mend_eval.json"
-UPSTREAM_NEUTRAL_TARGET = "<|endoftext|>"
+NEUTRAL_TARGET = "Unknown"
 
 
 @dataclass(frozen=True)
@@ -84,6 +84,28 @@ def _flat_ids(tok: Any, text: str) -> List[int]:
             raise ValueError("Expected one tokenized sequence")
         ids = ids[0]
     return [int(token_id) for token_id in ids]
+
+
+def resolve_neutral_target_token_id(
+    tok: Any,
+    target: str = NEUTRAL_TARGET,
+) -> int:
+    """Require the configured ZsRE neutral answer to be exactly one token."""
+    tokenized = tok(target, add_special_tokens=False)
+    ids = _input_ids(tokenized)
+    if isinstance(ids, torch.Tensor):
+        ids = ids.detach().cpu().tolist()
+    if ids and isinstance(ids[0], list):
+        if len(ids) != 1:
+            raise ValueError("Expected one neutral-target tokenized sequence")
+        ids = ids[0]
+    token_ids = [int(token_id) for token_id in ids]
+    if len(token_ids) != 1:
+        raise ValueError(
+            f"ZsRE neutral answer {target!r} must tokenize to exactly one "
+            f"token without special-token insertion; got {token_ids}"
+        )
+    return token_ids[0]
 
 
 def download_zsre(path: Path, url: str = ZSRE_URL) -> Path:
@@ -186,7 +208,7 @@ def build_zsre_record(
         "requested_rewrite": {
             "prompt": str(raw_record["src"]).replace(subject, "{}"),
             "subject": subject,
-            "target_new": {"str": UPSTREAM_NEUTRAL_TARGET},
+            "target_new": {"str": NEUTRAL_TARGET},
             "target_true": {"str": str(answers[0])},
         },
         "paraphrase_prompts": [str(raw_record["rephrase"])],

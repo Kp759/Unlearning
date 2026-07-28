@@ -8,7 +8,7 @@ the initial cache. This runner defines a regression as a token that is correct
 in the exact scale-0 BF16 baseline and becomes incorrect at a nonzero scale.
 
 A repair is accepted only when it:
-  * uses a genuinely nonzero materialized EOS-row delta;
+  * uses a genuinely nonzero materialized ``Unknown``-row delta;
   * reduces exact active-token correctness relative to scale 0;
   * introduces zero additional protected regressions relative to scale 0; and
   * passes the official ZsRE utility gates.
@@ -133,6 +133,7 @@ def load_model(args: argparse.Namespace) -> Tuple[torch.nn.Module, Any]:
     tok = AutoTokenizer.from_pretrained(str(checkpoint))
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
+    repair.validate_neutral_target_checkpoint(checkpoint, tok)
     model.config.use_cache = False
     model.eval()
     return model, tok
@@ -171,7 +172,7 @@ def main() -> None:
     model, tok = load_model(args)
     device = next(model.parameters()).device
     llama_like = zsre.is_llama_like(model, tok)
-    neutral_token_id = int(tok.eos_token_id)
+    neutral_token_id = zsre.resolve_neutral_target_token_id(tok)
 
     zsre_path = zsre.download_zsre(resolve(args.zsre_path), url=args.zsre_url)
     forget_records, retain_records = zsre.load_official_eval_records(
@@ -203,6 +204,11 @@ def main() -> None:
     )
 
     output_layer = active.freeze_model_for_output_repair(model)
+    if not 0 <= neutral_token_id < output_layer.weight.shape[0]:
+        raise ValueError(
+            f"ZsRE neutral token {zsre.NEUTRAL_TARGET!r} is outside the "
+            "LM-head vocabulary"
+        )
     original_neutral_row = output_layer.weight[neutral_token_id].detach().clone()
 
     forget_active_cases = [
@@ -323,10 +329,11 @@ def main() -> None:
         )
 
     print(
-        f"Optimizing EOS row {neutral_token_id} ({tok.eos_token!r}): "
+        f"Optimizing neutral row {neutral_token_id} "
+        f"({zsre.NEUTRAL_TARGET!r}): "
         f"active={len(active_caches)}, protected={len(protected_caches)}"
     )
-    delta_rows, repair_logs, optimization = repair.optimize_eos_delta(
+    delta_rows, repair_logs, optimization = repair.optimize_neutral_delta(
         active_caches,
         protected_caches,
         hidden_size=output_layer.weight.shape[1],
@@ -482,6 +489,8 @@ def main() -> None:
     )
     summary = {
         "method": "zsre_bf16_safe_active_repair_v2",
+        "neutral_target": zsre.NEUTRAL_TARGET,
+        "neutral_token_id": neutral_token_id,
         "case_selection_source": "setting5e_official_metric_data",
         "active_tokens_cached_before": len(active_caches),
         "active_tokens_zero_scale": exact_zero_baseline[

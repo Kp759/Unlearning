@@ -9,16 +9,16 @@ paper.
 The ZeroUnlearn ZsRE adapter uses:
 
 - `target_true`: the original answer that should be forgotten;
-- `target_new`: the neutral `<|endoftext|>` target;
+- `target_new`: the neutral `Unknown` target;
 - rewrite and paraphrase accuracy: lower is better;
 - unrelated neighborhood accuracy: higher is better.
 
 CounterFact Setting 5e uses the opposite field convention: its
 `target_new` is the unwanted answer and `target_true` is the desired answer.
 The ZsRE runner therefore maps the original ZsRE answer into Setting 5e's
-internal unwanted slot and the tokenizer's real EOS token into the desired
-neutral slot. Applying Setting 5e directly to the raw ZsRE field names would
-reverse the forget objective.
+internal unwanted slot and `Unknown` into the desired neutral slot. `Unknown`
+is required to tokenize to exactly one vocabulary token. Applying Setting 5e
+directly to the raw ZsRE field names would reverse the forget objective.
 
 The official-compatible evaluator reproduces:
 
@@ -43,16 +43,16 @@ steps = 600
 embedding/LM-head AdamW lr = 1e-4
 forget weight = 2.0
 retain weight = 1.0
-sensitive-vs-EOS margin = 1.0
+sensitive-vs-Unknown margin = 1.0
 retain batch size = 4
 overlap alphas = 0.75 / 0.50 / 0.25
 ```
 
 Stage 2 freezes the transformer and input embeddings, safely unties a tied
-output head, and updates only the tokenizer EOS row in `lm_head`.
-Setting 5e's special-token exclusion restores EOS to its base row after the
-aggressive training stage; the prompt-constrained active stage is therefore
-the only operation that materializes an EOS output-row delta.
+output head, and updates only the `Unknown` row in `lm_head`. The runner
+explicitly excludes that row from Setting 5e post-training retention, matching
+the former EOS special-token behavior: it returns to its base row before the
+prompt-constrained active stage materializes an `Unknown` output-row delta.
 
 - Official Setting 5e metric data, rather than a separately batched cache pass,
   decides which sensitive-answer tokens still need repair.
@@ -65,7 +65,7 @@ the only operation that materializes an EOS output-row delta.
   that were already incorrect, so the repair cannot make one correct.
 - Protected optimization covers officially correct forget-neighborhood tokens
   plus an independently sampled retain calibration set.
-- The learned EOS-row direction is projected away from protected hidden
+- The learned `Unknown`-row direction is projected away from protected hidden
   states. Rank `0` is intentional: it keeps every remaining feasible direction
   instead of truncating away a hard ZsRE token.
 - Each scale is materialized in the actual BF16 LM-head row before exact
@@ -116,7 +116,10 @@ bash scripts/run_zsre_bf16_safe_active_repair_v2.sh \
 
 That root must contain
 `seedN/setting5e/checkpoint` for each requested seed. To create those
-checkpoints during a combined run, set `SAVE_SETTING5=1`.
+checkpoints during a combined run, set `SAVE_SETTING5=1`. Checkpoints produced
+before the `Unknown` neutral-target change are intentionally rejected because
+their Stage-1 margins used EOS; regenerate Stage 1 rather than mixing the two
+protocols.
 
 The dataset is downloaded on first use to
 `data/zsre_mend_eval.json`. Override paths and GPU placement with
