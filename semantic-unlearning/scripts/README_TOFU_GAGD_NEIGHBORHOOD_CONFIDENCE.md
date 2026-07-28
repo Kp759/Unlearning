@@ -3,15 +3,16 @@
 This experiment is isolated from the older MCF/TOFU runners. It evaluates:
 
 1. unchanged full-TOFU model;
-2. retain-only retraining oracle;
-3. full model, all answer tokens;
-4. full model, selective answer tokens;
-5. input embedding + LM head, all answer tokens;
-6. input embedding + LM head, selective answer tokens;
-7. TOFU Setting 5e restoration;
-8. Setting 5e plus active forget-case repair;
-9. Setting 5e plus active and neighborhood-confidence repair;
-10. prompt-conditional isolated input repair for the extreme clean protocol.
+2. optional original ZeroUnlearn;
+3. retain-only retraining oracle;
+4. full model, all answer tokens;
+5. full model, selective answer tokens;
+6. input embedding + LM head, all answer tokens;
+7. input embedding + LM head, selective answer tokens;
+8. TOFU Setting 5e restoration;
+9. Setting 5e plus active forget-case repair;
+10. Setting 5e plus active and neighborhood-confidence repair;
+11. prompt-conditional isolated input repair for the extreme clean protocol.
 
 The recommended extreme-target method is prompt-conditional isolated input
 repair. The GA/GD chain remains available as a scientific baseline, but its
@@ -35,6 +36,43 @@ The older nine-method GA/GD comparison is still available:
 ```bash
 bash scripts/run_tofu_gagd_neighborhood_confidence.sh
 ```
+
+After those framework evaluations exist, run the original closed-form
+ZeroUnlearn method on the identical TOFU protocol with:
+
+```bash
+bash scripts/run_zerounlearn_tofu.sh
+```
+
+On the scratch filesystem used by the 3B experiments:
+
+```bash
+MODEL_PATH=/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct \
+FRAMEWORK_OUTPUT_ROOT=/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_gagd_targeted_2e5 \
+OUTPUT_ROOT=/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zerounlearn_tofu \
+bash scripts/run_zerounlearn_tofu.sh
+```
+
+The ZeroUnlearn runner does not modify the vendored algorithm. Because
+upstream ZeroUnlearn has no TOFU dataset adapter, it maps each clean TOFU
+question to the method's subject slot, reproduces the exact chat-formatted
+prompt used by `tofu_eval.py`, puts the clean answer in the sensitive
+`target_true` slot, and uses tokenizer EOS as the neutral `target_new`. It
+loads the full-TOFU checkpoint in BF16, applies the original edit in FP32 as in
+the reviewed MCF runner, returns to BF16, and evaluates the edited model in
+memory. The fixed run uses seed 42, all 200 `forget05` examples, and the same
+1,000 sampled `retain95` examples as the framework.
+
+Its primary artifacts are:
+
+- `outputs/zerounlearn_tofu/evaluation/original_zerounlearn_summary.json`;
+- `outputs/zerounlearn_tofu/zerounlearn_tofu_provenance.json`;
+- `outputs/zerounlearn_tofu/comparison/comparison_tofu.md`.
+
+The comparison includes all framework summaries found in
+`FRAMEWORK_OUTPUT_ROOT/evaluation`. ZeroUnlearn is an optional table row, so
+the existing GA/GD pipeline remains runnable before this separate baseline is
+available.
 
 For the scratch model path used by the 3B experiments:
 

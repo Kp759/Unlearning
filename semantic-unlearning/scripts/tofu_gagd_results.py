@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Sequence, Tuple
 
 METHOD_ORDER = (
     "Base",
+    "Original ZeroUnlearn",
     "Retain-only retraining oracle",
     "Full model, all answer tokens",
     "Full model, selective answer tokens",
@@ -25,6 +26,7 @@ METHOD_ORDER = (
 )
 METHOD_KEYS = {
     "Base": "base",
+    "Original ZeroUnlearn": "original_zerounlearn",
     "Retain-only retraining oracle": "retain_only_oracle",
     "Full model, all answer tokens": "full_all_tokens",
     "Full model, selective answer tokens": "full_selective_tokens",
@@ -42,7 +44,11 @@ METHOD_KEYS = {
 REQUIRED_METHOD_KEYS = tuple(
     key
     for key in METHOD_KEYS.values()
-    if key != "tofu_prompt_conditional_input_repair"
+    if key
+    not in {
+        "original_zerounlearn",
+        "tofu_prompt_conditional_input_repair",
+    }
 )
 COLUMNS = (
     "Method",
@@ -80,7 +86,8 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="METHOD_KEY=SUMMARY_JSON",
         help=(
             "May be repeated; the nine GA/GD-chain method keys are required "
-            "by default. Prompt-conditional repair is an optional tenth row."
+            "by default. Original ZeroUnlearn and prompt-conditional repair "
+            "are optional comparison rows."
         ),
     )
     parser.add_argument("--allow-partial", action="store_true")

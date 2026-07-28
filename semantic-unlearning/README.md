@@ -42,6 +42,10 @@ huggingface-cli login
 python scripts/run_pipeline.py --config config/config.yaml
 ```
 
+The protocol-matched TOFU comparison and the original ZeroUnlearn TOFU runner
+are documented in
+[scripts/README_TOFU_GAGD_NEIGHBORHOOD_CONFIDENCE.md](scripts/README_TOFU_GAGD_NEIGHBORHOOD_CONFIDENCE.md).
+
 Skip extraction if hidden states are already cached:
 ```bash
 python scripts/run_pipeline.py --config config/config.yaml --skip-extraction
