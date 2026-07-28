@@ -5,3 +5,4 @@ semantic-unlearning/data/rwku/Target/
 semantic-unlearning/data/rwku/manifest_seed0.json
 semantic-unlearning/outputs/attrsnips_ppl_*.json
 semantic-unlearning/outputs/rwku/
+semantic-unlearning/outputs/three_benchmark/

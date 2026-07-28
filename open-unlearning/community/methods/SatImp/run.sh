@@ -24,9 +24,9 @@ gradient_accumulation_steps=2
 
 
 lrs=(1e-5)
-alphas=(1.0, 0.1, 0.01)
-betas= (5.0 , 6.0)
-beta2= 1.0
+alphas=(1.0 0.1 0.01)
+betas=(5.0 6.0)
+beta2=1.0
 
 for split in "${forget_retain_splits[@]}"; do
     forget_split=$(echo $split | cut -d' ' -f1)
@@ -36,8 +36,8 @@ for split in "${forget_retain_splits[@]}"; do
             trainer=$(echo $trainer_experiment | cut -d' ' -f1)
             experiment=$(echo $trainer_experiment | cut -d' ' -f2)
             for lr in "${lrs[@]}"; do
-                for beta1 in "${betas[@]}"; do 
-                    for alpha in "${alphas[@]}"; do          
+                for beta1 in "${betas[@]}"; do
+                    for alpha in "${alphas[@]}"; do
                         task_name=tofu_${model}_${forget_split}_${trainer}_lr${lr}_beta1${beta1}_beta2${beta2}_alpha${alpha}
                         model_path=open-unlearning/tofu_${model}_full
                         echo ${task_name}: Unlearning ${model_path} using ${trainer}

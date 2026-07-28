@@ -50,6 +50,10 @@ The target-specific RWKU unlearning comparison, including Original
 ZeroUnlearn, Setting 5e, protected repair, repair-only, and alternative-output
 controls, is documented in [RWKU_EXPERIMENT.md](RWKU_EXPERIMENT.md).
 
+The unified MCF, TOFU, and ZsRE experiment launcher and result protocol are
+documented in
+[experiments/three_benchmark/README.md](experiments/three_benchmark/README.md).
+
 Skip extraction if hidden states are already cached:
 ```bash
 python scripts/run_pipeline.py --config config/config.yaml --skip-extraction
