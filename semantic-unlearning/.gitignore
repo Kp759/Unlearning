@@ -3,6 +3,8 @@ __pycache__/
 .env
 outputs/hidden_states/
 outputs/probes/
+data/controlled_unlearning/
+data/zsre_mend_eval.json
 *.pt
 *.bin
 *.safetensors

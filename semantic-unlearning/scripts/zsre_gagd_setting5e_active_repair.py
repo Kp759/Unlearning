@@ -72,6 +72,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", default="outputs/zsre_setting5e_active/seed1")
     parser.add_argument("--zsre-path", default="data/zsre_mend_eval.json")
     parser.add_argument("--zsre-url", default=zsre.ZSRE_URL)
+    parser.add_argument(
+        "--controlled-records-path",
+        default=None,
+        help=(
+            "Stage-specific controlled_zsre.json produced by "
+            "build_controlled_unlearning_protocol.py. Its explicit records "
+            "replace official resampling and contain development-only repair "
+            "prompts."
+        ),
+    )
     parser.add_argument("--wikidata-dir", default="data/wikidata")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--forget-num", type=int, default=50)
@@ -304,6 +314,62 @@ def canonical_examples(
             )
         )
     return examples
+
+
+def load_controlled_eval_records(
+    path: Path,
+    tok: Any,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Adapt explicit controlled raw records without touching held-out data."""
+
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError("Controlled ZsRE payload must be a JSON object")
+    if set(payload) != {"forget", "retain"}:
+        raise ValueError(
+            "Controlled ZsRE payload must contain exactly forget and retain"
+        )
+
+    def adapt(role: str) -> List[Dict[str, Any]]:
+        values = payload[role]
+        if not isinstance(values, list) or not values:
+            raise ValueError(f"Controlled ZsRE {role} list is empty")
+        records: List[Dict[str, Any]] = []
+        seen_ids: set[int] = set()
+        for item in values:
+            if not isinstance(item, Mapping):
+                raise ValueError(f"Controlled ZsRE {role} item is not an object")
+            source_index = int(item["source_index"])
+            if source_index in seen_ids:
+                raise ValueError(
+                    f"Duplicate controlled ZsRE source index {source_index}"
+                )
+            seen_ids.add(source_index)
+            raw_record = item.get("raw_record")
+            if not isinstance(raw_record, Mapping):
+                raise ValueError(
+                    f"Controlled ZsRE record {source_index} lacks raw_record"
+                )
+            record = zsre.build_zsre_record(
+                raw_record,
+                source_index,
+                tok,
+            )
+            repair_prompts = item.get("repair_prompts")
+            if not isinstance(repair_prompts, list) or len(repair_prompts) < 2:
+                raise ValueError(
+                    f"Controlled ZsRE record {source_index} needs multiple "
+                    "development-only repair prompts"
+                )
+            record["paraphrase_prompts"] = [
+                str(prompt)
+                for prompt in repair_prompts
+                if str(prompt).strip()
+            ]
+            records.append(record)
+        return records
+
+    return adapt("forget"), adapt("retain")
 
 
 def _sample_retain_records(
@@ -1232,15 +1298,43 @@ def main() -> None:
     zsre_path = Path(args.zsre_path)
     if not zsre_path.is_absolute():
         zsre_path = gagd.PROJECT_DIR / zsre_path
-    zsre_path = zsre.download_zsre(zsre_path, url=args.zsre_url)
-    forget_records, retain_records = zsre.load_official_eval_records(
-        zsre_path,
-        tok,
-        forget_num=args.forget_num,
-        retain_num=args.retain_num,
-        seed=args.seed,
-        zsre_url=args.zsre_url,
-    )
+    if args.controlled_records_path:
+        controlled_path = Path(args.controlled_records_path)
+        if not controlled_path.is_absolute():
+            controlled_path = gagd.PROJECT_DIR / controlled_path
+        forget_records, retain_records = load_controlled_eval_records(
+            controlled_path,
+            tok,
+        )
+        if len(forget_records) != args.forget_num:
+            raise ValueError(
+                "Controlled ZsRE forget count does not match --forget-num: "
+                f"{len(forget_records)} != {args.forget_num}"
+            )
+        if len(retain_records) != args.retain_num:
+            raise ValueError(
+                "Controlled ZsRE retain count does not match --retain-num: "
+                f"{len(retain_records)} != {args.retain_num}"
+            )
+        config["controlled_records"] = {
+            "path": str(controlled_path),
+            "sha256": zsre.file_sha256(controlled_path),
+            "official_resampling_disabled": True,
+            "full_zsre_source_opened": False,
+        }
+        # The evaluator receives explicit records and never reads this path.
+        # Point it at the controlled artifact for truthful provenance.
+        zsre_path = controlled_path
+    else:
+        zsre_path = zsre.download_zsre(zsre_path, url=args.zsre_url)
+        forget_records, retain_records = zsre.load_official_eval_records(
+            zsre_path,
+            tok,
+            forget_num=args.forget_num,
+            retain_num=args.retain_num,
+            seed=args.seed,
+            zsre_url=args.zsre_url,
+        )
     records = (forget_records, retain_records)
     gagd.write_json(
         output_dir / "sampled_case_ids.json",
@@ -1249,6 +1343,7 @@ def main() -> None:
             "forget_case_ids": [record["case_id"] for record in forget_records],
             "retain_case_ids": [record["case_id"] for record in retain_records],
             "zsre_sha256": zsre.file_sha256(zsre_path),
+            "controlled_records": bool(args.controlled_records_path),
         },
     )
     forget_examples = canonical_examples(forget_records, tok)

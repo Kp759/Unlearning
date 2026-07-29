@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import gc
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any, Dict, List
 
 import torch
@@ -21,6 +22,7 @@ from transformers import AutoTokenizer
 
 import gagd_compare as gagd
 import tofu_gagd_neighborhood_confidence as tofu
+from controlled_unlearning_protocol import load_json_or_jsonl
 
 
 MODES = tuple(gagd.BASE_MODES)
@@ -41,6 +43,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="forget05",
     )
     parser.add_argument("--retain-split", default="retain95")
+    parser.add_argument(
+        "--controlled-input-dir",
+        default=None,
+        help=(
+            "Leakage-controlled stage directory with forget.json and "
+            "retain.json. When set, Hugging Face data is not loaded."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--forget-num", type=int, default=200)
     parser.add_argument("--retain-num", type=int, default=1000)
@@ -147,8 +157,31 @@ def load_official_prompt_examples(
     split: str,
     count: int,
     seed: int,
+    controlled_input_dir: str | None = None,
 ) -> List[gagd.Example]:
-    rows = list(load_dataset("locuslab/TOFU", name=split, split="train"))
+    if controlled_input_dir:
+        controlled_name = (
+            "forget"
+            if split in tofu.PAIRED_RETAIN_SPLITS
+            else "retain"
+        )
+        controlled_dir = Path(controlled_input_dir)
+        candidates = (
+            controlled_dir / f"{controlled_name}.json",
+            controlled_dir / f"{controlled_name}.jsonl",
+        )
+        path = next(
+            (candidate for candidate in candidates if candidate.exists()),
+            None,
+        )
+        if path is None:
+            raise FileNotFoundError(
+                f"Controlled TOFU input lacks {controlled_name}.json/jsonl "
+                f"in {controlled_dir}"
+            )
+        rows = load_json_or_jsonl(path)
+    else:
+        rows = list(load_dataset("locuslab/TOFU", name=split, split="train"))
     indices = tofu.deterministic_sample_indices(len(rows), count, seed)
     examples: List[gagd.Example] = []
     for source_index in indices:
@@ -204,12 +237,14 @@ def main() -> None:
         args.forget_split,
         args.forget_num,
         args.seed,
+        args.controlled_input_dir,
     )
     retain = load_official_prompt_examples(
         data_tok,
         args.retain_split,
         args.retain_num,
         args.seed,
+        args.controlled_input_dir,
     )
     modes = resolved_modes(args.mode)
     config_used = {

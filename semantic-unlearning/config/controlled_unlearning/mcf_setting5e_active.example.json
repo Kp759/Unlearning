@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "candidate_id": "mcf-setting5e-active-v1",
+  "dataset": "mcf",
+  "base_model_path": "REPLACE_WITH_BASE_MODEL_PATH",
+  "seed": 0,
+  "setting5e": {
+    "steps": 600,
+    "batch_size": 1,
+    "retain_batch_size": 4,
+    "emb_lm_lr": 0.0001,
+    "forget_weight": 2.0,
+    "retain_weight": 1.0,
+    "forget_loss_type": "mcf_margin",
+    "forget_margin": 1.0,
+    "sampling_strategy": "epoch",
+    "post_training_new_true_alpha": 0.75,
+    "post_training_new_retain_alpha": 0.5,
+    "post_training_new_true_retain_alpha": 0.25,
+    "dtype": "bf16",
+    "device_map": "single"
+  },
+  "active_repair": {
+    "active_margin": 0.1,
+    "repair_steps": 50,
+    "repair_lr": 0.01,
+    "repair_optimizer": "adamw",
+    "hinge_weight": 1.0,
+    "delta_l2_lambda": 0.0001,
+    "retain_kl_mu": 0.1,
+    "retain_calibration_num": 32,
+    "repair_rank": 1,
+    "project_away_retain_hidden": true,
+    "skip_ppl": true
+  }
+}

@@ -25,8 +25,9 @@ import argparse
 import gc
 import math
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
 from datasets import load_dataset
@@ -35,6 +36,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import gagd_active_case_repair as active
 import gagd_compare as gagd
 import tofu_gagd_neighborhood_confidence as tofu
+from controlled_unlearning_protocol import load_json_or_jsonl
 
 
 METHOD = "tofu_setting5e_restore"
@@ -65,6 +67,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="forget05",
     )
     parser.add_argument("--retain-split", default="retain95")
+    parser.add_argument(
+        "--controlled-input-dir",
+        default=None,
+        help=(
+            "Leakage-controlled stage directory containing local TOFU JSON "
+            "files. Prevents implicit access to full retain/final utility."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--forget-num", type=int, default=200)
     parser.add_argument("--retain-num", type=int, default=1000)
@@ -131,13 +141,42 @@ def validate_args(args: argparse.Namespace) -> None:
         )
 
 
-def _sample_rows(split: str, count: int, seed: int) -> List[Dict[str, Any]]:
-    rows = _load_rows(split)
+def _sample_rows(
+    split: str,
+    count: int,
+    seed: int,
+    controlled_input_dir: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    rows = _load_rows(split, controlled_input_dir)
     indices = tofu.deterministic_sample_indices(len(rows), count, seed)
     return [rows[index] for index in indices]
 
 
-def _load_rows(split: str) -> List[Dict[str, Any]]:
+def _load_rows(
+    split: str,
+    controlled_input_dir: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    if controlled_input_dir:
+        controlled_name = split
+        if split in tofu.PAIRED_RETAIN_SPLITS:
+            controlled_name = "forget"
+        elif split in tofu.PAIRED_RETAIN_SPLITS.values():
+            controlled_name = "retain"
+        controlled_dir = Path(controlled_input_dir)
+        candidates = (
+            controlled_dir / f"{controlled_name}.json",
+            controlled_dir / f"{controlled_name}.jsonl",
+        )
+        path = next(
+            (candidate for candidate in candidates if candidate.exists()),
+            None,
+        )
+        if path is None:
+            raise FileNotFoundError(
+                f"Controlled TOFU input lacks {controlled_name}.json/jsonl "
+                f"in {controlled_dir}"
+            )
+        return load_json_or_jsonl(path)
     return list(load_dataset("locuslab/TOFU", name=split, split="train"))
 
 
@@ -306,14 +345,20 @@ def main() -> None:
     tok = AutoTokenizer.from_pretrained(args.model_path)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
-    forget_rows = _sample_rows(args.forget_split, args.forget_num, args.seed)
+    forget_rows = _sample_rows(
+        args.forget_split,
+        args.forget_num,
+        args.seed,
+        args.controlled_input_dir,
+    )
     sampled_retain_rows = _sample_rows(
         args.retain_split,
         args.retain_num,
         args.seed,
+        args.controlled_input_dir,
     )
     protected_rows = (
-        _load_rows(args.retain_split)
+        _load_rows(args.retain_split, args.controlled_input_dir)
         if args.protect_full_retain_split
         else sampled_retain_rows
     )
@@ -322,7 +367,7 @@ def main() -> None:
     }
     if args.protect_utility_splits:
         for split in ("real_authors", "world_facts"):
-            utility_rows = _load_rows(split)
+            utility_rows = _load_rows(split, args.controlled_input_dir)
             protected_rows.extend(utility_rows)
             protected_split_counts[split] = len(utility_rows)
     groups = build_tofu_row_groups(

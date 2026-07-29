@@ -54,6 +54,12 @@ The unified MCF, TOFU, and ZsRE experiment launcher and result protocol are
 documented in
 [experiments/three_benchmark/README.md](experiments/three_benchmark/README.md).
 
+The leakage-controlled LLM1/LLM2 workflow with group-disjoint train,
+validation, and test requests; Setting 5e plus active LM-head repair; two
+independent judge roles; five-fold evaluation; token/locality metrics; and a
+manual audit is documented in
+[CONTROLLED_UNLEARNING_PROTOCOL.md](CONTROLLED_UNLEARNING_PROTOCOL.md).
+
 Skip extraction if hidden states are already cached:
 ```bash
 python scripts/run_pipeline.py --config config/config.yaml --skip-extraction

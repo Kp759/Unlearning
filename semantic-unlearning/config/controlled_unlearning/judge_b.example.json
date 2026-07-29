@@ -1,0 +1,11 @@
+{
+  "judge_id": "judge-b-final",
+  "role": "judge_b_final",
+  "provider": "openai_compatible",
+  "model": "REPLACE_WITH_INDEPENDENT_FINAL_JUDGE_MODEL",
+  "base_url": "REPLACE_WITH_INDEPENDENT_OPENAI_COMPATIBLE_BASE_URL",
+  "api_key_env": "JUDGE_B_API_KEY",
+  "temperature": 0.0,
+  "timeout_seconds": 90.0,
+  "max_retries": 3
+}

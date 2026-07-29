@@ -43,6 +43,7 @@ from transformers import AutoTokenizer
 
 import gagd_active_case_repair as active
 import gagd_compare as gagd
+from controlled_unlearning_protocol import load_json_or_jsonl
 
 
 METHOD = "gagd_neighborhood_confidence_tofu"
@@ -107,6 +108,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--forget-split", choices=sorted(PAIRED_RETAIN_SPLITS), default="forget05")
     parser.add_argument("--retain-split", default="retain95")
+    parser.add_argument(
+        "--controlled-input-dir",
+        default=None,
+        help=(
+            "Leakage-controlled stage directory containing forget.json, "
+            "retain.json, real_authors.json, and world_facts.json. When set, "
+            "Hugging Face splits are not loaded."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--forget-num", type=int, default=200)
     parser.add_argument("--retain-num", type=int, default=1000)
@@ -327,18 +337,42 @@ def load_tofu_repair_instances(
     List[TOFUAnswerInstance],
 ]:
     """Load protocol-matched forget/retain records and utility calibration."""
-    forget_rows = list(
-        load_dataset("locuslab/TOFU", name=args.forget_split, split="train")
-    )
-    retain_rows = list(
-        load_dataset("locuslab/TOFU", name=args.retain_split, split="train")
-    )
-    real_rows = list(
-        load_dataset("locuslab/TOFU", name="real_authors", split="train")
-    )
-    world_rows = list(
-        load_dataset("locuslab/TOFU", name="world_facts", split="train")
-    )
+    if getattr(args, "controlled_input_dir", None):
+        controlled_dir = Path(args.controlled_input_dir)
+
+        def controlled_rows(name: str) -> List[Dict[str, Any]]:
+            candidates = (
+                controlled_dir / f"{name}.json",
+                controlled_dir / f"{name}.jsonl",
+            )
+            path = next(
+                (candidate for candidate in candidates if candidate.exists()),
+                None,
+            )
+            if path is None:
+                raise FileNotFoundError(
+                    f"Controlled TOFU input lacks {name}.json/jsonl in "
+                    f"{controlled_dir}"
+                )
+            return load_json_or_jsonl(path)
+
+        forget_rows = controlled_rows("forget")
+        retain_rows = controlled_rows("retain")
+        real_rows = controlled_rows("real_authors")
+        world_rows = controlled_rows("world_facts")
+    else:
+        forget_rows = list(
+            load_dataset("locuslab/TOFU", name=args.forget_split, split="train")
+        )
+        retain_rows = list(
+            load_dataset("locuslab/TOFU", name=args.retain_split, split="train")
+        )
+        real_rows = list(
+            load_dataset("locuslab/TOFU", name="real_authors", split="train")
+        )
+        world_rows = list(
+            load_dataset("locuslab/TOFU", name="world_facts", split="train")
+        )
 
     # Match tofu_eval.subset_samples: random.sample with a fresh RNG and the
     # experiment seed is applied independently to each primary split.

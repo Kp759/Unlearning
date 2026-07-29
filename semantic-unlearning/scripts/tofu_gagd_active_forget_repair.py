@@ -68,6 +68,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="forget05",
     )
     parser.add_argument("--retain-split", default="retain95")
+    parser.add_argument(
+        "--controlled-input-dir",
+        default=None,
+        help=(
+            "Leakage-controlled stage directory. Passed to the shared TOFU "
+            "loader so final-test utility rows are never fetched implicitly."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--forget-num", type=int, default=200)
     parser.add_argument("--retain-num", type=int, default=1000)
