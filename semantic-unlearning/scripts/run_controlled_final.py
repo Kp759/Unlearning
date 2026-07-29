@@ -19,6 +19,7 @@ from controlled_unlearning_protocol import (
     read_json,
     sha256_file,
     sha256_json,
+    validate_mcf_post_reload_acceptance,
     write_json,
 )
 
@@ -61,6 +62,23 @@ def _validate_pretest_inputs(
     if not isinstance(judge_a, Mapping):
         raise ValueError("Selection receipt lacks Judge A identity")
     assert_independent_judges(judge_a, judge_b)
+
+
+def _validate_application_before_test(
+    application: Mapping[str, Any],
+    *,
+    dataset: str,
+) -> None:
+    if application.get("kind") != "controlled_model_application_receipt":
+        raise ValueError("Invalid final application receipt")
+    if application.get("status") != "accepted":
+        raise ValueError("Final application was not accepted")
+    if application.get("dry_run"):
+        raise ValueError("A dry-run application cannot unlock final testing")
+    if dataset == "mcf":
+        validate_mcf_post_reload_acceptance(
+            application.get("post_reload_acceptance")
+        )
 
 
 def main() -> None:
@@ -184,6 +202,10 @@ def main() -> None:
     )
     application_receipt_path = application_dir / "application_receipt.json"
     application = read_json(application_receipt_path)
+    _validate_application_before_test(
+        application,
+        dataset=str(selection["dataset"]),
+    )
     checkpoint = str(application["selected_checkpoint"])
     # Only after repair has completed and the application receipt is frozen
     # does this process parse the Judge-B prompt bundle.

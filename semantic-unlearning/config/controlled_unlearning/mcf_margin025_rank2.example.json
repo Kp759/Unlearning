@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "candidate_id": "mcf-margin025-rank1",
+  "candidate_id": "mcf-margin025-rank2",
   "dataset": "mcf",
   "base_model_path": "REPLACE_WITH_BASE_MODEL_PATH",
   "seed": 0,
@@ -29,7 +29,7 @@
     "delta_l2_lambda": 0.0001,
     "retain_kl_mu": 0.1,
     "retain_calibration_num": 200,
-    "repair_rank": 1,
+    "repair_rank": 2,
     "project_away_retain_hidden": true,
     "min_reloaded_forget_margin": 0.1,
     "skip_ppl": true

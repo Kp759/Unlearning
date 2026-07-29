@@ -15,6 +15,8 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import gagd_active_case_repair as MODULE  # noqa: E402
 import gagd_compare as GAGD  # noqa: E402
 from mcf_zero_unlearn_official_eval import (  # noqa: E402
+    build_post_reload_acceptance_gate,
+    official_summarize,
     official_test_batch_prediction,
 )
 
@@ -1238,6 +1240,85 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
             0,
             {"forget": {"Eff": 0, "Gen": 0}},
         )
+
+    def test_official_summary_records_exact_prompt_failures_and_margin(self):
+        summary = official_summarize(
+            "forget",
+            [
+                {
+                    "post": {
+                        "rewrite_prompts_probs": [
+                            {"target_new": 3.0, "target_true": 2.0}
+                        ],
+                        "paraphrase_prompts_probs": [
+                            {"target_new": 3.0, "target_true": 2.0},
+                            {"target_new": 1.0, "target_true": 2.0},
+                        ],
+                        "neighborhood_prompts_probs": [],
+                    }
+                }
+            ],
+        )
+
+        self.assertEqual(summary["Eff"], 0.0)
+        self.assertEqual(summary["Gen"], 50.0)
+        self.assertEqual(summary["post_rewrite_prompt_instances"], 1)
+        self.assertEqual(summary["post_rewrite_failure_prompt_instances"], 0)
+        self.assertEqual(summary["post_paraphrase_prompt_instances"], 2)
+        self.assertEqual(
+            summary["post_paraphrase_failure_prompt_instances"],
+            1,
+        )
+        self.assertEqual(summary["post_paraphrase_min_margin"], -1.0)
+        self.assertEqual(
+            summary["minimum_rewrite_paraphrase_margin"],
+            -1.0,
+        )
+
+    def test_post_reload_gate_rejects_any_gen_or_weak_margin(self):
+        positive_gen = build_post_reload_acceptance_gate(
+            {
+                "forget": {
+                    "Eff": 0.0,
+                    "Gen": 1.67,
+                    "minimum_rewrite_paraphrase_margin": -0.01,
+                    "post_rewrite_failure_prompt_instances": 0,
+                    "post_paraphrase_failure_prompt_instances": 1,
+                }
+            },
+            min_forget_margin=0.1,
+        )
+        self.assertFalse(positive_gen["passed"])
+        self.assertFalse(
+            positive_gen["checks"]["forget_gen_within_limit"]
+        )
+
+        weak_buffer = build_post_reload_acceptance_gate(
+            {
+                "forget": {
+                    "Eff": 0.0,
+                    "Gen": 0.0,
+                    "minimum_rewrite_paraphrase_margin": 0.099,
+                }
+            },
+            min_forget_margin=0.1,
+        )
+        self.assertFalse(weak_buffer["passed"])
+        self.assertFalse(
+            weak_buffer["checks"]["forget_margin_meets_floor"]
+        )
+
+        accepted = build_post_reload_acceptance_gate(
+            {
+                "forget": {
+                    "Eff": 0.0,
+                    "Gen": 0.0,
+                    "minimum_rewrite_paraphrase_margin": 0.25,
+                }
+            },
+            min_forget_margin=0.1,
+        )
+        self.assertTrue(accepted["passed"])
 
 
 if __name__ == "__main__":

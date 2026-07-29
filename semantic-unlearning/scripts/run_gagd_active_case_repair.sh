@@ -37,9 +37,15 @@ RETAIN_CALIBRATION_SEED="${RETAIN_CALIBRATION_SEED:-1729}"
 REPAIR_RANK="${REPAIR_RANK:-1}"
 PROJECT_AWAY_RETAIN_HIDDEN="${PROJECT_AWAY_RETAIN_HIDDEN:-1}"
 SKIP_PPL="${SKIP_PPL:-0}"
+REQUIRE_POST_RELOAD_ZERO="${REQUIRE_POST_RELOAD_ZERO:-0}"
+MIN_RELOADED_FORGET_MARGIN="${MIN_RELOADED_FORGET_MARGIN:-0.10}"
 
 if [[ "${SAMPLE_MODE}" != "official" && "${SAMPLE_MODE}" != "first" ]]; then
   echo "The staged runner requires SAMPLE_MODE=official or first for final evaluation."
+  exit 2
+fi
+if [[ "${REQUIRE_POST_RELOAD_ZERO}" != "0" && "${REQUIRE_POST_RELOAD_ZERO}" != "1" ]]; then
+  echo "REQUIRE_POST_RELOAD_ZERO must be 0 or 1."
   exit 2
 fi
 
@@ -210,31 +216,32 @@ EVAL_ARGS=(
 if [[ "${SKIP_PPL}" == "1" ]]; then
   EVAL_ARGS+=(--skip-ppl)
 fi
+if [[ "${REQUIRE_POST_RELOAD_ZERO}" == "1" ]]; then
+  EVAL_ARGS+=(
+    --max-forget-eff 0
+    --max-forget-gen 0
+    --min-forget-margin "${MIN_RELOADED_FORGET_MARGIN}"
+    --fail-if-gate-missed
+  )
+fi
 python scripts/mcf_zero_unlearn_official_eval.py "${EVAL_ARGS[@]}"
 
-python - "${BEST_CHECKPOINT}" "${OUT_ROOT}/official_eval_selected.json" <<'PY'
+python - "${OUT_ROOT}/official_eval_selected.json" "${REQUIRE_POST_RELOAD_ZERO}" <<'PY'
 import json
 import pathlib
 import sys
 
-checkpoint = pathlib.Path(sys.argv[1])
-summary = json.loads(
-    (checkpoint.parent / "repair_summary.json").read_text(encoding="utf-8")
-)
-official = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
-forget = official.get("forget", official)
-eff = float(forget.get("Eff", official.get("Eff", 0.0)))
-gen = float(forget.get("Gen", official.get("Gen", 0.0)))
-active_before = int(
-    summary.get(
-        "active_prompt_instances_before",
-        summary.get("active_cases_before", 0),
-    )
-)
-if active_before == 0 and (eff > 0 or gen > 0):
+official = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+required = sys.argv[2] == "1"
+gate = official.get("post_reload_acceptance")
+if required and not isinstance(gate, dict):
     raise SystemExit(
-        "Refusing selected zero-row/no-op candidate: local official-compatible "
-        f"active prompts before repair=0, but final Eff={eff}, Gen={gen}."
+        "Reloaded-checkpoint acceptance gate was required but is missing."
+    )
+if required and not bool(gate.get("passed")):
+    raise SystemExit(
+        "Reloaded checkpoint missed strict forget acceptance: "
+        f"{gate.get('failure_reasons')}"
     )
 PY
 

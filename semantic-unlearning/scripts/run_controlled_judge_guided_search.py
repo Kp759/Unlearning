@@ -28,6 +28,7 @@ from controlled_unlearning_protocol import (
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
+MCF_POST_RELOAD_REJECTION_EXIT_CODE = 3
 
 
 def _candidate_spec(path: Path) -> Dict[str, Any]:
@@ -54,6 +55,38 @@ def _run(
     commands.append(command)
     if not dry_run:
         subprocess.run(command, cwd=PROJECT_DIR, check=True)
+
+
+def _run_candidate_application(
+    command: List[str],
+    *,
+    application_dir: Path,
+    commands: List[List[str]],
+    dry_run: bool,
+) -> bool:
+    """Return False only for a recorded strict post-reload rejection."""
+    commands.append(command)
+    if dry_run:
+        return True
+    completed = subprocess.run(command, cwd=PROJECT_DIR, check=False)
+    if completed.returncode == 0:
+        return True
+    receipt_path = application_dir / "application_receipt.json"
+    if (
+        completed.returncode == MCF_POST_RELOAD_REJECTION_EXIT_CODE
+        and receipt_path.exists()
+    ):
+        receipt = read_json(receipt_path)
+        acceptance = receipt.get("post_reload_acceptance")
+        if (
+            receipt.get("status") == "rejected"
+            and receipt.get("dataset") == "mcf"
+            and isinstance(acceptance, Mapping)
+            and acceptance.get("kind") == "mcf_post_reload_acceptance"
+            and not bool(acceptance.get("passed"))
+        ):
+            return False
+    raise subprocess.CalledProcessError(completed.returncode, command)
 
 
 def main() -> None:
@@ -167,8 +200,11 @@ def main() -> None:
             ),
         },
         "selection_rule": (
-            "utility/locality eligibility, then strict fact-level forget "
-            "pass rate, sensitive probability, and retained utility"
+            "MCF candidates must first pass their preregistered serialized/"
+            "reloaded Eff=0, Gen=0, and minimum-margin gate; remaining "
+            "candidates use utility/locality eligibility, then strict "
+            "fact-level forget pass rate, sensitive probability, and "
+            "retained utility"
         ),
         "train_stage_diagnostics_enabled": args.run_train_stage,
     }
@@ -220,6 +256,7 @@ def main() -> None:
     _run(baseline_command, commands=commands, dry_run=args.dry_run)
 
     candidate_summaries: Dict[str, Path] = {}
+    candidate_rejections: Dict[str, Dict[str, Any]] = {}
     for spec_path, spec in zip(spec_paths, specs):
         candidate_id = str(spec["candidate_id"])
         candidate_root = output_dir / "candidates" / candidate_id
@@ -286,11 +323,27 @@ def main() -> None:
             "--output-dir",
             str(application_dir),
         ]
-        _run(
+        application_accepted = _run_candidate_application(
             application_command,
+            application_dir=application_dir,
             commands=commands,
             dry_run=args.dry_run,
         )
+        if not application_accepted:
+            rejection_receipt = read_json(
+                application_dir / "application_receipt.json"
+            )
+            candidate_rejections[candidate_id] = {
+                "candidate_id": candidate_id,
+                "candidate_spec_path": str(spec_path),
+                "application_receipt": str(
+                    application_dir / "application_receipt.json"
+                ),
+                "post_reload_acceptance": rejection_receipt[
+                    "post_reload_acceptance"
+                ],
+            }
+            continue
         if args.dry_run:
             checkpoint = application_dir / "DRY_RUN_SELECTED_CHECKPOINT"
         else:
@@ -317,6 +370,31 @@ def main() -> None:
             evaluation_dir / "evaluation_summary.json"
         )
 
+    if not candidate_summaries:
+        write_json(
+            output_dir / "search_commands.json",
+            {
+                "schema_version": 1,
+                "preregistration": str(preregistration_path),
+                "dry_run": args.dry_run,
+                "commands": [
+                    {
+                        "argv": command,
+                        "shell_rendering_for_review": shlex.join(command),
+                    }
+                    for command in commands
+                ],
+                "candidate_rejections": candidate_rejections,
+                "selection_receipt": None,
+                "test_bundle_opened": False,
+                "test_results_used": False,
+            },
+        )
+        raise RuntimeError(
+            "Every preregistered candidate missed strict post-reload "
+            "MCF forget acceptance"
+        )
+
     receipt_path = output_dir / "selection_receipt.json"
     selection_command = [
         args.python,
@@ -335,6 +413,8 @@ def main() -> None:
         str(receipt_path),
     ]
     for candidate_id, spec_path in zip(candidate_ids, spec_paths):
+        if candidate_id not in candidate_summaries:
+            continue
         selection_command.extend(
             [
                 "--candidate",
@@ -361,6 +441,7 @@ def main() -> None:
                 }
                 for command in commands
             ],
+            "candidate_rejections": candidate_rejections,
             "selection_receipt": (
                 None if args.dry_run else str(receipt_path)
             ),

@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,8 +13,13 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 import audit_controlled_unlearning_protocol as AUDIT  # noqa: E402
 import build_controlled_unlearning_protocol as BUILDER  # noqa: E402
+import run_controlled_judge_guided_search as SEARCH  # noqa: E402
+import run_controlled_final as FINAL  # noqa: E402
 import run_controlled_setting5e as RUNNER  # noqa: E402
 import select_controlled_candidate as SELECTOR  # noqa: E402
+from controlled_unlearning_protocol import (  # noqa: E402
+    validate_mcf_post_reload_acceptance,
+)
 
 
 def mcf_row(index):
@@ -88,6 +94,211 @@ def evaluation_summary(bundle, candidate_id, forget, utility, locality):
 
 
 class ControlledWorkflowTests(unittest.TestCase):
+    def test_mcf_post_reload_contract_blocks_test_unlock_bypasses(self):
+        passing = {
+            "kind": "mcf_post_reload_acceptance",
+            "checkpoint_was_reloaded": True,
+            "thresholds": {
+                "max_forget_eff": 0.0,
+                "max_forget_gen": 0.0,
+                "min_forget_margin": 0.1,
+            },
+            "observed": {
+                "forget_eff": 0.0,
+                "forget_gen": 0.0,
+                "minimum_rewrite_paraphrase_margin": 0.12,
+            },
+            "checks": {
+                "forget_eff_within_limit": True,
+                "forget_gen_within_limit": True,
+                "forget_margin_meets_floor": True,
+            },
+            "passed": True,
+            "failure_reasons": [],
+        }
+        self.assertEqual(
+            validate_mcf_post_reload_acceptance(passing),
+            passing,
+        )
+        FINAL._validate_application_before_test(
+            {
+                "kind": "controlled_model_application_receipt",
+                "status": "accepted",
+                "dry_run": False,
+                "post_reload_acceptance": passing,
+            },
+            dataset="mcf",
+        )
+
+        weak = json.loads(json.dumps(passing))
+        weak["thresholds"]["min_forget_margin"] = 0.0
+        with self.assertRaisesRegex(ValueError, "margin floor"):
+            validate_mcf_post_reload_acceptance(weak)
+        with self.assertRaisesRegex(ValueError, "not accepted"):
+            FINAL._validate_application_before_test(
+                {
+                    "kind": "controlled_model_application_receipt",
+                    "status": "rejected",
+                    "dry_run": False,
+                    "post_reload_acceptance": passing,
+                },
+                dataset="mcf",
+            )
+
+    def test_mcf_validation_enforces_reloaded_checkpoint_gate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mcf_path = root / "multi_counterfact.json"
+            mcf_path.write_text("[]", encoding="utf-8")
+            output_dir = root / "application"
+            setting_checkpoint = (
+                output_dir
+                / "setting5e"
+                / RUNNER.SETTING5E_MODE
+                / "checkpoint"
+            )
+            setting_checkpoint.mkdir(parents=True)
+            repair_dir = output_dir / "active_repair"
+            selected_checkpoint = repair_dir / "candidate" / "checkpoint"
+            selected_checkpoint.mkdir(parents=True)
+            repair_dir.mkdir(parents=True, exist_ok=True)
+            (repair_dir / "selected_candidate.json").write_text(
+                json.dumps({"checkpoint": str(selected_checkpoint)}),
+                encoding="utf-8",
+            )
+            acceptance = {
+                "kind": "mcf_post_reload_acceptance",
+                "passed": False,
+                "failure_reasons": ["forget_gen_within_limit"],
+            }
+            (repair_dir / "official_eval_selected.json").write_text(
+                json.dumps({"post_reload_acceptance": acceptance}),
+                encoding="utf-8",
+            )
+            observed_environments = []
+
+            def fake_run(command, **kwargs):
+                if command[0] == "bash":
+                    observed_environments.append(kwargs["env"])
+                    raise subprocess.CalledProcessError(3, command)
+                return SimpleNamespace(returncode=0)
+
+            with mock.patch.object(
+                RUNNER.subprocess,
+                "run",
+                side_effect=fake_run,
+            ):
+                with self.assertRaises(RUNNER.MCFPostReloadAcceptanceError):
+                    RUNNER._run_mcf(
+                        python=sys.executable,
+                        spec={
+                            "base_model_path": "base",
+                            "active_repair": {
+                                "min_reloaded_forget_margin": 0.1
+                            },
+                        },
+                        materialized={"mcf_path": mcf_path},
+                        counts={"forget_count": 10, "retain_count": 200},
+                        seed=0,
+                        stage="validation",
+                        output_dir=output_dir,
+                        dry_run=False,
+                        commands=[],
+                    )
+
+            self.assertEqual(len(observed_environments), 1)
+            self.assertEqual(
+                observed_environments[0]["REQUIRE_POST_RELOAD_ZERO"],
+                "1",
+            )
+            self.assertEqual(
+                observed_environments[0]["MIN_RELOADED_FORGET_MARGIN"],
+                "0.1",
+            )
+
+    def test_search_continues_only_for_recorded_post_reload_rejection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            application_dir = Path(directory) / "application"
+            application_dir.mkdir()
+            (application_dir / "application_receipt.json").write_text(
+                json.dumps(
+                    {
+                        "status": "rejected",
+                        "dataset": "mcf",
+                        "post_reload_acceptance": {
+                            "kind": "mcf_post_reload_acceptance",
+                            "passed": False,
+                            "failure_reasons": [
+                                "forget_gen_within_limit"
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            commands = []
+            with mock.patch.object(
+                SEARCH.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=3),
+            ):
+                accepted = SEARCH._run_candidate_application(
+                    ["python", "candidate.py"],
+                    application_dir=application_dir,
+                    commands=commands,
+                    dry_run=False,
+                )
+            self.assertFalse(accepted)
+            self.assertEqual(commands, [["python", "candidate.py"]])
+
+            with mock.patch.object(
+                SEARCH.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=2),
+            ):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    SEARCH._run_candidate_application(
+                        ["python", "candidate.py"],
+                        application_dir=application_dir,
+                        commands=[],
+                        dry_run=False,
+                    )
+
+    def test_mcf_candidate_menu_is_preregistered_margin_rank_sweep(self):
+        config_dir = (
+            Path(__file__).resolve().parents[1]
+            / "config"
+            / "controlled_unlearning"
+        )
+        paths = [
+            config_dir / "mcf_margin015_rank1.example.json",
+            config_dir / "mcf_setting5e_active.example.json",
+            config_dir / "mcf_margin025_rank2.example.json",
+            config_dir / "mcf_margin040_rank2.example.json",
+        ]
+        candidates = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in paths
+        ]
+
+        self.assertEqual(
+            [
+                (
+                    candidate["active_repair"]["active_margin"],
+                    candidate["active_repair"]["repair_rank"],
+                )
+                for candidate in candidates
+            ],
+            [(0.15, 1), (0.25, 1), (0.25, 2), (0.4, 2)],
+        )
+        for candidate in candidates:
+            repair = candidate["active_repair"]
+            self.assertEqual(repair["repair_steps"], 100)
+            self.assertEqual(repair["repair_lr"], 0.005)
+            self.assertEqual(repair["retain_calibration_num"], 200)
+            self.assertEqual(repair["min_reloaded_forget_margin"], 0.1)
+            self.assertTrue(repair["project_away_retain_hidden"])
+
     def test_selector_unlocks_prompt_free_final_apply_only(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

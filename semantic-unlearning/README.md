@@ -59,6 +59,9 @@ validation, and test requests; Setting 5e plus active LM-head repair; two
 independent judge roles; five-fold evaluation; token/locality metrics; and a
 manual audit is documented in
 [CONTROLLED_UNLEARNING_PROTOCOL.md](CONTROLLED_UNLEARNING_PROTOCOL.md).
+The MCF workflow includes a preregistered margin/rank sweep and rejects
+serialized checkpoints unless a fresh reload preserves `Eff = 0`, `Gen = 0`,
+and the configured positive forget-margin buffer.
 
 Skip extraction if hidden states are already cached:
 ```bash

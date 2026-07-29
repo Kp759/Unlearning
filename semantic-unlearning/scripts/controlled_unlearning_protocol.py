@@ -82,6 +82,81 @@ def read_json(path: Path) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def validate_mcf_post_reload_acceptance(
+    acceptance: Any,
+    *,
+    minimum_margin: float = 0.1,
+) -> Dict[str, Any]:
+    """Require the frozen zero-Eff/zero-Gen MCF checkpoint contract."""
+    if not isinstance(acceptance, Mapping):
+        raise ValueError("MCF application lacks a post-reload acceptance gate")
+    if acceptance.get("kind") != "mcf_post_reload_acceptance":
+        raise ValueError("Invalid MCF post-reload acceptance gate")
+    if acceptance.get("checkpoint_was_reloaded") is not True:
+        raise ValueError("MCF acceptance did not evaluate a reloaded checkpoint")
+    if acceptance.get("passed") is not True:
+        raise ValueError("MCF post-reload acceptance gate did not pass")
+
+    thresholds = acceptance.get("thresholds")
+    observed = acceptance.get("observed")
+    checks = acceptance.get("checks")
+    if not isinstance(thresholds, Mapping):
+        raise ValueError("MCF acceptance gate lacks frozen thresholds")
+    if not isinstance(observed, Mapping):
+        raise ValueError("MCF acceptance gate lacks observed metrics")
+    if not isinstance(checks, Mapping):
+        raise ValueError("MCF acceptance gate lacks individual checks")
+
+    try:
+        max_eff = float(thresholds["max_forget_eff"])
+        max_gen = float(thresholds["max_forget_gen"])
+        margin_floor = float(thresholds["min_forget_margin"])
+        observed_eff = float(observed["forget_eff"])
+        observed_gen = float(observed["forget_gen"])
+        observed_margin = float(
+            observed["minimum_rewrite_paraphrase_margin"]
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(
+            "MCF acceptance gate contains invalid numeric evidence"
+        ) from error
+
+    numeric_values = (
+        max_eff,
+        max_gen,
+        margin_floor,
+        observed_eff,
+        observed_gen,
+        observed_margin,
+        float(minimum_margin),
+    )
+    if not all(math.isfinite(value) for value in numeric_values):
+        raise ValueError("MCF acceptance gate contains non-finite evidence")
+    if max_eff != 0.0 or max_gen != 0.0:
+        raise ValueError("MCF acceptance must require zero Eff and zero Gen")
+    if margin_floor < float(minimum_margin):
+        raise ValueError(
+            "MCF acceptance margin floor is below the protocol minimum"
+        )
+    if (
+        observed_eff > max_eff
+        or observed_gen > max_gen
+        or observed_margin < margin_floor
+    ):
+        raise ValueError("MCF acceptance observations miss frozen thresholds")
+
+    required_checks = (
+        "forget_eff_within_limit",
+        "forget_gen_within_limit",
+        "forget_margin_meets_floor",
+    )
+    if any(checks.get(name) is not True for name in required_checks):
+        raise ValueError("MCF acceptance gate has a failed required check")
+    if acceptance.get("failure_reasons") not in ([], ()):
+        raise ValueError("Passing MCF acceptance gate lists failure reasons")
+    return dict(acceptance)
+
+
 def _parse_json_or_jsonl(raw: bytes) -> List[Dict[str, Any]]:
     text = raw.decode("utf-8")
     try:

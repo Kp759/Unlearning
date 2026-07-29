@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import urllib.request
 from pathlib import Path
 
@@ -208,6 +209,10 @@ def official_summarize(split_name, metric_data):
         "post_neighborhood_target_new_nll": [],
         "post_neighborhood_target_true_nll": [],
     }
+    prompt_margins = {
+        "rewrite": [],
+        "paraphrase": [],
+    }
 
     for data in metric_data:
         post = data["post"]
@@ -233,6 +238,10 @@ def official_summarize(split_name, metric_data):
             )
             vals[f"post_{out_prefix}_target_true_nll"].append(
                 np.mean([x["target_true"] for x in xs])
+            )
+            prompt_margins[out_prefix].extend(
+                float(x["target_new"]) - float(x["target_true"])
+                for x in xs
             )
 
         xs = post.get("neighborhood_prompts_probs", [])
@@ -275,8 +284,108 @@ def official_summarize(split_name, metric_data):
     out["Gen"] = out["post_paraphrase_success"][0]
     out["Spe"] = out["post_neighborhood_diff"][0]
     out["Spe_success"] = out["post_neighborhood_success"][0]
+    for prompt_type in ("rewrite", "paraphrase"):
+        margins = prompt_margins[prompt_type]
+        out[f"post_{prompt_type}_prompt_instances"] = len(margins)
+        out[f"post_{prompt_type}_failure_prompt_instances"] = sum(
+            margin < 0.0 for margin in margins
+        )
+        out[f"post_{prompt_type}_min_margin"] = (
+            float(min(margins)) if margins else None
+        )
+    combined_margins = [
+        *prompt_margins["rewrite"],
+        *prompt_margins["paraphrase"],
+    ]
+    out["minimum_rewrite_paraphrase_margin"] = (
+        float(min(combined_margins))
+        if combined_margins
+        else None
+    )
 
     return out
+
+
+def _minimum_margin_from_raw(metric_data):
+    margins = []
+    for item in metric_data or []:
+        post = item.get("post", {})
+        for key in ("rewrite_prompts_probs", "paraphrase_prompts_probs"):
+            for values in post.get(key, []):
+                margins.append(
+                    float(values["target_new"])
+                    - float(values["target_true"])
+                )
+    return min(margins) if margins else None
+
+
+def build_post_reload_acceptance_gate(
+    result,
+    *,
+    max_forget_eff=0.0,
+    max_forget_gen=0.0,
+    min_forget_margin=0.1,
+):
+    """Validate a serialized/reloaded checkpoint against strict forget gates."""
+    thresholds = {
+        "max_forget_eff": float(max_forget_eff),
+        "max_forget_gen": float(max_forget_gen),
+        "min_forget_margin": float(min_forget_margin),
+    }
+    if any(
+        not math.isfinite(value) or value < 0.0
+        for value in thresholds.values()
+    ):
+        raise ValueError(
+            "Post-reload acceptance thresholds must be finite and non-negative"
+        )
+
+    forget = result.get("forget", result)
+    eff = float(forget["Eff"])
+    gen = float(forget["Gen"])
+    minimum_margin = forget.get("minimum_rewrite_paraphrase_margin")
+    if minimum_margin is None:
+        minimum_margin = _minimum_margin_from_raw(result.get("forget_raw", []))
+    minimum_margin = (
+        None if minimum_margin is None else float(minimum_margin)
+    )
+    observed = {
+        "forget_eff": eff,
+        "forget_gen": gen,
+        "minimum_rewrite_paraphrase_margin": minimum_margin,
+        "rewrite_failure_prompt_instances": forget.get(
+            "post_rewrite_failure_prompt_instances"
+        ),
+        "paraphrase_failure_prompt_instances": forget.get(
+            "post_paraphrase_failure_prompt_instances"
+        ),
+    }
+    checks = {
+        "forget_eff_within_limit": (
+            math.isfinite(eff) and eff <= thresholds["max_forget_eff"]
+        ),
+        "forget_gen_within_limit": (
+            math.isfinite(gen) and gen <= thresholds["max_forget_gen"]
+        ),
+        "forget_margin_meets_floor": (
+            minimum_margin is not None
+            and math.isfinite(minimum_margin)
+            and minimum_margin >= thresholds["min_forget_margin"]
+        ),
+    }
+    failure_reasons = [
+        name for name, passed in checks.items() if not passed
+    ]
+    return {
+        "schema_version": 1,
+        "kind": "mcf_post_reload_acceptance",
+        "checkpoint_was_reloaded": True,
+        "thresholds": thresholds,
+        "observed": observed,
+        "checks": checks,
+        "passed": not failure_reasons,
+        "failure_reasons": failure_reasons,
+    }
 
 
 @torch.no_grad()
@@ -514,7 +623,34 @@ def main():
     ap.add_argument("--dtype", default="bfloat16")
     ap.add_argument("--device-map", default="auto")
     ap.add_argument("--skip-ppl", action="store_true")
+    ap.add_argument("--max-forget-eff", type=float, default=None)
+    ap.add_argument("--max-forget-gen", type=float, default=None)
+    ap.add_argument("--min-forget-margin", type=float, default=None)
+    ap.add_argument(
+        "--fail-if-gate-missed",
+        action="store_true",
+        help=(
+            "Exit with status 3 when the serialized/reloaded checkpoint misses "
+            "any configured forget acceptance threshold."
+        ),
+    )
     args = ap.parse_args()
+    gate_values = (
+        args.max_forget_eff,
+        args.max_forget_gen,
+        args.min_forget_margin,
+    )
+    if any(value is not None for value in gate_values) and not all(
+        value is not None for value in gate_values
+    ):
+        ap.error(
+            "--max-forget-eff, --max-forget-gen, and "
+            "--min-forget-margin must be supplied together"
+        )
+    if args.fail_if_gate_missed and not all(
+        value is not None for value in gate_values
+    ):
+        ap.error("--fail-if-gate-missed requires all forget gate thresholds")
 
     result = evaluate_model_dir_official(
         method="model",
@@ -537,9 +673,21 @@ def main():
     result["Spe"] = result["forget"]["Spe"]
     result["PPL"] = result["forget_PPL"]
     result["summary"] = result["forget"]
+    if all(value is not None for value in gate_values):
+        result["post_reload_acceptance"] = build_post_reload_acceptance_gate(
+            result,
+            max_forget_eff=args.max_forget_eff,
+            max_forget_gen=args.max_forget_gen,
+            min_forget_margin=args.min_forget_margin,
+        )
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
     print(json.dumps(result, indent=2))
+    if (
+        args.fail_if_gate_missed
+        and not result["post_reload_acceptance"]["passed"]
+    ):
+        raise SystemExit(3)
 
 
 if __name__ == "__main__":

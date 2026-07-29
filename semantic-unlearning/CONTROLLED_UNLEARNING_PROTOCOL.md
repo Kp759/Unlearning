@@ -161,14 +161,37 @@ Copy the relevant example and replace the base-model path:
 
 ```bash
 cp config/controlled_unlearning/mcf_setting5e_active.example.json \
-  config/controlled_unlearning/mcf_candidate_v1.json
+  config/controlled_unlearning/mcf_margin025_rank1.json
+cp config/controlled_unlearning/mcf_margin015_rank1.example.json \
+  config/controlled_unlearning/mcf_margin015_rank1.json
+cp config/controlled_unlearning/mcf_margin025_rank2.example.json \
+  config/controlled_unlearning/mcf_margin025_rank2.json
+cp config/controlled_unlearning/mcf_margin040_rank2.example.json \
+  config/controlled_unlearning/mcf_margin040_rank2.json
 ```
 
 Candidate templates:
 
 - `config/controlled_unlearning/mcf_setting5e_active.example.json`
+- `config/controlled_unlearning/mcf_margin015_rank1.example.json`
+- `config/controlled_unlearning/mcf_margin025_rank2.example.json`
+- `config/controlled_unlearning/mcf_margin040_rank2.example.json`
 - `config/controlled_unlearning/zsre_setting5e_active.example.json`
 - `config/controlled_unlearning/tofu_setting5e_active.example.json`
+
+The four MCF candidates form a preregistered safety-margin/rank sweep:
+
+| Candidate | Active margin | Repair rank |
+|---|---:|---:|
+| `mcf-margin015-rank1` | 0.15 | 1 |
+| `mcf-margin025-rank1` | 0.25 | 1 |
+| `mcf-margin025-rank2` | 0.25 | 2 |
+| `mcf-margin040-rank2` | 0.40 | 2 |
+
+Each uses 100 repair steps at learning rate 0.005, a 200-record retain
+calibration set, retain-hidden projection, and a required 0.10 post-reload
+forget margin. Copy all four templates and replace the exact same
+`base_model_path` before starting the search.
 
 Copy and edit the judge templates:
 
@@ -194,8 +217,10 @@ fold 0:
 ```bash
 python scripts/run_controlled_judge_guided_search.py \
   --development-bundle data/controlled_unlearning/mcf/fold_0/development.json \
-  --candidate-spec config/controlled_unlearning/mcf_candidate_v1.json \
-  --candidate-spec config/controlled_unlearning/mcf_candidate_v2.json \
+  --candidate-spec config/controlled_unlearning/mcf_margin015_rank1.json \
+  --candidate-spec config/controlled_unlearning/mcf_margin025_rank1.json \
+  --candidate-spec config/controlled_unlearning/mcf_margin025_rank2.json \
+  --candidate-spec config/controlled_unlearning/mcf_margin040_rank2.json \
   --judge-a-config config/controlled_unlearning/judge_a.json \
   --utility-tolerance 0.02 \
   --locality-tolerance 0.02 \
@@ -210,11 +235,16 @@ The search:
 4. discards that checkpoint, then applies every candidate to the same
    validation requests from a fresh Base;
 5. runs Judge A plus answer-probability/locality scoring;
-6. ranks forgetting by the strict fraction of facts that pass every validation
+6. for MCF, reloads every serialized candidate and rejects it before Judge A
+   unless `Eff = 0`, `Gen = 0`, and the minimum rewrite/paraphrase margin is
+   at least the candidate's preregistered `min_reloaded_forget_margin`;
+7. continues past explicitly recorded MCF gate rejections so the remaining
+   preregistered candidates can still be evaluated;
+8. ranks forgetting by the strict fraction of facts that pass every validation
    prompt, while rejecting candidates outside the predefined
    two-percentage-point utility/locality tolerance or the 0.98 utility
    answer-probability ratio; and
-7. writes `selection_receipt.json` without opening `final_apply.json` or
+9. writes `selection_receipt.json` without opening `final_apply.json` or
    `test.json`.
 
 Use the same command shape for ZsRE and TOFU by changing the bundle and
@@ -254,6 +284,10 @@ receipt. Only then does it open the locked Judge-B suite. It evaluates:
    the selection receipt.
 
 Base-reference or candidate test results have no code path back to repair.
+For MCF, final application also reloads the serialized checkpoint and enforces
+the frozen `Eff = 0`, `Gen = 0`, and minimum-margin contract before Judge-B
+prompts are opened. A miss stops the fold as a method failure; it never
+triggers test-guided repair.
 
 The evaluator preserves, per case:
 

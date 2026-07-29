@@ -27,6 +27,7 @@ from controlled_unlearning_protocol import (
     read_json,
     sha256_file,
     sha256_json,
+    validate_mcf_post_reload_acceptance,
     write_json,
 )
 
@@ -34,6 +35,24 @@ from controlled_unlearning_protocol import (
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 SETTING5E_MODE = "emb_lm_all_restore_post_training_true"
 TOFU_SOURCE_MODE = "emb_lm_all_tokens"
+MCF_POST_RELOAD_REJECTION_EXIT_CODE = 3
+
+
+class MCFPostReloadAcceptanceError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        checkpoint: Path,
+        evaluation_path: Path,
+        acceptance: Mapping[str, Any],
+    ) -> None:
+        super().__init__(
+            "Serialized/reloaded MCF checkpoint missed strict forget "
+            f"acceptance: {acceptance.get('failure_reasons')}"
+        )
+        self.checkpoint = Path(checkpoint)
+        self.evaluation_path = Path(evaluation_path)
+        self.acceptance = dict(acceptance)
 
 
 MCF_SETTING5_ALLOWED = {
@@ -333,6 +352,7 @@ def _run_mcf(
     materialized: Mapping[str, Path],
     counts: Mapping[str, Any],
     seed: int,
+    stage: str,
     output_dir: Path,
     dry_run: bool,
     commands: List[List[str]],
@@ -391,6 +411,7 @@ def _run_mcf(
         "retain_calibration_seed",
         "repair_rank",
         "project_away_retain_hidden",
+        "min_reloaded_forget_margin",
         "skip_ppl",
     }
     unknown = sorted(set(repair_options) - allowed_repair)
@@ -406,6 +427,9 @@ def _run_mcf(
             "FORGET_NUM": str(counts["forget_count"]),
             "RETAIN_NUM": str(counts["retain_count"]),
             "SKIP_PPL": "1",
+            "REQUIRE_POST_RELOAD_ZERO": (
+                "1" if stage in {"validation", "final_apply"} else "0"
+            ),
         }
     )
     env_names = {
@@ -423,6 +447,7 @@ def _run_mcf(
         "retain_calibration_seed": "RETAIN_CALIBRATION_SEED",
         "repair_rank": "REPAIR_RANK",
         "project_away_retain_hidden": "PROJECT_AWAY_RETAIN_HIDDEN",
+        "min_reloaded_forget_margin": "MIN_RELOADED_FORGET_MARGIN",
         "skip_ppl": "SKIP_PPL",
     }
     for key, value in repair_options.items():
@@ -440,12 +465,39 @@ def _run_mcf(
     if not dry_run:
         if not checkpoint.exists():
             raise FileNotFoundError(f"Missing MCF Setting 5e checkpoint {checkpoint}")
-        subprocess.run(
-            repair_command,
-            cwd=PROJECT_DIR,
-            env=environment,
-            check=True,
-        )
+        try:
+            subprocess.run(
+                repair_command,
+                cwd=PROJECT_DIR,
+                env=environment,
+                check=True,
+            )
+        except subprocess.CalledProcessError as error:
+            evaluation_path = repair_dir / "official_eval_selected.json"
+            selected_path = repair_dir / "selected_candidate.json"
+            if (
+                error.returncode == MCF_POST_RELOAD_REJECTION_EXIT_CODE
+                and evaluation_path.exists()
+                and selected_path.exists()
+            ):
+                official = read_json(evaluation_path)
+                acceptance = official.get("post_reload_acceptance")
+                if (
+                    isinstance(acceptance, Mapping)
+                    and acceptance.get("kind")
+                    == "mcf_post_reload_acceptance"
+                    and not bool(acceptance.get("passed"))
+                ):
+                    selected = read_json(selected_path)
+                    checkpoint_path = Path(selected["checkpoint"])
+                    if not checkpoint_path.is_absolute():
+                        checkpoint_path = PROJECT_DIR / checkpoint_path
+                    raise MCFPostReloadAcceptanceError(
+                        checkpoint=checkpoint_path.resolve(),
+                        evaluation_path=evaluation_path.resolve(),
+                        acceptance=acceptance,
+                    ) from error
+            raise
         selected = read_json(repair_dir / "selected_candidate.json")
         selected_path = Path(selected["checkpoint"])
         if not selected_path.is_absolute():
@@ -461,6 +513,7 @@ def _run_zsre(
     materialized: Mapping[str, Path],
     counts: Mapping[str, Any],
     seed: int,
+    stage: str,
     output_dir: Path,
     dry_run: bool,
     commands: List[List[str]],
@@ -508,6 +561,7 @@ def _run_tofu(
     materialized: Mapping[str, Path],
     counts: Mapping[str, Any],
     seed: int,
+    stage: str,
     output_dir: Path,
     dry_run: bool,
     commands: List[List[str]],
@@ -751,23 +805,112 @@ def main() -> None:
         "zsre": _run_zsre,
         "tofu": _run_tofu,
     }
-    selected_checkpoint = runners[bundle["dataset"]](
-        python=args.python,
-        spec=spec,
-        materialized=materialized,
-        counts=materialized_metadata,
-        seed=int(bundle["seed"]),
-        output_dir=output_dir,
-        dry_run=args.dry_run,
-        commands=commands,
-    )
-    plan["commands"] = [
-        {
-            "argv": command,
-            "shell_rendering_for_review": shlex.join(command),
+
+    def rendered_commands() -> List[Dict[str, Any]]:
+        return [
+            {
+                "argv": command,
+                "shell_rendering_for_review": shlex.join(command),
+            }
+            for command in commands
+        ]
+
+    try:
+        selected_checkpoint = runners[bundle["dataset"]](
+            python=args.python,
+            spec=spec,
+            materialized=materialized,
+            counts=materialized_metadata,
+            seed=int(bundle["seed"]),
+            stage=args.stage,
+            output_dir=output_dir,
+            dry_run=args.dry_run,
+            commands=commands,
+        )
+    except MCFPostReloadAcceptanceError as error:
+        plan["commands"] = rendered_commands()
+        plan["status"] = "rejected"
+        plan["selected_checkpoint"] = str(error.checkpoint)
+        plan["post_reload_acceptance"] = error.acceptance
+        write_json(output_dir / "run_plan.json", plan)
+        rejection_receipt = {
+            "schema_version": 1,
+            "kind": "controlled_model_application_receipt",
+            "status": "rejected",
+            "phase": args.phase,
+            "stage": args.stage,
+            "protocol_id": bundle["protocol_id"],
+            "dataset": bundle["dataset"],
+            "fold": bundle["fold"],
+            "bundle_sha256": bundle["bundle_sha256"],
+            "final_apply_bundle_sha256": (
+                bundle["bundle_sha256"]
+                if args.phase == "final_apply"
+                else None
+            ),
+            "test_bundle_sha256": (
+                selection_receipt.get("test_bundle_sha256")
+                if selection_receipt is not None
+                else None
+            ),
+            "candidate_id": spec["candidate_id"],
+            "candidate_spec_sha256": sha256_json(spec),
+            "selection_receipt_sha256": (
+                selection_receipt.get("receipt_sha256")
+                if selection_receipt is not None
+                else None
+            ),
+            "base_model_identity": _public_model_identity(
+                Path(str(spec["base_model_path"]))
+            ),
+            "attempted_checkpoint": str(error.checkpoint),
+            "attempted_checkpoint_identity": (
+                _public_model_identity(error.checkpoint)
+                if error.checkpoint.exists()
+                else None
+            ),
+            "post_reload_evaluation": str(error.evaluation_path),
+            "post_reload_acceptance": error.acceptance,
+            "started_from_fresh_base": True,
+            "judge_b_prompts_or_results_used": False,
+            "test_results_used_for_repair": False,
+            "commands": plan["commands"],
+            "dry_run": False,
         }
-        for command in commands
-    ]
+        unhashed = dict(rejection_receipt)
+        rejection_receipt["receipt_sha256"] = sha256_json(unhashed)
+        receipt_path = output_dir / "application_receipt.json"
+        write_json(receipt_path, rejection_receipt)
+        print(f"Wrote rejected application receipt to {receipt_path}")
+        raise SystemExit(MCF_POST_RELOAD_REJECTION_EXIT_CODE) from error
+
+    plan["commands"] = rendered_commands()
+    post_reload_acceptance = None
+    if (
+        not args.dry_run
+        and bundle["dataset"] == "mcf"
+        and args.stage in {"validation", "final_apply"}
+    ):
+        evaluation_path = (
+            output_dir / "active_repair" / "official_eval_selected.json"
+        )
+        if not evaluation_path.exists():
+            raise FileNotFoundError(
+                "MCF post-reload official evaluation is missing: "
+                f"{evaluation_path}"
+            )
+        post_reload_acceptance = read_json(evaluation_path).get(
+            "post_reload_acceptance"
+        )
+        try:
+            validate_mcf_post_reload_acceptance(post_reload_acceptance)
+        except ValueError as error:
+            raise RuntimeError(
+                "MCF validation/final application lacks a passing "
+                "post-reload acceptance gate"
+            ) from error
+    plan["status"] = "accepted"
+    plan["post_reload_acceptance"] = post_reload_acceptance
     plan["selected_checkpoint"] = str(selected_checkpoint)
     write_json(output_dir / "run_plan.json", plan)
     if not args.dry_run and not selected_checkpoint.exists():
@@ -777,6 +920,7 @@ def main() -> None:
     receipt = {
         "schema_version": 1,
         "kind": "controlled_model_application_receipt",
+        "status": "accepted",
         "phase": args.phase,
         "stage": args.stage,
         "protocol_id": bundle["protocol_id"],
@@ -809,6 +953,7 @@ def main() -> None:
             if not args.dry_run
             else None
         ),
+        "post_reload_acceptance": post_reload_acceptance,
         "started_from_fresh_base": True,
         "judge_b_prompts_or_results_used": False,
         "test_results_used_for_repair": False,

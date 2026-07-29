@@ -38,6 +38,7 @@ from controlled_unlearning_protocol import (
     sha256_json,
     safe_ratio,
     stable_stratified_manual_audit_sample,
+    validate_mcf_post_reload_acceptance,
     write_json,
 )
 
@@ -841,6 +842,8 @@ def _validate_application_receipt(
     unhashed.pop("receipt_sha256", None)
     if not stored_hash or sha256_json(unhashed) != stored_hash:
         raise ValueError("Application receipt hash mismatch")
+    if receipt.get("status") != "accepted":
+        raise ValueError("Final evaluation requires an accepted application")
     expected = {
         "phase": "final_apply",
         "stage": "final_apply",
@@ -875,6 +878,10 @@ def _validate_application_receipt(
         raise ValueError("Application receipt does not prove a fresh-base run")
     if receipt.get("test_results_used_for_repair") is not False:
         raise ValueError("Application receipt permits test feedback")
+    if bundle["dataset"] == "mcf":
+        validate_mcf_post_reload_acceptance(
+            receipt.get("post_reload_acceptance")
+        )
 
 
 def _manual_audit_status(
