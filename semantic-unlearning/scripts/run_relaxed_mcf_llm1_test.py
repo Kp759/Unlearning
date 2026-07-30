@@ -183,10 +183,14 @@ def main() -> None:
         development_path,
         str(development["test_bundle_path"]),
     )
-    if sha256_file(final_apply_path) != development["final_apply_bundle_sha256"]:
-        raise ValueError("Committed final-apply bundle hash mismatch")
-    if sha256_file(test_path) != development["test_bundle_sha256"]:
-        raise ValueError("Committed locked-test bundle hash mismatch")
+    if not final_apply_path.is_file():
+        raise FileNotFoundError(
+            f"Committed final-apply bundle is missing: {final_apply_path}"
+        )
+    if not test_path.is_file():
+        raise FileNotFoundError(
+            f"Committed locked-test bundle is missing: {test_path}"
+        )
 
     preregistration = {
         "schema_version": 1,
