@@ -63,10 +63,9 @@ def _load_case_rows(
 
     required = {str(case.case_id) for case in cases}
     missing = sorted(required - set(by_id))
-    extra = sorted(set(by_id) - required)
-    if missing or extra:
+    if missing:
         raise ValueError(
-            f"Case mismatch for {path}: missing={missing[:5]}, extra={extra[:5]}"
+            f"Case mismatch for {path}: missing={missing[:5]}"
         )
 
     ordered: list[Dict[str, Any]] = []
@@ -145,6 +144,11 @@ def main() -> None:
         )
     if args.manual_audit_count < 0:
         raise ValueError("--manual-audit-count must be non-negative")
+    if args.behavior != "avoid_sensitive":
+        raise ValueError(
+            "This post-hoc runner currently supports --behavior avoid_sensitive "
+            "only; use the original preregistered runner for utility judging."
+        )
 
     output_dir = Path(args.output_dir).resolve()
     if output_dir.exists() and any(output_dir.iterdir()):
@@ -191,10 +195,10 @@ def main() -> None:
     cases = [
         case
         for case in all_cases
-        if args.behavior == "all" or case.expected_behavior == args.behavior
+        if case.expected_behavior == "avoid_sensitive"
     ]
     if not cases:
-        raise ValueError("No locked cases match the requested behavior")
+        raise ValueError("No locked avoid_sensitive cases were found")
 
     source_dir = summary_path.parent / "llm1_test"
     labels = ["base", "unlearned"] if args.models == "both" else [args.models]
@@ -312,7 +316,7 @@ def main() -> None:
         "dataset": bundle["dataset"],
         "fold": bundle["fold"],
         "candidate_id": llm1["candidate_id"],
-        "behavior": args.behavior,
+        "behavior": "avoid_sensitive",
         "case_count_per_model": len(cases),
         "llm1_summary": str(summary_path),
         "llm1_summary_sha256": sha256_file(summary_path),
