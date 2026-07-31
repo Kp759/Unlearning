@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Mapping, Sequence
 
@@ -38,6 +39,13 @@ FORGET_LABELS = (
     "HALLUCINATION",
     "AMBIGUOUS",
 )
+
+
+def _new_judge_b_v2_output_dir(root: Path) -> Path:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    output_dir = root / f"judge_b_v2_{timestamp}"
+    output_dir.mkdir(parents=True, exist_ok=False)
+    return output_dir
 
 
 def _resolve_relative(anchor: Path, value: str) -> Path:
@@ -123,7 +131,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--llm1-summary", required=True)
     parser.add_argument("--judge-b-config", required=True)
-    parser.add_argument("--output-dir", required=True)
+    parser.add_argument(
+        "--output-dir",
+        required=True,
+        help=(
+            "Parent directory under which a new timestamped "
+            "judge_b_v2_<UTC timestamp> directory is created"
+        ),
+    )
     parser.add_argument(
         "--models",
         choices=["base", "unlearned", "both"],
@@ -150,10 +165,7 @@ def main() -> None:
             "only; use the original preregistered runner for utility judging."
         )
 
-    output_dir = Path(args.output_dir).resolve()
-    if output_dir.exists() and any(output_dir.iterdir()):
-        raise RuntimeError("Judge-B output directory must be new and empty")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_root = Path(args.output_dir).resolve()
 
     summary_path = Path(args.llm1_summary).resolve()
     llm1 = read_json(summary_path)
@@ -218,6 +230,7 @@ def main() -> None:
     )
     audit_ids = {str(row["case_id"]) for row in planned_audit}
 
+    output_dir = _new_judge_b_v2_output_dir(output_root)
     model_results: Dict[str, Any] = {}
     judged_by_label: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
@@ -307,8 +320,8 @@ def main() -> None:
     write_jsonl(audit_path, audit_rows)
 
     final_summary = {
-        "schema_version": 1,
-        "kind": "relaxed_mcf_posthoc_judge_b_evaluation",
+        "schema_version": 2,
+        "kind": "relaxed_mcf_posthoc_judge_b_v2_evaluation",
         "protocol_mode": "relaxed_report_only_posthoc_judge_b",
         "posthoc": True,
         "not_originally_preregistered": True,
@@ -323,6 +336,7 @@ def main() -> None:
         "test_bundle": str(test_path),
         "test_bundle_sha256": bundle["bundle_sha256"],
         "judge": public_judge_config(judge_config),
+        "prompt_version": judge_config.prompt_version,
         "judge_request_count": judge.request_count,
         "models": model_results,
         "comparison": comparison,
