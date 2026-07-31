@@ -124,6 +124,26 @@ def _summary(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
             if n
             else None
         ),
+        "judge_validation_failure_count": sum(
+            1
+            for row in rows
+            if bool(row["judgment"].get("validation_failed", False))
+        ),
+        "judge_validation_failure_rate": (
+            sum(
+                1
+                for row in rows
+                if bool(
+                    row["judgment"].get(
+                        "validation_failed",
+                        False,
+                    )
+                )
+            )
+            / n
+            if n
+            else None
+        ),
     }
 
 
