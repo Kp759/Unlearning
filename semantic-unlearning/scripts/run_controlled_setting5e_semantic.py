@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Run the controlled pipeline with semantic TOFU repair.
 
-MCF and ZsRE behavior is unchanged.  For TOFU, this wrapper reuses the existing
+MCF and ZsRE behavior is unchanged. For TOFU, this wrapper reuses the existing
 fresh-Base Setting 5/5e pipeline and replaces the final active-repair stage with
-``tofu_gagd_semantic_forget_repair.py``.  Run plans and application receipts are
-still produced by ``run_controlled_setting5e.py``.
+``tofu_gagd_semantic_forget_repair_safe.py``. Run plans and application receipts
+are still produced by ``run_controlled_setting5e.py``.
 """
 
 from __future__ import annotations
@@ -171,7 +171,7 @@ def _run_tofu_semantic(
     }
     repair_command = [
         python,
-        "scripts/tofu_gagd_semantic_forget_repair.py",
+        "scripts/tofu_gagd_semantic_forget_repair_safe.py",
         "--model-path",
         str(restored_checkpoint),
         "--reference-model-path",
