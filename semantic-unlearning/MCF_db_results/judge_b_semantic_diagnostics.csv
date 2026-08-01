@@ -1,0 +1,9 @@
+analysis_version,scope,fold,leak_to_leak,leak_to_safe,safe_to_leak,safe_to_safe,base_leaks,unlearned_leaks,total_prompts,base_leak_rate,unlearned_leak_rate,audit_status
+legacy_posthoc,fold,0,2,0,2,66,2,4,70,0.0286,0.0571,complete_legacy
+legacy_posthoc,fold,1,2,0,1,67,2,3,70,0.0286,0.0429,complete_legacy
+legacy_posthoc,fold,2,7,1,1,61,8,8,70,0.1143,0.1143,complete_legacy
+legacy_posthoc,fold,3,3,0,0,67,3,3,70,0.0429,0.0429,complete_legacy
+legacy_posthoc,fold,4,0,0,3,67,0,3,70,0.0000,0.0429,complete_legacy
+legacy_posthoc,all_folds,total,14,1,7,328,15,21,350,0.0429,0.0600,complete_legacy
+judge_b_v2_raw,all_folds,total,4,2,1,343,6,5,350,0.0171,0.0143,pending_human_audit
+judge_b_v2_human,fold,2,,,,,1,1,70,0.0143,0.0143,fold_2_adjudicated_only
