@@ -2,14 +2,15 @@
 """Run the existing ZsRE LLM1-only test with stop-on-Unknown decoding.
 
 This wrapper leaves the original evaluator unchanged for reproducibility. It
-patches the shared generation function at runtime so the single-token
-abstention answer ``Unknown`` is treated as an additional end-of-sequence token.
-The emitted Unknown token remains in the decoded response; generation stops
-before a second copy can be produced.
+patches the shared generation function at runtime so common single-token forms
+of the abstention answer ``Unknown`` are treated as additional end-of-sequence
+tokens. It also truncates the decoded response after the first textual Unknown
+as a final safeguard for multi-token or casing variants.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Sequence, Tuple
 
 import evaluate_controlled_llm1_only as llm1_only
@@ -18,6 +19,16 @@ from controlled_unlearning_protocol import PromptCase
 
 
 ABSTENTION_TEXT = "Unknown"
+ABSTENTION_VARIANTS = (
+    "Unknown",
+    " Unknown",
+    "\nUnknown",
+    "\tUnknown",
+    "unknown",
+    " unknown",
+    "\nunknown",
+    "\tunknown",
+)
 
 
 def _flatten_token_ids(value: Any) -> List[int]:
@@ -28,39 +39,59 @@ def _flatten_token_ids(value: Any) -> List[int]:
     return [int(token_id) for token_id in value]
 
 
-def _resolve_stop_ids(tokenizer: Any) -> Tuple[List[int], int]:
-    encoded = tokenizer(
-        ABSTENTION_TEXT,
-        add_special_tokens=False,
-    )
-    unknown_ids = _flatten_token_ids(encoded["input_ids"])
-    if len(unknown_ids) != 1:
-        raise ValueError(
-            f"{ABSTENTION_TEXT!r} must tokenize to exactly one token; "
-            f"received {unknown_ids}"
-        )
-    unknown_token_id = unknown_ids[0]
+def _append_eos_ids(values: List[int], candidate: Any) -> None:
+    if isinstance(candidate, int):
+        values.append(int(candidate))
+    elif isinstance(candidate, (list, tuple)):
+        values.extend(int(token_id) for token_id in candidate)
 
+
+def _resolve_stop_ids(tokenizer: Any) -> Tuple[List[int], List[int]]:
     stop_ids: List[int] = []
-    configured_eos = getattr(tokenizer, "eos_token_id", None)
-    if isinstance(configured_eos, int):
-        stop_ids.append(int(configured_eos))
-    elif isinstance(configured_eos, (list, tuple)):
-        stop_ids.extend(int(token_id) for token_id in configured_eos)
-
-    model_eos = getattr(
-        getattr(tokenizer, "generation_config", None),
-        "eos_token_id",
-        None,
+    _append_eos_ids(stop_ids, getattr(tokenizer, "eos_token_id", None))
+    _append_eos_ids(
+        stop_ids,
+        getattr(
+            getattr(tokenizer, "generation_config", None),
+            "eos_token_id",
+            None,
+        ),
     )
-    if isinstance(model_eos, int):
-        stop_ids.append(int(model_eos))
-    elif isinstance(model_eos, (list, tuple)):
-        stop_ids.extend(int(token_id) for token_id in model_eos)
 
-    stop_ids.append(unknown_token_id)
+    unknown_token_ids: List[int] = []
+    for variant in ABSTENTION_VARIANTS:
+        encoded = tokenizer(
+            variant,
+            add_special_tokens=False,
+        )
+        token_ids = _flatten_token_ids(encoded["input_ids"])
+        if len(token_ids) == 1:
+            unknown_token_ids.append(token_ids[0])
+
+    unknown_token_ids = list(dict.fromkeys(unknown_token_ids))
+    if not unknown_token_ids:
+        raise ValueError(
+            "No configured Unknown variant tokenized to exactly one token. "
+            "Decoded truncation cannot prevent wasted generation by itself."
+        )
+
+    stop_ids.extend(unknown_token_ids)
     stop_ids = list(dict.fromkeys(stop_ids))
-    return stop_ids, unknown_token_id
+    return stop_ids, unknown_token_ids
+
+
+def _truncate_after_first_unknown(text: str) -> Tuple[str, bool]:
+    """Keep all text through the first Unknown occurrence and drop the rest."""
+
+    match = re.search(r"unknown", str(text), flags=re.IGNORECASE)
+    if match is None:
+        return str(text).strip(), False
+
+    prefix = str(text)[: match.start()].rstrip()
+    truncated = (
+        f"{prefix} {ABSTENTION_TEXT}" if prefix else ABSTENTION_TEXT
+    )
+    return truncated.strip(), True
 
 
 def generate_responses_stop_on_unknown(
@@ -72,19 +103,23 @@ def generate_responses_stop_on_unknown(
     max_new_tokens: int,
     use_chat_template: bool,
 ) -> List[Dict[str, Any]]:
-    """Generate greedily and stop after the first emitted Unknown token."""
+    """Generate greedily and expose at most one textual Unknown."""
 
     import torch
 
-    stop_ids, unknown_token_id = _resolve_stop_ids(tokenizer)
-    decoded_unknown = tokenizer.decode(
-        [unknown_token_id],
-        skip_special_tokens=False,
-    )
+    stop_ids, unknown_token_ids = _resolve_stop_ids(tokenizer)
+    decoded_unknown_tokens = {
+        token_id: tokenizer.decode(
+            [token_id],
+            skip_special_tokens=False,
+        )
+        for token_id in unknown_token_ids
+    }
     print(
         "Stop-on-Unknown decoding enabled: "
-        f"token_id={unknown_token_id}, decoded={decoded_unknown!r}, "
-        f"eos_token_ids={stop_ids}"
+        f"unknown_token_ids={decoded_unknown_tokens}, "
+        f"eos_token_ids={stop_ids}, "
+        "decoded_truncation=True"
     )
 
     rows: List[Dict[str, Any]] = []
@@ -128,10 +163,13 @@ def generate_responses_stop_on_unknown(
 
         for case, token_ids in zip(batch, generated):
             continuation = token_ids[input_width:]
-            response = tokenizer.decode(
+            raw_response = tokenizer.decode(
                 continuation,
                 skip_special_tokens=True,
             ).strip()
+            response, text_truncated = _truncate_after_first_unknown(
+                raw_response
+            )
             rows.append(
                 {
                     "case_id": case.case_id,
@@ -141,8 +179,10 @@ def generate_responses_stop_on_unknown(
                         "max_new_tokens": max_new_tokens,
                         "stop_on_unknown": True,
                         "unknown_text": ABSTENTION_TEXT,
-                        "unknown_token_id": unknown_token_id,
+                        "unknown_token_ids": unknown_token_ids,
                         "eos_token_ids": stop_ids,
+                        "decoded_truncation": True,
+                        "decoded_response_was_truncated": text_truncated,
                     },
                 }
             )
