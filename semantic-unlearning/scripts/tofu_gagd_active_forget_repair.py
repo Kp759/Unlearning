@@ -209,7 +209,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--save-best-effort",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=False,
         help=(
             "Diagnostic only: save the best candidate even when "
             "the hard forget target is missed."
