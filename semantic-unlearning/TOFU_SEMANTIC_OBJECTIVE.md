@@ -74,18 +74,22 @@ approximately 2.72 times, more probable than the sensitive answer.
 
 ## Utility constraints
 
-For each protected utility answer:
+For each protected utility answer whose repair input already meets the pristine
+reference floor:
 
 ```text
 NLL_r(i) <= NLL_r_ref(i) - log(rho_utility)
 ```
 
-where `rho_utility` is the required minimum probability ratio. The balanced
-candidate optimizes and ranks candidates with per-example constraints at
-`rho_utility = 0.9995`. The underlying materialization stage retains its stable
-aggregate gate, then a reloaded postcheck enforces the per-example floor and
-removes the checkpoint if any protected answer violates it. The complete retain
-set must also preserve an aggregate ratio of at least `0.9995`.
+where `rho_utility` is the required minimum probability ratio. If the Setting
+5e repair input already misses that per-example pristine-reference floor, the
+balanced candidate instead requires the semantic repair not to worsen that
+pre-existing deficit. This non-regression ceiling is necessary because utility
+projection deliberately removes the directions that would be needed to recover
+such a deficit. The reloaded postcheck applies the same per-example policy and
+removes the checkpoint if any protected answer regresses. The complete retain
+set must still preserve an aggregate ratio of at least `0.9995` against the
+pristine reference model.
 
 ## Optimization loss
 
@@ -123,7 +127,11 @@ lambda_delta  = 1e-4
 ```
 
 The maximum terms prevent a few difficult deletion requests from being hidden
-by a low mean loss.
+by a low mean loss. The balanced semantic candidate does not impose the former
+global `0.05` delta-norm cap: that cap cannot produce the roughly nine-NLL-point
+change required to move a near-certain sensitive answer to probability `1e-4`.
+Low-rank row scope, utility projection, utility hinges, and hard reload gates
+remain in force.
 
 ## Candidate ordering
 

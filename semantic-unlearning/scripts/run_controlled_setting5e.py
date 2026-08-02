@@ -158,6 +158,7 @@ TOFU_REPAIR_ALLOWED = {
     "min_utility_probability_ratio",
     "utility_nll_tolerance",
     "utility_constraint_mode",
+    "utility_reference_policy",
     "require_input_retain_target",
     "forget_hinge_weight",
     "hardest_forget_hinge_weight",

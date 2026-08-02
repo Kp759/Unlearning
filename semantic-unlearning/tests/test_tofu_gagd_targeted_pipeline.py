@@ -253,11 +253,25 @@ class TOFUTargetedPipelineTests(unittest.TestCase):
         self.assertEqual(args.target_forget_answer_probability, 2e-5)
         self.assertEqual(args.min_utility_probability_ratio, 0.9999998)
         self.assertEqual(args.utility_constraint_mode, "aggregate")
+        self.assertEqual(args.utility_reference_policy, "reference")
         self.assertEqual(args.repair_steps, 5000)
         self.assertEqual(args.repair_lr, 2e-2)
         self.assertEqual(args.repair_rank, 64)
         self.assertEqual(args.utility_projection_rank, 64)
         self.assertGreater(args.hardest_forget_hinge_weight, 0)
+
+    def test_non_regression_utility_policy_preserves_existing_deficits(self):
+        reference = torch.tensor([1.0, 1.0])
+        baseline = torch.tensor([0.9, 1.2])
+
+        required = ACTIVE.build_required_utility_nll(
+            reference,
+            baseline,
+            nll_tolerance=0.1,
+            reference_policy="non-regression",
+        )
+
+        self.assertTrue(torch.equal(required, torch.tensor([1.1, 1.2])))
 
     def test_result_parser_defaults_to_requested_joint_target(self):
         args = RESULTS.build_parser().parse_args(["--output-dir", "out"])

@@ -134,6 +134,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--utility-reference-policy",
+        choices=["reference", "non-regression"],
+        default="reference",
+        help=(
+            "Reference requires every protected example to recover the "
+            "requested floor relative to the pristine model. Non-regression "
+            "uses that floor when the repair input already passes it and "
+            "otherwise prevents the repair from worsening the pre-existing "
+            "input deficit."
+        ),
+    )
+    parser.add_argument(
         "--require-input-retain-target",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -306,6 +318,24 @@ def probability_ratio_nll_tolerance(
     if not math.isfinite(explicit_tolerance) or explicit_tolerance < 0:
         raise ValueError("explicit_tolerance must be finite and non-negative")
     return min(ratio_tolerance, explicit_tolerance)
+
+
+def build_required_utility_nll(
+    reference_nll: torch.Tensor,
+    baseline_nll: torch.Tensor,
+    *,
+    nll_tolerance: float,
+    reference_policy: str,
+) -> torch.Tensor:
+    """Build utility NLL ceilings without making frozen deficits infeasible."""
+    if reference_nll.shape != baseline_nll.shape:
+        raise ValueError("Reference and baseline utility NLL tensors must match")
+    reference_ceiling = reference_nll.to(baseline_nll) + float(nll_tolerance)
+    if reference_policy == "reference":
+        return reference_ceiling
+    if reference_policy == "non-regression":
+        return torch.maximum(reference_ceiling, baseline_nll)
+    raise ValueError(f"Unknown utility reference policy: {reference_policy}")
 
 
 def mean_answer_probability(nll: torch.Tensor) -> float:
@@ -800,8 +830,11 @@ def main() -> None:
         target_probability=args.target_forget_answer_probability,
         target_nll_buffer=args.target_nll_buffer,
     )
-    required_utility_nll = (
-        reference_utility_nll + effective_utility_nll_tolerance
+    required_utility_nll = build_required_utility_nll(
+        reference_utility_nll,
+        baseline_utility_nll,
+        nll_tolerance=effective_utility_nll_tolerance,
+        reference_policy=args.utility_reference_policy,
     )
     baseline_full_retain_ratio = mean_answer_probability_ratio(
         baseline_full_retain_nll,

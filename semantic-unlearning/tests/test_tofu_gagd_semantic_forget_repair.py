@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+import sys
+
 import torch
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS_DIR))
 
 import tofu_gagd_neighborhood_confidence as tofu
 from tofu_gagd_semantic_forget_repair import (
@@ -103,3 +110,19 @@ def test_candidate_priority_prefers_semantic_and_utility_safety() -> None:
     }
 
     assert candidate_priority(safe) < candidate_priority(unsafe)
+
+
+def test_balanced_candidate_uses_non_regression_without_tiny_norm_cap() -> None:
+    config_path = (
+        Path(__file__).resolve().parents[1]
+        / "config"
+        / "controlled_unlearning"
+        / "tofu_semantic_balanced_fold0.json"
+    )
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+
+    assert config["candidate_id"] == "tofu-semantic-balanced-fold0-v2"
+    assert config["active_repair"]["utility_reference_policy"] == (
+        "non-regression"
+    )
+    assert config["active_repair"]["max_delta_norm"] is None

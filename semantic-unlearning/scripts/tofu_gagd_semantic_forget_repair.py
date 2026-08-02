@@ -37,6 +37,7 @@ ORIGINAL_LOAD_INSTANCES = tofu.load_tofu_repair_instances
 class _State:
     args: Optional[argparse.Namespace] = None
     baseline_abstention_nll: Optional[torch.Tensor] = None
+    baseline_normal_utility_nll: Optional[torch.Tensor] = None
 
 
 STATE = _State()
@@ -375,10 +376,15 @@ def repair_metrics(
         if reference_utility_nll is not None
         else None
     )
+    current_normal_utility = _select(utility_nll, normal_positions)
+    if STATE.baseline_normal_utility_nll is None:
+        STATE.baseline_normal_utility_nll = (
+            current_normal_utility.detach().clone()
+        )
     metrics = ORIGINAL_REPAIR_METRICS(
         forget_nll,
         required_forget_nll,
-        _select(utility_nll, normal_positions),
+        current_normal_utility,
         _select(required_utility_nll, normal_positions),
         normal_instances,
         delta_rows,
@@ -483,13 +489,32 @@ def _postcheck() -> None:
         batch_size=args.batch_size,
         max_length=args.max_length,
     ).detach().to(candidate_utility_nll)
-    per_example_utility_ratios = torch.exp(
+    baseline_utility_nll = STATE.baseline_normal_utility_nll
+    if baseline_utility_nll is None:
+        raise RuntimeError("Missing repair-input utility NLL for postcheck")
+    baseline_utility_nll = baseline_utility_nll.to(candidate_utility_nll)
+    effective_utility_nll_tolerance = (
+        repair.probability_ratio_nll_tolerance(
+            args.min_utility_probability_ratio,
+            args.utility_nll_tolerance,
+        )
+    )
+    required_utility_nll = repair.build_required_utility_nll(
+        reference_utility_nll,
+        baseline_utility_nll,
+        nll_tolerance=effective_utility_nll_tolerance,
+        reference_policy=args.utility_reference_policy,
+    )
+    reference_utility_ratios = torch.exp(
         reference_utility_nll - candidate_utility_nll
+    )
+    input_utility_ratios = torch.exp(
+        baseline_utility_nll - candidate_utility_nll
     )
     per_example_utility_violations = int(
         (
-            per_example_utility_ratios + 1e-12
-            < args.min_utility_probability_ratio
+            candidate_utility_nll
+            > required_utility_nll + args.comparison_tolerance
         ).sum().cpu()
     )
     preference_passed = bool(
@@ -514,11 +539,26 @@ def _postcheck() -> None:
             "per_example_utility_violation_count": (
                 per_example_utility_violations
             ),
+            "utility_reference_policy": args.utility_reference_policy,
+            "minimum_reference_utility_probability_ratio": float(
+                reference_utility_ratios.min().cpu()
+            ),
+            "mean_reference_utility_probability_ratio": float(
+                reference_utility_ratios.mean().cpu()
+            ),
+            # Backward-compatible aliases retain their original reference-
+            # model meaning for existing report consumers.
             "minimum_per_example_utility_probability_ratio": float(
-                per_example_utility_ratios.min().cpu()
+                reference_utility_ratios.min().cpu()
             ),
             "mean_per_example_utility_probability_ratio": float(
-                per_example_utility_ratios.mean().cpu()
+                reference_utility_ratios.mean().cpu()
+            ),
+            "minimum_input_utility_probability_ratio": float(
+                input_utility_ratios.min().cpu()
+            ),
+            "mean_input_utility_probability_ratio": float(
+                input_utility_ratios.mean().cpu()
             ),
             "required_minimum_utility_probability_ratio": (
                 args.min_utility_probability_ratio
