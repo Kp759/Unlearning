@@ -92,6 +92,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device-map", choices=["single", "auto"], default="single")
     parser.add_argument("--skip-ppl", action="store_true")
     parser.add_argument(
+        "--save-candidate-checkpoint",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Save the materialized LM-head repair candidate before any rollback.",
+    )
+    parser.add_argument(
         "--save-selected-checkpoint",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -463,6 +469,31 @@ def main() -> None:
         and local_success
         and (gate_report["passed"] or not args.strict_utility_gates)
     )
+
+    # The model currently contains the exact materialized active-repair
+    # candidate. Preserve it before a rejected candidate is rolled back.
+    if args.save_candidate_checkpoint:
+        candidate_checkpoint = output_dir / "active_candidate_checkpoint"
+        repair.save_checkpoint(model, tok, candidate_checkpoint)
+        gagd.write_json(
+            candidate_checkpoint / "candidate_provenance.json",
+            {
+                "seed": args.seed,
+                "source_setting5_checkpoint": str(
+                    resolve(args.setting5_checkpoint)
+                ),
+                "candidate_scale": selected_scale,
+                "candidate_accepted": accepted,
+                "forget_Eff": candidate_result["forget"]["Eff"],
+                "forget_Gen": candidate_result["forget"]["Gen"],
+                "forget_Spe": candidate_result["forget"]["Spe"],
+                "PPL": candidate_result.get("forget_PPL"),
+                "note": (
+                    "Raw materialized LM-head repair candidate saved before "
+                    "strict-gate rollback."
+                ),
+            },
+        )
 
     if accepted:
         selected_result = copy.deepcopy(candidate_result)

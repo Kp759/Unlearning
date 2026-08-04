@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "dataset": "ZsRE",
+  "method": "Setting 5e plus exact-BF16 active LM-head repair candidate",
+  "base_model": "meta-llama/Llama-3.2-3B-Instruct",
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "forget_num": 50,
+  "retain_num": 1000,
+  "setting5e": {
+    "steps": 600,
+    "embedding_lr": 0.0001,
+    "lm_head_lr": 0.0001,
+    "forget_loss_weight": 2.0,
+    "retain_loss_weight": 1.0,
+    "margin": 1.0,
+    "post_training_vocabulary_restoration": true
+  },
+  "active_lm_head_repair": {
+    "neutral_target": "Unknown",
+    "neutral_token_id": 14109,
+    "repair_steps": 800,
+    "repair_lr": 0.005,
+    "repair_optimizer": "adamw",
+    "active_logit_margin": 0.25,
+    "selection_logit_margin": 0.05,
+    "repair_rank": 0,
+    "repair_l2_lambda": 1e-06,
+    "retain_calibration_num": 384,
+    "retain_calibration_seed": 1729,
+    "project_away_protected_hidden": true,
+    "candidate_scales": [
+      1.0,
+      0.875,
+      0.75,
+      0.625,
+      0.5,
+      0.375,
+      0.25,
+      0.1875,
+      0.125,
+      0.09375,
+      0.0625,
+      0.046875,
+      0.03125,
+      0.015625,
+      0.0078125,
+      0.0
+    ]
+  },
+  "evaluation": {
+    "dtype": "bfloat16",
+    "eval_batch_size": 8,
+    "cache_batch_size": 4,
+    "device_map": "single",
+    "utility_drop_tolerance_percentage_points": 0.1,
+    "maximum_ppl_ratio": 1.02,
+    "target_eff_max": 0.0,
+    "target_gen_max": 0.0,
+    "strict_utility_gates": true
+  },
+  "source_roots": {
+    "setting5e": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10",
+    "repair_candidates": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10"
+  }
+}
