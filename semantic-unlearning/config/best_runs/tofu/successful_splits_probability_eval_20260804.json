@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "record_id": "tofu-successful-splits-probability-eval-20260804",
+  "status": "FRESH_CHECKPOINT_REEVALUATION",
+  "dataset": "TOFU",
+  "evaluation_date": "2026-08-04",
+  "protocol": {
+    "name": "deterministic_probability_ratio_rescore",
+    "seed": 42,
+    "reference_model": "outputs/finetuned_model_3B_instruct",
+    "evaluator_components": [
+      "scripts/tofu_gagd_neighborhood_confidence.py",
+      "scripts/tofu_gagd_active_forget_repair.py"
+    ],
+    "metric_definition": "Mean clean-answer probability on the complete forget split and answer-probability ratios against the original full-TOFU reference model.",
+    "scope_note": "These are probability-ratio checkpoint metrics, not the full ECO-style TOFU truth-ratio/ROUGE evaluation."
+  },
+  "results_artifacts": {
+    "local_root": "outputs/tofu_successful_splits_eval_20260804",
+    "json": "outputs/tofu_successful_splits_eval_20260804/tofu_successful_probability_ratios.json",
+    "csv": "outputs/tofu_successful_splits_eval_20260804/tofu_successful_probability_ratios.csv",
+    "markdown": "outputs/tofu_successful_splits_eval_20260804/tofu_successful_probability_ratios.md"
+  },
+  "runs": [
+    {
+      "name": "Forget01",
+      "forget_split": "forget01",
+      "retain_split": "retain99",
+      "forget_count": 40,
+      "full_retain_count": 1000,
+      "checkpoint": "outputs/tofu_forget01_setting3_restore_repair_seed42/lm_head_repair_unique100_overlap000/checkpoint",
+      "config": "outputs/tofu_forget01_setting3_restore_repair_seed42/lm_head_repair_unique100_overlap000/config_used.json",
+      "fresh_eval": "outputs/tofu_successful_splits_eval_20260804/forget01/probability_ratio_eval.json",
+      "metrics": {
+        "forget_probability_mean": 9.6829042562e-09,
+        "forget_probability_max": 1.0623305258e-07,
+        "retain_probability_ratio": 0.9997282624,
+        "world_facts_probability_ratio": 0.9962049127,
+        "real_authors_probability_ratio": 0.9947001934,
+        "full_retain_probability_ratio": 0.9997276559
+      }
+    },
+    {
+      "name": "Forget05",
+      "forget_split": "forget05",
+      "retain_split": "retain95",
+      "forget_count": 200,
+      "full_retain_count": 1000,
+      "checkpoint": "outputs/tofu_setting3_5e_ultra_seed42/lm_head_repair_alpha000/checkpoint",
+      "config": "outputs/tofu_setting3_5e_ultra_seed42/lm_head_repair_alpha000/config_used.json",
+      "fresh_eval": "outputs/tofu_successful_splits_eval_20260804/forget05/probability_ratio_eval.json",
+      "metrics": {
+        "forget_probability_mean": 1.8976859792e-05,
+        "forget_probability_max": 2.5230229949e-04,
+        "retain_probability_ratio": 0.9995309114,
+        "world_facts_probability_ratio": 0.9987162352,
+        "real_authors_probability_ratio": 0.9994698763,
+        "full_retain_probability_ratio": 0.9995319671
+      }
+    },
+    {
+      "name": "Forget10",
+      "forget_split": "forget10",
+      "retain_split": "retain90",
+      "forget_count": 400,
+      "full_retain_count": 1000,
+      "checkpoint": "outputs/tofu_forget10_setting3_5e_repair_seed42/lm_head_repair_unique050_overlap000/checkpoint",
+      "config": "outputs/tofu_forget10_setting3_5e_repair_seed42/lm_head_repair_unique050_overlap000/config_used.json",
+      "fresh_eval": "outputs/tofu_successful_splits_eval_20260804/forget10/probability_ratio_eval.json",
+      "metrics": {
+        "forget_probability_mean": 6.6001062805e-05,
+        "forget_probability_max": 4.6693140757e-04,
+        "retain_probability_ratio": 0.9996438622,
+        "world_facts_probability_ratio": 0.9892992377,
+        "real_authors_probability_ratio": 1.0024807453,
+        "full_retain_probability_ratio": 0.9996450014
+      }
+    }
+  ],
+  "checkpoint_storage": {
+    "tracked_in_git": false,
+    "reason": "Each model.safetensors file is approximately 6.8 GiB and exceeds normal Git and Git LFS single-file limits.",
+    "planned_release_tag": "tofu-successful-splits-seed42",
+    "publisher": "scripts/publish_tofu_successful_checkpoints_release.sh",
+    "integrity_policy": "The publisher computes SHA-256 hashes and uploads each checkpoint as sub-2-GiB GitHub Release parts together with exact configs and evaluation artifacts."
+  },
+  "reproducibility_note": "The exact local config_used.json files and released checkpoint hashes are authoritative. This record preserves the fresh metrics and source paths without reconstructing missing config values from memory."
+}
