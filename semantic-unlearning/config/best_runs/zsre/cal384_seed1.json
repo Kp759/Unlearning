@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "record_id": "zsre-cal384-seed1",
+  "status": "BEST_ACCEPTED",
+  "dataset": "ZsRE",
+  "protocol": {
+    "name": "ZeroUnlearn_official_compatible",
+    "official_split": "first-half retain / second-half forget",
+    "forget_num": 50,
+    "retain_num": 1000,
+    "seed": 1,
+    "scope_note": "This is a single-seed accepted checkpoint, not a ten-seed aggregate."
+  },
+  "method": {
+    "name": "Setting 5e plus Unknown-row LM-head active repair",
+    "exact_config_source": "outputs/zsre_cal384_seeds0_9/seed1/config_used.json",
+    "result_source": "outputs/zsre_cal384_seeds0_9/seed1/zsre_results.json",
+    "repair_summary_source": "outputs/zsre_cal384_seeds0_9/seed1/active_repair/repair_summary.json",
+    "candidate_eval_source": "outputs/zsre_cal384_seeds0_9/seed1/active_repair/candidate_official_eval.json",
+    "confirmed_parameters": {
+      "retain_calibration_num": 384,
+      "neutral_target": "Unknown",
+      "target_Eff_max": 0.0,
+      "target_Gen_max": 0.0
+    },
+    "runner_family_parameters": {
+      "setting5e_steps": 600,
+      "batch_size": 1,
+      "retain_batch_size": 4,
+      "emb_lm_lr": 0.0001,
+      "forget_weight": 2.0,
+      "retain_weight": 1.0,
+      "forget_margin": 1.0,
+      "sampling_strategy": "epoch",
+      "post_training_alphas": [0.75, 0.5, 0.25],
+      "repair_steps": 800,
+      "repair_lr": 0.005,
+      "active_logit_margin": 0.25,
+      "selection_logit_margin": 0.05,
+      "repair_rank": 0,
+      "candidate_scales": [1.0, 0.875, 0.75, 0.625, 0.5, 0.375, 0.25, 0.1875, 0.125, 0.09375, 0.0625, 0.046875, 0.03125, 0.015625, 0.0078125, 0.0],
+      "dtype": "bf16",
+      "device_map": "single"
+    },
+    "configuration_authority": "The exact local config_used.json is authoritative if any runner-family value differs."
+  },
+  "metrics": {
+    "Eff": 0.0,
+    "Gen": 0.0,
+    "Spe": 30.614846,
+    "PPL": 11.625
+  },
+  "checkpoints": {
+    "setting5e": "outputs/zsre_cal384_seeds0_9/seed1/setting5e/checkpoint",
+    "selected": "outputs/zsre_cal384_seeds0_9/seed1/selected_checkpoint"
+  },
+  "final_checkpoint": {
+    "path": "outputs/zsre_cal384_seeds0_9/seed1/selected_checkpoint",
+    "weight_file": "model.safetensors",
+    "size_bytes": null,
+    "sha256": null,
+    "hash_status": "PENDING_LOCAL_CAPTURE"
+  },
+  "provenance_completeness": {
+    "metrics": "COMPLETE",
+    "checkpoint_path": "COMPLETE",
+    "parameter_source_paths": "COMPLETE",
+    "embedded_parameter_snapshot": "MOSTLY_COMPLETE",
+    "weight_hash": "PENDING"
+  },
+  "weight_storage": {
+    "tracked_in_git": false,
+    "reason": "Large model weights must remain in persistent artifact storage; Git stores the immutable record and checksum."
+  }
+}
