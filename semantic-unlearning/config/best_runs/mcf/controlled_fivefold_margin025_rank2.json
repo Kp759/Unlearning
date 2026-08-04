@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "record_id": "mcf-controlled-fivefold-margin025-rank2-v1",
+  "status": "BEST_ACCEPTED",
+  "dataset": "MCF",
+  "protocol": {
+    "name": "controlled_fivefold",
+    "official_split": false,
+    "sample_mode": "first",
+    "folds": [0, 1, 2, 3, 4],
+    "note": "This is the canonical leakage-controlled five-fold result and must not be compared as if it were the official random-seed protocol."
+  },
+  "method": {
+    "name": "Setting 5e plus protected active LM-head repair",
+    "candidate_id": "mcf-margin025-rank2",
+    "parameter_source": "config/controlled_unlearning/mcf_margin025_rank2.example.json",
+    "setting5e": {
+      "steps": 600,
+      "batch_size": 1,
+      "retain_batch_size": 4,
+      "emb_lm_lr": 0.0001,
+      "forget_weight": 2.0,
+      "retain_weight": 1.0,
+      "forget_loss_type": "mcf_margin",
+      "forget_margin": 1.0,
+      "sampling_strategy": "epoch",
+      "post_training_new_true_alpha": 0.75,
+      "post_training_new_retain_alpha": 0.5,
+      "post_training_new_true_retain_alpha": 0.25,
+      "dtype": "bf16",
+      "device_map": "single"
+    },
+    "active_repair": {
+      "active_margin": 0.25,
+      "repair_steps": 100,
+      "repair_lr": 0.005,
+      "repair_optimizer": "adamw",
+      "hinge_weight": 2.0,
+      "delta_l2_lambda": 0.0001,
+      "retain_kl_mu": 0.1,
+      "retain_calibration_num": 200,
+      "repair_rank": 2,
+      "project_away_retain_hidden": true,
+      "min_reloaded_forget_margin": 0.1
+    }
+  },
+  "aggregate_metrics": {
+    "forget_Eff_mean": 0.0,
+    "forget_Gen_mean": 0.0,
+    "forget_Spe_mean": 16.576,
+    "forget_PPL_mean": 11.3795542,
+    "retain_Eff_mean": 13.2,
+    "retain_Gen_mean": 21.016,
+    "retain_Spe_mean": 11.412,
+    "initial_active_prompts": 17,
+    "final_active_prompts": 0,
+    "newly_active_prompts": 0
+  },
+  "checkpoints": [
+    {
+      "fold": 0,
+      "path": "outputs/controlled/mcf/fold_0/relaxed_test_margin025_rank2_v1/application/active_repair/minimal_optimize/checkpoint",
+      "weight_file": "model.safetensors",
+      "size_bytes": 7213534088,
+      "sha256": "7a1b723ecc9d2013030249b41b5f89a9e4735093e5547980bc81a247870740c3",
+      "metrics": {"Eff": 0.0, "Gen": 0.0, "Spe": 9.74, "PPL": 11.379462, "minimum_post_reload_margin": 0.1875}
+    },
+    {
+      "fold": 1,
+      "path": "outputs/controlled/mcf/fold_1/relaxed_test_margin025_rank2_v1/application/active_repair/minimal_optimize/checkpoint",
+      "weight_file": "model.safetensors",
+      "size_bytes": 7213534088,
+      "sha256": "f5d456fd2bc5a73c63b5fc99891eab5dada99db3283d0ceebe8429257cba5472",
+      "metrics": {"Eff": 0.0, "Gen": 0.0, "Spe": 16.11, "PPL": 11.378746, "minimum_post_reload_margin": 0.4375}
+    },
+    {
+      "fold": 2,
+      "path": "outputs/controlled/mcf/fold_2/relaxed_test_margin025_rank2_v1/application/active_repair/minimal_optimize/checkpoint",
+      "weight_file": "model.safetensors",
+      "size_bytes": 7213534088,
+      "sha256": "69220c825ffa89aae586e96f9cbc07e44b9ecfdf78cca47ff79edea0de4a5a0f",
+      "metrics": {"Eff": 0.0, "Gen": 0.0, "Spe": 20.93, "PPL": 11.381207, "minimum_post_reload_margin": 0.5}
+    },
+    {
+      "fold": 3,
+      "path": "outputs/controlled/mcf/fold_3/relaxed_test_margin025_rank2_v1/application/active_repair/minimal_optimize/checkpoint",
+      "weight_file": "model.safetensors",
+      "size_bytes": 7213534088,
+      "sha256": "dd52109cce04d6323849673ccc31c1f3c67273c7a83ec0fe659b864817e52312",
+      "metrics": {"Eff": 0.0, "Gen": 0.0, "Spe": 18.27, "PPL": 11.379174, "minimum_post_reload_margin": 0.25}
+    },
+    {
+      "fold": 4,
+      "path": "outputs/controlled/mcf/fold_4/relaxed_test_margin025_rank2_v1/application/active_repair/minimal_optimize/checkpoint",
+      "weight_file": "model.safetensors",
+      "size_bytes": 7213534088,
+      "sha256": "35c588909d3579a7f87b46638b044c081b376b5f710a8d3b5607430fdd6e03ba",
+      "metrics": {"Eff": 0.0, "Gen": 0.0, "Spe": 17.83, "PPL": 11.379182, "minimum_post_reload_margin": 0.375}
+    }
+  ],
+  "weight_storage": {
+    "tracked_in_git": false,
+    "reason": "Each model.safetensors is approximately 6.72 GiB and weight files are intentionally ignored by Git.",
+    "required_action": "Keep verified copies on persistent project storage and validate with the recorded SHA-256 hashes."
+  }
+}
