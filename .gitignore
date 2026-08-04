@@ -2,8 +2,8 @@
 # macOS metadata
 .DS_Store
 
-# Generated result directories
-results/
+# Local results document at repository root
+/results.docx
 
 # Large generated data/output files
 semantic-unlearning/data/attribute_snippets.json
