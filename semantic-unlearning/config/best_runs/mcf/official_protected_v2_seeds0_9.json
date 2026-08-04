@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "record_id": "mcf-official-protected-v2-seeds0-9",
+  "status": "BEST_ACCEPTED_MULTI_SEED",
+  "dataset": "MCF",
+  "protocol": {
+    "name": "ZeroUnlearn_official_compatible",
+    "sample_mode": "official",
+    "forget_num": 50,
+    "retain_num": 1000,
+    "seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    "checkpoint_seed_alignment": "checkpoint seed N evaluated on official split seed N",
+    "answer_field": "target_new"
+  },
+  "method": {
+    "name": "Setting 5e plus protected LM-head repair v2",
+    "checkpoint_family": "outputs/gagd_5e_ultra_protected_v2_10seeds/seed{seed}/checkpoint",
+    "training_config_status": "PENDING_EXACT_LOCAL_CAPTURE",
+    "training_config_note": "Do not infer missing training hyperparameters from the directory name. Copy exact per-seed config/result artifacts from persistent Wulver storage before publication."
+  },
+  "official_evaluation": {
+    "script": "scripts/mcf_zero_unlearn_official_eval.py",
+    "mcf_path": "data/multi_counterfact.json",
+    "wikidata_dir": "data/wikidata",
+    "unlearn_num": 50,
+    "retain_num": 1000,
+    "sample_mode": "official",
+    "dtype": "bfloat16",
+    "device_map": "single",
+    "skip_ppl": false,
+    "post_reload_gate": {
+      "max_forget_eff": 0.0,
+      "max_forget_gen": 0.0,
+      "minimum_forget_margin": 0.1
+    }
+  },
+  "aggregate": {
+    "evaluated_seeds": 10,
+    "strict_gate_passed": 9,
+    "strict_gate_failed": 1,
+    "zero_eff_gen_seeds": 10,
+    "metrics_mean_sample_sd": {
+      "Eff": {"mean": 0.0, "sample_sd": 0.0},
+      "Gen": {"mean": 0.0, "sample_sd": 0.0},
+      "Spe": {"mean": 13.114, "sample_sd": 1.941621},
+      "minimum_margin": {"mean": 0.403128, "sample_sd": 0.225559},
+      "PPL": {"mean": 11.38125, "sample_sd": 0.523286},
+      "retain_Eff": {"mean": 18.98, "sample_sd": 1.325644},
+      "retain_Gen": {"mean": 20.325, "sample_sd": 1.282846},
+      "retain_Spe": {"mean": 10.268, "sample_sd": 0.432533}
+    }
+  },
+  "per_seed": [
+    {"seed": 0, "gate": "PASS", "Eff": 0.0, "Gen": 0.0, "Spe": 13.62, "minimum_margin": 0.375, "PPL": 11.0625, "retain_Eff": 18.9, "retain_Gen": 19.0, "retain_Spe": 10.48},
+    {"seed": 1, "gate": "PASS", "Eff": 0.0, "Gen": 0.0, "Spe": 14.22, "minimum_margin": 0.3125, "PPL": 12.375, "retain_Eff": 18.0, "retain_Gen": 19.45, "retain_Spe": 10.65},
+    {"seed": 2, "gate": "PASS", "Eff": 0.0, "Gen": 0.0, "Spe": 9.98, "minimum_margin": 0.5, "PPL": 11.0625, "retain_Eff": 21.8, "retain_Gen": 22.1, "retain_Spe": 9.66},
+    {"seed": 3, "gate": "PASS", "Eff": 0.0, "Gen": 0.0, "Spe": 11.53, "minimum_margin": 0.1875, "PPL": 12.0, "retain_Eff": 19.3, "retain_Gen": 21.55, "retain_Spe": 10.26},
+    {"seed": 4, "gate": "PASS", "Eff": 0.0, "Gen": 0.0, "Spe": 13.51, "minimum_margin": 0.5, "PPL": 12.0, "retain_Eff": 18.1, "retain_Gen": 19.3, "retain_Spe": 9.86},
+    {"seed": 5, "gate": "PASS", "Eff": 0.0, "Gen": 0.0, "Spe": 14.98, "minimum_margin": 0.875, "PPL": 11.0625, "retain_Eff": 19.9, "retain_Gen": 20.5, "retain_Spe": 10.49},
+    {"seed": 6, "gate": "PASS", "Eff": 0.0, "Gen": 0.0, "Spe": 13.87, "minimum_margin": 0.5, "PPL": 11.0625, "retain_Eff": 17.5, "retain_Gen": 20.45, "retain_Spe": 9.6},
+    {"seed": 7, "gate": "FAIL", "Eff": 0.0, "Gen": 0.0, "Spe": 10.31, "minimum_margin": 0.09375, "PPL": 11.0625, "retain_Eff": 20.1, "retain_Gen": 22.0, "retain_Spe": 10.93, "failure_reason": "minimum margin 0.09375 below frozen 0.10 threshold"},
+    {"seed": 8, "gate": "PASS", "Eff": 0.0, "Gen": 0.0, "Spe": 15.95, "minimum_margin": 0.5, "PPL": 11.0625, "retain_Eff": 18.4, "retain_Gen": 18.4, "retain_Spe": 10.37},
+    {"seed": 9, "gate": "PASS", "Eff": 0.0, "Gen": 0.0, "Spe": 13.17, "minimum_margin": 0.1875, "PPL": 11.0625, "retain_Eff": 17.8, "retain_Gen": 20.5, "retain_Spe": 10.38}
+  ],
+  "local_result_artifacts": {
+    "root": "outputs/mcf_v2_official_seeds0_9",
+    "aggregate_json": "outputs/mcf_v2_official_seeds0_9/aggregate.json",
+    "aggregate_markdown": "outputs/mcf_v2_official_seeds0_9/aggregate.md",
+    "per_seed_csv": "outputs/mcf_v2_official_seeds0_9/per_seed_results.csv"
+  },
+  "checkpoint_storage": {
+    "tracked_in_git": false,
+    "reason": "Each model.safetensors file is approximately 7.21 GB and exceeds normal Git, Git LFS per-file, and GitHub release single-asset limits.",
+    "recommended_github_storage": "Split each checkpoint into sub-2-GiB release assets and upload to a tagged GitHub Release, preserving SHA-256 checksums and reconstruction instructions.",
+    "weight_pattern": "outputs/gagd_5e_ultra_protected_v2_10seeds/seed{seed}/checkpoint/model.safetensors",
+    "hash_status": "PENDING_LOCAL_CAPTURE"
+  },
+  "scientific_conclusion": "On official MCF matching seeds 0-9, protected-v2 achieved Eff=0 and Gen=0 on all ten seeds. Nine of ten seeds passed the strict post-reload margin floor of 0.10; seed 7 reached 0.09375 and therefore remained a predefined gate failure."
+}
