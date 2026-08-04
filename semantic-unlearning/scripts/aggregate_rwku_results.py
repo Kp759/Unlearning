@@ -8,6 +8,7 @@ import csv
 import hashlib
 import json
 import math
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -293,6 +294,20 @@ def load_runs(
                 f"missing={sorted(expected_methods - actual_methods)}, "
                 f"extra={sorted(actual_methods - expected_methods)}"
             )
+        if not allow_incomplete:
+            for method in METHOD_ORDER:
+                if method == METHOD_ORDER[0]:
+                    continue
+                contract = run["results"][method].get("success_contract")
+                if not isinstance(contract, Mapping):
+                    raise ValueError(
+                        f"RWKU seed {seed} / {method} lacks a success contract"
+                    )
+                if contract.get("all_required_metrics_evaluated") is not True:
+                    raise ValueError(
+                        f"RWKU seed {seed} / {method} has an incomplete "
+                        "success contract"
+                    )
         fingerprint = protocol_fingerprint(run)
         if common_fingerprint is None:
             common_fingerprint = fingerprint
@@ -387,6 +402,30 @@ def format_value(mean_value: float, std_value: float, kind: str) -> str:
     return f"{mean_value:.3f} ± {std_value:.3f}"
 
 
+def aggregate_success_contracts(
+    runs: Sequence[Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for method in METHOD_ORDER:
+        if method == METHOD_ORDER[0]:
+            continue
+        contracts = [run["results"][method]["success_contract"] for run in runs]
+        failures: Counter[str] = Counter()
+        for contract in contracts:
+            failures.update(str(value) for value in contract["failed_criteria"])
+        passed = sum(bool(contract["passed"]) for contract in contracts)
+        rows.append(
+            {
+                "method": method,
+                "passed_targets": passed,
+                "target_count": len(contracts),
+                "all_targets_passed": passed == len(contracts),
+                "failed_criterion_counts": dict(sorted(failures.items())),
+            }
+        )
+    return rows
+
+
 def markdown_table(
     title: str,
     rows: Sequence[Mapping[str, Any]],
@@ -465,6 +504,7 @@ def main() -> None:
         )
         for section, metrics in metrics_by_section.items()
     }
+    success_contracts = aggregate_success_contracts(runs)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     write_csv(
         args.output_dir / "rwku_aggregate.csv",
@@ -479,6 +519,7 @@ def main() -> None:
         "protocol_fingerprint": protocol_fingerprint(runs[0]),
         "std_definition": "population standard deviation (ddof=0)",
         "sections": rows_by_section,
+        "success_contracts": success_contracts,
     }
     with (args.output_dir / "rwku_aggregate.json").open(
         "w",
@@ -503,6 +544,25 @@ def main() -> None:
             rows_by_section["forget"],
             FORGET_METRICS,
         )
+    )
+    lines.extend(
+        [
+            "## Strict success contract",
+            "",
+            "| Method | Targets passing all criteria | All targets pass |",
+            "| --- | ---: | --- |",
+            *[
+                "| "
+                + str(row["method"])
+                + " | "
+                + f"{row['passed_targets']}/{row['target_count']}"
+                + " | "
+                + ("yes" if row["all_targets_passed"] else "no")
+                + " |"
+                for row in success_contracts
+            ],
+            "",
+        ]
     )
     lines.extend(
         markdown_table(

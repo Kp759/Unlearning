@@ -1,10 +1,19 @@
 # RWKU experiment
 
-This experiment extends the MCF/ZsRE comparison to the official
-[RWKU benchmark](https://github.com/jinzhuoran/RWKU). It uses the same local
-Llama-3.2-3B-Instruct snapshot and Setting 5e hyperparameters so its method
-comparison is aligned with this repository's existing tables. It does not
-claim numerical comparability with a different base model from the RWKU paper.
+This experiment evaluates on pinned
+[RWKU benchmark](https://github.com/jinzhuoran/RWKU) records. It uses the same
+local Llama-3.2-3B-Instruct snapshot and Setting 5e hyperparameters so its
+method comparison is aligned with this repository's existing tables. It does
+not claim numerical comparability with a different base model from the RWKU
+paper.
+
+This is a **held-out-clean corpus-assisted portability experiment**, not the
+official RWKU target-entity-only training protocol. The method sees a declared
+calibration half of level-1/level-2, `positive.json`, and unrelated MCF retain
+records. Official RWKU makes only the target entity and original model visible
+to the method. Therefore these results must not be labeled official/native
+RWKU; the official benchmark registry correctly keeps unchanged `our_method`
+at `NEEDS_METHOD_EXTENSION`.
 
 ## Experimental unit and seeds
 
@@ -48,7 +57,7 @@ The aggregate includes six rows:
 3. Setting 5e without repair
 4. Setting 5e + protected LM-head repair
 5. Repair-only control
-6. Protected representation unlearning
+6. Protected representation unlearning v2
 
 Original ZeroUnlearn is the vendored
 `ZeroUnlearn.ZeroUnlearn_main.apply_unl_to_model`, with layers 16–18 and the
@@ -93,7 +102,7 @@ rows, and the frozen-base-head probe bypasses the repaired head entirely.
 Improving either metric requires changing the live hidden representation in
 the Setting 5e stage; an output-row repair cannot honestly do so.
 
-Protected representation unlearning is the corpus-assisted
+Protected representation unlearning v2 is the corpus-assisted
 representation-level method. It
 starts from a fresh Base checkpoint, rather than inheriting Setting 5e's
 embedding/head changes. It freezes the input embeddings, normalization
@@ -103,16 +112,23 @@ into those projections for evaluation. Consequently, a successful result
 cannot be explained by changing EOT/EOS or by editing the target answer's
 output row.
 
-The default representation configuration uses rank-16 adapters (`alpha=32`)
+The v2 representation configuration uses rank-24 adapters (`alpha=48`)
 on `q_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, and `down_proj` in
-the final eight decoder layers for 1,250 steps. Three of every five steps
-cover stratified QA families; the other two cover MC neutrality and the MIA
-proxy. Up to 16 `positive.json` rows supply subject-cloze tasks. It uses a
-subject-versus-masked-subject Base hidden-state basis, a
-worst-token-aware answer probability target of `1e-6`, balanced four-position
-MC neutrality, frozen-Base-head neutrality, and current-distribution
-loss/Min-K/zlib/Min-K++ matching. These are fixed defaults for the ten-target
-run, not values tuned on its held-out results.
+the final twelve decoder layers for 1,800 steps. Three of every five steps
+replay four stratified QA constraints; the other two cover MC neutrality and
+two MIA-proxy records. Up to 16 `positive.json` rows supply subject-cloze
+tasks. It uses subject-versus-masked-subject anchors at every second selected
+residual layer, a final-state concept basis, a worst-token-aware answer
+probability target of `1e-6`, balanced four-position MC neutrality,
+frozen-Base-head target demotion, and current-distribution
+loss/Min-K/zlib/Min-K++ matching. These are fixed pre-evaluation defaults, not
+values tuned on held-out outcomes.
+
+At 85% of the fixed training budget, v2 scores every declared calibration QA
+constraint without generation and builds a diverse active set of at most 96
+remaining violations. The last 15% of steps replays that set while keeping the
+same external retain objectives. This calibration-only polish is deterministic;
+it never reads level-3, official MIA, neighbor, utility, or held-out answers.
 
 Its probe-derived forget objective is constructed only from the target's
 calibration split. It includes answer-token unlikelihood or margin losses over
@@ -125,10 +141,12 @@ This makes the method corpus-assisted rather than RWKU target-only/zero-shot.
 Two controls are part of the training objective rather than post-hoc decoder
 tricks:
 
-- a frozen copy of the Base LM head scores live final hidden states and
-  neutralizes the restricted answer-row distribution toward chance. A
-  candidate must also keep frozen-head accuracy at or below the explicitly
-  reported candidate-set chance accuracy;
+- a frozen copy of the Base LM head scores live final hidden states. The
+  correct target row is constrained below every other declared answer row,
+  while all non-target rows are neutralized instead of rewarding one false
+  answer. A candidate must keep frozen-head accuracy at or below reported
+  chance, target probability at or below uniform chance, and mean normalized
+  target rank at least `0.90`;
 - four-way multiple-choice questions rotate the correct answer through every
   letter position while their A/B/C/D logits are driven toward a uniform
   distribution. The loss does not reward choosing a known-wrong answer.
@@ -145,8 +163,9 @@ an average-only retain metric would hide.
 Training projects only scored decoder states through the frozen LM head for
 QA, MC, and retain objectives instead of materializing logits for every
 sequence position. Independent target and retain graphs backpropagate
-sequentially within each optimizer step. This preserves the summed gradient
-while reducing peak accelerator memory.
+sequentially within each optimizer step. Four QA constraints or two
+positive-likelihood constraints are replayed per relevant phase. This expands
+complete task-family coverage while keeping peak accelerator memory bounded.
 
 Checkpoint and scale selection may use the RWKU calibration split, the
 declared target/non-target `positive.json` proxy, and the disjoint external
@@ -154,8 +173,9 @@ retain gate only. Final held-out level-1/level-2 questions, all level-3
 attacks, official membership-inference records, neighboring entities, and
 downstream utility sets remain evaluation-only. No reported held-out result is
 used to choose a checkpoint, stop training, or reject a run. Adapter snapshots
-at steps 250, 500, 750, 1,000, and 1,250 enter a coarse checkpoint/scale funnel; the
-best checkpoints and neighboring scales then receive the full gate suite.
+at steps 250, 500, 750, 1,000, 1,250, 1,500, 1,750, and 1,800 enter a coarse
+checkpoint/scale funnel; the best checkpoints and neighboring scales then
+receive the full gate suite.
 Every candidate is evaluated after its update is materialized into the model
 weight dtype, so the retained checkpoint is the exact model that passed the
 gates. Selection also performs bounded greedy generation on stratified
@@ -214,25 +234,30 @@ Alternative-output controls:
 
 ## Acceptance targets
 
-The intended forget targets are zero sampled recovery for direct, cloze,
-paraphrase, and adversarial evaluations. For continuously valued metrics,
-“zero” is represented by a finite tolerance:
+Every non-Base result now includes a machine-readable `success_contract`.
+Missing required values fail closed, so bounded or `--skip-ppl` runs cannot be
+mistaken for complete successes. The fixed held-out targets are:
 
-- target-answer probability below `1e-6`, because a finite-logit softmax does
-  not produce an exact mathematical zero;
-- direction-agnostic membership-inference advantage at most `0.05`; and
-- four-way multiple-choice recovery at or below the honest chance level of
-  `25%`; and
+- direct, cloze, paraphrase, alias, forced-prefix, and open-ended recovery
+  exactly `0%`;
+- adversarial recovery at most `10%`;
+- target, full-answer, forced-prefix, and answer-alias probability below
+  `0.01` (`1e-6` remains the stricter calibration optimization target);
+- direction-agnostic membership-inference advantage at most `0.05`;
+- four-way multiple-choice recovery within five points of `25%` chance; and
 - frozen-head recovery at or below its explicitly reported candidate-set
-  chance baseline, together with low target probability and poor target rank.
+  chance baseline, target probability at or below uniform chance, and
+  normalized target rank at least `0.90`.
 
-Driving MC or a frozen readout below chance can indicate systematic answer
-inversion, so it is not automatically stronger evidence of erasure than
-chance-level performance. Retention is accepted only when neighboring
-accuracy and general utility stay close to the seed-matched Base result and
-the full-retain probability ratio stays close to `1.0`. These are protocol
-targets, not measured claims; the final ten-target run determines whether the
-method meets them.
+Retain gates require the full-retain probability ratio in `0.995–1.005`,
+neighbor and general utility drops no larger than two points, component utility
+drops no larger than three points, and perplexity no more than `2%` above Base.
+For the representation method, all internal calibration efficacy and disjoint
+non-target protection gates must also pass.
+
+Driving MC below chance can indicate systematic answer inversion, so it is not
+automatically stronger evidence than chance-level behavior. These are protocol
+targets, not measured claims; a fresh GPU run determines whether v2 meets them.
 
 ## Run
 
@@ -253,6 +278,24 @@ python scripts/rwku_experiment.py \
   --no-download \
   --model-path /path/to/Llama-3.2-3B-Instruct
 ```
+
+Run the fixed v2 representation pilot for seed 0 (Stephen King) on NJIT after
+the pinned files are present locally:
+
+```bash
+cd /scratch/yl258/kp759/Unlearning/semantic-unlearning
+PYTHON_BIN=/path/to/unlearning/bin/python \
+MODEL_PATH=/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95 \
+CUDA_VISIBLE_DEVICES=0 \
+  scripts/run_rwku_seed0_representation_v2.sh
+```
+
+The launcher runs Base plus v2 representation, performs the complete held-out
+evaluation, saves the selected checkpoint, forbids network downloads, and
+writes under `outputs/rwku_v2` unless `RWKU_OUTPUT_ROOT` is set. Do not tune
+its method parameters from the resulting level-3/MIA/neighbor/utility scores;
+if the fixed pilot fails, change formulation using calibration diagnostics and
+start a newly declared experiment.
 
 Run all six methods for seeds 0–9 on CUDA, then aggregate:
 

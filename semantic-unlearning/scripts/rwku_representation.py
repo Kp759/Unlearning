@@ -92,6 +92,10 @@ class RepresentationConfig:
     max_length: int = 512
     retain_top_k: int = 64
     retain_examples_per_step: int = 1
+    qa_tasks_per_step: int = 4
+    positive_tasks_per_phase: int = 2
+    constraint_polish_fraction: float = 0.15
+    constraint_polish_limit: int = 96
     external_mc_retain_limit: int = 128
     external_mc_gate_limit: int = 64
     positive_max_rows: int = 8
@@ -102,6 +106,7 @@ class RepresentationConfig:
     answer_demotion_margin: float = 8.0
     answer_probability_target: float = 1e-6
     frozen_head_logit_spread_tolerance: float = 0.10
+    frozen_head_demotion_margin: float = 1.0
     mc_logit_spread_tolerance: float = 0.10
     answer_demotion_weight: float = 1.0
     answer_probability_weight: float = 1.0
@@ -112,6 +117,9 @@ class RepresentationConfig:
     concept_erasure_weight: float = 1.0
     concept_orthogonal_retain_weight: float = 0.5
     concept_rank: int = 8
+    layerwise_concept_erasure_weight: float = 1.0
+    layerwise_concept_orthogonal_weight: float = 0.25
+    concept_anchor_layer_stride: int = 2
     retain_kl_weight: float = 1.0
     retain_answer_weight: float = 1.0
     retain_hidden_weight: float = 1.0
@@ -139,6 +147,7 @@ class RepresentationConfig:
     max_calibration_top1_recovery: float = 0.0
     max_calibration_generation_recovery: float = 0.0
     max_calibration_frozen_head_chance_ratio: float = 1.0
+    min_calibration_frozen_head_normalized_rank: float = 0.90
     max_calibration_mc_accuracy: float = 25.0
     min_forget_improvement: float = 0.0
     grad_clip: float = 1.0
@@ -185,6 +194,10 @@ class QATask:
     baseline_mean_logprob: float = float("nan")
     base_prompt_hidden: Optional[torch.Tensor] = None
     counterfactual_prompt_hidden: Optional[torch.Tensor] = None
+    base_layer_hidden: Dict[int, torch.Tensor] = field(default_factory=dict)
+    counterfactual_layer_hidden: Dict[int, torch.Tensor] = field(
+        default_factory=dict
+    )
 
 
 @dataclass
@@ -335,6 +348,9 @@ def validate_config(config: RepresentationConfig) -> None:
         "max_length",
         "retain_top_k",
         "retain_examples_per_step",
+        "qa_tasks_per_step",
+        "positive_tasks_per_phase",
+        "constraint_polish_limit",
         "external_mc_retain_limit",
         "external_mc_gate_limit",
         "positive_max_rows",
@@ -342,6 +358,7 @@ def validate_config(config: RepresentationConfig) -> None:
         "matched_positive_max_rows",
         "positive_tokens_per_row",
         "concept_rank",
+        "concept_anchor_layer_stride",
         "gate_retain_limit",
         "selection_calibration_limit",
         "selection_generation_batch_size",
@@ -368,6 +385,8 @@ def validate_config(config: RepresentationConfig) -> None:
         raise ValueError("dropout must be in [0,1)")
     if not 0.0 < config.positive_gate_fraction < 1.0:
         raise ValueError("positive_gate_fraction must be in (0,1)")
+    if not 0.0 <= config.constraint_polish_fraction < 1.0:
+        raise ValueError("constraint_polish_fraction must be in [0,1)")
     if not config.target_modules:
         raise ValueError("target_modules must not be empty")
     if len(set(config.target_modules)) != len(config.target_modules):
@@ -375,6 +394,7 @@ def validate_config(config: RepresentationConfig) -> None:
     for name in (
         "answer_demotion_margin",
         "frozen_head_logit_spread_tolerance",
+        "frozen_head_demotion_margin",
         "mc_logit_spread_tolerance",
         "answer_demotion_weight",
         "answer_probability_weight",
@@ -384,6 +404,8 @@ def validate_config(config: RepresentationConfig) -> None:
         "matched_positive_retain_weight",
         "concept_erasure_weight",
         "concept_orthogonal_retain_weight",
+        "layerwise_concept_erasure_weight",
+        "layerwise_concept_orthogonal_weight",
         "retain_kl_weight",
         "retain_answer_weight",
         "retain_hidden_weight",
@@ -427,6 +449,10 @@ def validate_config(config: RepresentationConfig) -> None:
     if not 0.0 <= config.max_calibration_frozen_head_chance_ratio:
         raise ValueError(
             "max_calibration_frozen_head_chance_ratio must be non-negative"
+        )
+    if not 0.0 <= config.min_calibration_frozen_head_normalized_rank <= 1.0:
+        raise ValueError(
+            "min_calibration_frozen_head_normalized_rank must be in [0,1]"
         )
     if config.selection_generation_limit < 0:
         raise ValueError("selection_generation_limit must be non-negative")
@@ -1353,6 +1379,72 @@ def _hidden_forward(
     )
 
 
+def _hidden_forward_with_layer_rows(
+    model: nn.Module,
+    input_ids: torch.Tensor,
+    *,
+    layer_indices: Sequence[int],
+    position: int,
+) -> Tuple[torch.Tensor, Dict[int, torch.Tensor]]:
+    """Return final states and selected residual-stream rows in one pass.
+
+    The fixed rows are captured from decoder-layer outputs before the final
+    decoder norm.  Hooks are installed only for this forward and removed
+    before backward, so gradient-checkpoint recomputation cannot mutate the
+    capture dictionary.  The returned row views retain their autograd graph.
+    """
+
+    requested = tuple(dict.fromkeys(int(index) for index in layer_indices))
+    if not requested:
+        return _hidden_forward(model, input_ids), {}
+    layers = _decoder_layers(model)
+    if any(index < 0 or index >= len(layers) for index in requested):
+        raise ValueError(
+            "Concept-anchor layer index is outside the decoder layer range"
+        )
+    captured: Dict[int, torch.Tensor] = {}
+    hooks: List[Any] = []
+
+    def capture(layer_index: int) -> Any:
+        def hook(
+            _module: nn.Module,
+            _inputs: Tuple[Any, ...],
+            output: Any,
+        ) -> None:
+            value = output[0] if isinstance(output, (tuple, list)) else output
+            if not torch.is_tensor(value) or value.ndim != 3:
+                raise ValueError(
+                    f"Decoder layer {layer_index} did not return [B,T,H] states"
+                )
+            selected_position = int(position)
+            if selected_position < 0:
+                selected_position += int(value.shape[1])
+            if not 0 <= selected_position < int(value.shape[1]):
+                raise ValueError(
+                    f"Concept-anchor position {position} is outside layer "
+                    f"{layer_index}'s sequence length {value.shape[1]}"
+                )
+            captured[layer_index] = value[0, selected_position]
+
+        return hook
+
+    try:
+        for layer_index in requested:
+            hooks.append(
+                layers[layer_index].register_forward_hook(capture(layer_index))
+            )
+        hidden = _hidden_forward(model, input_ids)
+    finally:
+        for hook in hooks:
+            hook.remove()
+    missing = sorted(set(requested) - set(captured))
+    if missing:
+        raise RuntimeError(
+            f"Decoder concept-anchor hooks did not fire for layers {missing}"
+        )
+    return hidden, captured
+
+
 def _project_hidden_rows(
     model: nn.Module,
     hidden_rows: torch.Tensor,
@@ -1428,6 +1520,43 @@ def _uniform_logit_loss(
     return distribution_loss + spread_loss
 
 
+def _frozen_head_target_demotion_loss(
+    logits: torch.Tensor,
+    *,
+    target_column: int,
+    demotion_margin: float,
+    spread_tolerance: float,
+) -> torch.Tensor:
+    """Make the target row unreadable without selecting one false answer.
+
+    Uniformizing all target-answer rows (the previous objective) leaves the
+    correct row at chance and supplies no pressure toward the high normalized
+    rank required by the held-out frozen-head diagnostic.  Here the correct
+    row must sit below *every* non-target row by a margin, while the non-target
+    rows are kept mutually neutral.  No particular false answer is rewarded.
+    """
+
+    values = logits.float().flatten()
+    if values.numel() < 2:
+        return values.sum() * 0.0
+    if not 0 <= int(target_column) < int(values.numel()):
+        raise ValueError("Frozen-head target column is out of range")
+    target = values[int(target_column)]
+    mask = torch.ones_like(values, dtype=torch.bool)
+    mask[int(target_column)] = False
+    non_target = values[mask]
+    # Min, rather than mean, enforces that the target is last among the
+    # declared candidate rows and therefore directly optimizes normalized rank.
+    target_demotion = F.relu(
+        target - non_target.min() + float(demotion_margin)
+    ).square()
+    neutral_non_target = _uniform_logit_loss(
+        non_target,
+        spread_tolerance=spread_tolerance,
+    )
+    return target_demotion + neutral_non_target
+
+
 def qa_objective_losses(
     model: nn.Module,
     task: QATask,
@@ -1435,17 +1564,46 @@ def qa_objective_losses(
     *,
     answer_margin: float,
     frozen_spread_tolerance: float,
+    frozen_demotion_margin: float = 1.0,
     answer_probability_target: float = 1e-6,
     answer_probability_weight: float = 1.0,
     concept_basis: Optional[torch.Tensor] = None,
     concept_erasure_weight: float = 0.0,
     concept_orthogonal_retain_weight: float = 0.0,
+    layerwise_concept_erasure_weight: float = 0.0,
+    layerwise_concept_orthogonal_weight: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    answer_logits, hidden = _selected_forward(
-        model,
-        task.sequence.input_ids,
-        task.sequence.answer_positions,
+    anchor_layer_indices = tuple(
+        sorted(
+            set(task.base_layer_hidden)
+            & set(task.counterfactual_layer_hidden)
+        )
     )
+    if anchor_layer_indices and (
+        layerwise_concept_erasure_weight > 0.0
+        or layerwise_concept_orthogonal_weight > 0.0
+    ):
+        hidden, current_layer_rows = _hidden_forward_with_layer_rows(
+            model,
+            task.sequence.input_ids,
+            layer_indices=anchor_layer_indices,
+            position=task.sequence.prompt_position,
+        )
+        selected_positions = task.sequence.answer_positions.to(
+            device=hidden.device,
+            dtype=torch.long,
+        )
+        answer_logits = _project_hidden_rows(
+            model,
+            hidden[0].index_select(0, selected_positions),
+        )
+    else:
+        answer_logits, hidden = _selected_forward(
+            model,
+            task.sequence.input_ids,
+            task.sequence.answer_positions,
+        )
+        current_layer_rows = {}
     rank_loss = _competitor_margin_loss(
         answer_logits,
         task.sequence.answer_token_ids,
@@ -1501,6 +1659,40 @@ def qa_objective_losses(
             + float(concept_erasure_weight) * erasure
             + float(concept_orthogonal_retain_weight) * orthogonal_retain
         )
+    if current_layer_rows:
+        layer_erasure_terms: List[torch.Tensor] = []
+        layer_orthogonal_terms: List[torch.Tensor] = []
+        for layer_index in anchor_layer_indices:
+            current = current_layer_rows[layer_index].float()
+            base = task.base_layer_hidden[layer_index].to(
+                device=current.device,
+                dtype=torch.float32,
+            )
+            counterfactual = task.counterfactual_layer_hidden[layer_index].to(
+                device=current.device,
+                dtype=torch.float32,
+            )
+            concept_delta = base - counterfactual
+            concept_norm_sq = concept_delta.square().sum().clamp_min(1e-8)
+            current_coordinate = (
+                (current - counterfactual) * concept_delta
+            ).sum() / concept_norm_sq
+            layer_erasure_terms.append(current_coordinate.square())
+
+            edit = current - base
+            edit_coordinate = (edit * concept_delta).sum() / concept_norm_sq
+            orthogonal_edit = edit - edit_coordinate * concept_delta
+            layer_orthogonal_terms.append(
+                orthogonal_edit.square().mean()
+                / base.square().mean().clamp_min(1e-8)
+            )
+        layer_erasure = torch.stack(layer_erasure_terms).mean()
+        layer_orthogonal = torch.stack(layer_orthogonal_terms).mean()
+        answer_loss = (
+            answer_loss
+            + float(layerwise_concept_erasure_weight) * layer_erasure
+            + float(layerwise_concept_orthogonal_weight) * layer_orthogonal
+        )
     if (
         frozen_head is None
         or task.first_answer_token_id not in frozen_head.token_to_column
@@ -1510,8 +1702,11 @@ def qa_objective_losses(
     restricted = state @ rows.T
     if frozen_head.bias is not None:
         restricted = restricted + frozen_head.bias.to(state.device)
-    frozen_loss = _uniform_logit_loss(
+    target_column = frozen_head.token_to_column[task.first_answer_token_id]
+    frozen_loss = _frozen_head_target_demotion_loss(
         restricted,
+        target_column=target_column,
+        demotion_margin=frozen_demotion_margin,
         spread_tolerance=frozen_spread_tolerance,
     )
     return answer_loss, frozen_loss
@@ -1954,10 +2149,13 @@ def _cache_qa_baselines(
     tasks: Sequence[QATask],
     *,
     config: RepresentationConfig,
+    anchor_layer_indices: Sequence[int] = (),
 ) -> Optional[torch.Tensor]:
     differences: List[torch.Tensor] = []
     base_states: Dict[str, torch.Tensor] = {}
     counterfactual_states: Dict[str, torch.Tensor] = {}
+    base_layer_states: Dict[str, Dict[int, torch.Tensor]] = {}
+    counterfactual_layer_states: Dict[str, Dict[int, torch.Tensor]] = {}
     seen_pairs: set[Tuple[str, str]] = set()
     for task in tasks:
         if task.prompt_variant == "forced_prefix":
@@ -1968,12 +2166,22 @@ def _cache_qa_baselines(
                 task.prompt,
                 max_length=config.max_length,
             )
-            hidden = _hidden_forward(model, prompt_ids)
+            hidden, layer_rows = _hidden_forward_with_layer_rows(
+                model,
+                prompt_ids,
+                layer_indices=anchor_layer_indices,
+                position=-1,
+            )
             base_states[task.prompt] = (
                 hidden[0, -1].detach().float().cpu()
             )
+            base_layer_states[task.prompt] = {
+                index: row.detach().float().cpu()
+                for index, row in layer_rows.items()
+            }
         base_state = base_states[task.prompt]
         task.base_prompt_hidden = base_state
+        task.base_layer_hidden = base_layer_states[task.prompt]
         masked_prompts = [
             prompt
             for prompt in (
@@ -1998,14 +2206,34 @@ def _cache_qa_baselines(
                     masked_prompt,
                     max_length=config.max_length,
                 )
-                masked_hidden = _hidden_forward(model, masked_ids)
+                masked_hidden, masked_layer_rows = (
+                    _hidden_forward_with_layer_rows(
+                        model,
+                        masked_ids,
+                        layer_indices=anchor_layer_indices,
+                        position=-1,
+                    )
+                )
                 counterfactual_states[masked_prompt] = (
                     masked_hidden[0, -1].detach().float().cpu()
                 )
+                counterfactual_layer_states[masked_prompt] = {
+                    index: row.detach().float().cpu()
+                    for index, row in masked_layer_rows.items()
+                }
         counterfactual = torch.stack(
             [counterfactual_states[prompt] for prompt in masked_prompts]
         ).mean(dim=0)
         task.counterfactual_prompt_hidden = counterfactual
+        task.counterfactual_layer_hidden = {
+            layer_index: torch.stack(
+                [
+                    counterfactual_layer_states[prompt][layer_index]
+                    for prompt in masked_prompts
+                ]
+            ).mean(dim=0)
+            for layer_index in anchor_layer_indices
+        }
         pair = (task.prompt, "\0".join(masked_prompts))
         if pair in seen_pairs:
             continue
@@ -2107,6 +2335,7 @@ def efficacy_gates_pass(
         "frozen_head_accuracy",
         "frozen_head_chance_accuracy",
         "frozen_head_chance_ratio",
+        "frozen_head_mean_normalized_target_rank",
         "multiple_choice_accuracy",
         "proxy_mia_advantage",
         "matched_positive_base_feature_drift",
@@ -2126,6 +2355,8 @@ def efficacy_gates_pass(
         <= values["frozen_head_chance_accuracy"]
         and values["frozen_head_chance_ratio"]
         <= config.max_calibration_frozen_head_chance_ratio
+        and values["frozen_head_mean_normalized_target_rank"]
+        >= config.min_calibration_frozen_head_normalized_rank
         and values["multiple_choice_accuracy"]
         <= config.max_calibration_mc_accuracy
         and values["proxy_mia_advantage"]
@@ -2173,6 +2404,10 @@ def _partial_efficacy_score(
         "frozen_head_chance_ratio",
         float("inf"),
     )
+    frozen_normalized_rank = finite_value(
+        "frozen_head_mean_normalized_target_rank",
+        0.0,
+    )
     mc = finite_value("multiple_choice_accuracy", 100.0)
     proxy = finite_value("proxy_mia_advantage", 1.0)
     matched_drift = finite_value(
@@ -2187,6 +2422,8 @@ def _partial_efficacy_score(
             frozen_accuracy <= frozen_chance_accuracy,
             frozen_probability_ratio
             <= config.max_calibration_frozen_head_chance_ratio,
+            frozen_normalized_rank
+            >= config.min_calibration_frozen_head_normalized_rank,
             mc <= config.max_calibration_mc_accuracy,
             proxy <= config.max_proxy_mia_advantage,
             matched_drift <= config.max_matched_positive_base_feature_drift,
@@ -2199,6 +2436,7 @@ def _partial_efficacy_score(
         -generation,
         -max(0.0, frozen_accuracy - frozen_chance_accuracy),
         -frozen_probability_ratio,
+        frozen_normalized_rank,
         -max(0.0, mc - config.max_calibration_mc_accuracy),
         -proxy,
         -matched_drift,
@@ -2260,6 +2498,7 @@ def _calibration_metrics(
     frozen_correct: List[float] = []
     frozen_target_probabilities: List[float] = []
     frozen_uniform_kls: List[float] = []
+    frozen_normalized_target_ranks: List[float] = []
     for task in qa_tasks:
         selected, hidden = _selected_forward(
             model,
@@ -2293,6 +2532,13 @@ def _calibration_metrics(
             predicted = int(restricted.argmax().item())
             target = frozen_head.token_to_column[task.first_answer_token_id]
             frozen_correct.append(float(predicted == target))
+            order = torch.argsort(restricted, descending=True)
+            rank = int(
+                (order == target).nonzero(as_tuple=False)[0].item()
+            ) + 1
+            frozen_normalized_target_ranks.append(
+                (rank - 1.0) / max(1.0, float(restricted.numel() - 1))
+            )
             frozen_target_probabilities.append(
                 float(restricted_logprobs[target].exp().item())
             )
@@ -2430,6 +2676,18 @@ def _calibration_metrics(
             )
             else float("nan")
         ),
+        "frozen_head_target_probability": (
+            sum(frozen_target_probabilities)
+            / len(frozen_target_probabilities)
+            if frozen_target_probabilities
+            else float("nan")
+        ),
+        "frozen_head_mean_normalized_target_rank": (
+            sum(frozen_normalized_target_ranks)
+            / len(frozen_normalized_target_ranks)
+            if frozen_normalized_target_ranks
+            else float("nan")
+        ),
         "frozen_head_uniform_kl": (
             sum(frozen_uniform_kls) / len(frozen_uniform_kls)
             if frozen_uniform_kls
@@ -2479,6 +2737,14 @@ def _forget_improvement(
         after = float(current[key])
         if math.isfinite(before) and math.isfinite(after):
             components.append((before - after) / 100.0)
+    before_rank = float(
+        baseline.get("frozen_head_mean_normalized_target_rank", float("nan"))
+    )
+    after_rank = float(
+        current.get("frozen_head_mean_normalized_target_rank", float("nan"))
+    )
+    if math.isfinite(before_rank) and math.isfinite(after_rank):
+        components.append(after_rank - before_rank)
     before_proxy = float(baseline["positive_proxy_feature_distance"])
     after_proxy = float(current["positive_proxy_feature_distance"])
     if math.isfinite(before_proxy) and math.isfinite(after_proxy):
@@ -2596,6 +2862,132 @@ def _backward_term(loss: torch.Tensor, *, label: str) -> float:
     return value
 
 
+@torch.no_grad()
+def _qa_constraint_violation(
+    model: nn.Module,
+    task: QATask,
+    frozen_head: Optional[CalibrationFrozenHead],
+    config: RepresentationConfig,
+) -> Dict[str, float]:
+    """Score unresolved declared-training constraints without generation."""
+
+    selected, hidden = _selected_forward(
+        model,
+        task.sequence.input_ids,
+        task.sequence.answer_positions,
+    )
+    targets = task.sequence.answer_token_ids.to(selected.device)
+    logprobs = F.log_softmax(selected.float(), dim=-1)
+    target_logprobs = logprobs.gather(1, targets[:, None]).squeeze(1)
+    probability_excess = F.relu(
+        target_logprobs - math.log(config.answer_probability_target)
+    ).max()
+    top1_recovery = selected.argmax(dim=-1).eq(targets).float().mean()
+    frozen_chance_excess = torch.zeros((), device=selected.device)
+    frozen_rank_deficit = torch.zeros((), device=selected.device)
+    frozen_normalized_rank = float("nan")
+    frozen_chance_ratio = float("nan")
+    if (
+        frozen_head is not None
+        and task.first_answer_token_id in frozen_head.token_to_column
+    ):
+        state = hidden[0, task.sequence.prompt_position].float()
+        restricted = state @ frozen_head.rows.to(state.device).T
+        if frozen_head.bias is not None:
+            restricted = restricted + frozen_head.bias.to(state.device)
+        target_column = frozen_head.token_to_column[task.first_answer_token_id]
+        restricted_probabilities = F.softmax(restricted.float(), dim=-1)
+        chance_ratio = (
+            restricted_probabilities[target_column] * restricted.numel()
+        )
+        order = torch.argsort(restricted, descending=True)
+        rank = int(
+            (order == target_column).nonzero(as_tuple=False)[0].item()
+        ) + 1
+        normalized_rank = (rank - 1.0) / max(
+            1.0,
+            float(restricted.numel() - 1),
+        )
+        frozen_chance_excess = F.relu(
+            chance_ratio - config.max_calibration_frozen_head_chance_ratio
+        )
+        frozen_rank_deficit = torch.tensor(
+            max(
+                0.0,
+                config.min_calibration_frozen_head_normalized_rank
+                - normalized_rank,
+            ),
+            device=selected.device,
+        )
+        frozen_normalized_rank = normalized_rank
+        frozen_chance_ratio = float(chance_ratio.item())
+    score = (
+        probability_excess
+        + 4.0 * top1_recovery
+        + 2.0 * frozen_chance_excess
+        + 2.0 * frozen_rank_deficit
+    )
+    return {
+        "score": float(score.item()),
+        "worst_answer_token_probability": float(target_logprobs.max().exp().item()),
+        "answer_top1_fraction": float(top1_recovery.item()),
+        "frozen_head_chance_ratio": frozen_chance_ratio,
+        "frozen_head_normalized_rank": frozen_normalized_rank,
+    }
+
+
+def _select_polish_qa_tasks(
+    model: nn.Module,
+    tasks: Sequence[QATask],
+    frozen_head: Optional[CalibrationFrozenHead],
+    config: RepresentationConfig,
+) -> Tuple[List[QATask], List[Dict[str, Any]]]:
+    """Select a diverse, calibration-only active set for the final curriculum."""
+
+    scored = [
+        (task, _qa_constraint_violation(model, task, frozen_head, config))
+        for task in tasks
+    ]
+    ranked = sorted(
+        [row for row in scored if float(row[1]["score"]) > 0.0],
+        key=lambda row: (
+            -float(row[1]["score"]),
+            row[0].prompt_variant,
+            row[0].source_id,
+            row[0].answer_variant,
+        ),
+    )
+    if not ranked:
+        return [], []
+    best_by_variant: Dict[str, Tuple[QATask, Dict[str, float]]] = {}
+    for row in ranked:
+        best_by_variant.setdefault(row[0].prompt_variant, row)
+    chosen: List[Tuple[QATask, Dict[str, float]]] = list(
+        best_by_variant.values()
+    )
+    chosen_ids = {id(task) for task, _ in chosen}
+    for row in ranked:
+        if len(chosen) >= config.constraint_polish_limit:
+            break
+        if id(row[0]) not in chosen_ids:
+            chosen.append(row)
+            chosen_ids.add(id(row[0]))
+    chosen = sorted(
+        chosen[: config.constraint_polish_limit],
+        key=lambda row: -float(row[1]["score"]),
+    )
+    report = [
+        {
+            "source_id": task.source_id,
+            "prompt_variant": task.prompt_variant,
+            "answer_variant": task.answer_variant,
+            **metrics,
+        }
+        for task, metrics in chosen
+    ]
+    return [task for task, _ in chosen], report
+
+
 def _training_step(
     model: nn.Module,
     *,
@@ -2610,43 +3002,61 @@ def _training_step(
     proxy_target: torch.Tensor,
     config: RepresentationConfig,
 ) -> Tuple[float, Dict[str, float]]:
-    # One target objective is scheduled per step and external retention is
-    # enforced on every step.  Three of five phases cover QA families so a
-    # 1,250-step run visits up to 750 stratified QA/alias/attack tasks; MC and
-    # likelihood-distribution matching each receive one phase.
+    # Independent target graphs are backpropagated immediately to cap peak
+    # VRAM.  Constraint replay covers several QA or likelihood examples per
+    # target phase; the previous one-example schedule left many aliases and
+    # attack wrappers with only one or two optimizer visits.
     phase = step % 5
     metrics: Dict[str, float] = {}
     target_value = 0.0
     if phase in {0, 2, 4}:
         qa_offset = {0: 0, 2: 1, 4: 2}[phase]
-        task = qa_tasks[((step // 5) * 3 + qa_offset) % len(qa_tasks)]
-        answer, frozen = qa_objective_losses(
-            model,
-            task,
-            frozen_head,
-            answer_margin=config.answer_demotion_margin,
-            frozen_spread_tolerance=(
-                config.frozen_head_logit_spread_tolerance
-            ),
-            answer_probability_target=config.answer_probability_target,
-            answer_probability_weight=config.answer_probability_weight,
-            concept_basis=concept_basis,
-            concept_erasure_weight=config.concept_erasure_weight,
-            concept_orthogonal_retain_weight=(
-                config.concept_orthogonal_retain_weight
-            ),
+        qa_base = (
+            ((step // 5) * 3 + qa_offset) * config.qa_tasks_per_step
         )
-        target_loss = (5.0 / 3.0) * (
-            config.answer_demotion_weight * answer
-            + config.frozen_head_weight * frozen
-        )
+        answer_values: List[float] = []
+        frozen_values: List[float] = []
+        for task_offset in range(config.qa_tasks_per_step):
+            task = qa_tasks[(qa_base + task_offset) % len(qa_tasks)]
+            answer, frozen = qa_objective_losses(
+                model,
+                task,
+                frozen_head,
+                answer_margin=config.answer_demotion_margin,
+                frozen_spread_tolerance=(
+                    config.frozen_head_logit_spread_tolerance
+                ),
+                frozen_demotion_margin=config.frozen_head_demotion_margin,
+                answer_probability_target=config.answer_probability_target,
+                answer_probability_weight=config.answer_probability_weight,
+                concept_basis=concept_basis,
+                concept_erasure_weight=config.concept_erasure_weight,
+                concept_orthogonal_retain_weight=(
+                    config.concept_orthogonal_retain_weight
+                ),
+                layerwise_concept_erasure_weight=(
+                    config.layerwise_concept_erasure_weight
+                ),
+                layerwise_concept_orthogonal_weight=(
+                    config.layerwise_concept_orthogonal_weight
+                ),
+            )
+            answer_values.append(float(answer.detach().item()))
+            frozen_values.append(float(frozen.detach().item()))
+            target_loss = (5.0 / 3.0) * (
+                config.answer_demotion_weight * answer
+                + config.frozen_head_weight * frozen
+            ) / float(config.qa_tasks_per_step)
+            target_value += _backward_term(
+                target_loss,
+                label=f"QA target {task_offset}",
+            )
         metrics.update(
-            answer_demotion_loss=float(answer.detach().item()),
-            frozen_head_loss=float(frozen.detach().item()),
-        )
-        target_value = _backward_term(
-            target_loss,
-            label="QA target",
+            answer_demotion_loss=sum(answer_values) / len(answer_values),
+            answer_demotion_loss_max=max(answer_values),
+            frozen_head_loss=sum(frozen_values) / len(frozen_values),
+            frozen_head_loss_max=max(frozen_values),
+            qa_constraint_count=float(len(answer_values)),
         )
     elif phase == 1 and mc_tasks:
         task = mc_tasks[(step // 5) % len(mc_tasks)]
@@ -2662,37 +3072,51 @@ def _training_step(
             label="multiple-choice target",
         )
     else:
-        cache = positive_caches[(step // 5) % len(positive_caches)]
-        matched = _matched_positive_for(cache, matched_positive_caches)
-        target_features = (
-            matched.base_features if matched is not None else proxy_target
-        )
-        proxy = positive_proxy_loss(model, cache, target_features)
-        metrics["positive_proxy_loss"] = float(proxy.detach().item())
-        target_value += _backward_term(
-            5.0 * config.positive_proxy_weight * proxy,
-            label="positive proxy",
-        )
-        # Compute the non-target positive graph only after the target graph
-        # has been backpropagated and released.  This is algebraically
-        # identical to summing the losses but substantially lowers peak VRAM.
-        if matched is not None:
-            matched_retain = positive_proxy_loss(
-                model,
-                matched,
-                matched.base_features,
+        proxy_values: List[float] = []
+        matched_values: List[float] = []
+        positive_base = (step // 5) * config.positive_tasks_per_phase
+        for task_offset in range(config.positive_tasks_per_phase):
+            cache = positive_caches[
+                (positive_base + task_offset) % len(positive_caches)
+            ]
+            matched = _matched_positive_for(cache, matched_positive_caches)
+            target_features = (
+                matched.base_features if matched is not None else proxy_target
             )
-            metrics["matched_positive_retain_loss"] = float(
-                matched_retain.detach().item()
-            )
+            proxy = positive_proxy_loss(model, cache, target_features)
+            proxy_values.append(float(proxy.detach().item()))
             target_value += _backward_term(
                 5.0
-                * config.matched_positive_retain_weight
-                * matched_retain,
-                label="matched-positive retention",
+                * config.positive_proxy_weight
+                * proxy
+                / float(config.positive_tasks_per_phase),
+                label=f"positive proxy {task_offset}",
             )
-        else:
-            metrics["matched_positive_retain_loss"] = 0.0
+            # Compute the non-target positive graph only after the target graph
+            # has been released. This is algebraically identical to summing
+            # the terms but substantially lowers peak VRAM.
+            if matched is not None:
+                matched_retain = positive_proxy_loss(
+                    model,
+                    matched,
+                    matched.base_features,
+                )
+                matched_values.append(float(matched_retain.detach().item()))
+                target_value += _backward_term(
+                    5.0
+                    * config.matched_positive_retain_weight
+                    * matched_retain
+                    / float(config.positive_tasks_per_phase),
+                    label=f"matched-positive retention {task_offset}",
+                )
+        metrics["positive_proxy_loss"] = sum(proxy_values) / len(proxy_values)
+        metrics["positive_proxy_loss_max"] = max(proxy_values)
+        metrics["matched_positive_retain_loss"] = (
+            sum(matched_values) / len(matched_values)
+            if matched_values
+            else 0.0
+        )
+        metrics["positive_constraint_count"] = float(len(proxy_values))
 
     retain_value = 0.0
     for offset in range(config.retain_examples_per_step):
@@ -2835,11 +3259,23 @@ def run_representation_unlearning(
         [*qa_tasks, *positive_subject_tasks]
     )
     frozen_head = build_calibration_frozen_head(model, qa_tasks)
+    selected_layer_indices = resolve_layer_indices(
+        model,
+        layer_indices=config.layer_indices,
+        last_n_layers=config.last_n_layers,
+    )
+    anchor_layer_indices = list(
+        selected_layer_indices[:: config.concept_anchor_layer_stride]
+    )
+    if selected_layer_indices[-1] not in anchor_layer_indices:
+        anchor_layer_indices.append(selected_layer_indices[-1])
+    anchor_layer_indices = sorted(set(anchor_layer_indices))
     concept_basis = _cache_qa_baselines(
         model,
         tokenizer,
         qa_tasks,
         config=config,
+        anchor_layer_indices=anchor_layer_indices,
     )
     ordinary_retain_caches = cache_external_retain(
         model,
@@ -2950,6 +3386,12 @@ def run_representation_unlearning(
     selected_scale = 0.0
     selected_checkpoint_step = 0
     original_selected_weights: Optional[List[torch.Tensor]] = None
+    polish_steps = int(
+        math.floor(config.steps * config.constraint_polish_fraction)
+    )
+    polish_start_step = config.steps - polish_steps
+    training_qa_tasks = qa_tasks
+    polish_constraint_report: List[Dict[str, Any]] = []
     try:
         optimizer = torch.optim.AdamW(
             parameters,
@@ -2958,11 +3400,24 @@ def run_representation_unlearning(
         )
         model.train()
         for step in range(config.steps):
+            if polish_steps and step == polish_start_step:
+                model.eval()
+                selected_polish_tasks, polish_constraint_report = (
+                    _select_polish_qa_tasks(
+                        model,
+                        qa_tasks,
+                        frozen_head,
+                        config,
+                    )
+                )
+                if selected_polish_tasks:
+                    training_qa_tasks = selected_polish_tasks
+                model.train()
             optimizer.zero_grad(set_to_none=True)
             loss_value, metrics = _training_step(
                 model,
                 step=step,
-                qa_tasks=qa_tasks,
+                qa_tasks=training_qa_tasks,
                 mc_tasks=mc_tasks,
                 frozen_head=frozen_head,
                 concept_basis=concept_basis,
@@ -3269,8 +3724,25 @@ def run_representation_unlearning(
         model.eval()
 
     selected = chosen
+    qa_phase_count = sum(
+        1 for step in range(config.steps) if step % 5 in {0, 2, 4}
+    )
+    broad_qa_phase_count = sum(
+        1
+        for step in range(polish_start_step)
+        if step % 5 in {0, 2, 4}
+    )
+    positive_phase_count = sum(
+        1 for step in range(config.steps) if step % 5 == 3
+    )
+    qa_constraint_presentations = (
+        qa_phase_count * config.qa_tasks_per_step
+    )
+    positive_constraint_presentations = (
+        positive_phase_count * config.positive_tasks_per_phase
+    )
     report: Dict[str, Any] = {
-        "method": "corpus_assisted_representation_lora",
+        "method": "corpus_assisted_representation_lora_v2",
         "config": asdict(config),
         "protocol": {
             "calibration_only": False,
@@ -3291,7 +3763,8 @@ def run_representation_unlearning(
             "checkpoint_selection_inputs": [
                 "calibration QA variants",
                 "calibration-only balanced MC rotations",
-                "declared target-training frozen LM-head rows",
+                "target-demoted declared-training frozen LM-head rows",
+                "multi-layer target-versus-masked residual anchors",
                 "target/matched positive.json proxy likelihood distributions",
                 "external retain top-k+tail KL",
                 "external constructed-MC Base distillation",
@@ -3306,6 +3779,18 @@ def run_representation_unlearning(
                 record_sha256(row) for row in calibration_rows
             ],
             "qa_task_count": len(qa_tasks),
+            "qa_constraint_presentations": qa_constraint_presentations,
+            "minimum_qa_presentations_per_task": (
+                broad_qa_phase_count
+                * config.qa_tasks_per_step
+                // len(qa_tasks)
+            ),
+            "constraint_polish_steps": polish_steps,
+            "constraint_polish_start_step": polish_start_step,
+            "constraint_polish_selected_task_count": len(
+                polish_constraint_report
+            ),
+            "constraint_polish_selected_tasks": polish_constraint_report,
             "positive_subject_qa_task_count": len(positive_subject_tasks),
             "positive_subject_source_record_sha256": sorted(
                 {task.source_id for task in positive_subject_tasks}
@@ -3323,7 +3808,14 @@ def run_representation_unlearning(
             "subject_concept_basis_rank": (
                 0 if concept_basis is None else int(concept_basis.shape[0])
             ),
+            "subject_concept_anchor_layer_indices": anchor_layer_indices,
             "positive_record_count": len(selected_positive_rows),
+            "positive_constraint_presentations": (
+                positive_constraint_presentations
+            ),
+            "minimum_positive_presentations_per_cache": (
+                positive_constraint_presentations // len(positive_caches)
+            ),
             "positive_record_sha256": [
                 record_sha256(row) for row in selected_positive_rows
             ],
@@ -3446,6 +3938,9 @@ def run_representation_unlearning(
                 ),
                 "max_frozen_head_chance_ratio": (
                     config.max_calibration_frozen_head_chance_ratio
+                ),
+                "min_frozen_head_normalized_target_rank": (
+                    config.min_calibration_frozen_head_normalized_rank
                 ),
                 "max_multiple_choice_accuracy": (
                     config.max_calibration_mc_accuracy

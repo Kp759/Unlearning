@@ -180,6 +180,8 @@ def loose_config(**overrides):
         "last_n_layers": 1,
         "max_length": 96,
         "retain_top_k": 8,
+        "qa_tasks_per_step": 1,
+        "positive_tasks_per_phase": 1,
         "positive_max_rows": 2,
         "matched_positive_max_rows": 2,
         "positive_tokens_per_row": 24,
@@ -484,6 +486,68 @@ class CalibrationObjectiveTests(unittest.TestCase):
         self.assertAlmostEqual(float(uniform), 0.0, places=7)
         self.assertGreater(float(peaked_wrong), 1.0)
 
+    def test_frozen_head_objective_demotes_target_and_neutralizes_others(self):
+        target_high = REP._frozen_head_target_demotion_loss(
+            torch.tensor([5.0, 0.0, 0.0, 0.0]),
+            target_column=0,
+            demotion_margin=1.0,
+            spread_tolerance=0.1,
+        )
+        target_last = REP._frozen_head_target_demotion_loss(
+            torch.tensor([-2.0, 0.0, 0.0, 0.0]),
+            target_column=0,
+            demotion_margin=1.0,
+            spread_tolerance=0.1,
+        )
+        wrong_answer_peak = REP._frozen_head_target_demotion_loss(
+            torch.tensor([-2.0, 8.0, 0.0, 0.0]),
+            target_column=0,
+            demotion_margin=1.0,
+            spread_tolerance=0.1,
+        )
+        self.assertGreater(float(target_high), float(target_last))
+        self.assertAlmostEqual(float(target_last), 0.0, places=7)
+        self.assertGreater(float(wrong_answer_peak), 1.0)
+
+    def test_layer_capture_matches_decoder_layer_outputs(self):
+        model = TinyLlamaCausalLM(layer_count=3)
+        input_ids = torch.tensor([[1, 7, 9, 11]], dtype=torch.long)
+        with torch.no_grad():
+            hidden, rows = REP._hidden_forward_with_layer_rows(
+                model,
+                input_ids,
+                layer_indices=(0, 2),
+                position=2,
+            )
+        self.assertEqual(set(rows), {0, 2})
+        self.assertEqual(tuple(hidden.shape), (1, 4, 12))
+        self.assertEqual(tuple(rows[0].shape), (12,))
+        self.assertTrue(torch.isfinite(rows[2]).all())
+
+    def test_polish_active_set_uses_only_declared_calibration_tasks(self):
+        model = TinyLlamaCausalLM()
+        tasks, _ = REP.build_calibration_tasks(
+            TinyTokenizer(),
+            [qa_row(index) for index in range(4)],
+            max_length=96,
+        )
+        frozen = REP.build_calibration_frozen_head(model, tasks)
+        selected, report = REP._select_polish_qa_tasks(
+            model,
+            tasks,
+            frozen,
+            loose_config(
+                answer_probability_target=1e-12,
+                constraint_polish_limit=8,
+            ),
+        )
+        self.assertEqual(len(selected), len(report))
+        self.assertLessEqual(len(selected), 8)
+        self.assertTrue(selected)
+        self.assertTrue({row["source_id"] for row in report} <= {
+            task.source_id for task in tasks
+        })
+
     def test_positive_subject_corpus_builds_truthful_cloze_tasks(self):
         tasks = REP.build_positive_subject_tasks(
             TinyTokenizer(),
@@ -750,6 +814,7 @@ class CheckpointSelectionTests(unittest.TestCase):
                 "frozen_head_accuracy": float(frozen),
                 "frozen_head_chance_accuracy": 25.0,
                 "frozen_head_chance_ratio": float(frozen) / 25.0,
+                "frozen_head_mean_normalized_target_rank": 1.0,
                 "multiple_choice_accuracy": float(mc),
                 "proxy_mia_advantage": float(proxy),
                 "generation_recovery": float(top1),
@@ -807,6 +872,7 @@ class CheckpointSelectionTests(unittest.TestCase):
             "frozen_head_accuracy": 50.0,
             "frozen_head_chance_accuracy": 25.0,
             "frozen_head_chance_ratio": 0.5,
+            "frozen_head_mean_normalized_target_rank": 1.0,
             "multiple_choice_accuracy": 25.0,
             "proxy_mia_advantage": 0.0,
             "matched_positive_base_feature_drift": 0.0,
@@ -878,7 +944,7 @@ class EndToEndTests(unittest.TestCase):
             )
         self.assertEqual(
             report["method"],
-            "corpus_assisted_representation_lora",
+            "corpus_assisted_representation_lora_v2",
         )
         self.assertTrue(report["selection"]["used_scale_zero_fallback"])
         self.assertFalse(
@@ -896,6 +962,9 @@ class EndToEndTests(unittest.TestCase):
         self.assertIn(
             "forced_prefix",
             report["data"]["qa_prompt_variant_counts"],
+        )
+        self.assertTrue(
+            report["data"]["subject_concept_anchor_layer_indices"]
         )
         self.assertTrue(report["data"]["optimization_gate_sets_disjoint"])
         self.assertTrue(

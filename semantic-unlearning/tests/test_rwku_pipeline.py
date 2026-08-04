@@ -305,6 +305,67 @@ class RWKUEvaluatorTests(unittest.TestCase):
         )
         self.assertEqual(summary["max_attack_advantage"], 1.0)
 
+    def test_strict_success_contract_is_base_relative_and_fail_closed(self):
+        base = {
+            "retain": {
+                "neighboring_entity_accuracy": 76.0,
+                "general_utility": 44.0,
+                "mmlu_accuracy": 45.0,
+                "reasoning_accuracy": 40.0,
+                "truthfulness_accuracy": 42.0,
+                "factuality_f1": 49.0,
+                "perplexity": 11.0,
+            }
+        }
+        candidate = {
+            "forget": {
+                "cloze_target_recovery": 0.0,
+                "direct_target_qa_recovery": 0.0,
+                "paraphrased_target_recovery": 0.0,
+                "alias_question_recovery": 0.0,
+                "alias_question_coverage": 1.0,
+                "adversarial_recovery_success": 0.0,
+                "membership_inference_attack_advantage": 0.0,
+                "cloze_target_probability": 0.001,
+                "direct_target_qa_probability": 0.001,
+                "target_answer_token_probability": 0.001,
+            },
+            "controls": {
+                "full_answer_geometric_probability": 0.001,
+                "forced_answer_prefix_probability": 0.001,
+                "answer_alias_probability": 0.001,
+                "forced_answer_prefix_recovery": 0.0,
+                "answer_alias_recovery": 0.0,
+                "open_ended_recovery": 0.0,
+                "forced_answer_prefix_coverage": 1.0,
+                "answer_alias_coverage": 1.0,
+                "multiple_choice_recovery": 25.0,
+                "frozen_base_head_probe_recovery": 0.0,
+                "frozen_base_head_probe_chance_accuracy": 5.0,
+                "frozen_base_head_probe_target_probability": 0.01,
+                "frozen_base_head_probe_normalized_rank": 1.0,
+            },
+            "retain": {
+                "neighboring_entity_accuracy": 75.0,
+                "general_utility": 43.0,
+                "mmlu_accuracy": 43.0,
+                "reasoning_accuracy": 38.0,
+                "truthfulness_accuracy": 40.0,
+                "factuality_f1": 47.0,
+                "full_retain_probability_ratio": 1.0,
+                "perplexity": 11.1,
+            },
+        }
+        contract = EVAL.rwku_success_contract(base, candidate)
+        self.assertTrue(contract["passed"])
+        candidate["forget"]["direct_target_qa_recovery"] = 20.0
+        failed = EVAL.rwku_success_contract(base, candidate)
+        self.assertFalse(failed["passed"])
+        self.assertIn(
+            "forget.direct_target_qa_recovery",
+            failed["failed_criteria"],
+        )
+
     def test_completion_scorer_uses_all_answer_tokens(self):
         model = TinyCausalLM()
         tokenizer = TinyTokenizer()
@@ -539,9 +600,13 @@ class RWKUExperimentProtocolTests(unittest.TestCase):
 
         args = EXPERIMENT.build_parser().parse_args(["--seed", "0", "--dry-run"])
         config = EXPERIMENT.representation_config(args)
-        self.assertEqual(config.steps, 1250)
-        self.assertEqual(config.rank, 16)
-        self.assertEqual(config.last_n_layers, 8)
+        self.assertEqual(config.steps, 1800)
+        self.assertEqual(config.rank, 24)
+        self.assertEqual(config.last_n_layers, 12)
+        self.assertEqual(config.qa_tasks_per_step, 4)
+        self.assertEqual(config.positive_tasks_per_phase, 2)
+        self.assertEqual(config.constraint_polish_fraction, 0.15)
+        self.assertEqual(config.constraint_polish_limit, 96)
         self.assertEqual(
             config.target_modules,
             (
@@ -554,6 +619,11 @@ class RWKUExperimentProtocolTests(unittest.TestCase):
             ),
         )
         self.assertEqual(config.answer_probability_target, 1e-6)
+        self.assertEqual(config.frozen_head_demotion_margin, 1.0)
+        self.assertEqual(
+            config.min_calibration_frozen_head_normalized_rank,
+            0.90,
+        )
         self.assertEqual(config.min_retain_answer_probability_ratio, 0.995)
         self.assertEqual(config.max_retain_answer_probability_ratio, 1.005)
         self.assertEqual(config.min_retain_top1_agreement, 0.99)
@@ -673,7 +743,14 @@ class RWKUAggregationTests(unittest.TestCase):
             sections[section] = {
                 key: float(seed) for key, _, _ in metrics
             }
-        return {"summary": sections}
+        return {
+            "summary": sections,
+            "success_contract": {
+                "all_required_metrics_evaluated": True,
+                "passed": False,
+                "failed_criteria": ["synthetic.failure"],
+            },
+        }
 
     def test_strict_ten_seed_aggregation_and_optional_eligibility(self):
         with tempfile.TemporaryDirectory() as directory:

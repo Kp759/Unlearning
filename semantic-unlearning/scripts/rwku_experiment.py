@@ -53,6 +53,7 @@ from rwku_eval import (
     evaluate_rwku,
     format_qa_prompt,
     load_wikidata_text,
+    rwku_success_contract,
     write_json,
 )
 from rwku_repair import (
@@ -89,7 +90,7 @@ METHOD_ZERO = "Original ZeroUnlearn"
 METHOD_SETTING5 = "Setting 5e without repair"
 METHOD_REPAIRED = "Setting 5e + protected LM-head repair"
 METHOD_REPAIR_ONLY = "Repair-only control"
-METHOD_REPRESENTATION = "Protected representation unlearning"
+METHOD_REPRESENTATION = "Protected representation unlearning v2"
 METHOD_ORDER = (
     METHOD_BASE,
     METHOD_ZERO,
@@ -234,17 +235,37 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Base-initialized representation unlearning. The output head and input
     # embeddings remain frozen; only low-rank late-transformer deltas train.
-    parser.add_argument("--representation-steps", type=int, default=1250)
+    parser.add_argument("--representation-steps", type=int, default=1800)
     parser.add_argument("--representation-lr", type=float, default=2e-4)
-    parser.add_argument("--representation-rank", type=int, default=16)
-    parser.add_argument("--representation-alpha", type=float, default=32.0)
-    parser.add_argument("--representation-last-n-layers", type=int, default=8)
+    parser.add_argument("--representation-rank", type=int, default=24)
+    parser.add_argument("--representation-alpha", type=float, default=48.0)
+    parser.add_argument("--representation-last-n-layers", type=int, default=12)
     parser.add_argument("--representation-max-length", type=int, default=512)
     parser.add_argument("--representation-retain-top-k", type=int, default=64)
     parser.add_argument(
         "--representation-retain-examples-per-step",
         type=int,
         default=2,
+    )
+    parser.add_argument(
+        "--representation-qa-tasks-per-step",
+        type=int,
+        default=4,
+    )
+    parser.add_argument(
+        "--representation-positive-tasks-per-phase",
+        type=int,
+        default=2,
+    )
+    parser.add_argument(
+        "--representation-constraint-polish-fraction",
+        type=float,
+        default=0.15,
+    )
+    parser.add_argument(
+        "--representation-constraint-polish-limit",
+        type=int,
+        default=96,
     )
     parser.add_argument(
         "--representation-external-mc-retain-limit",
@@ -289,6 +310,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.10,
     )
     parser.add_argument(
+        "--representation-frozen-head-demotion-margin",
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
         "--representation-mc-logit-spread-tolerance",
         type=float,
         default=0.10,
@@ -301,18 +327,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--representation-answer-probability-weight",
         type=float,
-        default=1.0,
+        default=2.0,
     )
     parser.add_argument(
         "--representation-frozen-head-weight",
         type=float,
-        default=1.0,
+        default=2.0,
     )
     parser.add_argument("--representation-mc-weight", type=float, default=1.0)
     parser.add_argument(
         "--representation-positive-proxy-weight",
         type=float,
-        default=0.5,
+        default=1.0,
     )
     parser.add_argument(
         "--representation-matched-positive-retain-weight",
@@ -330,6 +356,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.5,
     )
     parser.add_argument("--representation-concept-rank", type=int, default=8)
+    parser.add_argument(
+        "--representation-layerwise-concept-erasure-weight",
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
+        "--representation-layerwise-concept-orthogonal-weight",
+        type=float,
+        default=0.25,
+    )
+    parser.add_argument(
+        "--representation-concept-anchor-layer-stride",
+        type=int,
+        default=2,
+    )
     parser.add_argument(
         "--representation-retain-kl-weight",
         type=float,
@@ -421,6 +462,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=1.0,
     )
     parser.add_argument(
+        "--representation-min-frozen-head-normalized-rank",
+        type=float,
+        default=0.90,
+    )
+    parser.add_argument(
         "--representation-grad-clip",
         type=float,
         default=0.5,
@@ -433,7 +479,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--representation-selection-calibration-limit",
         type=int,
-        default=128,
+        default=192,
     )
     parser.add_argument(
         "--representation-selection-generation-limit",
@@ -536,6 +582,9 @@ def validate_args(args: argparse.Namespace) -> None:
         "representation_max_length",
         "representation_retain_top_k",
         "representation_retain_examples_per_step",
+        "representation_qa_tasks_per_step",
+        "representation_positive_tasks_per_phase",
+        "representation_constraint_polish_limit",
         "representation_external_mc_retain_limit",
         "representation_external_mc_gate_limit",
         "representation_positive_max_rows",
@@ -543,6 +592,7 @@ def validate_args(args: argparse.Namespace) -> None:
         "representation_matched_positive_max_rows",
         "representation_positive_tokens_per_row",
         "representation_concept_rank",
+        "representation_concept_anchor_layer_stride",
         "representation_gate_retain_limit",
         "representation_selection_calibration_limit",
         "representation_selection_generation_batch_size",
@@ -1060,6 +1110,16 @@ def representation_config(args: argparse.Namespace) -> RepresentationConfig:
         retain_examples_per_step=(
             args.representation_retain_examples_per_step
         ),
+        qa_tasks_per_step=args.representation_qa_tasks_per_step,
+        positive_tasks_per_phase=(
+            args.representation_positive_tasks_per_phase
+        ),
+        constraint_polish_fraction=(
+            args.representation_constraint_polish_fraction
+        ),
+        constraint_polish_limit=(
+            args.representation_constraint_polish_limit
+        ),
         external_mc_retain_limit=(
             args.representation_external_mc_retain_limit
         ),
@@ -1084,6 +1144,9 @@ def representation_config(args: argparse.Namespace) -> RepresentationConfig:
         frozen_head_logit_spread_tolerance=(
             args.representation_frozen_head_logit_spread_tolerance
         ),
+        frozen_head_demotion_margin=(
+            args.representation_frozen_head_demotion_margin
+        ),
         mc_logit_spread_tolerance=(
             args.representation_mc_logit_spread_tolerance
         ),
@@ -1104,6 +1167,15 @@ def representation_config(args: argparse.Namespace) -> RepresentationConfig:
             args.representation_concept_orthogonal_retain_weight
         ),
         concept_rank=args.representation_concept_rank,
+        layerwise_concept_erasure_weight=(
+            args.representation_layerwise_concept_erasure_weight
+        ),
+        layerwise_concept_orthogonal_weight=(
+            args.representation_layerwise_concept_orthogonal_weight
+        ),
+        concept_anchor_layer_stride=(
+            args.representation_concept_anchor_layer_stride
+        ),
         retain_kl_weight=args.representation_retain_kl_weight,
         retain_answer_weight=args.representation_retain_answer_weight,
         retain_hidden_weight=args.representation_retain_hidden_weight,
@@ -1148,6 +1220,9 @@ def representation_config(args: argparse.Namespace) -> RepresentationConfig:
         ),
         max_calibration_frozen_head_chance_ratio=(
             args.representation_max_frozen_head_chance_ratio
+        ),
+        min_calibration_frozen_head_normalized_rank=(
+            args.representation_min_frozen_head_normalized_rank
         ),
         grad_clip=args.representation_grad_clip,
         seed=args.seed,
@@ -1868,6 +1943,51 @@ def main() -> None:
         del representation_model, representation_tokenizer
         gc.collect()
         torch.cuda.empty_cache()
+
+    artifact_by_method = {
+        METHOD_BASE: output_dir / "base_model.json",
+        METHOD_ZERO: output_dir / "original_zerounlearn.json",
+        METHOD_SETTING5: output_dir / "setting5_without_repair.json",
+        METHOD_REPAIRED: output_dir / "setting5_protected_repair.json",
+        METHOD_REPAIR_ONLY: output_dir / "repair_only.json",
+        METHOD_REPRESENTATION: output_dir / "protected_representation.json",
+    }
+    for method, result in results.items():
+        if method != METHOD_BASE:
+            contract = rwku_success_contract(
+                base_result["summary"],
+                result["summary"],
+            )
+            if method == METHOD_REPRESENTATION:
+                selection = result["unlearning"]["selection"]
+                internal_pass = bool(
+                    selection["accepted_all_calibration_efficacy_targets"]
+                    and selection["accepted_all_non_target_protection_gates"]
+                )
+                contract["internal_representation_selection"] = {
+                    "required": True,
+                    "pass": internal_pass,
+                    "calibration_efficacy_gates_pass": bool(
+                        selection[
+                            "accepted_all_calibration_efficacy_targets"
+                        ]
+                    ),
+                    "non_target_protection_gates_pass": bool(
+                        selection[
+                            "accepted_all_non_target_protection_gates"
+                        ]
+                    ),
+                }
+                if not internal_pass:
+                    contract["failed_criteria"].append(
+                        "internal_representation_selection"
+                    )
+                    contract["failed_criteria"] = sorted(
+                        set(contract["failed_criteria"])
+                    )
+                    contract["passed"] = False
+            result["success_contract"] = contract
+        write_json(artifact_by_method[method], result)
 
     combined = {
         **payload,
