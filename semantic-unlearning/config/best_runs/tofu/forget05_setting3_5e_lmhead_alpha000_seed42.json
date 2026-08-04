@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "record_id": "tofu-forget05-setting3-setting5e-lmhead-alpha000-seed42",
+  "status": "BEST_ACCEPTED",
+  "dataset": "TOFU",
+  "protocol": {
+    "name": "forget05_local_probability_gate",
+    "forget_split": "forget05",
+    "retain_split": "retain95",
+    "seed": 42,
+    "official_full_tofu_eval_included": false,
+    "scope_note": "This record is accepted under the saved local answer-probability and utility-ratio gate. Store a separate record for full tofu_eval results."
+  },
+  "method": {
+    "name": "Setting 3 embedding/LM-head training plus Setting 5e restoration plus LM-head repair",
+    "stages": [
+      {
+        "stage": 1,
+        "name": "setting3_emb_lm_all",
+        "mode": "emb_lm_all_tokens",
+        "checkpoint": "outputs/tofu_setting3_5e_ultra_seed42/setting3_emb_lm_all/emb_lm_all_tokens/checkpoint",
+        "exact_config_source": "outputs/tofu_setting3_5e_ultra_seed42/setting3_emb_lm_all/config_used.json"
+      },
+      {
+        "stage": 2,
+        "name": "setting5e_alpha000",
+        "unique_forget_alpha": 0.0,
+        "checkpoint": "outputs/tofu_setting3_5e_ultra_seed42/setting5e_alpha000/checkpoint",
+        "exact_config_source": "outputs/tofu_setting3_5e_ultra_seed42/setting5e_alpha000/config_used.json",
+        "repair_config_source": "outputs/tofu_setting3_5e_ultra_seed42/setting5e_alpha000/checkpoint/repair_experiment_config.json"
+      },
+      {
+        "stage": 3,
+        "name": "lm_head_repair_alpha000",
+        "selected_variant": "alpha000",
+        "checkpoint": "outputs/tofu_setting3_5e_ultra_seed42/lm_head_repair_alpha000/checkpoint",
+        "repair_summary_source": "outputs/tofu_setting3_5e_ultra_seed42/lm_head_repair_alpha000/repair_summary.json",
+        "metric_source": "outputs/tofu_setting3_5e_ultra_seed42/lm_head_repair_alpha000/candidate_local_metrics.json"
+      }
+    ],
+    "configuration_authority": "The exact local config_used.json and repair_experiment_config.json files listed above are authoritative. Values not explicitly copied into this record must not be reconstructed from memory."
+  },
+  "metrics": {
+    "forget_answer_probability_mean": 0.0000187629884749,
+    "retain_probability_ratio": 0.999801158905,
+    "world_facts_probability_ratio": 0.999917984009,
+    "real_authors_probability_ratio": 0.999838829041,
+    "full_retain_probability_ratio": 0.99979988122
+  },
+  "final_checkpoint": {
+    "path": "outputs/tofu_setting3_5e_ultra_seed42/lm_head_repair_alpha000/checkpoint",
+    "weight_file": "model.safetensors",
+    "size_bytes": null,
+    "sha256": null,
+    "hash_status": "PENDING_LOCAL_CAPTURE"
+  },
+  "provenance_completeness": {
+    "metrics": "COMPLETE",
+    "checkpoint_path": "COMPLETE",
+    "parameter_source_paths": "COMPLETE",
+    "embedded_parameter_snapshot": "PARTIAL",
+    "weight_hash": "PENDING"
+  },
+  "weight_storage": {
+    "tracked_in_git": false,
+    "reason": "Large model weights must remain in persistent artifact storage; Git stores the immutable record and checksum."
+  }
+}
