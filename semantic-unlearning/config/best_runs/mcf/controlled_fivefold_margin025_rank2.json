@@ -7,7 +7,13 @@
     "name": "controlled_fivefold",
     "official_split": false,
     "sample_mode": "first",
-    "folds": [0, 1, 2, 3, 4],
+    "folds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
     "note": "This is the canonical leakage-controlled five-fold result and must not be compared as if it were the official random-seed protocol."
   },
   "method": {
@@ -63,7 +69,13 @@
       "weight_file": "model.safetensors",
       "size_bytes": 7213534088,
       "sha256": "7a1b723ecc9d2013030249b41b5f89a9e4735093e5547980bc81a247870740c3",
-      "metrics": {"Eff": 0.0, "Gen": 0.0, "Spe": 9.74, "PPL": 11.379462, "minimum_post_reload_margin": 0.1875}
+      "metrics": {
+        "Eff": 0.0,
+        "Gen": 0.0,
+        "Spe": 9.74,
+        "PPL": 11.379462,
+        "minimum_post_reload_margin": 0.1875
+      }
     },
     {
       "fold": 1,
@@ -71,7 +83,13 @@
       "weight_file": "model.safetensors",
       "size_bytes": 7213534088,
       "sha256": "f5d456fd2bc5a73c63b5fc99891eab5dada99db3283d0ceebe8429257cba5472",
-      "metrics": {"Eff": 0.0, "Gen": 0.0, "Spe": 16.11, "PPL": 11.378746, "minimum_post_reload_margin": 0.4375}
+      "metrics": {
+        "Eff": 0.0,
+        "Gen": 0.0,
+        "Spe": 16.11,
+        "PPL": 11.378746,
+        "minimum_post_reload_margin": 0.4375
+      }
     },
     {
       "fold": 2,
@@ -79,7 +97,13 @@
       "weight_file": "model.safetensors",
       "size_bytes": 7213534088,
       "sha256": "69220c825ffa89aae586e96f9cbc07e44b9ecfdf78cca47ff79edea0de4a5a0f",
-      "metrics": {"Eff": 0.0, "Gen": 0.0, "Spe": 20.93, "PPL": 11.381207, "minimum_post_reload_margin": 0.5}
+      "metrics": {
+        "Eff": 0.0,
+        "Gen": 0.0,
+        "Spe": 20.93,
+        "PPL": 11.381207,
+        "minimum_post_reload_margin": 0.5
+      }
     },
     {
       "fold": 3,
@@ -87,7 +111,13 @@
       "weight_file": "model.safetensors",
       "size_bytes": 7213534088,
       "sha256": "dd52109cce04d6323849673ccc31c1f3c67273c7a83ec0fe659b864817e52312",
-      "metrics": {"Eff": 0.0, "Gen": 0.0, "Spe": 18.27, "PPL": 11.379174, "minimum_post_reload_margin": 0.25}
+      "metrics": {
+        "Eff": 0.0,
+        "Gen": 0.0,
+        "Spe": 18.27,
+        "PPL": 11.379174,
+        "minimum_post_reload_margin": 0.25
+      }
     },
     {
       "fold": 4,
@@ -95,12 +125,23 @@
       "weight_file": "model.safetensors",
       "size_bytes": 7213534088,
       "sha256": "35c588909d3579a7f87b46638b044c081b376b5f710a8d3b5607430fdd6e03ba",
-      "metrics": {"Eff": 0.0, "Gen": 0.0, "Spe": 17.83, "PPL": 11.379182, "minimum_post_reload_margin": 0.375}
+      "metrics": {
+        "Eff": 0.0,
+        "Gen": 0.0,
+        "Spe": 17.83,
+        "PPL": 11.379182,
+        "minimum_post_reload_margin": 0.375
+      }
     }
   ],
   "weight_storage": {
     "tracked_in_git": false,
     "reason": "Each model.safetensors is approximately 6.72 GiB and weight files are intentionally ignored by Git.",
     "required_action": "Keep verified copies on persistent project storage and validate with the recorded SHA-256 hashes."
+  },
+  "provenance_completeness": {
+    "metrics": "COMPLETE",
+    "parameters": "COMPLETE",
+    "weight_hashes": "COMPLETE_AND_VERIFIED"
   }
 }

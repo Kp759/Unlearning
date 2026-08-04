@@ -4,7 +4,10 @@
     "append_only": true,
     "never_overwrite_prior_best": true,
     "compare_only_within_same_protocol": true,
-    "allowed_statuses": ["BEST_ACCEPTED", "BEST_FORGETTING_ONLY"],
+    "allowed_statuses": [
+      "BEST_ACCEPTED",
+      "BEST_FORGETTING_ONLY"
+    ],
     "weight_policy": "Git stores manifests, parameters, metrics, provenance, and SHA-256 checksums. Multi-gigabyte model weights remain in persistent artifact storage."
   },
   "records": [
@@ -15,7 +18,7 @@
       "protocol": "controlled_fivefold",
       "manifest": "config/best_runs/mcf/controlled_fivefold_margin025_rank2.json",
       "checkpoint_count": 5,
-      "hash_status": "COMPLETE"
+      "hash_status": "COMPLETE_AND_VERIFIED"
     },
     {
       "dataset": "TOFU",
@@ -24,7 +27,7 @@
       "protocol": "forget05_local_probability_gate",
       "manifest": "config/best_runs/tofu/forget05_setting3_5e_lmhead_alpha000_seed42.json",
       "checkpoint_count": 1,
-      "hash_status": "PENDING_LOCAL_CAPTURE"
+      "hash_status": "COMPLETE_AND_VERIFIED"
     },
     {
       "dataset": "ZsRE",
@@ -33,7 +36,7 @@
       "protocol": "ZeroUnlearn_official_compatible_seed1",
       "manifest": "config/best_runs/zsre/cal384_seed1.json",
       "checkpoint_count": 1,
-      "hash_status": "PENDING_LOCAL_CAPTURE"
+      "hash_status": "COMPLETE_AND_VERIFIED"
     }
   ],
   "usage": {

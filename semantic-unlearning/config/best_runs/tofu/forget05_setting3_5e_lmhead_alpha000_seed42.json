@@ -41,7 +41,7 @@
     "configuration_authority": "The exact local config_used.json and repair_experiment_config.json files listed above are authoritative. Values not explicitly copied into this record must not be reconstructed from memory."
   },
   "metrics": {
-    "forget_answer_probability_mean": 0.0000187629884749,
+    "forget_answer_probability_mean": 1.87629884749e-05,
     "retain_probability_ratio": 0.999801158905,
     "world_facts_probability_ratio": 0.999917984009,
     "real_authors_probability_ratio": 0.999838829041,
@@ -50,19 +50,388 @@
   "final_checkpoint": {
     "path": "outputs/tofu_setting3_5e_ultra_seed42/lm_head_repair_alpha000/checkpoint",
     "weight_file": "model.safetensors",
-    "size_bytes": null,
-    "sha256": null,
-    "hash_status": "PENDING_LOCAL_CAPTURE"
+    "size_bytes": 7213534088,
+    "sha256": "68c2e0a55a6e398cc8c3c478fd193fa9f0a55538ebb87568c854d598e377c59d",
+    "hash_status": "COMPLETE_AND_VERIFIED"
   },
   "provenance_completeness": {
     "metrics": "COMPLETE",
     "checkpoint_path": "COMPLETE",
     "parameter_source_paths": "COMPLETE",
-    "embedded_parameter_snapshot": "PARTIAL",
-    "weight_hash": "PENDING"
+    "embedded_parameter_snapshot": "COMPLETE",
+    "weight_hash": "COMPLETE_AND_VERIFIED"
   },
   "weight_storage": {
     "tracked_in_git": false,
     "reason": "Large model weights must remain in persistent artifact storage; Git stores the immutable record and checksum."
+  },
+  "exact_parameter_snapshots": {
+    "outputs/tofu_setting3_5e_ultra_seed42/setting3_emb_lm_all/config_used.json": {
+      "size_bytes": 1436,
+      "sha256": "4afe8654d9157afb6481bbd20e248cd8bd2580056277034c4a79a3105f9928ff",
+      "content": {
+        "model_path": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct",
+        "output_dir": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_setting3_5e_ultra_seed42/setting3_emb_lm_all",
+        "mode": "emb_lm_all_tokens",
+        "forget_split": "forget05",
+        "retain_split": "retain95",
+        "seed": 42,
+        "forget_num": 200,
+        "retain_num": 1000,
+        "steps": 200,
+        "batch_size": 1,
+        "retain_batch_size": 5,
+        "lr": 1e-05,
+        "full_lr": 1e-05,
+        "emb_lm_lr": 0.0002,
+        "forget_weight": 1.0,
+        "retain_weight": 5.0,
+        "kl_retain_weight": 0.0,
+        "weight_decay": 0.0,
+        "grad_clip": 1.0,
+        "optimizer": null,
+        "full_optimizer": null,
+        "emb_lm_optimizer": null,
+        "sampling_strategy": "epoch",
+        "selective_top_k": 1000,
+        "semantic_token_json": null,
+        "max_eval_examples": 32,
+        "dtype": "bf16",
+        "device_map": "single",
+        "gradient_checkpointing": false,
+        "save_model": true,
+        "dataset": "tofu",
+        "forget_loss_type": "answer_nll",
+        "forget_margin": 0.0,
+        "mcf_answer_field": "target_new",
+        "post_training_new_true_alpha": 0.75,
+        "post_training_new_retain_alpha": 0.5,
+        "post_training_new_true_retain_alpha": 0.25,
+        "modes": [
+          "emb_lm_all_tokens"
+        ],
+        "prompt_construction": "tofu_eval_chat_template",
+        "answer_construction": "leading_space_plus_answer",
+        "resolved_mode_settings": {
+          "emb_lm_all_tokens": {
+            "learning_rate": 0.0002,
+            "optimizer": "adamw"
+          }
+        }
+      }
+    },
+    "outputs/tofu_setting3_5e_ultra_seed42/setting5e_alpha000/config_used.json": {
+      "size_bytes": 2967,
+      "sha256": "c16bc60de8c8c7bf7b81debedbd08e2c1db2c705999b6bd23b02b630b89920e0",
+      "content": {
+        "model_path": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_setting3_5e_ultra_seed42/setting3_emb_lm_all/emb_lm_all_tokens/checkpoint",
+        "base_model_path": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct",
+        "output_dir": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_setting3_5e_ultra_seed42/setting5e_alpha000",
+        "source_mode": "emb_lm_all_tokens",
+        "forget_split": "forget05",
+        "retain_split": "retain95",
+        "seed": 42,
+        "forget_num": 200,
+        "retain_num": 1000,
+        "unique_forget_alpha": 1.0,
+        "overlap_alpha": 0.0,
+        "max_length": 256,
+        "protect_full_retain_split": true,
+        "protect_utility_splits": true,
+        "restore_input_embeddings": true,
+        "chunk_rows": 2048,
+        "dtype": "bf16",
+        "device_map": "single",
+        "save_model": true,
+        "method": "tofu_setting5e_restore",
+        "source_experiment_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_setting3_5e_ultra_seed42/setting3_emb_lm_all/config_used.json",
+        "source_experiment_config": {
+          "model_path": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct",
+          "output_dir": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_setting3_5e_ultra_seed42/setting3_emb_lm_all",
+          "mode": "emb_lm_all_tokens",
+          "forget_split": "forget05",
+          "retain_split": "retain95",
+          "seed": 42,
+          "forget_num": 200,
+          "retain_num": 1000,
+          "steps": 200,
+          "batch_size": 1,
+          "retain_batch_size": 5,
+          "lr": 1e-05,
+          "full_lr": 1e-05,
+          "emb_lm_lr": 0.0002,
+          "forget_weight": 1.0,
+          "retain_weight": 5.0,
+          "kl_retain_weight": 0.0,
+          "weight_decay": 0.0,
+          "grad_clip": 1.0,
+          "optimizer": null,
+          "full_optimizer": null,
+          "emb_lm_optimizer": null,
+          "sampling_strategy": "epoch",
+          "selective_top_k": 1000,
+          "semantic_token_json": null,
+          "max_eval_examples": 32,
+          "dtype": "bf16",
+          "device_map": "single",
+          "gradient_checkpointing": false,
+          "save_model": true,
+          "dataset": "tofu",
+          "forget_loss_type": "answer_nll",
+          "forget_margin": 0.0,
+          "mcf_answer_field": "target_new",
+          "post_training_new_true_alpha": 0.75,
+          "post_training_new_retain_alpha": 0.5,
+          "post_training_new_true_retain_alpha": 0.25,
+          "modes": [
+            "emb_lm_all_tokens"
+          ],
+          "prompt_construction": "tofu_eval_chat_template",
+          "answer_construction": "leading_space_plus_answer",
+          "resolved_mode_settings": {
+            "emb_lm_all_tokens": {
+              "learning_rate": 0.0002,
+              "optimizer": "adamw"
+            }
+          }
+        },
+        "policy": {
+          "unique_forget": "base + unique_forget_alpha * (trained - base)",
+          "forget_retain_overlap": "base + overlap_alpha * (trained - base)",
+          "retain_only": "base row",
+          "unrelated": "base row",
+          "input_embeddings": "all base rows"
+        },
+        "protected_split_counts": {
+          "retain95": 3800,
+          "real_authors": 100,
+          "world_facts": 117
+        }
+      }
+    },
+    "outputs/tofu_setting3_5e_ultra_seed42/setting5e_alpha000/checkpoint/repair_experiment_config.json": {
+      "size_bytes": 2967,
+      "sha256": "c16bc60de8c8c7bf7b81debedbd08e2c1db2c705999b6bd23b02b630b89920e0",
+      "content": {
+        "model_path": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_setting3_5e_ultra_seed42/setting3_emb_lm_all/emb_lm_all_tokens/checkpoint",
+        "base_model_path": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct",
+        "output_dir": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_setting3_5e_ultra_seed42/setting5e_alpha000",
+        "source_mode": "emb_lm_all_tokens",
+        "forget_split": "forget05",
+        "retain_split": "retain95",
+        "seed": 42,
+        "forget_num": 200,
+        "retain_num": 1000,
+        "unique_forget_alpha": 1.0,
+        "overlap_alpha": 0.0,
+        "max_length": 256,
+        "protect_full_retain_split": true,
+        "protect_utility_splits": true,
+        "restore_input_embeddings": true,
+        "chunk_rows": 2048,
+        "dtype": "bf16",
+        "device_map": "single",
+        "save_model": true,
+        "method": "tofu_setting5e_restore",
+        "source_experiment_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_setting3_5e_ultra_seed42/setting3_emb_lm_all/config_used.json",
+        "source_experiment_config": {
+          "model_path": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct",
+          "output_dir": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_setting3_5e_ultra_seed42/setting3_emb_lm_all",
+          "mode": "emb_lm_all_tokens",
+          "forget_split": "forget05",
+          "retain_split": "retain95",
+          "seed": 42,
+          "forget_num": 200,
+          "retain_num": 1000,
+          "steps": 200,
+          "batch_size": 1,
+          "retain_batch_size": 5,
+          "lr": 1e-05,
+          "full_lr": 1e-05,
+          "emb_lm_lr": 0.0002,
+          "forget_weight": 1.0,
+          "retain_weight": 5.0,
+          "kl_retain_weight": 0.0,
+          "weight_decay": 0.0,
+          "grad_clip": 1.0,
+          "optimizer": null,
+          "full_optimizer": null,
+          "emb_lm_optimizer": null,
+          "sampling_strategy": "epoch",
+          "selective_top_k": 1000,
+          "semantic_token_json": null,
+          "max_eval_examples": 32,
+          "dtype": "bf16",
+          "device_map": "single",
+          "gradient_checkpointing": false,
+          "save_model": true,
+          "dataset": "tofu",
+          "forget_loss_type": "answer_nll",
+          "forget_margin": 0.0,
+          "mcf_answer_field": "target_new",
+          "post_training_new_true_alpha": 0.75,
+          "post_training_new_retain_alpha": 0.5,
+          "post_training_new_true_retain_alpha": 0.25,
+          "modes": [
+            "emb_lm_all_tokens"
+          ],
+          "prompt_construction": "tofu_eval_chat_template",
+          "answer_construction": "leading_space_plus_answer",
+          "resolved_mode_settings": {
+            "emb_lm_all_tokens": {
+              "learning_rate": 0.0002,
+              "optimizer": "adamw"
+            }
+          }
+        },
+        "policy": {
+          "unique_forget": "base + unique_forget_alpha * (trained - base)",
+          "forget_retain_overlap": "base + overlap_alpha * (trained - base)",
+          "retain_only": "base row",
+          "unrelated": "base row",
+          "input_embeddings": "all base rows"
+        },
+        "protected_split_counts": {
+          "retain95": 3800,
+          "real_authors": 100,
+          "world_facts": 117
+        }
+      }
+    },
+    "outputs/tofu_setting3_5e_ultra_seed42/lm_head_repair_alpha000/repair_summary.json": {
+      "size_bytes": 4287,
+      "sha256": "807d3df5bba7b4e097f91d97a233c8c27241cec298c98a6f84fc9b4de28e3e88",
+      "content": {
+        "method": "tofu_active_forget_repair",
+        "input_checkpoint": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_setting3_5e_ultra_seed42/setting5e_alpha000/checkpoint",
+        "reference_model": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/finetuned_model_3B_instruct",
+        "target_forget_answer_probability": 0.0003,
+        "target_forget_answer_nll": 8.111728083308073,
+        "initially_active_forget_instances": 200,
+        "active_forget_instances_after": 0,
+        "selected_lm_head_row_count": 395,
+        "protected_overlap_lm_head_row_count": 1166,
+        "best_step": 72,
+        "steps_completed": 72,
+        "stopped_early": true,
+        "qualified": true,
+        "utility_constraints_required": true,
+        "utility_constraint_mode": "aggregate",
+        "utility_constraint_violations_after": 0,
+        "utility_instance_constraint_violations_after": 337,
+        "utility_aggregate_constraint_violations_after": 0,
+        "utility_probability_ratio_by_split_after": {
+          "retain": 0.9998011589050293,
+          "real_authors": 0.9998388290405273,
+          "world_facts": 0.9999179840087891
+        },
+        "minimum_utility_probability_ratio": 0.9998,
+        "effective_utility_nll_tolerance": 0.0002000200026670447,
+        "baseline_full_retain_probability_ratio": 1.0000005979049291,
+        "candidate_full_retain_probability_ratio": 0.9997998812202068,
+        "full_retain_target_met": true,
+        "baseline_local_metrics": {
+          "active_forget_instance_count": 200,
+          "buffered_forget_constraint_unmet_count": 200,
+          "forget_answer_probability_mean": 0.9503128528594971,
+          "forget_answer_probability_max": 0.9997986555099487,
+          "minimum_forget_answer_nll": 0.00020132404461037368,
+          "minimum_forget_nll_slack": -8.361526489257812,
+          "utility_constraint_mode": "aggregate",
+          "utility_constraint_violation_count": 0,
+          "utility_instance_constraint_violation_count": 9,
+          "utility_aggregate_constraint_violation_count": 0,
+          "minimum_utility_nll_slack": -0.043239593505859375,
+          "utility_answer_probability_by_split": {
+            "retain": 0.9968885348792775,
+            "real_authors": 8.862287588227812e-05,
+            "world_facts": 0.000125635480059168
+          },
+          "utility_probability_ratio_by_split": {
+            "retain": 1.0000009536743164,
+            "real_authors": 0.9999408721923828,
+            "world_facts": 1.0003128051757812
+          },
+          "minimum_observed_utility_probability_ratio": 0.9999408721923828,
+          "utility_macro_answer_probability": 0.332367597745073,
+          "selected_lm_head_delta_norm": 0.0,
+          "reference_full_retain_answer_probability": 0.9968916773796082,
+          "candidate_full_retain_answer_probability": 0.9968922734260559,
+          "full_retain_probability_ratio": 1.0000005979049291,
+          "minimum_utility_probability_ratio": 0.9998,
+          "full_retain_target_met": true
+        },
+        "candidate_local_metrics": {
+          "active_forget_instance_count": 0,
+          "buffered_forget_constraint_unmet_count": 0,
+          "forget_answer_probability_mean": 1.876298847491853e-05,
+          "forget_answer_probability_max": 0.00023207782942336053,
+          "minimum_forget_answer_nll": 8.368437767028809,
+          "minimum_forget_nll_slack": 0.006710052490234375,
+          "utility_constraint_mode": "aggregate",
+          "utility_constraint_violation_count": 0,
+          "utility_instance_constraint_violation_count": 337,
+          "utility_aggregate_constraint_violation_count": 0,
+          "minimum_utility_nll_slack": -7.053569793701172,
+          "utility_answer_probability_by_split": {
+            "retain": 0.9966894536144163,
+            "real_authors": 8.861377886299898e-05,
+            "world_facts": 0.00012558581474569623
+          },
+          "utility_probability_ratio_by_split": {
+            "retain": 0.9998011589050293,
+            "real_authors": 0.9998388290405273,
+            "world_facts": 0.9999179840087891
+          },
+          "minimum_observed_utility_probability_ratio": 0.9998011589050293,
+          "utility_macro_answer_probability": 0.33230121773600835,
+          "selected_lm_head_delta_norm": 37.19486618041992,
+          "reference_full_retain_answer_probability": 0.9968916773796082,
+          "candidate_full_retain_answer_probability": 0.9966921806335449,
+          "full_retain_probability_ratio": 0.9997998812202068,
+          "minimum_utility_probability_ratio": 0.9998,
+          "full_retain_target_met": true
+        },
+        "input_embeddings_unchanged": true,
+        "transformer_parameters_frozen": true,
+        "only_selected_lm_head_rows_materialized": true,
+        "checkpoint_saved": true
+      }
+    },
+    "outputs/tofu_setting3_5e_ultra_seed42/lm_head_repair_alpha000/candidate_local_metrics.json": {
+      "size_bytes": 1322,
+      "sha256": "35b4a56fbbfe800ac7f72d582912423ef26cf7635207581b7dc1952d18797e71",
+      "content": {
+        "active_forget_instance_count": 0,
+        "buffered_forget_constraint_unmet_count": 0,
+        "forget_answer_probability_mean": 1.876298847491853e-05,
+        "forget_answer_probability_max": 0.00023207782942336053,
+        "minimum_forget_answer_nll": 8.368437767028809,
+        "minimum_forget_nll_slack": 0.006710052490234375,
+        "utility_constraint_mode": "aggregate",
+        "utility_constraint_violation_count": 0,
+        "utility_instance_constraint_violation_count": 337,
+        "utility_aggregate_constraint_violation_count": 0,
+        "minimum_utility_nll_slack": -7.053569793701172,
+        "utility_answer_probability_by_split": {
+          "retain": 0.9966894536144163,
+          "real_authors": 8.861377886299898e-05,
+          "world_facts": 0.00012558581474569623
+        },
+        "utility_probability_ratio_by_split": {
+          "retain": 0.9998011589050293,
+          "real_authors": 0.9998388290405273,
+          "world_facts": 0.9999179840087891
+        },
+        "minimum_observed_utility_probability_ratio": 0.9998011589050293,
+        "utility_macro_answer_probability": 0.33230121773600835,
+        "selected_lm_head_delta_norm": 37.19486618041992,
+        "reference_full_retain_answer_probability": 0.9968916773796082,
+        "candidate_full_retain_answer_probability": 0.9966921806335449,
+        "full_retain_probability_ratio": 0.9997998812202068,
+        "minimum_utility_probability_ratio": 0.9998,
+        "full_retain_target_met": true
+      }
+    }
   }
 }
