@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "notice": "Copy to source_lock.json and replace all PIN_REQUIRED values with immutable commits/revisions and measured fingerprints. This example must fail official doctor checks.",
+  "sources": {
+    "zerounlearn": {"url": "https://github.com/XMUDeepLIT/ZeroUnlearn", "checkout": "ZeroUnlearn", "revision": "PIN_REQUIRED_40_HEX", "lock_type": "commit"},
+    "open_unlearning": {"url": "https://github.com/locuslab/open-unlearning", "checkout": "open-unlearning", "revision": "PIN_REQUIRED_40_HEX", "lock_type": "commit"},
+    "muse_bench": {"url": "https://github.com/jaechan-repo/muse_bench", "checkout": "muse_bench", "revision": "PIN_REQUIRED_40_HEX", "lock_type": "commit"},
+    "rwku": {"url": "https://github.com/jinzhuoran/RWKU", "checkout": "RWKU", "revision": "PIN_REQUIRED_40_HEX", "lock_type": "commit"},
+    "wmdp": {"url": "https://github.com/centerforaisafety/wmdp", "checkout": "wmdp", "revision": "PIN_REQUIRED_40_HEX", "lock_type": "commit"},
+    "ugbench": {"url": "https://github.com/MaybeLizzy/UGBench", "checkout": "UGBench", "revision": "PIN_REQUIRED_40_HEX", "lock_type": "commit"},
+    "fit": {"url": "https://github.com/XiaoyuXU1/FIT", "checkout": "FIT", "revision": "PIN_REQUIRED_40_HEX", "lock_type": "commit"},
+    "hubble": {"url": "https://github.com/allegro-lab/hubble", "checkout": "hubble", "revision": "PIN_REQUIRED_40_HEX", "lock_type": "commit"}
+  },
+  "datasets": {
+    "mcf_zerounlearn": {"id": "ZeroUnlearn:multi_counterfact.json", "path": "${OFFICIAL_DATA_ROOT}/zerounlearn/multi_counterfact.json", "revision": "PIN_REQUIRED_DATA_REVISION", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"},
+    "zsre_zerounlearn": {"id": "ZeroUnlearn:zsre_mend_eval.json", "path": "${OFFICIAL_DATA_ROOT}/zerounlearn/zsre_mend_eval.json", "revision": "PIN_REQUIRED_DATA_REVISION", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"},
+    "tofu": {"id": "locuslab/TOFU", "path": "${OFFICIAL_DATA_ROOT}/tofu", "revision": "PIN_REQUIRED_HF_COMMIT", "fingerprint": "PIN_REQUIRED_DATASET_FINGERPRINT", "lock_type": "dataset_revision"},
+    "muse_news": {"id": "MUSE:News", "path": "${OFFICIAL_DATA_ROOT}/muse/news", "revision": "PIN_REQUIRED_DATA_REVISION", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"},
+    "muse_books": {"id": "MUSE:Books", "path": "${OFFICIAL_DATA_ROOT}/muse/books", "revision": "PIN_REQUIRED_DATA_REVISION", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"},
+    "rwku": {"id": "jinzhuoran/RWKU", "path": "${OFFICIAL_DATA_ROOT}/rwku", "revision": "PIN_REQUIRED_HF_COMMIT", "fingerprint": "PIN_REQUIRED_DATASET_FINGERPRINT", "lock_type": "dataset_revision"},
+    "wmdp_bio": {"id": "official WMDP Bio corpus + corrected cais/wmdp", "path": "${OFFICIAL_DATA_ROOT}/wmdp/bio", "revision": "PIN_REQUIRED_CORRECTED_REVISION", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"},
+    "wmdp_cyber": {"id": "official WMDP Cyber corpus + corrected cais/wmdp", "path": "${OFFICIAL_DATA_ROOT}/wmdp/cyber", "revision": "PIN_REQUIRED_CORRECTED_REVISION", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"},
+    "wmdp_chem": {"id": "corrected cais/wmdp:wmdp-chem", "path": "${OFFICIAL_DATA_ROOT}/wmdp/chem_eval", "revision": "PIN_REQUIRED_CORRECTED_REVISION", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"},
+    "ugbench_tofu": {"id": "UGBench:TOFU", "path": "${OFFICIAL_DATA_ROOT}/ugbench/tofu", "revision": "PIN_REQUIRED_DATA_REVISION", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"},
+    "ugbench_harry": {"id": "UGBench:Harry-Potter", "path": "${OFFICIAL_DATA_ROOT}/ugbench/harry", "revision": "PIN_REQUIRED_DATA_REVISION", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"},
+    "ugbench_zsre": {"id": "UGBench:ZsRE", "path": "${OFFICIAL_DATA_ROOT}/ugbench/zsre", "revision": "PIN_REQUIRED_DATA_REVISION", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"},
+    "pch": {"id": "FIT:PCH", "path": "${OFFICIAL_DATA_ROOT}/pch", "revision": "PIN_REQUIRED_DATA_REVISION", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"},
+    "hubble_yago": {"id": "allegrolab Hubble:YAGO", "path": "${OFFICIAL_DATA_ROOT}/hubble/yago", "revision": "PIN_REQUIRED_HF_COMMIT", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"},
+    "hubble_gutenberg": {"id": "allegrolab Hubble:Gutenberg", "path": "${OFFICIAL_DATA_ROOT}/hubble/gutenberg", "revision": "PIN_REQUIRED_HF_COMMIT", "fingerprint": "PIN_REQUIRED_SHA256", "lock_type": "dataset_revision"}
+  },
+  "evaluators": {
+    "semantic_mcf_evaluator": {"url": "local:scripts/mcf_zero_unlearn_official_eval.py", "path": "./scripts/mcf_zero_unlearn_official_eval.py", "revision": "PIN_REQUIRED_REPOSITORY_COMMIT", "lock_type": "commit"},
+    "semantic_zsre_evaluator": {"url": "local:scripts/zsre_zero_unlearn_official_eval.py", "path": "./scripts/zsre_zero_unlearn_official_eval.py", "revision": "PIN_REQUIRED_REPOSITORY_COMMIT", "lock_type": "commit"},
+    "semantic_tofu_evaluator": {"url": "local:scripts/tofu_eval.py", "path": "./scripts/tofu_eval.py", "revision": "PIN_REQUIRED_REPOSITORY_COMMIT", "lock_type": "commit"},
+    "muse_evaluator": {"url": "https://github.com/jaechan-repo/muse_bench", "checkout": "muse_bench", "revision": "PIN_REQUIRED_40_HEX", "lock_type": "commit"},
+    "rwku_evaluator": {"url": "https://github.com/jinzhuoran/RWKU", "checkout": "RWKU", "revision": "PIN_REQUIRED_40_HEX", "lock_type": "commit"},
+    "lm_eval_wmdp_042": {"url": "https://github.com/EleutherAI/lm-evaluation-harness", "checkout": "lm-evaluation-harness-v0.4.2", "revision": "v0.4.2", "lock_type": "tag"},
+    "ugbench_evaluator": {"url": "https://github.com/MaybeLizzy/UGBench", "checkout": "UGBench", "revision": "PIN_REQUIRED_40_HEX", "lock_type": "commit"},
+    "fit_evaluator": {"url": "https://github.com/XiaoyuXU1/FIT", "checkout": "FIT", "revision": "PIN_REQUIRED_40_HEX", "lock_type": "commit"},
+    "hubble_lm_eval": {"url": "https://github.com/EleutherAI/lm-evaluation-harness", "checkout": "hubble-lm-evaluation-harness", "revision": "a7ca04353fe1ff967f6c5b631bc31a10a6943b23", "lock_type": "commit"}
+  }
+}

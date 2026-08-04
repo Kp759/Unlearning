@@ -1,0 +1,8 @@
+{
+  "normalization": null,
+  "note": "No universal unlearning score is computed; native metrics and directions are retained.",
+  "run_count": 0,
+  "runs": [],
+  "runs_root": "outputs/official_benchmarks/runs",
+  "schema_version": 1
+}

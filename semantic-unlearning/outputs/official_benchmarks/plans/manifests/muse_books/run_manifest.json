@@ -1,0 +1,142 @@
+{
+  "benchmark_id": "muse_books",
+  "benchmark_source": {
+    "lock_id": "muse_bench",
+    "locked_revision": null,
+    "url": "https://github.com/jaechan-repo/muse_bench"
+  },
+  "comparison_models": {},
+  "complete_command": "mkdir -p outputs/official_benchmarks/runs/muse_books && cd \"${OFFICIAL_BENCH_ROOT}/muse_bench\" && ${PYTHON_BIN} eval.py --model_dirs ${MUSE_BOOKS_TARGET_MODEL_PATH:?Set MUSE_BOOKS_TARGET_MODEL_PATH to the pinned official target model} --names our_method --corpus books --out_file outputs/official_benchmarks/runs/muse_books/muse_books.csv",
+  "dataset": {
+    "fingerprint": null,
+    "id": "MUSE:Books",
+    "revision": null,
+    "split": "Books official forget/retain1/retain2/holdout roles"
+  },
+  "dependency_versions": {
+    "datasets": "2.12.0",
+    "huggingface-hub": "0.29.2",
+    "lm-eval": "NOT_INSTALLED",
+    "numpy": "1.24.3",
+    "python": "3.11.5",
+    "safetensors": "0.3.2",
+    "tokenizers": "0.13.2",
+    "torch": "2.5.1",
+    "transformers": "4.32.1"
+  },
+  "device_information": {
+    "CUDA_VISIBLE_DEVICES": null,
+    "gpu_initialized": false,
+    "requested_device_map": "source_defined"
+  },
+  "dtype": "source_defined",
+  "evaluator": {
+    "entrypoint": "eval.py / OpenUnlearning MUSE_EVAL",
+    "locked_revision": null,
+    "source_url": "https://github.com/jaechan-repo/muse_bench"
+  },
+  "failure_reason": "The current method has no document-sequence Setting 5e selection or protected active-repair definition. Turning Harry Potter passages into answer rows would alter the objective and record meaning.",
+  "method": "our_method",
+  "method_configuration": {
+    "extension_required": "sequence/document objective and repair semantics"
+  },
+  "method_hyperparameters": {
+    "must_freeze_before_official_run": true
+  },
+  "method_implementation_file_hashes": {
+    "scripts/gagd_active_case_repair.py": "7d085267546a06105ce6d38f67d4133b4f14b8fa6bdc6fa1494bced1bf9afbd8",
+    "scripts/gagd_compare.py": "7f1ed7affc330a1dc6e6637e052fd7ba5b6d6e41cf93b2ed78dfe2e4e7f98df9",
+    "scripts/run_gagd_active_case_repair.sh": "c33b0678ea05b5484d17ec483bd4dd378eccbdad48d3730ec3893c7330156862",
+    "scripts/run_three_benchmark_experiments.sh": "707b70c7c858364370a149f2e1ad258b6612de5eeab56514d81eef1605aec8d0",
+    "scripts/run_tofu_gagd_neighborhood_confidence.sh": "63dc4217d5ed4bb431a460db39c2e90c8724d35f7496871cceb703246f1d9f06",
+    "scripts/run_zsre_gagd_setting5e_active_repair.sh": "5ec8b14e31c80ebc9377fac9c6370235ac517e5ef22258c2da3d62bee8f4d021",
+    "scripts/tofu_gagd_active_forget_repair.py": "1c257cbaa4edc2bf456083395401fd582b6641701142c8413b68727709649f6d",
+    "scripts/tofu_gagd_four_settings_official.py": "3b5e55307fafc803459da67325cc57cd4169b98fe09f5865eab9f47e15150531",
+    "scripts/tofu_gagd_setting5e_restore.py": "cadc49545707656a3089ce7710afd07ae6b82064fb0013561d4c66baa98b7fc5",
+    "scripts/zsre_gagd_setting5e_active_repair.py": "95b525d043a06281e9152f86fc7d6343a503fc030b4484109aacfcfa0022cd30"
+  },
+  "metric_values": {},
+  "model": {
+    "architecture": null,
+    "id": null,
+    "path": null,
+    "revision": null,
+    "role": null,
+    "tokenizer": {
+      "id": null,
+      "revision": null
+    }
+  },
+  "model_role": null,
+  "native_metrics": [
+    {
+      "direction": "lower",
+      "name": "verbmem_f"
+    },
+    {
+      "direction": "lower",
+      "name": "knowmem_f"
+    },
+    {
+      "direction": "higher",
+      "name": "knowmem_r"
+    },
+    {
+      "direction": "lower",
+      "name": "privleak"
+    }
+  ],
+  "official_protocol": false,
+  "output_checkpoint_hash": null,
+  "output_directory": "/Users/kaustubh/Downloads/Unlearning/semantic-unlearning/outputs/official_benchmarks/runs/muse_books",
+  "repository": {
+    "commit": "fecbfc7e7764ff8361713df52efd6d2d0f6336f3",
+    "dirty": true,
+    "status_porcelain": [
+      "A  semantic-unlearning/OFFICIAL_BENCHMARKS.md",
+      "A  semantic-unlearning/config/official_benchmarks/models.example.json",
+      "A  semantic-unlearning/config/official_benchmarks/registry.json",
+      "A  semantic-unlearning/config/official_benchmarks/source_lock.example.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/aggregate/aggregate.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/aggregate/aggregate.md",
+      "A  semantic-unlearning/outputs/official_benchmarks/aggregate/native_metrics.csv",
+      "A  semantic-unlearning/outputs/official_benchmarks/audit/doctor.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/audit/doctor.md",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/manifests/hubble_gutenberg/run_manifest.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/manifests/hubble_yago/run_manifest.json",
+      "AM semantic-unlearning/outputs/official_benchmarks/plans/manifests/mcf_zerounlearn_official/run_manifest.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/manifests/muse_books/run_manifest.json",
+      "AM semantic-unlearning/outputs/official_benchmarks/plans/manifests/muse_news/run_manifest.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/manifests/pch_continual/run_manifest.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/manifests/rwku/run_manifest.json",
+      "AM semantic-unlearning/outputs/official_benchmarks/plans/manifests/tofu_forget05/run_manifest.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/manifests/ugbench_harry_potter/run_manifest.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/manifests/ugbench_tofu/run_manifest.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/manifests/ugbench_zsre/run_manifest.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/manifests/wmdp_bio/run_manifest.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/manifests/wmdp_chem_eval/run_manifest.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/manifests/wmdp_cyber/run_manifest.json",
+      "AM semantic-unlearning/outputs/official_benchmarks/plans/manifests/zsre_zerounlearn_official/run_manifest.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/plan.json",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/run_commands.sh",
+      "A  semantic-unlearning/outputs/official_benchmarks/plans/setup_commands.sh",
+      "A  semantic-unlearning/scripts/official_benchmarks.py",
+      "A  semantic-unlearning/src/official_benchmarks/__init__.py",
+      "A  semantic-unlearning/src/official_benchmarks/adapters/__init__.py",
+      "A  semantic-unlearning/src/official_benchmarks/aggregation.py",
+      "A  semantic-unlearning/src/official_benchmarks/doctor.py",
+      "A  semantic-unlearning/src/official_benchmarks/planner.py",
+      "A  semantic-unlearning/src/official_benchmarks/provenance.py",
+      "A  semantic-unlearning/src/official_benchmarks/registry.py",
+      "A  semantic-unlearning/src/official_benchmarks/runner.py",
+      "A  semantic-unlearning/tests/test_official_benchmarks.py",
+      "?? ~$esults.docx"
+    ]
+  },
+  "schema_version": 1,
+  "seed": {
+    "source_defined": true
+  },
+  "status": "NEEDS_METHOD_EXTENSION",
+  "timestamp": "2026-08-04T04:48:23.233408+00:00"
+}

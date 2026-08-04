@@ -1,0 +1,949 @@
+{
+  "cpu_only": true,
+  "models_config": "/Users/kaustubh/Downloads/Unlearning/semantic-unlearning/config/official_benchmarks/models.json",
+  "official_bench_root": "/mnt/train/official-unlearning-benchmarks",
+  "schema_version": 1,
+  "source_lock": "/Users/kaustubh/Downloads/Unlearning/semantic-unlearning/config/official_benchmarks/source_lock.json",
+  "summary": {
+    "effective_status_counts": {
+      "BLOCKED_UNPINNED_SOURCE": 3,
+      "EVALUATION_ONLY": 4,
+      "NEEDS_METHOD_EXTENSION": 8
+    },
+    "official_ready": 0,
+    "total": 15
+  },
+  "torch_imported": false,
+  "tracks": [
+    {
+      "benchmark_id": "mcf_zerounlearn_official",
+      "checks": [
+        {
+          "blocker": null,
+          "detail": "The existing MCF Setting 5e producer and protected active-case LM-head repair consume the official fact-request roles directly.",
+          "name": "method_compatibility",
+          "ok": true
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "zerounlearn revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "semantic_mcf_evaluator revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "READY_NATIVE",
+      "effective_status": "BLOCKED_UNPINNED_SOURCE",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "zsre_zerounlearn_official",
+      "checks": [
+        {
+          "blocker": null,
+          "detail": "The checked-in adapter preserves the official source fact and neutral Unknown semantics while reversing only the internal MCF-oriented field convention.",
+          "name": "method_compatibility",
+          "ok": true
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "zerounlearn revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "semantic_zsre_evaluator revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "READY_WITH_DATA_ADAPTER",
+      "effective_status": "BLOCKED_UNPINNED_SOURCE",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "tofu_forget05",
+      "checks": [
+        {
+          "blocker": null,
+          "detail": "The existing TOFU adapter preserves official QA/profile roles and implements the documented TOFU Setting 5e row grouping plus protected active-answer LM-head repair.",
+          "name": "method_compatibility",
+          "ok": true
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "open_unlearning revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "semantic_tofu_evaluator revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "READY_WITH_DATA_ADAPTER",
+      "effective_status": "BLOCKED_UNPINNED_SOURCE",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "muse_news",
+      "checks": [
+        {
+          "blocker": "NEEDS_METHOD_EXTENSION",
+          "detail": "The current Setting 5e producers and active repair require answer-token/fact-request structure; passages have no unchanged answer-row or desired-target repair semantics. Inventing QA pairs would change the information and record meaning.",
+          "name": "method_compatibility",
+          "ok": false
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "muse_bench revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "muse_evaluator revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "NEEDS_METHOD_EXTENSION",
+      "effective_status": "NEEDS_METHOD_EXTENSION",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "muse_books",
+      "checks": [
+        {
+          "blocker": "NEEDS_METHOD_EXTENSION",
+          "detail": "The current method has no document-sequence Setting 5e selection or protected active-repair definition. Turning Harry Potter passages into answer rows would alter the objective and record meaning.",
+          "name": "method_compatibility",
+          "ok": false
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "muse_bench revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "muse_evaluator revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "NEEDS_METHOD_EXTENSION",
+      "effective_status": "NEEDS_METHOD_EXTENSION",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "rwku",
+      "checks": [
+        {
+          "blocker": "NEEDS_METHOD_EXTENSION",
+          "detail": "Our method requires explicit forget facts/answers and protected repair records; RWKU provides only a target entity. Generating a corpus would add information and define a new method formulation.",
+          "name": "method_compatibility",
+          "ok": false
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "rwku revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "rwku_evaluator revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "NEEDS_METHOD_EXTENSION",
+      "effective_status": "NEEDS_METHOD_EXTENSION",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "wmdp_bio",
+      "checks": [
+        {
+          "blocker": "NEEDS_METHOD_EXTENSION",
+          "detail": "The current answer-row Setting 5e and active repair do not define a sequence-corpus objective or repair target. The MC test cannot supply those targets.",
+          "name": "method_compatibility",
+          "ok": false
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "wmdp revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "lm_eval_wmdp_042 revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "NEEDS_METHOD_EXTENSION",
+      "effective_status": "NEEDS_METHOD_EXTENSION",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "wmdp_cyber",
+      "checks": [
+        {
+          "blocker": "NEEDS_METHOD_EXTENSION",
+          "detail": "The method has no sequence-corpus Setting 5e or repair definition; adapting the MC test into training questions is explicitly invalid.",
+          "name": "method_compatibility",
+          "ok": false
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "wmdp revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "lm_eval_wmdp_042 revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "NEEDS_METHOD_EXTENSION",
+      "effective_status": "NEEDS_METHOD_EXTENSION",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "wmdp_chem_eval",
+      "checks": [
+        {
+          "blocker": "EVALUATION_ONLY",
+          "detail": "No official Chem forget corpus is declared. WMDP-Chem may evaluate a Bio/Cyber checkpoint but cannot train our method.",
+          "name": "method_compatibility",
+          "ok": false
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "wmdp revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "lm_eval_wmdp_042 revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "EVALUATION_ONLY",
+      "effective_status": "EVALUATION_ONLY",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "ugbench_tofu",
+      "checks": [
+        {
+          "blocker": "EVALUATION_ONLY",
+          "detail": "UGBench cases are an evaluation overlay. A matching official TOFU checkpoint may be reused, but generated cases cannot enter Setting 5e or repair.",
+          "name": "method_compatibility",
+          "ok": false
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "ugbench revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "ugbench_evaluator revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "EVALUATION_ONLY",
+      "effective_status": "EVALUATION_ONLY",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "ugbench_harry_potter",
+      "checks": [
+        {
+          "blocker": "EVALUATION_ONLY",
+          "detail": "UGBench is evaluator-only and our method has no official Harry Potter sequence checkpoint producer; evaluation becomes possible only after a separate compatible method extension produces one.",
+          "name": "method_compatibility",
+          "ok": false
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "ugbench revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "ugbench_evaluator revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "EVALUATION_ONLY",
+      "effective_status": "EVALUATION_ONLY",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "ugbench_zsre",
+      "checks": [
+        {
+          "blocker": "EVALUATION_ONLY",
+          "detail": "UGBench cases are evaluation-only. The existing ZsRE checkpoint can be reused only if its model/tokenizer/source identities exactly match UGBench.",
+          "name": "method_compatibility",
+          "ok": false
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "ugbench revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "ugbench_evaluator revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "EVALUATION_ONLY",
+      "effective_status": "EVALUATION_ONLY",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "pch_continual",
+      "checks": [
+        {
+          "blocker": "NEEDS_METHOD_EXTENSION",
+          "detail": "The current method is one-shot and benchmark-tuned; it has no stateful sequential request/checkpoint contract. Applying later outcomes to retune selection would change its stopping and selection criteria.",
+          "name": "method_compatibility",
+          "ok": false
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "fit revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "fit_evaluator revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "NEEDS_METHOD_EXTENSION",
+      "effective_status": "NEEDS_METHOD_EXTENSION",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "hubble_yago",
+      "checks": [
+        {
+          "blocker": "NEEDS_METHOD_EXTENSION",
+          "detail": "Although YAGO is factual, the current method assumes MCF/ZsRE-specific unwanted/desired target and repair gates. Hubble's minimal-pair target semantics have no validated unchanged adapter yet; defining them changes repair/selection semantics.",
+          "name": "method_compatibility",
+          "ok": false
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "hubble revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "hubble_lm_eval revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "NEEDS_METHOD_EXTENSION",
+      "effective_status": "NEEDS_METHOD_EXTENSION",
+      "official_ready": false
+    },
+    {
+      "benchmark_id": "hubble_gutenberg",
+      "checks": [
+        {
+          "blocker": "NEEDS_METHOD_EXTENSION",
+          "detail": "Gutenberg passages require sequence/document Setting 5e and repair semantics absent from the current answer-row method. Converting passages into invented QA changes record meaning.",
+          "name": "method_compatibility",
+          "ok": false
+        },
+        {
+          "blocker": null,
+          "detail": "all local entrypoints present",
+          "name": "method_entrypoints",
+          "ok": true
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "hubble revision=None",
+          "name": "source_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_UNPINNED_SOURCE",
+          "detail": "unresolved checkout",
+          "name": "source_checkout",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "revision=None, fingerprint=None",
+          "name": "dataset_identity",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_DATA",
+          "detail": "unresolved dataset path",
+          "name": "dataset_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "hubble_lm_eval revision=None",
+          "name": "evaluator_lock",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_EVALUATOR",
+          "detail": "unresolved evaluator path",
+          "name": "evaluator_artifact",
+          "ok": false
+        },
+        {
+          "blocker": "BLOCKED_MISSING_TARGET_MODEL",
+          "detail": "model mapping absent",
+          "name": "target_model_identity",
+          "ok": false
+        }
+      ],
+      "declared_method_status": "NEEDS_METHOD_EXTENSION",
+      "effective_status": "NEEDS_METHOD_EXTENSION",
+      "official_ready": false
+    }
+  ]
+}

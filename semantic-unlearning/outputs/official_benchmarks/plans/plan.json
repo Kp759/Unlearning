@@ -1,0 +1,159 @@
+{
+  "cpu_only": true,
+  "method": "our_method",
+  "models_config": "/Users/kaustubh/Downloads/Unlearning/semantic-unlearning/config/official_benchmarks/models.json",
+  "schema_version": 1,
+  "source_lock": "/Users/kaustubh/Downloads/Unlearning/semantic-unlearning/config/official_benchmarks/source_lock.json",
+  "tracks": [
+    {
+      "benchmark_id": "mcf_zerounlearn_official",
+      "evaluation_command": "env PYTHON_BIN=\"${PYTHON_BIN:-python}\" OUTPUT_ROOT=outputs/official_benchmarks/runs/mcf_zerounlearn_official MCF_FORGET_NUM=50 MCF_RETAIN_NUM=1000 MCF_SEEDS=\"0 1 2 3 4 5 6 7 8 9\" DTYPE=bf16 bash scripts/run_three_benchmark_experiments.sh mcf ${GENERIC_MODEL_PATH:?Set GENERIC_MODEL_PATH to the declared MCF/ZsRE target}",
+      "input_contract": "qa_fact_request",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/mcf_zerounlearn_official/run_manifest.json",
+      "method_status": "READY_NATIVE",
+      "reason": "The existing MCF Setting 5e producer and protected active-case LM-head repair consume the official fact-request roles directly.",
+      "run_command": "env PYTHON_BIN=\"${PYTHON_BIN:-python}\" OUTPUT_ROOT=outputs/official_benchmarks/runs/mcf_zerounlearn_official MCF_FORGET_NUM=50 MCF_RETAIN_NUM=1000 MCF_SEEDS=\"0 1 2 3 4 5 6 7 8 9\" DTYPE=bf16 bash scripts/run_three_benchmark_experiments.sh mcf ${GENERIC_MODEL_PATH:?Set GENERIC_MODEL_PATH to the declared MCF/ZsRE target}",
+      "setup_command": "test -n \"${ZEROUNLEARN_REV:?pin a 40-hex ZeroUnlearn commit}\" && git clone https://github.com/XMUDeepLIT/ZeroUnlearn \"${OFFICIAL_BENCH_ROOT}/ZeroUnlearn\" && git -C \"${OFFICIAL_BENCH_ROOT}/ZeroUnlearn\" checkout --detach \"${ZEROUNLEARN_REV}\""
+    },
+    {
+      "benchmark_id": "zsre_zerounlearn_official",
+      "evaluation_command": "env PYTHON_BIN=\"${PYTHON_BIN:-python}\" OUTPUT_ROOT=outputs/official_benchmarks/runs/zsre_zerounlearn_official ZSRE_SEEDS=\"1 2 3 4 5 6 7 8 9 10\" DTYPE=bf16 bash scripts/run_three_benchmark_experiments.sh zsre ${GENERIC_MODEL_PATH:?Set GENERIC_MODEL_PATH to the declared MCF/ZsRE target}",
+      "input_contract": "qa_fact_request",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/zsre_zerounlearn_official/run_manifest.json",
+      "method_status": "READY_WITH_DATA_ADAPTER",
+      "reason": "The checked-in adapter preserves the official source fact and neutral Unknown semantics while reversing only the internal MCF-oriented field convention.",
+      "run_command": "env PYTHON_BIN=\"${PYTHON_BIN:-python}\" OUTPUT_ROOT=outputs/official_benchmarks/runs/zsre_zerounlearn_official ZSRE_SEEDS=\"1 2 3 4 5 6 7 8 9 10\" DTYPE=bf16 bash scripts/run_three_benchmark_experiments.sh zsre ${GENERIC_MODEL_PATH:?Set GENERIC_MODEL_PATH to the declared MCF/ZsRE target}",
+      "setup_command": "test -n \"${ZEROUNLEARN_REV:?pin a 40-hex ZeroUnlearn commit}\" && git clone https://github.com/XMUDeepLIT/ZeroUnlearn \"${OFFICIAL_BENCH_ROOT}/ZeroUnlearn\" && git -C \"${OFFICIAL_BENCH_ROOT}/ZeroUnlearn\" checkout --detach \"${ZEROUNLEARN_REV}\""
+    },
+    {
+      "benchmark_id": "tofu_forget05",
+      "evaluation_command": "env PYTHON_BIN=\"${PYTHON_BIN:-python}\" OUTPUT_ROOT=outputs/official_benchmarks/runs/tofu_forget05 TOFU_SEED=42 bash scripts/run_three_benchmark_experiments.sh tofu ${TOFU_FULL_MODEL_PATH:?Set TOFU_FULL_MODEL_PATH to the pinned official target model}",
+      "input_contract": "qa_fact_request",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/tofu_forget05/run_manifest.json",
+      "method_status": "READY_WITH_DATA_ADAPTER",
+      "reason": "The existing TOFU adapter preserves official QA/profile roles and implements the documented TOFU Setting 5e row grouping plus protected active-answer LM-head repair.",
+      "run_command": "env PYTHON_BIN=\"${PYTHON_BIN:-python}\" OUTPUT_ROOT=outputs/official_benchmarks/runs/tofu_forget05 TOFU_SEED=42 bash scripts/run_three_benchmark_experiments.sh tofu ${TOFU_FULL_MODEL_PATH:?Set TOFU_FULL_MODEL_PATH to the pinned official target model}",
+      "setup_command": "test -n \"${OPEN_UNLEARNING_REV:?pin a 40-hex OpenUnlearning commit}\" && git clone https://github.com/locuslab/open-unlearning \"${OFFICIAL_BENCH_ROOT}/open-unlearning\" && git -C \"${OFFICIAL_BENCH_ROOT}/open-unlearning\" checkout --detach \"${OPEN_UNLEARNING_REV}\" && ${PYTHON_BIN} -c 'from huggingface_hub import snapshot_download; import os; snapshot_download(repo_id=os.environ[\"TOFU_FULL_MODEL_ID\"], revision=os.environ[\"TOFU_FULL_MODEL_REV\"], local_dir=os.environ[\"TOFU_FULL_MODEL_PATH\"])'"
+    },
+    {
+      "benchmark_id": "muse_news",
+      "evaluation_command": "mkdir -p outputs/official_benchmarks/runs/muse_news && cd \"${OFFICIAL_BENCH_ROOT}/muse_bench\" && ${PYTHON_BIN} eval.py --model_dirs ${MUSE_NEWS_TARGET_MODEL_PATH:?Set MUSE_NEWS_TARGET_MODEL_PATH to the pinned official target model} --names our_method --corpus news --out_file outputs/official_benchmarks/runs/muse_news/muse_news.csv",
+      "input_contract": "sequence_or_document_forget",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/muse_news/run_manifest.json",
+      "method_status": "NEEDS_METHOD_EXTENSION",
+      "reason": "The current Setting 5e producers and active repair require answer-token/fact-request structure; passages have no unchanged answer-row or desired-target repair semantics. Inventing QA pairs would change the information and record meaning.",
+      "run_command": null,
+      "setup_command": "test -n \"${MUSE_REV:?pin a 40-hex MUSE commit}\" && git clone https://github.com/jaechan-repo/muse_bench \"${OFFICIAL_BENCH_ROOT}/muse_bench\" && git -C \"${OFFICIAL_BENCH_ROOT}/muse_bench\" checkout --detach \"${MUSE_REV}\" && cd \"${OFFICIAL_BENCH_ROOT}/muse_bench\" && ${PYTHON_BIN} load_data.py"
+    },
+    {
+      "benchmark_id": "muse_books",
+      "evaluation_command": "mkdir -p outputs/official_benchmarks/runs/muse_books && cd \"${OFFICIAL_BENCH_ROOT}/muse_bench\" && ${PYTHON_BIN} eval.py --model_dirs ${MUSE_BOOKS_TARGET_MODEL_PATH:?Set MUSE_BOOKS_TARGET_MODEL_PATH to the pinned official target model} --names our_method --corpus books --out_file outputs/official_benchmarks/runs/muse_books/muse_books.csv",
+      "input_contract": "sequence_or_document_forget",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/muse_books/run_manifest.json",
+      "method_status": "NEEDS_METHOD_EXTENSION",
+      "reason": "The current method has no document-sequence Setting 5e selection or protected active-repair definition. Turning Harry Potter passages into answer rows would alter the objective and record meaning.",
+      "run_command": null,
+      "setup_command": "test -n \"${MUSE_REV:?pin a 40-hex MUSE commit}\" && git clone https://github.com/jaechan-repo/muse_bench \"${OFFICIAL_BENCH_ROOT}/muse_bench\" && git -C \"${OFFICIAL_BENCH_ROOT}/muse_bench\" checkout --detach \"${MUSE_REV}\" && cd \"${OFFICIAL_BENCH_ROOT}/muse_bench\" && ${PYTHON_BIN} load_data.py"
+    },
+    {
+      "benchmark_id": "rwku",
+      "evaluation_command": "cd \"${OFFICIAL_BENCH_ROOT}/RWKU/LLaMA-Factory/scripts\" && MODEL_PATH=${RWKU_TARGET_MODEL_PATH:?Set RWKU_TARGET_MODEL_PATH to the pinned official target model} OUTPUT_DIR=outputs/official_benchmarks/runs/rwku bash run_original.sh",
+      "input_contract": "target_entity_only",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/rwku/run_manifest.json",
+      "method_status": "NEEDS_METHOD_EXTENSION",
+      "reason": "Our method requires explicit forget facts/answers and protected repair records; RWKU provides only a target entity. Generating a corpus would add information and define a new method formulation.",
+      "run_command": null,
+      "setup_command": "test -n \"${RWKU_REV:?pin a 40-hex RWKU commit}\" && git clone https://github.com/jinzhuoran/RWKU \"${OFFICIAL_BENCH_ROOT}/RWKU\" && git -C \"${OFFICIAL_BENCH_ROOT}/RWKU\" checkout --detach \"${RWKU_REV}\" && cd \"${OFFICIAL_BENCH_ROOT}/RWKU/process\" && ${PYTHON_BIN} data_process.py"
+    },
+    {
+      "benchmark_id": "wmdp_bio",
+      "evaluation_command": "cd \"${OFFICIAL_BENCH_ROOT}/lm-evaluation-harness-v0.4.2\" && ${PYTHON_BIN} -m lm_eval --model hf --model_args pretrained=${WMDP_TARGET_MODEL_PATH:?Set WMDP_TARGET_MODEL_PATH to the pinned official target model} --tasks wmdp_bio,wmdp_cyber,wmdp_chem,mmlu --output_path outputs/official_benchmarks/runs/wmdp_bio",
+      "input_contract": "sequence_or_document_forget",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/wmdp_bio/run_manifest.json",
+      "method_status": "NEEDS_METHOD_EXTENSION",
+      "reason": "The current answer-row Setting 5e and active repair do not define a sequence-corpus objective or repair target. The MC test cannot supply those targets.",
+      "run_command": null,
+      "setup_command": "test -n \"${WMDP_REV:?pin WMDP}\" && git clone https://github.com/centerforaisafety/wmdp \"${OFFICIAL_BENCH_ROOT}/wmdp\" && git -C \"${OFFICIAL_BENCH_ROOT}/wmdp\" checkout --detach \"${WMDP_REV}\" && git clone --branch v0.4.2 https://github.com/EleutherAI/lm-evaluation-harness \"${OFFICIAL_BENCH_ROOT}/lm-evaluation-harness-v0.4.2\""
+    },
+    {
+      "benchmark_id": "wmdp_cyber",
+      "evaluation_command": "cd \"${OFFICIAL_BENCH_ROOT}/lm-evaluation-harness-v0.4.2\" && ${PYTHON_BIN} -m lm_eval --model hf --model_args pretrained=${WMDP_TARGET_MODEL_PATH:?Set WMDP_TARGET_MODEL_PATH to the pinned official target model} --tasks wmdp_bio,wmdp_cyber,wmdp_chem,mmlu --output_path outputs/official_benchmarks/runs/wmdp_cyber",
+      "input_contract": "sequence_or_document_forget",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/wmdp_cyber/run_manifest.json",
+      "method_status": "NEEDS_METHOD_EXTENSION",
+      "reason": "The method has no sequence-corpus Setting 5e or repair definition; adapting the MC test into training questions is explicitly invalid.",
+      "run_command": null,
+      "setup_command": "test -n \"${WMDP_REV:?pin WMDP}\" && git clone https://github.com/centerforaisafety/wmdp \"${OFFICIAL_BENCH_ROOT}/wmdp\" && git -C \"${OFFICIAL_BENCH_ROOT}/wmdp\" checkout --detach \"${WMDP_REV}\" && git clone --branch v0.4.2 https://github.com/EleutherAI/lm-evaluation-harness \"${OFFICIAL_BENCH_ROOT}/lm-evaluation-harness-v0.4.2\""
+    },
+    {
+      "benchmark_id": "wmdp_chem_eval",
+      "evaluation_command": "cd \"${OFFICIAL_BENCH_ROOT}/lm-evaluation-harness-v0.4.2\" && ${PYTHON_BIN} -m lm_eval --model hf --model_args pretrained=${WMDP_CHECKPOINT_PATH:?Set WMDP_CHECKPOINT_PATH to the pinned official target model} --tasks wmdp_chem --output_path outputs/official_benchmarks/runs/wmdp_chem_eval",
+      "input_contract": "evaluation_overlay",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/wmdp_chem_eval/run_manifest.json",
+      "method_status": "EVALUATION_ONLY",
+      "reason": "No official Chem forget corpus is declared. WMDP-Chem may evaluate a Bio/Cyber checkpoint but cannot train our method.",
+      "run_command": null,
+      "setup_command": "test -n \"${WMDP_REV:?pin WMDP}\" && git clone https://github.com/centerforaisafety/wmdp \"${OFFICIAL_BENCH_ROOT}/wmdp\" && git -C \"${OFFICIAL_BENCH_ROOT}/wmdp\" checkout --detach \"${WMDP_REV}\" && git clone --branch v0.4.2 https://github.com/EleutherAI/lm-evaluation-harness \"${OFFICIAL_BENCH_ROOT}/lm-evaluation-harness-v0.4.2\""
+    },
+    {
+      "benchmark_id": "ugbench_tofu",
+      "evaluation_command": "cd \"${OFFICIAL_BENCH_ROOT}/UGBench\" && test \"${UGBENCH_CONFIGURED_CHECKPOINT:?configure the pinned UGBench model_config for the exact checkpoint}\" = ${UGBENCH_TOFU_CHECKPOINT_PATH:?Set UGBENCH_TOFU_CHECKPOINT_PATH to the pinned official target model} && ${PYTHON_BIN} evaluate_TOFU.py",
+      "input_contract": "evaluation_overlay",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/ugbench_tofu/run_manifest.json",
+      "method_status": "EVALUATION_ONLY",
+      "reason": "UGBench cases are an evaluation overlay. A matching official TOFU checkpoint may be reused, but generated cases cannot enter Setting 5e or repair.",
+      "run_command": null,
+      "setup_command": "test -n \"${UGBENCH_REV:?pin a 40-hex UGBench commit}\" && git clone https://github.com/MaybeLizzy/UGBench \"${OFFICIAL_BENCH_ROOT}/UGBench\" && git -C \"${OFFICIAL_BENCH_ROOT}/UGBench\" checkout --detach \"${UGBENCH_REV}\""
+    },
+    {
+      "benchmark_id": "ugbench_harry_potter",
+      "evaluation_command": "cd \"${OFFICIAL_BENCH_ROOT}/UGBench\" && test \"${UGBENCH_CONFIGURED_CHECKPOINT:?configure the pinned UGBench model_config for the exact checkpoint}\" = ${UGBENCH_HARRY_CHECKPOINT_PATH:?Set UGBENCH_HARRY_CHECKPOINT_PATH to the pinned official target model} && ${PYTHON_BIN} evaluate_Harry.py",
+      "input_contract": "evaluation_overlay",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/ugbench_harry_potter/run_manifest.json",
+      "method_status": "EVALUATION_ONLY",
+      "reason": "UGBench is evaluator-only and our method has no official Harry Potter sequence checkpoint producer; evaluation becomes possible only after a separate compatible method extension produces one.",
+      "run_command": null,
+      "setup_command": "test -n \"${UGBENCH_REV:?pin a 40-hex UGBench commit}\" && git clone https://github.com/MaybeLizzy/UGBench \"${OFFICIAL_BENCH_ROOT}/UGBench\" && git -C \"${OFFICIAL_BENCH_ROOT}/UGBench\" checkout --detach \"${UGBENCH_REV}\""
+    },
+    {
+      "benchmark_id": "ugbench_zsre",
+      "evaluation_command": "cd \"${OFFICIAL_BENCH_ROOT}/UGBench\" && test \"${UGBENCH_CONFIGURED_CHECKPOINT:?configure the pinned UGBench model_config for the exact checkpoint}\" = ${UGBENCH_ZSRE_CHECKPOINT_PATH:?Set UGBENCH_ZSRE_CHECKPOINT_PATH to the pinned official target model} && ${PYTHON_BIN} evaluate_ZSRE.py",
+      "input_contract": "evaluation_overlay",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/ugbench_zsre/run_manifest.json",
+      "method_status": "EVALUATION_ONLY",
+      "reason": "UGBench cases are evaluation-only. The existing ZsRE checkpoint can be reused only if its model/tokenizer/source identities exactly match UGBench.",
+      "run_command": null,
+      "setup_command": "test -n \"${UGBENCH_REV:?pin a 40-hex UGBench commit}\" && git clone https://github.com/MaybeLizzy/UGBench \"${OFFICIAL_BENCH_ROOT}/UGBench\" && git -C \"${OFFICIAL_BENCH_ROOT}/UGBench\" checkout --detach \"${UGBENCH_REV}\""
+    },
+    {
+      "benchmark_id": "pch_continual",
+      "evaluation_command": "echo 'NEEDS_METHOD_EXTENSION: no unchanged our_method PCH checkpoint sequence exists; do not invoke FIT.py as our method' >&2; exit 2",
+      "input_contract": "sequential_deletion_requests",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/pch_continual/run_manifest.json",
+      "method_status": "NEEDS_METHOD_EXTENSION",
+      "reason": "The current method is one-shot and benchmark-tuned; it has no stateful sequential request/checkpoint contract. Applying later outcomes to retune selection would change its stopping and selection criteria.",
+      "run_command": null,
+      "setup_command": "test -n \"${FIT_REV:?pin a 40-hex FIT commit}\" && git clone https://github.com/XiaoyuXU1/FIT \"${OFFICIAL_BENCH_ROOT}/FIT\" && git -C \"${OFFICIAL_BENCH_ROOT}/FIT\" checkout --detach \"${FIT_REV}\" && ${PYTHON_BIN} -c 'from huggingface_hub import snapshot_download; import os; snapshot_download(repo_id=os.environ[\"PCH_START_MODEL_ID\"], revision=os.environ[\"PCH_START_MODEL_REV\"], local_dir=os.environ[\"PCH_START_MODEL_PATH\"])'"
+    },
+    {
+      "benchmark_id": "hubble_yago",
+      "evaluation_command": "mkdir -p outputs/official_benchmarks/runs/hubble_yago/unlearned outputs/official_benchmarks/runs/hubble_yago/target && ${PYTHON_BIN} -m lm_eval --model hf --model_args pretrained=${HUBBLE_YAGO_PERTURBED_MODEL_PATH:?Set HUBBLE_YAGO_PERTURBED_MODEL_PATH to the pinned official target model},dtype=bfloat16 --tasks yago_hubble_bio_perplexity,yago_hubble_tasks,yago_hubble_gen_tasks --include_path \"${OFFICIAL_BENCH_ROOT}/hubble/hubble-lm-eval-tasks\" --device cuda:0 --batch_size auto --output_path outputs/official_benchmarks/runs/hubble_yago/unlearned --write_out --show_config --log_samples && ${PYTHON_BIN} -m lm_eval --model hf --model_args pretrained=\"${HUBBLE_YAGO_STANDARD_MODEL_PATH:?set standard minimal-pair model}\",dtype=bfloat16 --tasks yago_hubble_bio_perplexity,yago_hubble_tasks,yago_hubble_gen_tasks --include_path \"${OFFICIAL_BENCH_ROOT}/hubble/hubble-lm-eval-tasks\" --device cuda:0 --batch_size auto --output_path outputs/official_benchmarks/runs/hubble_yago/target --write_out --show_config --log_samples",
+      "input_contract": "qa_fact_request",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/hubble_yago/run_manifest.json",
+      "method_status": "NEEDS_METHOD_EXTENSION",
+      "reason": "Although YAGO is factual, the current method assumes MCF/ZsRE-specific unwanted/desired target and repair gates. Hubble's minimal-pair target semantics have no validated unchanged adapter yet; defining them changes repair/selection semantics.",
+      "run_command": null,
+      "setup_command": "test -n \"${HUBBLE_REV:?pin a 40-hex Hubble commit}\" && git clone https://github.com/allegro-lab/hubble \"${OFFICIAL_BENCH_ROOT}/hubble\" && git -C \"${OFFICIAL_BENCH_ROOT}/hubble\" checkout --detach \"${HUBBLE_REV}\" && git clone https://github.com/EleutherAI/lm-evaluation-harness \"${OFFICIAL_BENCH_ROOT}/hubble-lm-evaluation-harness\" && git -C \"${OFFICIAL_BENCH_ROOT}/hubble-lm-evaluation-harness\" checkout --detach a7ca04353fe1ff967f6c5b631bc31a10a6943b23 && ${PYTHON_BIN} -c 'from huggingface_hub import snapshot_download; import os; snapshot_download(repo_id=os.environ[\"HUBBLE_YAGO_MODEL_ID\"], revision=os.environ[\"HUBBLE_YAGO_MODEL_REV\"], local_dir=os.environ[\"HUBBLE_YAGO_PERTURBED_MODEL_PATH\"])'"
+    },
+    {
+      "benchmark_id": "hubble_gutenberg",
+      "evaluation_command": "mkdir -p outputs/official_benchmarks/runs/hubble_gutenberg/unlearned outputs/official_benchmarks/runs/hubble_gutenberg/target && ${PYTHON_BIN} -m lm_eval --model hf --model_args pretrained=${HUBBLE_GUTENBERG_PERTURBED_MODEL_PATH:?Set HUBBLE_GUTENBERG_PERTURBED_MODEL_PATH to the pinned official target model},dtype=bfloat16 --tasks gutenberg_popular_hubble,gutenberg_popular_hubble_verbatim,gutenberg_unpopular_hubble,gutenberg_unpopular_hubble_verbatim --include_path \"${OFFICIAL_BENCH_ROOT}/hubble/hubble-lm-eval-tasks\" --device cuda:0 --batch_size auto --output_path outputs/official_benchmarks/runs/hubble_gutenberg/unlearned --write_out --show_config --log_samples && ${PYTHON_BIN} -m lm_eval --model hf --model_args pretrained=\"${HUBBLE_GUTENBERG_STANDARD_MODEL_PATH:?set standard minimal-pair model}\",dtype=bfloat16 --tasks gutenberg_popular_hubble,gutenberg_popular_hubble_verbatim,gutenberg_unpopular_hubble,gutenberg_unpopular_hubble_verbatim --include_path \"${OFFICIAL_BENCH_ROOT}/hubble/hubble-lm-eval-tasks\" --device cuda:0 --batch_size auto --output_path outputs/official_benchmarks/runs/hubble_gutenberg/target --write_out --show_config --log_samples",
+      "input_contract": "sequence_or_document_forget",
+      "manifest_reservation": "outputs/official_benchmarks/plans/manifests/hubble_gutenberg/run_manifest.json",
+      "method_status": "NEEDS_METHOD_EXTENSION",
+      "reason": "Gutenberg passages require sequence/document Setting 5e and repair semantics absent from the current answer-row method. Converting passages into invented QA changes record meaning.",
+      "run_command": null,
+      "setup_command": "test -n \"${HUBBLE_REV:?pin a 40-hex Hubble commit}\" && git clone https://github.com/allegro-lab/hubble \"${OFFICIAL_BENCH_ROOT}/hubble\" && git -C \"${OFFICIAL_BENCH_ROOT}/hubble\" checkout --detach \"${HUBBLE_REV}\" && git clone https://github.com/EleutherAI/lm-evaluation-harness \"${OFFICIAL_BENCH_ROOT}/hubble-lm-evaluation-harness\" && git -C \"${OFFICIAL_BENCH_ROOT}/hubble-lm-evaluation-harness\" checkout --detach a7ca04353fe1ff967f6c5b631bc31a10a6943b23 && ${PYTHON_BIN} -c 'from huggingface_hub import snapshot_download; import os; snapshot_download(repo_id=os.environ[\"HUBBLE_GUTENBERG_MODEL_ID\"], revision=os.environ[\"HUBBLE_GUTENBERG_MODEL_REV\"], local_dir=os.environ[\"HUBBLE_GUTENBERG_PERTURBED_MODEL_PATH\"])'"
+    }
+  ]
+}

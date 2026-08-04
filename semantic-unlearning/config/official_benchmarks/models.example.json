@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "notice": "Copy to models.json and replace every REPLACE_* value. This example is intentionally not accepted for official runs.",
+  "tracks": {
+    "mcf_zerounlearn_official": {
+      "id": "meta-llama/Llama-3.2-3B-Instruct",
+      "path": "${GENERIC_MODEL_PATH}",
+      "revision": "0cb88a4f764b7a12671c53f0838cd831a0843b95",
+      "architecture": "LlamaForCausalLM",
+      "role": "Base",
+      "tokenizer": {"id": "meta-llama/Llama-3.2-3B-Instruct", "revision": "0cb88a4f764b7a12671c53f0838cd831a0843b95"}
+    },
+    "zsre_zerounlearn_official": {
+      "id": "meta-llama/Llama-3.2-3B-Instruct",
+      "path": "${GENERIC_MODEL_PATH}",
+      "revision": "0cb88a4f764b7a12671c53f0838cd831a0843b95",
+      "architecture": "LlamaForCausalLM",
+      "role": "Base",
+      "tokenizer": {"id": "meta-llama/Llama-3.2-3B-Instruct", "revision": "0cb88a4f764b7a12671c53f0838cd831a0843b95"}
+    },
+    "tofu_forget05": {
+      "id": "open-unlearning/tofu_Llama-3.2-3B-Instruct_full",
+      "path": "${TOFU_FULL_MODEL_PATH}",
+      "revision": "REPLACE_WITH_HF_COMMIT",
+      "architecture": "LlamaForCausalLM",
+      "role": "Full",
+      "tokenizer": {"id": "open-unlearning/tofu_Llama-3.2-3B-Instruct_full", "revision": "REPLACE_WITH_HF_COMMIT"},
+      "comparison_models": {
+        "retain_only/Target": {"id": "open-unlearning/tofu_Llama-3.2-3B-Instruct_retain95", "path": "${TOFU_RETAIN95_MODEL_PATH}", "revision": "REPLACE_WITH_HF_COMMIT", "architecture": "LlamaForCausalLM", "tokenizer": {"id": "open-unlearning/tofu_Llama-3.2-3B-Instruct_retain95", "revision": "REPLACE_WITH_HF_COMMIT"}}
+      }
+    },
+    "muse_news": {"id": "REPLACE_MUSE_NEWS_TARGET_ID", "path": "${MUSE_NEWS_TARGET_MODEL_PATH}", "revision": "REPLACE_WITH_HF_COMMIT", "architecture": "LlamaForCausalLM", "role": "Target", "tokenizer": {"id": "REPLACE_MUSE_NEWS_TOKENIZER_ID", "revision": "REPLACE_WITH_HF_COMMIT"}, "comparison_models": {"retain_model": {"id": "REPLACE_MUSE_NEWS_RETAIN_ID", "path": "${MUSE_NEWS_RETAIN_MODEL_PATH}", "revision": "REPLACE_WITH_HF_COMMIT", "architecture": "LlamaForCausalLM", "tokenizer": {"id": "REPLACE_MUSE_NEWS_TOKENIZER_ID", "revision": "REPLACE_WITH_HF_COMMIT"}}}},
+    "muse_books": {"id": "REPLACE_MUSE_BOOKS_TARGET_ID", "path": "${MUSE_BOOKS_TARGET_MODEL_PATH}", "revision": "REPLACE_WITH_HF_COMMIT", "architecture": "LlamaForCausalLM", "role": "Target", "tokenizer": {"id": "REPLACE_MUSE_BOOKS_TOKENIZER_ID", "revision": "REPLACE_WITH_HF_COMMIT"}, "comparison_models": {"retain_model": {"id": "REPLACE_MUSE_BOOKS_RETAIN_ID", "path": "${MUSE_BOOKS_RETAIN_MODEL_PATH}", "revision": "REPLACE_WITH_HF_COMMIT", "architecture": "LlamaForCausalLM", "tokenizer": {"id": "REPLACE_MUSE_BOOKS_TOKENIZER_ID", "revision": "REPLACE_WITH_HF_COMMIT"}}}},
+    "rwku": {"id": "REPLACE_RWKU_OFFICIAL_MODEL_ID", "path": "${RWKU_TARGET_MODEL_PATH}", "revision": "REPLACE_WITH_HF_COMMIT", "architecture": "LlamaForCausalLM", "role": "Base", "tokenizer": {"id": "REPLACE_RWKU_TOKENIZER_ID", "revision": "REPLACE_WITH_HF_COMMIT"}},
+    "wmdp_bio": {"id": "REPLACE_WMDP_TARGET_ID", "path": "${WMDP_TARGET_MODEL_PATH}", "revision": "REPLACE_WITH_HF_COMMIT", "architecture": "REPLACE_ARCHITECTURE", "role": "Target", "tokenizer": {"id": "REPLACE_WMDP_TOKENIZER_ID", "revision": "REPLACE_WITH_HF_COMMIT"}},
+    "wmdp_cyber": {"id": "REPLACE_WMDP_TARGET_ID", "path": "${WMDP_TARGET_MODEL_PATH}", "revision": "REPLACE_WITH_HF_COMMIT", "architecture": "REPLACE_ARCHITECTURE", "role": "Target", "tokenizer": {"id": "REPLACE_WMDP_TOKENIZER_ID", "revision": "REPLACE_WITH_HF_COMMIT"}},
+    "wmdp_chem_eval": {"id": "REPLACE_WMDP_CHECKPOINT_ID", "path": "${WMDP_CHECKPOINT_PATH}", "revision": "REPLACE_WITH_CHECKPOINT_HASH", "architecture": "REPLACE_ARCHITECTURE", "role": "Target", "tokenizer": {"id": "REPLACE_WMDP_TOKENIZER_ID", "revision": "REPLACE_WITH_HF_COMMIT"}},
+    "ugbench_tofu": {"id": "REPLACE_UGBENCH_TOFU_TARGET_ID", "path": "${UGBENCH_TOFU_CHECKPOINT_PATH}", "revision": "REPLACE_WITH_HF_COMMIT_OR_CHECKPOINT_HASH", "architecture": "REPLACE_ARCHITECTURE", "role": "UGBench official Target", "tokenizer": {"id": "REPLACE_UGBENCH_TOKENIZER_ID", "revision": "REPLACE_WITH_HF_COMMIT"}},
+    "ugbench_harry_potter": {"id": "REPLACE_UGBENCH_HARRY_TARGET_ID", "path": "${UGBENCH_HARRY_CHECKPOINT_PATH}", "revision": "REPLACE_WITH_HF_COMMIT_OR_CHECKPOINT_HASH", "architecture": "REPLACE_ARCHITECTURE", "role": "UGBench official Target", "tokenizer": {"id": "REPLACE_UGBENCH_TOKENIZER_ID", "revision": "REPLACE_WITH_HF_COMMIT"}},
+    "ugbench_zsre": {"id": "REPLACE_UGBENCH_ZSRE_TARGET_ID", "path": "${UGBENCH_ZSRE_CHECKPOINT_PATH}", "revision": "REPLACE_WITH_HF_COMMIT_OR_CHECKPOINT_HASH", "architecture": "REPLACE_ARCHITECTURE", "role": "UGBench official Target", "tokenizer": {"id": "REPLACE_UGBENCH_TOKENIZER_ID", "revision": "REPLACE_WITH_HF_COMMIT"}},
+    "pch_continual": {"id": "FITPCH/Llama-2-7b-chat-hf_PCH_finetune", "path": "${PCH_START_MODEL_PATH}", "revision": "REPLACE_WITH_HF_COMMIT", "architecture": "LlamaForCausalLM", "role": "PCH_finetuned_start", "tokenizer": {"id": "FITPCH/Llama-2-7b-chat-hf_PCH_finetune", "revision": "REPLACE_WITH_HF_COMMIT"}, "comparison_models": {"retain_model": {"id": "FITPCH/Llama-2-7b-chat-hf_PCH_retain", "path": "${PCH_RETAIN_MODEL_PATH}", "revision": "REPLACE_WITH_HF_COMMIT", "architecture": "LlamaForCausalLM", "tokenizer": {"id": "FITPCH/Llama-2-7b-chat-hf_PCH_retain", "revision": "REPLACE_WITH_HF_COMMIT"}}}},
+    "hubble_yago": {"id": "allegrolab/hubble-8b-500b_toks-perturbed-hf", "path": "${HUBBLE_YAGO_PERTURBED_MODEL_PATH}", "revision": "step238500", "architecture": "LlamaForCausalLM", "role": "Full_perturbed", "tokenizer": {"id": "allegrolab/hubble-8b-500b_toks-perturbed-hf", "revision": "step238500"}, "comparison_models": {"Target_standard": {"id": "allegrolab/hubble-8b-500b_toks-standard-hf", "path": "${HUBBLE_YAGO_STANDARD_MODEL_PATH}", "revision": "step238500", "architecture": "LlamaForCausalLM", "tokenizer": {"id": "allegrolab/hubble-8b-500b_toks-standard-hf", "revision": "step238500"}}}},
+    "hubble_gutenberg": {"id": "allegrolab/hubble-8b-500b_toks-perturbed-hf", "path": "${HUBBLE_GUTENBERG_PERTURBED_MODEL_PATH}", "revision": "step238500", "architecture": "LlamaForCausalLM", "role": "Full_perturbed", "tokenizer": {"id": "allegrolab/hubble-8b-500b_toks-perturbed-hf", "revision": "step238500"}, "comparison_models": {"Target_standard": {"id": "allegrolab/hubble-8b-500b_toks-standard-hf", "path": "${HUBBLE_GUTENBERG_STANDARD_MODEL_PATH}", "revision": "step238500", "architecture": "LlamaForCausalLM", "tokenizer": {"id": "allegrolab/hubble-8b-500b_toks-standard-hf", "revision": "step238500"}}}}
+  }
+}
