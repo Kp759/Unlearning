@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "registry_policy": {
+    "append_only": true,
+    "never_overwrite_prior_best": true,
+    "compare_only_within_same_protocol": true,
+    "allowed_statuses": ["BEST_ACCEPTED", "BEST_FORGETTING_ONLY"],
+    "weight_policy": "Git stores manifests, parameters, metrics, provenance, and SHA-256 checksums. Multi-gigabyte model weights remain in persistent artifact storage."
+  },
+  "records": [
+    {
+      "dataset": "MCF",
+      "record_id": "mcf-controlled-fivefold-margin025-rank2-v1",
+      "status": "BEST_ACCEPTED",
+      "protocol": "controlled_fivefold",
+      "manifest": "config/best_runs/mcf/controlled_fivefold_margin025_rank2.json",
+      "checkpoint_count": 5,
+      "hash_status": "COMPLETE"
+    },
+    {
+      "dataset": "TOFU",
+      "record_id": "tofu-forget05-setting3-setting5e-lmhead-alpha000-seed42",
+      "status": "BEST_ACCEPTED",
+      "protocol": "forget05_local_probability_gate",
+      "manifest": "config/best_runs/tofu/forget05_setting3_5e_lmhead_alpha000_seed42.json",
+      "checkpoint_count": 1,
+      "hash_status": "PENDING_LOCAL_CAPTURE"
+    },
+    {
+      "dataset": "ZsRE",
+      "record_id": "zsre-cal384-seed1",
+      "status": "BEST_ACCEPTED",
+      "protocol": "ZeroUnlearn_official_compatible_seed1",
+      "manifest": "config/best_runs/zsre/cal384_seed1.json",
+      "checkpoint_count": 1,
+      "hash_status": "PENDING_LOCAL_CAPTURE"
+    }
+  ],
+  "usage": {
+    "MCF": "Use all five fold-specific checkpoints for the controlled five-fold paper result. Fold 2 is only the best single demonstration checkpoint for fold 2.",
+    "TOFU": "Use the saved Forget05 seed-42 checkpoint only for the recorded local probability protocol until full tofu_eval is stored separately.",
+    "ZsRE": "Use the saved calibration-384 seed-1 checkpoint only for seed-1 reproduction. Train/repair a separate checkpoint for each other official seed."
+  }
+}
