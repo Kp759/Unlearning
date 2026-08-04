@@ -35491,5 +35491,47 @@
         ]
       }
     }
-  }
+  },
+  "official_reproduction": {
+    "status": "EXACT_REPRODUCTION",
+    "protocol": "ZeroUnlearn official-compatible: first-half retain, second-half forget",
+    "seed": 1,
+    "forget_num": 50,
+    "retain_num": 1000,
+    "checkpoint": "outputs/zsre_cal384_seeds0_9/seed1/selected_checkpoint",
+    "evaluator": "scripts/zsre_zero_unlearn_official_eval.py",
+    "evaluation_repository_commit": "029af73",
+    "metrics": {
+      "forget": {
+        "Eff": 0.0,
+        "Gen": 0.0,
+        "Spe": 30.614846,
+        "PPL": 11.625
+      },
+      "retain": {
+        "Eff": 31.67241,
+        "Gen": 30.84274,
+        "Spe": 27.275716,
+        "PPL": 11.625
+      }
+    },
+    "strict_gate": {
+      "required_Eff": 0.0,
+      "required_Gen": 0.0,
+      "passed": true
+    },
+    "comparison_with_previous": {
+      "Eff_difference": 0.0,
+      "Gen_difference": 0.0,
+      "Spe_difference": 0.0,
+      "PPL_difference": 0.0
+    },
+    "local_evaluation_artifact": {
+      "path": "outputs/zsre_official_checkpoint_eval/cal384_seed1_20260804_143247_029af73/official_eval.json",
+      "size_bytes": 704244,
+      "sha256": "fbb801f1fd980a736ad69661433717b5d3f631b7970403056244a72f5bc8b84a",
+      "note": "The complete evaluation JSON remains on Wulver; this manifest stores its checksum and summary."
+    }
+  },
+  "reproducibility_status": "EXACT_OFFICIAL_SEED1_REPRODUCTION"
 }
