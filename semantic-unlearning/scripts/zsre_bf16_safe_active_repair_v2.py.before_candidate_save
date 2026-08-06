@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repair-rank", type=int, default=0)
     parser.add_argument("--repair-l2-lambda", type=float, default=1e-6)
     parser.add_argument("--max-delta-norm", type=float, default=None)
-    parser.add_argument("--retain-calibration-num", type=int, default=384)
+    parser.add_argument("--retain-calibration-num", type=int, default=128)
     parser.add_argument("--retain-calibration-seed", type=int, default=1729)
     parser.add_argument(
         "--project-away-protected-hidden",
@@ -91,12 +91,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default="bf16")
     parser.add_argument("--device-map", choices=["single", "auto"], default="single")
     parser.add_argument("--skip-ppl", action="store_true")
-    parser.add_argument(
-        "--save-candidate-checkpoint",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Save the materialized LM-head repair candidate before any rollback.",
-    )
     parser.add_argument(
         "--save-selected-checkpoint",
         action=argparse.BooleanOptionalAction,
@@ -175,23 +169,6 @@ def main() -> None:
     repair_dir = output_dir / "active_repair"
     repair_dir.mkdir(parents=True, exist_ok=True)
 
-    runtime_config = {
-        "method": "zsre_bf16_safe_active_repair_v2",
-        **vars(args),
-        "torch_version": torch.__version__,
-        "cuda_runtime": torch.version.cuda,
-        "cuda_visible_devices": __import__("os").environ.get(
-            "CUDA_VISIBLE_DEVICES"
-        ),
-        "gpu_name": (
-            torch.cuda.get_device_name(0)
-            if torch.cuda.is_available()
-            else None
-        ),
-        "provenance_capture_mode": "native_runtime",
-    }
-    gagd.write_json(output_dir / "config_used.json", runtime_config)
-
     model, tok = load_model(args)
     device = next(model.parameters()).device
     llama_like = zsre.is_llama_like(model, tok)
@@ -207,20 +184,6 @@ def main() -> None:
         zsre_url=args.zsre_url,
     )
     records = (forget_records, retain_records)
-    gagd.write_json(
-        output_dir / "sampled_case_ids.json",
-        {
-            "seed": args.seed,
-            "forget_case_ids": [
-                record["case_id"] for record in forget_records
-            ],
-            "retain_case_ids": [
-                record["case_id"] for record in retain_records
-            ],
-            "zsre_sha256": zsre.file_sha256(zsre_path),
-            "provenance_capture_mode": "native_runtime",
-        },
-    )
 
     print("Evaluating saved 600-step Setting 5e checkpoint")
     setting5_result = zsre.evaluate_loaded_model_official(
@@ -501,31 +464,6 @@ def main() -> None:
         and (gate_report["passed"] or not args.strict_utility_gates)
     )
 
-    # The model currently contains the exact materialized active-repair
-    # candidate. Preserve it before a rejected candidate is rolled back.
-    if args.save_candidate_checkpoint:
-        candidate_checkpoint = output_dir / "active_candidate_checkpoint"
-        repair.save_checkpoint(model, tok, candidate_checkpoint)
-        gagd.write_json(
-            candidate_checkpoint / "candidate_provenance.json",
-            {
-                "seed": args.seed,
-                "source_setting5_checkpoint": str(
-                    resolve(args.setting5_checkpoint)
-                ),
-                "candidate_scale": selected_scale,
-                "candidate_accepted": accepted,
-                "forget_Eff": candidate_result["forget"]["Eff"],
-                "forget_Gen": candidate_result["forget"]["Gen"],
-                "forget_Spe": candidate_result["forget"]["Spe"],
-                "PPL": candidate_result.get("forget_PPL"),
-                "note": (
-                    "Raw materialized LM-head repair candidate saved before "
-                    "strict-gate rollback."
-                ),
-            },
-        )
-
     if accepted:
         selected_result = copy.deepcopy(candidate_result)
         selected_result["method"] = "Setting 5e + BF16-safe active LM-head repair"
@@ -551,11 +489,6 @@ def main() -> None:
     )
     summary = {
         "method": "zsre_bf16_safe_active_repair_v2",
-        "protocol_status": "native_data_and_metrics_but_evaluation_conditioned_repair",
-        "protocol_status_reason": (
-            "Official ZsRE correctness and metric evidence participates in "
-            "active-case and candidate-scale selection."
-        ),
         "neutral_target": zsre.NEUTRAL_TARGET,
         "neutral_token_id": neutral_token_id,
         "case_selection_source": "setting5e_official_metric_data",

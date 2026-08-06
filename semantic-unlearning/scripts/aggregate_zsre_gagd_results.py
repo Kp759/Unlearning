@@ -242,6 +242,14 @@ def main() -> None:
     )
     parser.add_argument("--require-selected-eff-max", type=float, default=0.0)
     parser.add_argument("--require-selected-gen-max", type=float, default=0.0)
+    parser.add_argument(
+        "--allow-fallback-selected",
+        action="store_true",
+        help=(
+            "Aggregate selected Setting-5e fallbacks even when the raw active "
+            "candidate failed strict gates."
+        ),
+    )
     args = parser.parse_args()
     paths = (
         [Path(value) for value in args.result]
@@ -255,11 +263,12 @@ def main() -> None:
             + ", ".join(str(path) for path in missing)
         )
     results = load_results(paths)
-    require_selected_targets(
-        results,
-        eff_max=args.require_selected_eff_max,
-        gen_max=args.require_selected_gen_max,
-    )
+    if not args.allow_fallback_selected:
+        require_selected_targets(
+            results,
+            eff_max=args.require_selected_eff_max,
+            gen_max=args.require_selected_gen_max,
+        )
     rows = aggregate(results)
     write_outputs(Path(args.output_dir), results, rows)
     print(f"Aggregate table: {Path(args.output_dir) / 'aggregate.md'}")

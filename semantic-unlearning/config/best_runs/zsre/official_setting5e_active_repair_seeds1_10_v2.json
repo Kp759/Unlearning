@@ -1,0 +1,2649 @@
+{
+  "schema_version": 2,
+  "record_id": "zsre-official-setting5e-active-repair-seeds1-10-v2",
+  "status": "RAW_CANDIDATES_REJECTED_FINAL_SELECTED_SETTING5E",
+  "dataset": {
+    "name": "ZsRE",
+    "source_url": "https://memit.baulab.info/data/dsets/zsre_mend_eval.json",
+    "sha256": "8a371d512f8a6ab175db4ef672181d5c0e52da23298cb51e5a2eeea2f89aa9cd",
+    "sampling": "seeded random.sample; forget sampled from second half before retain sampled from first half",
+    "forget_num": 50,
+    "retain_num": 1000,
+    "seeds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ]
+  },
+  "model": {
+    "id": "meta-llama/Llama-3.2-3B-Instruct",
+    "local_snapshot_path": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+    "snapshot_revision_from_path": "0cb88a4f764b7a12671c53f0838cd831a0843b95"
+  },
+  "protocol_status": "native_data_and_metrics_but_evaluation_conditioned_repair",
+  "protocol_status_reason": "Official ZsRE correctness and metric evidence participates in active-case and candidate-scale selection.",
+  "reporting": {
+    "raw_active_candidate": "diagnostic only; Eff/Gen reached zero but strict acceptance was 0/10",
+    "final_selected": "algorithm output after strict-gate rollback; Setting 5e for all seeds",
+    "main_table_rule": "Use final_selected for any final selected-checkpoint table.",
+    "diagnostic_table_rule": "Raw candidate values require an explicit rejected and evaluation-conditioned label."
+  },
+  "aggregate_sample_sd": {
+    "raw_active_candidate": {
+      "forget_Eff": {
+        "count": 10,
+        "mean": 0.0,
+        "sample_sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "forget_Gen": {
+        "count": 10,
+        "mean": 0.0,
+        "sample_sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "forget_Spe": {
+        "count": 10,
+        "mean": 27.7230801,
+        "sample_sd": 2.884395491060377,
+        "min": 23.365873,
+        "max": 31.25161
+      },
+      "retain_Eff": {
+        "count": 10,
+        "mean": 32.2088576,
+        "sample_sd": 1.0834479809474735,
+        "min": 30.38119,
+        "max": 33.506697
+      },
+      "retain_Gen": {
+        "count": 10,
+        "mean": 31.261878799999998,
+        "sample_sd": 0.7399295818581951,
+        "min": 30.166557,
+        "max": 32.369301
+      },
+      "retain_Spe": {
+        "count": 10,
+        "mean": 28.213616899999998,
+        "sample_sd": 0.8199006909536799,
+        "min": 27.217863,
+        "max": 29.632672
+      },
+      "PPL": {
+        "count": 10,
+        "mean": 12.325,
+        "sample_sd": 0.9717359895225314,
+        "min": 11.0625,
+        "max": 14.25
+      }
+    },
+    "final_selected": {
+      "forget_Eff": {
+        "count": 10,
+        "mean": 20.813254,
+        "sample_sd": 3.1631940879681864,
+        "min": 16.5,
+        "max": 25.677778
+      },
+      "forget_Gen": {
+        "count": 10,
+        "mean": 20.8110317,
+        "sample_sd": 3.7951680404721957,
+        "min": 14.6,
+        "max": 26.622222
+      },
+      "forget_Spe": {
+        "count": 10,
+        "mean": 27.7230801,
+        "sample_sd": 2.884395491060377,
+        "min": 23.365873,
+        "max": 31.25161
+      },
+      "retain_Eff": {
+        "count": 10,
+        "mean": 32.8410594,
+        "sample_sd": 1.076391666661681,
+        "min": 31.045476,
+        "max": 34.393602
+      },
+      "retain_Gen": {
+        "count": 10,
+        "mean": 31.888732,
+        "sample_sd": 0.7420056410853249,
+        "min": 30.93504,
+        "max": 32.783199
+      },
+      "retain_Spe": {
+        "count": 10,
+        "mean": 28.4971321,
+        "sample_sd": 0.9018199040882025,
+        "min": 27.262412,
+        "max": 30.06901
+      },
+      "PPL": {
+        "count": 10,
+        "mean": 11.925,
+        "sample_sd": 0.5942432162002357,
+        "min": 11.0625,
+        "max": 12.9375
+      }
+    },
+    "setting5e": {
+      "forget_Eff": {
+        "count": 10,
+        "mean": 20.813254,
+        "sample_sd": 3.1631940879681864,
+        "min": 16.5,
+        "max": 25.677778
+      },
+      "forget_Gen": {
+        "count": 10,
+        "mean": 20.8110317,
+        "sample_sd": 3.7951680404721957,
+        "min": 14.6,
+        "max": 26.622222
+      },
+      "forget_Spe": {
+        "count": 10,
+        "mean": 27.7230801,
+        "sample_sd": 2.884395491060377,
+        "min": 23.365873,
+        "max": 31.25161
+      },
+      "retain_Eff": {
+        "count": 10,
+        "mean": 32.8410594,
+        "sample_sd": 1.076391666661681,
+        "min": 31.045476,
+        "max": 34.393602
+      },
+      "retain_Gen": {
+        "count": 10,
+        "mean": 31.888732,
+        "sample_sd": 0.7420056410853249,
+        "min": 30.93504,
+        "max": 32.783199
+      },
+      "retain_Spe": {
+        "count": 10,
+        "mean": 28.4971321,
+        "sample_sd": 0.9018199040882025,
+        "min": 27.262412,
+        "max": 30.06901
+      },
+      "PPL": {
+        "count": 10,
+        "mean": 11.925,
+        "sample_sd": 0.5942432162002357,
+        "min": 11.0625,
+        "max": 12.9375
+      }
+    },
+    "strict_accepted_seeds": 0,
+    "evaluated_seeds": 10
+  },
+  "per_seed": [
+    {
+      "seed": 1,
+      "setting5e": {
+        "method": "Ultra-aggressive Setting 5e (600 steps)",
+        "forget": {
+          "Eff": 19.85,
+          "Gen": 20.35,
+          "Spe": 30.614846,
+          "post_rewrite_correct_tokens": 38,
+          "post_rewrite_total_tokens": 125,
+          "post_paraphrase_correct_tokens": 39,
+          "post_paraphrase_total_tokens": 125,
+          "post_neighborhood_correct_tokens": 90,
+          "post_neighborhood_total_tokens": 263
+        },
+        "retain": {
+          "Eff": 31.727767,
+          "Gen": 31.004645,
+          "Spe": 27.262412,
+          "post_rewrite_correct_tokens": 1230,
+          "post_rewrite_total_tokens": 2996,
+          "post_paraphrase_correct_tokens": 1200,
+          "post_paraphrase_total_tokens": 2996,
+          "post_neighborhood_correct_tokens": 2173,
+          "post_neighborhood_total_tokens": 6278
+        },
+        "PPL": 11.625
+      },
+      "raw_active_candidate": {
+        "method": "Setting 5e + exact-BF16 active LM-head repair candidate",
+        "forget": {
+          "Eff": 0.0,
+          "Gen": 0.0,
+          "Spe": 30.614846,
+          "post_rewrite_correct_tokens": 0,
+          "post_rewrite_total_tokens": 125,
+          "post_paraphrase_correct_tokens": 0,
+          "post_paraphrase_total_tokens": 125,
+          "post_neighborhood_correct_tokens": 90,
+          "post_neighborhood_total_tokens": 263
+        },
+        "retain": {
+          "Eff": 31.620029,
+          "Gen": 30.896906,
+          "Spe": 27.217863,
+          "post_rewrite_correct_tokens": 1225,
+          "post_rewrite_total_tokens": 2996,
+          "post_paraphrase_correct_tokens": 1195,
+          "post_paraphrase_total_tokens": 2996,
+          "post_neighborhood_correct_tokens": 2170,
+          "post_neighborhood_total_tokens": 6278
+        },
+        "PPL": 11.625
+      },
+      "final_selected": {
+        "method": "Ultra-aggressive Setting 5e (repair fallback)",
+        "forget": {
+          "Eff": 19.85,
+          "Gen": 20.35,
+          "Spe": 30.614846,
+          "post_rewrite_correct_tokens": 38,
+          "post_rewrite_total_tokens": 125,
+          "post_paraphrase_correct_tokens": 39,
+          "post_paraphrase_total_tokens": 125,
+          "post_neighborhood_correct_tokens": 90,
+          "post_neighborhood_total_tokens": 263
+        },
+        "retain": {
+          "Eff": 31.727767,
+          "Gen": 31.004645,
+          "Spe": 27.262412,
+          "post_rewrite_correct_tokens": 1230,
+          "post_rewrite_total_tokens": 2996,
+          "post_paraphrase_correct_tokens": 1200,
+          "post_paraphrase_total_tokens": 2996,
+          "post_neighborhood_correct_tokens": 2173,
+          "post_neighborhood_total_tokens": 6278
+        },
+        "PPL": 11.625
+      },
+      "candidate_scale": 1.0,
+      "selected_scale": 0.0,
+      "candidate_accepted": false,
+      "failed_gates": [
+        "retain_Eff",
+        "retain_Gen"
+      ],
+      "full_gate_report": {
+        "passed": false,
+        "utility_drop_tolerance_percentage_points": 0.1,
+        "max_ppl_ratio": 1.02,
+        "target_eff_max": 0.0,
+        "target_gen_max": 0.0,
+        "checks": {
+          "forget_Eff_non_regression": {
+            "setting5": 19.85,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 19.85,
+            "passed": true
+          },
+          "forget_Gen_non_regression": {
+            "setting5": 20.35,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 20.35,
+            "passed": true
+          },
+          "forget_Eff_target": {
+            "setting5": 19.85,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Gen_target": {
+            "setting5": 20.35,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Spe_locality": {
+            "setting5": 30.614846,
+            "candidate": 30.614846,
+            "minimum": 30.514846,
+            "maximum": null,
+            "passed": true
+          },
+          "retain_Eff": {
+            "setting5": 31.727767,
+            "candidate": 31.620029,
+            "minimum": 31.627767,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Gen": {
+            "setting5": 31.004645,
+            "candidate": 30.896906,
+            "minimum": 30.904645,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Spe": {
+            "setting5": 27.262412,
+            "candidate": 27.217863,
+            "minimum": 27.162412,
+            "maximum": null,
+            "passed": true
+          },
+          "PPL": {
+            "setting5": 11.625,
+            "candidate": 11.625,
+            "minimum": null,
+            "maximum": 11.8575,
+            "passed": true
+          }
+        }
+      }
+    },
+    {
+      "seed": 2,
+      "setting5e": {
+        "method": "Ultra-aggressive Setting 5e (600 steps)",
+        "forget": {
+          "Eff": 20.066667,
+          "Gen": 18.4,
+          "Spe": 31.25161,
+          "post_rewrite_correct_tokens": 39,
+          "post_rewrite_total_tokens": 152,
+          "post_paraphrase_correct_tokens": 37,
+          "post_paraphrase_total_tokens": 152,
+          "post_neighborhood_correct_tokens": 129,
+          "post_neighborhood_total_tokens": 307
+        },
+        "retain": {
+          "Eff": 31.874838,
+          "Gen": 31.035049,
+          "Spe": 28.801249,
+          "post_rewrite_correct_tokens": 1282,
+          "post_rewrite_total_tokens": 3123,
+          "post_paraphrase_correct_tokens": 1249,
+          "post_paraphrase_total_tokens": 3123,
+          "post_neighborhood_correct_tokens": 2301,
+          "post_neighborhood_total_tokens": 6206
+        },
+        "PPL": 11.0625
+      },
+      "raw_active_candidate": {
+        "method": "Setting 5e + exact-BF16 active LM-head repair candidate",
+        "forget": {
+          "Eff": 0.0,
+          "Gen": 0.0,
+          "Spe": 31.25161,
+          "post_rewrite_correct_tokens": 0,
+          "post_rewrite_total_tokens": 152,
+          "post_paraphrase_correct_tokens": 0,
+          "post_paraphrase_total_tokens": 152,
+          "post_neighborhood_correct_tokens": 129,
+          "post_neighborhood_total_tokens": 307
+        },
+        "retain": {
+          "Eff": 30.916227,
+          "Gen": 30.166557,
+          "Spe": 28.468164,
+          "post_rewrite_correct_tokens": 1248,
+          "post_rewrite_total_tokens": 3123,
+          "post_paraphrase_correct_tokens": 1218,
+          "post_paraphrase_total_tokens": 3123,
+          "post_neighborhood_correct_tokens": 2280,
+          "post_neighborhood_total_tokens": 6206
+        },
+        "PPL": 11.0625
+      },
+      "final_selected": {
+        "method": "Ultra-aggressive Setting 5e (repair fallback)",
+        "forget": {
+          "Eff": 20.066667,
+          "Gen": 18.4,
+          "Spe": 31.25161,
+          "post_rewrite_correct_tokens": 39,
+          "post_rewrite_total_tokens": 152,
+          "post_paraphrase_correct_tokens": 37,
+          "post_paraphrase_total_tokens": 152,
+          "post_neighborhood_correct_tokens": 129,
+          "post_neighborhood_total_tokens": 307
+        },
+        "retain": {
+          "Eff": 31.874838,
+          "Gen": 31.035049,
+          "Spe": 28.801249,
+          "post_rewrite_correct_tokens": 1282,
+          "post_rewrite_total_tokens": 3123,
+          "post_paraphrase_correct_tokens": 1249,
+          "post_paraphrase_total_tokens": 3123,
+          "post_neighborhood_correct_tokens": 2301,
+          "post_neighborhood_total_tokens": 6206
+        },
+        "PPL": 11.0625
+      },
+      "candidate_scale": 1.0,
+      "selected_scale": 0.0,
+      "candidate_accepted": false,
+      "failed_gates": [
+        "retain_Eff",
+        "retain_Gen",
+        "retain_Spe"
+      ],
+      "full_gate_report": {
+        "passed": false,
+        "utility_drop_tolerance_percentage_points": 0.1,
+        "max_ppl_ratio": 1.02,
+        "target_eff_max": 0.0,
+        "target_gen_max": 0.0,
+        "checks": {
+          "forget_Eff_non_regression": {
+            "setting5": 20.066667,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 20.066667,
+            "passed": true
+          },
+          "forget_Gen_non_regression": {
+            "setting5": 18.4,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 18.4,
+            "passed": true
+          },
+          "forget_Eff_target": {
+            "setting5": 20.066667,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Gen_target": {
+            "setting5": 18.4,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Spe_locality": {
+            "setting5": 31.25161,
+            "candidate": 31.25161,
+            "minimum": 31.151609999999998,
+            "maximum": null,
+            "passed": true
+          },
+          "retain_Eff": {
+            "setting5": 31.874838,
+            "candidate": 30.916227,
+            "minimum": 31.774838,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Gen": {
+            "setting5": 31.035049,
+            "candidate": 30.166557,
+            "minimum": 30.935049,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Spe": {
+            "setting5": 28.801249,
+            "candidate": 28.468164,
+            "minimum": 28.701248999999997,
+            "maximum": null,
+            "passed": false
+          },
+          "PPL": {
+            "setting5": 11.0625,
+            "candidate": 11.0625,
+            "minimum": null,
+            "maximum": 11.28375,
+            "passed": true
+          }
+        }
+      }
+    },
+    {
+      "seed": 3,
+      "setting5e": {
+        "method": "Ultra-aggressive Setting 5e (600 steps)",
+        "forget": {
+          "Eff": 19.97619,
+          "Gen": 21.47619,
+          "Spe": 27.016594,
+          "post_rewrite_correct_tokens": 38,
+          "post_rewrite_total_tokens": 147,
+          "post_paraphrase_correct_tokens": 40,
+          "post_paraphrase_total_tokens": 147,
+          "post_neighborhood_correct_tokens": 105,
+          "post_neighborhood_total_tokens": 304
+        },
+        "retain": {
+          "Eff": 34.393602,
+          "Gen": 32.783199,
+          "Spe": 30.06901,
+          "post_rewrite_correct_tokens": 1333,
+          "post_rewrite_total_tokens": 3077,
+          "post_paraphrase_correct_tokens": 1283,
+          "post_paraphrase_total_tokens": 3077,
+          "post_neighborhood_correct_tokens": 2501,
+          "post_neighborhood_total_tokens": 6555
+        },
+        "PPL": 11.625
+      },
+      "raw_active_candidate": {
+        "method": "Setting 5e + exact-BF16 active LM-head repair candidate",
+        "forget": {
+          "Eff": 0.0,
+          "Gen": 0.0,
+          "Spe": 27.016594,
+          "post_rewrite_correct_tokens": 0,
+          "post_rewrite_total_tokens": 147,
+          "post_paraphrase_correct_tokens": 0,
+          "post_paraphrase_total_tokens": 147,
+          "post_neighborhood_correct_tokens": 105,
+          "post_neighborhood_total_tokens": 304
+        },
+        "retain": {
+          "Eff": 33.506697,
+          "Gen": 31.834628,
+          "Spe": 29.632672,
+          "post_rewrite_correct_tokens": 1298,
+          "post_rewrite_total_tokens": 3077,
+          "post_paraphrase_correct_tokens": 1248,
+          "post_paraphrase_total_tokens": 3077,
+          "post_neighborhood_correct_tokens": 2468,
+          "post_neighborhood_total_tokens": 6555
+        },
+        "PPL": 11.8125
+      },
+      "final_selected": {
+        "method": "Ultra-aggressive Setting 5e (repair fallback)",
+        "forget": {
+          "Eff": 19.97619,
+          "Gen": 21.47619,
+          "Spe": 27.016594,
+          "post_rewrite_correct_tokens": 38,
+          "post_rewrite_total_tokens": 147,
+          "post_paraphrase_correct_tokens": 40,
+          "post_paraphrase_total_tokens": 147,
+          "post_neighborhood_correct_tokens": 105,
+          "post_neighborhood_total_tokens": 304
+        },
+        "retain": {
+          "Eff": 34.393602,
+          "Gen": 32.783199,
+          "Spe": 30.06901,
+          "post_rewrite_correct_tokens": 1333,
+          "post_rewrite_total_tokens": 3077,
+          "post_paraphrase_correct_tokens": 1283,
+          "post_paraphrase_total_tokens": 3077,
+          "post_neighborhood_correct_tokens": 2501,
+          "post_neighborhood_total_tokens": 6555
+        },
+        "PPL": 11.625
+      },
+      "candidate_scale": 1.0,
+      "selected_scale": 0.0,
+      "candidate_accepted": false,
+      "failed_gates": [
+        "retain_Eff",
+        "retain_Gen",
+        "retain_Spe"
+      ],
+      "full_gate_report": {
+        "passed": false,
+        "utility_drop_tolerance_percentage_points": 0.1,
+        "max_ppl_ratio": 1.02,
+        "target_eff_max": 0.0,
+        "target_gen_max": 0.0,
+        "checks": {
+          "forget_Eff_non_regression": {
+            "setting5": 19.97619,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 19.97619,
+            "passed": true
+          },
+          "forget_Gen_non_regression": {
+            "setting5": 21.47619,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 21.47619,
+            "passed": true
+          },
+          "forget_Eff_target": {
+            "setting5": 19.97619,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Gen_target": {
+            "setting5": 21.47619,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Spe_locality": {
+            "setting5": 27.016594,
+            "candidate": 27.016594,
+            "minimum": 26.916594,
+            "maximum": null,
+            "passed": true
+          },
+          "retain_Eff": {
+            "setting5": 34.393602,
+            "candidate": 33.506697,
+            "minimum": 34.293602,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Gen": {
+            "setting5": 32.783199,
+            "candidate": 31.834628,
+            "minimum": 32.683199,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Spe": {
+            "setting5": 30.06901,
+            "candidate": 29.632672,
+            "minimum": 29.969009999999997,
+            "maximum": null,
+            "passed": false
+          },
+          "PPL": {
+            "setting5": 11.625,
+            "candidate": 11.8125,
+            "minimum": null,
+            "maximum": 11.8575,
+            "passed": true
+          }
+        }
+      }
+    },
+    {
+      "seed": 4,
+      "setting5e": {
+        "method": "Ultra-aggressive Setting 5e (600 steps)",
+        "forget": {
+          "Eff": 17.966667,
+          "Gen": 18.366667,
+          "Spe": 27.924298,
+          "post_rewrite_correct_tokens": 33,
+          "post_rewrite_total_tokens": 136,
+          "post_paraphrase_correct_tokens": 34,
+          "post_paraphrase_total_tokens": 136,
+          "post_neighborhood_correct_tokens": 126,
+          "post_neighborhood_total_tokens": 352
+        },
+        "retain": {
+          "Eff": 33.250772,
+          "Gen": 31.45851,
+          "Spe": 29.305346,
+          "post_rewrite_correct_tokens": 1255,
+          "post_rewrite_total_tokens": 3010,
+          "post_paraphrase_correct_tokens": 1204,
+          "post_paraphrase_total_tokens": 3010,
+          "post_neighborhood_correct_tokens": 2392,
+          "post_neighborhood_total_tokens": 6438
+        },
+        "PPL": 11.25
+      },
+      "raw_active_candidate": {
+        "method": "Setting 5e + exact-BF16 active LM-head repair candidate",
+        "forget": {
+          "Eff": 0.0,
+          "Gen": 0.0,
+          "Spe": 27.924298,
+          "post_rewrite_correct_tokens": 0,
+          "post_rewrite_total_tokens": 136,
+          "post_paraphrase_correct_tokens": 0,
+          "post_paraphrase_total_tokens": 136,
+          "post_neighborhood_correct_tokens": 126,
+          "post_neighborhood_total_tokens": 352
+        },
+        "retain": {
+          "Eff": 32.747439,
+          "Gen": 31.09351,
+          "Spe": 29.16746,
+          "post_rewrite_correct_tokens": 1239,
+          "post_rewrite_total_tokens": 3010,
+          "post_paraphrase_correct_tokens": 1192,
+          "post_paraphrase_total_tokens": 3010,
+          "post_neighborhood_correct_tokens": 2383,
+          "post_neighborhood_total_tokens": 6438
+        },
+        "PPL": 11.4375
+      },
+      "final_selected": {
+        "method": "Ultra-aggressive Setting 5e (repair fallback)",
+        "forget": {
+          "Eff": 17.966667,
+          "Gen": 18.366667,
+          "Spe": 27.924298,
+          "post_rewrite_correct_tokens": 33,
+          "post_rewrite_total_tokens": 136,
+          "post_paraphrase_correct_tokens": 34,
+          "post_paraphrase_total_tokens": 136,
+          "post_neighborhood_correct_tokens": 126,
+          "post_neighborhood_total_tokens": 352
+        },
+        "retain": {
+          "Eff": 33.250772,
+          "Gen": 31.45851,
+          "Spe": 29.305346,
+          "post_rewrite_correct_tokens": 1255,
+          "post_rewrite_total_tokens": 3010,
+          "post_paraphrase_correct_tokens": 1204,
+          "post_paraphrase_total_tokens": 3010,
+          "post_neighborhood_correct_tokens": 2392,
+          "post_neighborhood_total_tokens": 6438
+        },
+        "PPL": 11.25
+      },
+      "candidate_scale": 1.0,
+      "selected_scale": 0.0,
+      "candidate_accepted": false,
+      "failed_gates": [
+        "retain_Eff",
+        "retain_Gen",
+        "retain_Spe"
+      ],
+      "full_gate_report": {
+        "passed": false,
+        "utility_drop_tolerance_percentage_points": 0.1,
+        "max_ppl_ratio": 1.02,
+        "target_eff_max": 0.0,
+        "target_gen_max": 0.0,
+        "checks": {
+          "forget_Eff_non_regression": {
+            "setting5": 17.966667,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 17.966667,
+            "passed": true
+          },
+          "forget_Gen_non_regression": {
+            "setting5": 18.366667,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 18.366667,
+            "passed": true
+          },
+          "forget_Eff_target": {
+            "setting5": 17.966667,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Gen_target": {
+            "setting5": 18.366667,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Spe_locality": {
+            "setting5": 27.924298,
+            "candidate": 27.924298,
+            "minimum": 27.824298,
+            "maximum": null,
+            "passed": true
+          },
+          "retain_Eff": {
+            "setting5": 33.250772,
+            "candidate": 32.747439,
+            "minimum": 33.150771999999996,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Gen": {
+            "setting5": 31.45851,
+            "candidate": 31.09351,
+            "minimum": 31.35851,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Spe": {
+            "setting5": 29.305346,
+            "candidate": 29.16746,
+            "minimum": 29.205346,
+            "maximum": null,
+            "passed": false
+          },
+          "PPL": {
+            "setting5": 11.25,
+            "candidate": 11.4375,
+            "minimum": null,
+            "maximum": 11.475,
+            "passed": true
+          }
+        }
+      }
+    },
+    {
+      "seed": 5,
+      "setting5e": {
+        "method": "Ultra-aggressive Setting 5e (600 steps)",
+        "forget": {
+          "Eff": 25.677778,
+          "Gen": 26.622222,
+          "Spe": 30.203361,
+          "post_rewrite_correct_tokens": 53,
+          "post_rewrite_total_tokens": 163,
+          "post_paraphrase_correct_tokens": 54,
+          "post_paraphrase_total_tokens": 163,
+          "post_neighborhood_correct_tokens": 87,
+          "post_neighborhood_total_tokens": 243
+        },
+        "retain": {
+          "Eff": 31.045476,
+          "Gen": 30.93504,
+          "Spe": 29.057741,
+          "post_rewrite_correct_tokens": 1175,
+          "post_rewrite_total_tokens": 2937,
+          "post_paraphrase_correct_tokens": 1172,
+          "post_paraphrase_total_tokens": 2937,
+          "post_neighborhood_correct_tokens": 2377,
+          "post_neighborhood_total_tokens": 6456
+        },
+        "PPL": 12.0
+      },
+      "raw_active_candidate": {
+        "method": "Setting 5e + exact-BF16 active LM-head repair candidate",
+        "forget": {
+          "Eff": 0.0,
+          "Gen": 0.0,
+          "Spe": 30.203361,
+          "post_rewrite_correct_tokens": 0,
+          "post_rewrite_total_tokens": 163,
+          "post_paraphrase_correct_tokens": 0,
+          "post_paraphrase_total_tokens": 163,
+          "post_neighborhood_correct_tokens": 87,
+          "post_neighborhood_total_tokens": 243
+        },
+        "retain": {
+          "Eff": 30.38119,
+          "Gen": 30.374087,
+          "Spe": 28.809255,
+          "post_rewrite_correct_tokens": 1155,
+          "post_rewrite_total_tokens": 2937,
+          "post_paraphrase_correct_tokens": 1154,
+          "post_paraphrase_total_tokens": 2937,
+          "post_neighborhood_correct_tokens": 2357,
+          "post_neighborhood_total_tokens": 6456
+        },
+        "PPL": 13.375
+      },
+      "final_selected": {
+        "method": "Ultra-aggressive Setting 5e (repair fallback)",
+        "forget": {
+          "Eff": 25.677778,
+          "Gen": 26.622222,
+          "Spe": 30.203361,
+          "post_rewrite_correct_tokens": 53,
+          "post_rewrite_total_tokens": 163,
+          "post_paraphrase_correct_tokens": 54,
+          "post_paraphrase_total_tokens": 163,
+          "post_neighborhood_correct_tokens": 87,
+          "post_neighborhood_total_tokens": 243
+        },
+        "retain": {
+          "Eff": 31.045476,
+          "Gen": 30.93504,
+          "Spe": 29.057741,
+          "post_rewrite_correct_tokens": 1175,
+          "post_rewrite_total_tokens": 2937,
+          "post_paraphrase_correct_tokens": 1172,
+          "post_paraphrase_total_tokens": 2937,
+          "post_neighborhood_correct_tokens": 2377,
+          "post_neighborhood_total_tokens": 6456
+        },
+        "PPL": 12.0
+      },
+      "candidate_scale": 1.0,
+      "selected_scale": 0.0,
+      "candidate_accepted": false,
+      "failed_gates": [
+        "retain_Eff",
+        "retain_Gen",
+        "retain_Spe",
+        "PPL"
+      ],
+      "full_gate_report": {
+        "passed": false,
+        "utility_drop_tolerance_percentage_points": 0.1,
+        "max_ppl_ratio": 1.02,
+        "target_eff_max": 0.0,
+        "target_gen_max": 0.0,
+        "checks": {
+          "forget_Eff_non_regression": {
+            "setting5": 25.677778,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 25.677778,
+            "passed": true
+          },
+          "forget_Gen_non_regression": {
+            "setting5": 26.622222,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 26.622222,
+            "passed": true
+          },
+          "forget_Eff_target": {
+            "setting5": 25.677778,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Gen_target": {
+            "setting5": 26.622222,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Spe_locality": {
+            "setting5": 30.203361,
+            "candidate": 30.203361,
+            "minimum": 30.103361,
+            "maximum": null,
+            "passed": true
+          },
+          "retain_Eff": {
+            "setting5": 31.045476,
+            "candidate": 30.38119,
+            "minimum": 30.945476,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Gen": {
+            "setting5": 30.93504,
+            "candidate": 30.374087,
+            "minimum": 30.83504,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Spe": {
+            "setting5": 29.057741,
+            "candidate": 28.809255,
+            "minimum": 28.957741,
+            "maximum": null,
+            "passed": false
+          },
+          "PPL": {
+            "setting5": 12.0,
+            "candidate": 13.375,
+            "minimum": null,
+            "maximum": 12.24,
+            "passed": false
+          }
+        }
+      }
+    },
+    {
+      "seed": 6,
+      "setting5e": {
+        "method": "Ultra-aggressive Setting 5e (600 steps)",
+        "forget": {
+          "Eff": 16.5,
+          "Gen": 14.6,
+          "Spe": 25.296392,
+          "post_rewrite_correct_tokens": 33,
+          "post_rewrite_total_tokens": 145,
+          "post_paraphrase_correct_tokens": 32,
+          "post_paraphrase_total_tokens": 145,
+          "post_neighborhood_correct_tokens": 107,
+          "post_neighborhood_total_tokens": 304
+        },
+        "retain": {
+          "Eff": 33.821248,
+          "Gen": 32.714026,
+          "Spe": 27.568516,
+          "post_rewrite_correct_tokens": 1299,
+          "post_rewrite_total_tokens": 3054,
+          "post_paraphrase_correct_tokens": 1266,
+          "post_paraphrase_total_tokens": 3054,
+          "post_neighborhood_correct_tokens": 2183,
+          "post_neighborhood_total_tokens": 6266
+        },
+        "PPL": 11.625
+      },
+      "raw_active_candidate": {
+        "method": "Setting 5e + exact-BF16 active LM-head repair candidate",
+        "forget": {
+          "Eff": 0.0,
+          "Gen": 0.0,
+          "Spe": 25.296392,
+          "post_rewrite_correct_tokens": 0,
+          "post_rewrite_total_tokens": 145,
+          "post_paraphrase_correct_tokens": 0,
+          "post_paraphrase_total_tokens": 145,
+          "post_neighborhood_correct_tokens": 107,
+          "post_neighborhood_total_tokens": 304
+        },
+        "retain": {
+          "Eff": 33.502915,
+          "Gen": 32.356407,
+          "Spe": 27.476879,
+          "post_rewrite_correct_tokens": 1288,
+          "post_rewrite_total_tokens": 3054,
+          "post_paraphrase_correct_tokens": 1253,
+          "post_paraphrase_total_tokens": 3054,
+          "post_neighborhood_correct_tokens": 2176,
+          "post_neighborhood_total_tokens": 6266
+        },
+        "PPL": 12.0
+      },
+      "final_selected": {
+        "method": "Ultra-aggressive Setting 5e (repair fallback)",
+        "forget": {
+          "Eff": 16.5,
+          "Gen": 14.6,
+          "Spe": 25.296392,
+          "post_rewrite_correct_tokens": 33,
+          "post_rewrite_total_tokens": 145,
+          "post_paraphrase_correct_tokens": 32,
+          "post_paraphrase_total_tokens": 145,
+          "post_neighborhood_correct_tokens": 107,
+          "post_neighborhood_total_tokens": 304
+        },
+        "retain": {
+          "Eff": 33.821248,
+          "Gen": 32.714026,
+          "Spe": 27.568516,
+          "post_rewrite_correct_tokens": 1299,
+          "post_rewrite_total_tokens": 3054,
+          "post_paraphrase_correct_tokens": 1266,
+          "post_paraphrase_total_tokens": 3054,
+          "post_neighborhood_correct_tokens": 2183,
+          "post_neighborhood_total_tokens": 6266
+        },
+        "PPL": 11.625
+      },
+      "candidate_scale": 1.0,
+      "selected_scale": 0.0,
+      "candidate_accepted": false,
+      "failed_gates": [
+        "retain_Eff",
+        "retain_Gen",
+        "PPL"
+      ],
+      "full_gate_report": {
+        "passed": false,
+        "utility_drop_tolerance_percentage_points": 0.1,
+        "max_ppl_ratio": 1.02,
+        "target_eff_max": 0.0,
+        "target_gen_max": 0.0,
+        "checks": {
+          "forget_Eff_non_regression": {
+            "setting5": 16.5,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 16.5,
+            "passed": true
+          },
+          "forget_Gen_non_regression": {
+            "setting5": 14.6,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 14.6,
+            "passed": true
+          },
+          "forget_Eff_target": {
+            "setting5": 16.5,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Gen_target": {
+            "setting5": 14.6,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Spe_locality": {
+            "setting5": 25.296392,
+            "candidate": 25.296392,
+            "minimum": 25.196392,
+            "maximum": null,
+            "passed": true
+          },
+          "retain_Eff": {
+            "setting5": 33.821248,
+            "candidate": 33.502915,
+            "minimum": 33.721247999999996,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Gen": {
+            "setting5": 32.714026,
+            "candidate": 32.356407,
+            "minimum": 32.614025999999996,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Spe": {
+            "setting5": 27.568516,
+            "candidate": 27.476879,
+            "minimum": 27.468515999999997,
+            "maximum": null,
+            "passed": true
+          },
+          "PPL": {
+            "setting5": 11.625,
+            "candidate": 12.0,
+            "minimum": null,
+            "maximum": 11.8575,
+            "passed": false
+          }
+        }
+      }
+    },
+    {
+      "seed": 7,
+      "setting5e": {
+        "method": "Ultra-aggressive Setting 5e (600 steps)",
+        "forget": {
+          "Eff": 18.542857,
+          "Gen": 18.42381,
+          "Spe": 30.512363,
+          "post_rewrite_correct_tokens": 35,
+          "post_rewrite_total_tokens": 146,
+          "post_paraphrase_correct_tokens": 34,
+          "post_paraphrase_total_tokens": 146,
+          "post_neighborhood_correct_tokens": 131,
+          "post_neighborhood_total_tokens": 343
+        },
+        "retain": {
+          "Eff": 33.633349,
+          "Gen": 32.675253,
+          "Spe": 27.370404,
+          "post_rewrite_correct_tokens": 1329,
+          "post_rewrite_total_tokens": 3082,
+          "post_paraphrase_correct_tokens": 1292,
+          "post_paraphrase_total_tokens": 3082,
+          "post_neighborhood_correct_tokens": 2177,
+          "post_neighborhood_total_tokens": 6187
+        },
+        "PPL": 12.5625
+      },
+      "raw_active_candidate": {
+        "method": "Setting 5e + exact-BF16 active LM-head repair candidate",
+        "forget": {
+          "Eff": 0.0,
+          "Gen": 0.0,
+          "Spe": 30.512363,
+          "post_rewrite_correct_tokens": 0,
+          "post_rewrite_total_tokens": 146,
+          "post_paraphrase_correct_tokens": 0,
+          "post_paraphrase_total_tokens": 146,
+          "post_neighborhood_correct_tokens": 131,
+          "post_neighborhood_total_tokens": 343
+        },
+        "retain": {
+          "Eff": 33.202396,
+          "Gen": 32.369301,
+          "Spe": 27.262071,
+          "post_rewrite_correct_tokens": 1316,
+          "post_rewrite_total_tokens": 3082,
+          "post_paraphrase_correct_tokens": 1282,
+          "post_paraphrase_total_tokens": 3082,
+          "post_neighborhood_correct_tokens": 2172,
+          "post_neighborhood_total_tokens": 6187
+        },
+        "PPL": 12.5625
+      },
+      "final_selected": {
+        "method": "Ultra-aggressive Setting 5e (repair fallback)",
+        "forget": {
+          "Eff": 18.542857,
+          "Gen": 18.42381,
+          "Spe": 30.512363,
+          "post_rewrite_correct_tokens": 35,
+          "post_rewrite_total_tokens": 146,
+          "post_paraphrase_correct_tokens": 34,
+          "post_paraphrase_total_tokens": 146,
+          "post_neighborhood_correct_tokens": 131,
+          "post_neighborhood_total_tokens": 343
+        },
+        "retain": {
+          "Eff": 33.633349,
+          "Gen": 32.675253,
+          "Spe": 27.370404,
+          "post_rewrite_correct_tokens": 1329,
+          "post_rewrite_total_tokens": 3082,
+          "post_paraphrase_correct_tokens": 1292,
+          "post_paraphrase_total_tokens": 3082,
+          "post_neighborhood_correct_tokens": 2177,
+          "post_neighborhood_total_tokens": 6187
+        },
+        "PPL": 12.5625
+      },
+      "candidate_scale": 1.0,
+      "selected_scale": 0.0,
+      "candidate_accepted": false,
+      "failed_gates": [
+        "retain_Eff",
+        "retain_Gen",
+        "retain_Spe"
+      ],
+      "full_gate_report": {
+        "passed": false,
+        "utility_drop_tolerance_percentage_points": 0.1,
+        "max_ppl_ratio": 1.02,
+        "target_eff_max": 0.0,
+        "target_gen_max": 0.0,
+        "checks": {
+          "forget_Eff_non_regression": {
+            "setting5": 18.542857,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 18.542857,
+            "passed": true
+          },
+          "forget_Gen_non_regression": {
+            "setting5": 18.42381,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 18.42381,
+            "passed": true
+          },
+          "forget_Eff_target": {
+            "setting5": 18.542857,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Gen_target": {
+            "setting5": 18.42381,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Spe_locality": {
+            "setting5": 30.512363,
+            "candidate": 30.512363,
+            "minimum": 30.412363,
+            "maximum": null,
+            "passed": true
+          },
+          "retain_Eff": {
+            "setting5": 33.633349,
+            "candidate": 33.202396,
+            "minimum": 33.533349,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Gen": {
+            "setting5": 32.675253,
+            "candidate": 32.369301,
+            "minimum": 32.575253,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Spe": {
+            "setting5": 27.370404,
+            "candidate": 27.262071,
+            "minimum": 27.270404,
+            "maximum": null,
+            "passed": false
+          },
+          "PPL": {
+            "setting5": 12.5625,
+            "candidate": 12.5625,
+            "minimum": null,
+            "maximum": 12.81375,
+            "passed": true
+          }
+        }
+      }
+    },
+    {
+      "seed": 8,
+      "setting5e": {
+        "method": "Ultra-aggressive Setting 5e (600 steps)",
+        "forget": {
+          "Eff": 25.526984,
+          "Gen": 25.193651,
+          "Spe": 27.109579,
+          "post_rewrite_correct_tokens": 53,
+          "post_rewrite_total_tokens": 169,
+          "post_paraphrase_correct_tokens": 53,
+          "post_paraphrase_total_tokens": 169,
+          "post_neighborhood_correct_tokens": 93,
+          "post_neighborhood_total_tokens": 283
+        },
+        "retain": {
+          "Eff": 33.640793,
+          "Gen": 32.345311,
+          "Spe": 28.468945,
+          "post_rewrite_correct_tokens": 1283,
+          "post_rewrite_total_tokens": 3028,
+          "post_paraphrase_correct_tokens": 1245,
+          "post_paraphrase_total_tokens": 3028,
+          "post_neighborhood_correct_tokens": 2246,
+          "post_neighborhood_total_tokens": 6384
+        },
+        "PPL": 12.9375
+      },
+      "raw_active_candidate": {
+        "method": "Setting 5e + exact-BF16 active LM-head repair candidate",
+        "forget": {
+          "Eff": 0.0,
+          "Gen": 0.0,
+          "Spe": 27.109579,
+          "post_rewrite_correct_tokens": 0,
+          "post_rewrite_total_tokens": 169,
+          "post_paraphrase_correct_tokens": 0,
+          "post_paraphrase_total_tokens": 169,
+          "post_neighborhood_correct_tokens": 93,
+          "post_neighborhood_total_tokens": 283
+        },
+        "retain": {
+          "Eff": 32.650482,
+          "Gen": 31.185867,
+          "Spe": 27.978334,
+          "post_rewrite_correct_tokens": 1248,
+          "post_rewrite_total_tokens": 3028,
+          "post_paraphrase_correct_tokens": 1211,
+          "post_paraphrase_total_tokens": 3028,
+          "post_neighborhood_correct_tokens": 2208,
+          "post_neighborhood_total_tokens": 6384
+        },
+        "PPL": 12.9375
+      },
+      "final_selected": {
+        "method": "Ultra-aggressive Setting 5e (repair fallback)",
+        "forget": {
+          "Eff": 25.526984,
+          "Gen": 25.193651,
+          "Spe": 27.109579,
+          "post_rewrite_correct_tokens": 53,
+          "post_rewrite_total_tokens": 169,
+          "post_paraphrase_correct_tokens": 53,
+          "post_paraphrase_total_tokens": 169,
+          "post_neighborhood_correct_tokens": 93,
+          "post_neighborhood_total_tokens": 283
+        },
+        "retain": {
+          "Eff": 33.640793,
+          "Gen": 32.345311,
+          "Spe": 28.468945,
+          "post_rewrite_correct_tokens": 1283,
+          "post_rewrite_total_tokens": 3028,
+          "post_paraphrase_correct_tokens": 1245,
+          "post_paraphrase_total_tokens": 3028,
+          "post_neighborhood_correct_tokens": 2246,
+          "post_neighborhood_total_tokens": 6384
+        },
+        "PPL": 12.9375
+      },
+      "candidate_scale": 1.0,
+      "selected_scale": 0.0,
+      "candidate_accepted": false,
+      "failed_gates": [
+        "retain_Eff",
+        "retain_Gen",
+        "retain_Spe"
+      ],
+      "full_gate_report": {
+        "passed": false,
+        "utility_drop_tolerance_percentage_points": 0.1,
+        "max_ppl_ratio": 1.02,
+        "target_eff_max": 0.0,
+        "target_gen_max": 0.0,
+        "checks": {
+          "forget_Eff_non_regression": {
+            "setting5": 25.526984,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 25.526984,
+            "passed": true
+          },
+          "forget_Gen_non_regression": {
+            "setting5": 25.193651,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 25.193651,
+            "passed": true
+          },
+          "forget_Eff_target": {
+            "setting5": 25.526984,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Gen_target": {
+            "setting5": 25.193651,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Spe_locality": {
+            "setting5": 27.109579,
+            "candidate": 27.109579,
+            "minimum": 27.009579,
+            "maximum": null,
+            "passed": true
+          },
+          "retain_Eff": {
+            "setting5": 33.640793,
+            "candidate": 32.650482,
+            "minimum": 33.540793,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Gen": {
+            "setting5": 32.345311,
+            "candidate": 31.185867,
+            "minimum": 32.245311,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Spe": {
+            "setting5": 28.468945,
+            "candidate": 27.978334,
+            "minimum": 28.368945,
+            "maximum": null,
+            "passed": false
+          },
+          "PPL": {
+            "setting5": 12.9375,
+            "candidate": 12.9375,
+            "minimum": null,
+            "maximum": 13.196250000000001,
+            "passed": true
+          }
+        }
+      }
+    },
+    {
+      "seed": 9,
+      "setting5e": {
+        "method": "Ultra-aggressive Setting 5e (600 steps)",
+        "forget": {
+          "Eff": 23.915873,
+          "Gen": 25.101587,
+          "Spe": 23.365873,
+          "post_rewrite_correct_tokens": 50,
+          "post_rewrite_total_tokens": 163,
+          "post_paraphrase_correct_tokens": 51,
+          "post_paraphrase_total_tokens": 163,
+          "post_neighborhood_correct_tokens": 77,
+          "post_neighborhood_total_tokens": 267
+        },
+        "retain": {
+          "Eff": 32.453305,
+          "Gen": 31.84716,
+          "Spe": 28.280014,
+          "post_rewrite_correct_tokens": 1268,
+          "post_rewrite_total_tokens": 3017,
+          "post_paraphrase_correct_tokens": 1244,
+          "post_paraphrase_total_tokens": 3017,
+          "post_neighborhood_correct_tokens": 2286,
+          "post_neighborhood_total_tokens": 6301
+        },
+        "PPL": 12.1875
+      },
+      "raw_active_candidate": {
+        "method": "Setting 5e + exact-BF16 active LM-head repair candidate",
+        "forget": {
+          "Eff": 0.0,
+          "Gen": 0.0,
+          "Spe": 23.365873,
+          "post_rewrite_correct_tokens": 0,
+          "post_rewrite_total_tokens": 163,
+          "post_paraphrase_correct_tokens": 0,
+          "post_paraphrase_total_tokens": 163,
+          "post_neighborhood_correct_tokens": 77,
+          "post_neighborhood_total_tokens": 267
+        },
+        "retain": {
+          "Eff": 31.846757,
+          "Gen": 31.130731,
+          "Spe": 27.77383,
+          "post_rewrite_correct_tokens": 1245,
+          "post_rewrite_total_tokens": 3017,
+          "post_paraphrase_correct_tokens": 1216,
+          "post_paraphrase_total_tokens": 3017,
+          "post_neighborhood_correct_tokens": 2249,
+          "post_neighborhood_total_tokens": 6301
+        },
+        "PPL": 12.1875
+      },
+      "final_selected": {
+        "method": "Ultra-aggressive Setting 5e (repair fallback)",
+        "forget": {
+          "Eff": 23.915873,
+          "Gen": 25.101587,
+          "Spe": 23.365873,
+          "post_rewrite_correct_tokens": 50,
+          "post_rewrite_total_tokens": 163,
+          "post_paraphrase_correct_tokens": 51,
+          "post_paraphrase_total_tokens": 163,
+          "post_neighborhood_correct_tokens": 77,
+          "post_neighborhood_total_tokens": 267
+        },
+        "retain": {
+          "Eff": 32.453305,
+          "Gen": 31.84716,
+          "Spe": 28.280014,
+          "post_rewrite_correct_tokens": 1268,
+          "post_rewrite_total_tokens": 3017,
+          "post_paraphrase_correct_tokens": 1244,
+          "post_paraphrase_total_tokens": 3017,
+          "post_neighborhood_correct_tokens": 2286,
+          "post_neighborhood_total_tokens": 6301
+        },
+        "PPL": 12.1875
+      },
+      "candidate_scale": 1.0,
+      "selected_scale": 0.0,
+      "candidate_accepted": false,
+      "failed_gates": [
+        "retain_Eff",
+        "retain_Gen",
+        "retain_Spe"
+      ],
+      "full_gate_report": {
+        "passed": false,
+        "utility_drop_tolerance_percentage_points": 0.1,
+        "max_ppl_ratio": 1.02,
+        "target_eff_max": 0.0,
+        "target_gen_max": 0.0,
+        "checks": {
+          "forget_Eff_non_regression": {
+            "setting5": 23.915873,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 23.915873,
+            "passed": true
+          },
+          "forget_Gen_non_regression": {
+            "setting5": 25.101587,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 25.101587,
+            "passed": true
+          },
+          "forget_Eff_target": {
+            "setting5": 23.915873,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Gen_target": {
+            "setting5": 25.101587,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Spe_locality": {
+            "setting5": 23.365873,
+            "candidate": 23.365873,
+            "minimum": 23.265873,
+            "maximum": null,
+            "passed": true
+          },
+          "retain_Eff": {
+            "setting5": 32.453305,
+            "candidate": 31.846757,
+            "minimum": 32.353305,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Gen": {
+            "setting5": 31.84716,
+            "candidate": 31.130731,
+            "minimum": 31.747159999999997,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Spe": {
+            "setting5": 28.280014,
+            "candidate": 27.77383,
+            "minimum": 28.180014,
+            "maximum": null,
+            "passed": false
+          },
+          "PPL": {
+            "setting5": 12.1875,
+            "candidate": 12.1875,
+            "minimum": null,
+            "maximum": 12.43125,
+            "passed": true
+          }
+        }
+      }
+    },
+    {
+      "seed": 10,
+      "setting5e": {
+        "method": "Ultra-aggressive Setting 5e (600 steps)",
+        "forget": {
+          "Eff": 20.109524,
+          "Gen": 19.57619,
+          "Spe": 23.935885,
+          "post_rewrite_correct_tokens": 38,
+          "post_rewrite_total_tokens": 136,
+          "post_paraphrase_correct_tokens": 37,
+          "post_paraphrase_total_tokens": 136,
+          "post_neighborhood_correct_tokens": 90,
+          "post_neighborhood_total_tokens": 293
+        },
+        "retain": {
+          "Eff": 32.569444,
+          "Gen": 32.089127,
+          "Spe": 28.787684,
+          "post_rewrite_correct_tokens": 1255,
+          "post_rewrite_total_tokens": 3083,
+          "post_paraphrase_correct_tokens": 1245,
+          "post_paraphrase_total_tokens": 3083,
+          "post_neighborhood_correct_tokens": 2200,
+          "post_neighborhood_total_tokens": 6100
+        },
+        "PPL": 12.375
+      },
+      "raw_active_candidate": {
+        "method": "Setting 5e + exact-BF16 active LM-head repair candidate",
+        "forget": {
+          "Eff": 0.0,
+          "Gen": 0.0,
+          "Spe": 23.935885,
+          "post_rewrite_correct_tokens": 0,
+          "post_rewrite_total_tokens": 136,
+          "post_paraphrase_correct_tokens": 0,
+          "post_paraphrase_total_tokens": 136,
+          "post_neighborhood_correct_tokens": 90,
+          "post_neighborhood_total_tokens": 293
+        },
+        "retain": {
+          "Eff": 31.714444,
+          "Gen": 31.210794,
+          "Spe": 28.349641,
+          "post_rewrite_correct_tokens": 1227,
+          "post_rewrite_total_tokens": 3083,
+          "post_paraphrase_correct_tokens": 1217,
+          "post_paraphrase_total_tokens": 3083,
+          "post_neighborhood_correct_tokens": 2176,
+          "post_neighborhood_total_tokens": 6100
+        },
+        "PPL": 14.25
+      },
+      "final_selected": {
+        "method": "Ultra-aggressive Setting 5e (repair fallback)",
+        "forget": {
+          "Eff": 20.109524,
+          "Gen": 19.57619,
+          "Spe": 23.935885,
+          "post_rewrite_correct_tokens": 38,
+          "post_rewrite_total_tokens": 136,
+          "post_paraphrase_correct_tokens": 37,
+          "post_paraphrase_total_tokens": 136,
+          "post_neighborhood_correct_tokens": 90,
+          "post_neighborhood_total_tokens": 293
+        },
+        "retain": {
+          "Eff": 32.569444,
+          "Gen": 32.089127,
+          "Spe": 28.787684,
+          "post_rewrite_correct_tokens": 1255,
+          "post_rewrite_total_tokens": 3083,
+          "post_paraphrase_correct_tokens": 1245,
+          "post_paraphrase_total_tokens": 3083,
+          "post_neighborhood_correct_tokens": 2200,
+          "post_neighborhood_total_tokens": 6100
+        },
+        "PPL": 12.375
+      },
+      "candidate_scale": 1.0,
+      "selected_scale": 0.0,
+      "candidate_accepted": false,
+      "failed_gates": [
+        "retain_Eff",
+        "retain_Gen",
+        "retain_Spe",
+        "PPL"
+      ],
+      "full_gate_report": {
+        "passed": false,
+        "utility_drop_tolerance_percentage_points": 0.1,
+        "max_ppl_ratio": 1.02,
+        "target_eff_max": 0.0,
+        "target_gen_max": 0.0,
+        "checks": {
+          "forget_Eff_non_regression": {
+            "setting5": 20.109524,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 20.109524,
+            "passed": true
+          },
+          "forget_Gen_non_regression": {
+            "setting5": 19.57619,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 19.57619,
+            "passed": true
+          },
+          "forget_Eff_target": {
+            "setting5": 20.109524,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Gen_target": {
+            "setting5": 19.57619,
+            "candidate": 0.0,
+            "minimum": null,
+            "maximum": 0.0,
+            "passed": true
+          },
+          "forget_Spe_locality": {
+            "setting5": 23.935885,
+            "candidate": 23.935885,
+            "minimum": 23.835884999999998,
+            "maximum": null,
+            "passed": true
+          },
+          "retain_Eff": {
+            "setting5": 32.569444,
+            "candidate": 31.714444,
+            "minimum": 32.469443999999996,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Gen": {
+            "setting5": 32.089127,
+            "candidate": 31.210794,
+            "minimum": 31.989126999999996,
+            "maximum": null,
+            "passed": false
+          },
+          "retain_Spe": {
+            "setting5": 28.787684,
+            "candidate": 28.349641,
+            "minimum": 28.687683999999997,
+            "maximum": null,
+            "passed": false
+          },
+          "PPL": {
+            "setting5": 12.375,
+            "candidate": 14.25,
+            "minimum": null,
+            "maximum": 12.6225,
+            "passed": false
+          }
+        }
+      }
+    }
+  ],
+  "provenance": {
+    "repository_commit": "99b15a4f8deb43110453781028dbb26450dd9aa9",
+    "repository_dirty": true,
+    "repository_status_porcelain": [
+      "D semantic-unlearning/outputs/baseline_ga/config.json",
+      " D semantic-unlearning/outputs/baseline_ga/generation_config.json",
+      " D semantic-unlearning/outputs/baseline_ga/metadata.json",
+      " D semantic-unlearning/outputs/baseline_ga/tokenizer.json",
+      " D semantic-unlearning/outputs/baseline_ga/tokenizer_config.json",
+      " D semantic-unlearning/outputs/baseline_gd/config.json",
+      " D semantic-unlearning/outputs/baseline_gd/generation_config.json",
+      " D semantic-unlearning/outputs/baseline_gd/metadata.json",
+      " D semantic-unlearning/outputs/baseline_gd/tokenizer.json",
+      " D semantic-unlearning/outputs/baseline_gd/tokenizer_config.json",
+      " D semantic-unlearning/outputs/baseline_npo/config.json",
+      " D semantic-unlearning/outputs/baseline_npo/generation_config.json",
+      " D semantic-unlearning/outputs/baseline_npo/metadata.json",
+      " D semantic-unlearning/outputs/baseline_npo/tokenizer.json",
+      " D semantic-unlearning/outputs/baseline_npo/tokenizer_config.json",
+      " D semantic-unlearning/outputs/baseline_npo_gd/config.json",
+      " D semantic-unlearning/outputs/baseline_npo_gd/generation_config.json",
+      " D semantic-unlearning/outputs/baseline_npo_gd/metadata.json",
+      " D semantic-unlearning/outputs/baseline_npo_gd/tokenizer.json",
+      " D semantic-unlearning/outputs/baseline_npo_gd/tokenizer_config.json",
+      " D semantic-unlearning/outputs/eval_results/eval_baseline.json",
+      " D semantic-unlearning/outputs/eval_results/eval_finetuned_1b_forget10.json",
+      " D semantic-unlearning/outputs/eval_results/eval_finetuned_1b_full.json",
+      " D semantic-unlearning/outputs/eval_results/eval_finetuned_baseline.json",
+      " D semantic-unlearning/outputs/eval_results/eval_freq_only_zero.json",
+      " D semantic-unlearning/outputs/eval_results/eval_freq_only_zero_1b_forget01.json",
+      " D semantic-unlearning/outputs/eval_results/eval_freq_only_zero_1b_forget05.json",
+      " D semantic-unlearning/outputs/eval_results/eval_freq_only_zero_1b_forget10.json",
+      " D semantic-unlearning/outputs/eval_results/eval_freq_only_zero_1b_instruct_forget05.json",
+      " D semantic-unlearning/outputs/eval_results/eval_semantic_zero.json",
+      " D semantic-unlearning/outputs/eval_results/eval_semantic_zero_1b_forget05.json",
+      " D semantic-unlearning/outputs/eval_results/eval_zero_base_forget05.json",
+      " D semantic-unlearning/outputs/eval_results/eval_zero_layer8.json",
+      " D semantic-unlearning/outputs/eval_results/results_table.json",
+      " D semantic-unlearning/outputs/finetuned_model/finetuned_model/config.json",
+      " D semantic-unlearning/outputs/finetuned_model/finetuned_model/finetune_metadata.json",
+      " D semantic-unlearning/outputs/finetuned_model/finetuned_model/generation_config.json",
+      " D semantic-unlearning/outputs/finetuned_model/finetuned_model/tokenizer.json",
+      " D semantic-unlearning/outputs/finetuned_model/finetuned_model/tokenizer_config.json",
+      " D semantic-unlearning/outputs/finetuned_model_1B_base/config.json",
+      " D semantic-unlearning/outputs/finetuned_model_1B_base/finetune_metadata.json",
+      " D semantic-unlearning/outputs/finetuned_model_1B_base/generation_config.json",
+      " D semantic-unlearning/outputs/finetuned_model_1B_base/special_tokens_map.json",
+      " D semantic-unlearning/outputs/finetuned_model_1B_base/tokenizer.json",
+      " D semantic-unlearning/outputs/finetuned_model_1B_base/tokenizer_config.json",
+      " D semantic-unlearning/outputs/finetuned_model_1B_instruct/config.json",
+      " D semantic-unlearning/outputs/finetuned_model_1B_instruct/finetune_metadata.json",
+      " D semantic-unlearning/outputs/finetuned_model_1B_instruct/generation_config.json",
+      " D semantic-unlearning/outputs/finetuned_model_1B_instruct/special_tokens_map.json",
+      " D semantic-unlearning/outputs/finetuned_model_1B_instruct/tokenizer.json",
+      " D semantic-unlearning/outputs/finetuned_model_1B_instruct/tokenizer_config.json",
+      " D semantic-unlearning/outputs/finetuned_model_8B/config.json",
+      " D semantic-unlearning/outputs/finetuned_model_8B/finetune_metadata.json",
+      " D semantic-unlearning/outputs/finetuned_model_8B/generation_config.json",
+      " D semantic-unlearning/outputs/finetuned_model_8B/tokenizer.json",
+      " D semantic-unlearning/outputs/finetuned_model_8B/tokenizer_config.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy1000_soft_overlap/chat_template.jinja",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy1000_soft_overlap/config.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy1000_soft_overlap/generation_config.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy1000_soft_overlap/mcf_metrics.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy1000_soft_overlap/selected_token_ids.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy1000_soft_overlap/tokenizer.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy1000_soft_overlap/tokenizer_config.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy800_zero_forget_only/chat_template.jinja",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy800_zero_forget_only/config.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy800_zero_forget_only/generation_config.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy800_zero_forget_only/mcf_metrics.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy800_zero_forget_only/selected_token_ids.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy800_zero_forget_only/tokenizer.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_policy800_zero_forget_only/tokenizer_config.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy1000_soft/chat_template.jinja",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy1000_soft/config.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy1000_soft/generation_config.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy1000_soft/mcf_metrics.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy1000_soft/selected_token_ids.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy1000_soft/tokenizer.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy1000_soft/tokenizer_config.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy800_zero/chat_template.jinja",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy800_zero/config.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy800_zero/generation_config.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy800_zero/mcf_metrics.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy800_zero/selected_token_ids.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy800_zero/tokenizer.json",
+      " D semantic-unlearning/outputs/mcf_base_llama32_3b_targetnew_policy800_zero/tokenizer_config.json",
+      " D semantic-unlearning/outputs/mcf_json_embed_lmhead_aggressive_v3/chat_template.jinja",
+      " D semantic-unlearning/outputs/mcf_json_embed_lmhead_aggressive_v3/config.json",
+      " D semantic-unlearning/outputs/mcf_json_embed_lmhead_aggressive_v3/generation_config.json",
+      " D semantic-unlearning/outputs/mcf_json_embed_lmhead_aggressive_v3/mcf_json_embed_lmhead_summary.json",
+      " D semantic-unlearning/outputs/mcf_json_embed_lmhead_aggressive_v3/tokenizer.json",
+      " D semantic-unlearning/outputs/mcf_json_embed_lmhead_aggressive_v3/tokenizer_config.json",
+      " D semantic-unlearning/outputs/mcf_json_embed_lmhead_safe/chat_template.jinja",
+      " D semantic-unlearning/outputs/mcf_json_embed_lmhead_safe/config.json",
+      " D semantic-unlearning/outputs/mcf_json_embed_lmhead_safe/generation_config.json",
+      " D semantic-unlearning/outputs/mcf_json_embed_lmhead_safe/mcf_json_embed_lmhead_summary.json",
+      " D semantic-unlearning/outputs/mcf_json_embed_lmhead_safe/tokenizer.json",
+      " D semantic-unlearning/outputs/mcf_json_embed_lmhead_safe/tokenizer_config.json",
+      " D semantic-unlearning/outputs/mcf_json_hardzero_embed_lmhead/chat_template.jinja",
+      " D semantic-unlearning/outputs/mcf_json_hardzero_embed_lmhead/config.json",
+      " D semantic-unlearning/outputs/mcf_json_hardzero_embed_lmhead/generation_config.json",
+      " D semantic-unlearning/outputs/mcf_json_hardzero_embed_lmhead/mcf_json_hardzero_summary.json",
+      " D semantic-unlearning/outputs/mcf_json_hardzero_embed_lmhead/tokenizer.json",
+      " D semantic-unlearning/outputs/mcf_json_hardzero_embed_lmhead/tokenizer_config.json",
+      " D semantic-unlearning/outputs/mcf_policy1000_soft_overlap/chat_template.jinja",
+      " D semantic-unlearning/outputs/mcf_policy1000_soft_overlap/config.json",
+      " D semantic-unlearning/outputs/mcf_policy1000_soft_overlap/generation_config.json",
+      " D semantic-unlearning/outputs/mcf_policy1000_soft_overlap/mcf_metrics.json",
+      " D semantic-unlearning/outputs/mcf_policy1000_soft_overlap/selected_token_ids.json",
+      " D semantic-unlearning/outputs/mcf_policy1000_soft_overlap/tokenizer.json",
+      " D semantic-unlearning/outputs/mcf_policy1000_soft_overlap/tokenizer_config.json",
+      " D semantic-unlearning/outputs/mcf_policy800_zero_forget_only/chat_template.jinja",
+      " D semantic-unlearning/outputs/mcf_policy800_zero_forget_only/config.json",
+      " D semantic-unlearning/outputs/mcf_policy800_zero_forget_only/generation_config.json",
+      " D semantic-unlearning/outputs/mcf_policy800_zero_forget_only/mcf_metrics.json",
+      " D semantic-unlearning/outputs/mcf_policy800_zero_forget_only/selected_token_ids.json",
+      " D semantic-unlearning/outputs/mcf_policy800_zero_forget_only/tokenizer.json",
+      " D semantic-unlearning/outputs/mcf_policy800_zero_forget_only/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_adaptive_json_freq_tfidf_mean_aggressive1000/adaptive_erase_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_adaptive_json_freq_tfidf_mean_aggressive1000/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_adaptive_json_freq_tfidf_mean_aggressive1000/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_adaptive_json_freq_tfidf_mean_aggressive1000/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_adaptive_json_freq_tfidf_mean_aggressive1000/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_adaptive_json_freq_tfidf_mean_aggressive1000/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_adaptive_json_freq_tfidf_mean_safe650/adaptive_erase_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_adaptive_json_freq_tfidf_mean_safe650/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_adaptive_json_freq_tfidf_mean_safe650/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_adaptive_json_freq_tfidf_mean_safe650/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_adaptive_json_freq_tfidf_mean_safe650/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_adaptive_json_freq_tfidf_mean_safe650/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_answer_tfidf_medium_ga_gd_input_lmhead_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_answer_tfidf_medium_ga_gd_input_lmhead_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_answer_tfidf_medium_ga_gd_input_lmhead_v1/embedding_io_ga_gd_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_answer_tfidf_medium_ga_gd_input_lmhead_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_answer_tfidf_medium_ga_gd_input_lmhead_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_answer_tfidf_medium_ga_gd_input_lmhead_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_answer_tfidf_npo_gd_lmhead_only_medium_safe_v1/answer_tfidf_npo_gd_masked_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_answer_tfidf_npo_gd_lmhead_only_medium_safe_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_answer_tfidf_npo_gd_lmhead_only_medium_safe_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_answer_tfidf_npo_gd_lmhead_only_medium_safe_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_answer_tfidf_npo_gd_lmhead_only_medium_safe_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_answer_tfidf_npo_gd_lmhead_only_medium_safe_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_aggressive_retain_repair_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_aggressive_retain_repair_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_aggressive_retain_repair_v1/dual_json_rc_gagd_train_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_aggressive_retain_repair_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_aggressive_retain_repair_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_aggressive_retain_repair_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_rc_gagd_embed_lmhead_conservative/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_rc_gagd_embed_lmhead_conservative/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_rc_gagd_embed_lmhead_conservative/dual_json_rc_gagd_train_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_rc_gagd_embed_lmhead_conservative/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_rc_gagd_embed_lmhead_conservative/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_rc_gagd_embed_lmhead_conservative/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_retain_shield_aggressive_zero_both/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_retain_shield_aggressive_zero_both/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_retain_shield_aggressive_zero_both/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_retain_shield_aggressive_zero_both/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_retain_shield_aggressive_zero_both/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_dual_json_retain_shield_aggressive_zero_both/zero_both_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_1000_aggressive/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_1000_aggressive/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_1000_aggressive/embedding_ga_gd_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_1000_aggressive/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_1000_aggressive/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_1000_aggressive/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_guard_v3/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_guard_v3/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_guard_v3/embedding_ga_gd_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_guard_v3/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_guard_v3/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_guard_v3/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_nan_guard_test/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_nan_guard_test/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_nan_guard_test/embedding_ga_gd_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_nan_guard_test/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_nan_guard_test/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_ga_gd_json_tfidf_nan_guard_test/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_io_ga_gd_smoke/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_embed_io_ga_gd_smoke/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_io_ga_gd_smoke/embedding_io_ga_gd_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_io_ga_gd_smoke/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_io_ga_gd_smoke/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_io_ga_gd_smoke/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_io_ga_gd_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_embed_io_ga_gd_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_io_ga_gd_v1/embedding_io_ga_gd_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_io_ga_gd_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_io_ga_gd_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_embed_io_ga_gd_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_lmhead_shared/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_lmhead_shared/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_lmhead_shared/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_lmhead_shared/policy_edit_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_lmhead_shared/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_lmhead_shared/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_mean/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_mean/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_mean/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_mean/policy_edit_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_mean/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_mean/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_mean_rc12_zeroboth/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_mean_rc12_zeroboth/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_mean_rc12_zeroboth/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_mean_rc12_zeroboth/policy_edit_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_mean_rc12_zeroboth/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_mean_rc12_zeroboth/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_zero/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_zero/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_zero/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_zero/policy_edit_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_zero/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_policy_rc8_zero/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_tokens_zero_both_aggressive/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_tokens_zero_both_aggressive/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_tokens_zero_both_aggressive/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_tokens_zero_both_aggressive/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_tokens_zero_both_aggressive/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_tokens_zero_both_aggressive/zero_both_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_tokens_zero_both_ultra20/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_tokens_zero_both_ultra20/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_tokens_zero_both_ultra20/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_tokens_zero_both_ultra20/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_tokens_zero_both_ultra20/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_forget_answer_tokens_zero_both_ultra20/zero_both_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ga_answer_only_sanity_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_full_ga_answer_only_sanity_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ga_answer_only_sanity_v1/full_model_unlearn_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ga_answer_only_sanity_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ga_answer_only_sanity_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ga_answer_only_sanity_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ga_gd_answer_only_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_full_ga_gd_answer_only_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ga_gd_answer_only_v1/full_model_unlearn_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ga_gd_answer_only_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ga_gd_answer_only_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ga_gd_answer_only_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_npo_gd_answer_only_fp32_adamw_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_full_npo_gd_answer_only_fp32_adamw_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_npo_gd_answer_only_fp32_adamw_v1/full_model_unlearn_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_npo_gd_answer_only_fp32_adamw_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_npo_gd_answer_only_fp32_adamw_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_npo_gd_answer_only_fp32_adamw_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_npo_gd_answer_only_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_full_npo_gd_answer_only_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_npo_gd_answer_only_v1/full_model_unlearn_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_npo_gd_answer_only_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_npo_gd_answer_only_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_npo_gd_answer_only_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_forget_stage1_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_forget_stage1_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_forget_stage1_v1/full_model_unlikelihood_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_forget_stage1_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_forget_stage1_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_forget_stage1_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_gd_kl_answer_only_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_gd_kl_answer_only_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_gd_kl_answer_only_v1/full_model_unlikelihood_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_gd_kl_answer_only_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_gd_kl_answer_only_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_gd_kl_answer_only_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_stage1b_protected_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_stage1b_protected_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_stage1b_protected_v1/full_model_unlikelihood_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_stage1b_protected_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_stage1b_protected_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_full_ul_stage1b_protected_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_aggressive_ga_gd_lmhead_only_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_aggressive_ga_gd_lmhead_only_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_aggressive_ga_gd_lmhead_only_v1/embedding_io_ga_gd_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_aggressive_ga_gd_lmhead_only_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_aggressive_ga_gd_lmhead_only_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_aggressive_ga_gd_lmhead_only_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_ga_gd_lmhead_only_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_ga_gd_lmhead_only_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_ga_gd_lmhead_only_v1/embedding_io_ga_gd_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_ga_gd_lmhead_only_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_ga_gd_lmhead_only_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_ga_gd_lmhead_only_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_medium_ga_gd_lmhead_only_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_medium_ga_gd_lmhead_only_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_medium_ga_gd_lmhead_only_v1/embedding_io_ga_gd_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_medium_ga_gd_lmhead_only_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_medium_ga_gd_lmhead_only_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_answer_tfidf_medium_ga_gd_lmhead_only_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_forget_zero_retain_overlap_restore_strict/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_json_forget_zero_retain_overlap_restore_strict/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_forget_zero_retain_overlap_restore_strict/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_forget_zero_retain_overlap_restore_strict/json_forget_zero_retain_overlap_restore_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_forget_zero_retain_overlap_restore_strict/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_forget_zero_retain_overlap_restore_strict/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_union_mean_balanced800/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_union_mean_balanced800/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_union_mean_balanced800/erasure_metadata.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_union_mean_balanced800/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_union_mean_balanced800/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_union_mean_balanced800/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_wga_kl_masked_embed_lmhead_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_wga_kl_masked_embed_lmhead_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_wga_kl_masked_embed_lmhead_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_wga_kl_masked_embed_lmhead_v1/json_tfidf_wga_kl_masked_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_wga_kl_masked_embed_lmhead_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_wga_kl_masked_embed_lmhead_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_wga_kl_masked_embed_only_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_wga_kl_masked_embed_only_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_wga_kl_masked_embed_only_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_wga_kl_masked_embed_only_v1/json_tfidf_wga_kl_masked_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_wga_kl_masked_embed_only_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_json_tfidf_wga_kl_masked_embed_only_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy1000_coverage_aggressive_zero_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy1000_coverage_aggressive_zero_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy1000_coverage_aggressive_zero_v1/edit_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy1000_coverage_aggressive_zero_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy1000_coverage_aggressive_zero_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy1000_coverage_aggressive_zero_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy1200_aggressive_zero_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy1200_aggressive_zero_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy1200_aggressive_zero_v1/edit_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy1200_aggressive_zero_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy1200_aggressive_zero_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy1200_aggressive_zero_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy800_zero_lmhead_emb_forgetonly_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy800_zero_lmhead_emb_forgetonly_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy800_zero_lmhead_emb_forgetonly_v1/edit_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy800_zero_lmhead_emb_forgetonly_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy800_zero_lmhead_emb_forgetonly_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_policy800_zero_lmhead_emb_forgetonly_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_probe_policy1000_lmhead_suppress_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_probe_policy1000_lmhead_suppress_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_probe_policy1000_lmhead_suppress_v1/edit_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_probe_policy1000_lmhead_suppress_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_probe_policy1000_lmhead_suppress_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_probe_policy1000_lmhead_suppress_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_probe_policy800_lmhead_suppress_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_probe_policy800_lmhead_suppress_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_probe_policy800_lmhead_suppress_v1/edit_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_probe_policy800_lmhead_suppress_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_probe_policy800_lmhead_suppress_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_layer16_probe_policy800_lmhead_suppress_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_mean/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_mean/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_mean/erasure_metadata.json",
+      " D semantic-unlearning/outputs/unlearned_model_mean/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_mean/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_mean/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise/erasure_metadata.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise/model.safetensors.index.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise/special_tokens_map.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise_3b_instruct_forget05/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise_3b_instruct_forget05/erasure_metadata.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise_3b_instruct_forget05/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise_3b_instruct_forget05/model.safetensors.index.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise_3b_instruct_forget05/special_tokens_map.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise_3b_instruct_forget05/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_noise_3b_instruct_forget05/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v1/weighted_erase_metadata.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v25/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v25/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v25/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v25/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v25/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v25/weighted_erase_metadata.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v3/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v3/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v3/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v3/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v3/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oa_json_tfidf_twostrength_v3/weighted_erase_metadata.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v3_aggressive_zero/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v3_aggressive_zero/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v3_aggressive_zero/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v3_aggressive_zero/oarts_apply_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v3_aggressive_zero/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v3_aggressive_zero/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v5_targeted_lmhead_mean/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v5_targeted_lmhead_mean/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v5_targeted_lmhead_mean/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v5_targeted_lmhead_mean/oarts_apply_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v5_targeted_lmhead_mean/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v5_targeted_lmhead_mean/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v5_targeted_mean/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v5_targeted_mean/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v5_targeted_mean/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v5_targeted_mean/oarts_apply_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v5_targeted_mean/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_residual_v5_targeted_mean/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1/oarts_apply_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1_stage2_zero_both_all/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1_stage2_zero_both_all/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1_stage2_zero_both_all/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1_stage2_zero_both_all/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1_stage2_zero_both_all/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1_stage2_zero_both_all/zero_both_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1_stage2_zero_both_zero_retain_or_residual/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1_stage2_zero_both_zero_retain_or_residual/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1_stage2_zero_both_zero_retain_or_residual/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1_stage2_zero_both_zero_retain_or_residual/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1_stage2_zero_both_zero_retain_or_residual/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_stage1_stage2_zero_both_zero_retain_or_residual/zero_both_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_v5_directional_mean/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_v5_directional_mean/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_v5_directional_mean/directional_oarts_apply_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_v5_directional_mean/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_v5_directional_mean/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_v5_directional_mean/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_v5_directional_mean_alpha125/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_v5_directional_mean_alpha125/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_v5_directional_mean_alpha125/directional_oarts_apply_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_v5_directional_mean_alpha125/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_v5_directional_mean_alpha125/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_oarts_v5_directional_mean_alpha125/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_output_scale005_json_tfidf/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_output_scale005_json_tfidf/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_output_scale005_json_tfidf/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_output_scale005_json_tfidf/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_output_scale005_json_tfidf/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_output_zero_json_tfidf/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_output_zero_json_tfidf/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_output_zero_json_tfidf/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_output_zero_json_tfidf/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_output_zero_json_tfidf/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_pure_ga_gd_json_tfidf_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_pure_ga_gd_json_tfidf_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_pure_ga_gd_json_tfidf_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_pure_ga_gd_json_tfidf_v1/pure_ga_gd_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_pure_ga_gd_json_tfidf_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_pure_ga_gd_json_tfidf_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_rcn_tune_smoke/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_rcn_tune_smoke/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_rcn_tune_smoke/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_rcn_tune_smoke/rcn_tune_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_rcn_tune_smoke/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_rcn_tune_smoke/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_rcn_tune_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_rcn_tune_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_rcn_tune_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_rcn_tune_v1/rcn_tune_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_rcn_tune_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_rcn_tune_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_st_backbone_ga_gd_top8_strong_retain/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_st_backbone_ga_gd_top8_strong_retain/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_st_backbone_ga_gd_top8_strong_retain/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_st_backbone_ga_gd_top8_strong_retain/selected_token_backbone_ga_gd_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_st_backbone_ga_gd_top8_strong_retain/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_st_backbone_ga_gd_top8_strong_retain/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_adaptive_restore_embed_lmhead_conservative_input/adaptive_restore_embed_lmhead_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_adaptive_restore_embed_lmhead_conservative_input/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_adaptive_restore_embed_lmhead_conservative_input/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_adaptive_restore_embed_lmhead_conservative_input/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_adaptive_restore_embed_lmhead_conservative_input/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_adaptive_restore_embed_lmhead_conservative_input/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_adaptive_restore_embed_lmhead_rc_policy/adaptive_restore_embed_lmhead_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_adaptive_restore_embed_lmhead_rc_policy/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_adaptive_restore_embed_lmhead_rc_policy/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_adaptive_restore_embed_lmhead_rc_policy/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_adaptive_restore_embed_lmhead_rc_policy/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_adaptive_restore_embed_lmhead_rc_policy/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_interp_lmhead_rc5_alpha050/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_interp_lmhead_rc5_alpha050/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_interp_lmhead_rc5_alpha050/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_interp_lmhead_rc5_alpha050/interpolate_restore_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_interp_lmhead_rc5_alpha050/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_interp_lmhead_rc5_alpha050/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_interp_lmhead_rc9_alpha075/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_interp_lmhead_rc9_alpha075/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_interp_lmhead_rc9_alpha075/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_interp_lmhead_rc9_alpha075/interpolate_restore_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_interp_lmhead_rc9_alpha075/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_interp_lmhead_rc9_alpha075/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_input_rc5plus/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_input_rc5plus/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_input_rc5plus/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_input_rc5plus/restore_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_input_rc5plus/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_input_rc5plus/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_lmhead_rc9plus/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_lmhead_rc9plus/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_lmhead_rc9plus/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_lmhead_rc9plus/restore_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_lmhead_rc9plus/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_lmhead_rc9plus/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_rc9plus/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_rc9plus/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_rc9plus/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_rc9plus/restore_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_rc9plus/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_restore_rc9plus/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_retain_repair_v1/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_retain_repair_v1/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_retain_repair_v1/dual_json_rc_gagd_train_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_retain_repair_v1/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_retain_repair_v1/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_retain_repair_v1/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_retain_repair_v2_retain_heavy/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_retain_repair_v2_retain_heavy/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_retain_repair_v2_retain_heavy/dual_json_rc_gagd_train_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_retain_repair_v2_retain_heavy/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_retain_repair_v2_retain_heavy/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_ultra20_retain_repair_v2_retain_heavy/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_zero/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero/erasure_metadata.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero/model.safetensors.index.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero/special_tokens_map.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_3b_instruct_forget05/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_3b_instruct_forget05/erasure_metadata.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_3b_instruct_forget05/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_3b_instruct_forget05/model.safetensors.index.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_3b_instruct_forget05/special_tokens_map.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_3b_instruct_forget05/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_3b_instruct_forget05/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forget01/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forget01/erasure_metadata.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forget01/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forget01/special_tokens_map.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forget01/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forget01/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forget10/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forget10/erasure_metadata.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forget10/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forget10/special_tokens_map.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forget10/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forget10/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forgetA_restore_retainA/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forgetA_restore_retainA/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forgetA_restore_retainA/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forgetA_restore_retainA/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forgetA_restore_retainA/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forgetA_restore_retainA/zero_forget_restore_retain_summary.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forgetQA_restore_retainQA/chat_template.jinja",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forgetQA_restore_retainQA/config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forgetQA_restore_retainQA/generation_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forgetQA_restore_retainQA/tokenizer.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forgetQA_restore_retainQA/tokenizer_config.json",
+      " D semantic-unlearning/outputs/unlearned_model_zero_forgetQA_restore_retainQA/zero_forget_restore_retain_summary.json",
+      " M semantic-unlearning/scripts/aggregate_zsre_gagd_results.py",
+      " M semantic-unlearning/scripts/zsre_bf16_safe_active_repair_v2.py",
+      "?? logs_gagd_partial_restore_seed0.txt",
+      "?? outputs/",
+      "?? semantic-unlearning-sdk-a2d2ebb6/",
+      "?? semantic-unlearning/config/controlled_unlearning/judge_b_llama3_8b_local_v2.json",
+      "?? semantic-unlearning/config/controlled_unlearning/tofu_semantic_balanced_fold0_v3.json",
+      "?? semantic-unlearning/config/controlled_unlearning/tofu_setting5e_active_fold0.json",
+      "?? semantic-unlearning/config/controlled_unlearning/zsre_candidate_2pp.json",
+      "?? semantic-unlearning/config/controlled_unlearning/zsre_candidate_2pp_all_folds.json",
+      "?? semantic-unlearning/config/controlled_unlearning/zsre_candidate_v1.json",
+      "?? semantic-unlearning/data/stats/",
+      "?? semantic-unlearning/logs/rwku_seed0_representation_v2_20260804_212940.log",
+      "?? semantic-unlearning/logs/rwku_seed0_representation_v2_20260804_213055.log",
+      "?? semantic-unlearning/logs/rwku_seed0_representation_v2_20260804_213240.log",
+      "?? semantic-unlearning/logs/zsre_cal384_seeds0_9.log",
+      "?? semantic-unlearning/logs/zsre_cal384_seeds0_9.pid",
+      "?? semantic-unlearning/logs/zsre_calibration_sweep.log",
+      "?? semantic-unlearning/logs/zsre_calibration_sweep.pid",
+      "?? semantic-unlearning/logs_gagd_balanced_seed0_embsel_lr2e-5.txt",
+      "?? semantic-unlearning/logs_gagd_balanced_seed0_embsel_lr5e-5.txt",
+      "?? semantic-unlearning/logs_gagd_partial_restore_aggressive_seed0.txt",
+      "?? semantic-unlearning/logs_gagd_partial_restore_moderate_seed0.txt",
+      "?? semantic-unlearning/logs_gagd_partial_restore_seed0.txt",
+      "?? semantic-unlearning/logs_gagd_partial_restore_ultra_aggressive_seed0.txt",
+      "?? semantic-unlearning/logs_gagd_post_restore_seed0.txt",
+      "?? semantic-unlearning/logs_gagd_selective_restore_ultra_seed0.txt",
+      "?? semantic-unlearning/logs_gagd_selective_ultra_no_restore_seed0.txt",
+      "?? semantic-unlearning/logs_gagd_strengthened_seed0.txt",
+      "?? semantic-unlearning/logs_json_lmhead_zero_true_restore150_seed0.txt",
+      "?? semantic-unlearning/logs_official_eval_lmhead_zero_true_restore150_seed0.txt",
+      "?? semantic-unlearning/logs_tofu_active_repair_alpha010.txt",
+      "?? semantic-unlearning/logs_tofu_alpha025_diagnostic.txt",
+      "?? semantic-unlearning/logs_tofu_gagd_neighborhood_confidence_seed42.txt",
+      "?? semantic-unlearning/logs_tofu_gagd_targeted_2e5_seed42.txt",
+      "?? semantic-unlearning/logs_tofu_gagd_targeted_3e4_seed42.txt",
+      "?? semantic-unlearning/logs_tofu_neighborhood_safe_tol2_seed42.txt",
+      "?? semantic-unlearning/logs_tofu_oracle_eval_targeted_2e5_seed42.txt",
+      "?? semantic-unlearning/logs_tofu_setting5e_alpha010.txt",
+      "?? semantic-unlearning/logs_tofu_setting5e_alpha025.txt",
+      "?? semantic-unlearning/logs_tofu_setting5e_eval_seed42.txt",
+      "?? semantic-unlearning/requirements_before_vllm.txt",
+      "?? semantic-unlearning/rwku_activepair_seed0_diagnostic.log",
+      "?? semantic-unlearning/rwku_activepair_seed0_relaxed.log",
+      "?? semantic-unlearning/rwku_representation_seed0_dense_sweep.log",
+      "?? semantic-unlearning/rwku_representation_seed0_full.log",
+      "?? semantic-unlearning/rwku_representation_seed0_retainstrong.log",
+      "?? semantic-unlearning/rwku_representation_seed0_smoke.log",
+      "?? semantic-unlearning/rwku_seed0_diagnostic.log",
+      "?? semantic-unlearning/rwku_smoke.log",
+      "?? semantic-unlearning/scripts/controlled_llm_judge.py.before_mentions_sensitive_fix",
+      "?? semantic-unlearning/scripts/finalize_zsre_record.py",
+      "?? semantic-unlearning/scripts/fix_zsre_reproducibility.sh",
+      "?? semantic-unlearning/scripts/run_zsre_llm1_test.py",
+      "?? semantic-unlearning/scripts/tofu_gagd_active_forget_repair.py.before_baseline_utility_patch",
+      "?? semantic-unlearning/scripts/tofu_gagd_active_forget_repair.py.before_bf16_ratio_tolerance",
+      "?? semantic-unlearning/scripts/zsre_bf16_safe_active_repair_v2.py.before_candidate_save",
+      "?? semantic-unlearning/zsre_artifact_audit.log",
+      "?? semantic-unlearning/zsre_finalize_v2.log",
+      "?? semantic-unlearning/zsre_patch.log",
+      "?? semantic-unlearning/zsre_repair_repro.log",
+      "?? semantic-unlearning/zsre_repro_aggregate.log",
+      "?? semantic-unlearning/zsre_repro_artifact_audit.log",
+      "?? vllm_judge_n0049.log"
+    ],
+    "original_release_tag": "zsre-setting5e-active-repair-seeds1-10",
+    "original_release_tag_commit": "4968ee52885df83724cd011b8ca9cdb4a67e6b04",
+    "dependency_versions_at_finalization": {
+      "python": "3.10.20",
+      "numpy": "2.2.6",
+      "safetensors": "0.8.0",
+      "tokenizers": "0.22.2",
+      "torch": "2.11.0",
+      "transformers": "5.13.1"
+    },
+    "method_file_sha256": {
+      "scripts/zsre_zero_unlearn_official_eval.py": "d23eb4a72731fe25c585873aafe4c5139a04f67c7a722268d0b9665793a931c4",
+      "scripts/zsre_gagd_setting5e_active_repair.py": "1ddd97acd75acd2dfc4b4ca372f415d31ae075990f538b4243122ef149109228",
+      "scripts/zsre_bf16_safe_active_repair_v2.py": "79005633f28a044e5d395e50aa92fc279d4645a5dc580c27d6184a574f705307",
+      "scripts/run_zsre_bf16_safe_active_repair_v2.sh": "7231c0cb23988999161532d8473ec92135cb92f863208091d663853a6331dcf5",
+      "scripts/aggregate_zsre_gagd_results.py": "4c29e9ae75bcf490e315bdc9d89a1f8b2916eabc786197015bc69e2b04917483"
+    },
+    "per_seed": [
+      {
+        "seed": 1,
+        "result_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed1/zsre_results.json",
+        "result_sha256": "283a4455db259fa389e796da2fabc2e07e5e1df46dc9c61d33458f56a896fd00",
+        "repair_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed1/config_used.json",
+        "repair_config_sha256": "ac3c35c6a2635708f1216681b1540814b725a5380b978a8d44d09e54ce38389d",
+        "source_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed1/config_used.json",
+        "source_config_sha256": "d9e316695ec92262b36abea608b202ef6098d4eba3c1181a95ff22ba06800256",
+        "sampled_case_ids_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed1/sampled_case_ids.json",
+        "sampled_case_ids_sha256": "dca3dbfb19e0692ae7b19231943c6e1cf531b756987d31cca3aa41743f658153",
+        "source_setting5_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed1/setting5e/checkpoint",
+        "source_setting5_model_sha256": "d7d4d16cb694b063a7bc90ca065bcaf2cfde2304558096ee8f3706b341a54907",
+        "source_setting5_checkpoint_tree_sha256": "98c46df476720987f5870b37dd695ce6c155918c77e438e8319c52b4e58e02e4",
+        "raw_candidate_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed1/active_candidate_checkpoint",
+        "raw_candidate_model_sha256": "f7364b7f25aa21764776268c2b572a5fe02880c6e62ea3d738d8279c186a67aa",
+        "raw_candidate_checkpoint_tree_sha256": "095baeb440a186c445fcd11e889ac6c627439988a1c8b013e5b4f565c3a8f24b",
+        "final_selected_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed1/selected_checkpoint",
+        "final_selected_model_sha256": "fa3d79e726951ecad904c2b7ef428b04bbd822947ac5bcc87c1561060f75e955",
+        "final_selected_checkpoint_tree_sha256": "c62789d069f340fcca32bad3988c119dd2a14a6e7b0576b5fdd01c0f04640a60"
+      },
+      {
+        "seed": 2,
+        "result_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed2/zsre_results.json",
+        "result_sha256": "672cc3cc80864937723bbf4f46707b53257722618fd3b2e4933270d3fb73f732",
+        "repair_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed2/config_used.json",
+        "repair_config_sha256": "956ff1dece4265ad5c120103e3296e097e012afc1dcf9feb911d287c4ea87bfa",
+        "source_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed2/config_used.json",
+        "source_config_sha256": "4e0b6a1bafd373f0dc11e03e28fd4e1e1861194c8222a49f64b51d378f21c2f4",
+        "sampled_case_ids_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed2/sampled_case_ids.json",
+        "sampled_case_ids_sha256": "f3b401d967065e92fd8fec4cce9a97e45053adaceaca9a032a1de7da91554b57",
+        "source_setting5_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed2/setting5e/checkpoint",
+        "source_setting5_model_sha256": "3565dcf8b732b7a238140c18a55cc42ed6455bcabf0f4f121e867f37d3e2527b",
+        "source_setting5_checkpoint_tree_sha256": "7830fcf8fa5b45b6a27c8024f4c9588696dd5cb3ac331c1e2c2e55148eedd64d",
+        "raw_candidate_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed2/active_candidate_checkpoint",
+        "raw_candidate_model_sha256": "b2bf0853942babb08d5b4a3b313f1138c84a2fb0d0982cf7b1d079784abca999",
+        "raw_candidate_checkpoint_tree_sha256": "a999dcfd1a93fb29e29ce2f4b836962e7ae96a59575c7541eb538c167445083b",
+        "final_selected_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed2/selected_checkpoint",
+        "final_selected_model_sha256": "da5ea04a4d630c554789323eb5b46611301ac063cfdb3eaa6af56b8e928b859c",
+        "final_selected_checkpoint_tree_sha256": "70c68b6ef3d5b6df9adb99ba82b750996a1d27a108c3a45c8c3e1ad43e6d165a"
+      },
+      {
+        "seed": 3,
+        "result_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed3/zsre_results.json",
+        "result_sha256": "d20edb5a77870446d6f6d1fc1c2c052a37ca300ba4bb63875819b86119197cf8",
+        "repair_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed3/config_used.json",
+        "repair_config_sha256": "e930a09e7551ae4e703cc97aa3488eb3f682a786d93ec11a1930aa691e706949",
+        "source_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed3/config_used.json",
+        "source_config_sha256": "8d37ec17f46d09d3c4090f3a25176be897414560a8d3057ac3600a71b7109630",
+        "sampled_case_ids_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed3/sampled_case_ids.json",
+        "sampled_case_ids_sha256": "507fdbffad68c8ab7234b8bb66207364019fd23eda03b6157eee30b363ddf610",
+        "source_setting5_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed3/setting5e/checkpoint",
+        "source_setting5_model_sha256": "978890c08d87dffcfddf70721d78ade0c83254df3b5cf9768ec8f6cada04929e",
+        "source_setting5_checkpoint_tree_sha256": "46db5d904eca4597a8821b6ed0fb28adceeab7175cebe1953b812dfb9dc858db",
+        "raw_candidate_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed3/active_candidate_checkpoint",
+        "raw_candidate_model_sha256": "c28eab33e538b053e1c4bee99fb31aeae2033ec893ff4c5ec033c9842ec823d2",
+        "raw_candidate_checkpoint_tree_sha256": "d2c5ba484c761c9bd5b6ab650151786be441c7b099e76ad95e00c82bf4175ac0",
+        "final_selected_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed3/selected_checkpoint",
+        "final_selected_model_sha256": "643087518a4898449dc9d2436acf788f569dccacc1778492d54131b564df8f6d",
+        "final_selected_checkpoint_tree_sha256": "17b47aa755ab1135f3f718cc12f22e614caff28889b3af73c6d3bdd0dd866ce8"
+      },
+      {
+        "seed": 4,
+        "result_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed4/zsre_results.json",
+        "result_sha256": "e4a814c6a1ea1edadac7c47c677a1a06b4cb3a04c3458b3d559df556897b46d6",
+        "repair_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed4/config_used.json",
+        "repair_config_sha256": "98da8864fbb8f8270fe4823a0e9db95216a4f5a0bb0e5c186234d46f8623681c",
+        "source_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed4/config_used.json",
+        "source_config_sha256": "2f066fcd2514954b24c146d4bdbe8faa7973b26a152ac0c312c25886e72b462b",
+        "sampled_case_ids_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed4/sampled_case_ids.json",
+        "sampled_case_ids_sha256": "2075fd0d7f189d3e829f7d6baa5bfe5f59825dfe7c2009475b160a00fe9692cd",
+        "source_setting5_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed4/setting5e/checkpoint",
+        "source_setting5_model_sha256": "08536f76573459123f1d3aab10a42d711968f0f27915615f8b2d33836fe5407a",
+        "source_setting5_checkpoint_tree_sha256": "a66967ed4272c6fdacff8fee2e901989094f1c1329a9f449c114e981ac932f62",
+        "raw_candidate_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed4/active_candidate_checkpoint",
+        "raw_candidate_model_sha256": "1eac3539296b59c11838019c6d698e965dc8cb2676d4c450266c01165eceda60",
+        "raw_candidate_checkpoint_tree_sha256": "44d87e877bf6f276e0527dc3ddf66d5744b31e62dbbc84031a46e60d1bfe89a0",
+        "final_selected_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed4/selected_checkpoint",
+        "final_selected_model_sha256": "290417f471c15ed044e91cabea4c507eb528ab81546d7a86bcbb0ab0c926e2e9",
+        "final_selected_checkpoint_tree_sha256": "3f6039d23202753411c2fe7b856300b41e6eeb21f9155e7ebe5938b3b462616a"
+      },
+      {
+        "seed": 5,
+        "result_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed5/zsre_results.json",
+        "result_sha256": "f810434f6c8a4a86e5eb432ad9fea26d54af1499b9b2cb362aa80dcd06b0a130",
+        "repair_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed5/config_used.json",
+        "repair_config_sha256": "7159faca56106ce87c52993140dbbc5b2cebd57e85c33320ba6e439bc563a951",
+        "source_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed5/config_used.json",
+        "source_config_sha256": "b3badf69d33ac422560e1de1ed0b2030aa1c655440013d79620b90ed26704113",
+        "sampled_case_ids_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed5/sampled_case_ids.json",
+        "sampled_case_ids_sha256": "e81872dbc592b95cad788e20b47ee862357bd06b4347e8de782d462ec40379c9",
+        "source_setting5_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed5/setting5e/checkpoint",
+        "source_setting5_model_sha256": "c4248b03bf26c1a83b24710563aeb392c87b425e178c93f16b5717edc9ba0967",
+        "source_setting5_checkpoint_tree_sha256": "797f6a29151712da4ef17c036f259e1a798ce9b79f69d67baf47a399d4afa9ae",
+        "raw_candidate_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed5/active_candidate_checkpoint",
+        "raw_candidate_model_sha256": "5fd984e2f933f0c9d7ca03c521971a9a68cadf587696f60d952728398a98c747",
+        "raw_candidate_checkpoint_tree_sha256": "b25444d0938654778fdd50f5fd109fa7e013b71dc88cd4cd4ccb9ceb0d5ea26a",
+        "final_selected_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed5/selected_checkpoint",
+        "final_selected_model_sha256": "05a96ee64a18d61aa4c4e5b829532003e83b42e6190528701bbdf832238b1316",
+        "final_selected_checkpoint_tree_sha256": "f42081ce53b33238ce78f0e8ecccd4cfff6f6a49e4d13b4300fd183dd00642c2"
+      },
+      {
+        "seed": 6,
+        "result_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed6/zsre_results.json",
+        "result_sha256": "4064a79b99267c686048f56daaeb8037d4af9b948f0872798fa9d5b868b15c38",
+        "repair_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed6/config_used.json",
+        "repair_config_sha256": "83d515aede3df64fd27afe937bb69d00fc23c5815314a538642cb85146c6495c",
+        "source_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed6/config_used.json",
+        "source_config_sha256": "15c51e3867ae46544df5c291c53d2d63d2d97d1975cb7a2831855b54ae7fa1a5",
+        "sampled_case_ids_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed6/sampled_case_ids.json",
+        "sampled_case_ids_sha256": "48025eb2ea6183d1e1d1a58dd2cfe0e3426064d3617edb536ac091281ada063c",
+        "source_setting5_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed6/setting5e/checkpoint",
+        "source_setting5_model_sha256": "909e20a93b31407906287cd3966c7caf430a28196b8b8963922b61bef804ab38",
+        "source_setting5_checkpoint_tree_sha256": "efc06279f58ae581cc7a945ae81605ab1e8d8114e42093a257dd026a09bbf01c",
+        "raw_candidate_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed6/active_candidate_checkpoint",
+        "raw_candidate_model_sha256": "25ab4819648648588ad8cd9617d374845928ce8528759d5b1a7015b15413da38",
+        "raw_candidate_checkpoint_tree_sha256": "735d448d77c26fb53a3b1e08289fa81179d691da1955c82e0c2912db3765b62d",
+        "final_selected_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed6/selected_checkpoint",
+        "final_selected_model_sha256": "c9976b9ea3e64fbb7f50d12c6fd227fa4e8f5b62224f95f4e2148826cf40a8d2",
+        "final_selected_checkpoint_tree_sha256": "14fe008ce9ffb3d12efef2677e5cce1b7051d2c5cf10595650f99b28de3dbf65"
+      },
+      {
+        "seed": 7,
+        "result_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed7/zsre_results.json",
+        "result_sha256": "9bf7ce90f4d2fb5cc8fa6b669ffc65e0a27455cbffcaf2df56481e2194a23b44",
+        "repair_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed7/config_used.json",
+        "repair_config_sha256": "9e5bae39b01e0f5e821a33e03f07afa60d3372fc3ce7ad2e44b6a47a25314411",
+        "source_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed7/config_used.json",
+        "source_config_sha256": "4ae4c0db9b90b91ed100cff06ad5eeabe559e86171d96a01c697bc7e257cfa8a",
+        "sampled_case_ids_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed7/sampled_case_ids.json",
+        "sampled_case_ids_sha256": "a98ee9d79b8222558a25a053c831814c25a513483b51b6c73e6dceb70260211f",
+        "source_setting5_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed7/setting5e/checkpoint",
+        "source_setting5_model_sha256": "16dc06665fd7a46bfe9508344c23b5dcfad45e5ae20171c3046671bda4be6df3",
+        "source_setting5_checkpoint_tree_sha256": "bf86cb1a5d0e25ecf08e8ae2ed069fd9fad7f1357ea0e3ad4d2b46ca5424b477",
+        "raw_candidate_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed7/active_candidate_checkpoint",
+        "raw_candidate_model_sha256": "57467aa9dff9fa4960469ed8ab275e1d2b3a1d3c9ca121f24034ad462010b4c5",
+        "raw_candidate_checkpoint_tree_sha256": "0b07222fa1949124bba49ea84bf31c888ce937cc1464cdfd4ded3b74e116c757",
+        "final_selected_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed7/selected_checkpoint",
+        "final_selected_model_sha256": "8a1626ba7d3d73b4941e34ee9e6bf04d5cab63a65e487148525caa0de618763c",
+        "final_selected_checkpoint_tree_sha256": "42a4262d6f25870e138fa3198486429938bb4b5b1f366c25e38918251327856c"
+      },
+      {
+        "seed": 8,
+        "result_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed8/zsre_results.json",
+        "result_sha256": "06ae89396b0c1f6f3233d79e4a11c76a279852295af16eaf4796c01cb4da57a8",
+        "repair_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed8/config_used.json",
+        "repair_config_sha256": "a705c1d16b7de91d92bf587027066ec34904590899f7863b69bec2b1b4414c0a",
+        "source_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed8/config_used.json",
+        "source_config_sha256": "b7b0a5ca11756bdc994410fe072f6f15c243ed510b8439d98183b197115b42ee",
+        "sampled_case_ids_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed8/sampled_case_ids.json",
+        "sampled_case_ids_sha256": "891bfca03d6f40e64905eae21d13f62b44d54b0ccafb3a1bd3ac1aad39ee0a7b",
+        "source_setting5_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed8/setting5e/checkpoint",
+        "source_setting5_model_sha256": "23807afcd1b6a52a7501c1092bf2b69595072239cd8bea4a65251b285fc4d3ed",
+        "source_setting5_checkpoint_tree_sha256": "d7ce3944fc3cb580a9c41e36c7bac45992502fa535e1d9642785f86b08d38678",
+        "raw_candidate_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed8/active_candidate_checkpoint",
+        "raw_candidate_model_sha256": "853238c51b9846d97ecb5a70ddcc212c4544d49d74cac9212eaaf65ae818ba34",
+        "raw_candidate_checkpoint_tree_sha256": "cecb7fac43ce5e36b85236b4efbcdf2f95a6e5a4a7ef16527605e074b6ea036b",
+        "final_selected_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed8/selected_checkpoint",
+        "final_selected_model_sha256": "a45883dd4010de535d7641a59b376f1f3c5f9b4886343a840f9672ebe7e742ed",
+        "final_selected_checkpoint_tree_sha256": "c2df10f588914419f2b18745dbf77da3064b4b5512b38eabf7787f43311a4183"
+      },
+      {
+        "seed": 9,
+        "result_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed9/zsre_results.json",
+        "result_sha256": "26298bcfc3b0c78a91676c80c474c00f0cbce14c82eef55902900de90053cc3f",
+        "repair_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed9/config_used.json",
+        "repair_config_sha256": "9b2ff4be08297beefce05dda868ec54f91751413078ef5874c2a493c22dac082",
+        "source_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed9/config_used.json",
+        "source_config_sha256": "18d18f91df529d66c2c381f0ed3189da1eae1017b7526accaa73303100b14874",
+        "sampled_case_ids_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed9/sampled_case_ids.json",
+        "sampled_case_ids_sha256": "b517749ac8afe0fb9f41d09fbc5476cd6d79b02f3bc6c1f3f67b25d030a5b30e",
+        "source_setting5_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed9/setting5e/checkpoint",
+        "source_setting5_model_sha256": "b48658bd8e19521eca7efb609c6555aa989eb4f879c72084181e04c99f2c4224",
+        "source_setting5_checkpoint_tree_sha256": "46c89211b2618c3cd65919c0fd84c881f7e37f26507143e90719925181ca651d",
+        "raw_candidate_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed9/active_candidate_checkpoint",
+        "raw_candidate_model_sha256": "be92585ac3b95e27530a5df13aea5e7258c1be4c919dcb3e53cffd4dafbfbfcb",
+        "raw_candidate_checkpoint_tree_sha256": "2fa608373ab8a53dbc6a805fc49ae094127d80b71d3b63cb252fddfbc6265e3b",
+        "final_selected_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed9/selected_checkpoint",
+        "final_selected_model_sha256": "56286eb928f7b7b1cc4fd8ed6dbfdf33a1f2bc008a6f784f4cb55a7f96b683d9",
+        "final_selected_checkpoint_tree_sha256": "f4a1dd9d09b59a29d48918a06bea0432a0ac6f9e68e19cfb4af5ad721e3242d1"
+      },
+      {
+        "seed": 10,
+        "result_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed10/zsre_results.json",
+        "result_sha256": "680d9aab21ba2f5b2fc1fc6dd31076f2d32c50087b90a98b49393ff86310a7a2",
+        "repair_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed10/config_used.json",
+        "repair_config_sha256": "0501e2f4100f57e025af75675277c34f6b0f4d16933e0f7b1a21c8bd80e5b3ca",
+        "source_config_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed10/config_used.json",
+        "source_config_sha256": "5d91c819d9dd9ce9e60241c2e5276e5778716a363e46e756b328e14fa012ac93",
+        "sampled_case_ids_path": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed10/sampled_case_ids.json",
+        "sampled_case_ids_sha256": "1e76fb694244685ea263296e198e3924aa6cf3cd7f0c10e8cf01a2d0977be919",
+        "source_setting5_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_uniform_unknown_seeds1_10/seed10/setting5e/checkpoint",
+        "source_setting5_model_sha256": "421846a359a6db635850fc4b0c2144742d80cd271621645387382ddf32da0ed3",
+        "source_setting5_checkpoint_tree_sha256": "da97092afe574ad9862c5c6f41e710b53ee1baa57b24462dbca1acefa5e1a194",
+        "raw_candidate_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed10/active_candidate_checkpoint",
+        "raw_candidate_model_sha256": "bc44752bb4685a4a5be0cd33c9ef95f3a3820f584e6f69ed0596627e8e15c807",
+        "raw_candidate_checkpoint_tree_sha256": "24b9c1aa1dbd3512db22163e3bdd66bb5f20bee1815baf8b6bc2b1e4e3f81592",
+        "final_selected_checkpoint": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_cal384_repair_candidates_seeds1_10_repro/seed10/selected_checkpoint",
+        "final_selected_model_sha256": "ef03a89198e45e5ddec6b493268eac919a9e35cc321b52582567907ecb088585",
+        "final_selected_checkpoint_tree_sha256": "33e05dc601035a471e2ce5caa303b6c3b408630072fa8aa5990ddbac2fbc775a"
+      }
+    ]
+  },
+  "scientific_conclusion": "All ten raw active-repair candidates reached Eff=0 and Gen=0, but all ten failed at least one predefined strict relative-utility gate. Therefore the final selected checkpoints are the Setting 5e fallbacks; the zero-Eff/Gen candidate table is diagnostic, not the final method result."
+}
