@@ -50,6 +50,7 @@ from rwku_data import (
 from rwku_eval import (
     FrozenHeadProbe,
     build_frozen_head_probe,
+    evaluate_qa_rows,
     evaluate_rwku,
     format_qa_prompt,
     load_wikidata_text,
@@ -73,6 +74,38 @@ from run_zerounlearn_official_mcf import (
     records_to_zero_unlearn_requests,
     resolve_eos_neutral_target,
     working_directory,
+)
+from build_rwku_entity_facts import (
+    build_probe_artifacts,
+    export_mcf_shaped_training_requests,
+    official_locked_descriptor,
+)
+from build_rwku_matched_protection import (
+    FORBIDDEN_PATH_MARKERS as PROTECTION_FORBIDDEN_PATH_MARKERS,
+    validate_key_provenance,
+)
+from rwku_artifact_access import (
+    LEGACY_PROTOCOL_STATUS,
+    PROBE_PROTOCOL_LABEL,
+    PROBE_PROTOCOL_STATUS,
+    TARGET_ONLY_PROTOCOL_LABEL,
+    TARGET_ONLY_PROTOCOL_STATUS,
+    make_artifact,
+    read_artifact,
+    sha256_file as artifact_file_sha256,
+    write_artifact,
+)
+from rwku_checkpoint_receipt import (
+    assert_model_modification_allowed,
+    create_checkpoint_receipt,
+    load_receipt,
+    mark_evaluation_complete,
+    open_official_evaluation,
+)
+from rwku_fact_sampler import (
+    build_fact_cycle_plan,
+    exposure_report,
+    plan_sha256,
 )
 
 
@@ -100,6 +133,9 @@ METHOD_ORDER = (
     METHOD_REPRESENTATION,
 )
 
+TRAINING_SOURCE_PROBE = "probe_assisted_entity_fact"
+TRAINING_SOURCE_TARGET_ONLY = "target_only_generated_entity_corpus"
+
 
 def parse_candidate_scales(value: str) -> Tuple[float, ...]:
     scales = tuple(
@@ -117,7 +153,21 @@ def parse_candidate_scales(value: str) -> Tuple[float, ...]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, required=True, choices=range(10))
+    parser.add_argument(
+        "--stage",
+        choices=("prepare", "train", "evaluate", "all"),
+        default="all",
+        help="Explicit protocol stage; omitted preserves the legacy RWKU command.",
+    )
+    parser.add_argument(
+        "--training-source",
+        choices=(TRAINING_SOURCE_PROBE, TRAINING_SOURCE_TARGET_ONLY),
+        default=None,
+    )
+    parser.add_argument("--experiment-id")
+    parser.add_argument("--confirmatory", action="store_true")
     parser.add_argument("--model-path", default=DEFAULT_MODEL_PATH)
+    parser.add_argument("--model-revision", default="local_pinned_snapshot")
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--mcf-path", type=Path, default=DEFAULT_MCF_PATH)
@@ -132,6 +182,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-download", action="store_true")
     parser.add_argument("--skip-ppl", action="store_true")
     parser.add_argument("--save-checkpoints", action="store_true")
+    parser.add_argument("--entity-fact-bundle", type=Path)
+    parser.add_argument("--generated-entity-fact-bundle", type=Path)
+    parser.add_argument("--generator-receipt", type=Path)
+    parser.add_argument("--matched-protection-train", type=Path)
+    parser.add_argument("--matched-protection-gate", type=Path)
+    parser.add_argument("--checkpoint-receipt", type=Path)
+    parser.add_argument("--fact-overrides", type=Path)
+    parser.add_argument("--fact-holdout-fraction", type=float, default=0.25)
+    parser.add_argument("--prompt-holdout-per-seen-fact", type=int, default=1)
+    parser.add_argument("--split-seed", type=int, default=0)
+    parser.add_argument(
+        "--legacy-row-split",
+        action="store_true",
+        help="Use the historical independent row-hash split (prompt-held-out only).",
+    )
+    parser.add_argument(
+        "--strict-fact-audit",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument(
+        "--include-relation-conditioned-reverse-prompts",
+        action="store_true",
+        help="Boundary-expanding ablation; disabled in the primary result.",
+    )
+    parser.add_argument("--export-mcf-shaped-training-requests", type=Path)
     parser.add_argument(
         "--methods",
         default="all",
@@ -565,6 +641,48 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    if args.training_source is not None and not args.experiment_id:
+        raise ValueError("Staged RWKU tracks require --experiment-id")
+    if args.legacy_row_split and args.training_source is not None:
+        raise ValueError(
+            "--legacy-row-split cannot be combined with an entity-fact training source"
+        )
+    if args.confirmatory and args.training_source != TRAINING_SOURCE_TARGET_ONLY:
+        raise ValueError(
+            "--confirmatory is reserved for target-only generated-corpus runs"
+        )
+    if (
+        args.confirmatory
+        and args.training_source == TRAINING_SOURCE_TARGET_ONLY
+        and args.stage == "all"
+    ):
+        raise ValueError(
+            "Confirmatory target-only runs reject --stage all; train and evaluate "
+            "must be separate processes"
+        )
+    if args.confirmatory and args.stage == "evaluate":
+        if args.skip_ppl:
+            raise ValueError("Confirmatory evaluation cannot use --skip-ppl")
+        bounded = [
+            name
+            for name in (
+                "forget_eval_limit",
+                "adversarial_eval_limit",
+                "mia_eval_limit",
+                "neighbor_eval_limit",
+                "utility_eval_limit",
+            )
+            if getattr(args, name) is not None
+        ]
+        if bounded:
+            raise ValueError(
+                "Confirmatory evaluation cannot use bounded smoke limits: "
+                + ", ".join(bounded)
+            )
+    if not 0.0 <= args.fact_holdout_fraction <= 1.0:
+        raise ValueError("--fact-holdout-fraction must be in [0,1]")
+    if args.prompt_holdout_per_seen_fact <= 0:
+        raise ValueError("--prompt-holdout-per-seen-fact must be positive")
     if not 0.0 < args.calibration_fraction < 1.0:
         raise ValueError("--calibration-fraction must be strictly between 0 and 1")
     for name in (
@@ -652,6 +770,8 @@ def validate_args(args: argparse.Namespace) -> None:
             raise ValueError(f"--{name.replace('_', '-')} must be non-negative")
     validate_repair_config(repair_config(args))
     validate_representation_config(representation_config(args))
+    if args.training_source is not None and args.stage == "prepare":
+        return
     if args.dtype in {"bf16", "fp16"} and args.dry_run:
         return
     if not args.dry_run and not torch.cuda.is_available():
@@ -858,6 +978,12 @@ def implementation_identity() -> Dict[str, str]:
         SEMANTIC_ROOT / "scripts" / "rwku_eval.py",
         SEMANTIC_ROOT / "scripts" / "rwku_repair.py",
         SEMANTIC_ROOT / "scripts" / "rwku_representation.py",
+        SEMANTIC_ROOT / "scripts" / "rwku_artifact_access.py",
+        SEMANTIC_ROOT / "scripts" / "rwku_checkpoint_receipt.py",
+        SEMANTIC_ROOT / "scripts" / "rwku_fact_sampler.py",
+        SEMANTIC_ROOT / "scripts" / "build_rwku_entity_facts.py",
+        SEMANTIC_ROOT / "scripts" / "build_rwku_generated_entity_corpus.py",
+        SEMANTIC_ROOT / "scripts" / "build_rwku_matched_protection.py",
         SEMANTIC_ROOT / "scripts" / "aggregate_rwku_results.py",
         SEMANTIC_ROOT / "scripts" / "gagd_compare.py",
         SEMANTIC_ROOT / "scripts" / "gagd_active_case_repair.py",
@@ -1462,9 +1588,942 @@ def config_payload(
     }
 
 
+def _staged_output_dir(args: argparse.Namespace) -> Path:
+    if not args.experiment_id:
+        raise ValueError("Staged RWKU protocol requires --experiment-id")
+    return Path(args.output_root) / args.experiment_id
+
+
+def _state_path(args: argparse.Namespace) -> Path:
+    return _staged_output_dir(args) / "experiment_state.json"
+
+
+def _read_state(args: argparse.Namespace) -> Dict[str, Any]:
+    path = _state_path(args)
+    if not path.is_file():
+        raise ValueError(
+            f"Experiment {args.experiment_id!r} is not PREPARED; missing {path}"
+        )
+    with path.open("r", encoding="utf-8") as handle:
+        value = json.load(handle)
+    if value.get("experiment_id") != args.experiment_id:
+        raise ValueError("Experiment state ID mismatch")
+    return value
+
+
+def _write_state(args: argparse.Namespace, state: str, **extra: Any) -> None:
+    existing: Dict[str, Any] = {}
+    if _state_path(args).is_file():
+        existing = _read_state(args)
+    order = {
+        "PREPARED": 0,
+        "TRAINING": 1,
+        "CHECKPOINT_FROZEN": 2,
+        "OFFICIAL_EVALUATION_OPENED": 3,
+        "EVALUATION_COMPLETE": 4,
+    }
+    old = existing.get("state")
+    if old is not None and order[state] < order[old]:
+        raise ValueError(f"Backward RWKU state transition is forbidden: {old} -> {state}")
+    write_json(
+        _state_path(args),
+        {
+            **existing,
+            "schema_version": "rwku_experiment_state_v1",
+            "experiment_id": args.experiment_id,
+            "training_source": args.training_source,
+            "state": state,
+            **extra,
+        },
+    )
+
+
+def _default_fact_overrides(args: argparse.Namespace) -> Path:
+    return (
+        Path(args.fact_overrides)
+        if args.fact_overrides is not None
+        else SEMANTIC_ROOT / "config" / "rwku" / "fact_overrides" / f"seed{args.seed}.json"
+    )
+
+
+def _prepare_staged(args: argparse.Namespace) -> None:
+    output_dir = _staged_output_dir(args)
+    if _state_path(args).is_file():
+        current = _read_state(args)
+        if current.get("state") not in {"PREPARED"}:
+            raise ValueError(
+                "Preparation cannot replace an experiment that has entered training"
+            )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    target = target_for_seed(args.seed)
+    if args.training_source == TRAINING_SOURCE_PROBE:
+        override_path = _default_fact_overrides(args)
+        if not override_path.is_file():
+            raise FileNotFoundError(
+                f"Probe-assisted strict fact assignment requires: {override_path}"
+            )
+        result = build_probe_artifacts(
+            data_root=args.data_root,
+            seed=args.seed,
+            output_dir=output_dir,
+            fact_overrides_path=override_path,
+            unseen_fact_fraction=args.fact_holdout_fraction,
+            prompt_holdout_per_seen_fact=args.prompt_holdout_per_seen_fact,
+            split_seed=args.split_seed,
+            strict=args.strict_fact_audit,
+            allow_download=not args.no_download,
+        )
+        if args.export_mcf_shaped_training_requests:
+            export_mcf_shaped_training_requests(
+                result["artifacts"]["training_bundle.json"],
+                destination=args.export_mcf_shaped_training_requests,
+            )
+        protocol_label = PROBE_PROTOCOL_LABEL
+        protocol_status = PROBE_PROTOCOL_STATUS
+        audit = result["audit"]
+        prepared_training_bundle_path = output_dir / "training_bundle.json"
+        prepared_training_bundle_sha256 = artifact_file_sha256(
+            prepared_training_bundle_path
+        )
+        prepared_generator_receipt_sha256 = None
+    else:
+        if args.generated_entity_fact_bundle is None:
+            raise ValueError(
+                "Target-only preparation requires --generated-entity-fact-bundle; "
+                "build it independently before this stage"
+            )
+        if args.generator_receipt is None:
+            raise ValueError("Target-only preparation requires --generator-receipt")
+        # Do not parse the training bundle here: its immutable role permits it
+        # only during train. File identities are recorded without opening any
+        # official RWKU evaluation record.
+        if not args.generated_entity_fact_bundle.is_file():
+            raise FileNotFoundError(args.generated_entity_fact_bundle)
+        if not args.generator_receipt.is_file():
+            raise FileNotFoundError(args.generator_receipt)
+        metadata = {
+            "seed": args.seed,
+            "entity_id": f"rwku:{target.directory}",
+            "subject": target.subject,
+            "generated_training_bundle_path": str(args.generated_entity_fact_bundle.resolve()),
+            "generated_training_bundle_file_sha256": artifact_file_sha256(args.generated_entity_fact_bundle),
+            "generator_receipt_path": str(args.generator_receipt.resolve()),
+            "generator_receipt_file_sha256": artifact_file_sha256(args.generator_receipt),
+        }
+        locked = make_artifact(
+            "official_locked_eval",
+            official_locked_descriptor(args.seed, include_level12=True),
+            protocol_label=TARGET_ONLY_PROTOCOL_LABEL,
+            protocol_status=TARGET_ONLY_PROTOCOL_STATUS,
+            metadata=metadata,
+        )
+        write_artifact(output_dir / "official_locked_eval.json", locked)
+        protocol_label = TARGET_ONLY_PROTOCOL_LABEL
+        protocol_status = TARGET_ONLY_PROTOCOL_STATUS
+        audit = {
+            "official_level1_level2_opened": False,
+            "generated_training_bundle_file_sha256": metadata[
+                "generated_training_bundle_file_sha256"
+            ],
+            "generator_receipt_file_sha256": metadata[
+                "generator_receipt_file_sha256"
+            ],
+        }
+        prepared_training_bundle_path = args.generated_entity_fact_bundle
+        prepared_training_bundle_sha256 = metadata[
+            "generated_training_bundle_file_sha256"
+        ]
+        prepared_generator_receipt_sha256 = metadata[
+            "generator_receipt_file_sha256"
+        ]
+    _write_state(
+        args,
+        "PREPARED",
+        protocol_label=protocol_label,
+        protocol_status=protocol_status,
+        confirmatory=bool(args.confirmatory),
+        target={"seed": args.seed, "directory": target.directory, "subject": target.subject},
+        prepare_audit=audit,
+        prepared_training_bundle_path=str(
+            Path(prepared_training_bundle_path).resolve()
+        ),
+        prepared_training_bundle_file_sha256=prepared_training_bundle_sha256,
+        prepared_generator_receipt_file_sha256=prepared_generator_receipt_sha256,
+        official_evaluation_opened=False,
+    )
+    print(
+        f"Prepared {args.experiment_id}: {protocol_label}; "
+        f"official evaluation remains locked; output={output_dir}"
+    )
+
+
+def setting5_entity_fact_examples(
+    tokenizer: Any,
+    views: Sequence[Mapping[str, Any]],
+    *,
+    include_reverse: bool,
+) -> Tuple[List[gagd.Example], Dict[str, gagd.Example]]:
+    """Compile method-visible fact views without changing Setting 5e direction."""
+
+    if not tokenizer.eos_token:
+        raise ValueError("Setting 5e requires tokenizer.eos_token")
+    examples: List[gagd.Example] = []
+    by_view: Dict[str, gagd.Example] = {}
+    for view in views:
+        if view.get("training_allowed") is not True:
+            raise ValueError("Entity-fact compiler received a non-training view")
+        boundary_expanding = bool(view.get("boundary_expanding", False))
+        if boundary_expanding and not include_reverse:
+            raise ValueError(
+                "Boundary-expanding reverse view is disabled; pass the explicit "
+                "relation-conditioned reverse ablation flag"
+            )
+        if boundary_expanding and view.get("prompt_style") != "relation-conditioned reverse":
+            raise ValueError("Reverse views must be relation-conditioned and explicitly labeled")
+        sensitive = gagd.normalize_answer(
+            str(view.get("sensitive_answer_alias") or view["canonical_sensitive_answer"])
+        )
+        row = {
+            "query": str(view["query"]),
+            "answer": sensitive,
+            "subject": str(view["subject"]),
+            "level": str(view.get("level", "generated")),
+            "type": str(view.get("query_type", view.get("prompt_style", ""))),
+        }
+        example = gagd.Example(
+            prompt=format_qa_prompt(tokenizer, row),
+            answer=sensitive,
+            subject=str(view["subject"]),
+            target_new=sensitive,
+            target_true=str(tokenizer.eos_token),
+            paraphrase_prompts=[],
+            source=str(view["fact_id"]),
+        )
+        view_id = str(view["view_id"])
+        if view_id in by_view:
+            raise ValueError(f"Duplicate entity-fact view ID: {view_id}")
+        by_view[view_id] = example
+        examples.append(example)
+    return examples, by_view
+
+
+def _protection_examples(
+    artifact: Mapping[str, Any],
+    tokenizer: Any,
+) -> List[gagd.Example]:
+    examples: List[gagd.Example] = []
+    for wrapped in artifact["payload"].get("records", []):
+        row = wrapped.get("record", wrapped)
+        prompt = row.get("prompt") or row.get("query") or row.get("text")
+        answer = row.get("answer") or row.get("target_true") or row.get("target")
+        if isinstance(answer, Mapping):
+            answer = answer.get("str")
+        if not prompt or not answer:
+            raise ValueError(
+                "Matched-protection rows require a prompt/query/text and answer"
+            )
+        normalized = gagd.normalize_answer(str(answer))
+        examples.append(
+            gagd.Example(
+                prompt=str(prompt),
+                answer=normalized,
+                subject=str(row.get("subject", "independent protection")),
+                target_new=normalized,
+                target_true=str(tokenizer.eos_token),
+                paraphrase_prompts=[],
+                source=f"matched_protection:{wrapped.get('content_sha256', '')}",
+            )
+        )
+    return examples
+
+
+def _validate_training_bundle_sources(
+    training: Mapping[str, Any],
+    *,
+    training_source: str,
+) -> None:
+    allowed_probe_files = {"forget_level1.json", "forget_level2.json"}
+    for view in training["payload"].get("views", []):
+        if view.get("training_allowed") is not True:
+            raise ValueError("Training bundle contains a non-training view")
+        source_file = str(view.get("source_file", ""))
+        if training_source == TRAINING_SOURCE_PROBE:
+            if source_file not in allowed_probe_files:
+                raise ValueError(
+                    f"Probe-assisted training has forbidden source: {source_file!r}"
+                )
+        elif source_file != "generated_raw_corpus.json" or str(
+            view.get("level", "")
+        ) != "generated":
+            raise ValueError(
+                "Target-only training accepts only independently generated corpus views"
+            )
+
+
+def _validate_matched_protection_artifact(
+    artifact: Mapping[str, Any],
+    *,
+    target_subject: str,
+) -> None:
+    keys = artifact["payload"].get("keys")
+    if not isinstance(keys, list) or not keys:
+        raise ValueError("Matched-protection artifact requires provenance keys")
+    for key in keys:
+        validate_key_provenance(key)
+    normalized_subject = " ".join(target_subject.casefold().split())
+    for wrapped in artifact["payload"].get("records", []):
+        source_path = str(wrapped.get("source_path", "")).casefold()
+        if any(marker in source_path for marker in PROTECTION_FORBIDDEN_PATH_MARKERS):
+            raise ValueError("Matched protection points to an RWKU evaluation source")
+        content = " ".join(
+            str(wrapped.get(field, ""))
+            for field in ("content", "normalized_content")
+        ).casefold()
+        if normalized_subject and normalized_subject in content:
+            raise ValueError(
+                "Matched protection must be target-independent, not target-entity data"
+            )
+
+
+def _write_mcf_partition_manifests(
+    output_dir: Path,
+    retain_records: Sequence[Mapping[str, Any]],
+    gate_records: Sequence[Mapping[str, Any]],
+) -> Tuple[Path, Path]:
+    optimization = output_dir / "mcf_retain_optimization_manifest.json"
+    gate = output_dir / "mcf_repair_gate_manifest.json"
+    write_json(
+        optimization,
+        {
+            "role": "optimization_protection",
+            "record_sha256": [mapping_sha256(row) for row in retain_records],
+        },
+    )
+    write_json(
+        gate,
+        {
+            "role": "repair_selection_gate",
+            "gradient_allowed": False,
+            "record_sha256": [mapping_sha256(row) for row in gate_records],
+        },
+    )
+    return optimization, gate
+
+
+def _train_staged(args: argparse.Namespace) -> None:
+    state = _read_state(args)
+    existing_receipt = (
+        args.checkpoint_receipt
+        or _staged_output_dir(args) / "checkpoint_receipt.json"
+    )
+    if Path(existing_receipt).is_file():
+        assert_model_modification_allowed(
+            Path(existing_receipt), experiment_id=args.experiment_id
+        )
+    if state.get("state") != "PREPARED":
+        raise ValueError(f"Training requires PREPARED, got {state.get('state')}")
+    if args.batch_size != 1:
+        raise ValueError("Entity-fact balanced cycles require --batch-size 1")
+    output_dir = _staged_output_dir(args)
+    if args.training_source == TRAINING_SOURCE_PROBE:
+        bundle_path = args.entity_fact_bundle or output_dir / "training_bundle.json"
+        generator_receipt_path = None
+    else:
+        if args.generated_entity_fact_bundle is None:
+            raise ValueError("Target-only training requires --generated-entity-fact-bundle")
+        bundle_path = args.generated_entity_fact_bundle
+        generator_receipt_path = args.generator_receipt
+        if generator_receipt_path is None:
+            raise ValueError("Target-only training requires --generator-receipt")
+    training = read_artifact(
+        bundle_path,
+        stage="train",
+        gradient=True,
+        expected_role="training_bundle",
+    )
+    if (
+        artifact_file_sha256(Path(bundle_path))
+        != state.get("prepared_training_bundle_file_sha256")
+    ):
+        raise ValueError("Training bundle changed after PREPARED state")
+    if generator_receipt_path is not None and (
+        artifact_file_sha256(Path(generator_receipt_path))
+        != state.get("prepared_generator_receipt_file_sha256")
+    ):
+        raise ValueError("Generator receipt changed after PREPARED state")
+    if generator_receipt_path is not None:
+        generator_receipt_artifact = read_artifact(
+            Path(generator_receipt_path),
+            stage="train",
+            expected_role="generator_receipt",
+        )
+        generator_payload = generator_receipt_artifact["payload"]
+        if generator_payload.get("status") != "complete":
+            raise ValueError("Target-only training requires a complete generator receipt")
+        if (
+            generator_payload.get("final_entity_fact_bundle_sha256")
+            != training["sha256"]
+        ):
+            raise ValueError(
+                "Generator receipt does not identify the generated training bundle"
+            )
+    expected_label = (
+        PROBE_PROTOCOL_LABEL
+        if args.training_source == TRAINING_SOURCE_PROBE
+        else TARGET_ONLY_PROTOCOL_LABEL
+    )
+    if training["protocol_label"] != expected_label:
+        raise ValueError("Training bundle belongs to a different RWKU protocol")
+    _validate_training_bundle_sources(
+        training,
+        training_source=args.training_source,
+    )
+    if args.matched_protection_train is None or args.matched_protection_gate is None:
+        raise ValueError(
+            "Staged Setting 5e requires disjoint --matched-protection-train and "
+            "--matched-protection-gate artifacts"
+        )
+    matched_train = read_artifact(
+        args.matched_protection_train,
+        stage="train",
+        gradient=True,
+        expected_role="optimization_protection",
+    )
+    matched_gate = read_artifact(
+        args.matched_protection_gate,
+        stage="train",
+        selection=True,
+        expected_role="repair_selection_gate",
+    )
+    target = target_for_seed(args.seed)
+    for artifact in (matched_train, matched_gate):
+        if artifact["protocol_label"] != expected_label:
+            raise ValueError("Matched-protection artifact belongs to another protocol")
+        _validate_matched_protection_artifact(
+            artifact,
+            target_subject=target.subject,
+        )
+    matched_train_hashes = {
+        str(row.get("content_sha256"))
+        for row in matched_train["payload"].get("records", [])
+    }
+    matched_gate_hashes = {
+        str(row.get("content_sha256"))
+        for row in matched_gate["payload"].get("records", [])
+    }
+    overlap = (matched_train_hashes & matched_gate_hashes) - {"None"}
+    if overlap:
+        raise ValueError("Matched-protection train/gate content hashes overlap")
+    _write_state(args, "TRAINING", training_bundle=str(Path(bundle_path).resolve()))
+    dtype = dtype_from_name(args.dtype)
+    set_all_seeds(args.seed)
+    model, tokenizer = load_model_and_tokenizer(
+        args.model_path,
+        dtype=dtype,
+        for_training=True,
+        gradient_checkpointing=args.gradient_checkpointing,
+    )
+    views = list(training["payload"].get("views", []))
+    forget_examples, examples_by_view = setting5_entity_fact_examples(
+        tokenizer,
+        views,
+        include_reverse=args.include_relation_conditioned_reverse_prompts,
+    )
+    views_by_fact: Dict[str, List[Mapping[str, Any]]] = {}
+    for view in views:
+        views_by_fact.setdefault(str(view["fact_id"]), []).append(view)
+    plan = build_fact_cycle_plan(views_by_fact, steps=args.steps, seed=args.seed)
+    args.precomputed_forget_batches = [
+        [examples_by_view[str(entry["view_id"])]] for entry in plan
+    ]
+    exposures = exposure_report(plan, seed=args.seed, tokenizer=tokenizer)
+    exposures["plan_sha256"] = plan_sha256(plan)
+    write_json(output_dir / "fact_exposure_report.json", exposures)
+
+    all_mcf_records, all_mcf_examples = load_mcf_retain(
+        args.mcf_path,
+        seed=args.seed,
+        retain_num=args.retain_num + args.repair_retain_num,
+    )
+    retain_records = all_mcf_records[: args.retain_num]
+    gate_records = all_mcf_records[args.retain_num :]
+    retain_examples = all_mcf_examples[: args.retain_num]
+    mcf_gate_examples = all_mcf_examples[args.retain_num :]
+    optimization_matched = _protection_examples(matched_train, tokenizer)
+    selection_matched = _protection_examples(matched_gate, tokenizer)
+    retain_examples = [*retain_examples, *optimization_matched]
+    protected_gate_examples = [*mcf_gate_examples, *selection_matched]
+    optimization_protection_examples = [
+        *all_mcf_examples[: min(len(all_mcf_examples), args.repair_retain_num)],
+        *optimization_matched,
+    ]
+    mcf_optimization_manifest, mcf_gate_manifest = _write_mcf_partition_manifests(
+        output_dir, retain_records, gate_records
+    )
+
+    requested_save = args.save_model
+    args.save_model = False
+    started = time.perf_counter()
+    train_summary = gagd.train_mode(
+        model,
+        tokenizer,
+        forget_examples,
+        retain_examples,
+        selected_ids=[],
+        mode=SETTING5_MODE,
+        args=args,
+        mode_dir=output_dir / "setting5_training",
+    )
+    args.save_model = requested_save
+    prepare_model_for_evaluation(model)
+    setting5_checkpoint = output_dir / "setting5_training" / "checkpoint"
+    save_checkpoint(model, tokenizer, setting5_checkpoint)
+    repair_report = run_protected_lm_head_repair(
+        model,
+        tokenizer,
+        calibration_rows=[
+            {
+                "query": view["query"],
+                "answer": view.get("sensitive_answer_alias") or view["canonical_sensitive_answer"],
+                "subject": view["subject"],
+                "fact_id": view["fact_id"],
+                "view_id": view["view_id"],
+                "prompt_style": view.get("prompt_style"),
+                "boundary_expanding": bool(view.get("boundary_expanding", False)),
+            }
+            for view in views
+        ],
+        protected_examples=protected_gate_examples,
+        optimization_protection_examples=optimization_protection_examples,
+        config=repair_config(args),
+        output_dir=output_dir / "setting5_repaired",
+    )
+    repaired_checkpoint = output_dir / "setting5_repaired" / "checkpoint"
+    save_checkpoint(model, tokenizer, repaired_checkpoint)
+    training_report = {
+        "protocol_label": expected_label,
+        "protocol_status": training["protocol_status"],
+        "method": METHOD_REPAIRED,
+        "representation_method_merged": False,
+        "setting5": {
+            "trainable": asdict(train_summary),
+            "steps": args.steps,
+            "training_seconds": time.perf_counter() - started,
+            "field_mapping": {
+                "answer": "sensitive answer",
+                "target_new": "sensitive answer",
+                "target_true": "tokenizer.eos_token resolved at runtime",
+            },
+        },
+        "balanced_fact_cycle": exposures,
+        "reverse_direction_ablation": {
+            "enabled": bool(args.include_relation_conditioned_reverse_prompts),
+            "view_count": sum(
+                bool(view.get("boundary_expanding", False)) for view in views
+            ),
+            "fact_ids": sorted(
+                {
+                    str(view["fact_id"])
+                    for view in views
+                    if view.get("boundary_expanding", False)
+                }
+            ),
+            "reported_separately_from_primary": True,
+        },
+        "repair": repair_report,
+        "final_evaluation_used_for_training_or_selection": False,
+    }
+    training_report_path = output_dir / "training_report.json"
+    write_json(training_report_path, training_report)
+    method_config = {
+        "setting5_mode": SETTING5_MODE,
+        "steps": args.steps,
+        "optimizer": args.emb_lm_optimizer,
+        "learning_rate": args.emb_lm_lr,
+        "forget_weight": args.forget_weight,
+        "retain_weight": args.retain_weight,
+        "forget_margin": args.forget_margin,
+        "weight_decay": args.weight_decay,
+        "grad_clip": args.grad_clip,
+        "repair": asdict(repair_config(args)),
+        "reverse_prompts": bool(args.include_relation_conditioned_reverse_prompts),
+        "training_report_path": str(training_report_path.resolve()),
+        "training_report_sha256": file_sha256(training_report_path),
+    }
+    receipt_path = args.checkpoint_receipt or output_dir / "checkpoint_receipt.json"
+    receipt = create_checkpoint_receipt(
+        destination=receipt_path,
+        experiment_id=args.experiment_id,
+        protocol_label=expected_label,
+        protocol_status=training["protocol_status"],
+        target_entity=target.subject,
+        target_entity_id=f"rwku:{target.directory}",
+        base_model_identity=local_model_identity(args.model_path),
+        base_model_revision=args.model_revision,
+        tokenizer_identity={
+            "name_or_path": tokenizer.name_or_path,
+            "class": tokenizer.__class__.__name__,
+            "vocab_size": len(tokenizer),
+            "eos_token_id": tokenizer.eos_token_id,
+        },
+        checkpoint_paths=[setting5_checkpoint, repaired_checkpoint],
+        training_bundle_path=Path(bundle_path),
+        optimization_protection_path=args.matched_protection_train,
+        mcf_retain_optimization_paths=[mcf_optimization_manifest],
+        mcf_repair_gate_paths=[mcf_gate_manifest],
+        matched_protection_train_path=args.matched_protection_train,
+        matched_protection_gate_path=args.matched_protection_gate,
+        method_configuration=method_config,
+        implementation_files=[
+            SCRIPT_PATH,
+            SEMANTIC_ROOT / "scripts" / "gagd_compare.py",
+            SEMANTIC_ROOT / "scripts" / "rwku_repair.py",
+            SEMANTIC_ROOT / "scripts" / "rwku_fact_sampler.py",
+            SEMANTIC_ROOT / "scripts" / "rwku_artifact_access.py",
+        ],
+        sampler_provenance=exposures,
+        generator_receipt_path=generator_receipt_path,
+        official_locked_eval_path=output_dir / "official_locked_eval.json",
+        confirmatory=args.confirmatory,
+    )
+    _write_state(
+        args,
+        "CHECKPOINT_FROZEN",
+        checkpoint_receipt=str(Path(receipt_path).resolve()),
+        checkpoint_receipt_sha256=receipt["receipt_sha256"],
+        official_evaluation_opened=False,
+    )
+    print(f"Checkpoint frozen for {args.experiment_id}; receipt={receipt_path}")
+
+
+def _rows_from_eval_artifact(artifact: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    rows = []
+    for view in artifact["payload"].get("views", []):
+        rows.append(
+            {
+                "query": view["query"],
+                "answer": view.get("sensitive_answer_alias") or view["canonical_sensitive_answer"],
+                "subject": view["subject"],
+                "level": str(view.get("level", "")),
+                "type": str(view.get("query_type", view.get("prompt_style", ""))),
+                "fact_id": view["fact_id"],
+                "view_id": view["view_id"],
+            }
+        )
+    return rows
+
+
+def _wilson_interval(successes: int, total: int) -> Optional[List[float]]:
+    if total <= 0:
+        return None
+    z = 1.959963984540054
+    proportion = successes / total
+    denominator = 1.0 + z * z / total
+    center = (proportion + z * z / (2.0 * total)) / denominator
+    radius = z * ((proportion * (1.0 - proportion) / total + z * z / (4.0 * total * total)) ** 0.5) / denominator
+    return [100.0 * max(0.0, center - radius), 100.0 * min(1.0, center + radius)]
+
+
+def _recovery_metric(
+    details: Sequence[Mapping[str, Any]],
+    *,
+    target_count: int = 1,
+    success_key: str = "recovery_success",
+    confidence_interval_meaningful: bool = True,
+) -> Dict[str, Any]:
+    numerator = sum(bool(row.get(success_key)) for row in details)
+    denominator = len(details)
+    facts = {row.get("fact_id") for row in details if row.get("fact_id")}
+    return {
+        "numerator": int(numerator),
+        "denominator": denominator,
+        "percentage": 100.0 * numerator / denominator if denominator else None,
+        "independent_fact_group_count": len(facts) if facts else None,
+        "prompt_count": denominator,
+        "target_count": target_count,
+        "confidence_interval_95_wilson": (
+            _wilson_interval(int(numerator), denominator)
+            if confidence_interval_meaningful
+            else None
+        ),
+    }
+
+
+def _score_metric(value: Any, denominator: int, *, target_count: int = 1) -> Dict[str, Any]:
+    return {
+        "numerator": None,
+        "denominator": denominator,
+        "score": value,
+        "independent_fact_group_count": None,
+        "prompt_count": denominator,
+        "target_count": target_count,
+        "confidence_interval": None,
+    }
+
+
+def _required_evaluation_sections(
+    native: Mapping[str, Any],
+    *,
+    calibration_report: Mapping[str, Any],
+    seen_details: Sequence[Mapping[str, Any]],
+    unseen_details: Sequence[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    details = native["details"]
+    metrics = native["metrics"]
+    summary = native["summary"]
+    level1_details = details["cloze"]
+    level2_details = details["direct"]
+    adversarial = details["adversarial"]
+    level3_by_type: Dict[str, Any] = {}
+    for attack_type in sorted({str(row.get("type", "")) for row in adversarial}):
+        level3_by_type[attack_type] = _recovery_metric(
+            [row for row in adversarial if str(row.get("type", "")) == attack_type]
+        )
+    repair = calibration_report.get("repair", {})
+    calibration_after = repair.get("active_prompt_instances_after")
+    calibration_before = repair.get("active_prompt_instances_before")
+    calibration = {
+        "numerator": calibration_after,
+        "denominator": calibration_before,
+        "percentage": (
+            100.0 * calibration_after / calibration_before
+            if isinstance(calibration_after, int) and calibration_before
+            else None
+        ),
+        "source": "pre-freeze calibration repair report; no evaluation artifact reopened",
+        "independent_fact_group_count": None,
+        "prompt_count": calibration_before,
+        "target_count": 1,
+        "confidence_interval": None,
+    }
+    return {
+        "calibration_recovery": calibration,
+        "seen_fact_unseen_prompt_recovery": _recovery_metric(seen_details),
+        "unseen_fact_recovery": _recovery_metric(unseen_details),
+        "level1_recovery": _recovery_metric(level1_details),
+        "level2_recovery": _recovery_metric(level2_details),
+        "level3_adversarial_recovery": _recovery_metric(adversarial),
+        "level3_by_attack_type": level3_by_type,
+        "target_answer_probability": _score_metric(summary["forget"]["target_answer_token_probability"], len(level2_details)),
+        "full_answer_probability": _score_metric(summary["controls"]["full_answer_geometric_probability"], len(level2_details)),
+        "forced_prefix_recovery": _recovery_metric(details["forced_prefix"]),
+        "answer_alias_recovery": _recovery_metric(details["answer_alias"], success_key="alias_recovery_success"),
+        "multiple_choice_recovery": _recovery_metric(details["multiple_choice_balanced"], success_key="correct", confidence_interval_meaningful=False),
+        "open_ended_recovery": _recovery_metric(level2_details),
+        "frozen_head_recovery": _recovery_metric(details["frozen_base_head_probe"], success_key="correct"),
+        "membership_inference": _score_metric(summary["forget"]["membership_inference_attack_advantage"], len(details["membership_inference_forget"]) + len(details["membership_inference_retain"])),
+        "neighbor_utility": _score_metric(summary["retain"]["neighboring_entity_accuracy"], len(details["neighbor"])),
+        "downstream_utility": _score_metric(summary["retain"]["general_utility"], sum(len(details[key]) for key in ("mmlu", "bbh", "truthfulqa", "triviaqa"))),
+        "fluency": _score_metric(metrics["fluency"], len(details["fluency"])),
+        "perplexity": _score_metric(summary["retain"]["perplexity"], 1),
+        "full_retain_probability_ratio": _score_metric(summary["retain"]["full_retain_probability_ratio"], 1),
+    }
+
+
+def _evaluate_staged(args: argparse.Namespace) -> None:
+    state = _read_state(args)
+    if state.get("state") != "CHECKPOINT_FROZEN":
+        raise ValueError(
+            f"Evaluation requires CHECKPOINT_FROZEN, got {state.get('state')}"
+        )
+    receipt_path = args.checkpoint_receipt or _staged_output_dir(args) / "checkpoint_receipt.json"
+    pre_open_receipt = load_receipt(receipt_path)
+    expected_protocol_label = (
+        PROBE_PROTOCOL_LABEL
+        if args.training_source == TRAINING_SOURCE_PROBE
+        else TARGET_ONLY_PROTOCOL_LABEL
+    )
+    if pre_open_receipt["protocol_label"] != expected_protocol_label:
+        raise ValueError("Checkpoint receipt belongs to a different RWKU track")
+    if mapping_sha256(local_model_identity(args.model_path)) != mapping_sha256(
+        pre_open_receipt["base_model_identity"]
+    ):
+        raise ValueError("Evaluation base model identity differs from the frozen receipt")
+    receipt = open_official_evaluation(
+        receipt_path,
+        experiment_id=args.experiment_id,
+    )
+    _write_state(
+        args,
+        "OFFICIAL_EVALUATION_OPENED",
+        official_evaluation_opened=True,
+        official_evaluation_opened_at_utc=receipt["official_evaluation_opened_at_utc"],
+    )
+    locked = read_artifact(
+        _staged_output_dir(args) / "official_locked_eval.json",
+        stage="evaluate",
+        evaluation=True,
+        expected_role="official_locked_eval",
+    )
+    # Only after the receipt transition and locked-descriptor integrity check
+    # may this process open official record files.
+    target, datasets, file_hashes = ensure_target_data(
+        args.data_root,
+        args.seed,
+        allow_download=not args.no_download,
+    )
+    for filename, descriptor in locked["payload"]["files"].items():
+        if file_hashes[filename] != descriptor["sha256"]:
+            raise ValueError(f"Official locked evaluation file changed: {filename}")
+
+    seen_rows: List[Dict[str, Any]] = []
+    unseen_rows: List[Dict[str, Any]] = []
+    if args.training_source == TRAINING_SOURCE_PROBE:
+        seen_artifact = read_artifact(
+            _staged_output_dir(args) / "seen_fact_unseen_prompt_eval.json",
+            stage="evaluate",
+            evaluation=True,
+            expected_role="seen_fact_unseen_prompt_eval",
+        )
+        unseen_artifact = read_artifact(
+            _staged_output_dir(args) / "unseen_fact_eval.json",
+            stage="evaluate",
+            evaluation=True,
+            expected_role="unseen_fact_eval",
+        )
+        seen_rows = _rows_from_eval_artifact(seen_artifact)
+        unseen_rows = _rows_from_eval_artifact(unseen_artifact)
+        held_out = [*seen_rows, *unseen_rows]
+        held_out_level1 = [row for row in held_out if row["level"] == "1"]
+        held_out_level2 = [row for row in held_out if row["level"] == "2"]
+    else:
+        held_out_level1 = list(datasets["forget_level1.json"])
+        held_out_level2 = list(datasets["forget_level2.json"])
+    if not held_out_level1 or not held_out_level2:
+        raise ValueError("Final RWKU evaluation requires non-empty Level 1 and Level 2 sets")
+
+    training_report_path = Path(receipt["method_configuration"]["training_report_path"])
+    if file_sha256(training_report_path) != receipt["method_configuration"]["training_report_sha256"]:
+        raise ValueError("Training report changed after checkpoint freeze")
+    with training_report_path.open("r", encoding="utf-8") as handle:
+        calibration_report = json.load(handle)
+
+    dtype = dtype_from_name(args.dtype)
+    base_model, tokenizer = load_model_and_tokenizer(
+        args.model_path, dtype=dtype, for_training=False, gradient_checkpointing=False
+    )
+    all_answers = [
+        str(row["answer"])
+        for filename in ("forget_level1.json", "forget_level2.json", "forget_level3.json")
+        for row in datasets[filename]
+    ]
+    frozen_probe = build_frozen_head_probe(
+        base_model, tokenizer, held_out_level2, additional_answers=all_answers
+    )
+    base_result = evaluate_method(
+        method=METHOD_BASE,
+        model=base_model,
+        tokenizer=tokenizer,
+        target_subject=target.subject,
+        held_out_cloze=held_out_level1,
+        held_out_direct=held_out_level2,
+        datasets=datasets,
+        args=args,
+        base_retain_mean_logprobs=None,
+        frozen_probe=frozen_probe,
+    )
+    base_retain = base_result["retain_reference_mean_logprobs"]
+    release_model(base_model)
+    del base_model
+    checkpoint_path = Path(receipt["checkpoint_paths"][-1]["path"])
+    candidate, candidate_tokenizer = load_model_and_tokenizer(
+        str(checkpoint_path), dtype=dtype, for_training=False, gradient_checkpointing=False
+    )
+    candidate_result = evaluate_method(
+        method=METHOD_REPAIRED,
+        model=candidate,
+        tokenizer=candidate_tokenizer,
+        target_subject=target.subject,
+        held_out_cloze=held_out_level1,
+        held_out_direct=held_out_level2,
+        datasets=datasets,
+        args=args,
+        base_retain_mean_logprobs=base_retain,
+        frozen_probe=frozen_probe,
+    )
+    for detail, row in zip(candidate_result["details"]["cloze"], held_out_level1):
+        if row.get("fact_id"):
+            detail["fact_id"] = row["fact_id"]
+    for detail, row in zip(candidate_result["details"]["direct"], held_out_level2):
+        if row.get("fact_id"):
+            detail["fact_id"] = row["fact_id"]
+    seen_details: List[Dict[str, Any]] = []
+    unseen_details: List[Dict[str, Any]] = []
+    if seen_rows:
+        _, seen_details = evaluate_qa_rows(
+            candidate, candidate_tokenizer, seen_rows, batch_size=args.eval_batch_size
+        )
+        for detail, row in zip(seen_details, seen_rows):
+            detail["fact_id"] = row["fact_id"]
+    if unseen_rows:
+        _, unseen_details = evaluate_qa_rows(
+            candidate, candidate_tokenizer, unseen_rows, batch_size=args.eval_batch_size
+        )
+        for detail, row in zip(unseen_details, unseen_rows):
+            detail["fact_id"] = row["fact_id"]
+    candidate_result["protocol_label"] = receipt["protocol_label"]
+    candidate_result["protocol_status"] = receipt["protocol_status"]
+    candidate_result["evaluation_sections"] = _required_evaluation_sections(
+        candidate_result,
+        calibration_report=calibration_report,
+        seen_details=seen_details,
+        unseen_details=unseen_details,
+    )
+    candidate_result["interpretation_axes"] = {
+        "calibration_efficacy": "reported separately",
+        "prompt_generalization": "seen-fact/unseen-prompt generalization",
+        "unseen_fact_transfer": "unseen-fact entity transfer",
+        "adversarial_resistance": "official Level 3",
+        "decoder_suppression": "normal LM-head recovery controls",
+        "frozen_head_representation_recovery": "not representation erasure",
+        "utility_preservation": "neighbors, downstream utility, fluency, PPL, retain ratio",
+    }
+    result_path = _staged_output_dir(args) / "official_evaluation.json"
+    write_json(result_path, {"base": base_result, "unlearned": candidate_result})
+    release_model(candidate)
+    complete = mark_evaluation_complete(receipt_path, experiment_id=args.experiment_id)
+    _write_state(
+        args,
+        "EVALUATION_COMPLETE",
+        official_evaluation_opened=True,
+        evaluation_completed_at_utc=complete["evaluation_completed_at_utc"],
+        result_path=str(result_path.resolve()),
+    )
+    print(f"RWKU official evaluation complete: {result_path}")
+
+
+def run_staged_protocol(args: argparse.Namespace) -> None:
+    if args.legacy_row_split:
+        raise ValueError("Legacy row splitting is not an entity-fact staged protocol")
+    if args.stage == "prepare":
+        _prepare_staged(args)
+        return
+    if args.stage == "train":
+        _train_staged(args)
+        return
+    if args.stage == "evaluate":
+        _evaluate_staged(args)
+        return
+    if args.training_source == TRAINING_SOURCE_TARGET_ONLY and args.confirmatory:
+        raise ValueError("Confirmatory target-only runs cannot use --stage all")
+    _prepare_staged(args)
+    if args.dry_run:
+        return
+    _train_staged(args)
+    _evaluate_staged(args)
+
+
 def main() -> None:
     args = build_parser().parse_args()
     validate_args(args)
+    if args.training_source is not None:
+        run_staged_protocol(args)
+        return
+    if args.stage != "all":
+        raise ValueError(
+            "--stage prepare/train/evaluate requires --training-source; the "
+            "legacy command remains an all-in-one prompt-held-out experiment"
+        )
     methods = selected_methods(args.methods)
     target = target_for_seed(args.seed)
     output_dir = Path(args.output_root) / f"seed{args.seed:02d}_{target.directory}"
@@ -1515,6 +2574,11 @@ def main() -> None:
         held_out_direct=held_out_level2,
         file_hashes=file_hashes,
         split_manifests=split_manifests,
+    )
+    payload["protocol_label"] = "rwku_legacy_independent_row_hash_split"
+    payload["protocol_status"] = LEGACY_PROTOCOL_STATUS
+    payload["split_interpretation"] = (
+        "prompt-held-out only; not a relation-aware unseen-fact split"
     )
     write_json(output_dir / "config_used.json", payload)
     if methods != (METHOD_BASE,) and not args.mcf_path.is_file():

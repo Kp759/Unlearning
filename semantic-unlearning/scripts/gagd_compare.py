@@ -1074,16 +1074,33 @@ def train_mode(
     mode_dir.mkdir(parents=True, exist_ok=True)
     forget_sampler = None
     retain_sampler = None
-    if args.sampling_strategy == "epoch":
+    precomputed_forget_batches = getattr(args, "precomputed_forget_batches", None)
+    if precomputed_forget_batches is not None:
+        if len(precomputed_forget_batches) != args.steps:
+            raise ValueError(
+                "Precomputed entity-fact schedule length must equal --steps"
+            )
+        if any(not batch for batch in precomputed_forget_batches):
+            raise ValueError("Precomputed entity-fact schedule contains an empty batch")
+        if any(len(batch) != 1 for batch in precomputed_forget_batches):
+            raise ValueError(
+                "Balanced entity-fact scheduling requires one fact/view per update"
+            )
+    elif args.sampling_strategy == "epoch":
         forget_sampler = EpochBatchSampler(forget, args.batch_size, args.seed)
+        retain_sampler = EpochBatchSampler(retain, args.retain_batch_size, args.seed + 1)
+    if retain_sampler is None and args.sampling_strategy == "epoch":
         retain_sampler = EpochBatchSampler(retain, args.retain_batch_size, args.seed + 1)
     with (mode_dir / "train_log.jsonl").open("w", encoding="utf-8") as log_f:
         for step in tqdm(range(args.steps), desc=f"train {mode}"):
-            forget_batch = (
-                forget_sampler.next_batch()
-                if forget_sampler is not None
-                else sample_batch(forget, args.batch_size)
-            )
+            if precomputed_forget_batches is not None:
+                forget_batch = list(precomputed_forget_batches[step])
+            else:
+                forget_batch = (
+                    forget_sampler.next_batch()
+                    if forget_sampler is not None
+                    else sample_batch(forget, args.batch_size)
+                )
             retain_batch = (
                 retain_sampler.next_batch()
                 if retain_sampler is not None

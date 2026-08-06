@@ -316,6 +316,47 @@ def ensure_target_data(
     return target, datasets, hashes
 
 
+def ensure_fact_assignment_data(
+    data_root: Path,
+    seed: int,
+    *,
+    allow_download: bool = True,
+) -> Tuple[TargetSpec, Dict[str, List[Dict[str, Any]]], Dict[str, str]]:
+    """Load only Level 1/2 records permitted for probe-assisted preparation.
+
+    This deliberately does not iterate over :data:`REQUIRED_FILES`.  Keeping a
+    separate loader makes it mechanically impossible for the entity-fact
+    builder to open Level 3, MIA, neighbor, utility, or fluency data by
+    accident.
+    """
+
+    target = target_for_seed(seed)
+    target_root = Path(data_root) / "Target" / target.directory
+    datasets: Dict[str, List[Dict[str, Any]]] = {}
+    hashes: Dict[str, str] = {}
+    for filename in ("forget_level1.json", "forget_level2.json"):
+        destination = target_root / filename
+        if not destination.is_file():
+            if not allow_download:
+                raise FileNotFoundError(
+                    f"Missing pinned RWKU file with downloads disabled: {destination}"
+                )
+            print(f"Downloading pinned RWKU {target.directory}/{filename}")
+            download_file(_download_url(target, filename), destination)
+        rows = load_json_list(destination)
+        validate_file(filename, rows, target)
+        digest = file_sha256(destination)
+        verify_pinned_file(
+            seed=seed,
+            filename=filename,
+            rows=rows,
+            sha256=digest,
+        )
+        datasets[filename] = rows
+        hashes[filename] = digest
+    return target, datasets, hashes
+
+
 def ensure_positive_training_data(
     data_root: Path,
     seed: int,

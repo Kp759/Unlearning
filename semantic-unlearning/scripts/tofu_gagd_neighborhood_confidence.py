@@ -1503,6 +1503,11 @@ def main() -> None:
 
     summary = {
         "method": METHOD,
+        "protocol_status": "native_data_and_metrics_but_evaluation_conditioned_repair",
+        "protocol_status_reason": (
+            "TOFU neighborhood and utility-calibration evidence participates "
+            "in repair candidate selection."
+        ),
         "input_checkpoint": args.model_path,
         "reference_model": args.reference_model_path,
         "forget_split": args.forget_split,

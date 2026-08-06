@@ -1,363 +1,462 @@
-# RWKU experiment
+# RWKU Setting 5e experiments
 
-This experiment evaluates on pinned
-[RWKU benchmark](https://github.com/jinzhuoran/RWKU) records. It uses the same
-local Llama-3.2-3B-Instruct snapshot and Setting 5e hyperparameters so its
-method comparison is aligned with this repository's existing tables. It does
-not claim numerical comparability with a different base model from the RWKU
-paper.
+This repository keeps three RWKU methods/protocols distinct. Their results are
+not interchangeable.
 
-This is a **held-out-clean corpus-assisted portability experiment**, not the
-official RWKU target-entity-only training protocol. The method sees a declared
-calibration half of level-1/level-2, `positive.json`, and unrelated MCF retain
-records. Official RWKU makes only the target entity and original model visible
-to the method. Therefore these results must not be labeled official/native
-RWKU; the official benchmark registry correctly keeps unchanged `our_method`
-at `NEEDS_METHOD_EXTENSION`.
+| CLI training source | Human-readable label | Protocol status |
+|---|---|---|
+| `probe_assisted_entity_fact` | RWKU probe-assisted entity-fact portability | `nonofficial_probe_assisted_entity_fact_portability` |
+| `target_only_generated_entity_corpus` | Setting 5e + protected repair with RWKU target-generated entity corpus | `official_protocol_different_model_confirmatory_method_extension` |
+| legacy command (no `--training-source`) | legacy independent row-hash experiment | `prompt_held_out_only_legacy_nonofficial` |
 
-## Experimental unit and seeds
+The target-only track on Llama-3.2-3B-Instruct is an **official RWKU protocol
+evaluation on a different model using an RWKU-specific
+target-corpus-generation extension**. It is not an exact reproduction of the
+paper's Llama-3-8B results, unchanged Setting 5e, or a native numerical paper
+reproduction.
 
-RWKU is a single-target benchmark: one real-world person is unlearned in each
-run. Seeds 0–9 therefore identify ten independent targets rather than ten
-random resamplings of one batch:
+The LoRA implementation in `scripts/rwku_representation.py` remains a
+**separate representation-unlearning method**. It is not merged into Setting
+5e or sparse LM-head repair.
 
-| Seed | RWKU target |
-|---:|---|
-| 0 | Stephen King |
-| 1 | Confucius |
-| 2 | Bruce Lee |
-| 3 | Warren Buffett |
-| 4 | Christina Aguilera |
-| 5 | Cindy Crawford |
-| 6 | Marie Osmond |
-| 7 | Paris Hilton |
-| 8 | Justin Bieber |
-| 9 | Prince Harry, Duke of Sussex |
+## Preserved Setting 5e implementation
 
-The dataset is pinned to commit
-`d72f493d481d1b0a9bdc6e869d32baeffad8904f`; the benchmark code is pinned to
-`b8a03b3ce34fb4a96001df545a56558d75a078a3`.
+The staged tracks call the existing implementation in
+`scripts/gagd_compare.py` with mode
+`emb_lm_all_restore_post_training_true`. The established defaults remain:
 
-For each target, content hashes split official level-1 and level-2 probes 50:50.
-Probe-derived objectives may use only the calibration side. The representation
-method additionally uses RWKU's pinned `positive.json` as its declared
-target-training corpus and as a calibration-only MIA proxy. Its proxy score may
-select a checkpoint, but it is never reported as final evidence of success.
-Headline direct and paraphrase metrics use held-out level-2 questions. Exact
-duplicate records are grouped before splitting, so duplicate content cannot
-cross the boundary. Level-3, neighbor, membership-inference, and utility
-records are evaluation-only.
+- all-token input-embedding and LM-head optimization; transformer frozen;
+- 600 steps, batch size 1, retain batch size 4;
+- AdamW, learning rate `1e-4`, no weight decay, gradient clipping `1.0`;
+- the existing `mcf_margin` objective with margin `1.0`;
+- forget weight `2.0`, retain weight `1.0`;
+- overlap-aware post-training restoration with alphas `0.75/0.50/0.25`;
+- 1,000 unrelated MCF optimization records and a disjoint 128-record MCF
+  repair-selection partition.
 
-## Methods
+RWKU optimization views compile to `gagd.Example` with this exact direction:
 
-The aggregate includes six rows:
+```text
+answer      = sensitive answer
+target_new  = sensitive answer
+target_true = tokenizer.eos_token
+source      = fact_id
+```
 
-1. Base model
-2. Original ZeroUnlearn
-3. Setting 5e without repair
-4. Setting 5e + protected LM-head repair
-5. Repair-only control
-6. Protected representation unlearning v2
+EOS is resolved from the loaded tokenizer at runtime. It is never serialized
+as a guessed Llama token. Original ZeroUnlearn intentionally uses the opposite
+request convention:
 
-Original ZeroUnlearn is the vendored
-`ZeroUnlearn.ZeroUnlearn_main.apply_unl_to_model`, with layers 16–18 and the
-existing hyperparameter file. The RWKU calibration answer is mapped to
-ZeroUnlearn's sensitive `target_true` field and tokenizer EOS to neutral
-`target_new`.
+```text
+target_true = sensitive answer
+target_new  = tokenizer.eos_token
+```
 
-Setting 5e uses the established 600-step all-token embedding/LM-head
-margin objective and overlap-aware row restoration. RWKU calibration answers
-are sensitive `target_new` values; EOS is the desired `target_true`. Unrelated
-MCF facts provide 1,000 retain examples. These optimization examples and the
-external MCF gate examples described below are sampled as disjoint sets.
+The default behavior of MCF, ZsRE, and TOFU is unchanged. Balanced fact-cycle
+sampling is activated only for an entity-fact training bundle.
 
-The protected repair freezes the transformer and input embeddings, unties the
-output head if necessary, and never edits EOT/EOS. It first finds calibration
-answer-token positions that still violate the forget margin. Only the
-corresponding non-special target-answer output rows are eligible, and any row
-that also occurs in an unrelated MCF protected answer is excluded. Thus the
-parameter scope matches the sparse active-pair repair used for MCF/TOFU rather
-than globally increasing a shared termination row.
+## Entity-fact schema and identity
 
-Protection uses 128 unrelated MCF facts from the external gate partition, not
-from the 1,000 facts used to optimize Setting 5e. In addition to their
-answer-token likelihoods, the repair samples prompt contexts across every
-protected example. The sparse delta is projected away from the leading
-protected hidden-state span and is directly penalized for protected-context
-logit drift. A materialized-dtype scale sweep applies three hard gates before
-efficacy:
+`config/rwku/entity_fact_schema_v1.json` (`rwku_entity_fact_v1`) is the
+authoritative entity-fact schema. Every fact contains:
+
+```json
+{
+  "schema_version": "rwku_entity_fact_v1",
+  "protocol_label": "...",
+  "protocol_status": "...",
+  "entity_id": "rwku:1_Stephen_King",
+  "subject": "Stephen King",
+  "subject_aliases": [],
+  "fact_id": "SHA256(entity_id, relation_id, normalized answer)",
+  "relation_id": "first_published_novel",
+  "canonical_sensitive_answer": "Carrie",
+  "sensitive_answer_aliases": [],
+  "source_records": [],
+  "optimization_views": [],
+  "held_out_views": [],
+  "partition": "calibration_fact | unseen_fact | generated_training_fact",
+  "training_allowed": true,
+  "source_hashes": {},
+  "relation_assignment_provenance": [],
+  "manual_override_sha256": "..."
+}
+```
+
+Fact identity is computed from all three components:
+
+```text
+SHA256(entity_id, relation_id, normalized canonical_sensitive_answer)
+```
+
+It is never subject-plus-answer or answer-only. Thus `birth_city → Portland`
+and `birth_state → Maine` remain distinct, and the same answer under two
+different relation IDs also remains distinct.
+
+Every source record retains its source file, row index, full record SHA-256,
+level, query type, normalized query hash, original answer, assigned relation,
+and assigned fact. SHA-256 is an integrity and identity key, not a learned
+feature: it proves which immutable row was assigned, keeps duplicates
+indivisible, makes splits reproducible, and detects upstream changes. It does
+not hide the data or define semantic similarity.
+
+Relation assignment uses, in order:
+
+1. a committed manual override;
+2. the frozen deterministic mapper;
+3. an optional pinned/revision-recorded clusterer; or
+4. a hard failure.
+
+The seed-0 Stephen King override is
+`config/rwku/fact_overrides/seed0.json`. It is derived only from pinned Level 1
+and Level 2. Level 3 is not loaded by the builder. Strict mode rejects missing
+relations, ambiguous records, conflicting canonical answers, semantically
+overloaded relations, unknown override hashes, or aliases crossing facts.
+
+## Probe-assisted split
+
+Level 1 and Level 2 are combined before fact assignment. Exact records and
+normalized prompt views are deduplicated. For `N >= 2` facts and requested
+fraction `f`:
+
+```text
+n_unseen = floor(N * f + 0.5)
+n_unseen = max(1, min(N - 1, n_unseen))
+split_key = SHA256(f"{split_seed}:fact:{fact_id}")
+```
+
+Facts are sorted by `split_key`; the first `n_unseen` are wholly unseen and the
+rest are calibration facts. No fact, alias, duplicate, or equivalent view may
+cross.
+
+Within each calibration fact:
+
+```text
+view_key = SHA256(
+  f"{split_seed}:view:{fact_id}:{view_content_sha256}"
+)
+```
+
+For a multi-view fact, at least one sorted view is held out for
+**seen-fact/unseen-prompt generalization** and the remaining views optimize
+Setting 5e. A single-view calibration fact is training-only. Every view of an
+unseen fact is reserved for **unseen-fact entity transfer**.
+
+The old independent Level-1/Level-2 row-hash split remains only through the
+legacy command/`--legacy-row-split`. Its correct status is
+`prompt_held_out_only_legacy_nonofficial`; it is not an unseen-fact split.
+
+## Immutable artifacts and permissions
+
+Every JSON artifact carries `artifact_role`, `gradient_allowed`,
+`selection_allowed`, `evaluation_only`, `allowed_stages`, and a SHA-256 over
+its payload and permission metadata.
+
+| Artifact role | Gradient | Selection | Evaluation-only | Allowed stage |
+|---|---:|---:|---:|---|
+| `training_bundle` | yes | no | no | train |
+| `optimization_protection` | yes | no | no | train |
+| `repair_selection_gate` | no | yes | no | train |
+| `seen_fact_unseen_prompt_eval` | no | no | yes | evaluate |
+| `unseen_fact_eval` | no | no | yes | evaluate |
+| `official_locked_eval` | no | no | yes | evaluate |
+
+Probe-assisted preparation writes:
+
+- `fact_catalog.json`;
+- `training_bundle.json`;
+- `seen_fact_unseen_prompt_eval.json`;
+- `unseen_fact_eval.json`;
+- `official_locked_eval.json`;
+- `split_manifest.json`; and
+- `fact_audit.md`.
+
+Target-only corpus generation writes:
+
+- `generated_entity_fact_catalog.json`;
+- `generated_training_bundle.json`;
+- `generated_raw_corpus.json`; and
+- `generator_receipt.json`.
+
+Target-only preparation creates `official_locked_eval.json` from the committed
+manifest without opening official rows. It includes all official Level 1,
+Level 2, Level 3, MIA, neighbor, utility, and fluency identities. The official
+files are opened only after checkpoint receipt verification and the atomic
+evaluation-opening transition.
+
+## One-way state and data access
+
+The enforced state machine is:
+
+```text
+PREPARED
+  -> TRAINING
+  -> CHECKPOINT_FROZEN
+  -> OFFICIAL_EVALUATION_OPENED
+  -> EVALUATION_COMPLETE
+```
+
+No backward transition is legal. Confirmatory target-only runs reject
+`--stage all`; training and evaluation must be separate processes.
+
+- Probe-assisted `prepare` may read pinned Level 1 and Level 2 only.
+- Target-only `prepare/train` receive the target name, pinned model, frozen
+  generator configuration, generated bundle, and target-independent
+  retain/protection resources. They do not open any official evaluation row.
+- `train` can open only method-visible training and optimization-protection
+  artifacts. A repair gate is evaluated under `torch.no_grad()` and cannot
+  contribute to a backward pass.
+- `evaluate` validates every declared hash, verifies
+  `CHECKPOINT_FROZEN`, atomically records official evaluation opening, and only
+  then opens official data.
+
+After official evaluation opens, that experiment ID cannot update, repair,
+rescale, retune, replace, or reject the checkpoint. A changed run needs a new
+experiment ID and is not confirmatory with respect to already observed
+official results.
+
+The checkpoint receipt records model/tokenizer identities, all checkpoint and
+artifact hashes, MCF retain/gate hashes, matched-protection hashes, complete
+method configuration, implementation hashes, generator receipt, sampler
+provenance, timestamps, and confirmatory status. Any changed checkpoint,
+training bundle, implementation, or method configuration fails closed.
+
+## Balanced fact-cycle sampling
+
+Entity-fact training does not sample facts with replacement. Each cycle
+deterministically shuffles every training fact, visits each once, and then
+starts another shuffled complete cycle. For `S` steps and `K` facts, each fact
+receives `floor(S/K)` or `ceil(S/K)` updates; exposure imbalance is at most
+one.
+
+The run records exposures by fact, view, prompt style, answer alias, actual
+tokenizer token ID, and decoded token piece, plus sampler seed, implementation
+SHA-256, and plan SHA-256. MCF/ZsRE/TOFU retain their existing row sampler.
+
+Supported view labels are direct question, cloze, conservative subject alias,
+deterministic paraphrase, and forced-prefix. Reverse views are off by default.
+`--include-relation-conditioned-reverse-prompts` admits only explicitly
+declared, logically unambiguous `relation-conditioned reverse` views and marks
+them `boundary_expanding=true`; they are a separate ablation.
+
+The optional export is named **MCF-shaped RWKU training request** and has
+format `mcf_shaped_rwku_training_request_v1`, benchmark `rwku`, and
+`training_only=true`. It is adapter glue, not an MCF benchmark record. The MCF
+evaluator rejects it. Its neutral target is a runtime EOS marker resolved by
+the RWKU loader.
+
+## Target-only generated corpus
+
+`scripts/build_rwku_generated_entity_corpus.py` has no RWKU data-root input.
+It receives only the target/entity ID, pinned local generator identity, frozen
+generation config, seed, and optional independent resources. It does not
+search, inspect, hash, or open official RWKU files.
+
+The receipt records generator model/revision, tokenizer, prompt templates and
+hash, decoding parameters, seeds, raw corpus hash, extractor implementation
+and hash, extraction config, accepted/rejected facts and reasons, duplicate
+and alias handling, and final bundle hash. `--dry-run` validates configuration
+without importing torch or loading a model. Corpus generation and fact
+extraction are part of the RWKU-specific method extension.
+
+## Matched protection and repair
+
+Protection keys may come only from a method-visible training/generated bundle,
+an independently generated entity corpus, or the predeclared target-independent
+vocabulary. Each key records its normalized value, origin type/path/hash,
+source fact, visibility before freeze, and vocabulary revision if applicable.
+
+Keys cannot be discovered from held-out Level 1/2, Level 3, MIA, neighbors,
+utility, fluency, evaluation artifacts, evaluation outputs, or post-evaluation
+errors. Thus `Maine` is unavailable if it occurs only in an unseen official
+fact. Strict mode rejects a key without a valid provenance chain.
+
+`scripts/build_rwku_matched_protection.py` creates content-hash-disjoint
+`matched_protection_train.json` and `matched_protection_gate.json`, plus a
+coverage report by answer/alias, token ID/piece, relation/source, and
+optimization/gate counts. Insufficient coverage warns or fails in strict mode;
+it is never silently called safe.
+
+Sparse repair retains the existing hard gates:
 
 - protected-answer probability ratio at least `0.999`;
-- maximum selected-row logit drift at most `0.05`; and
-- zero protected-context top-1 changes.
+- selected-row logit drift at most `0.05`;
+- protected top-1 changes equal `0`; and
+- mandatory scale zero.
 
-Scale zero is mandatory and wins whenever no effective edit passes all three
-gates. The repair-only row applies this exact procedure to a fresh base model.
-Every repair report lists the selected rows, protected overlaps, unsupported
-active positions, all scale candidates, and the reason for a no-op.
+EOS, EOT, BOS, PAD, UNK, every tokenizer special row, and rows shared with
+protected unrelated answers are ineligible. If no useful row is safe, scale
+zero is a documented no-op.
 
-This is deliberately an LM-head ablation, not a claim of representation-level
-erasure. The letter-scored multiple-choice control bypasses the edited answer
-rows, and the frozen-base-head probe bypasses the repaired head entirely.
-Improving either metric requires changing the live hidden representation in
-the Setting 5e stage; an output-row repair cannot honestly do so.
+Reports distinguish token-position, view, and fact outcomes. Token protection
+classes include `safe_sparse_head_pair`, `shared_protected_answer_pair`,
+`special_token_pair`, and `unsupported_pair`. The qualified Setting 5e label is
+`calibration_resolved_by_setting5e`, never `resolved_by_setting5e`. Multi-token
+answers can be partly supported. View/fact success refers only to calibration;
+it never implies official entity removal.
 
-Protected representation unlearning v2 is the corpus-assisted
-representation-level method. It
-starts from a fresh Base checkpoint, rather than inheriting Setting 5e's
-embedding/head changes. It freezes the input embeddings, normalization
-parameters, and LM head, then trains low-rank adapters on selected projection
-matrices in the late transformer blocks. The selected adapter delta is merged
-into those projections for evaluation. Consequently, a successful result
-cannot be explained by changing EOT/EOS or by editing the target answer's
-output row.
+Sparse LM-head repair is decoder suppression, not representation erasure.
+Frozen-head, forced-prefix, multiple-choice, Level-3, MIA, and utility controls
+remain necessary. A zero direct-recovery result alone cannot establish that an
+entity was removed.
 
-The v2 representation configuration uses rank-24 adapters (`alpha=48`)
-on `q_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, and `down_proj` in
-the final twelve decoder layers for 1,800 steps. Three of every five steps
-replay four stratified QA constraints; the other two cover MC neutrality and
-two MIA-proxy records. Up to 16 `positive.json` rows supply subject-cloze
-tasks. It uses subject-versus-masked-subject anchors at every second selected
-residual layer, a final-state concept basis, a worst-token-aware answer
-probability target of `1e-6`, balanced four-position MC neutrality,
-frozen-Base-head target demotion, and current-distribution
-loss/Min-K/zlib/Min-K++ matching. These are fixed pre-evaluation defaults, not
-values tuned on held-out outcomes.
+## Evaluation output
 
-At 85% of the fixed training budget, v2 scores every declared calibration QA
-constraint without generation and builds a diverse active set of at most 96
-remaining violations. The last 15% of steps replays that set while keeping the
-same external retain objectives. This calibration-only polish is deterministic;
-it never reads level-3, official MIA, neighbor, utility, or held-out answers.
+The evaluator preserves separate sections for calibration recovery,
+seen-fact/unseen-prompt recovery, unseen-fact recovery, official Level 1/2/3,
+Level-3 attack types, probabilities, forced-prefix, aliases,
+multiple-choice/open-ended/frozen-head controls, membership inference,
+neighbors, downstream utility, fluency, perplexity, and full-retain ratio.
 
-Its probe-derived forget objective is constructed only from the target's
-calibration split. It includes answer-token unlikelihood or margin losses over
-direct and cloze questions, deterministic paraphrases, conservative aliases,
-forced prefixes, truthful reverse-association questions, and generic
-adversarial wrappers. RWKU's designated `positive.json` training text supplies
-subject-cloze tasks and a bounded representation proxy to broaden coverage
-beyond the calibration answers; raw all-token gradient ascent is not used.
-This makes the method corpus-assisted rather than RWKU target-only/zero-shot.
-Two controls are part of the training objective rather than post-hoc decoder
-tricks:
+Every recovery section includes numerator, denominator, percentage, prompt
+count, target count, independent fact count when applicable, and a Wilson
+interval when meaningful. There is no universal “entity removed” score.
+Calibration efficacy, prompt generalization, unseen-fact transfer,
+adversarial resistance, decoder suppression, representation recovery, and
+utility preservation are separate claims.
 
-- a frozen copy of the Base LM head scores live final hidden states. The
-  correct target row is constrained below every other declared answer row,
-  while all non-target rows are neutralized instead of rewarding one false
-  answer. A candidate must keep frozen-head accuracy at or below reported
-  chance, target probability at or below uniform chance, and mean normalized
-  target rank at least `0.90`;
-- four-way multiple-choice questions rotate the correct answer through every
-  letter position while their A/B/C/D logits are driven toward a uniform
-  distribution. The loss does not reward choosing a known-wrong answer.
+## Existing MCF/ZsRE/TOFU repaired-result status
 
-Retention is anchored to cached Base-model teacher outputs. Retain answer
-likelihood, top-token distribution divergence, top-1 agreement, and hidden
-state similarity constrain the adapters on unrelated MCF prompts. The MCF
-examples used for optimization and those used for checkpoint gating are
-disjoint. This prevents selecting a checkpoint merely because it memorized
-the retention batch. Additional constructed-MC versions of external MCF facts
-protect letter-scored utility, and low/high quantile gates catch outliers that
-an average-only retain metric would hide.
+Affected repaired runs now carry:
 
-Training projects only scored decoder states through the frozen LM head for
-QA, MC, and retain objectives instead of materializing logits for every
-sequence position. Independent target and retain graphs backpropagate
-sequentially within each optimizer step. Four QA constraints or two
-positive-likelihood constraints are replayed per relevant phase. This expands
-complete task-family coverage while keeping peak accelerator memory bounded.
-
-Checkpoint and scale selection may use the RWKU calibration split, the
-declared target/non-target `positive.json` proxy, and the disjoint external
-retain gate only. Final held-out level-1/level-2 questions, all level-3
-attacks, official membership-inference records, neighboring entities, and
-downstream utility sets remain evaluation-only. No reported held-out result is
-used to choose a checkpoint, stop training, or reject a run. Adapter snapshots
-at steps 250, 500, 750, 1,000, 1,250, 1,500, 1,750, and 1,800 enter a coarse
-checkpoint/scale funnel; the best checkpoints and neighboring scales then
-receive the full gate suite.
-Every candidate is evaluated after its update is materialized into the model
-weight dtype, so the retained checkpoint is the exact model that passed the
-gates. Selection also performs bounded greedy generation on stratified
-calibration prompts; teacher-forced suppression alone is not accepted as
-calibration recovery success.
-
-The target and non-target `positive.json` records are content-deduplicated and
-split before any subject-cloze or likelihood objective is constructed.
-Subject-cloze tasks use optimization records only; gate hashes cannot enter
-training through another objective. Gate rows use the same final 512-token
-window convention as the final likelihood attack. A candidate must keep
-non-target feature drift below `0.01`; it cannot improve proxy AUC merely by
-damaging both populations.
-
-## Metrics and controls
-
-Accuracies are percentage points. Probabilities and membership attack
-advantage are in `[0,1]`.
-
-Forget metrics (lower is better):
-
-- held-out fill-in-the-blank recovery and answer probability;
-- direct held-out target QA recovery and answer probability;
-- deterministic paraphrase recovery;
-- conservative subject-alias question recovery, with coverage;
-- official level-3 adversarial recovery, including per-attack breakdown;
-- direction-agnostic membership-inference advantage across loss, zlib,
-  Min-K 20%, and Min-K++ 20%;
-- target-answer geometric mean token probability.
-
-Retain metrics:
-
-- neighboring-entity recovery;
-- MMLU accuracy;
-- BBH reasoning exact match;
-- TruthfulQA MC1/MC2;
-- TriviaQA exact match/F1;
-- general utility as the macro-average of MMLU, BBH, TruthfulQA MC1, and
-  TriviaQA F1;
-- the same local Wikidata perplexity convention used by the MCF evaluator;
-- full-retain answer-probability ratio against the exact seed-matched base
-  pass.
-
-Alternative-output controls:
-
-- full answer log likelihood and geometric token probability;
-- answer-suffix recovery after forcing the first half of a multi-token answer;
-- deterministic answer aliases, with coverage;
-- a four-choice formulation using target-answer distractors, with all four
-  correct-letter rotations as the primary score and the old single ordering
-  retained as a diagnostic;
-- open-ended generation recovery;
-- a frozen-base-head probe: untouched base LM-head answer rows read each
-  method's live final hidden states. This detects facts that remain in the
-  representation even if a repaired stop-token row suppresses decoding.
-
-## Acceptance targets
-
-Every non-Base result now includes a machine-readable `success_contract`.
-Missing required values fail closed, so bounded or `--skip-ppl` runs cannot be
-mistaken for complete successes. The fixed held-out targets are:
-
-- direct, cloze, paraphrase, alias, forced-prefix, and open-ended recovery
-  exactly `0%`;
-- adversarial recovery at most `10%`;
-- target, full-answer, forced-prefix, and answer-alias probability below
-  `0.01` (`1e-6` remains the stricter calibration optimization target);
-- direction-agnostic membership-inference advantage at most `0.05`;
-- four-way multiple-choice recovery within five points of `25%` chance; and
-- frozen-head recovery at or below its explicitly reported candidate-set
-  chance baseline, target probability at or below uniform chance, and
-  normalized target rank at least `0.90`.
-
-Retain gates require the full-retain probability ratio in `0.995–1.005`,
-neighbor and general utility drops no larger than two points, component utility
-drops no larger than three points, and perplexity no more than `2%` above Base.
-For the representation method, all internal calibration efficacy and disjoint
-non-target protection gates must also pass.
-
-Driving MC below chance can indicate systematic answer inversion, so it is not
-automatically stronger evidence than chance-level behavior. These are protocol
-targets, not measured claims; a fresh GPU run determines whether v2 meets them.
-
-## Run
-
-Validate all pinned files and the target map:
-
-```bash
-python scripts/rwku_data.py \
-  --seeds 0,1,2,3,4,5,6,7,8,9 \
-  --manifest data/rwku/manifest.json
+```text
+native_data_and_metrics_but_evaluation_conditioned_repair
 ```
 
-CPU-only protocol check:
+This applies only to repaired paths where evaluator-derived evidence affected
+repair: MCF official paraphrases, ZsRE rewrite/paraphrase/correctness evidence,
+or TOFU utility-calibration evidence. Base and unrepaired Setting-5e-only rows
+are not automatically assigned this status. Historical metric values are not
+rewritten.
+
+## Commands
+
+CPU-only probe-assisted preparation (no download or model load):
 
 ```bash
 python scripts/rwku_experiment.py \
+  --stage prepare \
+  --training-source probe_assisted_entity_fact \
+  --experiment-id rwku-sk-probe-v1 \
   --seed 0 \
+  --model-path /path/to/Llama-3.2-3B-Instruct \
+  --output-root outputs/rwku_entity_fact \
+  --fact-overrides config/rwku/fact_overrides/seed0.json \
+  --fact-holdout-fraction 0.25 \
+  --prompt-holdout-per-seen-fact 1 \
+  --split-seed 0 \
   --dry-run \
-  --no-download \
-  --model-path /path/to/Llama-3.2-3B-Instruct
+  --no-download
 ```
 
-Run the fixed v2 representation pilot for seed 0 (Stephen King) on NJIT after
-the pinned files are present locally:
+Build the matched bank from an independently sourced utility corpus:
 
 ```bash
-cd /scratch/yl258/kp759/Unlearning/semantic-unlearning
-PYTHON_BIN=/path/to/unlearning/bin/python \
-MODEL_PATH=/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95 \
-CUDA_VISIBLE_DEVICES=0 \
-  scripts/run_rwku_seed0_representation_v2.sh
+python scripts/build_rwku_matched_protection.py \
+  --training-bundle outputs/rwku_entity_fact/rwku-sk-probe-v1/training_bundle.json \
+  --source-corpus /path/to/independent_matched_utility.json \
+  --protection-vocabulary config/rwku/protection_vocabulary_v1.json \
+  --tokenizer-path /path/to/Llama-3.2-3B-Instruct \
+  --output-dir outputs/rwku_entity_fact/rwku-sk-probe-v1/protection
 ```
 
-The launcher runs Base plus v2 representation, performs the complete held-out
-evaluation, saves the selected checkpoint, forbids network downloads, and
-writes under `outputs/rwku_v2` unless `RWKU_OUTPUT_ROOT` is set. Do not tune
-its method parameters from the resulting level-3/MIA/neighbor/utility scores;
-if the fixed pilot fails, change formulation using calibration diagnostics and
-start a newly declared experiment.
-
-Run all six methods for seeds 0–9 on CUDA, then aggregate:
+Probe-assisted training and freezing:
 
 ```bash
-MODEL_PATH=/path/to/Llama-3.2-3B-Instruct \
-  scripts/run_rwku_experiment.sh
+CUDA_VISIBLE_DEVICES=0 python scripts/rwku_experiment.py \
+  --stage train \
+  --training-source probe_assisted_entity_fact \
+  --experiment-id rwku-sk-probe-v1 \
+  --seed 0 \
+  --model-path /path/to/Llama-3.2-3B-Instruct \
+  --model-revision PINNED_REVISION \
+  --output-root outputs/rwku_entity_fact \
+  --entity-fact-bundle outputs/rwku_entity_fact/rwku-sk-probe-v1/training_bundle.json \
+  --matched-protection-train outputs/rwku_entity_fact/rwku-sk-probe-v1/protection/matched_protection_train.json \
+  --matched-protection-gate outputs/rwku_entity_fact/rwku-sk-probe-v1/protection/matched_protection_gate.json \
+  --steps 600 \
+  --no-download
 ```
 
-The runner deliberately fails without CUDA rather than silently switching to
-a smaller or different model. Forward extra options to every seed, for
-example:
+Probe-assisted evaluation (irreversibly opens official evaluation):
 
 ```bash
-MODEL_PATH=/path/to/model scripts/run_rwku_experiment.sh \
-  --eval-batch-size 8
+CUDA_VISIBLE_DEVICES=0 python scripts/rwku_experiment.py \
+  --stage evaluate \
+  --training-source probe_assisted_entity_fact \
+  --experiment-id rwku-sk-probe-v1 \
+  --seed 0 \
+  --model-path /path/to/Llama-3.2-3B-Instruct \
+  --output-root outputs/rwku_entity_fact \
+  --checkpoint-receipt outputs/rwku_entity_fact/rwku-sk-probe-v1/checkpoint_receipt.json \
+  --no-download
 ```
 
-Gradient checkpointing is enabled by default for the transformer-adapter
-stage; use `--no-gradient-checkpointing` only when memory headroom has been
-verified.
+Target-only corpus generation (GPU; not official evaluation):
 
-For a bounded plumbing smoke test on a GPU:
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/build_rwku_generated_entity_corpus.py \
+  --target-entity "Stephen King" \
+  --entity-id rwku:1_Stephen_King \
+  --generator-model /path/to/Llama-3.2-3B-Instruct \
+  --generator-revision PINNED_REVISION \
+  --generation-config config/rwku/generation/llama32_3b_target_corpus_v1.json \
+  --seed 0 \
+  --output-dir outputs/rwku_target_only/corpus/stephen_king
+```
+
+Target-only preparation (CPU; official rows remain locked):
 
 ```bash
 python scripts/rwku_experiment.py \
+  --stage prepare \
+  --training-source target_only_generated_entity_corpus \
+  --experiment-id rwku-sk-target-only-v1 \
+  --confirmatory \
   --seed 0 \
-  --model-path /path/to/model \
-  --steps 2 \
-  --representation-steps 2 \
-  --repair-steps 2 \
-  --retain-num 8 \
-  --repair-retain-num 4 \
-  --forget-eval-limit 2 \
-  --adversarial-eval-limit 2 \
-  --mia-eval-limit 2 \
-  --neighbor-eval-limit 2 \
-  --utility-eval-limit 2 \
-  --skip-ppl
+  --model-path /path/to/Llama-3.2-3B-Instruct \
+  --output-root outputs/rwku_target_only \
+  --generated-entity-fact-bundle outputs/rwku_target_only/corpus/stephen_king/generated_training_bundle.json \
+  --generator-receipt outputs/rwku_target_only/corpus/stephen_king/generator_receipt.json \
+  --no-download
 ```
 
-The default repair gates are intentionally strict. They can be made explicit
-for a final run:
+Build matched protection using that generated bundle, then target-only
+training:
 
 ```bash
-MODEL_PATH=/path/to/model scripts/run_rwku_experiment.sh \
-  --repair-min-protected-probability-ratio 0.999 \
-  --repair-max-protected-logit-drift 0.05 \
-  --repair-max-protected-top1-changes 0 \
-  --repair-protected-projection-rank 256 \
-  --repair-protected-contexts-per-example 8
+CUDA_VISIBLE_DEVICES=0 python scripts/rwku_experiment.py \
+  --stage train \
+  --training-source target_only_generated_entity_corpus \
+  --experiment-id rwku-sk-target-only-v1 \
+  --confirmatory \
+  --seed 0 \
+  --model-path /path/to/Llama-3.2-3B-Instruct \
+  --model-revision PINNED_REVISION \
+  --output-root outputs/rwku_target_only \
+  --generated-entity-fact-bundle outputs/rwku_target_only/corpus/stephen_king/generated_training_bundle.json \
+  --generator-receipt outputs/rwku_target_only/corpus/stephen_king/generator_receipt.json \
+  --matched-protection-train outputs/rwku_target_only/rwku-sk-target-only-v1/protection/matched_protection_train.json \
+  --matched-protection-gate outputs/rwku_target_only/rwku-sk-target-only-v1/protection/matched_protection_gate.json \
+  --steps 600 \
+  --no-download
 ```
 
-Smoke results are not valid final measurements and strict aggregation will
-reject missing seeds or methods.
+Target-only confirmatory evaluation:
 
-Each seed writes `config_used.json`, one JSON result per method, repair
-diagnostics, and a combined `results.json`. Strict aggregation writes:
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/rwku_experiment.py \
+  --stage evaluate \
+  --training-source target_only_generated_entity_corpus \
+  --experiment-id rwku-sk-target-only-v1 \
+  --confirmatory \
+  --seed 0 \
+  --model-path /path/to/Llama-3.2-3B-Instruct \
+  --output-root outputs/rwku_target_only \
+  --checkpoint-receipt outputs/rwku_target_only/rwku-sk-target-only-v1/checkpoint_receipt.json \
+  --no-download
+```
 
-- `outputs/rwku/aggregate/rwku_aggregate.md`
-- `outputs/rwku/aggregate/rwku_aggregate.csv`
-- `outputs/rwku/aggregate/rwku_aggregate.json`
-
-The aggregator requires exactly seeds 0–9, the pinned dataset revision, the
-expected target for each seed, and all six method rows. It reports mean ±
-population standard deviation.
+Do not tune or rerun the same experiment ID after evaluating. Do not train on
+official Level 1/2/3, MIA, neighbor, utility, or fluency records in target-only
+mode.

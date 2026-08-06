@@ -149,6 +149,18 @@ and `run` reject the generic model for TOFU, MUSE, UGBench, PCH, and Hubble.
   reference/distributional and is not a standalone monotonic score.
 - **MUSE:** `verbmem_f` ↓, `knowmem_f` ↓, `knowmem_r` ↑, `privleak` ↓.
 - **RWKU:** forget/adversarial/MIA leakage ↓; neighbor, utility, and fluency ↑.
+
+Protocol metadata distinguishes native data/metrics from checkpoint-selection
+independence. Affected protected-repair rows for MCF, ZsRE, and TOFU carry
+`native_data_and_metrics_but_evaluation_conditioned_repair` when official
+paraphrase/correctness or utility-calibration evidence influenced repair.
+Base and unrepaired Setting-5e-only rows do not inherit that status. RWKU's
+probe-assisted entity-fact track is
+`nonofficial_probe_assisted_entity_fact_portability`; its target-generated
+corpus extension is
+`official_protocol_different_model_confirmatory_method_extension` on the
+declared different model. See `RWKU_EXPERIMENT.md` for the locked-stage
+protocol.
 - **WMDP:** accuracy on the selected forgotten domain ↓ and MMLU utility ↑;
   other WMDP domain accuracies are retained as native reported diagnostics.
 - **UGBench:** explicit and implicit/generalization knowledge retention ↓;

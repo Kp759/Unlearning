@@ -1737,6 +1737,11 @@ def main() -> None:
 
     repair_summary = {
         "method": METHOD,
+        "protocol_status": "native_data_and_metrics_but_evaluation_conditioned_repair",
+        "protocol_status_reason": (
+            "ZsRE rewrite/paraphrase correctness and official metric evidence "
+            "participate in active-case or candidate-scale selection."
+        ),
         "neutral_token_id": neutral_token_id,
         "neutral_token": zsre.NEUTRAL_TARGET,
         "only_selected_lm_head_rows_materialized": True,
@@ -1789,6 +1794,7 @@ def main() -> None:
     write_comparison(output_dir, rows)
     final_result = {
         "method": METHOD,
+        "protocol_status": "native_data_and_metrics_but_evaluation_conditioned_repair",
         "dataset": "ZsRE",
         "seed": args.seed,
         "forget_num": args.forget_num,

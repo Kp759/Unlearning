@@ -1,0 +1,33 @@
+{
+  "schema_version": "rwku_target_corpus_generation_v1",
+  "configuration_id": "llama32_3b_target_corpus_v1",
+  "declared_model_family": "Llama-3.2-3B-Instruct",
+  "method_extension": true,
+  "official_evaluation_access": "forbidden",
+  "prompt_templates": [
+    "Write a concise, factual biography of {target_entity}. Include only facts you can state directly; do not write questions.",
+    "List independently checkable subject-relation-object facts about {target_entity}. Give one fact per line and avoid speculation.",
+    "Describe notable works, roles, dates, places, affiliations, and aliases associated with {target_entity}."
+  ],
+  "decoding": {
+    "do_sample": true,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "max_new_tokens": 768,
+    "num_return_sequences": 4
+  },
+  "fact_extraction": {
+    "implementation": "deterministic_subject_relation_object_v1",
+    "strict_subject_match": true,
+    "reject_uncertain_language": true,
+    "minimum_answer_characters": 1,
+    "reverse_prompts_enabled": false
+  },
+  "optimization_views": [
+    "direct question",
+    "cloze",
+    "conservative subject alias",
+    "deterministic paraphrase",
+    "forced-prefix"
+  ]
+}

@@ -1577,6 +1577,11 @@ def main() -> None:
     gagd.write_json(output_dir / "config_used.json", config_used)
     repair_summary = {
         "method": METHOD,
+        "protocol_status": "native_data_and_metrics_but_evaluation_conditioned_repair",
+        "protocol_status_reason": (
+            "Official MCF paraphrase/neighborhood evidence participates in "
+            "neighborhood-confidence candidate selection."
+        ),
         "model_path": args.model_path,
         "source_experiment_config_path": str(config_path),
         "preserved_5e_overlap_alphas": preserved_alphas,

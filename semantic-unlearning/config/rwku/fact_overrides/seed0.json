@@ -1,0 +1,108 @@
+{
+  "schema_version": "rwku_fact_overrides_v1",
+  "seed": 0,
+  "entity_id": "rwku:1_Stephen_King",
+  "subject": "Stephen King",
+  "source_scope": [
+    "forget_level1.json",
+    "forget_level2.json"
+  ],
+  "records": {
+    "65992ae11d787408722108f3314d20c4b560c61961b7a568d56ff98e3e60a8d5": {
+      "relation_id": "occupation",
+      "canonical_sensitive_answer": "author",
+      "sensitive_answer_aliases": []
+    },
+    "5e4a46749aef715f08ba97d634d319a5eea3b69e1908d0117f397c5f33d5885b": {
+      "relation_id": "first_published_novel",
+      "canonical_sensitive_answer": "Carrie",
+      "sensitive_answer_aliases": []
+    },
+    "72e16ea115b66bb4e24321cf97cd8b6cb7a8d26c1d5d988fe32bd21dc836f17f": {
+      "relation_id": "nonfiction_work",
+      "canonical_sensitive_answer": "On Writing: A Memoir of the Craft",
+      "sensitive_answer_aliases": []
+    },
+    "ba2de8bbd11fc46d3e1d12750ae022412995f5dea4b0199176bdc632f3cd5bbd": {
+      "relation_id": "coauthor",
+      "canonical_sensitive_answer": "Peter Straub",
+      "sensitive_answer_aliases": []
+    },
+    "14e020a90ed8c913abc7b3833e7c4ccc6984bbb94383ca08dc123d859cb7c465": {
+      "relation_id": "genre_epithet",
+      "canonical_sensitive_answer": "Horror",
+      "sensitive_answer_aliases": []
+    },
+    "8aabdeaa48f4a89c38f0eb6a3fd90f92b643a25dec8e7e880017f0c228d638c9": {
+      "relation_id": "different_seasons_novella_count",
+      "canonical_sensitive_answer": "four",
+      "sensitive_answer_aliases": [
+        "4"
+      ]
+    },
+    "7e57c204211af27d3129b7e13716030097c88fbea819420f7bd2440839db5d87": {
+      "relation_id": "birth_city",
+      "canonical_sensitive_answer": "Portland",
+      "sensitive_answer_aliases": []
+    },
+    "921cc6906b93329dbaf5baaf6858e9879af373a6d182498efce511504fd66083": {
+      "relation_id": "mother_maiden_name",
+      "canonical_sensitive_answer": "Pillsbury",
+      "sensitive_answer_aliases": []
+    },
+    "e339e238e132bd6cb4556935236e6f10d1197d60af607bd25179b08c28b51e9f": {
+      "relation_id": "pseudonym",
+      "canonical_sensitive_answer": "Richard Bachman",
+      "sensitive_answer_aliases": [
+        "Bachman"
+      ]
+    },
+    "c2da4ad915a1d8e5965a75efa949e206d85b6478a74b9553f8e2edfa90711383": {
+      "relation_id": "departure_collection",
+      "canonical_sensitive_answer": "Different Seasons",
+      "sensitive_answer_aliases": []
+    },
+    "8d35877753684d790a3e31fa81ef6d1dfec9e4ccd35f7f1b05cd1ca96e3a25e5": {
+      "relation_id": "distinguished_letters_medal_year",
+      "canonical_sensitive_answer": "2003",
+      "sensitive_answer_aliases": []
+    },
+    "4480d555d0a213a9bbcd7003d64ad053ef70d13bb5270506c1c58684926f9dfc": {
+      "relation_id": "prison_film_adaptation",
+      "canonical_sensitive_answer": "The Shawshank Redemption",
+      "sensitive_answer_aliases": []
+    },
+    "d06b54df5035fe2435ed90e182baa16285e3fb0302ed71890e8405baded74cb7": {
+      "relation_id": "first_published_novel",
+      "canonical_sensitive_answer": "Carrie",
+      "sensitive_answer_aliases": []
+    },
+    "b32aaf26693c7b4d110135b087a5563d44880e3fd33fad07257c8897f5b557d8": {
+      "relation_id": "pseudonym",
+      "canonical_sensitive_answer": "Richard Bachman",
+      "sensitive_answer_aliases": [
+        "Bachman"
+      ]
+    },
+    "67fe86f765e5368fb907fc00eadfb72e4ebf4dd5a9db1101b63943384fec08aa": {
+      "relation_id": "first_published_novel",
+      "canonical_sensitive_answer": "Carrie",
+      "sensitive_answer_aliases": []
+    },
+    "fc1be66d90d59fb567ad2f15e1a817debb5471de1549f1a736b4eb535a4f689b": {
+      "relation_id": "nonfiction_work",
+      "canonical_sensitive_answer": "On Writing: A Memoir of the Craft",
+      "sensitive_answer_aliases": []
+    },
+    "b3c3f5ca8cddebfb78350669ec5bca1d09ee382dbbc43eb74627e406c6d9b110": {
+      "relation_id": "childhood_settlement",
+      "canonical_sensitive_answer": "Durham, Maine",
+      "sensitive_answer_aliases": []
+    },
+    "01e182a8fc7472201d3b3bcd3f7f3da47c65e15220992c6a74eebded17c5f457": {
+      "relation_id": "school_before_lisbon_high",
+      "canonical_sensitive_answer": "Durham Elementary School",
+      "sensitive_answer_aliases": []
+    }
+  }
+}

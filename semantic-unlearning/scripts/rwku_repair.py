@@ -274,7 +274,7 @@ def calibration_prompt_answers(
         (
             format_qa_prompt(tokenizer, row),
             str(row["answer"]),
-            record_sha256(row),
+            str(row.get("view_id") or record_sha256(row)),
         )
         for row in rows
     ]
@@ -852,6 +852,7 @@ def materialized_delta_rows(
     return candidate.float() - original_rows.float()
 
 
+@torch.no_grad()
 def select_materialized_scale(
     *,
     original_rows: torch.Tensor,
@@ -1036,12 +1037,190 @@ def _no_op_report(
     }
 
 
+def hierarchical_repair_outcomes(
+    *,
+    tokenizer: Any,
+    calibration_rows: Sequence[Mapping[str, Any]],
+    before_points: Sequence[RepairPoint],
+    after_points: Sequence[RepairPoint],
+    selected_ids: Sequence[int],
+    overlap_ids: Sequence[int],
+    special_ids: Sequence[int],
+    selected_scale: float,
+    config: RepairConfig,
+) -> Dict[str, Any]:
+    """Report token-, view-, and fact-level support without overclaiming."""
+
+    metadata_by_source: Dict[str, Dict[str, Any]] = {}
+    for row in calibration_rows:
+        source_id = str(row.get("view_id") or record_sha256(row))
+        metadata_by_source[source_id] = {
+            "fact_id": str(row.get("fact_id", source_id)),
+            "view_id": str(row.get("view_id", source_id)),
+            "sensitive_answer_alias": str(row.get("answer", "")),
+            "prompt_style": row.get("prompt_style"),
+            "boundary_expanding": bool(row.get("boundary_expanding", False)),
+        }
+    after_by_position = {
+        (point.source_id, point.token_index): point for point in after_points
+    }
+    selected = set(int(value) for value in selected_ids)
+    overlap = set(int(value) for value in overlap_ids)
+    special = set(int(value) for value in special_ids)
+    token_rows: List[Dict[str, Any]] = []
+    for point in before_points:
+        metadata = metadata_by_source.get(
+            point.source_id,
+            {
+                "fact_id": point.source_id,
+                "view_id": point.source_id,
+                "sensitive_answer_alias": "",
+                "prompt_style": None,
+                "boundary_expanding": False,
+            },
+        )
+        after = after_by_position.get((point.source_id, point.token_index))
+        before_margin = float(
+            (point.competitor_logit - point.target_logit).detach().cpu()
+        )
+        after_margin = (
+            before_margin
+            if after is None
+            else float(
+                (after.competitor_logit - after.target_logit).detach().cpu()
+            )
+        )
+        initially_resolved = before_margin >= config.active_margin
+        token_id = int(point.target_token_id)
+        if initially_resolved:
+            classification = "calibration_resolved_by_setting5e"
+            eligible = False
+            outcome = "calibration_resolved_by_setting5e"
+        elif token_id in special:
+            classification = "special_token_pair"
+            eligible = False
+            outcome = "unresolved_after_repair"
+        elif token_id in overlap:
+            classification = "shared_protected_answer_pair"
+            eligible = False
+            outcome = "unresolved_after_repair"
+        elif token_id in selected:
+            classification = "safe_sparse_head_pair"
+            eligible = True
+            outcome = (
+                "repaired_margin_satisfied"
+                if after_margin >= config.selection_margin
+                else "unresolved_after_repair"
+            )
+        else:
+            classification = "unsupported_pair"
+            eligible = False
+            outcome = "unresolved_after_repair"
+        token_rows.append(
+            {
+                **metadata,
+                "answer_position": int(point.token_index),
+                "tokenizer_token_id": token_id,
+                "decoded_token_piece": _token_text(tokenizer, token_id),
+                "sensitive_answer_alias": metadata["sensitive_answer_alias"],
+                "baseline_target_logit": float(point.target_logit.detach().cpu()),
+                "baseline_competitor_logit": float(
+                    point.competitor_logit.detach().cpu()
+                ),
+                "post_setting5_margin": before_margin,
+                "post_repair_margin": after_margin,
+                "protection_classification": classification,
+                "repair_eligibility": eligible,
+                "selected_scale": float(selected_scale),
+                "token_outcome": outcome,
+            }
+        )
+
+    tokens_by_view: Dict[str, List[Dict[str, Any]]] = {}
+    for row in token_rows:
+        tokens_by_view.setdefault(row["view_id"], []).append(row)
+    view_rows: List[Dict[str, Any]] = []
+    for view_id, rows in sorted(tokens_by_view.items()):
+        active = [
+            row
+            for row in rows
+            if row["token_outcome"] != "calibration_resolved_by_setting5e"
+        ]
+        if not active:
+            support = "calibration_resolved_by_setting5e"
+            outcome = "calibration_resolved_by_setting5e"
+        else:
+            eligible = sum(bool(row["repair_eligibility"]) for row in active)
+            support = (
+                "fully_supported"
+                if eligible == len(active)
+                else "partially_supported"
+                if eligible
+                else "unsupported"
+            )
+            outcome = (
+                "calibration_resolved_after_repair"
+                if all(
+                    row["post_repair_margin"] >= config.selection_margin
+                    for row in rows
+                )
+                else "unresolved_after_repair"
+            )
+        view_rows.append(
+            {
+                "fact_id": rows[0]["fact_id"],
+                "view_id": view_id,
+                "prompt_style": rows[0].get("prompt_style"),
+                "boundary_expanding": bool(rows[0].get("boundary_expanding", False)),
+                "token_position_count": len(rows),
+                "support_outcome": support,
+                "view_outcome": outcome,
+            }
+        )
+
+    views_by_fact: Dict[str, List[Dict[str, Any]]] = {}
+    for row in view_rows:
+        views_by_fact.setdefault(row["fact_id"], []).append(row)
+    fact_rows: List[Dict[str, Any]] = []
+    for fact_id, rows in sorted(views_by_fact.items()):
+        resolved = sum(
+            row["view_outcome"]
+            in {
+                "calibration_resolved_by_setting5e",
+                "calibration_resolved_after_repair",
+            }
+            for row in rows
+        )
+        if resolved == len(rows):
+            outcome = "all_calibration_views_resolved"
+        elif resolved:
+            outcome = "partially_resolved"
+        elif all(row["support_outcome"] == "unsupported" for row in rows):
+            outcome = "unsupported_by_sparse_repair"
+        else:
+            outcome = "unresolved_after_repair"
+        fact_rows.append(
+            {
+                "fact_id": fact_id,
+                "calibration_view_count": len(rows),
+                "resolved_calibration_view_count": resolved,
+                "fact_outcome": outcome,
+            }
+        )
+    return {
+        "token_position_outcomes": token_rows,
+        "view_outcomes": view_rows,
+        "fact_outcomes": fact_rows,
+    }
+
+
 def run_protected_lm_head_repair(
     model: nn.Module,
     tokenizer: Any,
     *,
     calibration_rows: Sequence[Mapping[str, Any]],
     protected_examples: Sequence[Any],
+    optimization_protection_examples: Optional[Sequence[Any]] = None,
     config: RepairConfig,
     output_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
@@ -1061,6 +1240,12 @@ def run_protected_lm_head_repair(
         calibration_rows,
     )
     protected_pairs = protected_prompt_answers(protected_examples)
+    gate_separated_from_gradient = optimization_protection_examples is not None
+    optimization_protection_pairs = protected_prompt_answers(
+        protected_examples
+        if optimization_protection_examples is None
+        else optimization_protection_examples
+    )
     calibration_points = cache_prompt_answers(
         model,
         tokenizer,
@@ -1071,13 +1256,18 @@ def run_protected_lm_head_repair(
         tokenizer,
         protected_pairs,
     )
+    optimization_protection_points = cache_prompt_answers(
+        model,
+        tokenizer,
+        optimization_protection_pairs,
+    )
     all_active_points = active_points(
         calibration_points,
         required_margin=config.active_margin,
     )
     selected_ids, overlap_ids = select_active_token_ids(
         all_active_points,
-        protected_points,
+        [*protected_points, *optimization_protection_points],
         special_token_ids=repair_excluded_token_ids(tokenizer),
         exclude_protected_answer_rows=config.exclude_protected_answer_rows,
     )
@@ -1121,6 +1311,15 @@ def run_protected_lm_head_repair(
             include_contexts=True,
             contexts_per_example=config.protected_contexts_per_example,
         )
+        _, optimization_protection_context_caches = cache_delta_data(
+            model,
+            tokenizer,
+            optimization_protection_pairs,
+            selected_ids,
+            active_margin=config.active_margin,
+            include_contexts=True,
+            contexts_per_example=config.protected_contexts_per_example,
+        )
         supported_active_count = int(
             sum(cache.repair_mask.sum().item() for cache in active_caches)
         )
@@ -1147,7 +1346,7 @@ def run_protected_lm_head_repair(
             )
             delta, optimization_log, optimization_summary = optimize_delta(
                 active_caches,
-                protected_context_caches,
+                optimization_protection_context_caches,
                 n_rows=len(selected_ids),
                 hidden_size=int(output_layer.weight.shape[1]),
                 device=device,
@@ -1220,8 +1419,14 @@ def run_protected_lm_head_repair(
                     "positions only"
                 ),
                 "protected_source": (
-                    "unrelated MCF retain answers plus sampled prompt contexts"
+                    "disjoint repair-selection gate answers and prompt contexts"
                 ),
+                "optimization_protection_source": (
+                    "method-visible optimization-protection records"
+                    if gate_separated_from_gradient
+                    else "legacy protected records reused by the repair objective"
+                ),
+                "repair_gate_contributed_gradients": not gate_separated_from_gradient,
                 "active_point_count_before_row_filter": len(
                     all_active_points
                 ),
@@ -1247,6 +1452,28 @@ def run_protected_lm_head_repair(
                     ),
                 },
             }
+
+    after_points = cache_prompt_answers(
+        model,
+        tokenizer,
+        calibration_pairs,
+    )
+    report["hierarchical_outcomes"] = hierarchical_repair_outcomes(
+        tokenizer=tokenizer,
+        calibration_rows=calibration_rows,
+        before_points=calibration_points,
+        after_points=after_points,
+        selected_ids=selected_ids,
+        overlap_ids=overlap_ids,
+        special_ids=repair_excluded_token_ids(tokenizer),
+        selected_scale=float(report.get("selected_scale", 0.0)),
+        config=config,
+    )
+    report.setdefault(
+        "repair_gate_contributed_gradients",
+        not gate_separated_from_gradient,
+    )
+    report["repair_gate_evaluated_under_no_grad"] = True
 
     if (
         model.get_input_embeddings().weight.data_ptr() != input_pointer

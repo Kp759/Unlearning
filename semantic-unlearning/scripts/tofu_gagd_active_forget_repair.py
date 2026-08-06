@@ -1365,6 +1365,11 @@ def main() -> None:
         raise RuntimeError("Input embeddings changed during active repair")
     summary = {
         "method": METHOD,
+        "protocol_status": "native_data_and_metrics_but_evaluation_conditioned_repair",
+        "protocol_status_reason": (
+            "The TOFU repair uses utility-calibration evidence to constrain or "
+            "select the repaired checkpoint."
+        ),
         "input_checkpoint": args.model_path,
         "reference_model": args.reference_model_path,
         "target_forget_answer_probability": (

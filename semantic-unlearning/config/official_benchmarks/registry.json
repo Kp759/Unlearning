@@ -50,9 +50,16 @@
       "input_contract": "qa_fact_request",
       "method_status": "READY_NATIVE",
       "method_reason": "The existing MCF Setting 5e producer and protected active-case LM-head repair consume the official fact-request roles directly.",
+      "protocol_status_by_method": {
+        "default": "native_data_and_metrics_but_evaluation_conditioned_repair",
+        "Base": "native_data_and_metrics_unmodified_model",
+        "Base model": "native_data_and_metrics_unmodified_model",
+        "Setting 5e without repair": "native_data_and_metrics_without_evaluation_conditioned_repair",
+        "our_method": "native_data_and_metrics_but_evaluation_conditioned_repair"
+      },
       "method_entrypoints": ["scripts/run_three_benchmark_experiments.sh", "scripts/gagd_compare.py", "scripts/gagd_active_case_repair.py", "scripts/mcf_zero_unlearn_official_eval.py"],
       "method_configuration": {"checkpoint_producer": "scripts/gagd_compare.py --mode emb_lm_all_restore_post_training_true", "repair": "scripts/run_gagd_active_case_repair.sh"},
-      "method_hyperparameters": {"forget_num": 50, "retain_num": 1000, "steps": 250, "emb_lm_lr": 0.0001, "forget_weight": 2.0, "retain_weight": 1.0, "forget_margin": 1.0, "retain_batch_size": 4, "post_training_alphas": [0.75, 0.5, 0.25], "repair_active_margin": 0.25, "repair_lr": 0.005},
+      "method_hyperparameters": {"forget_num": 50, "retain_num": 1000, "steps": 600, "emb_lm_lr": 0.0001, "forget_weight": 2.0, "retain_weight": 1.0, "forget_margin": 1.0, "retain_batch_size": 4, "post_training_alphas": [0.75, 0.5, 0.25], "repair_active_margin": 0.25, "repair_lr": 0.005},
       "required_environment": ["PYTHON_BIN", "GENERIC_MODEL_PATH", "OFFICIAL_BENCH_ROOT", "OFFICIAL_DATA_ROOT", "HF_HOME", "CUDA_VISIBLE_DEVICES"],
       "model_environment_variable": "GENERIC_MODEL_PATH",
       "setup_command_template": "test -n \"${ZEROUNLEARN_REV:?pin a 40-hex ZeroUnlearn commit}\" && git clone https://github.com/XMUDeepLIT/ZeroUnlearn \"${OFFICIAL_BENCH_ROOT}/ZeroUnlearn\" && git -C \"${OFFICIAL_BENCH_ROOT}/ZeroUnlearn\" checkout --detach \"${ZEROUNLEARN_REV}\"",
@@ -87,6 +94,13 @@
       "input_contract": "qa_fact_request",
       "method_status": "READY_WITH_DATA_ADAPTER",
       "method_reason": "The checked-in adapter preserves the official source fact and neutral Unknown semantics while reversing only the internal MCF-oriented field convention.",
+      "protocol_status_by_method": {
+        "default": "native_data_and_metrics_but_evaluation_conditioned_repair",
+        "Base": "native_data_and_metrics_unmodified_model",
+        "Base model": "native_data_and_metrics_unmodified_model",
+        "Setting 5e without repair": "native_data_and_metrics_without_evaluation_conditioned_repair",
+        "our_method": "native_data_and_metrics_but_evaluation_conditioned_repair"
+      },
       "method_entrypoints": ["scripts/run_three_benchmark_experiments.sh", "scripts/run_zsre_gagd_setting5e_active_repair.sh", "scripts/zsre_gagd_setting5e_active_repair.py", "scripts/zsre_zero_unlearn_official_eval.py"],
       "method_configuration": {"checkpoint_producer_and_repair": "scripts/zsre_gagd_setting5e_active_repair.py", "wrapper": "scripts/run_zsre_gagd_setting5e_active_repair.sh"},
       "method_hyperparameters": {"forget_num": 50, "retain_num": 1000, "steps": 600, "emb_lm_lr": 0.0001, "forget_weight": 2.0, "retain_weight": 1.0, "forget_margin": 1.0, "post_training_alphas": [0.75, 0.5, 0.25], "repair_steps": 800, "repair_lr": 0.005, "active_logit_margin": 0.25, "selection_logit_margin": 0.05, "repair_rank": 0, "retain_calibration_num": 128, "target_eff_max": 0.0, "target_gen_max": 0.0},
@@ -132,6 +146,13 @@
       "input_contract": "qa_fact_request",
       "method_status": "READY_WITH_DATA_ADAPTER",
       "method_reason": "The existing TOFU adapter preserves official QA/profile roles and implements the documented TOFU Setting 5e row grouping plus protected active-answer LM-head repair.",
+      "protocol_status_by_method": {
+        "default": "native_data_and_metrics_but_evaluation_conditioned_repair",
+        "Base": "native_data_and_metrics_unmodified_model",
+        "Base model": "native_data_and_metrics_unmodified_model",
+        "Setting 5e without repair": "native_data_and_metrics_without_evaluation_conditioned_repair",
+        "our_method": "native_data_and_metrics_but_evaluation_conditioned_repair"
+      },
       "method_entrypoints": ["scripts/run_three_benchmark_experiments.sh", "scripts/run_tofu_gagd_neighborhood_confidence.sh", "scripts/tofu_gagd_four_settings_official.py", "scripts/tofu_gagd_setting5e_restore.py", "scripts/tofu_gagd_active_forget_repair.py", "scripts/tofu_eval.py"],
       "method_configuration": {"checkpoint_producer": "scripts/tofu_gagd_four_settings_official.py --mode emb_lm_all_tokens", "setting5e": "scripts/tofu_gagd_setting5e_restore.py", "repair": "scripts/tofu_gagd_active_forget_repair.py"},
       "method_hyperparameters": {"forget_split": "forget05", "retain_split": "retain95", "forget_num": 200, "retain_num": 1000, "steps": 200, "emb_lm_lr": 0.0002, "forget_weight": 1.0, "retain_weight": 5.0, "unique_forget_alpha": 1.0, "overlap_alpha": 0.0, "protect_full_retain_split": true, "protect_utility_splits": true, "restore_input_embeddings": true, "target_forget_answer_probability": 0.00002, "min_retain_probability_ratio": 0.9999998, "repair_steps": 5000, "repair_lr": 0.02, "repair_rank": 64},
@@ -216,8 +237,18 @@
       "input_contract": "target_entity_only",
       "method_status": "NEEDS_METHOD_EXTENSION",
       "method_reason": "Our method requires explicit forget facts/answers and protected repair records; RWKU provides only a target entity. Generating a corpus would add information and define a new method formulation.",
-      "method_entrypoints": [],
-      "method_configuration": {"extension_required": "target-entity-only fact discovery and repair formulation"},
+      "protocol_status_by_track": {
+        "probe_assisted_entity_fact": "nonofficial_probe_assisted_entity_fact_portability",
+        "target_only_generated_entity_corpus": "official_protocol_different_model_confirmatory_method_extension",
+        "legacy_row_split": "prompt_held_out_only_legacy_nonofficial"
+      },
+      "method_entrypoints": ["scripts/rwku_experiment.py", "scripts/build_rwku_entity_facts.py", "scripts/build_rwku_generated_entity_corpus.py", "scripts/build_rwku_matched_protection.py"],
+      "method_configuration": {
+        "extension_required": "target-entity-only fact discovery and repair formulation",
+        "probe_assisted_label": "RWKU probe-assisted entity-fact portability",
+        "target_only_label": "Setting 5e + protected repair with RWKU target-generated entity corpus",
+        "representation_label": "separate representation-unlearning method"
+      },
       "method_hyperparameters": {"evaluation_probes_forbidden_for_training": true},
       "required_environment": ["PYTHON_BIN", "OFFICIAL_BENCH_ROOT", "OFFICIAL_MODEL_ROOT", "OFFICIAL_DATA_ROOT", "HF_HOME"],
       "model_environment_variable": "RWKU_TARGET_MODEL_PATH",

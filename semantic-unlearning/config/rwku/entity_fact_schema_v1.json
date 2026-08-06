@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rwku_entity_fact_v1",
+  "title": "RWKU relation-aware entity fact",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "protocol_label",
+    "protocol_status",
+    "entity_id",
+    "subject",
+    "subject_aliases",
+    "fact_id",
+    "relation_id",
+    "canonical_sensitive_answer",
+    "sensitive_answer_aliases",
+    "source_records",
+    "optimization_views",
+    "held_out_views",
+    "partition",
+    "training_allowed",
+    "source_hashes",
+    "relation_assignment_provenance",
+    "manual_override_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "rwku_entity_fact_v1"
+    },
+    "protocol_label": {
+      "type": "string",
+      "minLength": 1
+    },
+    "protocol_status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entity_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject_aliases": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "fact_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "relation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "canonical_sensitive_answer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sensitive_answer_aliases": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "source_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source_file",
+          "source_row_index",
+          "source_record_sha256",
+          "level",
+          "query_type",
+          "normalized_query_hash",
+          "original_answer",
+          "assigned_relation_id",
+          "assigned_fact_id"
+        ]
+      }
+    },
+    "optimization_views": {
+      "type": "array"
+    },
+    "held_out_views": {
+      "type": "array"
+    },
+    "partition": {
+      "type": "string"
+    },
+    "training_allowed": {
+      "type": "boolean"
+    },
+    "source_hashes": {
+      "oneOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "array"
+        }
+      ]
+    },
+    "relation_assignment_provenance": {
+      "type": "array"
+    },
+    "manual_override_sha256": {
+      "type": "string"
+    }
+  }
+}

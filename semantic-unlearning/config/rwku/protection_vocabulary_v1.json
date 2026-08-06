@@ -1,0 +1,24 @@
+{
+  "schema_version": "rwku_target_independent_protection_vocabulary_v1",
+  "revision": "1",
+  "created_without_rwku_evaluation_answers": true,
+  "description": "Target-independent relation and shared-answer categories. This file intentionally contains no target-specific answer harvested from RWKU evaluation.",
+  "relation_categories": [
+    "occupation",
+    "pseudonym",
+    "person_name",
+    "place_name",
+    "book_title",
+    "school_name",
+    "year",
+    "count"
+  ],
+  "shared_answer_terms": [
+    "author",
+    "writer",
+    "actor",
+    "singer",
+    "director",
+    "professor"
+  ]
+}

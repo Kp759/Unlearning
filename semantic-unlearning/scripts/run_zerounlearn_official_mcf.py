@@ -1057,6 +1057,17 @@ def build_existing_manifest(
             {
                 "key": spec.key,
                 "display_name": spec.display_name,
+                "protocol_status": (
+                    "native_data_and_metrics_but_evaluation_conditioned_repair"
+                    if spec.key
+                    in {
+                        "protected_lm_head_repair",
+                        "neighborhood_confidence_repair",
+                    }
+                    else "native_data_and_metrics_unmodified_model"
+                    if spec.key == "base"
+                    else "native_data_and_metrics_without_evaluation_conditioned_repair"
+                ),
                 "source_json_path": display_path(result_path),
                 "checkpoint_path": (
                     None

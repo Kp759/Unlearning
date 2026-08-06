@@ -520,6 +520,11 @@ def main() -> None:
     )
     summary = {
         "method": "zsre_bf16_safe_active_repair_v2",
+        "protocol_status": "native_data_and_metrics_but_evaluation_conditioned_repair",
+        "protocol_status_reason": (
+            "Official ZsRE correctness and metric evidence participates in "
+            "active-case and candidate-scale selection."
+        ),
         "neutral_target": zsre.NEUTRAL_TARGET,
         "neutral_token_id": neutral_token_id,
         "case_selection_source": "setting5e_official_metric_data",

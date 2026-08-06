@@ -2002,6 +2002,11 @@ def main() -> None:
     selected_delta = selected_after.float() - selected_before.float()
     repair_summary = {
         "method": METHOD,
+        "protocol_status": "native_data_and_metrics_but_evaluation_conditioned_repair",
+        "protocol_status_reason": (
+            "This repaired MCF path uses official rewrite/paraphrase prompt "
+            "instances while constructing or validating active repair cases."
+        ),
         "repair_mode": args.repair_mode,
         "model_path": args.model_path,
         "base_model_path": args.base_model_path,

@@ -37,7 +37,21 @@ def download_mcf(path):
 
 def load_mcf(path):
     with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        value = json.load(f)
+    if isinstance(value, dict) and value.get("format") == "mcf_shaped_rwku_training_request_v1":
+        raise ValueError(
+            "The MCF evaluator rejects MCF-shaped RWKU training requests; "
+            "they are training-only RWKU adapter records, not MCF benchmark data."
+        )
+    if isinstance(value, list) and any(
+        isinstance(row, dict)
+        and row.get("format") == "mcf_shaped_rwku_training_request_v1"
+        for row in value
+    ):
+        raise ValueError(
+            "The MCF evaluator rejects MCF-shaped RWKU training requests"
+        )
+    return value
 
 
 def normalize_record(record):

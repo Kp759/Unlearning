@@ -200,6 +200,11 @@ def manifest_template(
         str(role): model_identity({**dict(entry), "role": str(role)})
         for role, entry in ((model_entry or {}).get("comparison_models") or {}).items()
     }
+    protocol_statuses = dict(track.get("protocol_status_by_method") or {})
+    protocol_status = protocol_statuses.get(
+        method,
+        protocol_statuses.get("default", track.get("protocol_status")),
+    )
     return {
         "schema_version": 1,
         "timestamp": utc_timestamp(),
@@ -227,6 +232,7 @@ def manifest_template(
         "comparison_models": comparison_identities,
         "model_role": identity.get("role"),
         "method": method,
+        "protocol_status": protocol_status,
         "method_configuration": dict(track.get("method_configuration") or {}),
         "method_hyperparameters": dict(track.get("method_hyperparameters") or {}),
         "seed": track["seed"],
