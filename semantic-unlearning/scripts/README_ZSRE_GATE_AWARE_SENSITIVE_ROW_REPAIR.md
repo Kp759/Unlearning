@@ -13,9 +13,9 @@ Its protocol status is:
 > `native_data_and_metrics_but_evaluation_conditioned_repair`
 
 That label is required because official rewrite/paraphrase correctness selects
-the residual active cases, official forget-neighborhood and retain correctness
-select protected constraints, and native metrics select the BF16 candidate
-scale. This is not a blind or held-out repair protocol.
+the residual active and anti-regression cases, official forget-neighborhood
+and retain correctness select protected constraints, and native metrics select
+the BF16 candidate scale. This is not a blind or held-out repair protocol.
 
 ## Motivation
 
@@ -33,6 +33,9 @@ best_other_logit - (sensitive_logit + h @ delta_s) >= active_margin
 ```
 
 The default active margin is `0.02`, which avoids relying on a BF16 tie.
+Every rewrite/paraphrase target position that is already incorrect receives a
+separate anti-regression constraint. This prevents repair from making an
+incorrect target correct by lowering an edited competitor row.
 
 ## Immutable starting point
 
@@ -69,12 +72,25 @@ override and is not part of the primary configuration.
 Selected row IDs, decoded token pieces, active-case counts, excluded cases, and
 special IDs are written to `selected_sensitive_rows.json`.
 
-## Active and protected constraints
+## Active, anti-regression, and protected constraints
 
 Active constraints cover every officially baseline-correct rewrite and
 paraphrase token remaining in the loaded Setting 5e checkpoint. The cache uses
 the same prompt expansion, target-token construction, case order, BF16 model,
 and batch size as the official evaluator.
+
+Anti-regression constraints cover every other forget rewrite/paraphrase target
+position. For each baseline-incorrect target, the repair requires
+
+```text
+best_corrected_competitor_logit - corrected_target_logit
+    >= forget_regression_margin
+```
+
+The competitor is the maximum of the strongest unchanged vocabulary row and
+every corrected selected row. If the target row is selected, its correction is
+applied to the target and that row is excluded from the competitor set. The
+default anti-regression margin is `0.02`.
 
 Protected constraints cover:
 
@@ -109,6 +125,7 @@ The objective is
 
 ```text
 active_hinge_weight    * active_squared_hinge
++ forget_regression_hinge_weight * forget_regression_squared_hinge
 + protected_hinge_weight * protected_squared_hinge
 + retain_kl_mu          * retain_KL
 + delta_l2_lambda       * ||delta||^2
@@ -122,8 +139,10 @@ Primary defaults:
 | repair learning rate | 1e-3 |
 | optimizer | AdamW |
 | active margin | 0.02 |
+| forget anti-regression margin | 0.02 |
 | protected margin cap | 0.05 |
 | active hinge weight | 2.0 |
+| forget anti-regression hinge weight | 2.0 |
 | protected hinge weight | 50.0 |
 | retain KL weight | 10.0 |
 | delta L2 weight | 1e-4 |
@@ -146,14 +165,16 @@ the evaluator's padding and batch composition exactly.
 The calibration seed is recorded for reproducibility; the primary protocol
 uses the entire retain set, so it does not subsample membership.
 
-Optimization always uses the complete active set. Protected constraints and
-retain-record KL use independent deterministic cyclic mini-batches: every item
-is visited once before its cycle repeats. This batching is only an optimization
-approximation. The complete active/protected sets and all 1,000 retain records
-are rechecked before final acceptance; active/protected constraints are also
-checked in bounded no-gradient chunks every 100 steps. Exact official
-Eff/Gen/Spe plus PPL gates remain unchanged. Progress is printed with flushing
-and appended incrementally to `optimization/live_progress.jsonl`.
+Optimization always uses the complete active set. Anti-regression and
+protected constraints plus retain-record KL use independent deterministic
+cyclic mini-batches: every item is visited once before its cycle repeats. The
+anti-regression bank is complete on every step when it fits in one configured
+batch. This batching is only an optimization approximation. The complete
+active/anti-regression/protected sets and all 1,000 retain records are rechecked
+before final acceptance; all constraint banks are also checked in bounded
+no-gradient chunks every 100 steps. Exact official Eff/Gen/Spe plus PPL gates
+remain unchanged. Progress is printed with flushing and appended incrementally
+to `optimization/live_progress.jsonl`.
 
 ## Exact BF16 scale sweep
 
@@ -171,7 +192,15 @@ forget Spe >= Setting5e forget Spe - 0.10
 retain Eff >= Setting5e retain Eff - 0.10
 retain Gen >= Setting5e retain Gen - 0.10
 retain Spe >= Setting5e retain Spe - 0.10
+original active violations = 0
+forget anti-regression violations = 0
+newly correct forget target tokens = 0
 ```
+
+Each materialized scale is also rerun with the evaluator's exact BF16 forget
+batch construction. The sweep records baseline-correct rewrite/paraphrase
+tokens that remain correct, baseline-incorrect tokens that become newly
+correct, and full token identities/logits/margins for every regression.
 
 Only survivors are evaluated on the official Wikipedia PPL corpus. The final
 gate is:
@@ -221,6 +250,7 @@ OUTPUT_ROOT/seedN/
 │   ├── active_cases.jsonl
 │   ├── interrupted.json          # Ctrl+C only; no selected checkpoint survives
 │   ├── live_progress.jsonl
+│   ├── newly_correct_forget_cases.jsonl
 │   ├── repair_log.jsonl
 │   └── constraint_summary.json
 ├── scale_sweep/
@@ -271,7 +301,8 @@ bash scripts/run_zsre_gate_aware_sensitive_row_repair.sh \
 
 Override any non-fixed optimization setting through the environment, for
 example `REPAIR_STEPS`, `REPAIR_LR`, `REPAIR_OPTIMIZER`, `ACTIVE_MARGIN`,
-`PROTECTED_MARGIN_CAP`, `ACTIVE_HINGE_WEIGHT`,
+`FORGET_REGRESSION_MARGIN`, `PROTECTED_MARGIN_CAP`, `ACTIVE_HINGE_WEIGHT`,
+`FORGET_REGRESSION_HINGE_WEIGHT`,
 `PROTECTED_HINGE_WEIGHT`, `RETAIN_KL_MU`, `DELTA_L2_LAMBDA`,
 `RETAIN_CALIBRATION_NUM`, `RETAIN_CALIBRATION_SEED`,
 `PROTECTED_BATCH_SIZE`, `RETAIN_KL_BATCH_SIZE`, `PROGRESS_EVERY`,

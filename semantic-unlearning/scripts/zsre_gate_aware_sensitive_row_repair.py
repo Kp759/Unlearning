@@ -49,6 +49,7 @@ LIVE_PROGRESS_REQUIRED_FIELDS = frozenset(
         "total_steps",
         "total_loss",
         "active_hinge",
+        "forget_regression_hinge",
         "protected_hinge",
         "retain_kl",
         "delta_l2",
@@ -58,8 +59,11 @@ LIVE_PROGRESS_REQUIRED_FIELDS = frozenset(
         "cuda_allocated_bytes",
         "cuda_reserved_bytes",
         "full_active_violation_count",
+        "full_forget_regression_violation_count",
+        "newly_correct_forget_token_count",
         "full_protected_violation_count",
         "minimum_active_slack",
+        "minimum_forget_regression_slack",
         "minimum_protected_slack",
     }
 )
@@ -99,6 +103,17 @@ class ProtectedConstraintTensors:
     selected_logits: torch.Tensor
     target_selected_columns: torch.Tensor
     required_margins: torch.Tensor
+
+
+@dataclass
+class ForgetRegressionConstraintTensors:
+    """Exact corrected target-vs-competitor state for forget anti-regression."""
+
+    hidden: torch.Tensor
+    target_logits: torch.Tensor
+    strongest_unchanged_logits: torch.Tensor
+    selected_logits: torch.Tensor
+    target_selected_columns: torch.Tensor
 
 
 @dataclass
@@ -196,8 +211,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="adamw",
     )
     parser.add_argument("--active-margin", type=float, default=0.02)
+    parser.add_argument("--forget-regression-margin", type=float, default=0.02)
     parser.add_argument("--protected-margin-cap", type=float, default=0.05)
     parser.add_argument("--active-hinge-weight", type=float, default=2.0)
+    parser.add_argument(
+        "--forget-regression-hinge-weight",
+        type=float,
+        default=2.0,
+    )
     parser.add_argument("--protected-hinge-weight", type=float, default=50.0)
     parser.add_argument("--retain-kl-mu", type=float, default=10.0)
     parser.add_argument("--delta-l2-lambda", type=float, default=1e-4)
@@ -246,9 +267,17 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("forget and retain counts must be positive")
     if args.repair_steps <= 0 or args.repair_lr <= 0:
         raise ValueError("repair steps and learning rate must be positive")
-    if args.active_margin < 0 or args.protected_margin_cap < 0:
-        raise ValueError("active/protected margins must be non-negative")
-    if args.active_hinge_weight <= 0 or args.protected_hinge_weight <= 0:
+    if (
+        args.active_margin < 0
+        or args.forget_regression_margin < 0
+        or args.protected_margin_cap < 0
+    ):
+        raise ValueError("active/regression/protected margins must be non-negative")
+    if (
+        args.active_hinge_weight <= 0
+        or args.forget_regression_hinge_weight <= 0
+        or args.protected_hinge_weight <= 0
+    ):
         raise ValueError("hinge weights must be positive")
     if args.retain_kl_mu < 0 or args.delta_l2_lambda < 0:
         raise ValueError("KL and L2 weights must be non-negative")
@@ -681,18 +710,19 @@ def build_protected_constraint_tensors(
     )
 
 
-def protected_constraint_margins(
+def corrected_target_and_competitor_logits(
     hidden: torch.Tensor,
     target_logits: torch.Tensor,
     strongest_unchanged_logits: torch.Tensor,
     selected_logits: torch.Tensor,
     target_selected_columns: torch.Tensor,
     delta_rows: torch.Tensor,
-) -> torch.Tensor:
-    """Exact target-vs-unchanged/edited-row top-1 preservation margins."""
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Return exact corrected target and strongest non-target logits."""
 
     if hidden.shape[0] == 0:
-        return delta_rows.new_empty((0,))
+        empty = delta_rows.new_empty((0,))
+        return empty, empty
     corrections = hidden @ delta_rows.transpose(0, 1)
     corrected_selected = selected_logits + corrections
     selected_target = target_selected_columns.ge(0)
@@ -720,7 +750,93 @@ def protected_constraint_margins(
         strongest_unchanged_logits,
         strongest_selected,
     )
+    return corrected_target, strongest_competitor
+
+
+def protected_constraint_margins(
+    hidden: torch.Tensor,
+    target_logits: torch.Tensor,
+    strongest_unchanged_logits: torch.Tensor,
+    selected_logits: torch.Tensor,
+    target_selected_columns: torch.Tensor,
+    delta_rows: torch.Tensor,
+) -> torch.Tensor:
+    """Exact target-vs-unchanged/edited-row top-1 preservation margins."""
+
+    corrected_target, strongest_competitor = corrected_target_and_competitor_logits(
+        hidden,
+        target_logits,
+        strongest_unchanged_logits,
+        selected_logits,
+        target_selected_columns,
+        delta_rows,
+    )
     return corrected_target - strongest_competitor
+
+
+def build_forget_regression_constraint_tensors(
+    caches: Sequence[CaseBaselineCache],
+    selected_ids: Sequence[int],
+    *,
+    device: torch.device,
+) -> ForgetRegressionConstraintTensors:
+    """Build exact competitor-aware tensors for forget target positions."""
+
+    columns = {token_id: index for index, token_id in enumerate(selected_ids)}
+    if not caches:
+        return ForgetRegressionConstraintTensors(
+            hidden=torch.empty((0, 0), dtype=torch.float32, device=device),
+            target_logits=torch.empty((0,), dtype=torch.float32, device=device),
+            strongest_unchanged_logits=torch.empty(
+                (0,), dtype=torch.float32, device=device
+            ),
+            selected_logits=torch.empty(
+                (0, len(selected_ids)), dtype=torch.float32, device=device
+            ),
+            target_selected_columns=torch.empty(
+                (0,), dtype=torch.long, device=device
+            ),
+        )
+    return ForgetRegressionConstraintTensors(
+        hidden=torch.stack([cache.hidden for cache in caches]).to(
+            device=device, dtype=torch.float32
+        ),
+        target_logits=torch.stack([cache.target_logit for cache in caches]).to(
+            device=device, dtype=torch.float32
+        ),
+        strongest_unchanged_logits=torch.stack(
+            [cache.strongest_unchanged_logit for cache in caches]
+        ).to(device=device, dtype=torch.float32),
+        selected_logits=torch.stack([cache.selected_logits for cache in caches]).to(
+            device=device, dtype=torch.float32
+        ),
+        target_selected_columns=torch.tensor(
+            [columns.get(cache.target_token_id, -1) for cache in caches],
+            dtype=torch.long,
+            device=device,
+        ),
+    )
+
+
+def forget_regression_margins(
+    hidden: torch.Tensor,
+    target_logits: torch.Tensor,
+    strongest_unchanged_logits: torch.Tensor,
+    selected_logits: torch.Tensor,
+    target_selected_columns: torch.Tensor,
+    delta_rows: torch.Tensor,
+) -> torch.Tensor:
+    """Strongest corrected non-target logit minus corrected target logit."""
+
+    corrected_target, strongest_competitor = corrected_target_and_competitor_logits(
+        hidden,
+        target_logits,
+        strongest_unchanged_logits,
+        selected_logits,
+        target_selected_columns,
+        delta_rows,
+    )
+    return strongest_competitor - corrected_target
 
 
 def protected_constraint_slice(
@@ -737,6 +853,22 @@ def protected_constraint_slice(
         selected_logits=tensors.selected_logits[selection],
         target_selected_columns=tensors.target_selected_columns[selection],
         required_margins=tensors.required_margins[selection],
+    )
+
+
+def forget_regression_constraint_slice(
+    tensors: ForgetRegressionConstraintTensors,
+    batch: CyclicBatch,
+) -> ForgetRegressionConstraintTensors:
+    """Return a contiguous deterministic anti-regression optimization slice."""
+
+    selection = slice(batch.start, batch.stop)
+    return ForgetRegressionConstraintTensors(
+        hidden=tensors.hidden[selection],
+        target_logits=tensors.target_logits[selection],
+        strongest_unchanged_logits=tensors.strongest_unchanged_logits[selection],
+        selected_logits=tensors.selected_logits[selection],
+        target_selected_columns=tensors.target_selected_columns[selection],
     )
 
 
@@ -833,10 +965,12 @@ def _format_optional_float(value: Optional[float]) -> str:
 @torch.no_grad()
 def full_constraint_check_chunked(
     active_tensors: ActiveConstraintTensors,
+    forget_regression_tensors: ForgetRegressionConstraintTensors,
     protected_tensors: ProtectedConstraintTensors,
     delta_rows: torch.Tensor,
     *,
     active_margin: float,
+    forget_regression_margin: float,
     chunk_size: int,
 ) -> Dict[str, Any]:
     """Evaluate every constraint with bounded no-gradient matrix products."""
@@ -845,12 +979,17 @@ def full_constraint_check_chunked(
         raise ValueError("full constraint check chunk size must be positive")
 
     full_active_violation_count = 0
+    full_forget_regression_violation_count = 0
+    newly_correct_forget_token_count = 0
     full_protected_violation_count = 0
     minimum_active_slack: Optional[float] = None
+    minimum_forget_regression_slack: Optional[float] = None
     minimum_protected_slack: Optional[float] = None
     minimum_active_margin: Optional[float] = None
+    minimum_forget_regression_margin: Optional[float] = None
     minimum_protected_margin: Optional[float] = None
     active_chunks_evaluated = 0
+    forget_regression_chunks_evaluated = 0
     protected_chunks_evaluated = 0
 
     active_count = int(active_tensors.hidden.shape[0])
@@ -880,6 +1019,36 @@ def full_constraint_check_chunked(
                 else min(minimum_active_slack, chunk_minimum)
             )
         active_chunks_evaluated += 1
+
+    regression_count = int(forget_regression_tensors.hidden.shape[0])
+    for start in range(0, regression_count, chunk_size):
+        stop = min(start + chunk_size, regression_count)
+        margins = forget_regression_margins(
+            forget_regression_tensors.hidden[start:stop],
+            forget_regression_tensors.target_logits[start:stop],
+            forget_regression_tensors.strongest_unchanged_logits[start:stop],
+            forget_regression_tensors.selected_logits[start:stop],
+            forget_regression_tensors.target_selected_columns[start:stop],
+            delta_rows,
+        )
+        slack = margins - float(forget_regression_margin)
+        full_forget_regression_violation_count += int(slack.lt(0).sum().item())
+        newly_correct_forget_token_count += int(margins.le(0).sum().item())
+        margin_minimum = _minimum(margins)
+        if margin_minimum is not None:
+            minimum_forget_regression_margin = (
+                margin_minimum
+                if minimum_forget_regression_margin is None
+                else min(minimum_forget_regression_margin, margin_minimum)
+            )
+        chunk_minimum = _minimum(slack)
+        if chunk_minimum is not None:
+            minimum_forget_regression_slack = (
+                chunk_minimum
+                if minimum_forget_regression_slack is None
+                else min(minimum_forget_regression_slack, chunk_minimum)
+            )
+        forget_regression_chunks_evaluated += 1
 
     protected_count = int(protected_tensors.hidden.shape[0])
     for start in range(0, protected_count, chunk_size):
@@ -912,19 +1081,115 @@ def full_constraint_check_chunked(
 
     return {
         "full_active_violation_count": full_active_violation_count,
+        "full_forget_regression_violation_count": (
+            full_forget_regression_violation_count
+        ),
+        "newly_correct_forget_token_count": newly_correct_forget_token_count,
         "full_protected_violation_count": full_protected_violation_count,
         "minimum_active_slack": minimum_active_slack,
+        "minimum_forget_regression_slack": minimum_forget_regression_slack,
         "minimum_protected_slack": minimum_protected_slack,
         "minimum_active_margin": minimum_active_margin,
+        "minimum_forget_regression_margin": minimum_forget_regression_margin,
         "minimum_protected_margin": minimum_protected_margin,
         "active_chunks_evaluated": active_chunks_evaluated,
+        "forget_regression_chunks_evaluated": (
+            forget_regression_chunks_evaluated
+        ),
         "protected_chunks_evaluated": protected_chunks_evaluated,
+        "chunk_size": int(chunk_size),
+    }
+
+
+@torch.no_grad()
+def exact_forget_constraint_check_chunked(
+    baseline_correct_tensors: ForgetRegressionConstraintTensors,
+    baseline_incorrect_tensors: ForgetRegressionConstraintTensors,
+    delta_rows: torch.Tensor,
+    *,
+    active_margin: float,
+    forget_regression_margin: float,
+    chunk_size: int,
+) -> Dict[str, Any]:
+    """Recheck every forget target against every corrected competing row."""
+
+    if chunk_size <= 0:
+        raise ValueError("exact forget check chunk size must be positive")
+
+    def check_bank(
+        tensors: ForgetRegressionConstraintTensors,
+        required_margin: float,
+    ) -> Dict[str, Any]:
+        violation_count = 0
+        correct_count = 0
+        minimum_slack: Optional[float] = None
+        minimum_margin: Optional[float] = None
+        chunk_count = 0
+        total = int(tensors.hidden.shape[0])
+        for start in range(0, total, chunk_size):
+            stop = min(start + chunk_size, total)
+            margins = forget_regression_margins(
+                tensors.hidden[start:stop],
+                tensors.target_logits[start:stop],
+                tensors.strongest_unchanged_logits[start:stop],
+                tensors.selected_logits[start:stop],
+                tensors.target_selected_columns[start:stop],
+                delta_rows,
+            )
+            slack = margins - float(required_margin)
+            violation_count += int(slack.lt(0).sum().item())
+            correct_count += int(margins.le(0).sum().item())
+            chunk_slack = _minimum(slack)
+            if chunk_slack is not None:
+                minimum_slack = (
+                    chunk_slack
+                    if minimum_slack is None
+                    else min(minimum_slack, chunk_slack)
+                )
+            chunk_margin = _minimum(margins)
+            if chunk_margin is not None:
+                minimum_margin = (
+                    chunk_margin
+                    if minimum_margin is None
+                    else min(minimum_margin, chunk_margin)
+                )
+            chunk_count += 1
+        return {
+            "constraint_count": total,
+            "violation_count": violation_count,
+            "correct_token_count": correct_count,
+            "minimum_slack": minimum_slack,
+            "minimum_margin": minimum_margin,
+            "chunks_evaluated": chunk_count,
+        }
+
+    active = check_bank(baseline_correct_tensors, active_margin)
+    regression = check_bank(
+        baseline_incorrect_tensors,
+        forget_regression_margin,
+    )
+    return {
+        "original_active_constraint_count": active["constraint_count"],
+        "forget_regression_constraint_count": regression["constraint_count"],
+        "all_forget_target_position_count": (
+            active["constraint_count"] + regression["constraint_count"]
+        ),
+        "original_active_violation_count": active["violation_count"],
+        "forget_regression_violation_count": regression["violation_count"],
+        "newly_correct_forget_token_count": regression["correct_token_count"],
+        "minimum_active_slack": active["minimum_slack"],
+        "minimum_forget_regression_slack": regression["minimum_slack"],
+        "minimum_active_margin": active["minimum_margin"],
+        "minimum_forget_regression_margin": regression["minimum_margin"],
+        "active_chunks_evaluated": active["chunks_evaluated"],
+        "forget_regression_chunks_evaluated": regression["chunks_evaluated"],
         "chunk_size": int(chunk_size),
     }
 
 
 def optimize_gate_aware_delta(
     active_tensors: ActiveConstraintTensors,
+    forget_regression_tensors: ForgetRegressionConstraintTensors,
     protected_tensors: ProtectedConstraintTensors,
     retain_kl_tensors: RetainKLTensors,
     *,
@@ -948,14 +1213,36 @@ def optimize_gate_aware_delta(
             raise RuntimeError("Active constraints exist but no sensitive row is editable")
         with live_progress_path.open("w", encoding="utf-8"):
             pass
+        zero_delta = torch.empty(
+            (0, hidden_size), dtype=torch.float32, device=device
+        )
+        zero_check = full_constraint_check_chunked(
+            active_tensors,
+            forget_regression_tensors,
+            protected_tensors,
+            zero_delta,
+            active_margin=args.active_margin,
+            forget_regression_margin=args.forget_regression_margin,
+            chunk_size=args.protected_batch_size,
+        )
         return (
-            torch.empty((0, hidden_size), dtype=torch.float32, device=device),
+            zero_delta,
             [],
             {
                 "steps_completed": 0,
                 "stopped_early": True,
                 "all_active_satisfied": True,
-                "all_protected_satisfied": True,
+                "all_forget_regression_satisfied": zero_check[
+                    "full_forget_regression_violation_count"
+                ]
+                == 0,
+                "newly_correct_forget_token_count": zero_check[
+                    "newly_correct_forget_token_count"
+                ],
+                "all_protected_satisfied": zero_check[
+                    "full_protected_violation_count"
+                ]
+                == 0,
                 "full_retain_kl_after": 0.0,
                 "reason": "setting5e_has_no_active_sensitive_tokens",
             },
@@ -988,6 +1275,16 @@ def optimize_gate_aware_delta(
         device=device,
     )
     protected_required = protected_tensors.required_margins
+    forget_regression_required = torch.full(
+        (forget_regression_tensors.hidden.shape[0],),
+        float(args.forget_regression_margin),
+        dtype=torch.float32,
+        device=device,
+    )
+    forget_regression_batcher = DeterministicCyclicBatcher(
+        int(forget_regression_required.numel()),
+        args.protected_batch_size,
+    )
     protected_batcher = DeterministicCyclicBatcher(
         int(protected_required.numel()),
         args.protected_batch_size,
@@ -1001,8 +1298,13 @@ def optimize_gate_aware_delta(
 
     with live_progress_path.open("w", encoding="utf-8", buffering=1) as live_handle:
         for step in range(1, args.repair_steps + 1):
+            forget_regression_batch = forget_regression_batcher.next_batch()
             protected_batch = protected_batcher.next_batch()
             retain_batch = retain_batcher.next_batch()
+            forget_regression_current = forget_regression_constraint_slice(
+                forget_regression_tensors,
+                forget_regression_batch,
+            )
             protected_current = protected_constraint_slice(
                 protected_tensors,
                 protected_batch,
@@ -1017,6 +1319,14 @@ def optimize_gate_aware_delta(
                 active_tensors.selected_row_columns,
                 delta_rows,
             )
+            forget_regression_margins_current = forget_regression_margins(
+                forget_regression_current.hidden,
+                forget_regression_current.target_logits,
+                forget_regression_current.strongest_unchanged_logits,
+                forget_regression_current.selected_logits,
+                forget_regression_current.target_selected_columns,
+                delta_rows,
+            )
             protected_margins = protected_constraint_margins(
                 protected_current.hidden,
                 protected_current.target_logits,
@@ -1026,6 +1336,12 @@ def optimize_gate_aware_delta(
                 delta_rows,
             )
             active_hinge = _squared_hinge(active_margins, active_required)
+            forget_regression_hinge = _squared_hinge(
+                forget_regression_margins_current,
+                forget_regression_required[
+                    forget_regression_batch.start : forget_regression_batch.stop
+                ],
+            )
             protected_hinge = _squared_hinge(
                 protected_margins,
                 protected_current.required_margins,
@@ -1039,6 +1355,7 @@ def optimize_gate_aware_delta(
             delta_l2 = delta_rows.square().sum()
             total = (
                 args.active_hinge_weight * active_hinge
+                + args.forget_regression_hinge_weight * forget_regression_hinge
                 + args.protected_hinge_weight * protected_hinge
                 + args.retain_kl_mu * retain_kl
                 + args.delta_l2_lambda * delta_l2
@@ -1071,6 +1388,14 @@ def optimize_gate_aware_delta(
                     active_tensors.selected_row_columns,
                     updated,
                 )
+                forget_regression_batch_after = forget_regression_margins(
+                    forget_regression_current.hidden,
+                    forget_regression_current.target_logits,
+                    forget_regression_current.strongest_unchanged_logits,
+                    forget_regression_current.selected_logits,
+                    forget_regression_current.target_selected_columns,
+                    updated,
+                )
                 protected_batch_after = protected_constraint_margins(
                     protected_current.hidden,
                     protected_current.target_logits,
@@ -1081,6 +1406,20 @@ def optimize_gate_aware_delta(
                 )
                 active_violations = int(
                     (active_after < active_required).sum().item()
+                )
+                forget_regression_batch_required = forget_regression_required[
+                    forget_regression_batch.start : forget_regression_batch.stop
+                ]
+                forget_regression_batch_violations = int(
+                    (
+                        forget_regression_batch_after
+                        < forget_regression_batch_required
+                    )
+                    .sum()
+                    .item()
+                )
+                newly_correct_forget_batch = int(
+                    forget_regression_batch_after.le(0).sum().item()
                 )
                 protected_batch_violations = int(
                     (
@@ -1095,13 +1434,20 @@ def optimize_gate_aware_delta(
                 if full_check_due:
                     full_check = full_constraint_check_chunked(
                         active_tensors,
+                        forget_regression_tensors,
                         protected_tensors,
                         updated,
                         active_margin=args.active_margin,
+                        forget_regression_margin=args.forget_regression_margin,
                         chunk_size=args.protected_batch_size,
                     )
                     all_satisfied = (
                         full_check["full_active_violation_count"] == 0
+                        and full_check[
+                            "full_forget_regression_violation_count"
+                        ]
+                        == 0
+                        and full_check["newly_correct_forget_token_count"] == 0
                         and full_check["full_protected_violation_count"] == 0
                     )
 
@@ -1118,6 +1464,20 @@ def optimize_gate_aware_delta(
                     if full_check is None
                     else int(full_check["full_active_violation_count"])
                 )
+                full_forget_regression_violations = (
+                    None
+                    if full_check is None
+                    else int(
+                        full_check[
+                            "full_forget_regression_violation_count"
+                        ]
+                    )
+                )
+                newly_correct_forget_tokens = (
+                    None
+                    if full_check is None
+                    else int(full_check["newly_correct_forget_token_count"])
+                )
                 full_protected_violations = (
                     None
                     if full_check is None
@@ -1125,6 +1485,11 @@ def optimize_gate_aware_delta(
                 )
                 minimum_active_slack = (
                     None if full_check is None else full_check["minimum_active_slack"]
+                )
+                minimum_forget_regression_slack = (
+                    None
+                    if full_check is None
+                    else full_check["minimum_forget_regression_slack"]
                 )
                 minimum_protected_slack = (
                     None
@@ -1136,9 +1501,15 @@ def optimize_gate_aware_delta(
                     "total_steps": args.repair_steps,
                     "total_loss": float(total.detach().cpu()),
                     "active_hinge": float(active_hinge.detach().cpu()),
+                    "forget_regression_hinge": float(
+                        forget_regression_hinge.detach().cpu()
+                    ),
                     "protected_hinge": float(protected_hinge.detach().cpu()),
                     "retain_kl": float(retain_kl.detach().cpu()),
                     "active_squared_hinge": float(active_hinge.detach().cpu()),
+                    "forget_regression_squared_hinge": float(
+                        forget_regression_hinge.detach().cpu()
+                    ),
                     "protected_squared_hinge": float(
                         protected_hinge.detach().cpu()
                     ),
@@ -1147,6 +1518,12 @@ def optimize_gate_aware_delta(
                     ),
                     "delta_l2": float(delta_l2.detach().cpu()),
                     "active_violation_count_full_set": active_violations,
+                    "forget_regression_violation_count_current_batch": (
+                        forget_regression_batch_violations
+                    ),
+                    "newly_correct_forget_token_count_current_batch": (
+                        newly_correct_forget_batch
+                    ),
                     "protected_violation_count_current_batch": (
                         protected_batch_violations
                     ),
@@ -1155,8 +1532,17 @@ def optimize_gate_aware_delta(
                         protected_batch_violations
                     ),
                     "full_active_violation_count": full_active_violations,
+                    "full_forget_regression_violation_count": (
+                        full_forget_regression_violations
+                    ),
+                    "newly_correct_forget_token_count": (
+                        newly_correct_forget_tokens
+                    ),
                     "full_protected_violation_count": full_protected_violations,
                     "minimum_active_slack": minimum_active_slack,
+                    "minimum_forget_regression_slack": (
+                        minimum_forget_regression_slack
+                    ),
                     "minimum_protected_slack": minimum_protected_slack,
                     "protected_violations_full": full_protected_violations,
                     "retain_kl_full": None,
@@ -1174,6 +1560,15 @@ def optimize_gate_aware_delta(
                         "size": len(protected_batch.indices),
                         "completed_cycle": protected_batch.completed_cycle,
                     },
+                    "forget_regression_batch": {
+                        "cycle": forget_regression_batch.cycle,
+                        "start": forget_regression_batch.start,
+                        "stop": forget_regression_batch.stop,
+                        "size": len(forget_regression_batch.indices),
+                        "completed_cycle": (
+                            forget_regression_batch.completed_cycle
+                        ),
+                    },
                     "retain_kl_batch": {
                         "cycle": retain_batch.cycle,
                         "record_start": retain_batch.start,
@@ -1187,6 +1582,9 @@ def optimize_gate_aware_delta(
                         if full_check is None
                         else {
                             "active": full_check["active_chunks_evaluated"],
+                            "forget_regression": full_check[
+                                "forget_regression_chunks_evaluated"
+                            ],
                             "protected": full_check[
                                 "protected_chunks_evaluated"
                             ],
@@ -1211,10 +1609,16 @@ def optimize_gate_aware_delta(
                     full_check_text = (
                         " full_active_violations="
                         f"{full_active_violations}"
+                        " full_forget_regression_violations="
+                        f"{full_forget_regression_violations}"
+                        " newly_correct_forget_tokens="
+                        f"{newly_correct_forget_tokens}"
                         " full_protected_violations="
                         f"{full_protected_violations}"
                         " minimum_active_slack="
                         f"{_format_optional_float(minimum_active_slack)}"
+                        " minimum_forget_regression_slack="
+                        f"{_format_optional_float(minimum_forget_regression_slack)}"
                         " minimum_protected_slack="
                         f"{_format_optional_float(minimum_protected_slack)}"
                     )
@@ -1223,10 +1627,16 @@ def optimize_gate_aware_delta(
                     f"step={step}/{args.repair_steps} "
                     f"total_loss={row['total_loss']:.6g} "
                     f"active_hinge={row['active_hinge']:.6g} "
+                    "forget_regression_hinge="
+                    f"{row['forget_regression_hinge']:.6g} "
                     f"protected_hinge={row['protected_hinge']:.6g} "
                     f"retain_kl={row['retain_kl']:.6g} "
                     f"delta_l2={row['delta_l2']:.6g} "
                     f"active_violations_full={active_violations} "
+                    "forget_regression_violations_batch="
+                    f"{forget_regression_batch_violations} "
+                    "newly_correct_forget_batch="
+                    f"{newly_correct_forget_batch} "
                     "protected_violations_batch="
                     f"{protected_batch_violations} "
                     f"delta_norm={row['effective_delta_norm']:.6g} "
@@ -1246,9 +1656,11 @@ def optimize_gate_aware_delta(
     delta = module.effective_delta().detach()
     final_check = full_constraint_check_chunked(
         active_tensors,
+        forget_regression_tensors,
         protected_tensors,
         delta,
         active_margin=args.active_margin,
+        forget_regression_margin=args.forget_regression_margin,
         chunk_size=args.protected_batch_size,
     )
     final_retain_kl = retain_kl_from_tensors(retain_kl_tensors, delta)
@@ -1257,20 +1669,38 @@ def optimize_gate_aware_delta(
         "progress_records": len(logs),
         "stopped_early": stopped_early,
         "all_active_satisfied": final_check["full_active_violation_count"] == 0,
+        "all_forget_regression_satisfied": (
+            final_check["full_forget_regression_violation_count"] == 0
+        ),
+        "newly_correct_forget_token_count": final_check[
+            "newly_correct_forget_token_count"
+        ],
         "all_protected_satisfied": (
             final_check["full_protected_violation_count"] == 0
         ),
         "active_constraint_count": int(active_required.numel()),
+        "forget_regression_constraint_count": int(
+            forget_regression_required.numel()
+        ),
         "protected_constraint_count": int(protected_required.numel()),
         "active_violations_after": final_check["full_active_violation_count"],
+        "forget_regression_violations_after": final_check[
+            "full_forget_regression_violation_count"
+        ],
         "protected_violations_after": final_check[
             "full_protected_violation_count"
         ],
         "minimum_active_slack_after": final_check["minimum_active_slack"],
+        "minimum_forget_regression_slack_after": final_check[
+            "minimum_forget_regression_slack"
+        ],
         "minimum_protected_slack_after": final_check[
             "minimum_protected_slack"
         ],
         "minimum_active_margin_after": final_check["minimum_active_margin"],
+        "minimum_forget_regression_margin_after": final_check[
+            "minimum_forget_regression_margin"
+        ],
         "minimum_protected_margin_after": final_check[
             "minimum_protected_margin"
         ],
@@ -1278,6 +1708,7 @@ def optimize_gate_aware_delta(
         "protected_batch_size": args.protected_batch_size,
         "retain_kl_batch_size_records": args.retain_kl_batch_size,
         "protected_cycles_completed": protected_batcher.cycle,
+        "forget_regression_cycles_completed": forget_regression_batcher.cycle,
         "retain_kl_cycles_completed": retain_batcher.cycle,
         "live_progress_path": str(live_progress_path),
         "effective_delta_norm": float(delta.norm().detach().cpu()),
@@ -1311,6 +1742,173 @@ def materialize_sensitive_rows(
     return float(effective.norm().detach().cpu())
 
 
+def newly_correct_forget_case_payload(
+    case: zsre.PredictionCase,
+    tok: Any,
+    *,
+    scale: float,
+    target_token_id: int,
+    predicted_token_id: int,
+    competitor_token_id: int,
+    target_logit: float,
+    competitor_logit: float,
+) -> Dict[str, Any]:
+    """Serialize one exact BF16 forget regression with stable identity fields."""
+
+    return {
+        "scale": float(scale),
+        "case_id": int(case.case_id),
+        "prompt_type": str(case.prompt_type),
+        "prompt_index": int(case.prompt_index),
+        "token_index": int(case.token_index),
+        "target_token_id": int(target_token_id),
+        "target_token": tok.decode([int(target_token_id)]),
+        "predicted_token_id": int(predicted_token_id),
+        "competitor_token_id": int(competitor_token_id),
+        "target_logit": float(target_logit),
+        "competitor_logit": float(competitor_logit),
+        "margin": float(competitor_logit - target_logit),
+    }
+
+
+@torch.no_grad()
+def exact_bf16_forget_scale_diagnostics(
+    model: nn.Module,
+    tok: Any,
+    forget_cases: Sequence[zsre.PredictionCase],
+    *,
+    baseline_correct_identities: set[Tuple[int, str, int, int]],
+    active_margin: float,
+    forget_regression_margin: float,
+    scale: float,
+    device: torch.device,
+    llama_like: bool,
+    batch_size: int,
+) -> Dict[str, Any]:
+    """Measure every forget target in the evaluator's exact BF16 batching."""
+
+    if batch_size <= 0:
+        raise ValueError("BF16 forget diagnostic batch size must be positive")
+    forget_target_identities = {
+        case.identity
+        for case in forget_cases
+        if case.prompt_type in ("rewrite", "paraphrase")
+    }
+    if not baseline_correct_identities <= forget_target_identities:
+        raise ValueError("Baseline-correct identities are outside the forget cases")
+    counters = {
+        "rewrite_tokens_correct_that_were_correct_in_setting5e": 0,
+        "paraphrase_tokens_correct_that_were_correct_in_setting5e": 0,
+        "rewrite_tokens_newly_correct_relative_to_setting5e": 0,
+        "paraphrase_tokens_newly_correct_relative_to_setting5e": 0,
+    }
+    original_active_violation_count = 0
+    forget_regression_violation_count = 0
+    minimum_active_slack: Optional[float] = None
+    minimum_forget_regression_slack: Optional[float] = None
+    active_count = 0
+    regression_count = 0
+    newly_correct: List[Dict[str, Any]] = []
+
+    for batch in _chunks(list(forget_cases), batch_size):
+        encoded = tok(
+            [case.prompt for case in batch],
+            padding=True,
+            return_tensors="pt",
+        ).to(device)
+        output = model(**encoded, use_cache=False)
+        last_non_masked = encoded["attention_mask"].sum(dim=1) - 1
+        batch_indices = torch.arange(len(batch), device=device)
+        logits = output.logits[batch_indices, last_non_masked, :]
+        predicted_ids = logits.argmax(dim=-1)
+        target_ids = zsre.official_target_ids(
+            tok,
+            [case.target_text for case in batch],
+            llama_like=llama_like,
+            device=device,
+        )
+        target_logits = logits.gather(1, target_ids[:, None]).squeeze(1)
+        competitor_values = logits.clone()
+        competitor_values.scatter_(1, target_ids[:, None], -torch.inf)
+        competitor_logits, competitor_ids = competitor_values.max(dim=-1)
+
+        for index, case in enumerate(batch):
+            if case.prompt_type not in ("rewrite", "paraphrase"):
+                continue
+            identity = case.identity
+            baseline_correct = identity in baseline_correct_identities
+            target_id = int(target_ids[index].item())
+            predicted_id = int(predicted_ids[index].item())
+            currently_correct = predicted_id == target_id
+            target_logit = float(target_logits[index].float().cpu())
+            competitor_logit = float(competitor_logits[index].float().cpu())
+            margin = competitor_logit - target_logit
+            if baseline_correct:
+                active_count += 1
+                if margin < float(active_margin):
+                    original_active_violation_count += 1
+                active_slack = margin - float(active_margin)
+                minimum_active_slack = (
+                    active_slack
+                    if minimum_active_slack is None
+                    else min(minimum_active_slack, active_slack)
+                )
+                if currently_correct:
+                    counters[
+                        f"{case.prompt_type}_tokens_correct_that_were_correct_in_setting5e"
+                    ] += 1
+                continue
+
+            regression_count += 1
+            if margin < float(forget_regression_margin):
+                forget_regression_violation_count += 1
+            regression_slack = margin - float(forget_regression_margin)
+            minimum_forget_regression_slack = (
+                regression_slack
+                if minimum_forget_regression_slack is None
+                else min(minimum_forget_regression_slack, regression_slack)
+            )
+            if currently_correct:
+                counters[
+                    f"{case.prompt_type}_tokens_newly_correct_relative_to_setting5e"
+                ] += 1
+                newly_correct.append(
+                    newly_correct_forget_case_payload(
+                        case,
+                        tok,
+                        scale=scale,
+                        target_token_id=target_id,
+                        predicted_token_id=predicted_id,
+                        competitor_token_id=int(competitor_ids[index].item()),
+                        target_logit=target_logit,
+                        competitor_logit=competitor_logit,
+                    )
+                )
+
+    expected_regression_count = len(
+        forget_target_identities - baseline_correct_identities
+    )
+    if active_count != len(baseline_correct_identities):
+        raise RuntimeError("BF16 diagnostics did not cover every original active case")
+    if regression_count != expected_regression_count:
+        raise RuntimeError(
+            "BF16 diagnostics did not cover every forget anti-regression case"
+        )
+    return {
+        **counters,
+        "original_active_constraint_count": active_count,
+        "forget_regression_constraint_count": regression_count,
+        "original_active_violation_count": original_active_violation_count,
+        "forget_regression_violation_count": (
+            forget_regression_violation_count
+        ),
+        "newly_correct_forget_token_count": len(newly_correct),
+        "minimum_active_slack": minimum_active_slack,
+        "minimum_forget_regression_slack": minimum_forget_regression_slack,
+        "newly_correct": newly_correct,
+    }
+
+
 def _metric_check(
     *,
     setting5: Optional[float],
@@ -1338,6 +1936,8 @@ def _metric_check(
 def non_ppl_gate_report(
     setting5: Mapping[str, Any],
     candidate: Mapping[str, Any],
+    *,
+    forget_guard: Mapping[str, Any],
 ) -> Dict[str, Any]:
     tolerance = FIXED_UTILITY_DROP_TOLERANCE
     checks = {
@@ -1363,20 +1963,61 @@ def non_ppl_gate_report(
             candidate=candidate["retain"][metric],
             minimum=float(setting5["retain"][metric]) - tolerance,
         )
+    forget_guard_checks = {
+        "original_active_violations": {
+            "candidate": int(forget_guard["original_active_violation_count"]),
+            "maximum": 0,
+            "passed": int(forget_guard["original_active_violation_count"]) == 0,
+        },
+        "forget_regression_violations": {
+            "candidate": int(
+                forget_guard["forget_regression_violation_count"]
+            ),
+            "maximum": 0,
+            "passed": int(forget_guard["forget_regression_violation_count"])
+            == 0,
+        },
+        "newly_correct_forget_tokens": {
+            "candidate": int(forget_guard["newly_correct_forget_token_count"]),
+            "maximum": 0,
+            "passed": int(forget_guard["newly_correct_forget_token_count"])
+            == 0,
+        },
+    }
+    forget_guard_passed = all(
+        check["passed"] for check in forget_guard_checks.values()
+    )
     return {
-        "passed": all(check["passed"] for check in checks.values()),
+        "passed": bool(
+            all(check["passed"] for check in checks.values())
+            and forget_guard_passed
+        ),
         "utility_drop_tolerance_percentage_points": tolerance,
         "target_eff_max": FIXED_TARGET_EFF_MAX,
         "target_gen_max": FIXED_TARGET_GEN_MAX,
         "checks": checks,
+        "forget_guard": {
+            "passed": forget_guard_passed,
+            "checks": forget_guard_checks,
+            "minimum_active_slack": forget_guard.get("minimum_active_slack"),
+            "minimum_forget_regression_slack": forget_guard.get(
+                "minimum_forget_regression_slack"
+            ),
+        },
     }
 
 
 def full_gate_report(
     setting5: Mapping[str, Any],
     candidate: Mapping[str, Any],
+    *,
+    forget_guard: Mapping[str, Any],
 ) -> Dict[str, Any]:
-    non_ppl = non_ppl_gate_report(setting5, candidate)
+    non_ppl = non_ppl_gate_report(
+        setting5,
+        candidate,
+        forget_guard=forget_guard,
+    )
     setting_ppl = setting5.get("forget_PPL")
     candidate_ppl = candidate.get("forget_PPL")
     ppl = _metric_check(
@@ -1544,6 +2185,7 @@ def _validate_official_cache_alignment(
     identities: set[Tuple[int, str, int, int]],
     *,
     label: str,
+    require_cache_correct: bool = True,
 ) -> List[CaseBaselineCache]:
     selected = [cache for cache in caches if cache.case.identity in identities]
     observed = {cache.case.identity for cache in selected}
@@ -1551,7 +2193,7 @@ def _validate_official_cache_alignment(
         missing = sorted(identities - observed)
         raise RuntimeError(f"Missing exact {label} caches: {missing[:10]}")
     misaligned = [cache.case.identity for cache in selected if not cache.correct]
-    if misaligned:
+    if require_cache_correct and misaligned:
         raise RuntimeError(
             f"Exact BF16 {label} cache disagrees with official correctness: "
             f"{misaligned[:10]}"
@@ -1732,6 +2374,16 @@ def execute_run(
         llama_like=llama_like,
         prompt_types=("rewrite", "paraphrase"),
     )
+    forget_target_identities = {
+        case.identity
+        for case in forget_cases
+        if case.prompt_type in ("rewrite", "paraphrase")
+    }
+    if not active_identities <= forget_target_identities:
+        raise RuntimeError("Official active identities are not forget target positions")
+    forget_regression_identities = forget_target_identities - active_identities
+    if active_identities & forget_regression_identities:
+        raise RuntimeError("Forget active and anti-regression partitions overlap")
     forget_protected_identities = legacy_repair.official_correct_case_identities(
         forget_records,
         setting5_result["forget_raw"],
@@ -1783,6 +2435,11 @@ def execute_run(
         "neutral_token_id": neutral_token_id,
         "special_token_ids": sorted(special_ids),
         "selected_row_count": len(selected_ids),
+        "baseline_correct_forget_target_count": len(active_identities),
+        "baseline_incorrect_forget_target_count": len(
+            forget_regression_identities
+        ),
+        "all_forget_target_position_count": len(forget_target_identities),
         "selected_rows": [
             {
                 "token_id": token_id,
@@ -1840,6 +2497,16 @@ def execute_run(
         active_identities,
         label="active rewrite/paraphrase",
     )
+    forget_regression_caches = _validate_official_cache_alignment(
+        forget_caches,
+        forget_regression_identities,
+        label="baseline-incorrect rewrite/paraphrase",
+        require_cache_correct=False,
+    )
+    if len(active_caches) + len(forget_regression_caches) != len(
+        forget_target_identities
+    ):
+        raise RuntimeError("Forget target constraint banks do not cover every position")
     forget_protected = _validate_official_cache_alignment(
         forget_caches,
         forget_protected_identities,
@@ -1853,6 +2520,16 @@ def execute_run(
     protected_caches = forget_protected + retain_protected
     active_tensors = active_constraint_tensors(
         active_caches,
+        selected_ids,
+        device=device,
+    )
+    exact_active_tensors = build_forget_regression_constraint_tensors(
+        active_caches,
+        selected_ids,
+        device=device,
+    )
+    forget_regression_tensors = build_forget_regression_constraint_tensors(
+        forget_regression_caches,
         selected_ids,
         device=device,
     )
@@ -1880,6 +2557,14 @@ def execute_run(
         active_tensors.selected_row_columns,
         zero_delta,
     )
+    forget_regression_before = forget_regression_margins(
+        forget_regression_tensors.hidden,
+        forget_regression_tensors.target_logits,
+        forget_regression_tensors.strongest_unchanged_logits,
+        forget_regression_tensors.selected_logits,
+        forget_regression_tensors.target_selected_columns,
+        zero_delta,
+    )
     protected_before = protected_constraint_margins(
         protected_tensors.hidden,
         protected_tensors.target_logits,
@@ -1892,11 +2577,13 @@ def execute_run(
     print(
         "Optimizing sensitive rows jointly: "
         f"rows={len(selected_ids)}, active={len(active_caches)}, "
+        f"forget_regression={len(forget_regression_caches)}, "
         f"protected={len(protected_caches)}, retain_KL_records={len(retain_records)}",
         flush=True,
     )
     delta_rows, repair_logs, optimization_summary = optimize_gate_aware_delta(
         active_tensors,
+        forget_regression_tensors,
         protected_tensors,
         retain_kl_tensors,
         selected_row_count=len(selected_ids),
@@ -1915,6 +2602,14 @@ def execute_run(
         active_tensors.selected_row_columns,
         delta_rows,
     )
+    forget_regression_after = forget_regression_margins(
+        forget_regression_tensors.hidden,
+        forget_regression_tensors.target_logits,
+        forget_regression_tensors.strongest_unchanged_logits,
+        forget_regression_tensors.selected_logits,
+        forget_regression_tensors.target_selected_columns,
+        delta_rows,
+    )
     protected_after = protected_constraint_margins(
         protected_tensors.hidden,
         protected_tensors.target_logits,
@@ -1925,6 +2620,8 @@ def execute_run(
     )
     constraint_summary = {
         "active_constraint_count": len(active_caches),
+        "forget_regression_constraint_count": len(forget_regression_caches),
+        "all_forget_target_position_count": len(forget_target_identities),
         "protected_constraint_count": len(protected_caches),
         "forget_neighborhood_protected_count": len(forget_protected),
         "full_retain_protected_count": len(retain_protected),
@@ -1936,6 +2633,22 @@ def execute_run(
         "active_violations_after_unscaled": int(
             (active_after < args.active_margin).sum().item()
         ),
+        "forget_regression_violations_before": int(
+            (
+                forget_regression_before < args.forget_regression_margin
+            ).sum().item()
+        ),
+        "forget_regression_violations_after_unscaled": int(
+            (
+                forget_regression_after < args.forget_regression_margin
+            ).sum().item()
+        ),
+        "newly_correct_forget_tokens_before": int(
+            forget_regression_before.le(0).sum().item()
+        ),
+        "newly_correct_forget_tokens_after_unscaled": int(
+            forget_regression_after.le(0).sum().item()
+        ),
         "protected_violations_before": int(
             (protected_before < protected_tensors.required_margins).sum().item()
         ),
@@ -1944,10 +2657,31 @@ def execute_run(
         ),
         "minimum_active_margin_before": _minimum(active_before),
         "minimum_active_margin_after_unscaled": _minimum(active_after),
+        "minimum_forget_regression_margin_before": _minimum(
+            forget_regression_before
+        ),
+        "minimum_forget_regression_margin_after_unscaled": _minimum(
+            forget_regression_after
+        ),
         "minimum_protected_margin_before": _minimum(protected_before),
         "minimum_protected_margin_after_unscaled": _minimum(protected_after),
         "optimization": optimization_summary,
     }
+    pre_candidate_exact_forget_check = exact_forget_constraint_check_chunked(
+        exact_active_tensors,
+        forget_regression_tensors,
+        delta_rows,
+        active_margin=args.active_margin,
+        forget_regression_margin=args.forget_regression_margin,
+        chunk_size=args.protected_batch_size,
+    )
+    if pre_candidate_exact_forget_check[
+        "all_forget_target_position_count"
+    ] != len(forget_target_identities):
+        raise RuntimeError("Exact pre-candidate forget check has incomplete coverage")
+    constraint_summary["pre_candidate_exact_forget_check"] = (
+        pre_candidate_exact_forget_check
+    )
     gagd.write_json(
         optimization_dir / "constraint_summary.json",
         constraint_summary,
@@ -1971,6 +2705,8 @@ def execute_run(
     scales = candidate_scales(args.candidate_scale_step)
     non_ppl_rows: List[Dict[str, Any]] = []
     non_ppl_results: Dict[float, Dict[str, Any]] = {}
+    forget_diagnostics_by_scale: Dict[float, Dict[str, Any]] = {}
+    newly_correct_forget_rows: List[Dict[str, Any]] = []
     for scale in scales:
         norm = materialize_sensitive_rows(
             output_layer.weight,
@@ -2000,13 +2736,72 @@ def execute_run(
                 "Exact BF16 scale-0 metrics do not reproduce the immutable "
                 "Setting 5e evaluation"
             )
-        gate = non_ppl_gate_report(setting5_result, result)
+        forget_diagnostics = exact_bf16_forget_scale_diagnostics(
+            model,
+            tok,
+            forget_cases,
+            baseline_correct_identities=active_identities,
+            active_margin=args.active_margin,
+            forget_regression_margin=args.forget_regression_margin,
+            scale=scale,
+            device=device,
+            llama_like=llama_like,
+            batch_size=args.eval_batch_size,
+        )
+        diagnostic_rewrite_correct = (
+            forget_diagnostics[
+                "rewrite_tokens_correct_that_were_correct_in_setting5e"
+            ]
+            + forget_diagnostics[
+                "rewrite_tokens_newly_correct_relative_to_setting5e"
+            ]
+        )
+        diagnostic_paraphrase_correct = (
+            forget_diagnostics[
+                "paraphrase_tokens_correct_that_were_correct_in_setting5e"
+            ]
+            + forget_diagnostics[
+                "paraphrase_tokens_newly_correct_relative_to_setting5e"
+            ]
+        )
+        if diagnostic_rewrite_correct != int(
+            result["forget"]["post_rewrite_correct_tokens"]
+        ):
+            raise RuntimeError(
+                f"Scale {scale:g} BF16 rewrite diagnostics disagree with the "
+                "official evaluator"
+            )
+        if diagnostic_paraphrase_correct != int(
+            result["forget"]["post_paraphrase_correct_tokens"]
+        ):
+            raise RuntimeError(
+                f"Scale {scale:g} BF16 paraphrase diagnostics disagree with the "
+                "official evaluator"
+            )
+        forget_diagnostics_by_scale[scale] = forget_diagnostics
+        newly_correct_forget_rows.extend(forget_diagnostics["newly_correct"])
+        transition_counts = {
+            key: forget_diagnostics[key]
+            for key in (
+                "rewrite_tokens_correct_that_were_correct_in_setting5e",
+                "paraphrase_tokens_correct_that_were_correct_in_setting5e",
+                "rewrite_tokens_newly_correct_relative_to_setting5e",
+                "paraphrase_tokens_newly_correct_relative_to_setting5e",
+            )
+        }
+        gate = non_ppl_gate_report(
+            setting5_result,
+            result,
+            forget_guard=forget_diagnostics,
+        )
         non_ppl_results[scale] = result
         non_ppl_rows.append(
             {
                 "scale": scale,
                 "materialized_delta_norm": norm,
                 "metrics": compact_metrics(result),
+                "forget_token_transition_counts": transition_counts,
+                "forget_guard": forget_diagnostics,
                 "non_ppl_gate": gate,
                 "survived_non_ppl_gates": bool(gate["passed"]),
             }
@@ -2014,6 +2809,10 @@ def execute_run(
     gagd.write_json(
         scale_sweep_dir / "non_ppl_gate_sweep.json",
         non_ppl_rows,
+    )
+    write_jsonl(
+        optimization_dir / "newly_correct_forget_cases.jsonl",
+        newly_correct_forget_rows,
     )
 
     full_rows: List[Dict[str, Any]] = []
@@ -2049,13 +2848,21 @@ def execute_run(
             raise RuntimeError(
                 f"Non-PPL and full evaluation metrics disagree at scale {scale:g}"
             )
-        gate = full_gate_report(setting5_result, full_result)
+        gate = full_gate_report(
+            setting5_result,
+            full_result,
+            forget_guard=forget_diagnostics_by_scale[scale],
+        )
         full_results[scale] = full_result
         full_rows.append(
             {
                 "scale": scale,
                 "materialized_delta_norm": row["materialized_delta_norm"],
                 "metrics": compact_metrics(full_result),
+                "forget_token_transition_counts": row[
+                    "forget_token_transition_counts"
+                ],
+                "forget_guard": forget_diagnostics_by_scale[scale],
                 "full_gate": gate,
             }
         )
@@ -2101,9 +2908,11 @@ def execute_run(
     interruption_state.phase = "final_acceptance_validation"
     final_constraint_check = full_constraint_check_chunked(
         active_tensors,
+        forget_regression_tensors,
         protected_tensors,
         exact_materialized_delta,
         active_margin=args.active_margin,
+        forget_regression_margin=args.forget_regression_margin,
         chunk_size=args.protected_batch_size,
     )
     final_retain_kl = retain_kl_from_tensors(
@@ -2138,11 +2947,22 @@ def execute_run(
             "active_violations_after_final_materialization": (
                 final_constraint_check["full_active_violation_count"]
             ),
+            "forget_regression_violations_after_final_materialization": (
+                final_constraint_check[
+                    "full_forget_regression_violation_count"
+                ]
+            ),
+            "newly_correct_forget_tokens_after_final_materialization": (
+                final_constraint_check["newly_correct_forget_token_count"]
+            ),
             "protected_violations_after_final_materialization": (
                 final_constraint_check["full_protected_violation_count"]
             ),
             "minimum_active_slack_after_final_materialization": (
                 final_constraint_check["minimum_active_slack"]
+            ),
+            "minimum_forget_regression_slack_after_final_materialization": (
+                final_constraint_check["minimum_forget_regression_slack"]
             ),
             "minimum_protected_slack_after_final_materialization": (
                 final_constraint_check["minimum_protected_slack"]
@@ -2150,11 +2970,17 @@ def execute_run(
             "minimum_active_margin_after_final_materialization": (
                 final_constraint_check["minimum_active_margin"]
             ),
+            "minimum_forget_regression_margin_after_final_materialization": (
+                final_constraint_check["minimum_forget_regression_margin"]
+            ),
             "minimum_protected_margin_after_final_materialization": (
                 final_constraint_check["minimum_protected_margin"]
             ),
             "final_constraint_check_chunks": {
                 "active": final_constraint_check["active_chunks_evaluated"],
+                "forget_regression": final_constraint_check[
+                    "forget_regression_chunks_evaluated"
+                ],
                 "protected": final_constraint_check[
                     "protected_chunks_evaluated"
                 ],
@@ -2191,8 +3017,9 @@ def execute_run(
         "method": METHOD,
         "protocol_status": PROTOCOL_STATUS,
         "protocol_status_reason": (
-            "Official ZsRE correctness defines active/protected cases and native "
-            "metrics select the exact BF16 candidate scale."
+            "Official ZsRE correctness defines active, anti-regression, and "
+            "protected cases; native metrics and exact BF16 forget guards "
+            "select the candidate scale."
         ),
         "candidate_accepted": accepted,
         "selected_scale": selected_scale,
@@ -2201,6 +3028,7 @@ def execute_run(
         "selected_lm_head_row_count": len(selected_ids),
         "selected_lm_head_token_ids": selected_ids,
         "active_constraint_count": len(active_caches),
+        "forget_regression_constraint_count": len(forget_regression_caches),
         "protected_constraint_count": len(protected_caches),
         "retain_kl_record_count": len(retain_records),
         "input_embeddings_frozen_during_repair": True,
@@ -2211,6 +3039,11 @@ def execute_run(
             None if selected_checkpoint is None else str(selected_checkpoint)
         ),
         "active_candidate_checkpoint": str(active_candidate_checkpoint),
+        "selected_forget_guard": (
+            None
+            if selected_scale is None
+            else forget_diagnostics_by_scale[selected_scale]
+        ),
         "optimization": optimization_summary,
     }
     base_block = copy.deepcopy(source_result["base"])
@@ -2240,8 +3073,9 @@ def execute_run(
     interruption_state.run_completed = True
     if args.fail_if_target_missed and not accepted:
         raise RuntimeError(
-            "No gate-aware sensitive-row candidate passed zero Eff/Gen, all "
-            "0.10-point utility gates, and the 1.02 PPL gate. Diagnostics were "
+            "No gate-aware sensitive-row candidate passed the exact forget "
+            "anti-regression guard, zero Eff/Gen, all 0.10-point utility gates, "
+            "and the 1.02 PPL gate. Diagnostics were "
             f"written to {output_dir}."
         )
 
