@@ -1,7 +1,9 @@
+import json
 import math
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -60,23 +62,49 @@ class TinyTiedModel(nn.Module):
         self.lm_head = value
 
 
+class TinyTestOptimizer:
+    """Minimal SGD used to avoid importing optional torch compiler dependencies."""
+
+    def __init__(self, module, learning_rate):
+        self.parameters = list(module.parameters())
+        self.learning_rate = learning_rate
+
+    def zero_grad(self, set_to_none=False):
+        for parameter in self.parameters:
+            if set_to_none:
+                parameter.grad = None
+            elif parameter.grad is not None:
+                parameter.grad.zero_()
+
+    def step(self):
+        with torch.no_grad():
+            for parameter in self.parameters:
+                if parameter.grad is not None:
+                    parameter.add_(parameter.grad, alpha=-self.learning_rate)
+
+
 class GateAwareSensitiveRowRepairTests(unittest.TestCase):
-    def test_cyclic_batches_cover_protected_and_retain_sets_before_repeating(self):
-        for total, batch_size in ((11, 4), (10, 3)):
-            batcher = REPAIR.DeterministicCyclicBatcher(total, batch_size)
-            first_cycle = []
-            while len(first_cycle) < total:
-                batch = batcher.next_batch()
-                self.assertEqual(batch.cycle, 0)
-                first_cycle.extend(batch.indices)
-            self.assertEqual(first_cycle, list(range(total)))
-            self.assertEqual(len(first_cycle), len(set(first_cycle)))
-            repeated = batcher.next_batch()
-            self.assertEqual(repeated.cycle, 1)
-            self.assertEqual(
-                repeated.indices,
-                tuple(range(min(batch_size, total))),
-            )
+    def assert_complete_cycle_before_repeat(self, total, batch_size):
+        batcher = REPAIR.DeterministicCyclicBatcher(total, batch_size)
+        first_cycle = []
+        while len(first_cycle) < total:
+            batch = batcher.next_batch()
+            self.assertEqual(batch.cycle, 0)
+            first_cycle.extend(batch.indices)
+        self.assertEqual(first_cycle, list(range(total)))
+        self.assertEqual(len(first_cycle), len(set(first_cycle)))
+        repeated = batcher.next_batch()
+        self.assertEqual(repeated.cycle, 1)
+        self.assertEqual(
+            repeated.indices,
+            tuple(range(min(batch_size, total))),
+        )
+
+    def test_protected_batches_cover_every_item_before_repeating(self):
+        self.assert_complete_cycle_before_repeat(total=11, batch_size=4)
+
+    def test_retain_batches_cover_every_item_before_repeating(self):
+        self.assert_complete_cycle_before_repeat(total=10, batch_size=3)
 
     def test_only_selected_sensitive_rows_receive_deltas(self):
         weight = torch.arange(15, dtype=torch.float32).reshape(5, 3)
@@ -150,6 +178,80 @@ class GateAwareSensitiveRowRepairTests(unittest.TestCase):
         )
         self.assertLess(float(margin.item()), 0.0)
 
+    def test_chunked_full_checks_match_unchunked_checks(self):
+        active_tensors = REPAIR.ActiveConstraintTensors(
+            hidden=torch.tensor(
+                [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [-1.0, 0.5]]
+            ),
+            sensitive_logits=torch.tensor([2.0, 1.5, 1.0, 0.5]),
+            best_other_logits=torch.tensor([1.8, 1.7, 1.2, 0.8]),
+            selected_row_columns=torch.tensor([0, 1, 0, 1]),
+        )
+        protected_tensors = REPAIR.ProtectedConstraintTensors(
+            hidden=torch.tensor(
+                [
+                    [1.0, 0.0],
+                    [0.0, 1.0],
+                    [1.0, 1.0],
+                    [-1.0, 0.0],
+                    [0.5, -0.5],
+                ]
+            ),
+            target_logits=torch.tensor([2.0, 1.8, 2.1, 1.7, 1.6]),
+            strongest_unchanged_logits=torch.tensor([1.5, 1.7, 1.9, 1.4, 1.5]),
+            selected_logits=torch.tensor(
+                [[1.0, 1.2], [1.4, 1.8], [2.1, 1.0], [1.1, 1.0], [1.5, 1.2]]
+            ),
+            target_selected_columns=torch.tensor([-1, 1, 0, -1, 0]),
+            required_margins=torch.tensor([0.05, 0.05, 0.02, 0.05, 0.03]),
+        )
+        delta = torch.tensor([[0.2, -0.1], [-0.3, 0.4]])
+        active_margin = 0.02
+        active_margins = REPAIR.active_constraint_margins(
+            active_tensors.hidden,
+            active_tensors.sensitive_logits,
+            active_tensors.best_other_logits,
+            active_tensors.selected_row_columns,
+            delta,
+        )
+        protected_margins = REPAIR.protected_constraint_margins(
+            protected_tensors.hidden,
+            protected_tensors.target_logits,
+            protected_tensors.strongest_unchanged_logits,
+            protected_tensors.selected_logits,
+            protected_tensors.target_selected_columns,
+            delta,
+        )
+        active_slack = active_margins - active_margin
+        protected_slack = (
+            protected_margins - protected_tensors.required_margins
+        )
+        chunked = REPAIR.full_constraint_check_chunked(
+            active_tensors,
+            protected_tensors,
+            delta,
+            active_margin=active_margin,
+            chunk_size=2,
+        )
+        self.assertEqual(chunked["active_chunks_evaluated"], 2)
+        self.assertEqual(chunked["protected_chunks_evaluated"], 3)
+        self.assertEqual(
+            chunked["full_active_violation_count"],
+            int(active_slack.lt(0).sum().item()),
+        )
+        self.assertEqual(
+            chunked["full_protected_violation_count"],
+            int(protected_slack.lt(0).sum().item()),
+        )
+        self.assertAlmostEqual(
+            chunked["minimum_active_slack"],
+            float(active_slack.min().item()),
+        )
+        self.assertAlmostEqual(
+            chunked["minimum_protected_slack"],
+            float(protected_slack.min().item()),
+        )
+
     def test_retain_kl_zero_at_origin_and_positive_after_damage(self):
         cache = ACTIVE.RetainKLCache(
             hidden=torch.tensor([[1.0, 0.0]]),
@@ -197,6 +299,107 @@ class GateAwareSensitiveRowRepairTests(unittest.TestCase):
         expected = ACTIVE.retain_kl_from_caches(legacy, delta)
         actual = REPAIR.retain_kl_from_tensors(tensors, delta)
         self.assertTrue(torch.allclose(actual, expected, atol=1e-7, rtol=1e-7))
+
+    def test_live_progress_rows_contain_required_fields(self):
+        active_tensors = REPAIR.ActiveConstraintTensors(
+            hidden=torch.tensor([[1.0, 0.0]]),
+            sensitive_logits=torch.tensor([1.0]),
+            best_other_logits=torch.tensor([0.5]),
+            selected_row_columns=torch.tensor([0]),
+        )
+        protected_tensors = REPAIR.ProtectedConstraintTensors(
+            hidden=torch.tensor([[1.0, 0.0], [0.0, 1.0]]),
+            target_logits=torch.tensor([2.0, 2.0]),
+            strongest_unchanged_logits=torch.tensor([1.0, 1.0]),
+            selected_logits=torch.tensor([[0.5], [0.5]]),
+            target_selected_columns=torch.tensor([-1, -1]),
+            required_margins=torch.tensor([0.05, 0.05]),
+        )
+        retain_tensors = REPAIR.RetainKLTensors(
+            hidden=torch.tensor([[1.0, 0.0], [0.0, 1.0]]),
+            candidate_selected_probs=torch.tensor([[0.2], [0.2]]),
+            reference_selected_probs=torch.tensor([[0.2], [0.2]]),
+            baseline_kl=torch.zeros(2),
+            record_ids=(10, 20),
+            record_offsets=(0, 1, 2),
+        )
+        args = SimpleNamespace(
+            repair_rank=0,
+            repair_optimizer="adamw",
+            repair_lr=1e-3,
+            active_margin=0.02,
+            protected_batch_size=1,
+            retain_kl_batch_size=1,
+            repair_steps=1,
+            progress_every=10,
+            full_constraint_check_every=100,
+            active_hinge_weight=2.0,
+            protected_hinge_weight=50.0,
+            retain_kl_mu=10.0,
+            delta_l2_lambda=1e-4,
+            stop_when_all_satisfied=False,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            progress_path = Path(tmp) / "optimization" / "live_progress.jsonl"
+            with mock.patch.object(
+                REPAIR.active,
+                "make_repair_optimizer",
+                side_effect=lambda module, _name, learning_rate: TinyTestOptimizer(
+                    module,
+                    learning_rate,
+                ),
+            ):
+                REPAIR.optimize_gate_aware_delta(
+                    active_tensors,
+                    protected_tensors,
+                    retain_tensors,
+                    selected_row_count=1,
+                    hidden_size=2,
+                    args=args,
+                    device=torch.device("cpu"),
+                    live_progress_path=progress_path,
+                )
+            rows = [
+                json.loads(line)
+                for line in progress_path.read_text(encoding="utf-8").splitlines()
+            ]
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(REPAIR.LIVE_PROGRESS_REQUIRED_FIELDS <= rows[0].keys())
+        self.assertEqual(rows[0]["step"], 1)
+        self.assertEqual(rows[0]["total_steps"], 1)
+        self.assertIsNotNone(rows[0]["full_active_violation_count"])
+        self.assertIsNotNone(rows[0]["full_protected_violation_count"])
+
+    def test_interrupted_run_emits_receipt_but_no_selected_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            state = REPAIR.InterruptionState(
+                output_dir=output,
+                latest_completed_step=17,
+                phase="optimization",
+            )
+
+            def interrupt_after_checkpoint_materialization():
+                checkpoint = output / "selected_checkpoint"
+                checkpoint.mkdir()
+                (checkpoint / "partial.bin").write_bytes(b"partial")
+                raise KeyboardInterrupt
+
+            with self.assertRaises(SystemExit) as raised:
+                REPAIR.execute_with_interrupt_receipt(
+                    interrupt_after_checkpoint_materialization,
+                    state,
+                )
+            self.assertEqual(raised.exception.code, 130)
+            self.assertFalse((output / "selected_checkpoint").exists())
+            receipt = json.loads(
+                (output / "optimization" / "interrupted.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(receipt["latest_completed_step"], 17)
+            self.assertEqual(receipt["phase_at_interrupt"], "optimization")
+            self.assertFalse(receipt["selected_checkpoint_emitted"])
 
     def test_candidate_selection_rejects_zero_forgetting_with_utility_damage(self):
         setting = metric_result()

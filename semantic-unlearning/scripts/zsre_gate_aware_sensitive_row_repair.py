@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import argparse
 import copy
+from datetime import datetime, timezone
 import hashlib
 import json
 import math
+import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import torch
 from torch import nn
@@ -41,6 +43,26 @@ FIXED_UTILITY_DROP_TOLERANCE = 0.10
 FIXED_MAX_PPL_RATIO = 1.02
 FIXED_TARGET_EFF_MAX = 0.0
 FIXED_TARGET_GEN_MAX = 0.0
+LIVE_PROGRESS_REQUIRED_FIELDS = frozenset(
+    {
+        "step",
+        "total_steps",
+        "total_loss",
+        "active_hinge",
+        "protected_hinge",
+        "retain_kl",
+        "delta_l2",
+        "active_violation_count_full_set",
+        "protected_violation_count_current_batch",
+        "effective_delta_norm",
+        "cuda_allocated_bytes",
+        "cuda_reserved_bytes",
+        "full_active_violation_count",
+        "full_protected_violation_count",
+        "minimum_active_slack",
+        "minimum_protected_slack",
+    }
+)
 
 
 @dataclass
@@ -108,6 +130,16 @@ class CyclicBatch:
     completed_cycle: bool
 
 
+@dataclass
+class InterruptionState:
+    """Mutable outer-run state used to write a truthful Ctrl+C receipt."""
+
+    output_dir: Path
+    latest_completed_step: int = 0
+    phase: str = "initializing"
+    run_completed: bool = False
+
+
 class DeterministicCyclicBatcher:
     """Visit each item exactly once per deterministic cycle."""
 
@@ -171,8 +203,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--delta-l2-lambda", type=float, default=1e-4)
     parser.add_argument("--retain-calibration-num", type=int, default=1000)
     parser.add_argument("--retain-calibration-seed", type=int, default=1729)
-    parser.add_argument("--protected-batch-size", type=int, default=512)
-    parser.add_argument("--retain-kl-batch-size", type=int, default=64)
+    parser.add_argument("--protected-batch-size", type=int, default=256)
+    parser.add_argument("--retain-kl-batch-size", type=int, default=32)
     parser.add_argument("--progress-every", type=int, default=10)
     parser.add_argument("--full-constraint-check-every", type=int, default=100)
     parser.add_argument(
@@ -794,6 +826,103 @@ def _minimum(values: torch.Tensor) -> Optional[float]:
     return None if values.numel() == 0 else float(values.min().detach().cpu())
 
 
+def _format_optional_float(value: Optional[float]) -> str:
+    return "none" if value is None else f"{value:.6g}"
+
+
+@torch.no_grad()
+def full_constraint_check_chunked(
+    active_tensors: ActiveConstraintTensors,
+    protected_tensors: ProtectedConstraintTensors,
+    delta_rows: torch.Tensor,
+    *,
+    active_margin: float,
+    chunk_size: int,
+) -> Dict[str, Any]:
+    """Evaluate every constraint with bounded no-gradient matrix products."""
+
+    if chunk_size <= 0:
+        raise ValueError("full constraint check chunk size must be positive")
+
+    full_active_violation_count = 0
+    full_protected_violation_count = 0
+    minimum_active_slack: Optional[float] = None
+    minimum_protected_slack: Optional[float] = None
+    minimum_active_margin: Optional[float] = None
+    minimum_protected_margin: Optional[float] = None
+    active_chunks_evaluated = 0
+    protected_chunks_evaluated = 0
+
+    active_count = int(active_tensors.hidden.shape[0])
+    for start in range(0, active_count, chunk_size):
+        stop = min(start + chunk_size, active_count)
+        margins = active_constraint_margins(
+            active_tensors.hidden[start:stop],
+            active_tensors.sensitive_logits[start:stop],
+            active_tensors.best_other_logits[start:stop],
+            active_tensors.selected_row_columns[start:stop],
+            delta_rows,
+        )
+        slack = margins - float(active_margin)
+        full_active_violation_count += int(slack.lt(0).sum().item())
+        margin_minimum = _minimum(margins)
+        if margin_minimum is not None:
+            minimum_active_margin = (
+                margin_minimum
+                if minimum_active_margin is None
+                else min(minimum_active_margin, margin_minimum)
+            )
+        chunk_minimum = _minimum(slack)
+        if chunk_minimum is not None:
+            minimum_active_slack = (
+                chunk_minimum
+                if minimum_active_slack is None
+                else min(minimum_active_slack, chunk_minimum)
+            )
+        active_chunks_evaluated += 1
+
+    protected_count = int(protected_tensors.hidden.shape[0])
+    for start in range(0, protected_count, chunk_size):
+        stop = min(start + chunk_size, protected_count)
+        margins = protected_constraint_margins(
+            protected_tensors.hidden[start:stop],
+            protected_tensors.target_logits[start:stop],
+            protected_tensors.strongest_unchanged_logits[start:stop],
+            protected_tensors.selected_logits[start:stop],
+            protected_tensors.target_selected_columns[start:stop],
+            delta_rows,
+        )
+        slack = margins - protected_tensors.required_margins[start:stop]
+        full_protected_violation_count += int(slack.lt(0).sum().item())
+        margin_minimum = _minimum(margins)
+        if margin_minimum is not None:
+            minimum_protected_margin = (
+                margin_minimum
+                if minimum_protected_margin is None
+                else min(minimum_protected_margin, margin_minimum)
+            )
+        chunk_minimum = _minimum(slack)
+        if chunk_minimum is not None:
+            minimum_protected_slack = (
+                chunk_minimum
+                if minimum_protected_slack is None
+                else min(minimum_protected_slack, chunk_minimum)
+            )
+        protected_chunks_evaluated += 1
+
+    return {
+        "full_active_violation_count": full_active_violation_count,
+        "full_protected_violation_count": full_protected_violation_count,
+        "minimum_active_slack": minimum_active_slack,
+        "minimum_protected_slack": minimum_protected_slack,
+        "minimum_active_margin": minimum_active_margin,
+        "minimum_protected_margin": minimum_protected_margin,
+        "active_chunks_evaluated": active_chunks_evaluated,
+        "protected_chunks_evaluated": protected_chunks_evaluated,
+        "chunk_size": int(chunk_size),
+    }
+
+
 def optimize_gate_aware_delta(
     active_tensors: ActiveConstraintTensors,
     protected_tensors: ProtectedConstraintTensors,
@@ -804,16 +933,21 @@ def optimize_gate_aware_delta(
     args: argparse.Namespace,
     device: torch.device,
     live_progress_path: Path,
+    interruption_state: Optional[InterruptionState] = None,
 ) -> Tuple[torch.Tensor, List[Dict[str, Any]], Dict[str, Any]]:
     """Joint FP32 optimization with deterministic cyclic utility batches."""
 
     live_progress_path = Path(live_progress_path)
     live_progress_path.parent.mkdir(parents=True, exist_ok=True)
-    live_progress_path.write_text("", encoding="utf-8")
+    if interruption_state is not None:
+        interruption_state.phase = "optimization"
+        interruption_state.latest_completed_step = 0
 
     if selected_row_count == 0:
         if active_tensors.hidden.shape[0]:
             raise RuntimeError("Active constraints exist but no sensitive row is editable")
+        with live_progress_path.open("w", encoding="utf-8"):
+            pass
         return (
             torch.empty((0, hidden_size), dtype=torch.float32, device=device),
             [],
@@ -865,7 +999,7 @@ def optimize_gate_aware_delta(
     logs: List[Dict[str, Any]] = []
     stopped_early = False
 
-    with live_progress_path.open("a", encoding="utf-8", buffering=1) as live_handle:
+    with live_progress_path.open("w", encoding="utf-8", buffering=1) as live_handle:
         for step in range(1, args.repair_steps + 1):
             protected_batch = protected_batcher.next_batch()
             retain_batch = retain_batcher.next_batch()
@@ -913,6 +1047,8 @@ def optimize_gate_aware_delta(
                 raise FloatingPointError(f"Non-finite repair loss at step {step}")
             total.backward()
             optimizer.step()
+            if interruption_state is not None:
+                interruption_state.latest_completed_step = step
 
             progress_due = (
                 step == 1
@@ -954,52 +1090,54 @@ def optimize_gate_aware_delta(
                     .sum()
                     .item()
                 )
-                full_protected_violations: Optional[int] = None
-                full_retain_kl: Optional[float] = None
+                full_check: Optional[Dict[str, Any]] = None
                 all_satisfied = False
                 if full_check_due:
-                    full_protected_after = protected_constraint_margins(
-                        protected_tensors.hidden,
-                        protected_tensors.target_logits,
-                        protected_tensors.strongest_unchanged_logits,
-                        protected_tensors.selected_logits,
-                        protected_tensors.target_selected_columns,
+                    full_check = full_constraint_check_chunked(
+                        active_tensors,
+                        protected_tensors,
                         updated,
-                    )
-                    full_protected_violations = int(
-                        (
-                            full_protected_after
-                            < protected_tensors.required_margins
-                        )
-                        .sum()
-                        .item()
-                    )
-                    full_retain_kl = float(
-                        retain_kl_from_tensors(
-                            retain_kl_tensors,
-                            updated,
-                        )
-                        .detach()
-                        .cpu()
+                        active_margin=args.active_margin,
+                        chunk_size=args.protected_batch_size,
                     )
                     all_satisfied = (
-                        active_violations == 0
-                        and full_protected_violations == 0
+                        full_check["full_active_violation_count"] == 0
+                        and full_check["full_protected_violation_count"] == 0
                     )
 
                 if device.type == "cuda":
-                    gpu_allocated = float(
-                        torch.cuda.memory_allocated(device) / (1024**2)
-                    )
-                    gpu_reserved = float(
-                        torch.cuda.memory_reserved(device) / (1024**2)
-                    )
+                    gpu_allocated_bytes = int(torch.cuda.memory_allocated(device))
+                    gpu_reserved_bytes = int(torch.cuda.memory_reserved(device))
                 else:
-                    gpu_allocated = 0.0
-                    gpu_reserved = 0.0
+                    gpu_allocated_bytes = 0
+                    gpu_reserved_bytes = 0
+                gpu_allocated = float(gpu_allocated_bytes / (1024**2))
+                gpu_reserved = float(gpu_reserved_bytes / (1024**2))
+                full_active_violations = (
+                    None
+                    if full_check is None
+                    else int(full_check["full_active_violation_count"])
+                )
+                full_protected_violations = (
+                    None
+                    if full_check is None
+                    else int(full_check["full_protected_violation_count"])
+                )
+                minimum_active_slack = (
+                    None if full_check is None else full_check["minimum_active_slack"]
+                )
+                minimum_protected_slack = (
+                    None
+                    if full_check is None
+                    else full_check["minimum_protected_slack"]
+                )
                 row = {
                     "step": step,
+                    "total_steps": args.repair_steps,
                     "total_loss": float(total.detach().cpu()),
+                    "active_hinge": float(active_hinge.detach().cpu()),
+                    "protected_hinge": float(protected_hinge.detach().cpu()),
+                    "retain_kl": float(retain_kl.detach().cpu()),
                     "active_squared_hinge": float(active_hinge.detach().cpu()),
                     "protected_squared_hinge": float(
                         protected_hinge.detach().cpu()
@@ -1008,15 +1146,25 @@ def optimize_gate_aware_delta(
                         retain_kl.detach().cpu()
                     ),
                     "delta_l2": float(delta_l2.detach().cpu()),
+                    "active_violation_count_full_set": active_violations,
+                    "protected_violation_count_current_batch": (
+                        protected_batch_violations
+                    ),
                     "active_violations_full": active_violations,
                     "protected_violations_current_batch": (
                         protected_batch_violations
                     ),
+                    "full_active_violation_count": full_active_violations,
+                    "full_protected_violation_count": full_protected_violations,
+                    "minimum_active_slack": minimum_active_slack,
+                    "minimum_protected_slack": minimum_protected_slack,
                     "protected_violations_full": full_protected_violations,
-                    "retain_kl_full": full_retain_kl,
+                    "retain_kl_full": None,
                     "effective_delta_norm": float(
                         updated.norm().detach().cpu()
                     ),
+                    "cuda_allocated_bytes": gpu_allocated_bytes,
+                    "cuda_reserved_bytes": gpu_reserved_bytes,
                     "gpu_allocated_mib": gpu_allocated,
                     "gpu_reserved_mib": gpu_reserved,
                     "protected_batch": {
@@ -1034,26 +1182,57 @@ def optimize_gate_aware_delta(
                         "completed_cycle": retain_batch.completed_cycle,
                     },
                     "full_constraint_check": full_check_due,
+                    "full_constraint_check_chunks": (
+                        None
+                        if full_check is None
+                        else {
+                            "active": full_check["active_chunks_evaluated"],
+                            "protected": full_check[
+                                "protected_chunks_evaluated"
+                            ],
+                            "chunk_size": full_check["chunk_size"],
+                        }
+                    ),
                     "all_constraints_satisfied_on_full_check": (
                         all_satisfied if full_check_due else None
                     ),
                 }
+                missing_progress_fields = LIVE_PROGRESS_REQUIRED_FIELDS - row.keys()
+                if missing_progress_fields:
+                    raise RuntimeError(
+                        "Internal live-progress schema error; missing fields: "
+                        f"{sorted(missing_progress_fields)}"
+                    )
                 logs.append(row)
                 live_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
                 live_handle.flush()
+                full_check_text = ""
+                if full_check is not None:
+                    full_check_text = (
+                        " full_active_violations="
+                        f"{full_active_violations}"
+                        " full_protected_violations="
+                        f"{full_protected_violations}"
+                        " minimum_active_slack="
+                        f"{_format_optional_float(minimum_active_slack)}"
+                        " minimum_protected_slack="
+                        f"{_format_optional_float(minimum_protected_slack)}"
+                    )
                 print(
                     "[gate-aware repair] "
-                    f"step={step} total={row['total_loss']:.6g} "
-                    f"active_hinge={row['active_squared_hinge']:.6g} "
-                    f"protected_hinge={row['protected_squared_hinge']:.6g} "
-                    f"retain_kl={row['retain_kl_setting5e_to_repaired']:.6g} "
+                    f"step={step}/{args.repair_steps} "
+                    f"total_loss={row['total_loss']:.6g} "
+                    f"active_hinge={row['active_hinge']:.6g} "
+                    f"protected_hinge={row['protected_hinge']:.6g} "
+                    f"retain_kl={row['retain_kl']:.6g} "
                     f"delta_l2={row['delta_l2']:.6g} "
                     f"active_violations_full={active_violations} "
                     "protected_violations_batch="
                     f"{protected_batch_violations} "
                     f"delta_norm={row['effective_delta_norm']:.6g} "
                     f"gpu_allocated_mib={gpu_allocated:.1f} "
-                    f"gpu_reserved_mib={gpu_reserved:.1f}",
+                    f"gpu_reserved_mib={gpu_reserved:.1f}"
+                    f"{full_check_text}",
                     flush=True,
                 )
             if (
@@ -1065,38 +1244,36 @@ def optimize_gate_aware_delta(
                 break
 
     delta = module.effective_delta().detach()
-    final_active = active_constraint_margins(
-        active_tensors.hidden,
-        active_tensors.sensitive_logits,
-        active_tensors.best_other_logits,
-        active_tensors.selected_row_columns,
+    final_check = full_constraint_check_chunked(
+        active_tensors,
+        protected_tensors,
         delta,
-    )
-    final_protected = protected_constraint_margins(
-        protected_tensors.hidden,
-        protected_tensors.target_logits,
-        protected_tensors.strongest_unchanged_logits,
-        protected_tensors.selected_logits,
-        protected_tensors.target_selected_columns,
-        delta,
+        active_margin=args.active_margin,
+        chunk_size=args.protected_batch_size,
     )
     final_retain_kl = retain_kl_from_tensors(retain_kl_tensors, delta)
     return delta, logs, {
         "steps_completed": step,
         "progress_records": len(logs),
         "stopped_early": stopped_early,
-        "all_active_satisfied": bool((final_active >= active_required).all().item()),
-        "all_protected_satisfied": bool(
-            (final_protected >= protected_required).all().item()
+        "all_active_satisfied": final_check["full_active_violation_count"] == 0,
+        "all_protected_satisfied": (
+            final_check["full_protected_violation_count"] == 0
         ),
         "active_constraint_count": int(active_required.numel()),
         "protected_constraint_count": int(protected_required.numel()),
-        "active_violations_after": int((final_active < active_required).sum().item()),
-        "protected_violations_after": int(
-            (final_protected < protected_required).sum().item()
-        ),
-        "minimum_active_margin_after": _minimum(final_active),
-        "minimum_protected_margin_after": _minimum(final_protected),
+        "active_violations_after": final_check["full_active_violation_count"],
+        "protected_violations_after": final_check[
+            "full_protected_violation_count"
+        ],
+        "minimum_active_slack_after": final_check["minimum_active_slack"],
+        "minimum_protected_slack_after": final_check[
+            "minimum_protected_slack"
+        ],
+        "minimum_active_margin_after": final_check["minimum_active_margin"],
+        "minimum_protected_margin_after": final_check[
+            "minimum_protected_margin"
+        ],
         "full_retain_kl_after": float(final_retain_kl.detach().cpu()),
         "protected_batch_size": args.protected_batch_size,
         "retain_kl_batch_size_records": args.retain_kl_batch_size,
@@ -1265,6 +1442,58 @@ def save_selected_checkpoint_if_accepted(
     return checkpoint
 
 
+def _discard_selected_checkpoint_after_interruption(output_dir: Path) -> bool:
+    """Remove only the publishable checkpoint from an interrupted run."""
+
+    checkpoint = Path(output_dir) / "selected_checkpoint"
+    if checkpoint.is_symlink() or checkpoint.is_file():
+        checkpoint.unlink()
+        return True
+    if checkpoint.is_dir():
+        shutil.rmtree(checkpoint)
+        return True
+    return False
+
+
+def write_interruption_receipt(state: InterruptionState) -> Path:
+    """Record an outer-level Ctrl+C and prevent checkpoint publication."""
+
+    interrupted_phase = state.phase
+    selected_checkpoint_removed = _discard_selected_checkpoint_after_interruption(
+        state.output_dir
+    )
+    state.phase = "interrupted"
+    state.run_completed = False
+    path = state.output_dir / "optimization" / "interrupted.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    gagd.write_json(
+        path,
+        {
+            "status": "interrupted",
+            "exit_status": 130,
+            "latest_completed_step": int(state.latest_completed_step),
+            "phase_at_interrupt": interrupted_phase,
+            "interrupted_at_utc": datetime.now(timezone.utc).isoformat(),
+            "selected_checkpoint_removed": selected_checkpoint_removed,
+            "selected_checkpoint_emitted": False,
+        },
+    )
+    return path
+
+
+def execute_with_interrupt_receipt(
+    execute: Callable[[], None],
+    state: InterruptionState,
+) -> None:
+    """Run one seed and handle KeyboardInterrupt only at the outer boundary."""
+
+    try:
+        execute()
+    except KeyboardInterrupt:
+        write_interruption_receipt(state)
+        raise SystemExit(130) from None
+
+
 def write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
@@ -1358,17 +1587,25 @@ def _official_metrics_equal(
     )
 
 
-def main() -> None:
-    args = build_parser().parse_args()
+def execute_run(
+    args: argparse.Namespace,
+    *,
+    interruption_state: InterruptionState,
+) -> None:
     validate_args(args)
     gagd.set_seed(args.seed)
-    output_dir = gagd.resolve_output_path(args.output_dir)
+    output_dir = interruption_state.output_dir
+    expected_output_dir = gagd.resolve_output_path(args.output_dir)
+    if output_dir != expected_output_dir:
+        raise ValueError("Interruption state output directory does not match arguments")
+    interruption_state.phase = "preparing"
     _ensure_fresh_output(output_dir)
     optimization_dir = output_dir / "optimization"
     scale_sweep_dir = output_dir / "scale_sweep"
     optimization_dir.mkdir(parents=True, exist_ok=True)
     scale_sweep_dir.mkdir(parents=True, exist_ok=True)
 
+    interruption_state.phase = "loading_setting5_checkpoint"
     model, tok, checkpoint = load_model_and_tokenizer(args)
     source_results_path, source_result = discover_source_results(
         checkpoint,
@@ -1437,6 +1674,7 @@ def main() -> None:
         },
     )
 
+    interruption_state.phase = "evaluating_setting5_checkpoint"
     print("Evaluating the immutable Setting 5e checkpoint")
     setting5_result = zsre.evaluate_loaded_model_official(
         method="Setting 5e (600-step saved checkpoint)",
@@ -1575,6 +1813,7 @@ def main() -> None:
         else output_layer.weight.new_empty((0, output_layer.weight.shape[1]))
     )
 
+    interruption_state.phase = "caching_constraints"
     print("Caching official-order forget and full-retain constraints")
     forget_caches = cache_case_baselines(
         model,
@@ -1665,7 +1904,9 @@ def main() -> None:
         args=args,
         device=device,
         live_progress_path=optimization_dir / "live_progress.jsonl",
+        interruption_state=interruption_state,
     )
+    interruption_state.phase = "candidate_evaluation"
     write_jsonl(optimization_dir / "repair_log.jsonl", repair_logs)
     active_after = active_constraint_margins(
         active_tensors.hidden,
@@ -1857,20 +2098,13 @@ def main() -> None:
         exact_materialized_delta = zero_delta
     # Mandatory full-set diagnostics are evaluated after exact BF16
     # materialization and before the gate-passing candidate is accepted/saved.
-    final_active_margins = active_constraint_margins(
-        active_tensors.hidden,
-        active_tensors.sensitive_logits,
-        active_tensors.best_other_logits,
-        active_tensors.selected_row_columns,
+    interruption_state.phase = "final_acceptance_validation"
+    final_constraint_check = full_constraint_check_chunked(
+        active_tensors,
+        protected_tensors,
         exact_materialized_delta,
-    )
-    final_protected_margins = protected_constraint_margins(
-        protected_tensors.hidden,
-        protected_tensors.target_logits,
-        protected_tensors.strongest_unchanged_logits,
-        protected_tensors.selected_logits,
-        protected_tensors.target_selected_columns,
-        exact_materialized_delta,
+        active_margin=args.active_margin,
+        chunk_size=args.protected_batch_size,
     )
     final_retain_kl = retain_kl_from_tensors(
         retain_kl_tensors,
@@ -1880,6 +2114,7 @@ def main() -> None:
     if accepted:
         if selected_result is None:
             raise RuntimeError("Gate-selected candidate lacks official metrics")
+        interruption_state.phase = "saving_selected_checkpoint"
         gagd.write_json(output_dir / "selected_official_eval.json", selected_result)
         selected_checkpoint = save_selected_checkpoint_if_accepted(
             accepted=True,
@@ -1893,29 +2128,38 @@ def main() -> None:
         selection_reason = "smallest_materialized_delta_norm_passing_every_gate"
     else:
         selection_reason = "no_materialized_candidate_passed_every_fixed_gate"
+    interruption_state.phase = "finalizing_results"
     constraint_summary.update(
         {
             "final_materialized_scale": selected_scale if accepted else None,
             "final_materialized_delta_norm": float(
                 exact_materialized_delta.norm().detach().cpu()
             ),
-            "active_violations_after_final_materialization": int(
-                (final_active_margins < args.active_margin).sum().item()
+            "active_violations_after_final_materialization": (
+                final_constraint_check["full_active_violation_count"]
             ),
-            "protected_violations_after_final_materialization": int(
-                (
-                    final_protected_margins
-                    < protected_tensors.required_margins
-                )
-                .sum()
-                .item()
+            "protected_violations_after_final_materialization": (
+                final_constraint_check["full_protected_violation_count"]
             ),
-            "minimum_active_margin_after_final_materialization": _minimum(
-                final_active_margins
+            "minimum_active_slack_after_final_materialization": (
+                final_constraint_check["minimum_active_slack"]
             ),
-            "minimum_protected_margin_after_final_materialization": _minimum(
-                final_protected_margins
+            "minimum_protected_slack_after_final_materialization": (
+                final_constraint_check["minimum_protected_slack"]
             ),
+            "minimum_active_margin_after_final_materialization": (
+                final_constraint_check["minimum_active_margin"]
+            ),
+            "minimum_protected_margin_after_final_materialization": (
+                final_constraint_check["minimum_protected_margin"]
+            ),
+            "final_constraint_check_chunks": {
+                "active": final_constraint_check["active_chunks_evaluated"],
+                "protected": final_constraint_check[
+                    "protected_chunks_evaluated"
+                ],
+                "chunk_size": final_constraint_check["chunk_size"],
+            },
             "full_retain_kl_after_final_materialization": float(
                 final_retain_kl.detach().cpu()
             ),
@@ -1992,12 +2236,25 @@ def main() -> None:
         f"selected_scale={selected_scale}; selected_checkpoint_sha256="
         f"{selected_checkpoint_hash}"
     )
+    interruption_state.phase = "complete"
+    interruption_state.run_completed = True
     if args.fail_if_target_missed and not accepted:
         raise RuntimeError(
             "No gate-aware sensitive-row candidate passed zero Eff/Gen, all "
             "0.10-point utility gates, and the 1.02 PPL gate. Diagnostics were "
             f"written to {output_dir}."
         )
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    state = InterruptionState(
+        output_dir=gagd.resolve_output_path(args.output_dir),
+    )
+    execute_with_interrupt_receipt(
+        lambda: execute_run(args, interruption_state=state),
+        state,
+    )
 
 
 if __name__ == "__main__":

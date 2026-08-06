@@ -134,8 +134,8 @@ Primary defaults:
 | model/evaluation dtype | BF16 |
 | evaluation batch size | 8 |
 | cache batch size | 8 |
-| protected optimization batch | 512 constraints |
-| retain-KL optimization batch | 64 complete retain records |
+| protected optimization batch | 256 constraints |
+| retain-KL optimization batch | 32 complete retain records |
 | terminal/live progress interval | 10 steps |
 | full-constraint check interval | 100 steps |
 
@@ -149,10 +149,11 @@ uses the entire retain set, so it does not subsample membership.
 Optimization always uses the complete active set. Protected constraints and
 retain-record KL use independent deterministic cyclic mini-batches: every item
 is visited once before its cycle repeats. This batching is only an optimization
-approximation. Full active/protected tensors and all 1,000 retain records are
-rechecked periodically and after optimization, and exact official Eff/Gen/Spe
-plus PPL gates remain unchanged. Progress is printed with flushing and appended
-incrementally to `optimization/live_progress.jsonl`.
+approximation. The complete active/protected sets and all 1,000 retain records
+are rechecked before final acceptance; active/protected constraints are also
+checked in bounded no-gradient chunks every 100 steps. Exact official
+Eff/Gen/Spe plus PPL gates remain unchanged. Progress is printed with flushing
+and appended incrementally to `optimization/live_progress.jsonl`.
 
 ## Exact BF16 scale sweep
 
@@ -218,6 +219,7 @@ OUTPUT_ROOT/seedN/
 ├── selected_sensitive_rows.json
 ├── optimization/
 │   ├── active_cases.jsonl
+│   ├── interrupted.json          # Ctrl+C only; no selected checkpoint survives
 │   ├── live_progress.jsonl
 │   ├── repair_log.jsonl
 │   └── constraint_summary.json

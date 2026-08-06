@@ -34,8 +34,8 @@ RETAIN_KL_MU="${RETAIN_KL_MU:-10.0}"
 DELTA_L2_LAMBDA="${DELTA_L2_LAMBDA:-1e-4}"
 RETAIN_CALIBRATION_NUM="${RETAIN_CALIBRATION_NUM:-1000}"
 RETAIN_CALIBRATION_SEED="${RETAIN_CALIBRATION_SEED:-1729}"
-PROTECTED_BATCH_SIZE="${PROTECTED_BATCH_SIZE:-512}"
-RETAIN_KL_BATCH_SIZE="${RETAIN_KL_BATCH_SIZE:-64}"
+PROTECTED_BATCH_SIZE="${PROTECTED_BATCH_SIZE:-256}"
+RETAIN_KL_BATCH_SIZE="${RETAIN_KL_BATCH_SIZE:-32}"
 PROGRESS_EVERY="${PROGRESS_EVERY:-10}"
 FULL_CONSTRAINT_CHECK_EVERY="${FULL_CONSTRAINT_CHECK_EVERY:-100}"
 STOP_WHEN_ALL_SATISFIED="${STOP_WHEN_ALL_SATISFIED:-0}"
@@ -121,7 +121,14 @@ for seed in "${SEED_ARRAY[@]}"; do
   fi
 
   echo "Running gate-aware sensitive-row ZsRE repair for seed ${seed}"
-  if ! "${PYTHON_BIN}" scripts/zsre_gate_aware_sensitive_row_repair.py "${RUN_ARGS[@]}"; then
+  if "${PYTHON_BIN}" scripts/zsre_gate_aware_sensitive_row_repair.py "${RUN_ARGS[@]}"; then
+    :
+  else
+    run_status=$?
+    if [[ "${run_status}" -eq 130 ]]; then
+      echo "Interrupted during seed ${seed}; stopping without aggregation." >&2
+      exit 130
+    fi
     FAILED_SEEDS+=("${seed}:execution_error")
     continue
   fi
