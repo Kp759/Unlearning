@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "dataset": "ZsRE",
+  "record_id": "zsre-setting5e-active-repair-u1p20-ppl1p16-cal384-seeds1-10",
+  "status": "BEST_ACCEPTED",
+  "method": "Setting 5e plus exact-BF16 active LM-head repair",
+  "base_model": "meta-llama/Llama-3.2-3B-Instruct",
+  "repository_commit": "a8d6b85450d662d28d31ee2f0f01e1c3b4be706e",
+  "seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "forget_num": 50,
+  "retain_num": 1000,
+  "setting5e": {
+    "steps": 600,
+    "embedding_lr": 0.0001,
+    "lm_head_lr": 0.0001,
+    "forget_loss_weight": 2.0,
+    "retain_loss_weight": 1.0,
+    "margin": 1.0,
+    "post_training_vocabulary_restoration": true
+  },
+  "active_lm_head_repair": {
+    "neutral_target": "Unknown",
+    "neutral_token_id": 14109,
+    "repair_steps": 800,
+    "repair_lr": 0.005,
+    "repair_optimizer": "adamw",
+    "active_logit_margin": 0.25,
+    "selection_logit_margin": 0.05,
+    "repair_rank": 0,
+    "repair_l2_lambda": 1e-06,
+    "retain_calibration_num": 384,
+    "retain_calibration_seed": 1729,
+    "project_away_protected_hidden": true,
+    "candidate_scales": [1.0, 0.875, 0.75, 0.625, 0.5, 0.375, 0.25, 0.1875, 0.125, 0.09375, 0.0625, 0.046875, 0.03125, 0.015625, 0.0078125, 0.0]
+  },
+  "evaluation": {
+    "dtype": "bfloat16",
+    "eval_batch_size": 8,
+    "cache_batch_size": 4,
+    "device_map": "single",
+    "utility_drop_tolerance_percentage_points": 1.2,
+    "maximum_ppl_ratio": 1.16,
+    "target_eff_max": 0.0,
+    "target_gen_max": 0.0,
+    "strict_utility_gates": true,
+    "uncertainty": "sample standard deviation, ddof=1"
+  },
+  "acceptance": {
+    "accepted_count": 10,
+    "rejected_count": 0,
+    "acceptance_rate": 1.0,
+    "all_configured_gates_passed": true,
+    "selected_candidate_scale_by_seed": {
+      "1": 1.0,
+      "2": 1.0,
+      "3": 1.0,
+      "4": 1.0,
+      "5": 1.0,
+      "6": 1.0,
+      "7": 1.0,
+      "8": 1.0,
+      "9": 1.0,
+      "10": 1.0
+    }
+  },
+  "aggregate_metrics": {
+    "setting5e": {
+      "forget_eff": {"mean": 20.8133, "std": 3.1632},
+      "forget_gen": {"mean": 20.8110, "std": 3.7952},
+      "forget_spe": {"mean": 27.7231, "std": 2.8844},
+      "retain_eff": {"mean": 32.8411, "std": 1.0764},
+      "retain_gen": {"mean": 31.8887, "std": 0.7420},
+      "retain_spe": {"mean": 28.4971, "std": 0.9018},
+      "ppl": {"mean": 11.9250, "std": 0.5942}
+    },
+    "selected": {
+      "forget_eff": {"mean": 0.0, "std": 0.0},
+      "forget_gen": {"mean": 0.0, "std": 0.0},
+      "forget_spe": {"mean": 27.7231, "std": 2.8844},
+      "retain_eff": {"mean": 32.2089, "std": 1.0834},
+      "retain_gen": {"mean": 31.2619, "std": 0.7399},
+      "retain_spe": {"mean": 28.2136, "std": 0.8199},
+      "ppl": {"mean": 12.3250, "std": 0.9717}
+    }
+  },
+  "per_seed_selected": [
+    {"seed": 1, "accepted": true, "scale": 1.0, "forget_eff": 0.0, "forget_gen": 0.0, "ppl": 11.625},
+    {"seed": 2, "accepted": true, "scale": 1.0, "forget_eff": 0.0, "forget_gen": 0.0, "ppl": 11.0625},
+    {"seed": 3, "accepted": true, "scale": 1.0, "forget_eff": 0.0, "forget_gen": 0.0, "ppl": 11.8125},
+    {"seed": 4, "accepted": true, "scale": 1.0, "forget_eff": 0.0, "forget_gen": 0.0, "ppl": 11.4375},
+    {"seed": 5, "accepted": true, "scale": 1.0, "forget_eff": 0.0, "forget_gen": 0.0, "ppl": 13.375},
+    {"seed": 6, "accepted": true, "scale": 1.0, "forget_eff": 0.0, "forget_gen": 0.0, "ppl": 12.0},
+    {"seed": 7, "accepted": true, "scale": 1.0, "forget_eff": 0.0, "forget_gen": 0.0, "ppl": 12.5625},
+    {"seed": 8, "accepted": true, "scale": 1.0, "forget_eff": 0.0, "forget_gen": 0.0, "ppl": 12.9375},
+    {"seed": 9, "accepted": true, "scale": 1.0, "forget_eff": 0.0, "forget_gen": 0.0, "ppl": 12.1875},
+    {"seed": 10, "accepted": true, "scale": 1.0, "forget_eff": 0.0, "forget_gen": 0.0, "ppl": 14.25}
+  ],
+  "checkpoint_provenance": {
+    "weight_policy": "Model weights remain in persistent Wulver storage; Git stores configuration, metrics, provenance, and hashes.",
+    "source_root": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_from_scratch_relaxed_u1p0_ppl1p10_cal384_seeds1_10",
+    "result_root": "/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/zsre_repair_only_exploratory_u1p20_ppl1p16_cal384_seeds1_10",
+    "setting5e_checkpoint_pattern": "{source_root}/seed{seed}/setting5e/checkpoint",
+    "active_candidate_checkpoint_pattern": "{result_root}/seed{seed}/active_candidate_checkpoint",
+    "selected_checkpoint_pattern": "{result_root}/seed{seed}/selected_checkpoint",
+    "result_json_pattern": "{result_root}/seed{seed}/zsre_results.json",
+    "checkpoint_count": 30,
+    "weight_hash_status": "PENDING_LOCAL_CAPTURE",
+    "required_checkpoint_metadata": [
+      "config.json",
+      "generation_config.json",
+      "tokenizer.json",
+      "tokenizer_config.json",
+      "special_tokens_map.json",
+      "model.safetensors or sharded model.safetensors files",
+      "model.safetensors.index.json when sharded"
+    ]
+  },
+  "recreation": {
+    "runner": "scripts/zsre_bf16_safe_active_repair_v2.py",
+    "slurm_job_id": "1166025",
+    "slurm_script": "run_zsre_10_repairs.slurm",
+    "completed_at": "2026-08-06T15:02:20-04:00",
+    "hardware": "NVIDIA A100-SXM4-80GB",
+    "python": "3.10.20",
+    "cuda_driver_reported_runtime": "13.0",
+    "notes_for_other_models": [
+      "Load a separately trained Setting 5e checkpoint for each seed.",
+      "Verify the model exposes a compatible output LM head and hidden states.",
+      "Verify tokenizer, embedding, and LM-head vocabulary dimensions match.",
+      "Regenerate each model's own Setting 5e utility baseline before applying the gates.",
+      "Re-evaluate BF16 compatibility and memory requirements for the target architecture."
+    ]
+  }
+}
