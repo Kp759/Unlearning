@@ -37,11 +37,21 @@
       "manifest": "config/best_runs/zsre/cal384_seed1.json",
       "checkpoint_count": 1,
       "hash_status": "COMPLETE_AND_VERIFIED"
+    },
+    {
+      "dataset": "ZsRE",
+      "record_id": "zsre-setting5e-active-repair-u1p20-ppl1p16-cal384-seeds1-10",
+      "status": "BEST_ACCEPTED",
+      "protocol": "setting5e_active_repair_cal384_u1p20_ppl1p16",
+      "manifest": "config/best_runs/zsre/setting5e_active_repair_u1p20_ppl1p16_cal384_seeds1_10.json",
+      "checkpoint_count": 10,
+      "hash_status": "PENDING_LOCAL_CAPTURE",
+      "acceptance": "10/10 seeds; all configured gates passed"
     }
   ],
   "usage": {
     "MCF": "Use all five fold-specific checkpoints for the controlled five-fold paper result. Fold 2 is only the best single demonstration checkpoint for fold 2.",
     "TOFU": "Use the saved Forget05 seed-42 checkpoint only for the recorded local probability protocol until full tofu_eval is stored separately.",
-    "ZsRE": "Use the saved calibration-384 seed-1 checkpoint only for seed-1 reproduction. Train/repair a separate checkpoint for each other official seed."
+    "ZsRE": "Use one separately trained and repaired selected checkpoint per seed. The registered 10-seed Setting 5e plus active-repair result passed all configured gates for seeds 1 through 10; use its manifest for aggregate metrics, paths, and recreation parameters."
   }
 }
