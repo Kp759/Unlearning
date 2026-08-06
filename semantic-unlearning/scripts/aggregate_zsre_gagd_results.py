@@ -82,9 +82,11 @@ def mean_std(
     values: Sequence[float],
 ) -> Tuple[Optional[float], Optional[float]]:
     array = np.array(values, dtype=np.float64)
-    if not np.isfinite(array).any():
+    finite = array[np.isfinite(array)]
+    if not len(finite):
         return None, None
-    return float(np.nanmean(array)), float(np.nanstd(array))
+    sample_std = 0.0 if len(finite) == 1 else float(np.std(finite, ddof=1))
+    return float(np.mean(finite)), sample_std
 
 
 def aggregate(results: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
@@ -180,6 +182,7 @@ def write_outputs(
                 ]
             )
         ),
+        "std_definition": "sample standard deviation (ddof=1; 0 for n=1)",
         "source_files": [
             result["_path"] for result in results if "_path" in result
         ],
@@ -200,6 +203,8 @@ def write_outputs(
             f"{payload['retain_num']}; active-candidate acceptance rate: "
             f"{payload['candidate_acceptance_rate']:.1%}."
         ),
+        "",
+        "Uncertainty is reported as sample standard deviation (ddof=1).",
         "",
         "Forget Eff/Gen are lower-is-better. Forget Spe and retain Eff/Gen/Spe are higher-is-better. PPL is lower-is-better.",
         "",

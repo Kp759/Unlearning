@@ -1,4 +1,5 @@
 import json
+import math
 import random
 import sys
 import tempfile
@@ -631,7 +632,11 @@ class ZsREAggregationTests(unittest.TestCase):
             rows = AGG.aggregate(results)
             selected = next(row for row in rows if row["method"] == "Selected")
             self.assertEqual(selected["forget_Eff_down_mean"], 1.0)
-            self.assertEqual(selected["forget_Eff_down_std"], 1.0)
+            self.assertAlmostEqual(
+                selected["forget_Eff_down_std"],
+                math.sqrt(2.0),
+                places=6,
+            )
             AGG.write_outputs(root / "aggregate", results, rows)
             self.assertTrue((root / "aggregate" / "aggregate.md").exists())
 
