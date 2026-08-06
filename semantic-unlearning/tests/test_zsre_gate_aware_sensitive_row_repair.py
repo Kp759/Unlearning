@@ -61,6 +61,23 @@ class TinyTiedModel(nn.Module):
 
 
 class GateAwareSensitiveRowRepairTests(unittest.TestCase):
+    def test_cyclic_batches_cover_protected_and_retain_sets_before_repeating(self):
+        for total, batch_size in ((11, 4), (10, 3)):
+            batcher = REPAIR.DeterministicCyclicBatcher(total, batch_size)
+            first_cycle = []
+            while len(first_cycle) < total:
+                batch = batcher.next_batch()
+                self.assertEqual(batch.cycle, 0)
+                first_cycle.extend(batch.indices)
+            self.assertEqual(first_cycle, list(range(total)))
+            self.assertEqual(len(first_cycle), len(set(first_cycle)))
+            repeated = batcher.next_batch()
+            self.assertEqual(repeated.cycle, 1)
+            self.assertEqual(
+                repeated.indices,
+                tuple(range(min(batch_size, total))),
+            )
+
     def test_only_selected_sensitive_rows_receive_deltas(self):
         weight = torch.arange(15, dtype=torch.float32).reshape(5, 3)
         baseline = weight.clone()
@@ -150,6 +167,36 @@ class GateAwareSensitiveRowRepairTests(unittest.TestCase):
         )
         self.assertAlmostEqual(float(zero.item()), 0.0, places=7)
         self.assertGreater(float(damaged.item()), 0.0)
+
+    def test_vectorized_retain_kl_matches_existing_low_memory_formula(self):
+        hidden = torch.tensor([[1.0, 0.0], [0.5, 1.0], [0.0, 1.0]])
+        probabilities = torch.tensor([[0.2], [0.3], [0.1]])
+        delta = torch.tensor([[0.7, -0.2]])
+        tensors = REPAIR.RetainKLTensors(
+            hidden=hidden,
+            candidate_selected_probs=probabilities,
+            reference_selected_probs=probabilities.clone(),
+            baseline_kl=torch.zeros(3),
+            record_ids=(10, 20),
+            record_offsets=(0, 2, 3),
+        )
+        legacy = [
+            ACTIVE.RetainKLCache(
+                hidden=hidden[:2],
+                candidate_selected_probs=probabilities[:2],
+                reference_selected_probs=probabilities[:2].clone(),
+                baseline_kl=torch.zeros(2),
+            ),
+            ACTIVE.RetainKLCache(
+                hidden=hidden[2:],
+                candidate_selected_probs=probabilities[2:],
+                reference_selected_probs=probabilities[2:].clone(),
+                baseline_kl=torch.zeros(1),
+            ),
+        ]
+        expected = ACTIVE.retain_kl_from_caches(legacy, delta)
+        actual = REPAIR.retain_kl_from_tensors(tensors, delta)
+        self.assertTrue(torch.allclose(actual, expected, atol=1e-7, rtol=1e-7))
 
     def test_candidate_selection_rejects_zero_forgetting_with_utility_damage(self):
         setting = metric_result()

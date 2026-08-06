@@ -134,6 +134,10 @@ Primary defaults:
 | model/evaluation dtype | BF16 |
 | evaluation batch size | 8 |
 | cache batch size | 8 |
+| protected optimization batch | 512 constraints |
+| retain-KL optimization batch | 64 complete retain records |
+| terminal/live progress interval | 10 steps |
+| full-constraint check interval | 100 steps |
 
 Because early stopping defaults to false, optimization continues after active
 constraints first become satisfied so KL and L2 can reduce collateral damage.
@@ -141,6 +145,14 @@ Cache and evaluation batch sizes must remain equal so the BF16 cache reproduces
 the evaluator's padding and batch composition exactly.
 The calibration seed is recorded for reproducibility; the primary protocol
 uses the entire retain set, so it does not subsample membership.
+
+Optimization always uses the complete active set. Protected constraints and
+retain-record KL use independent deterministic cyclic mini-batches: every item
+is visited once before its cycle repeats. This batching is only an optimization
+approximation. Full active/protected tensors and all 1,000 retain records are
+rechecked periodically and after optimization, and exact official Eff/Gen/Spe
+plus PPL gates remain unchanged. Progress is printed with flushing and appended
+incrementally to `optimization/live_progress.jsonl`.
 
 ## Exact BF16 scale sweep
 
@@ -206,6 +218,7 @@ OUTPUT_ROOT/seedN/
 ├── selected_sensitive_rows.json
 ├── optimization/
 │   ├── active_cases.jsonl
+│   ├── live_progress.jsonl
 │   ├── repair_log.jsonl
 │   └── constraint_summary.json
 ├── scale_sweep/
@@ -258,5 +271,7 @@ Override any non-fixed optimization setting through the environment, for
 example `REPAIR_STEPS`, `REPAIR_LR`, `REPAIR_OPTIMIZER`, `ACTIVE_MARGIN`,
 `PROTECTED_MARGIN_CAP`, `ACTIVE_HINGE_WEIGHT`,
 `PROTECTED_HINGE_WEIGHT`, `RETAIN_KL_MU`, `DELTA_L2_LAMBDA`,
-`RETAIN_CALIBRATION_NUM`, `RETAIN_CALIBRATION_SEED`, `REPAIR_RANK`,
-`CANDIDATE_SCALE_STEP`, `DTYPE`, `EVAL_BATCH_SIZE`, or `CACHE_BATCH_SIZE`.
+`RETAIN_CALIBRATION_NUM`, `RETAIN_CALIBRATION_SEED`,
+`PROTECTED_BATCH_SIZE`, `RETAIN_KL_BATCH_SIZE`, `PROGRESS_EVERY`,
+`FULL_CONSTRAINT_CHECK_EVERY`, `REPAIR_RANK`, `CANDIDATE_SCALE_STEP`,
+`DTYPE`, `EVAL_BATCH_SIZE`, or `CACHE_BATCH_SIZE`.

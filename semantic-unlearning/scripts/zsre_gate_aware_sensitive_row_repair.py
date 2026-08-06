@@ -79,6 +79,66 @@ class ProtectedConstraintTensors:
     required_margins: torch.Tensor
 
 
+@dataclass
+class RetainKLTensors:
+    """Flattened token tensors with contiguous offsets for each retain record."""
+
+    hidden: torch.Tensor
+    candidate_selected_probs: torch.Tensor
+    reference_selected_probs: torch.Tensor
+    baseline_kl: torch.Tensor
+    record_ids: Tuple[int, ...]
+    record_offsets: Tuple[int, ...]
+
+    @property
+    def record_count(self) -> int:
+        return len(self.record_ids)
+
+    @property
+    def token_count(self) -> int:
+        return int(self.hidden.shape[0])
+
+
+@dataclass(frozen=True)
+class CyclicBatch:
+    indices: Tuple[int, ...]
+    cycle: int
+    start: int
+    stop: int
+    completed_cycle: bool
+
+
+class DeterministicCyclicBatcher:
+    """Visit each item exactly once per deterministic cycle."""
+
+    def __init__(self, total_items: int, batch_size: int) -> None:
+        if total_items < 0:
+            raise ValueError("cyclic batch item count must be non-negative")
+        if batch_size <= 0:
+            raise ValueError("cyclic batch size must be positive")
+        self.total_items = int(total_items)
+        self.batch_size = int(batch_size)
+        self.cursor = 0
+        self.cycle = 0
+
+    def next_batch(self) -> CyclicBatch:
+        if self.total_items == 0:
+            cycle = self.cycle
+            self.cycle += 1
+            return CyclicBatch((), cycle, 0, 0, True)
+        start = self.cursor
+        stop = min(start + self.batch_size, self.total_items)
+        cycle = self.cycle
+        completed = stop == self.total_items
+        indices = tuple(range(start, stop))
+        if completed:
+            self.cursor = 0
+            self.cycle += 1
+        else:
+            self.cursor = stop
+        return CyclicBatch(indices, cycle, start, stop, completed)
+
+
 def _chunks(values: Sequence[Any], size: int) -> Iterable[Sequence[Any]]:
     for start in range(0, len(values), size):
         yield values[start : start + size]
@@ -111,6 +171,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--delta-l2-lambda", type=float, default=1e-4)
     parser.add_argument("--retain-calibration-num", type=int, default=1000)
     parser.add_argument("--retain-calibration-seed", type=int, default=1729)
+    parser.add_argument("--protected-batch-size", type=int, default=512)
+    parser.add_argument("--retain-kl-batch-size", type=int, default=64)
+    parser.add_argument("--progress-every", type=int, default=10)
+    parser.add_argument("--full-constraint-check-every", type=int, default=100)
     parser.add_argument(
         "--stop-when-all-satisfied",
         action=argparse.BooleanOptionalAction,
@@ -160,6 +224,15 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("repair rank must be non-negative")
     if args.eval_batch_size <= 0 or args.cache_batch_size <= 0:
         raise ValueError("evaluation/cache batch sizes must be positive")
+    if (
+        args.protected_batch_size <= 0
+        or args.retain_kl_batch_size <= 0
+        or args.progress_every <= 0
+        or args.full_constraint_check_every <= 0
+    ):
+        raise ValueError(
+            "optimization batch sizes and progress/check intervals must be positive"
+        )
     if args.cache_batch_size != args.eval_batch_size:
         raise ValueError(
             "Exact BF16 cache alignment requires --cache-batch-size to equal "
@@ -618,28 +691,90 @@ def protected_constraint_margins(
     return corrected_target - strongest_competitor
 
 
+def protected_constraint_slice(
+    tensors: ProtectedConstraintTensors,
+    batch: CyclicBatch,
+) -> ProtectedConstraintTensors:
+    """Return a zero-copy contiguous cyclic optimization slice."""
+
+    selection = slice(batch.start, batch.stop)
+    return ProtectedConstraintTensors(
+        hidden=tensors.hidden[selection],
+        target_logits=tensors.target_logits[selection],
+        strongest_unchanged_logits=tensors.strongest_unchanged_logits[selection],
+        selected_logits=tensors.selected_logits[selection],
+        target_selected_columns=tensors.target_selected_columns[selection],
+        required_margins=tensors.required_margins[selection],
+    )
+
+
 def build_retain_kl_caches(
     caches: Sequence[CaseBaselineCache],
-    *,
-    batch_size: int,
-) -> List[active.RetainKLCache]:
-    """Use the Setting 5e distribution as the exact selected-row KL reference."""
+) -> RetainKLTensors:
+    """Flatten all tokens while retaining contiguous record boundaries."""
 
-    output: List[active.RetainKLCache] = []
-    for batch in _chunks(list(caches), batch_size):
-        hidden = torch.stack([cache.hidden for cache in batch]).float()
-        probabilities = torch.stack([cache.selected_probs for cache in batch]).float()
-        output.append(
-            active.RetainKLCache(
-                hidden=hidden,
-                candidate_selected_probs=probabilities,
-                reference_selected_probs=probabilities.clone(),
-                baseline_kl=torch.zeros(
-                    len(batch), dtype=torch.float32, device=hidden.device
-                ),
+    if not caches:
+        raise ValueError("Full-retain KL cache cannot be empty")
+    record_ids: List[int] = []
+    record_offsets: List[int] = [0]
+    seen: set[int] = set()
+    previous: Optional[int] = None
+    for position, cache in enumerate(caches):
+        case_id = int(cache.case.case_id)
+        if case_id == previous:
+            continue
+        if case_id in seen:
+            raise ValueError(
+                "Retain prediction cases for one record must remain contiguous"
             )
-        )
-    return output
+        if previous is not None:
+            record_offsets.append(position)
+        seen.add(case_id)
+        record_ids.append(case_id)
+        previous = case_id
+    record_offsets.append(len(caches))
+    hidden = torch.stack([cache.hidden for cache in caches]).float()
+    probabilities = torch.stack([cache.selected_probs for cache in caches]).float()
+    return RetainKLTensors(
+        hidden=hidden,
+        candidate_selected_probs=probabilities,
+        reference_selected_probs=probabilities.clone(),
+        baseline_kl=torch.zeros(
+            len(caches), dtype=torch.float32, device=hidden.device
+        ),
+        record_ids=tuple(record_ids),
+        record_offsets=tuple(record_offsets),
+    )
+
+
+def retain_kl_from_tensors(
+    tensors: RetainKLTensors,
+    delta_rows: torch.Tensor,
+    *,
+    record_start: int = 0,
+    record_stop: Optional[int] = None,
+) -> torch.Tensor:
+    """Vectorized selected-row KL for a contiguous set of retain records."""
+
+    stop = tensors.record_count if record_stop is None else int(record_stop)
+    start = int(record_start)
+    if not 0 <= start <= stop <= tensors.record_count:
+        raise ValueError("Invalid retain-record KL slice")
+    token_start = tensors.record_offsets[start]
+    token_stop = tensors.record_offsets[stop]
+    if token_start == token_stop:
+        return delta_rows.new_zeros(())
+    hidden = tensors.hidden[token_start:token_stop]
+    candidate_probs = tensors.candidate_selected_probs[token_start:token_stop]
+    reference_probs = tensors.reference_selected_probs[token_start:token_stop]
+    baseline_kl = tensors.baseline_kl[token_start:token_stop]
+    corrections = hidden @ delta_rows.transpose(0, 1)
+    log_shift = active._log_partition_shift(candidate_probs, corrections)
+    return (
+        baseline_kl
+        + log_shift
+        - (reference_probs * corrections).sum(dim=-1)
+    ).mean()
 
 
 def retain_kl_from_caches(
@@ -662,14 +797,19 @@ def _minimum(values: torch.Tensor) -> Optional[float]:
 def optimize_gate_aware_delta(
     active_tensors: ActiveConstraintTensors,
     protected_tensors: ProtectedConstraintTensors,
-    retain_kl_caches: Sequence[active.RetainKLCache],
+    retain_kl_tensors: RetainKLTensors,
     *,
     selected_row_count: int,
     hidden_size: int,
     args: argparse.Namespace,
     device: torch.device,
+    live_progress_path: Path,
 ) -> Tuple[torch.Tensor, List[Dict[str, Any]], Dict[str, Any]]:
-    """Joint FP32 active/protected/KL/L2 optimization over selected rows."""
+    """Joint FP32 optimization with deterministic cyclic utility batches."""
+
+    live_progress_path = Path(live_progress_path)
+    live_progress_path.parent.mkdir(parents=True, exist_ok=True)
+    live_progress_path.write_text("", encoding="utf-8")
 
     if selected_row_count == 0:
         if active_tensors.hidden.shape[0]:
@@ -682,6 +822,7 @@ def optimize_gate_aware_delta(
                 "stopped_early": True,
                 "all_active_satisfied": True,
                 "all_protected_satisfied": True,
+                "full_retain_kl_after": 0.0,
                 "reason": "setting5e_has_no_active_sensitive_tokens",
             },
         )
@@ -713,103 +854,215 @@ def optimize_gate_aware_delta(
         device=device,
     )
     protected_required = protected_tensors.required_margins
+    protected_batcher = DeterministicCyclicBatcher(
+        int(protected_required.numel()),
+        args.protected_batch_size,
+    )
+    retain_batcher = DeterministicCyclicBatcher(
+        retain_kl_tensors.record_count,
+        args.retain_kl_batch_size,
+    )
     logs: List[Dict[str, Any]] = []
     stopped_early = False
 
-    for step in range(1, args.repair_steps + 1):
-        optimizer.zero_grad(set_to_none=True)
-        delta_rows = module.effective_delta()
-        active_margins = active_constraint_margins(
-            active_tensors.hidden,
-            active_tensors.sensitive_logits,
-            active_tensors.best_other_logits,
-            active_tensors.selected_row_columns,
-            delta_rows,
-        )
-        protected_margins = protected_constraint_margins(
-            protected_tensors.hidden,
-            protected_tensors.target_logits,
-            protected_tensors.strongest_unchanged_logits,
-            protected_tensors.selected_logits,
-            protected_tensors.target_selected_columns,
-            delta_rows,
-        )
-        active_hinge = _squared_hinge(active_margins, active_required)
-        protected_hinge = _squared_hinge(protected_margins, protected_required)
-        retain_kl = retain_kl_from_caches(retain_kl_caches, delta_rows)
-        delta_l2 = delta_rows.square().sum()
-        total = (
-            args.active_hinge_weight * active_hinge
-            + args.protected_hinge_weight * protected_hinge
-            + args.retain_kl_mu * retain_kl
-            + args.delta_l2_lambda * delta_l2
-        )
-        if not torch.isfinite(total):
-            raise FloatingPointError(f"Non-finite repair loss at step {step}")
-        total.backward()
-        optimizer.step()
+    with live_progress_path.open("a", encoding="utf-8", buffering=1) as live_handle:
+        for step in range(1, args.repair_steps + 1):
+            protected_batch = protected_batcher.next_batch()
+            retain_batch = retain_batcher.next_batch()
+            protected_current = protected_constraint_slice(
+                protected_tensors,
+                protected_batch,
+            )
 
-        with torch.no_grad():
-            updated = module.effective_delta()
-            active_after = active_constraint_margins(
+            optimizer.zero_grad(set_to_none=True)
+            delta_rows = module.effective_delta()
+            active_margins = active_constraint_margins(
                 active_tensors.hidden,
                 active_tensors.sensitive_logits,
                 active_tensors.best_other_logits,
                 active_tensors.selected_row_columns,
-                updated,
+                delta_rows,
             )
-            protected_after = protected_constraint_margins(
-                protected_tensors.hidden,
-                protected_tensors.target_logits,
-                protected_tensors.strongest_unchanged_logits,
-                protected_tensors.selected_logits,
-                protected_tensors.target_selected_columns,
-                updated,
+            protected_margins = protected_constraint_margins(
+                protected_current.hidden,
+                protected_current.target_logits,
+                protected_current.strongest_unchanged_logits,
+                protected_current.selected_logits,
+                protected_current.target_selected_columns,
+                delta_rows,
             )
-            active_violations = int((active_after < active_required).sum().item())
-            protected_violations = int(
-                (protected_after < protected_required).sum().item()
+            active_hinge = _squared_hinge(active_margins, active_required)
+            protected_hinge = _squared_hinge(
+                protected_margins,
+                protected_current.required_margins,
             )
-            all_satisfied = active_violations == 0 and protected_violations == 0
-            logs.append(
-                {
+            retain_kl = retain_kl_from_tensors(
+                retain_kl_tensors,
+                delta_rows,
+                record_start=retain_batch.start,
+                record_stop=retain_batch.stop,
+            )
+            delta_l2 = delta_rows.square().sum()
+            total = (
+                args.active_hinge_weight * active_hinge
+                + args.protected_hinge_weight * protected_hinge
+                + args.retain_kl_mu * retain_kl
+                + args.delta_l2_lambda * delta_l2
+            )
+            if not torch.isfinite(total):
+                raise FloatingPointError(f"Non-finite repair loss at step {step}")
+            total.backward()
+            optimizer.step()
+
+            progress_due = (
+                step == 1
+                or step % args.progress_every == 0
+                or step == args.repair_steps
+            )
+            full_check_due = (
+                step % args.full_constraint_check_every == 0
+                or step == args.repair_steps
+            )
+            if not (progress_due or full_check_due):
+                continue
+
+            with torch.no_grad():
+                updated = module.effective_delta()
+                active_after = active_constraint_margins(
+                    active_tensors.hidden,
+                    active_tensors.sensitive_logits,
+                    active_tensors.best_other_logits,
+                    active_tensors.selected_row_columns,
+                    updated,
+                )
+                protected_batch_after = protected_constraint_margins(
+                    protected_current.hidden,
+                    protected_current.target_logits,
+                    protected_current.strongest_unchanged_logits,
+                    protected_current.selected_logits,
+                    protected_current.target_selected_columns,
+                    updated,
+                )
+                active_violations = int(
+                    (active_after < active_required).sum().item()
+                )
+                protected_batch_violations = int(
+                    (
+                        protected_batch_after
+                        < protected_current.required_margins
+                    )
+                    .sum()
+                    .item()
+                )
+                full_protected_violations: Optional[int] = None
+                full_retain_kl: Optional[float] = None
+                all_satisfied = False
+                if full_check_due:
+                    full_protected_after = protected_constraint_margins(
+                        protected_tensors.hidden,
+                        protected_tensors.target_logits,
+                        protected_tensors.strongest_unchanged_logits,
+                        protected_tensors.selected_logits,
+                        protected_tensors.target_selected_columns,
+                        updated,
+                    )
+                    full_protected_violations = int(
+                        (
+                            full_protected_after
+                            < protected_tensors.required_margins
+                        )
+                        .sum()
+                        .item()
+                    )
+                    full_retain_kl = float(
+                        retain_kl_from_tensors(
+                            retain_kl_tensors,
+                            updated,
+                        )
+                        .detach()
+                        .cpu()
+                    )
+                    all_satisfied = (
+                        active_violations == 0
+                        and full_protected_violations == 0
+                    )
+
+                if device.type == "cuda":
+                    gpu_allocated = float(
+                        torch.cuda.memory_allocated(device) / (1024**2)
+                    )
+                    gpu_reserved = float(
+                        torch.cuda.memory_reserved(device) / (1024**2)
+                    )
+                else:
+                    gpu_allocated = 0.0
+                    gpu_reserved = 0.0
+                row = {
                     "step": step,
                     "total_loss": float(total.detach().cpu()),
                     "active_squared_hinge": float(active_hinge.detach().cpu()),
-                    "weighted_active_hinge": float(
-                        (args.active_hinge_weight * active_hinge).detach().cpu()
-                    ),
                     "protected_squared_hinge": float(
                         protected_hinge.detach().cpu()
-                    ),
-                    "weighted_protected_hinge": float(
-                        (args.protected_hinge_weight * protected_hinge)
-                        .detach()
-                        .cpu()
                     ),
                     "retain_kl_setting5e_to_repaired": float(
                         retain_kl.detach().cpu()
                     ),
-                    "weighted_retain_kl": float(
-                        (args.retain_kl_mu * retain_kl).detach().cpu()
-                    ),
                     "delta_l2": float(delta_l2.detach().cpu()),
-                    "weighted_delta_l2": float(
-                        (args.delta_l2_lambda * delta_l2).detach().cpu()
+                    "active_violations_full": active_violations,
+                    "protected_violations_current_batch": (
+                        protected_batch_violations
                     ),
-                    "active_violations_after_step": active_violations,
-                    "protected_violations_after_step": protected_violations,
-                    "minimum_active_margin_after_step": _minimum(active_after),
-                    "minimum_protected_margin_after_step": _minimum(
-                        protected_after
+                    "protected_violations_full": full_protected_violations,
+                    "retain_kl_full": full_retain_kl,
+                    "effective_delta_norm": float(
+                        updated.norm().detach().cpu()
                     ),
-                    "delta_norm": float(updated.norm().detach().cpu()),
-                    "all_constraints_satisfied": all_satisfied,
+                    "gpu_allocated_mib": gpu_allocated,
+                    "gpu_reserved_mib": gpu_reserved,
+                    "protected_batch": {
+                        "cycle": protected_batch.cycle,
+                        "start": protected_batch.start,
+                        "stop": protected_batch.stop,
+                        "size": len(protected_batch.indices),
+                        "completed_cycle": protected_batch.completed_cycle,
+                    },
+                    "retain_kl_batch": {
+                        "cycle": retain_batch.cycle,
+                        "record_start": retain_batch.start,
+                        "record_stop": retain_batch.stop,
+                        "record_count": len(retain_batch.indices),
+                        "completed_cycle": retain_batch.completed_cycle,
+                    },
+                    "full_constraint_check": full_check_due,
+                    "all_constraints_satisfied_on_full_check": (
+                        all_satisfied if full_check_due else None
+                    ),
                 }
-            )
-        if args.stop_when_all_satisfied and all_satisfied:
-            stopped_early = True
-            break
+                logs.append(row)
+                live_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                live_handle.flush()
+                print(
+                    "[gate-aware repair] "
+                    f"step={step} total={row['total_loss']:.6g} "
+                    f"active_hinge={row['active_squared_hinge']:.6g} "
+                    f"protected_hinge={row['protected_squared_hinge']:.6g} "
+                    f"retain_kl={row['retain_kl_setting5e_to_repaired']:.6g} "
+                    f"delta_l2={row['delta_l2']:.6g} "
+                    f"active_violations_full={active_violations} "
+                    "protected_violations_batch="
+                    f"{protected_batch_violations} "
+                    f"delta_norm={row['effective_delta_norm']:.6g} "
+                    f"gpu_allocated_mib={gpu_allocated:.1f} "
+                    f"gpu_reserved_mib={gpu_reserved:.1f}",
+                    flush=True,
+                )
+            if (
+                args.stop_when_all_satisfied
+                and full_check_due
+                and all_satisfied
+            ):
+                stopped_early = True
+                break
 
     delta = module.effective_delta().detach()
     final_active = active_constraint_margins(
@@ -827,8 +1080,10 @@ def optimize_gate_aware_delta(
         protected_tensors.target_selected_columns,
         delta,
     )
+    final_retain_kl = retain_kl_from_tensors(retain_kl_tensors, delta)
     return delta, logs, {
-        "steps_completed": len(logs),
+        "steps_completed": step,
+        "progress_records": len(logs),
         "stopped_early": stopped_early,
         "all_active_satisfied": bool((final_active >= active_required).all().item()),
         "all_protected_satisfied": bool(
@@ -842,6 +1097,12 @@ def optimize_gate_aware_delta(
         ),
         "minimum_active_margin_after": _minimum(final_active),
         "minimum_protected_margin_after": _minimum(final_protected),
+        "full_retain_kl_after": float(final_retain_kl.detach().cpu()),
+        "protected_batch_size": args.protected_batch_size,
+        "retain_kl_batch_size_records": args.retain_kl_batch_size,
+        "protected_cycles_completed": protected_batcher.cycle,
+        "retain_kl_cycles_completed": retain_batcher.cycle,
+        "live_progress_path": str(live_progress_path),
         "effective_delta_norm": float(delta.norm().detach().cpu()),
         "direction_rank": (
             hidden_size if direction_basis is None else int(direction_basis.shape[0])
@@ -1362,10 +1623,12 @@ def main() -> None:
         protected_margin_cap=args.protected_margin_cap,
         device=device,
     )
-    retain_kl_caches = build_retain_kl_caches(
-        retain_caches,
-        batch_size=args.cache_batch_size,
-    )
+    retain_kl_tensors = build_retain_kl_caches(retain_caches)
+    if retain_kl_tensors.record_count != len(retain_records):
+        raise RuntimeError(
+            "Full-retain KL cache does not cover every official retain record: "
+            f"{retain_kl_tensors.record_count} != {len(retain_records)}"
+        )
     zero_delta = torch.zeros(
         (len(selected_ids), output_layer.weight.shape[1]),
         dtype=torch.float32,
@@ -1390,16 +1653,18 @@ def main() -> None:
     print(
         "Optimizing sensitive rows jointly: "
         f"rows={len(selected_ids)}, active={len(active_caches)}, "
-        f"protected={len(protected_caches)}, retain_KL_records={len(retain_records)}"
+        f"protected={len(protected_caches)}, retain_KL_records={len(retain_records)}",
+        flush=True,
     )
     delta_rows, repair_logs, optimization_summary = optimize_gate_aware_delta(
         active_tensors,
         protected_tensors,
-        retain_kl_caches,
+        retain_kl_tensors,
         selected_row_count=len(selected_ids),
         hidden_size=output_layer.weight.shape[1],
         args=args,
         device=device,
+        live_progress_path=optimization_dir / "live_progress.jsonl",
     )
     write_jsonl(optimization_dir / "repair_log.jsonl", repair_logs)
     active_after = active_constraint_margins(
@@ -1423,7 +1688,7 @@ def main() -> None:
         "forget_neighborhood_protected_count": len(forget_protected),
         "full_retain_protected_count": len(retain_protected),
         "retain_kl_record_count": len(retain_records),
-        "retain_kl_token_count": len(retain_caches),
+        "retain_kl_token_count": retain_kl_tensors.token_count,
         "active_violations_before": int(
             (active_before < args.active_margin).sum().item()
         ),
@@ -1559,12 +1824,11 @@ def main() -> None:
         full_rows,
         setting5_target_already_met=setting5_already_meets_target(setting5_result),
     )
-    accepted = selected_gate_row is not None
     selected_scale: Optional[float] = None
     selected_result: Optional[Dict[str, Any]] = None
     selected_checkpoint: Optional[Path] = None
     selected_checkpoint_hash: Optional[str] = None
-    if accepted:
+    if selected_gate_row is not None:
         selected_scale = float(selected_gate_row["scale"])
         materialize_sensitive_rows(
             output_layer.weight,
@@ -1575,17 +1839,6 @@ def main() -> None:
         )
         selected_result = copy.deepcopy(full_results[selected_scale])
         selected_result["method"] = "Gate-aware sensitive-row LM-head repair"
-        gagd.write_json(output_dir / "selected_official_eval.json", selected_result)
-        selected_checkpoint = save_selected_checkpoint_if_accepted(
-            accepted=True,
-            model=model,
-            tok=tok,
-            output_dir=output_dir,
-        )
-        if selected_checkpoint is None:
-            raise RuntimeError("Accepted candidate did not produce a checkpoint")
-        selected_checkpoint_hash = directory_sha256(selected_checkpoint)
-        selection_reason = "smallest_materialized_delta_norm_passing_every_gate"
     else:
         materialize_sensitive_rows(
             output_layer.weight,
@@ -1594,7 +1847,6 @@ def main() -> None:
             delta_rows,
             0.0,
         )
-        selection_reason = "no_materialized_candidate_passed_every_fixed_gate"
 
     if selected_ids:
         exact_materialized_delta = (
@@ -1603,6 +1855,8 @@ def main() -> None:
         )
     else:
         exact_materialized_delta = zero_delta
+    # Mandatory full-set diagnostics are evaluated after exact BF16
+    # materialization and before the gate-passing candidate is accepted/saved.
     final_active_margins = active_constraint_margins(
         active_tensors.hidden,
         active_tensors.sensitive_logits,
@@ -1618,6 +1872,27 @@ def main() -> None:
         protected_tensors.target_selected_columns,
         exact_materialized_delta,
     )
+    final_retain_kl = retain_kl_from_tensors(
+        retain_kl_tensors,
+        exact_materialized_delta,
+    )
+    accepted = selected_gate_row is not None
+    if accepted:
+        if selected_result is None:
+            raise RuntimeError("Gate-selected candidate lacks official metrics")
+        gagd.write_json(output_dir / "selected_official_eval.json", selected_result)
+        selected_checkpoint = save_selected_checkpoint_if_accepted(
+            accepted=True,
+            model=model,
+            tok=tok,
+            output_dir=output_dir,
+        )
+        if selected_checkpoint is None:
+            raise RuntimeError("Accepted candidate did not produce a checkpoint")
+        selected_checkpoint_hash = directory_sha256(selected_checkpoint)
+        selection_reason = "smallest_materialized_delta_norm_passing_every_gate"
+    else:
+        selection_reason = "no_materialized_candidate_passed_every_fixed_gate"
     constraint_summary.update(
         {
             "final_materialized_scale": selected_scale if accepted else None,
@@ -1640,6 +1915,12 @@ def main() -> None:
             ),
             "minimum_protected_margin_after_final_materialization": _minimum(
                 final_protected_margins
+            ),
+            "full_retain_kl_after_final_materialization": float(
+                final_retain_kl.detach().cpu()
+            ),
+            "full_retain_records_checked_before_acceptance": (
+                retain_kl_tensors.record_count
             ),
         }
     )
