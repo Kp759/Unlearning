@@ -38,6 +38,36 @@ GENERATOR_SCHEMA_VERSION = "rwku_target_corpus_generator_receipt_v1"
 EXTRACTOR_REVISION = "strict_json_fact_extractor_v2"
 PARSER_IMPLEMENTATION_REVISION = "json_decoder_raw_decode_scanner_v2"
 STRICT_V2_CONFIGURATION_ID = "llama32_3b_target_corpus_v2_strict_json"
+ATOMIC_V3_CONFIGURATION_ID = "llama32_3b_target_corpus_v3_atomic_facts"
+ATOMIC_EXTRACTOR_REVISION = "atomic_relation_fact_extractor_v1"
+ATOMIC_PARSER_REVISION = "complete_json_object_atomic_v1"
+RELATION_REGISTRY_SCHEMA_VERSION = "rwku_relation_template_registry_v1"
+
+ATOMIC_RELATION_IDS = (
+    "birth_date",
+    "birth_place",
+    "nationality",
+    "occupation",
+    "pseudonym",
+    "first_published_work",
+    "first_published_novel",
+    "notable_novel",
+    "notable_short_story",
+    "notable_series",
+    "literary_genre",
+    "spouse",
+    "education",
+    "professional_affiliation",
+    "major_award",
+    "screen_adaptation",
+)
+ATOMIC_OUTPUT_FIELDS = (
+    "status",
+    "subject",
+    "relation_id",
+    "answer",
+    "evidence_sentence",
+)
 
 REQUIRED_FACT_FIELDS = (
     "subject",
@@ -64,6 +94,14 @@ UNCERTAIN_ANSWER_MARKERS = (
     "perhaps",
     "maybe",
     "likely",
+    "allegedly",
+    "unconfirmed",
+    "unclear",
+)
+ATOMIC_FORBIDDEN_ANSWER_MARKERS = (
+    "uncertain",
+    "possibly",
+    "maybe",
     "allegedly",
     "unconfirmed",
     "unclear",
@@ -180,6 +218,34 @@ def _validate_strict_v2_config(config: Mapping[str, Any]) -> None:
         )
 
 
+def _validate_atomic_v3_config(config: Mapping[str, Any]) -> None:
+    if config.get("declared_model_family") != "Llama-3.2-3B-Instruct":
+        raise ValueError("Atomic v3 config must target Llama-3.2-3B-Instruct")
+    if config.get("method_extension") is not True:
+        raise ValueError("Atomic v3 config must declare method_extension=true")
+    if config.get("generation_mode") != "atomic_relation_queries":
+        raise ValueError("Atomic v3 config must use atomic_relation_queries")
+    expected_decoding = {
+        "do_sample": False,
+        "max_new_tokens": 192,
+        "num_return_sequences": 1,
+    }
+    if config.get("decoding") != expected_decoding:
+        raise ValueError(
+            "Atomic v3 config requires exactly deterministic decoding "
+            f"{expected_decoding!r}"
+        )
+    extraction = config.get("fact_extraction")
+    if not isinstance(extraction, Mapping):
+        raise ValueError("Atomic v3 config requires fact_extraction")
+    if extraction.get("implementation") != ATOMIC_EXTRACTOR_REVISION:
+        raise ValueError("Atomic v3 config has the wrong extractor implementation")
+    if extraction.get("parser_implementation_revision") != ATOMIC_PARSER_REVISION:
+        raise ValueError("Atomic v3 config has the wrong parser revision")
+    if extraction.get("reverse_prompts_enabled") is not False:
+        raise ValueError("Atomic v3 config must disable reverse prompts")
+
+
 def _load_generation_config(path: Path) -> Tuple[Dict[str, Any], str]:
     with Path(path).open("r", encoding="utf-8") as handle:
         config = json.load(handle)
@@ -192,6 +258,10 @@ def _load_generation_config(path: Path) -> Tuple[Dict[str, Any], str]:
         raise ValueError(
             "Generation configuration must forbid official evaluation access"
         )
+    configuration_id = config.get("configuration_id")
+    if configuration_id == ATOMIC_V3_CONFIGURATION_ID:
+        _validate_atomic_v3_config(config)
+        return config, sha256_file(Path(path))
     templates = config.get("prompt_templates")
     if (
         not isinstance(templates, list)
@@ -199,9 +269,119 @@ def _load_generation_config(path: Path) -> Tuple[Dict[str, Any], str]:
         or not all(isinstance(item, str) and item.strip() for item in templates)
     ):
         raise ValueError("Generation configuration requires prompt_templates")
-    if config.get("configuration_id") == STRICT_V2_CONFIGURATION_ID:
+    if configuration_id == STRICT_V2_CONFIGURATION_ID:
         _validate_strict_v2_config(config)
     return config, sha256_file(Path(path))
+
+
+def _validate_relation_prompt_template(
+    template: str,
+    *,
+    relation_id: str,
+    template_name: str,
+    require_question: bool,
+    require_cloze: bool,
+) -> None:
+    if template.count("{subject}") != 1:
+        raise ValueError(
+            f"{relation_id} {template_name} must contain {{subject}} exactly once"
+        )
+    without_subject = template.replace("{subject}", "")
+    if "{" in without_subject or "}" in without_subject:
+        raise ValueError(f"{relation_id} {template_name} contains another placeholder")
+    if require_question and not template.endswith("?"):
+        raise ValueError(f"{relation_id} direct question must end with ?")
+    blank_count = template.count("___")
+    if require_cloze and blank_count != 1:
+        raise ValueError(f"{relation_id} cloze must contain exactly one ___")
+    if not require_cloze and blank_count:
+        raise ValueError(f"{relation_id} direct question cannot contain ___")
+
+
+def load_relation_template_registry(
+    path: Path,
+    *,
+    target_entity: str | None = None,
+) -> Tuple[List[Dict[str, Any]], str]:
+    source = Path(path)
+    if source.name.casefold() in FORBIDDEN_OFFICIAL_FILENAMES:
+        raise ValueError(
+            f"Official RWKU evaluation file cannot be used as a relation registry: {source}"
+        )
+    with source.open("r", encoding="utf-8") as handle:
+        registry = json.load(handle)
+    if (
+        not isinstance(registry, dict)
+        or registry.get("schema_version") != RELATION_REGISTRY_SCHEMA_VERSION
+    ):
+        raise ValueError("Unsupported RWKU relation-template registry")
+    relations = registry.get("relations")
+    if not isinstance(relations, list):
+        raise ValueError("Relation-template registry requires a relations list")
+    if target_entity and normalize_identity(target_entity) in normalize_identity(
+        json.dumps(registry, ensure_ascii=False)
+    ):
+        raise ValueError("Relation-template registry must be target-independent")
+
+    required_fields = {
+        "relation_id",
+        "generation_instruction",
+        "direct_question_template",
+        "cloze_template",
+        "answer_type",
+        "maximum_answer_characters",
+        "primary_protocol_enabled",
+    }
+    validated: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(relations):
+        if not isinstance(raw, Mapping) or not required_fields <= set(raw):
+            raise ValueError(f"Relation registry row {index} is incomplete")
+        relation = dict(raw)
+        relation_id = str(relation.get("relation_id", ""))
+        if relation_id not in ATOMIC_RELATION_IDS:
+            raise ValueError(f"Unsupported atomic relation_id: {relation_id!r}")
+        if relation_id in seen:
+            raise ValueError(f"Duplicate atomic relation_id: {relation_id}")
+        seen.add(relation_id)
+        instruction = relation.get("generation_instruction")
+        answer_type = relation.get("answer_type")
+        maximum = relation.get("maximum_answer_characters")
+        if not isinstance(instruction, str) or not instruction.strip():
+            raise ValueError(f"{relation_id} requires a generation instruction")
+        if "{" in instruction or "}" in instruction:
+            raise ValueError(f"{relation_id} instruction cannot contain placeholders")
+        if not isinstance(answer_type, str) or not answer_type.strip():
+            raise ValueError(f"{relation_id} requires answer_type")
+        if isinstance(maximum, bool) or not isinstance(maximum, int) or maximum < 1:
+            raise ValueError(f"{relation_id} has an invalid maximum answer length")
+        if not isinstance(relation.get("primary_protocol_enabled"), bool):
+            raise ValueError(f"{relation_id} requires a boolean primary protocol flag")
+        direct = relation.get("direct_question_template")
+        cloze = relation.get("cloze_template")
+        if not isinstance(direct, str) or not isinstance(cloze, str):
+            raise ValueError(f"{relation_id} requires direct and cloze templates")
+        _validate_relation_prompt_template(
+            direct,
+            relation_id=relation_id,
+            template_name="direct_question_template",
+            require_question=True,
+            require_cloze=False,
+        )
+        _validate_relation_prompt_template(
+            cloze,
+            relation_id=relation_id,
+            template_name="cloze_template",
+            require_question=False,
+            require_cloze=True,
+        )
+        validated.append(relation)
+    if tuple(relation["relation_id"] for relation in validated) != ATOMIC_RELATION_IDS:
+        raise ValueError(
+            "Relation-template registry must contain the frozen people-relation "
+            "inventory in canonical order"
+        )
+    return validated, sha256_file(source)
 
 
 def structured_generation_prompt(template: str, *, target_entity: str) -> str:
@@ -221,6 +401,484 @@ def structured_generation_prompt(template: str, *, target_entity: str) -> str:
         "Include only affirmative, independently checkable facts. Omit uncertain "
         "facts and negative or null pseudo-facts such as died=No, spouse=None, "
         "award=Unknown, not applicable, n/a, or deceased=false."
+    )
+
+
+def atomic_generation_prompt(
+    relation: Mapping[str, Any],
+    *,
+    target_entity: str,
+) -> str:
+    relation_id = str(relation["relation_id"])
+    instruction = str(relation["generation_instruction"])
+    maximum = int(relation["maximum_answer_characters"])
+    return (
+        "Answer one atomic relation query about one person. "
+        f"Subject: {json.dumps(target_entity, ensure_ascii=False)}. "
+        f"Requested relation_id: {json.dumps(relation_id)}. "
+        f"Task: {instruction} "
+        "Return exactly one compact JSON object and no other text. "
+        "Do not return Markdown, a JSON array, headings, commentary, or prose "
+        "outside the object. The object must contain exactly these string fields: "
+        '"status", "subject", "relation_id", "answer", and '
+        '"evidence_sentence". Set status to exactly "known" only when the fact '
+        'is confidently known; otherwise set status to exactly "unknown" and '
+        "use empty strings for answer and evidence_sentence. Copy subject and "
+        "relation_id exactly from this request. For status known, answer must be "
+        f"at most {maximum} characters and evidence_sentence must be one factual "
+        "sentence that explicitly contains both the subject and the answer. Do "
+        "not emit placeholders, guesses, negative pseudo-facts, direct questions, "
+        "or cloze prompts."
+    )
+
+
+def build_atomic_generation_requests(
+    relations: Sequence[Mapping[str, Any]],
+    *,
+    target_entity: str,
+) -> List[Dict[str, Any]]:
+    requests: List[Dict[str, Any]] = []
+    for registry_index, relation in enumerate(relations):
+        if relation.get("primary_protocol_enabled") is not True:
+            continue
+        prompt = atomic_generation_prompt(relation, target_entity=target_entity)
+        requests.append(
+            {
+                "request_index": len(requests),
+                "registry_index": registry_index,
+                "relation_id": str(relation["relation_id"]),
+                "relation_template_sha256": sha256_json(relation),
+                "prompt": prompt,
+                "prompt_sha256": sha256_json(prompt),
+            }
+        )
+    if not requests:
+        raise ValueError("Relation registry has no primary-protocol relations")
+    return requests
+
+
+def annotate_atomic_raw_outputs(
+    raw_outputs: Sequence[Mapping[str, Any]],
+    requests: Sequence[Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    annotated: List[Dict[str, Any]] = []
+    for raw in raw_outputs:
+        output = dict(raw)
+        prompt_index = output.get("prompt_index")
+        if isinstance(prompt_index, int) and 0 <= prompt_index < len(requests):
+            request = requests[prompt_index]
+            output.update(
+                {
+                    "request_index": int(request["request_index"]),
+                    "registry_index": int(request["registry_index"]),
+                    "requested_relation_id": str(request["relation_id"]),
+                    "generation_request_sha256": str(request["prompt_sha256"]),
+                    "relation_template_sha256": str(
+                        request["relation_template_sha256"]
+                    ),
+                }
+            )
+        annotated.append(output)
+    return annotated
+
+
+def _parse_atomic_json_object(text: str) -> Tuple[Dict[str, Any] | None, str]:
+    stripped = str(text).strip()
+    if not stripped:
+        return None, "empty_output"
+    try:
+        value = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None, "no_complete_json_object"
+    if not isinstance(value, dict):
+        return None, "atomic_output_not_object"
+    return dict(value), "complete_json_object"
+
+
+def _atomic_answer_rejection(answer: str) -> str | None:
+    normalized = normalize_identity(answer)
+    normalized_without_punctuation = re.sub(r"[.!?]+$", "", normalized).strip()
+    if normalized_without_punctuation in NEGATIVE_OR_NULL_ANSWERS or re.fullmatch(
+        r"deceased\s*=\s*false", normalized_without_punctuation
+    ):
+        return "negative_or_null_answer"
+    if any(marker in normalized for marker in ATOMIC_FORBIDDEN_ANSWER_MARKERS):
+        return "uncertain_answer"
+    return None
+
+
+def _validate_atomic_candidate(
+    candidate: Mapping[str, Any],
+    *,
+    target_entity: str,
+    relation: Mapping[str, Any],
+) -> Tuple[str, Dict[str, str], str | None]:
+    if set(candidate) != set(ATOMIC_OUTPUT_FIELDS):
+        return "rejected", {}, "atomic_output_fields_mismatch"
+    if any(not isinstance(candidate.get(field), str) for field in ATOMIC_OUTPUT_FIELDS):
+        return "rejected", {}, "atomic_output_fields_not_strings"
+    fields = {field: str(candidate[field]) for field in ATOMIC_OUTPUT_FIELDS}
+    status = fields["status"]
+    if status not in {"known", "unknown"}:
+        return "rejected", fields, "invalid_status"
+    if normalize_text(fields["subject"]) != normalize_text(target_entity):
+        return "rejected", fields, "subject_mismatch"
+    if fields["relation_id"] != str(relation["relation_id"]):
+        return "rejected", fields, "relation_mismatch"
+    if status == "unknown":
+        return "unknown", fields, None
+
+    answer = normalize_text(fields["answer"])
+    evidence = normalize_text(fields["evidence_sentence"])
+    if not answer:
+        return "rejected", fields, "missing_or_empty_answer"
+    if not evidence:
+        return "rejected", fields, "missing_or_empty_evidence_sentence"
+    if normalize_identity(answer) == normalize_identity(target_entity):
+        return "rejected", fields, "answer_is_target_entity"
+    if len(answer) > int(relation["maximum_answer_characters"]):
+        return "rejected", fields, "answer_exceeds_relation_maximum"
+    answer_rejection = _atomic_answer_rejection(answer)
+    if answer_rejection:
+        return "rejected", fields, answer_rejection
+    if _contains_forbidden_placeholder(
+        "answer", answer
+    ) or _contains_forbidden_placeholder("evidence_sentence", evidence):
+        return "rejected", fields, "forbidden_placeholder"
+    normalized_evidence = normalize_identity(evidence)
+    if normalize_identity(target_entity) not in normalized_evidence:
+        return "rejected", fields, "evidence_missing_subject"
+    if normalize_identity(answer) not in normalized_evidence:
+        return "rejected", fields, "evidence_missing_answer"
+    fields["answer"] = answer
+    fields["evidence_sentence"] = evidence
+    fields["subject"] = normalize_text(fields["subject"])
+    return "known", fields, None
+
+
+def extract_atomic_facts(
+    raw_outputs: Sequence[Mapping[str, Any]],
+    requests: Sequence[Mapping[str, Any]],
+    relations: Sequence[Mapping[str, Any]],
+    *,
+    entity_id: str,
+    target_entity: str,
+    relation_registry_path: Path,
+    relation_registry_sha256: str,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
+    relations_by_id = {
+        str(relation["relation_id"]): dict(relation) for relation in relations
+    }
+    outputs_by_prompt: Dict[int, List[Tuple[int, Mapping[str, Any]]]] = {}
+    for output_index, output in enumerate(raw_outputs):
+        prompt_index = output.get("prompt_index")
+        if isinstance(prompt_index, int):
+            outputs_by_prompt.setdefault(prompt_index, []).append(
+                (output_index, output)
+            )
+
+    accepted: List[Dict[str, Any]] = []
+    rejected: List[Dict[str, Any]] = []
+    unknown_relations: List[Dict[str, Any]] = []
+    output_identities: List[Dict[str, Any]] = []
+    parse_mode_counts: Counter[str] = Counter()
+    for request in requests:
+        request_index = int(request["request_index"])
+        relation_id = str(request["relation_id"])
+        relation = relations_by_id[relation_id]
+        matching_outputs = outputs_by_prompt.get(request_index, [])
+        identity: Dict[str, Any] = {
+            "request_index": request_index,
+            "registry_index": int(request["registry_index"]),
+            "requested_relation_id": relation_id,
+            "generation_request_sha256": str(request["prompt_sha256"]),
+            "relation_template_sha256": str(request["relation_template_sha256"]),
+            "output_count": len(matching_outputs),
+        }
+        if len(matching_outputs) != 1:
+            reason = (
+                "missing_generation_output"
+                if not matching_outputs
+                else "multiple_generation_outputs"
+            )
+            identity.update(
+                {
+                    "parse_mode": "not_parsed",
+                    "parsed_object_count": 0,
+                    "outcome": "rejected",
+                    "reason": reason,
+                }
+            )
+            output_identities.append(identity)
+            rejected.append(
+                {
+                    "request_index": request_index,
+                    "relation_id": relation_id,
+                    "reason": reason,
+                }
+            )
+            continue
+
+        output_index, output = matching_outputs[0]
+        generated_text = str(output.get("generated_text", ""))
+        candidate, parse_mode = _parse_atomic_json_object(generated_text)
+        parse_mode_counts[parse_mode] += 1
+        identity.update(
+            {
+                "output_index": output_index,
+                "sequence_index": output.get("sequence_index"),
+                "chat_template_used": bool(output.get("chat_template_used", False)),
+                "generated_text_sha256": hashlib.sha256(
+                    generated_text.encode("utf-8")
+                ).hexdigest(),
+                "parse_mode": parse_mode,
+                "parsed_object_count": int(candidate is not None),
+            }
+        )
+        if candidate is None:
+            identity.update({"outcome": "rejected", "reason": parse_mode})
+            output_identities.append(identity)
+            rejected.append(
+                {
+                    "request_index": request_index,
+                    "output_index": output_index,
+                    "relation_id": relation_id,
+                    "reason": parse_mode,
+                }
+            )
+            continue
+
+        outcome, fields, reason = _validate_atomic_candidate(
+            candidate,
+            target_entity=target_entity,
+            relation=relation,
+        )
+        identity["candidate_sha256"] = sha256_json(candidate)
+        identity["outcome"] = outcome
+        if reason:
+            identity["reason"] = reason
+        output_identities.append(identity)
+        if outcome == "unknown":
+            unknown_relations.append(
+                {
+                    "request_index": request_index,
+                    "output_index": output_index,
+                    "relation_id": relation_id,
+                    "status": "unknown",
+                }
+            )
+            continue
+        if outcome == "rejected":
+            rejected.append(
+                {
+                    "request_index": request_index,
+                    "output_index": output_index,
+                    "relation_id": relation_id,
+                    "reason": str(reason),
+                    "candidate": candidate,
+                }
+            )
+            continue
+
+        answer = fields["answer"]
+        fact_id = entity_fact_id(entity_id, relation_id, answer)
+        accepted.append(
+            {
+                "schema_version": "rwku_generated_atomic_fact_v1",
+                "status": "known",
+                "entity_id": entity_id,
+                "subject": target_entity,
+                "relation_id": relation_id,
+                "answer": answer,
+                "evidence_sentence": fields["evidence_sentence"],
+                "fact_id": fact_id,
+                "request_index": request_index,
+                "output_index": output_index,
+                "raw_output_sha256": sha256_json(candidate),
+                "generation_request_sha256": str(request["prompt_sha256"]),
+                "relation_registry_path": str(relation_registry_path),
+                "relation_registry_sha256": relation_registry_sha256,
+                "relation_template_sha256": str(request["relation_template_sha256"]),
+            }
+        )
+
+    diagnostics = {
+        "parser_implementation_revision": ATOMIC_PARSER_REVISION,
+        "output_identities": output_identities,
+        "parse_mode_counts": dict(sorted(parse_mode_counts.items())),
+        "requested_relation_count": len(requests),
+        "known_relation_count": len(accepted),
+        "unknown_relation_count": len(unknown_relations),
+        "rejected_relation_count": len(rejected),
+        "unknown_relations": unknown_relations,
+    }
+    return accepted, rejected, diagnostics
+
+
+def _compile_atomic_view(
+    *,
+    style: str,
+    query: str,
+    sensitive_answer: str,
+    optimization_answer: str,
+    atomic_fact: Mapping[str, Any],
+) -> Dict[str, Any]:
+    view = {
+        "schema_version": ENTITY_FACT_SCHEMA_VERSION,
+        "query": query,
+        "level": "generated",
+        "query_type": style,
+        "prompt_style": style,
+        "canonical_sensitive_answer": sensitive_answer,
+        "sensitive_answer_alias": optimization_answer,
+        "source_record_sha256": str(atomic_fact["raw_output_sha256"]),
+        "source_record_sha256_values": [str(atomic_fact["raw_output_sha256"])],
+        "source_file": "generated_raw_corpus.json",
+        "source_row_index": int(atomic_fact["output_index"]),
+        "boundary_expanding": False,
+        "fact_id": str(atomic_fact["fact_id"]),
+        "relation_id": str(atomic_fact["relation_id"]),
+        "entity_id": str(atomic_fact["entity_id"]),
+        "subject": str(atomic_fact["subject"]),
+        "training_allowed": True,
+    }
+    view["view_content_sha256"] = view_content_sha256(view)
+    view["view_id"] = hashlib.sha256(
+        f"{view['fact_id']}:{view['view_content_sha256']}".encode("utf-8")
+    ).hexdigest()
+    return view
+
+
+def compile_atomic_facts_to_entity_facts(
+    atomic_facts: Sequence[Mapping[str, Any]],
+    relations: Sequence[Mapping[str, Any]],
+    *,
+    relation_registry_path: Path,
+    relation_registry_sha256: str,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], int]:
+    relations_by_id = {
+        str(relation["relation_id"]): dict(relation) for relation in relations
+    }
+    facts_by_id: Dict[str, Dict[str, Any]] = {}
+    canonical_atomic_by_id: Dict[str, Dict[str, Any]] = {}
+    duplicate_count = 0
+    for raw_atomic in atomic_facts:
+        atomic_fact = dict(raw_atomic)
+        relation_id = str(atomic_fact["relation_id"])
+        relation = relations_by_id[relation_id]
+        subject = str(atomic_fact["subject"])
+        answer = str(atomic_fact["answer"])
+        fact_id = str(atomic_fact["fact_id"])
+        direct_template = str(relation["direct_question_template"])
+        cloze_template = str(relation["cloze_template"])
+        direct = direct_template.replace("{subject}", subject)
+        cloze = cloze_template.replace("{subject}", subject)
+        if direct.count(subject) != 1 or not direct.endswith("?"):
+            raise ValueError(
+                f"Compiled direct question for {relation_id} must contain its "
+                "subject exactly once and end with ?"
+            )
+        if cloze.count(subject) != 1 or cloze.count("___") != 1:
+            raise ValueError(
+                f"Compiled cloze for {relation_id} must contain its subject "
+                "exactly once and one ___"
+            )
+
+        source_record = {
+            "source_file": "generated_raw_corpus.json",
+            "source_row_index": int(atomic_fact["output_index"]),
+            "source_record_sha256": str(atomic_fact["raw_output_sha256"]),
+            "level": "generated",
+            "query_type": "target_only_atomic_relation",
+            "normalized_query_hash": hashlib.sha256(
+                normalize_identity(direct).encode("utf-8")
+            ).hexdigest(),
+            "original_answer": answer,
+            "evidence_sentence": str(atomic_fact["evidence_sentence"]),
+            "assigned_relation_id": relation_id,
+            "assigned_fact_id": fact_id,
+            "generation_request_sha256": str(atomic_fact["generation_request_sha256"]),
+            "relation_template_sha256": str(atomic_fact["relation_template_sha256"]),
+        }
+        if fact_id in facts_by_id:
+            duplicate_count += 1
+            existing = facts_by_id[fact_id]
+            if source_record["source_record_sha256"] not in existing["source_hashes"]:
+                existing["source_hashes"].append(source_record["source_record_sha256"])
+                existing["source_records"].append(source_record)
+            continue
+
+        fact = {
+            "schema_version": ENTITY_FACT_SCHEMA_VERSION,
+            "protocol_label": TARGET_ONLY_PROTOCOL_LABEL,
+            "protocol_status": TARGET_ONLY_PROTOCOL_STATUS,
+            "entity_id": str(atomic_fact["entity_id"]),
+            "subject": subject,
+            "subject_aliases": [],
+            "fact_id": fact_id,
+            "relation_id": relation_id,
+            "canonical_sensitive_answer": answer,
+            "sensitive_answer_aliases": [],
+            "source_records": [source_record],
+            "optimization_views": [],
+            "held_out_views": [],
+            "partition": "generated_training_fact",
+            "training_allowed": True,
+            "source_hashes": [str(atomic_fact["raw_output_sha256"])],
+            "relation_assignment_provenance": [
+                {
+                    "method": ATOMIC_EXTRACTOR_REVISION,
+                    "relation_registry_path": str(relation_registry_path),
+                    "relation_registry_sha256": relation_registry_sha256,
+                    "relation_template_sha256": str(
+                        atomic_fact["relation_template_sha256"]
+                    ),
+                }
+            ],
+            "manual_override_sha256": "",
+        }
+        view_specs: List[Tuple[str, str, str]] = [
+            ("direct question", direct, answer),
+            ("cloze", cloze, answer),
+            (
+                "deterministic paraphrase",
+                f"In different words, answer this question: {direct}",
+                answer,
+            ),
+        ]
+        answer_words = answer.split()
+        if len(answer_words) >= 2:
+            prefix_width = max(1, len(answer_words) // 2)
+            prefix = " ".join(answer_words[:prefix_width])
+            suffix = " ".join(answer_words[prefix_width:])
+            view_specs.append(
+                ("forced-prefix", f"{direct}\nAnswer prefix: {prefix}", suffix)
+            )
+        fact["optimization_views"] = [
+            _compile_atomic_view(
+                style=style,
+                query=query,
+                sensitive_answer=answer,
+                optimization_answer=optimization_answer,
+                atomic_fact=atomic_fact,
+            )
+            for style, query, optimization_answer in view_specs
+        ]
+        direct_views = [
+            view
+            for view in fact["optimization_views"]
+            if view["prompt_style"] == "direct question"
+        ]
+        if len(direct_views) != 1:
+            raise RuntimeError(
+                f"Atomic fact {fact_id} did not compile exactly one direct view"
+            )
+        facts_by_id[fact_id] = fact
+        canonical_atomic_by_id[fact_id] = atomic_fact
+    return (
+        [facts_by_id[fact_id] for fact_id in sorted(facts_by_id)],
+        [canonical_atomic_by_id[fact_id] for fact_id in sorted(canonical_atomic_by_id)],
+        duplicate_count,
     )
 
 
@@ -685,6 +1343,7 @@ def _model_generate(
         torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
         device_map="auto" if torch.cuda.is_available() else None,
     )
+    model.eval()
     outputs: List[Dict[str, Any]] = []
     generation_args = dict(decoding)
     num_return = int(generation_args.pop("num_return_sequences", 1))
@@ -739,8 +1398,235 @@ def _rejection_reason_counts(rejected: Sequence[Mapping[str, Any]]) -> Dict[str,
     return dict(sorted(counts.items()))
 
 
+def _build_atomic_generated_corpus(
+    args: argparse.Namespace,
+    config: Mapping[str, Any],
+    config_sha: str,
+) -> Dict[str, Any]:
+    registry_path = getattr(args, "relation_template_registry", None)
+    if registry_path is None:
+        raise ValueError("Atomic v3 generation requires --relation-template-registry")
+    minimum_accepted_facts = int(getattr(args, "minimum_accepted_facts", 1))
+    if minimum_accepted_facts < 1:
+        raise ValueError("--minimum-accepted-facts must be at least 1")
+    relations, registry_sha = load_relation_template_registry(
+        Path(registry_path),
+        target_entity=args.target_entity,
+    )
+    requests = build_atomic_generation_requests(
+        relations,
+        target_entity=args.target_entity,
+    )
+    prompts = [str(request["prompt"]) for request in requests]
+    independent_resources = []
+    for resource in args.independent_resource:
+        path = Path(resource)
+        validate_independent_resource_path(path)
+        independent_resources.append({"path": str(path), "sha256": sha256_file(path)})
+
+    request_identities = [
+        {
+            key: request[key]
+            for key in (
+                "request_index",
+                "registry_index",
+                "relation_id",
+                "relation_template_sha256",
+                "prompt_sha256",
+            )
+        }
+        for request in requests
+    ]
+    implementation_sha = sha256_file(Path(__file__))
+    common_receipt = {
+        "schema_version": GENERATOR_SCHEMA_VERSION,
+        "protocol_label": TARGET_ONLY_PROTOCOL_LABEL,
+        "protocol_status": TARGET_ONLY_PROTOCOL_STATUS,
+        "target_entity": args.target_entity,
+        "entity_id": args.entity_id,
+        "generator_model_identifier": args.generator_model,
+        "generator_model_path": args.generator_model,
+        "generator_model_revision": args.generator_revision,
+        "local_snapshot": args.generator_model,
+        "local_snapshot_identity": local_snapshot_identity(args.generator_model),
+        "generation_configuration_path": str(args.generation_config),
+        "generation_configuration_sha256": config_sha,
+        "relation_template_registry_path": str(Path(registry_path)),
+        "relation_template_registry_sha256": registry_sha,
+        "decoding_parameters": dict(config["decoding"]),
+        "random_seeds": [int(args.seed)],
+        "independent_resources": independent_resources,
+        "official_rwku_records_accessed": False,
+        "fact_extractor_implementation": ATOMIC_EXTRACTOR_REVISION,
+        "parser_implementation_revision": ATOMIC_PARSER_REVISION,
+        "implementation_sha256": implementation_sha,
+        "fact_extractor_revision_sha256": implementation_sha,
+        "extraction_configuration": dict(config["fact_extraction"]),
+        "generation_request_identities": request_identities,
+        "requested_relation_count": len(requests),
+        "minimum_accepted_facts": minimum_accepted_facts,
+    }
+    if args.dry_run:
+        return {
+            **common_receipt,
+            "status": "dry_run_validated",
+            "torch_imported": "torch" in __import__("sys").modules,
+            "chat_template_used": None,
+            "known_relation_count": 0,
+            "unknown_relation_count": 0,
+            "rejected_relation_count": 0,
+            "accepted_fact_count": 0,
+        }
+
+    if not common_receipt["local_snapshot_identity"]["exists"]:
+        raise FileNotFoundError(
+            f"Generator model must be a pinned local snapshot: {args.generator_model}"
+        )
+    raw_outputs, tokenizer_identity = _model_generate(
+        model_path=args.generator_model,
+        prompts=prompts,
+        decoding=config["decoding"],
+        seed=args.seed,
+    )
+    raw = annotate_atomic_raw_outputs(raw_outputs, requests)
+    raw_path = args.output_dir / "generated_raw_corpus.json"
+    _write_json(raw_path, raw)
+    raw_sha = sha256_file(raw_path)
+    atomic_facts, rejected, atomic_diagnostics = extract_atomic_facts(
+        raw,
+        requests,
+        relations,
+        entity_id=args.entity_id,
+        target_entity=args.target_entity,
+        relation_registry_path=Path(registry_path),
+        relation_registry_sha256=registry_sha,
+    )
+    (
+        facts,
+        canonical_atomic_facts,
+        duplicate_fact_count,
+    ) = compile_atomic_facts_to_entity_facts(
+        atomic_facts,
+        relations,
+        relation_registry_path=Path(registry_path),
+        relation_registry_sha256=registry_sha,
+    )
+    rejection_counts = _rejection_reason_counts(rejected)
+    generation_diagnostics = {
+        "parser_implementation_revision": ATOMIC_PARSER_REVISION,
+        "raw_generated_corpus_path": str(raw_path),
+        "raw_generated_corpus_sha256": raw_sha,
+        "relation_template_registry_path": str(Path(registry_path)),
+        "relation_template_registry_sha256": registry_sha,
+        "chat_template_used": tokenizer_identity.get("chat_template_used", False),
+        "minimum_accepted_facts": minimum_accepted_facts,
+        "accepted_fact_count": len(facts),
+        "duplicate_fact_count": duplicate_fact_count,
+        "rejection_reason_counts": rejection_counts,
+        **atomic_diagnostics,
+    }
+    diagnostics_path = args.output_dir / "generation_diagnostics.json"
+    _write_json(diagnostics_path, generation_diagnostics)
+
+    if len(facts) < minimum_accepted_facts:
+        failure_receipt = {
+            **common_receipt,
+            "status": "failed_below_minimum_accepted_facts",
+            "tokenizer_identity": tokenizer_identity,
+            "chat_template_used": tokenizer_identity.get("chat_template_used", False),
+            "raw_generated_corpus_sha256": raw_sha,
+            "output_identities": atomic_diagnostics["output_identities"],
+            "known_relation_count": atomic_diagnostics["known_relation_count"],
+            "unknown_relation_count": atomic_diagnostics["unknown_relation_count"],
+            "rejected_relation_count": atomic_diagnostics["rejected_relation_count"],
+            "accepted_fact_count": len(facts),
+            "duplicate_fact_count": duplicate_fact_count,
+            "rejection_reason_counts": rejection_counts,
+            "rejected_relations": rejected,
+            "generation_diagnostics_sha256": sha256_file(diagnostics_path),
+            "failed_at_utc": _utc_now(),
+        }
+        _write_json(args.output_dir / "generator_failure_receipt.json", failure_receipt)
+        raise ValueError(
+            "Atomic corpus accepted fewer facts than --minimum-accepted-facts: "
+            f"{len(facts)} < {minimum_accepted_facts}"
+        )
+
+    atomic_payload = {
+        "schema_version": "rwku_generated_atomic_fact_corpus_v1",
+        "entity_id": args.entity_id,
+        "subject": args.target_entity,
+        "relation_template_registry_path": str(Path(registry_path)),
+        "relation_template_registry_sha256": registry_sha,
+        "facts": canonical_atomic_facts,
+    }
+    atomic_path = args.output_dir / "generated_atomic_facts.json"
+    _write_json(atomic_path, atomic_payload)
+    atomic_sha = sha256_file(atomic_path)
+
+    views = [view for fact in facts for view in fact["optimization_views"]]
+    metadata = {
+        "entity_id": args.entity_id,
+        "subject": args.target_entity,
+        "seed": args.seed,
+        "generation_configuration_id": ATOMIC_V3_CONFIGURATION_ID,
+        "relation_template_registry_sha256": registry_sha,
+    }
+    catalog_artifact = make_artifact(
+        "fact_catalog",
+        {"facts": facts},
+        protocol_label=TARGET_ONLY_PROTOCOL_LABEL,
+        protocol_status=TARGET_ONLY_PROTOCOL_STATUS,
+        metadata=metadata,
+    )
+    training_artifact = make_artifact(
+        "training_bundle",
+        {"views": views},
+        protocol_label=TARGET_ONLY_PROTOCOL_LABEL,
+        protocol_status=TARGET_ONLY_PROTOCOL_STATUS,
+        metadata=metadata,
+    )
+    write_artifact(
+        args.output_dir / "generated_entity_fact_catalog.json", catalog_artifact
+    )
+    write_artifact(
+        args.output_dir / "generated_training_bundle.json", training_artifact
+    )
+    receipt = {
+        **common_receipt,
+        "status": "complete",
+        "tokenizer_identity": tokenizer_identity,
+        "chat_template_used": tokenizer_identity.get("chat_template_used", False),
+        "output_identities": atomic_diagnostics["output_identities"],
+        "known_relation_count": atomic_diagnostics["known_relation_count"],
+        "unknown_relation_count": atomic_diagnostics["unknown_relation_count"],
+        "rejected_relation_count": atomic_diagnostics["rejected_relation_count"],
+        "accepted_fact_count": len(facts),
+        "duplicate_fact_count": duplicate_fact_count,
+        "rejection_reason_counts": rejection_counts,
+        "rejected_relations": rejected,
+        "raw_generated_corpus_sha256": raw_sha,
+        "generated_atomic_facts_sha256": atomic_sha,
+        "generated_entity_fact_catalog_sha256": catalog_artifact["sha256"],
+        "final_entity_fact_bundle_sha256": training_artifact["sha256"],
+        "generation_diagnostics_sha256": sha256_file(diagnostics_path),
+        "completed_at_utc": _utc_now(),
+    }
+    receipt_artifact = make_artifact(
+        "generator_receipt",
+        receipt,
+        protocol_label=TARGET_ONLY_PROTOCOL_LABEL,
+        protocol_status=TARGET_ONLY_PROTOCOL_STATUS,
+        metadata=metadata,
+    )
+    write_artifact(args.output_dir / "generator_receipt.json", receipt_artifact)
+    return receipt
+
+
 def build_generated_corpus(args: argparse.Namespace) -> Dict[str, Any]:
     config, config_sha = _load_generation_config(args.generation_config)
+    if config.get("configuration_id") == ATOMIC_V3_CONFIGURATION_ID:
+        return _build_atomic_generated_corpus(args, config, config_sha)
     prompts = [
         structured_generation_prompt(template, target_entity=args.target_entity)
         for template in config["prompt_templates"]
@@ -903,6 +1789,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--generator-model", required=True)
     parser.add_argument("--generator-revision", required=True)
     parser.add_argument("--generation-config", type=Path, required=True)
+    parser.add_argument("--relation-template-registry", type=Path)
+    parser.add_argument("--minimum-accepted-facts", type=int, default=1)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--independent-resource", action="append", default=[])
     parser.add_argument("--output-dir", type=Path, required=True)

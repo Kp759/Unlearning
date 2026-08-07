@@ -1,0 +1,18 @@
+{
+  "schema_version": "rwku_target_corpus_generation_v1",
+  "configuration_id": "llama32_3b_target_corpus_v3_atomic_facts",
+  "declared_model_family": "Llama-3.2-3B-Instruct",
+  "method_extension": true,
+  "official_evaluation_access": "forbidden",
+  "generation_mode": "atomic_relation_queries",
+  "decoding": {
+    "do_sample": false,
+    "max_new_tokens": 192,
+    "num_return_sequences": 1
+  },
+  "fact_extraction": {
+    "implementation": "atomic_relation_fact_extractor_v1",
+    "parser_implementation_revision": "complete_json_object_atomic_v1",
+    "reverse_prompts_enabled": false
+  }
+}

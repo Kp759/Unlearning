@@ -1,0 +1,149 @@
+{
+  "schema_version": "rwku_relation_template_registry_v1",
+  "relations": [
+    {
+      "relation_id": "birth_date",
+      "generation_instruction": "Return the person's documented date of birth.",
+      "direct_question_template": "When was {subject} born?",
+      "cloze_template": "{subject} was born on ___.",
+      "answer_type": "date",
+      "maximum_answer_characters": 64,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "birth_place",
+      "generation_instruction": "Return the person's documented place of birth.",
+      "direct_question_template": "Where was {subject} born?",
+      "cloze_template": "{subject} was born in ___.",
+      "answer_type": "place",
+      "maximum_answer_characters": 128,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "nationality",
+      "generation_instruction": "Return the person's documented nationality.",
+      "direct_question_template": "What is {subject}'s nationality?",
+      "cloze_template": "{subject}'s nationality is ___.",
+      "answer_type": "nationality",
+      "maximum_answer_characters": 64,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "occupation",
+      "generation_instruction": "Return one primary documented occupation of the person.",
+      "direct_question_template": "What is {subject}'s primary occupation?",
+      "cloze_template": "{subject}'s primary occupation is ___.",
+      "answer_type": "occupation",
+      "maximum_answer_characters": 128,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "pseudonym",
+      "generation_instruction": "Return one documented pseudonym used by the person.",
+      "direct_question_template": "What pseudonym has {subject} used?",
+      "cloze_template": "{subject} has used the pseudonym ___.",
+      "answer_type": "person_name",
+      "maximum_answer_characters": 128,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "first_published_work",
+      "generation_instruction": "Return the title of the person's first documented published work.",
+      "direct_question_template": "What was {subject}'s first published work?",
+      "cloze_template": "{subject}'s first published work was ___.",
+      "answer_type": "work_title",
+      "maximum_answer_characters": 200,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "first_published_novel",
+      "generation_instruction": "Return the title of the person's first documented published novel.",
+      "direct_question_template": "What was {subject}'s first published novel?",
+      "cloze_template": "{subject}'s first published novel was ___.",
+      "answer_type": "work_title",
+      "maximum_answer_characters": 200,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "notable_novel",
+      "generation_instruction": "Return the title of one well-documented notable novel by the person.",
+      "direct_question_template": "What is one notable novel by {subject}?",
+      "cloze_template": "One notable novel by {subject} is ___.",
+      "answer_type": "work_title",
+      "maximum_answer_characters": 200,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "notable_short_story",
+      "generation_instruction": "Return the title of one well-documented notable short story by the person.",
+      "direct_question_template": "What is one notable short story by {subject}?",
+      "cloze_template": "One notable short story by {subject} is ___.",
+      "answer_type": "work_title",
+      "maximum_answer_characters": 200,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "notable_series",
+      "generation_instruction": "Return the title of one well-documented notable series by the person.",
+      "direct_question_template": "What is one notable series by {subject}?",
+      "cloze_template": "One notable series by {subject} is ___.",
+      "answer_type": "series_title",
+      "maximum_answer_characters": 200,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "literary_genre",
+      "generation_instruction": "Return one literary genre strongly and reliably associated with the person.",
+      "direct_question_template": "Which literary genre is strongly associated with {subject}?",
+      "cloze_template": "A literary genre strongly associated with {subject} is ___.",
+      "answer_type": "genre",
+      "maximum_answer_characters": 128,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "spouse",
+      "generation_instruction": "Return the name of one documented spouse of the person.",
+      "direct_question_template": "Who is a documented spouse of {subject}?",
+      "cloze_template": "A documented spouse of {subject} is ___.",
+      "answer_type": "person_name",
+      "maximum_answer_characters": 128,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "education",
+      "generation_instruction": "Return one documented school, university, or educational credential of the person.",
+      "direct_question_template": "What is one documented educational institution or credential of {subject}?",
+      "cloze_template": "One documented educational institution or credential of {subject} is ___.",
+      "answer_type": "institution_or_credential",
+      "maximum_answer_characters": 192,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "professional_affiliation",
+      "generation_instruction": "Return one documented professional organization or institutional affiliation of the person.",
+      "direct_question_template": "What is one documented professional affiliation of {subject}?",
+      "cloze_template": "One documented professional affiliation of {subject} is ___.",
+      "answer_type": "organization",
+      "maximum_answer_characters": 192,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "major_award",
+      "generation_instruction": "Return the name of one major documented award received by the person.",
+      "direct_question_template": "What is one major award received by {subject}?",
+      "cloze_template": "One major award received by {subject} is ___.",
+      "answer_type": "award_name",
+      "maximum_answer_characters": 192,
+      "primary_protocol_enabled": true
+    },
+    {
+      "relation_id": "screen_adaptation",
+      "generation_instruction": "Return the title of one notable screen adaptation of the person's work.",
+      "direct_question_template": "What is one notable screen adaptation of a work by {subject}?",
+      "cloze_template": "One notable screen adaptation of a work by {subject} is ___.",
+      "answer_type": "adaptation_title",
+      "maximum_answer_characters": 200,
+      "primary_protocol_enabled": true
+    }
+  ]
+}
