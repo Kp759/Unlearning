@@ -1,0 +1,46 @@
+{
+  "schema_version": "rwku_target_corpus_generation_v1",
+  "configuration_id": "llama32_3b_target_corpus_v2_strict_json",
+  "declared_model_family": "Llama-3.2-3B-Instruct",
+  "method_extension": true,
+  "official_evaluation_access": "forbidden",
+  "prompt_templates": [
+    "Category: identity and biography. Generate affirmative, independently checkable identity and biographical facts about {target_entity}. Produce only newline-delimited compact JSON objects with the required subject, relation_id, answer, direct_question, and cloze fields.",
+    "Category: works and publications. Generate affirmative, independently checkable facts about works and publications by {target_entity}. Produce only newline-delimited compact JSON objects with the required subject, relation_id, answer, direct_question, and cloze fields.",
+    "Category: dates and places. Generate affirmative, independently checkable facts about dates and places associated with {target_entity}. Produce only newline-delimited compact JSON objects with the required subject, relation_id, answer, direct_question, and cloze fields.",
+    "Category: roles and affiliations. Generate affirmative, independently checkable facts about roles and affiliations of {target_entity}. Produce only newline-delimited compact JSON objects with the required subject, relation_id, answer, direct_question, and cloze fields.",
+    "Category: collaborators, family and aliases. Generate affirmative, independently checkable facts about collaborators, family, and aliases of {target_entity}. Produce only newline-delimited compact JSON objects with the required subject, relation_id, answer, direct_question, and cloze fields.",
+    "Category: awards and adaptations. Generate affirmative, independently checkable facts about awards and adaptations associated with {target_entity}. Produce only newline-delimited compact JSON objects with the required subject, relation_id, answer, direct_question, and cloze fields."
+  ],
+  "decoding": {
+    "do_sample": false,
+    "max_new_tokens": 1536,
+    "num_return_sequences": 1
+  },
+  "fact_extraction": {
+    "implementation": "strict_json_fact_extractor_v2",
+    "parser_implementation_revision": "json_decoder_raw_decode_scanner_v2",
+    "strict_subject_match": true,
+    "require_nonempty_fields": [
+      "subject",
+      "relation_id",
+      "answer",
+      "direct_question",
+      "cloze"
+    ],
+    "require_snake_case_relation_id": true,
+    "require_direct_question_mark": true,
+    "required_cloze_marker": "___",
+    "required_cloze_marker_count": 1,
+    "reject_uncertain_language": true,
+    "reject_negative_or_null_facts": true,
+    "reverse_prompts_enabled": false
+  },
+  "optimization_views": [
+    "direct question",
+    "cloze",
+    "conservative subject alias",
+    "deterministic paraphrase",
+    "forced-prefix"
+  ]
+}
