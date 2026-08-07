@@ -92,6 +92,7 @@ def create_checkpoint_receipt(
     generator_receipt_path: Path | None,
     official_locked_eval_path: Path,
     confirmatory: bool,
+    additional_artifact_paths: Mapping[str, Path] | None = None,
 ) -> Dict[str, Any]:
     training = read_artifact(
         training_bundle_path,
@@ -116,6 +117,13 @@ def create_checkpoint_receipt(
         "generator_receipt": _identity(generator_receipt_path) if generator_receipt_path else None,
         "official_locked_eval": _identity(official_locked_eval_path),
     }
+    for name, path in (additional_artifact_paths or {}).items():
+        key = str(name).strip()
+        if not key or key in artifacts:
+            raise CheckpointReceiptError(
+                f"Invalid or duplicate additional checkpoint artifact name: {name!r}"
+            )
+        artifacts[key] = _identity(Path(path))
     completed = utc_now()
     receipt: Dict[str, Any] = {
         "schema_version": RECEIPT_SCHEMA_VERSION,
