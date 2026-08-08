@@ -20,7 +20,7 @@ This file is the authoritative project record for the new full-utility TOFU runs
 
 | Split | Forget / retain sizes | Final checkpoint | Local repair status | Full evaluator status |
 |---|---:|---|---|---|
-| F01 / `forget01` | 40 / 3960 | `outputs/tofu_final_fullutility_v2/f01/active_repair/checkpoint` | **PASS** | **Pending** — run the same complete evaluator used for F05/F10 before paper-level cross-split claims |
+| F01 / `forget01` | 40 / 3960 | `outputs/tofu_final_fullutility_v2/f01/active_repair/checkpoint` | **PASS** | **PASS** |
 | F05 / `forget05` | 200 / 3800 | `outputs/tofu_final_fullutility_v2/f05/active_repair/checkpoint` | **PASS** | **PASS** |
 | F10 / `forget10` | 400 / 3600 | `outputs/tofu_final_fullutility_f10_final/active_repair/checkpoint` | **PASS** | **PASS** |
 
@@ -38,11 +38,11 @@ For F10, the final job independently gated the materialized BF16 checkpoint and 
 
 ## Project-official full-evaluator table
 
-`tofu_eval.py` full-split results currently available for F05 and F10 are shown below. F01 is intentionally left pending rather than mixing local probability-ratio metrics with full-evaluator absolute metrics.
+All three final checkpoints have now been evaluated with the same project-local `tofu_eval.py` pipeline. F01 values below are the six-decimal values printed by the completed evaluator; the exact machine values remain in the local summary JSON.
 
 | Split | Forget AP baseline ↓ | Forget AP final ↓ | Forget Truth Ratio baseline ↓ | Forget Truth Ratio final ↓ | Forget ROUGE-L baseline ↓ | Forget ROUGE-L final ↓ | Retain AP baseline ↑ | Retain AP final ↑ | Retain AP ratio ↑ | Retain Truth Ratio final ↑ | Retain ROUGE-L final ↑ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| F01 | 0.991081 | **pending** | 0.493958 | **pending** | 0.999091 | **pending** | 0.988739 | **pending** | **pending** | **pending** | **pending** |
+| F01 | 0.991081 | **0.000074** | 0.493958 | **0.370591** | 0.999091 | **0.021873** | 0.988739 | **0.988549** | **~0.999808** | **0.545852** | **0.989718** |
 | F05 | 0.989575 | **6.4741423e-05** | 0.462503 | **0.415082079** | 0.987769 | **0.043354469** | 0.988720 | **0.988577754** | **~0.999856** | **0.549220516** | **0.990388557** |
 | F10 | 0.989239909 | **6.4906246e-05** | 0.462889826 | **0.389179362** | 0.987487212 | **0.038005263** | 0.988709772 | **0.988521509** | **0.99980958699** | **0.553359810** | **0.990001361** |
 
@@ -50,9 +50,26 @@ For F10, the final job independently gated the materialized BF16 checkpoint and 
 
 | Split | Real authors norm. AP baseline ↑ | Final ↑ | Real authors Truth Ratio baseline ↑ | Final ↑ | World facts norm. AP baseline ↑ | Final ↑ | World facts Truth Ratio baseline ↑ | Final ↑ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| F01 | 0.722977 | **pending** | 0.864981 | **pending** | 0.714694 | **pending** | 0.880273 | **pending** |
+| F01 | 0.722977 | **0.725967** | 0.864981 | **0.868330** | 0.714694 | **0.715407** | 0.880273 | **0.882108** |
 | F05 | 0.722977 | **0.733031048** | 0.864981 | **0.874651004** | 0.714694 | **0.716988901** | 0.880273 | **0.882123681** |
 | F10 | 0.722976848 | **0.737271352** | 0.864980804 | **0.877209421** | 0.714693619 | **0.717929427** | 0.880273285 | **0.883249411** |
+
+## F01 full-evaluator artifact
+
+- Checkpoint: `outputs/tofu_final_fullutility_v2/f01/active_repair/checkpoint`
+- Repair summary: `outputs/tofu_final_fullutility_v2/f01/active_repair/repair_summary.json`
+- Evaluation: `outputs/tofu_final_fullutility_v2/f01/eval_final/fullutility_final_f01_summary.json`
+- Forget AP: `0.000074`
+- Forget Truth Ratio: `0.370591`
+- Forget ROUGE-L recall: `0.021873`
+- Retain AP: `0.988549`
+- Retain AP / baseline retain AP: approximately `0.999807836` from the six-decimal console values
+- Retain Truth Ratio: `0.545852`
+- Retain ROUGE-L recall: `0.989718`
+- Real authors normalized AP: `0.725967`
+- Real authors Truth Ratio: `0.868330`
+- World facts normalized AP: `0.715407`
+- World facts Truth Ratio: `0.882108`
 
 ## F05 full-evaluator artifact
 
@@ -100,15 +117,15 @@ For F10, the final job independently gated the materialized BF16 checkpoint and 
 - Real authors ratio: `0.9998013973236084`
 - World facts ratio: `0.9999599456787109`
 - Full-retain ratio: `0.9998023358370192`
-- Full evaluator: **pending** in this record.
+- Full evaluator: **PASS**.
 
 ## Interpretation and reporting constraints
 
-1. F05 and F10 show near-zero direct answer probability and very low generation overlap on the forget split while preserving retain behavior.
-2. Do **not** describe Truth Ratio as near zero. F05/F10 final forget Truth Ratios are approximately `0.415` and `0.389` respectively.
+1. F01, F05, and F10 all show near-zero direct answer probability and very low generation overlap on their forget splits while preserving retain behavior.
+2. Do **not** describe Truth Ratio as near zero. Final forget Truth Ratios are approximately `0.371`, `0.415`, and `0.389` for F01/F05/F10 respectively.
 3. Do not mix the local reference probability ratios (`~0.9998`) with the absolute full-evaluator retain answer probabilities (`~0.9885`).
-4. This is the project's local full-TOFU evaluation pipeline. A paper claim of benchmark-official TOFU Forget Quality / KS p-value still requires the corresponding oracle/retain-only comparison if not already present.
-5. F01 must receive the same full evaluator before presenting a single homogeneous F01/F05/F10 full-evaluation table in the paper.
+4. A single homogeneous project-local F01/F05/F10 full-evaluation table may now be reported because all three splits have completed the same evaluator.
+5. This is the project's local full-TOFU evaluation pipeline. A paper claim of benchmark-official TOFU Forget Quality / KS p-value still requires the corresponding oracle/retain-only comparison if not already present.
 
 ## Weights and hashes
 
