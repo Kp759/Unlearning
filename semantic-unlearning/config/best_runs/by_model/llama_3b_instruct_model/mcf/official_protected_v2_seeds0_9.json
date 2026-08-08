@@ -1,0 +1,37 @@
+{
+  "source_record": "config/best_runs/mcf/official_protected_v2_seeds0_9.json",
+  "model_family": "meta-llama/Llama-3.2-3B-Instruct",
+  "snapshot_role": "model-centric copy/index",
+  "dataset": "MCF",
+  "protocol": "ZeroUnlearn_official_compatible",
+  "seeds": [0,1,2,3,4,5,6,7,8,9],
+  "status": "BEST_ACCEPTED_MULTI_SEED",
+  "aggregate": {
+    "evaluated_seeds": 10,
+    "strict_gate_passed": 9,
+    "strict_gate_failed": 1,
+    "zero_eff_gen_seeds": 10,
+    "metrics_mean_sample_sd": {
+      "Eff": {"mean": 0.0, "sample_sd": 0.0},
+      "Gen": {"mean": 0.0, "sample_sd": 0.0},
+      "Spe": {"mean": 13.114, "sample_sd": 1.941621},
+      "minimum_margin": {"mean": 0.403128, "sample_sd": 0.225559},
+      "PPL": {"mean": 11.38125, "sample_sd": 0.523286},
+      "retain_Eff": {"mean": 18.98, "sample_sd": 1.325644},
+      "retain_Gen": {"mean": 20.325, "sample_sd": 1.282846},
+      "retain_Spe": {"mean": 10.268, "sample_sd": 0.432533}
+    }
+  },
+  "strict_gate_exception": {
+    "seed": 7,
+    "minimum_margin": 0.09375,
+    "required_minimum_margin": 0.10,
+    "Eff": 0.0,
+    "Gen": 0.0
+  },
+  "checkpoint_family": "outputs/gagd_5e_ultra_protected_v2_10seeds/seed{seed}/checkpoint",
+  "provenance_status": {
+    "training_config": "PENDING_EXACT_LOCAL_CAPTURE",
+    "weight_hashes": "PENDING_LOCAL_CAPTURE"
+  }
+}
