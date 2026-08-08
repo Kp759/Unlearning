@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "configuration_id": "mquake_setting5e_rank2_active_pair_seed0",
+  "status": "EXPERIMENTAL_PENDING_EVALUATION",
+  "method": "Setting 5e + protected rank-2 active LM-head repair",
+  "dataset": "MQuAKE-CF-3k-v2",
+  "dataset_source": {
+    "path": "data/MQuAKE-CF-3k-v2.json",
+    "repository": "princeton-nlp/MQuAKE",
+    "revision": "fb43dadc2d8cd19d08ce81c63d957b59deb3f3cd"
+  },
+  "seed": 0,
+  "sampling": {
+    "forget_pool": "second half",
+    "retain_pool": "first half",
+    "forget_instances": 1000,
+    "retain_instances": 1000,
+    "sample_instances_before_flattening_requested_rewrite_atoms": true,
+    "source_locked_split_manifest": true,
+    "forget_sampling": "instance_balanced"
+  },
+  "setting5e": {
+    "steps": 600,
+    "batch_size": 1,
+    "retain_batch_size": 4,
+    "emb_lm_lr": 0.0001,
+    "forget_weight": 2.0,
+    "retain_weight": 1.0,
+    "forget_margin": 1.0,
+    "emb_lm_optimizer": "adamw",
+    "sampling_strategy": "epoch"
+  },
+  "active_repair": {
+    "repair_mode": "active_pair",
+    "repair_steps": 2000,
+    "repair_lr": 0.005,
+    "repair_optimizer": "adamw",
+    "active_logit_margin": 0.25,
+    "selection_logit_margin": 0.1,
+    "protected_logit_margin": 0.0,
+    "repair_rank": 2,
+    "shared_direction_parameterization": "delta_w_r = a_r1 * v1 + a_r2 * v2",
+    "repair_l2_lambda": 0.0001,
+    "protected_logit_drift_weight": 0.1,
+    "retain_calibration_num": 1000,
+    "retain_calibration_seed": 1729,
+    "project_away_protected_hidden": false,
+    "stop_when_all_satisfied": true,
+    "candidate_scales": [
+      1.0,
+      0.875,
+      0.75,
+      0.625,
+      0.5,
+      0.375,
+      0.25,
+      0.1875,
+      0.125,
+      0.09375,
+      0.0625,
+      0.046875,
+      0.03125,
+      0.015625,
+      0.0078125,
+      0.0
+    ]
+  },
+  "acceptance_gates": {
+    "target_eff_max": 0.0,
+    "forget_eff_requirement": "Eff == 0.0",
+    "utility_drop_tolerance_percentage_points": 0.1,
+    "retain_eff_requirement": "RetainEff >= Base RetainEff - 0.10 percentage points",
+    "max_ppl_ratio": 1.02,
+    "ppl_requirement": "PPL <= Base PPL * 1.02",
+    "incremental_protected_retain_regressions": 0,
+    "active_pair_constraints_satisfied_after_bf16_materialization": true,
+    "automatic_threshold_relaxation": false
+  },
+  "data_visibility": {
+    "method_visible": [
+      "sampled requested_rewrite cloze prompts",
+      "target_true sensitive token prefixes",
+      "sampled requested_rewrite retain cloze states"
+    ],
+    "post_selection_only": [
+      "requested_rewrite.question",
+      "AtomicGen",
+      "record-level multi-hop questions",
+      "standard multi-hop generation",
+      "CoT multi-hop generation",
+      "answer and new_answer aliases"
+    ],
+    "counterfactual_target_new_used_for_training": false
+  },
+  "checkpoint_policy": {
+    "save_setting5_checkpoint": true,
+    "save_selected_checkpoint": true,
+    "fail_if_target_missed": true,
+    "held_out_metrics_used_for_selection": false
+  },
+  "claim_status": "Do not call this BEST or ACCEPTED until the real GPU run passes every fixed gate."
+}

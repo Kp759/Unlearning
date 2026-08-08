@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -112,6 +113,42 @@ class TinyTiedLM(nn.Module):
 
 
 class ActivePairRepairTests(unittest.TestCase):
+    def test_rank_two_uses_one_shared_two_direction_basis_for_every_row(self) -> None:
+        args = subject.build_parser().parse_args(["--repair-rank", "2"])
+        active_hidden = torch.tensor(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0, 0.0],
+            ],
+            dtype=torch.float32,
+        )
+        shared_basis = subject.active.orthonormal_row_basis(
+            active_hidden, max_rank=args.repair_rank
+        )
+        module = subject.active.SelectedRowDelta(
+            n_rows=4,
+            hidden_size=4,
+            direction_basis=shared_basis,
+            retained_basis=None,
+            device=torch.device("cpu"),
+        )
+        with torch.no_grad():
+            module.coefficients.copy_(
+                torch.tensor(
+                    [[1.0, 0.0], [0.0, 1.0], [1.5, -0.5], [-2.0, 3.0]]
+                )
+            )
+        delta = module.effective_delta()
+        reconstructed = module.coefficients @ shared_basis
+        residual = delta - (delta @ shared_basis.T) @ shared_basis
+        self.assertEqual(args.repair_rank, 2)
+        self.assertEqual(tuple(module.coefficients.shape), (4, 2))
+        self.assertEqual(tuple(module.direction_basis.shape), (2, 4))
+        self.assertTrue(torch.allclose(delta, reconstructed))
+        self.assertTrue(torch.allclose(residual, torch.zeros_like(residual), atol=1e-6))
+        self.assertLessEqual(int(torch.linalg.matrix_rank(delta).item()), 2)
+
     def test_repair_source_requests_only_rewrite_cloze_cases(self) -> None:
         class Guarded(dict):
             def __init__(self, *args, forbidden=(), **kwargs):
@@ -502,6 +539,49 @@ class ActivePairRepairTests(unittest.TestCase):
         self.assertIn("--repair-mode active_pair", launcher)
         self.assertIn("--no-project-away-protected-hidden", launcher)
         self.assertNotIn("mquake_exact_sparse_row_repair.py", launcher)
+
+    def test_dedicated_rank_two_launcher_and_config_are_fully_pinned(self) -> None:
+        launcher = (
+            SCRIPTS / "run_mquake_setting5e_rank2_active_pair.sh"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "--steps 600",
+            "--batch-size 1",
+            "--retain-batch-size 4",
+            "--emb-lm-lr 1e-4",
+            "--forget-weight 2.0",
+            "--retain-weight 1.0",
+            "--forget-margin 1.0",
+            "--emb-lm-optimizer adamw",
+            "--sampling-strategy epoch",
+            "--repair-mode active_pair",
+            "--repair-steps 2000",
+            "--repair-lr 5e-3",
+            "--repair-rank 2",
+            "--repair-l2-lambda 1e-4",
+            "--protected-logit-drift-weight 0.1",
+            "--no-project-away-protected-hidden",
+            "--target-eff-max 0.0",
+            "--utility-drop-tolerance 0.10",
+            "--max-ppl-ratio 1.02",
+            "--save-setting5-checkpoint",
+            "--save-selected-checkpoint",
+            "--fail-if-target-missed",
+        ):
+            self.assertIn(required, launcher)
+        config_path = (
+            SCRIPTS.parent
+            / "config"
+            / "official_benchmarks"
+            / "mquake_setting5e_rank2_active_pair.json"
+        )
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        self.assertEqual(config["status"], "EXPERIMENTAL_PENDING_EVALUATION")
+        self.assertEqual(config["active_repair"]["repair_rank"], 2)
+        self.assertFalse(
+            config["active_repair"]["project_away_protected_hidden"]
+        )
+        self.assertEqual(config["acceptance_gates"]["target_eff_max"], 0.0)
 
     def test_retain_calibration_keeps_all_atoms_of_sampled_instances(self) -> None:
         records = [

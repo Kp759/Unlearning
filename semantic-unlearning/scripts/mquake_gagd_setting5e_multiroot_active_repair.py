@@ -1606,6 +1606,7 @@ def main() -> None:
     repair_summary = {
         "method": METHOD_LABEL,
         "repair_type": REPAIR_TYPE,
+        "repair_rank": int(args.repair_rank),
         "active_source": ACTIVE_SOURCE,
         "active_pair_count": len(active_pairs),
         "active_sensitive_token_count": len(active_pairs),
