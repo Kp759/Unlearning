@@ -1,0 +1,27 @@
+{
+  "model_folder": "llama_3b_instruct_model",
+  "display_name": "Llama 3B Instruct Model",
+  "model_id": "meta-llama/Llama-3.2-3B-Instruct",
+  "purpose": "Model-centric index for cross-architecture MCF/ZsRE/TOFU comparisons",
+  "datasets": {
+    "mcf": {
+      "snapshot": "mcf/official_protected_v2_seeds0_9.json",
+      "canonical_source": "../../mcf/official_protected_v2_seeds0_9.json",
+      "status": "official-compatible metrics recorded"
+    },
+    "zsre": {
+      "snapshot": "zsre/setting5e_active_repair_u1p20_ppl1p16_cal384_seeds1_10.json",
+      "canonical_source": "../../zsre/setting5e_active_repair_u1p20_ppl1p16_cal384_seeds1_10.json",
+      "status": "10/10 accepted"
+    },
+    "tofu": {
+      "snapshot": "tofu/fullutility_official_f01_f05_f10_20260808.json",
+      "canonical_source": "../../tofu/fullutility_official_f01_f05_f10_20260808.json",
+      "status": "F01/F05/F10 project-local full evaluator complete"
+    }
+  },
+  "future_sibling_folders": [
+    "../llama_8b_instruct_model",
+    "../qwen_model"
+  ]
+}
