@@ -91,6 +91,9 @@ SEMANTIC_ROOT = SCRIPT_PATH.parents[1]
 METHOD = "Setting 5e-UC + protected row-wise LM-head repair"
 PRE_REPAIR_METHOD = "Setting 5e-UC before protected row-wise repair"
 PROTOCOL_STATUS = "rwku_target_only_utility_controlled_setting5e_method_extension"
+MATCHED_PROTECTION_COVERAGE_POLICY = (
+    "allow_unmatched_generated_target_keys_but_audit"
+)
 STATE_SCHEMA_VERSION = "rwku_setting5e_utility_controlled_state_v1"
 CONFIG_SCHEMA_VERSION = "rwku_setting5e_utility_controlled_configuration_v1"
 DEFAULT_EXPOSURES = (2, 4, 6, 8, 10, 12, 15, 20)
@@ -297,6 +300,7 @@ def configuration_payload(args: argparse.Namespace) -> Dict[str, Any]:
         "candidate_interpolation_scales": list(args.candidate_scales),
         "rowwise_repair_scales": list(ROW_SCALE_CANDIDATES),
         "fixed_candidate_gates": fixed_gate_manifest(),
+        "matched_protection_coverage_policy": MATCHED_PROTECTION_COVERAGE_POLICY,
         "reverse_prompts_enabled": False,
         "optimizer": "AdamW",
         "transformer_frozen": True,
@@ -1181,6 +1185,177 @@ def _load_json_mapping(path: Path) -> Dict[str, Any]:
     return dict(value)
 
 
+def _artifact_attests_official_access(artifact: Mapping[str, Any]) -> bool:
+    return any(
+        container.get("official_rwku_records_accessed") is True
+        for container in (
+            artifact,
+            artifact.get("metadata", {}),
+            artifact.get("payload", {}),
+        )
+        if isinstance(container, Mapping)
+    )
+
+
+def summarize_matched_protection_coverage(
+    coverage: Sequence[Mapping[str, Any]],
+    *,
+    minimum_train_per_key: int,
+    minimum_gate_per_key: int,
+) -> Dict[str, Any]:
+    """Validate and summarize the complete audited per-key coverage report."""
+
+    normalized_keys: set[str] = set()
+    insufficient_keys: List[str] = []
+    covered_count = 0
+    for row in coverage:
+        normalized_key = str(row.get("normalized_key", ""))
+        if not normalized_key:
+            raise ValueError("Matched-protection coverage row lacks normalized_key")
+        if normalized_key in normalized_keys:
+            raise ValueError(
+                f"Matched-protection coverage repeats key: {normalized_key}"
+            )
+        normalized_keys.add(normalized_key)
+        try:
+            optimization_count = int(row["optimization_count"])
+            gate_count = int(row["gate_count"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(
+                f"Matched-protection coverage counts are invalid: {normalized_key}"
+            ) from error
+        if optimization_count < 0 or gate_count < 0:
+            raise ValueError(
+                f"Matched-protection coverage counts are negative: {normalized_key}"
+            )
+        expected_status = (
+            "covered"
+            if optimization_count >= int(minimum_train_per_key)
+            and gate_count >= int(minimum_gate_per_key)
+            else "insufficient_coverage"
+        )
+        if row.get("coverage_status") != expected_status:
+            raise ValueError(
+                "Matched-protection coverage status disagrees with its counts: "
+                f"{normalized_key}"
+            )
+        if expected_status == "covered":
+            covered_count += 1
+        else:
+            insufficient_keys.append(normalized_key)
+    return {
+        "key_count": len(coverage),
+        "covered_key_count": covered_count,
+        "insufficient_key_count": len(insufficient_keys),
+        "insufficient_keys": sorted(insufficient_keys),
+    }
+
+
+def validate_matched_protection_construction(
+    protection_dir: Path,
+    *,
+    target_subject: str,
+    minimum_train_per_key: int,
+    minimum_gate_per_key: int,
+) -> Dict[str, Any]:
+    """Fail closed on unusable protection, not target-key match coverage."""
+
+    directory = Path(protection_dir)
+    train_path = directory / "matched_protection_train.json"
+    gate_path = directory / "matched_protection_gate.json"
+    coverage_path = directory / "matched_protection_coverage.json"
+    for path in (train_path, gate_path, coverage_path):
+        if not path.is_file():
+            raise FileNotFoundError(f"Missing matched-protection artifact: {path}")
+
+    train = read_artifact(
+        train_path,
+        stage="train",
+        gradient=True,
+        expected_role="optimization_protection",
+    )
+    gate = read_artifact(
+        gate_path,
+        stage="train",
+        selection=True,
+        expected_role="repair_selection_gate",
+    )
+    coverage_artifact = read_artifact(
+        coverage_path,
+        stage="prepare",
+        expected_role="matched_protection_coverage",
+    )
+    for artifact in (train, gate, coverage_artifact):
+        if _artifact_attests_official_access(artifact):
+            raise ValueError(
+                "Matched-protection construction accessed official/evaluation data"
+            )
+
+    # These checks validate every visible key's origin and every matched
+    # record's target independence without imposing a minimum match count.
+    legacy._validate_matched_protection_artifact(
+        train, target_subject=target_subject
+    )
+    legacy._validate_matched_protection_artifact(
+        gate, target_subject=target_subject
+    )
+
+    def record_hashes(artifact: Mapping[str, Any], label: str) -> set[str]:
+        values: set[str] = set()
+        for record in artifact["payload"].get("records", []):
+            digest = str(record.get("content_sha256", ""))
+            if not digest:
+                raise ValueError(
+                    f"{label} matched-protection record lacks content provenance hash"
+                )
+            values.add(digest)
+        return values
+
+    train_hashes = record_hashes(train, "train")
+    gate_hashes = record_hashes(gate, "gate")
+    overlap = train_hashes & gate_hashes
+    if overlap:
+        raise ValueError(
+            "Matched-protection train/gate content hashes overlap: "
+            + ", ".join(sorted(overlap)[:5])
+        )
+
+    coverage = coverage_artifact["payload"].get("coverage")
+    warnings = coverage_artifact["payload"].get("warnings")
+    if not isinstance(coverage, list) or not isinstance(warnings, list):
+        raise ValueError("Matched-protection coverage report is malformed")
+    summary = summarize_matched_protection_coverage(
+        coverage,
+        minimum_train_per_key=minimum_train_per_key,
+        minimum_gate_per_key=minimum_gate_per_key,
+    )
+    expected_keys = {
+        str(row["normalized_key"])
+        for row in train["payload"].get("keys", [])
+    }
+    gate_keys = {
+        str(row["normalized_key"])
+        for row in gate["payload"].get("keys", [])
+    }
+    coverage_keys = {str(row["normalized_key"]) for row in coverage}
+    if expected_keys != gate_keys or expected_keys != coverage_keys:
+        raise ValueError(
+            "Matched-protection coverage does not audit every generated/protected key"
+        )
+    if len(warnings) < summary["insufficient_key_count"]:
+        raise ValueError(
+            "Matched-protection coverage warnings omit insufficient keys"
+        )
+    return {
+        "train": train,
+        "gate": gate,
+        "coverage": coverage_artifact,
+        "coverage_summary": summary,
+        "train_content_sha256": sorted(train_hashes),
+        "gate_content_sha256": sorted(gate_hashes),
+    }
+
+
 def prepare_stage(args: argparse.Namespace) -> None:
     destination = run_dir(args)
     if destination.exists() and any(destination.iterdir()):
@@ -1301,8 +1476,14 @@ def protection_stage(args: argparse.Namespace) -> None:
         split_seed=args.seed,
         minimum_train_per_key=args.minimum_protection_train_per_key,
         minimum_gate_per_key=args.minimum_protection_gate_per_key,
-        strict=True,
+        strict=False,
         tokenizer=tokenizer,
+    )
+    protection_validation = validate_matched_protection_construction(
+        protection_dir,
+        target_subject=str(state["target"]["subject"]),
+        minimum_train_per_key=args.minimum_protection_train_per_key,
+        minimum_gate_per_key=args.minimum_protection_gate_per_key,
     )
     source_records, examples = legacy.load_mcf_retain(
         args.mcf_path,
@@ -1356,6 +1537,7 @@ def protection_stage(args: argparse.Namespace) -> None:
     )
     train_path = protection_dir / "matched_protection_train.json"
     gate_path = protection_dir / "matched_protection_gate.json"
+    coverage_summary = protection_validation["coverage_summary"]
     write_state(
         args,
         "PREPARED",
@@ -1369,6 +1551,16 @@ def protection_stage(args: argparse.Namespace) -> None:
         mcf_gate_manifest_path=str(gate_manifest.resolve()),
         mcf_gate_manifest_sha256=sha256_file(gate_manifest),
         protection_coverage_count=len(result["coverage"]),
+        matched_protection_key_count=coverage_summary["key_count"],
+        matched_protection_covered_key_count=coverage_summary[
+            "covered_key_count"
+        ],
+        matched_protection_insufficient_key_count=coverage_summary[
+            "insufficient_key_count"
+        ],
+        matched_protection_insufficient_keys=coverage_summary[
+            "insufficient_keys"
+        ],
         official_rwku_records_accessed=False,
     )
 

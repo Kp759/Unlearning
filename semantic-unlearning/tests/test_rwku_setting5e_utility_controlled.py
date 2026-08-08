@@ -282,6 +282,28 @@ class ObjectiveAndGateTests(unittest.TestCase):
         metrics["direct_generation_recovery"] = 1.0
         self.assertFalse(UC.candidate_gate_report(metrics)["eligible"])
 
+    def test_fixed_candidate_and_retain_gates_are_unchanged(self):
+        self.assertEqual(
+            UC.fixed_gate_manifest(),
+            {
+                "direct_generation_recovery": 0.0,
+                "cloze_generation_recovery": 0.0,
+                "paraphrase_generation_recovery": 0.0,
+                "generated_geometric_answer_probability_max": 0.01,
+                "active_violation_count": 0,
+                "full_retain_probability_ratio_range": [0.995, 1.005],
+                "geometric_retain_probability_ratio_range": [0.98, 1.02],
+                "mean_retain_kl_max": 0.01,
+                "p95_retain_kl_max": 0.05,
+                "retain_top1_agreement_min": 0.99,
+                "protected_answer_probability_ratio_min": 0.999,
+                "protected_selected_row_logit_drift_max": 0.05,
+                "protected_top1_changes": 0,
+                "proxy_ppl_base_multiplier_max": 1.02,
+                "nonselected_rows_equal_base": True,
+            },
+        )
+
     def test_selection_order_prefers_delta_then_step_then_scale(self):
         candidates = [
             {
@@ -328,6 +350,162 @@ class ObjectiveAndGateTests(unittest.TestCase):
 
 
 class StateAndModeTests(unittest.TestCase):
+    def test_configuration_freezes_audited_unmatched_coverage_policy(self):
+        configuration = UC.configuration_payload(config_args())
+        self.assertEqual(
+            configuration["matched_protection_coverage_policy"],
+            "allow_unmatched_generated_target_keys_but_audit",
+        )
+
+    def test_unmatched_protection_is_audited_and_does_not_abort(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output_root = root / "outputs"
+            bundle_path = root / "generated_training_bundle.json"
+            bundle = make_artifact(
+                "training_bundle",
+                {
+                    "views": [
+                        {
+                            "fact_id": "fact-carrie",
+                            "subject": "Stephen King",
+                            "sensitive_answer_alias": "Carrie",
+                            "canonical_sensitive_answer": "Carrie",
+                            "sensitive_answer_aliases": [],
+                            "relation_id": "notable_novel",
+                        }
+                    ]
+                },
+                protocol_label="rwku_target_only_generated_entity_corpus_method_extension",
+                protocol_status="generated",
+                metadata={
+                    "subject": "Stephen King",
+                    "official_rwku_records_accessed": False,
+                },
+            )
+            write_artifact(bundle_path, bundle)
+            protection_source = root / "target_independent_source.json"
+            protection_source.write_text(
+                json.dumps(
+                    [
+                        {
+                            "prompt": "A wholly unrelated retention prompt",
+                            "answer": "A wholly unrelated retention answer",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            mcf_path = root / "mcf.json"
+            mcf_path.write_text("[]\n", encoding="utf-8")
+            args = SimpleNamespace(
+                output_root=output_root,
+                experiment_id="run",
+                generated_entity_fact_bundle=bundle_path,
+                protection_source=[protection_source],
+                protection_vocabulary=None,
+                tokenize_protection_rows=False,
+                model_path=root / "model-not-loaded",
+                model_revision="revision",
+                no_download=True,
+                seed=0,
+                minimum_protection_train_per_key=1,
+                minimum_protection_gate_per_key=1,
+                mcf_path=mcf_path,
+                mcf_optimization_count=1,
+                mcf_gate_count=1,
+            )
+            UC.write_state(
+                args,
+                "PREPARED",
+                target={"subject": "Stephen King"},
+                official_rwku_records_accessed=False,
+            )
+            source_records = [{"case_id": 1}, {"case_id": 2}]
+            examples = [
+                SimpleNamespace(
+                    prompt="Independent retain prompt one",
+                    answer="Retain one",
+                    subject="Independent one",
+                    target_new="Retain one",
+                    target_true="Original one",
+                ),
+                SimpleNamespace(
+                    prompt="Independent retain prompt two",
+                    answer="Retain two",
+                    subject="Independent two",
+                    target_new="Retain two",
+                    target_true="Original two",
+                ),
+            ]
+            with mock.patch.object(
+                UC,
+                "build_matched_protection",
+                wraps=UC.build_matched_protection,
+            ) as build, mock.patch.object(
+                UC.legacy,
+                "load_mcf_retain",
+                return_value=(source_records, examples),
+            ):
+                UC.protection_stage(args)
+            self.assertIs(build.call_args.kwargs["strict"], False)
+
+            protection_dir = output_root / "run" / "protection"
+            coverage_artifact = json.loads(
+                (protection_dir / "matched_protection_coverage.json").read_text()
+            )
+            coverage = coverage_artifact["payload"]["coverage"]
+            self.assertEqual(len(coverage), 1)
+            self.assertEqual(coverage[0]["normalized_key"], "carrie")
+            self.assertEqual(coverage[0]["optimization_count"], 0)
+            self.assertEqual(coverage[0]["gate_count"], 0)
+            self.assertEqual(
+                coverage[0]["coverage_status"], "insufficient_coverage"
+            )
+            self.assertEqual(
+                coverage_artifact["payload"]["warnings"],
+                ["Insufficient coverage: carrie"],
+            )
+
+            state = json.loads(
+                (output_root / "run" / "experiment_state.json").read_text()
+            )
+            self.assertTrue(state["protection_prepared"])
+            self.assertEqual(state["matched_protection_key_count"], 1)
+            self.assertEqual(state["matched_protection_covered_key_count"], 0)
+            self.assertEqual(state["matched_protection_insufficient_key_count"], 1)
+            self.assertEqual(
+                state["matched_protection_insufficient_keys"], ["carrie"]
+            )
+            self.assertFalse(state["official_rwku_records_accessed"])
+
+            optimization = json.loads(
+                (protection_dir / "mcf_optimization_manifest.json").read_text()
+            )
+            gate = json.loads(
+                (protection_dir / "mcf_gate_manifest.json").read_text()
+            )
+            self.assertFalse(
+                set(optimization["record_sha256"])
+                & set(gate["record_sha256"])
+            )
+            matched_train = json.loads(
+                (protection_dir / "matched_protection_train.json").read_text()
+            )
+            matched_gate = json.loads(
+                (protection_dir / "matched_protection_gate.json").read_text()
+            )
+            self.assertFalse(
+                {
+                    row["content_sha256"]
+                    for row in matched_train["payload"]["records"]
+                }
+                & {
+                    row["content_sha256"]
+                    for row in matched_gate["payload"]["records"]
+                }
+            )
+
     def test_prepare_locks_descriptor_without_opening_official_rows(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
