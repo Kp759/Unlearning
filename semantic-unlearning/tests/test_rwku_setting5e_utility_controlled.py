@@ -1,4 +1,5 @@
 import json
+import math
 import sys
 import tempfile
 import unittest
@@ -81,6 +82,29 @@ class TinyTokenizer:
         return 3
 
 
+class WhitespaceSensitiveTokenizer(TinyTokenizer):
+    pieces = {
+        **TinyTokenizer.pieces,
+        21: "Stephen",
+        22: "Carrie",
+        23: " Carrie",
+    }
+
+    def encode(self, text, add_special_tokens=False):
+        value = str(text)
+        if value == "Stephen King":
+            result = [21, 11]
+        elif value == " Stephen King":
+            result = [10, 11]
+        elif value == "Carrie":
+            result = [22]
+        elif value == " Carrie":
+            result = [23]
+        else:
+            result = super().encode(value, add_special_tokens=False)
+        return ([self.bos_token_id] if add_special_tokens else []) + result
+
+
 class TinyTiedLM(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -130,14 +154,17 @@ def passing_candidate_metrics():
 
 def config_args(**updates):
     values = {
-        "forget_weight": 2.0,
-        "retain_ce_weight": 4.0,
-        "retain_kl_weight": 10.0,
-        "protected_margin_weight": 20.0,
+        "forget_weight": 8.0,
+        "retain_ce_weight": 2.0,
+        "retain_kl_weight": 4.0,
+        "protected_margin_weight": 10.0,
         "delta_l2_weight": 1e-4,
         "forget_margin": 1.0,
-        "subject_input_lr": 5e-6,
-        "sensitive_output_lr": 2e-5,
+        "forget_token_margin": 2.0,
+        "probability_cap_weight": 2.0,
+        "eos_margin_weight": 0.25,
+        "subject_input_delta_lr": 2e-4,
+        "sensitive_output_delta_lr": 5e-4,
         "max_retain_document_frequency": 0.01,
         "teacher_top_k": 128,
         "exposures_per_fact": UC.DEFAULT_EXPOSURES,
@@ -169,29 +196,40 @@ class ModelIsolationTests(unittest.TestCase):
         report = UC.freeze_transformer_parameters(model)
         self.assertTrue(report["transformer_frozen"])
         self.assertFalse(model.transformer.weight.requires_grad)
-        self.assertTrue(model.get_input_embeddings().weight.requires_grad)
-        self.assertTrue(model.get_output_embeddings().weight.requires_grad)
+        self.assertFalse(model.get_input_embeddings().weight.requires_grad)
+        self.assertFalse(model.get_output_embeddings().weight.requires_grad)
 
-    def test_exact_masks_allow_only_declared_rows_and_restore_every_step(self):
-        model = TinyTiedLM()
+    def test_fp32_sparse_deltas_update_over_bf16_immutable_base(self):
+        model = TinyTiedLM().to(torch.bfloat16)
         UC.untie_lm_head_preserve_logits(model)
         UC.freeze_transformer_parameters(model)
-        input_weight = model.get_input_embeddings().weight
-        output_weight = model.get_output_embeddings().weight
-        guard = UC.ExactRowMask(input_weight, output_weight, [10, 11], [13, 17])
-        before_input = input_weight.detach().clone()
-        before_output = output_weight.detach().clone()
-        (input_weight.sum() + output_weight.sum()).backward()
+        before_input = model.get_input_embeddings().weight.detach().clone()
+        before_output = model.get_output_embeddings().weight.detach().clone()
+        sparse = UC.SparseFP32RowDeltas(model, [10, 11], [13, 17])
+        self.assertEqual(
+            {id(parameter) for parameter in sparse.parameters()},
+            {id(sparse.input_delta), id(sparse.output_delta)},
+        )
+        logits = model(torch.tensor([[10, 11]])).logits
+        loss = logits[..., 13].mean()
+        loss.backward()
         with torch.no_grad():
-            input_weight.add_(input_weight.grad, alpha=-0.1)
-            output_weight.add_(output_weight.grad, alpha=-0.1)
-        guard.restore_nonselected()
-        guard.verify_or_raise()
-        self.assertFalse(torch.equal(input_weight[10], before_input[10]))
-        self.assertFalse(torch.equal(output_weight[13], before_output[13]))
-        self.assertTrue(torch.equal(input_weight[9], before_input[9]))
-        self.assertTrue(torch.equal(output_weight[12], before_output[12]))
-        guard.close()
+            sparse.input_delta.add_(sparse.input_delta.grad, alpha=-1e-5)
+            sparse.output_delta.add_(sparse.output_delta.grad, alpha=-1e-5)
+        self.assertEqual(sparse.input_delta.dtype, torch.float32)
+        self.assertEqual(sparse.output_delta.dtype, torch.float32)
+        self.assertGreater(float(sparse.input_delta.abs().sum()), 0.0)
+        self.assertGreater(float(sparse.output_delta.abs().sum()), 0.0)
+        self.assertTrue(
+            torch.equal(model.get_input_embeddings().weight, before_input)
+        )
+        self.assertTrue(torch.equal(model.get_output_embeddings().weight, before_output))
+        # The FP32 master retains a sub-BF16 update instead of quantizing it away.
+        self.assertLess(float(sparse.output_delta.abs().max()), 1e-3)
+        sparse.materialize(*sparse.snapshot(), scale=1.0)
+        self.assertTrue(torch.equal(model.get_input_embeddings().weight[9], before_input[9]))
+        self.assertTrue(torch.equal(model.get_output_embeddings().weight[12], before_output[12]))
+        sparse.close()
 
 
 class RowPolicyTests(unittest.TestCase):
@@ -224,6 +262,31 @@ class RowPolicyTests(unittest.TestCase):
         self.assertNotIn(15, policy.selected_output_rows)
         self.assertNotIn(16, policy.selected_output_rows)
 
+    def test_row_policy_uses_runtime_completion_and_in_context_subject_tokens(self):
+        tokenizer = WhitespaceSensitiveTokenizer()
+        training = {
+            "metadata": {},
+            "payload": {
+                "views": [
+                    {
+                        "subject": "Stephen King",
+                        "subject_aliases": [],
+                        "sensitive_answer_alias": "Carrie",
+                        "canonical_sensitive_answer": "Carrie",
+                    }
+                ]
+            },
+        }
+        policy = UC.build_row_policy(
+            tokenizer,
+            training,
+            [],
+            maximum_document_frequency=0.01,
+        )
+        self.assertIn(10, policy.selected_input_rows)
+        self.assertIn(21, policy.selected_input_rows)
+        self.assertEqual(policy.selected_output_rows, (23,))
+
 
 class ScheduleAndInterpolationTests(unittest.TestCase):
     def test_candidate_schedule_is_computed_from_fact_count(self):
@@ -247,6 +310,12 @@ class ScheduleAndInterpolationTests(unittest.TestCase):
         self.assertTrue(torch.equal(weight[1], torch.ones(2) * 2))
         self.assertTrue(torch.equal(weight[2], base[2]))
 
+    def test_candidate_scales_include_values_below_quarter(self):
+        self.assertEqual(
+            UC.DEFAULT_INTERPOLATION_SCALES,
+            (0.015625, 0.03125, 0.0625, 0.125, 0.25, 0.5, 0.75, 1.0),
+        )
+
 
 class ObjectiveAndGateTests(unittest.TestCase):
     def test_teacher_kl_does_not_backpropagate_to_base_reference(self):
@@ -267,20 +336,48 @@ class ObjectiveAndGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Official"):
             UC.candidate_gate_report(metrics)
 
-    def test_high_ppl_candidate_is_rejected(self):
+    def test_high_ppl_candidate_is_not_utility_safe(self):
         metrics = passing_candidate_metrics()
         metrics["proxy_ppl"] = 10.3
-        self.assertFalse(UC.candidate_gate_report(metrics)["eligible"])
+        self.assertFalse(
+            UC.candidate_gate_report(metrics)["pre_repair_utility_safe"]
+        )
 
     def test_retain_ratio_violation_is_rejected(self):
         metrics = passing_candidate_metrics()
         metrics["full_retain_probability_ratio"] = 0.99
-        self.assertFalse(UC.candidate_gate_report(metrics)["eligible"])
+        self.assertFalse(
+            UC.candidate_gate_report(metrics)["pre_repair_utility_safe"]
+        )
 
-    def test_nonzero_generated_recovery_is_rejected(self):
+    def test_utility_safe_nonzero_forgetting_enters_active_repair(self):
         metrics = passing_candidate_metrics()
         metrics["direct_generation_recovery"] = 1.0
-        self.assertFalse(UC.candidate_gate_report(metrics)["eligible"])
+        self.assertTrue(
+            UC.candidate_gate_report(metrics)["pre_repair_utility_safe"]
+        )
+        self.assertFalse(UC.final_candidate_gate_report(metrics)["final_eligible"])
+
+    def test_final_repair_requires_zero_generation_recovery(self):
+        for metric in (
+            "direct_generation_recovery",
+            "cloze_generation_recovery",
+            "paraphrase_generation_recovery",
+        ):
+            with self.subTest(metric=metric):
+                values = passing_candidate_metrics()
+                values[metric] = 1.0
+                report = UC.final_candidate_gate_report(values)
+                self.assertFalse(report["post_repair_generated_forget_gates_passed"])
+                self.assertFalse(report["final_eligible"])
+
+    def test_final_probability_and_active_violation_gates_remain_strict(self):
+        values = passing_candidate_metrics()
+        values["generated_geometric_answer_probability"] = 0.010001
+        self.assertFalse(UC.final_candidate_gate_report(values)["final_eligible"])
+        values = passing_candidate_metrics()
+        values["active_violation_count"] = 1
+        self.assertFalse(UC.final_candidate_gate_report(values)["final_eligible"])
 
     def test_fixed_candidate_and_retain_gates_are_unchanged(self):
         self.assertEqual(
@@ -304,36 +401,84 @@ class ObjectiveAndGateTests(unittest.TestCase):
             },
         )
 
-    def test_selection_order_prefers_delta_then_step_then_scale(self):
+    def test_pre_repair_ranking_sends_only_top_eight(self):
+        candidates = []
+        for index in range(10):
+            candidates.append(
+                {
+                    "candidate_id": str(index),
+                    "pre_repair_utility_safe": True,
+                    "active_violation_count": index,
+                    "generated_geometric_answer_probability": 0.1 + index,
+                    "direct_generation_recovery": 0.0,
+                    "cloze_generation_recovery": 0.0,
+                    "paraphrase_generation_recovery": 0.0,
+                    "total_selected_row_delta_norm": 1.0,
+                    "checkpoint_step": index + 1,
+                }
+            )
+        ranked = UC.rank_pre_repair_candidates(candidates)
+        self.assertEqual(len(ranked), 8)
+        self.assertEqual([row["candidate_id"] for row in ranked], [str(i) for i in range(8)])
+
+    def test_final_selection_occurs_only_after_repair(self):
+        self.assertIsNone(
+            UC.select_final_repaired_candidate(
+                [{"pre_repair_utility_safe": True, "checkpoint_step": 1}]
+            )
+        )
         candidates = [
             {
-                "eligible": True,
-                "total_selected_row_delta_norm": 2.0,
+                "final_eligible": True,
+                "total_selected_row_delta_norm_including_repair": 2.0,
                 "checkpoint_step": 10,
                 "interpolation_scale": 0.25,
+                "rowwise_repair_norm": 0.1,
             },
             {
-                "eligible": True,
-                "total_selected_row_delta_norm": 1.0,
+                "final_eligible": True,
+                "total_selected_row_delta_norm_including_repair": 1.0,
                 "checkpoint_step": 20,
                 "interpolation_scale": 1.0,
+                "rowwise_repair_norm": 0.1,
             },
             {
-                "eligible": True,
-                "total_selected_row_delta_norm": 1.0,
+                "final_eligible": True,
+                "total_selected_row_delta_norm_including_repair": 1.0,
                 "checkpoint_step": 10,
                 "interpolation_scale": 0.75,
+                "rowwise_repair_norm": 0.1,
             },
             {
-                "eligible": True,
-                "total_selected_row_delta_norm": 1.0,
+                "final_eligible": True,
+                "total_selected_row_delta_norm_including_repair": 1.0,
                 "checkpoint_step": 10,
                 "interpolation_scale": 0.50,
+                "rowwise_repair_norm": 0.1,
             },
         ]
         self.assertEqual(
-            UC.select_eligible_candidate(candidates)["interpolation_scale"], 0.50
+            UC.select_final_repaired_candidate(candidates)["interpolation_scale"], 0.50
         )
+
+    def test_token_demotion_optimization_reduces_target_margin(self):
+        logits = torch.nn.Parameter(torch.tensor([[3.0, 2.0, 1.0]]))
+        targets = torch.tensor([0])
+        before = float((logits[0, 0] - logits[0, 1]).detach())
+        for _ in range(10):
+            logits.grad = None
+            loss = UC.token_demotion_loss(logits, targets, margin=2.0)
+            loss.backward()
+            with torch.no_grad():
+                logits.add_(logits.grad, alpha=-0.1)
+        after = float((logits[0, 0] - logits[0, 1]).detach())
+        self.assertLess(after, before)
+
+    def test_probability_cap_loss_boundary(self):
+        above = UC.probability_cap_loss(torch.tensor(math.log(0.02)))
+        below = UC.probability_cap_loss(torch.tensor(math.log(0.005)))
+        self.assertGreater(float(above), 0.0)
+        self.assertEqual(float(below), 0.0)
 
     def test_official_paths_are_rejected_before_training_or_selection(self):
         for filename in (
@@ -350,6 +495,43 @@ class ObjectiveAndGateTests(unittest.TestCase):
 
 
 class StateAndModeTests(unittest.TestCase):
+    def test_new_development_hyperparameter_defaults(self):
+        args = UC.build_parser().parse_args(
+            [
+                "--stage",
+                "prepare",
+                "--experiment-id",
+                "run",
+                "--seed",
+                "0",
+                "--model-path",
+                "model",
+                "--model-revision",
+                "revision",
+                "--generated-entity-fact-bundle",
+                "bundle.json",
+                "--generator-receipt",
+                "receipt.json",
+                "--output-root",
+                "outputs",
+                "--data-root",
+                "data/rwku",
+                "--wikidata-dir",
+                "data/wikidata",
+                "--development",
+            ]
+        )
+        self.assertEqual(args.subject_input_delta_lr, 2e-4)
+        self.assertEqual(args.sensitive_output_delta_lr, 5e-4)
+        self.assertEqual(args.forget_weight, 8.0)
+        self.assertEqual(args.retain_ce_weight, 2.0)
+        self.assertEqual(args.retain_kl_weight, 4.0)
+        self.assertEqual(args.protected_margin_weight, 10.0)
+        self.assertEqual(args.delta_l2_weight, 1e-4)
+        self.assertEqual(args.forget_token_margin, 2.0)
+        self.assertEqual(args.probability_cap_weight, 2.0)
+        self.assertEqual(args.eos_margin_weight, 0.25)
+
     def test_configuration_freezes_audited_unmatched_coverage_policy(self):
         configuration = UC.configuration_payload(config_args())
         self.assertEqual(
@@ -559,6 +741,14 @@ class StateAndModeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             args = SimpleNamespace(output_root=Path(directory), experiment_id="run")
             UC.write_state(args, "CANDIDATES_EVALUATED")
+            diagnostics = UC.write_training_diagnostics(
+                args,
+                {
+                    "candidate_metrics": [],
+                    "repair_outcomes": [],
+                    "official_rwku_records_accessed": False,
+                },
+            )
             UC.mark_no_feasible_candidate(args)
             state = json.loads(
                 (Path(directory) / "run" / "experiment_state.json").read_text()
@@ -575,6 +765,34 @@ class StateAndModeTests(unittest.TestCase):
                     / "selected_checkpoint"
                 ).exists()
             )
+            self.assertTrue(diagnostics.is_file())
+            self.assertEqual(
+                state["training_diagnostics_sha256"], UC.sha256_file(diagnostics)
+            )
+
+    def test_no_feasible_transition_rejects_missing_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(output_root=Path(directory), experiment_id="run")
+            UC.write_state(args, "CANDIDATES_EVALUATED")
+            with self.assertRaisesRegex(RuntimeError, "training_diagnostics"):
+                UC.mark_no_feasible_candidate(args)
+
+    def test_generated_corpus_hash_is_untouched_by_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            corpus = root / "generated_training_bundle.json"
+            corpus.write_bytes(b"immutable generated corpus")
+            before = UC.sha256_file(corpus)
+            args = SimpleNamespace(output_root=root / "outputs", experiment_id="run")
+            UC.write_training_diagnostics(
+                args,
+                {
+                    "generated_training_bundle_path": str(corpus),
+                    "generated_training_bundle_sha256": before,
+                    "official_rwku_records_accessed": False,
+                },
+            )
+            self.assertEqual(UC.sha256_file(corpus), before)
 
     def test_development_and_confirmatory_are_mutually_exclusive(self):
         with self.assertRaisesRegex(ValueError, "Exactly one"):

@@ -97,7 +97,17 @@ MATCHED_PROTECTION_COVERAGE_POLICY = (
 STATE_SCHEMA_VERSION = "rwku_setting5e_utility_controlled_state_v1"
 CONFIG_SCHEMA_VERSION = "rwku_setting5e_utility_controlled_configuration_v1"
 DEFAULT_EXPOSURES = (2, 4, 6, 8, 10, 12, 15, 20)
-DEFAULT_INTERPOLATION_SCALES = (0.25, 0.50, 0.75, 1.00)
+DEFAULT_INTERPOLATION_SCALES = (
+    0.015625,
+    0.03125,
+    0.0625,
+    0.125,
+    0.25,
+    0.50,
+    0.75,
+    1.00,
+)
+MAX_PRE_REPAIR_CANDIDATES = 8
 STATE_ORDER = {
     "PREPARED": 0,
     "TRAINING": 1,
@@ -289,10 +299,13 @@ def configuration_payload(args: argparse.Namespace) -> Dict[str, Any]:
             "protected_margin_weight": args.protected_margin_weight,
             "delta_l2_weight": args.delta_l2_weight,
             "forget_margin": args.forget_margin,
+            "forget_token_margin": args.forget_token_margin,
+            "probability_cap_weight": args.probability_cap_weight,
+            "eos_margin_weight": args.eos_margin_weight,
         },
         "row_learning_rates": {
-            "subject_input": args.subject_input_lr,
-            "sensitive_output": args.sensitive_output_lr,
+            "subject_input_delta": args.subject_input_delta_lr,
+            "sensitive_output_delta": args.sensitive_output_delta_lr,
         },
         "maximum_retain_document_frequency": args.max_retain_document_frequency,
         "teacher_top_k": args.teacher_top_k,
@@ -303,6 +316,7 @@ def configuration_payload(args: argparse.Namespace) -> Dict[str, Any]:
         "matched_protection_coverage_policy": MATCHED_PROTECTION_COVERAGE_POLICY,
         "reverse_prompts_enabled": False,
         "optimizer": "AdamW",
+        "optimizer_state_scope": "fp32_sparse_selected_row_deltas_only",
         "transformer_frozen": True,
         "row_restore_after_every_step": True,
     }
@@ -405,22 +419,66 @@ def interpolate_rows_from_base(
             )
 
 
-def select_eligible_candidate(
-    candidates: Sequence[Mapping[str, Any]]
+def rank_pre_repair_candidates(
+    candidates: Sequence[Mapping[str, Any]],
+    *,
+    limit: int = MAX_PRE_REPAIR_CANDIDATES,
+) -> List[Dict[str, Any]]:
+    """Rank utility-safe Setting 5e candidates for active repair."""
+
+    if limit <= 0:
+        raise ValueError("Pre-repair candidate limit must be positive")
+    safe = [
+        dict(candidate)
+        for candidate in candidates
+        if candidate.get("pre_repair_utility_safe") is True
+    ]
+    return sorted(
+        safe,
+        key=lambda candidate: (
+            int(candidate["active_violation_count"]),
+            float(candidate["generated_geometric_answer_probability"]),
+            sum(
+                float(candidate[name])
+                for name in (
+                    "direct_generation_recovery",
+                    "cloze_generation_recovery",
+                    "paraphrase_generation_recovery",
+                )
+            ),
+            float(candidate["total_selected_row_delta_norm"]),
+            int(candidate["checkpoint_step"]),
+        ),
+    )[: int(limit)]
+
+
+def select_final_repaired_candidate(
+    candidates: Sequence[Mapping[str, Any]],
 ) -> Optional[Dict[str, Any]]:
     eligible = [
-        dict(candidate) for candidate in candidates if candidate.get("eligible") is True
+        dict(candidate)
+        for candidate in candidates
+        if candidate.get("final_eligible") is True
     ]
     if not eligible:
         return None
     return min(
         eligible,
         key=lambda candidate: (
-            float(candidate["total_selected_row_delta_norm"]),
+            float(candidate["total_selected_row_delta_norm_including_repair"]),
             int(candidate["checkpoint_step"]),
             float(candidate["interpolation_scale"]),
+            float(candidate["rowwise_repair_norm"]),
         ),
     )
+
+
+def select_eligible_candidate(
+    candidates: Sequence[Mapping[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """Compatibility name for strict final, post-repair selection only."""
+
+    return select_final_repaired_candidate(candidates)
 
 
 def mark_no_feasible_candidate(args: argparse.Namespace) -> None:
@@ -435,28 +493,53 @@ def mark_no_feasible_candidate(args: argparse.Namespace) -> None:
             "Fail-closed no-feasible transition found a forbidden selected artifact: "
             + ", ".join(existing)
         )
+    diagnostics_path = run_dir(args) / "training_diagnostics.json"
+    if not diagnostics_path.is_file():
+        raise RuntimeError(
+            "NO_FEASIBLE_CANDIDATE requires training_diagnostics.json first"
+        )
     write_state(
         args,
         "NO_FEASIBLE_CANDIDATE",
-        failure_reason="no_candidate_passed_all_fixed_generated_and_protection_gates",
+        failure_reason="no_repaired_candidate_passed_all_strict_final_gates",
+        training_diagnostics_path=str(diagnostics_path.resolve()),
+        training_diagnostics_sha256=sha256_file(diagnostics_path),
         selected_checkpoint_created=False,
         checkpoint_receipt_created=False,
     )
 
 
-def candidate_gate_report(metrics: Mapping[str, Any]) -> Dict[str, Any]:
+def _validate_candidate_metric_source(metrics: Mapping[str, Any]) -> None:
     if metrics.get("calibration_source") != ACTIVE_SOURCE:
         raise ValueError("Candidate gates require target-generated entity-fact views")
     if metrics.get("official_rwku_records_accessed") is not False:
         raise ValueError("Official RWKU artifacts cannot train or select a candidate")
+
+
+def candidate_gate_report(metrics: Mapping[str, Any]) -> Dict[str, Any]:
+    """Pre-repair gate: protection/utility only; forgetting may remain nonzero."""
+
+    _validate_candidate_metric_source(metrics)
+    protection_ok, protection_failed = protection_gates_pass(metrics)
+    return {
+        "pre_repair_utility_safe": bool(protection_ok),
+        "pre_repair_failed_protection_gates": protection_failed,
+        "thresholds": fixed_gate_manifest(),
+    }
+
+
+def final_candidate_gate_report(metrics: Mapping[str, Any]) -> Dict[str, Any]:
+    """Strict final gate applied only after row-wise active repair."""
+
+    _validate_candidate_metric_source(metrics)
     forget_ok, forget_failed = generated_forget_gates_pass(metrics)
     protection_ok, protection_failed = protection_gates_pass(metrics)
     return {
-        "eligible": bool(forget_ok and protection_ok),
-        "generated_forget_gates_passed": forget_ok,
-        "protection_gates_passed": protection_ok,
-        "failed_generated_gates": forget_failed,
-        "failed_protection_gates": protection_failed,
+        "post_repair_generated_forget_gates_passed": bool(forget_ok),
+        "post_repair_protection_gates_passed": bool(protection_ok),
+        "post_repair_failed_generated_gates": forget_failed,
+        "post_repair_failed_protection_gates": protection_failed,
+        "final_eligible": bool(forget_ok and protection_ok),
         "thresholds": fixed_gate_manifest(),
     }
 
@@ -467,6 +550,23 @@ def _token_ids(tokenizer: Any, text: str) -> List[int]:
         return [int(value) for value in encoder(str(text), add_special_tokens=False)]
     encoded = tokenizer(str(text), add_special_tokens=False)
     return [int(value) for value in encoded["input_ids"]]
+
+
+def _completion_token_ids(tokenizer: Any, answer: str) -> List[int]:
+    """Tokenize an answer exactly as the teacher-forced evaluators do."""
+
+    return _token_ids(tokenizer, " " + str(answer).lstrip())
+
+
+def _subject_token_ids(tokenizer: Any, subject: str) -> List[int]:
+    """Cover both sequence-initial and whitespace-prefixed subject pieces."""
+
+    return sorted(
+        {
+            *_token_ids(tokenizer, str(subject)),
+            *_token_ids(tokenizer, " " + str(subject).lstrip()),
+        }
+    )
 
 
 def untie_lm_head_preserve_logits(
@@ -523,8 +623,6 @@ def freeze_transformer_parameters(model: nn.Module) -> Dict[str, Any]:
         parameter.requires_grad_(False)
     input_weight = model.get_input_embeddings().weight
     output_weight = model.get_output_embeddings().weight
-    input_weight.requires_grad_(True)
-    output_weight.requires_grad_(True)
     trainable = [
         name for name, parameter in model.named_parameters() if parameter.requires_grad
     ]
@@ -534,105 +632,226 @@ def freeze_transformer_parameters(model: nn.Module) -> Dict[str, Any]:
         "transformer_frozen": all(
             not parameter.requires_grad
             for parameter in model.parameters()
-            if parameter is not input_weight and parameter is not output_weight
         ),
+        "base_input_embeddings_frozen": not input_weight.requires_grad,
+        "base_output_head_frozen": not output_weight.requires_grad,
         "trainable_parameter_names": trainable,
     }
 
 
-class ExactRowMask:
-    """Gradient masking plus post-step immutable restoration."""
+class SparseFP32RowDeltas(nn.Module):
+    """FP32 sparse master deltas applied by hooks over immutable Base weights."""
 
     def __init__(
         self,
-        input_weight: nn.Parameter,
-        output_weight: nn.Parameter,
+        model: nn.Module,
         selected_input_rows: Sequence[int],
         selected_output_rows: Sequence[int],
     ) -> None:
-        self.input_weight = input_weight
-        self.output_weight = output_weight
-        self.input_base = input_weight.detach().clone()
-        self.output_base = output_weight.detach().clone()
+        super().__init__()
+        object.__setattr__(self, "model", model)
+        object.__setattr__(self, "input_layer", model.get_input_embeddings())
+        object.__setattr__(self, "output_layer", model.get_output_embeddings())
+        if self.input_layer is None or self.output_layer is None:
+            raise ValueError("Model must expose input and output embeddings")
+        if self.input_layer.weight.requires_grad or self.output_layer.weight.requires_grad:
+            raise ValueError("Base vocabulary matrices must be frozen")
         self.selected_input_rows = tuple(
             sorted({int(value) for value in selected_input_rows})
         )
         self.selected_output_rows = tuple(
             sorted({int(value) for value in selected_output_rows})
         )
-        self._input_mask = torch.zeros(
-            input_weight.shape[0],
-            1,
-            device=input_weight.device,
-            dtype=input_weight.dtype,
+        device = self.input_layer.weight.device
+        input_indices = torch.tensor(
+            self.selected_input_rows, dtype=torch.long, device=device
         )
-        self._output_mask = torch.zeros(
-            output_weight.shape[0],
-            1,
-            device=output_weight.device,
-            dtype=output_weight.dtype,
+        output_indices = torch.tensor(
+            self.selected_output_rows, dtype=torch.long, device=device
         )
-        if self.selected_input_rows:
-            self._input_mask[list(self.selected_input_rows)] = 1
-        if self.selected_output_rows:
-            self._output_mask[list(self.selected_output_rows)] = 1
+        self.register_buffer("input_indices", input_indices)
+        self.register_buffer("output_indices", output_indices)
+        self.register_buffer(
+            "input_base_rows_native",
+            self.input_layer.weight.detach().index_select(0, input_indices).clone(),
+        )
+        self.register_buffer(
+            "output_base_rows_native",
+            self.output_layer.weight.detach().index_select(0, output_indices).clone(),
+        )
+        self.register_buffer(
+            "input_base_rows_fp32", self.input_base_rows_native.float().clone()
+        )
+        self.register_buffer(
+            "output_base_rows_fp32", self.output_base_rows_native.float().clone()
+        )
+        self.input_delta = nn.Parameter(
+            torch.zeros(
+                (len(self.selected_input_rows), self.input_layer.weight.shape[1]),
+                dtype=torch.float32,
+                device=device,
+            )
+        )
+        self.output_delta = nn.Parameter(
+            torch.zeros(
+                (len(self.selected_output_rows), self.output_layer.weight.shape[1]),
+                dtype=torch.float32,
+                device=device,
+            )
+        )
+        lookup = torch.full(
+            (self.input_layer.weight.shape[0],),
+            -1,
+            dtype=torch.long,
+            device=device,
+        )
+        if input_indices.numel():
+            lookup[input_indices] = torch.arange(
+                input_indices.numel(), dtype=torch.long, device=device
+            )
+        self.register_buffer("input_row_lookup", lookup)
+        self.enabled = True
         self._hooks = (
-            input_weight.register_hook(lambda gradient: gradient * self._input_mask),
-            output_weight.register_hook(lambda gradient: gradient * self._output_mask),
+            self.input_layer.register_forward_hook(self._input_hook),
+            self.output_layer.register_forward_hook(self._output_hook),
         )
 
-    def restore_nonselected(self) -> None:
+    def _input_hook(
+        self, _module: nn.Module, arguments: Tuple[Any, ...], output: torch.Tensor
+    ) -> torch.Tensor:
+        if not self.enabled or not self.selected_input_rows:
+            return output
+        if not arguments:
+            raise RuntimeError("Embedding hook did not receive input IDs")
+        input_ids = arguments[0]
+        positions = self.input_row_lookup[input_ids]
+        valid = positions >= 0
+        safe_positions = positions.clamp_min(0)
+        correction = F.embedding(safe_positions, self.input_delta)
+        correction = correction * valid.unsqueeze(-1)
+        return output + correction.to(dtype=output.dtype)
+
+    def _output_hook(
+        self, _module: nn.Module, arguments: Tuple[Any, ...], output: torch.Tensor
+    ) -> torch.Tensor:
+        if not self.enabled or not self.selected_output_rows:
+            return output
+        if not arguments:
+            raise RuntimeError("LM-head hook did not receive hidden states")
+        hidden = arguments[0].float()
+        correction = hidden @ self.output_delta.transpose(0, 1)
+        result = output.float().clone()
+        result[..., self.output_indices] = (
+            result[..., self.output_indices] + correction
+        )
+        return result
+
+    def snapshot(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        return (
+            self.input_delta.detach().cpu().clone(),
+            self.output_delta.detach().cpu().clone(),
+        )
+
+    def restore_base_rows(self) -> None:
         with torch.no_grad():
-            input_selected = (
-                self.input_weight[list(self.selected_input_rows)].clone()
-                if self.selected_input_rows
-                else None
-            )
-            output_selected = (
-                self.output_weight[list(self.selected_output_rows)].clone()
-                if self.selected_output_rows
-                else None
-            )
-            self.input_weight.copy_(self.input_base)
-            self.output_weight.copy_(self.output_base)
-            if input_selected is not None:
-                self.input_weight[list(self.selected_input_rows)] = input_selected
-            if output_selected is not None:
-                self.output_weight[list(self.selected_output_rows)] = output_selected
+            if self.input_indices.numel():
+                self.input_layer.weight.index_copy_(
+                    0, self.input_indices, self.input_base_rows_native
+                )
+            if self.output_indices.numel():
+                self.output_layer.weight.index_copy_(
+                    0, self.output_indices, self.output_base_rows_native
+                )
 
-    def nonselected_equal_base(self) -> bool:
-        input_mask = torch.ones(
-            self.input_weight.shape[0],
-            dtype=torch.bool,
-            device=self.input_weight.device,
-        )
-        output_mask = torch.ones(
-            self.output_weight.shape[0],
-            dtype=torch.bool,
-            device=self.output_weight.device,
-        )
-        if self.selected_input_rows:
-            input_mask[list(self.selected_input_rows)] = False
-        if self.selected_output_rows:
-            output_mask[list(self.selected_output_rows)] = False
+    def materialize(
+        self,
+        input_delta: torch.Tensor,
+        output_delta: torch.Tensor,
+        scale: float,
+    ) -> None:
+        """Copy Base + scale * FP32 master delta into selected rows only."""
+
+        self.enabled = False
+        with torch.no_grad():
+            if self.input_indices.numel():
+                values = self.input_base_rows_fp32 + float(scale) * input_delta.to(
+                    self.input_base_rows_fp32.device, torch.float32
+                )
+                self.input_layer.weight.index_copy_(
+                    0,
+                    self.input_indices,
+                    values.to(self.input_layer.weight.dtype),
+                )
+            if self.output_indices.numel():
+                values = self.output_base_rows_fp32 + float(scale) * output_delta.to(
+                    self.output_base_rows_fp32.device, torch.float32
+                )
+                self.output_layer.weight.index_copy_(
+                    0,
+                    self.output_indices,
+                    values.to(self.output_layer.weight.dtype),
+                )
+
+    def resume_sparse_training(self) -> None:
+        self.restore_base_rows()
+        self.enabled = True
+
+    def delta_norms(
+        self,
+        input_delta: Optional[torch.Tensor] = None,
+        output_delta: Optional[torch.Tensor] = None,
+        *,
+        scale: float = 1.0,
+    ) -> Dict[str, float]:
+        input_value = self.input_delta if input_delta is None else input_delta
+        output_value = self.output_delta if output_delta is None else output_delta
+        input_norm = float(input_value.detach().float().norm().cpu()) * float(scale)
+        output_norm = float(output_value.detach().float().norm().cpu()) * float(scale)
+        return {
+            "selected_input_row_delta_norm": input_norm,
+            "selected_output_row_delta_norm": output_norm,
+            "total_selected_row_delta_norm": math.sqrt(
+                input_norm**2 + output_norm**2
+            ),
+        }
+
+    @staticmethod
+    def _nonselected_equal(
+        current: torch.Tensor,
+        reference: torch.Tensor,
+        selected: Sequence[int],
+        *,
+        chunk_size: int = 2048,
+    ) -> bool:
+        excluded = set(int(value) for value in selected)
+        for start in range(0, current.shape[0], chunk_size):
+            stop = min(start + chunk_size, current.shape[0])
+            keep = [index for index in range(start, stop) if index not in excluded]
+            if keep:
+                ids = torch.tensor(keep, dtype=torch.long, device=current.device)
+                other = reference.index_select(0, ids.to(reference.device)).to(
+                    current.device
+                )
+                if not torch.equal(current.index_select(0, ids), other):
+                    return False
+        return True
+
+    def nonselected_equal_base(self, base_model: nn.Module) -> bool:
         return bool(
-            torch.equal(
-                self.input_weight.detach()[input_mask].cpu(),
-                self.input_base[input_mask].cpu(),
+            self._nonselected_equal(
+                self.input_layer.weight.detach(),
+                base_model.get_input_embeddings().weight.detach(),
+                self.selected_input_rows,
             )
-            and torch.equal(
-                self.output_weight.detach()[output_mask].cpu(),
-                self.output_base[output_mask].cpu(),
+            and self._nonselected_equal(
+                self.output_layer.weight.detach(),
+                base_model.get_output_embeddings().weight.detach(),
+                self.selected_output_rows,
             )
         )
-
-    def verify_or_raise(self) -> None:
-        if not self.nonselected_equal_base():
-            raise RuntimeError(
-                "A nonselected embedding/output row differs from immutable Base"
-            )
 
     def close(self) -> None:
+        self.resume_sparse_training()
         for hook in self._hooks:
             hook.remove()
 
@@ -693,7 +912,7 @@ def build_row_policy(
         if value
     )
     input_candidates = sorted(
-        {token for subject in subjects for token in _token_ids(tokenizer, subject)}
+        {token for subject in subjects for token in _subject_token_ids(tokenizer, subject)}
     )
     special = set(tokenizer_special_ids(tokenizer))
     frequencies = retain_document_frequencies(tokenizer, protection_records)
@@ -701,7 +920,7 @@ def build_row_policy(
         token_id
         for wrapped in protection_records
         for _, answer in [_record_text_answer(wrapped)]
-        for token_id in _token_ids(tokenizer, answer)
+        for token_id in _completion_token_ids(tokenizer, answer)
     }
     input_audit: List[Mapping[str, Any]] = []
     selected_input: List[int] = []
@@ -713,13 +932,19 @@ def build_row_policy(
             reasons.append("matched_protection_overlap")
         if reasons:
             input_audit.append(
-                {"token_id": token_id, "included": False, "reasons": reasons}
+                {
+                    "token_id": token_id,
+                    "decoded_token_piece": tokenizer.decode([int(token_id)]),
+                    "included": False,
+                    "reasons": reasons,
+                }
             )
         else:
             selected_input.append(token_id)
             input_audit.append(
                 {
                     "token_id": token_id,
+                    "decoded_token_piece": tokenizer.decode([int(token_id)]),
                     "included": True,
                     "reasons": ["declared_subject_or_alias"],
                 }
@@ -736,7 +961,7 @@ def build_row_policy(
             or view.get("canonical_sensitive_answer")
             or ""
         )
-        for token_id in _token_ids(tokenizer, answer):
+        for token_id in _completion_token_ids(tokenizer, answer):
             answer_candidates.setdefault(token_id, set()).add(answer)
     output_audit: List[Mapping[str, Any]] = []
     selected_output: List[int] = []
@@ -848,7 +1073,7 @@ def _completion_logprobs(
     model: nn.Module, tokenizer: Any, prompt: str, answer: str
 ) -> torch.Tensor:
     prompt_ids = _token_ids(tokenizer, prompt)
-    answer_ids = _token_ids(tokenizer, " " + str(answer).lstrip())
+    answer_ids = _completion_token_ids(tokenizer, answer)
     if not prompt_ids or not answer_ids:
         raise ValueError("Prompt/answer tokenized to an empty sequence")
     device = next(model.parameters()).device
@@ -879,6 +1104,86 @@ def forget_margin_loss(
         model, tokenizer, point.prompt, point.neutral_answer
     ).mean()
     return F.relu(float(margin) + neutral_nll - sensitive_nll)
+
+
+def token_demotion_loss(
+    logits: torch.Tensor,
+    target_ids: torch.Tensor,
+    *,
+    margin: float,
+) -> torch.Tensor:
+    """Demote targets below detached-selected strongest competitors."""
+
+    if logits.ndim != 2 or target_ids.ndim != 1:
+        raise ValueError("Token demotion expects [positions,vocab] logits and targets")
+    if logits.shape[0] != target_ids.shape[0]:
+        raise ValueError("Token demotion target count does not match logits")
+    detached = logits.detach().clone()
+    detached.scatter_(1, target_ids[:, None], -torch.inf)
+    competitor_ids = detached.argmax(dim=-1)
+    target_logits = logits.gather(1, target_ids[:, None]).squeeze(1)
+    competitor_logits = logits.gather(1, competitor_ids[:, None]).squeeze(1)
+    return F.relu(float(margin) + target_logits - competitor_logits).mean()
+
+
+def probability_cap_loss(
+    target_mean_logprob: torch.Tensor,
+    *,
+    probability_cap: float = 0.01,
+) -> torch.Tensor:
+    if not 0.0 < probability_cap < 1.0:
+        raise ValueError("Probability cap must be strictly between zero and one")
+    return F.relu(target_mean_logprob - math.log(probability_cap))
+
+
+def forget_objective_components(
+    model: nn.Module,
+    tokenizer: Any,
+    point: TrainingPoint,
+    *,
+    forget_token_margin: float,
+    probability_cap_weight: float,
+    eos_margin_weight: float,
+    eos_margin: float,
+) -> Dict[str, torch.Tensor]:
+    prompt_ids = _token_ids(tokenizer, point.prompt)
+    answer_ids = _completion_token_ids(tokenizer, point.sensitive_answer)
+    if not prompt_ids or not answer_ids:
+        raise ValueError("Forget point prompt/answer tokenized to an empty sequence")
+    device = next(model.parameters()).device
+    sequence = torch.tensor(
+        [prompt_ids + answer_ids], dtype=torch.long, device=device
+    )
+    logits = model(input_ids=sequence).logits.float()[0]
+    positions = torch.arange(
+        len(prompt_ids) - 1,
+        len(prompt_ids) + len(answer_ids) - 1,
+        device=device,
+    )
+    position_logits = logits.index_select(0, positions)
+    targets = sequence[0, len(prompt_ids) :]
+    demotion = token_demotion_loss(
+        position_logits, targets, margin=forget_token_margin
+    )
+    target_logprobs = F.log_softmax(position_logits, dim=-1).gather(
+        1, targets[:, None]
+    ).squeeze(1)
+    cap = probability_cap_loss(target_logprobs.mean())
+    eos_auxiliary = forget_margin_loss(
+        model, tokenizer, point, margin=eos_margin
+    )
+    total = (
+        demotion
+        + float(probability_cap_weight) * cap
+        + float(eos_margin_weight) * eos_auxiliary
+    )
+    return {
+        "total_forget_loss": total,
+        "token_demotion_loss": demotion,
+        "probability_cap_loss": cap,
+        "eos_auxiliary_margin_loss": eos_auxiliary,
+        "target_mean_logprob": target_logprobs.mean(),
+    }
 
 
 def retain_answer_ce(
@@ -948,7 +1253,7 @@ def _completion_top1_matches(
     answer: str,
 ) -> Tuple[int, int]:
     prompt_ids = _token_ids(tokenizer, prompt)
-    answer_ids = _token_ids(tokenizer, " " + str(answer).lstrip())
+    answer_ids = _completion_token_ids(tokenizer, answer)
     device = next(model.parameters()).device
     sequence = torch.tensor([prompt_ids + answer_ids], dtype=torch.long, device=device)
     logits = model(input_ids=sequence).logits[0]
@@ -1152,28 +1457,6 @@ def evaluate_pre_freeze_candidate(
         "nonselected_rows_equal_base": bool(nonselected_rows_equal_base),
         "generated_details": generated_details,
         **distribution,
-    }
-
-
-def _selected_delta_norms(mask: ExactRowMask) -> Dict[str, float]:
-    input_delta = (
-        mask.input_weight[list(mask.selected_input_rows)].detach().float()
-        - mask.input_base[list(mask.selected_input_rows)].float()
-        if mask.selected_input_rows
-        else torch.zeros(1)
-    )
-    output_delta = (
-        mask.output_weight[list(mask.selected_output_rows)].detach().float()
-        - mask.output_base[list(mask.selected_output_rows)].float()
-        if mask.selected_output_rows
-        else torch.zeros(1)
-    )
-    input_norm = float(input_delta.norm().cpu())
-    output_norm = float(output_delta.norm().cpu())
-    return {
-        "selected_input_row_delta_norm": input_norm,
-        "selected_output_row_delta_norm": output_norm,
-        "total_selected_row_delta_norm": math.sqrt(input_norm**2 + output_norm**2),
     }
 
 
@@ -1660,33 +1943,6 @@ def _load_protection_inputs(
     )
 
 
-def _delta_l2(mask: ExactRowMask) -> torch.Tensor:
-    values: List[torch.Tensor] = []
-    if mask.selected_input_rows:
-        values.append(
-            (
-                mask.input_weight[list(mask.selected_input_rows)].float()
-                - mask.input_base[list(mask.selected_input_rows)]
-                .to(mask.input_weight.device)
-                .float()
-            )
-            .pow(2)
-            .sum()
-        )
-    if mask.selected_output_rows:
-        values.append(
-            (
-                mask.output_weight[list(mask.selected_output_rows)].float()
-                - mask.output_base[list(mask.selected_output_rows)]
-                .to(mask.output_weight.device)
-                .float()
-            )
-            .pow(2)
-            .sum()
-        )
-    return sum(values) if values else mask.input_weight.sum() * 0.0
-
-
 def _sample_records(
     records: Sequence[Mapping[str, Any]],
     *,
@@ -1708,7 +1964,7 @@ def _build_active_points(
     result: List[Dict[str, Any]] = []
     for point in points:
         for answer_position, token_id in enumerate(
-            _token_ids(tokenizer, " " + point.sensitive_answer.lstrip())
+            _completion_token_ids(tokenizer, point.sensitive_answer)
         ):
             result.append(
                 {
@@ -1732,6 +1988,53 @@ def _build_active_points(
         training_bundle_path=bundle_path,
         training_bundle_sha256=bundle_sha256,
     )
+
+
+def active_position_support_report(
+    active_points: Sequence[Mapping[str, Any]],
+    eligible_rows: Sequence[int],
+) -> Dict[str, Any]:
+    eligible = {int(value) for value in eligible_rows}
+    supported = [
+        dict(point)
+        for point in active_points
+        if int(point["token_id"]) in eligible
+    ]
+    unsupported = [
+        dict(point)
+        for point in active_points
+        if int(point["token_id"]) not in eligible
+    ]
+    by_fact: MutableMapping[str, List[Dict[str, Any]]] = {}
+    for point in unsupported:
+        by_fact.setdefault(str(point["fact_id"]), []).append(point)
+    return {
+        "eligible_sensitive_token_positions": supported,
+        "unsupported_sensitive_token_positions": unsupported,
+        "unsupported_positions_grouped_by_fact": {
+            key: values for key, values in sorted(by_fact.items())
+        },
+        "supported_answer_position_count": len(supported),
+        "unsupported_answer_position_count": len(unsupported),
+        "total_answer_position_count": len(active_points),
+        "percentage_answer_positions_supported": (
+            100.0 * len(supported) / len(active_points) if active_points else 0.0
+        ),
+    }
+
+
+def write_training_diagnostics(
+    args: argparse.Namespace, payload: Mapping[str, Any]
+) -> Path:
+    path = run_dir(args) / "training_diagnostics.json"
+    normalized, replacements = strict_json_normalize(dict(payload))
+    normalized["serialization"] = {
+        "policy": "non_finite_numeric_values_to_json_null",
+        "replacement_count": len(replacements),
+        "replacements": replacements,
+    }
+    atomic_json_write(path, normalized)
+    return path
 
 
 def learn_unscaled_repair_deltas(
@@ -1767,9 +2070,7 @@ def learn_unscaled_repair_deltas(
     with torch.no_grad():
         for point in supported:
             prompt_ids = _token_ids(tokenizer, str(point["prompt"]))
-            answer_ids = _token_ids(
-                tokenizer, " " + str(point["answer_alias"]).lstrip()
-            )
+            answer_ids = _completion_token_ids(tokenizer, str(point["answer_alias"]))
             position = int(point["answer_position"])
             prefix = prompt_ids + answer_ids[:position]
             inputs = torch.tensor([prefix], dtype=torch.long, device=device)
@@ -1822,7 +2123,35 @@ def _save_checkpoint(model: nn.Module, tokenizer: Any, path: Path) -> None:
     legacy.save_checkpoint(model, tokenizer, path)
 
 
+def _materialized_selected_delta_norms(
+    adapter: SparseFP32RowDeltas,
+) -> Dict[str, float]:
+    input_delta = (
+        adapter.input_layer.weight.detach()
+        .index_select(0, adapter.input_indices)
+        .float()
+        - adapter.input_base_rows_native.float()
+    )
+    output_delta = (
+        adapter.output_layer.weight.detach()
+        .index_select(0, adapter.output_indices)
+        .float()
+        - adapter.output_base_rows_native.float()
+    )
+    input_norm = float(input_delta.norm().cpu())
+    output_norm = float(output_delta.norm().cpu())
+    return {
+        "selected_input_row_delta_norm": input_norm,
+        "selected_output_row_delta_norm": output_norm,
+        "total_selected_row_delta_norm_including_repair": math.sqrt(
+            input_norm**2 + output_norm**2
+        ),
+    }
+
+
 def train_stage(args: argparse.Namespace) -> None:
+    """Train FP32 sparse deltas, then repair up to eight utility-safe candidates."""
+
     state = read_state(args)
     if state.get("state") != "PREPARED":
         raise ValueError(f"Training requires PREPARED, got {state.get('state')}")
@@ -1839,18 +2168,15 @@ def train_stage(args: argparse.Namespace) -> None:
         expected_role="training_bundle",
     )
     if training.get("protocol_label") != TARGET_ONLY_PROTOCOL_LABEL:
-        raise ValueError(
-            "Training bundle is not the target-only generated-corpus track"
-        )
+        raise ValueError("Training bundle is not the target-only generated-corpus track")
     generator = read_artifact(
         args.generator_receipt,
         stage="train",
         expected_role="generator_receipt",
     )
-    expected_bundle_artifact_sha = generator["payload"].get(
-        "final_entity_fact_bundle_sha256"
-    )
-    if expected_bundle_artifact_sha != training.get("sha256"):
+    if generator["payload"].get("final_entity_fact_bundle_sha256") != training.get(
+        "sha256"
+    ):
         raise ValueError("Generator receipt and training-bundle artifact hashes differ")
     legacy._validate_training_bundle_sources(
         training, training_source=legacy.TRAINING_SOURCE_TARGET_ONLY
@@ -1905,7 +2231,7 @@ def train_stage(args: argparse.Namespace) -> None:
     teacher.eval()
     for parameter in teacher.parameters():
         parameter.requires_grad_(False)
-    sample = tokenizer("RWKU row-mask initialization", return_tensors="pt")
+    sample = tokenizer("RWKU sparse-delta initialization", return_tensors="pt")
     sample_ids = sample["input_ids"].to(next(model.parameters()).device)
     untie_report = untie_lm_head_preserve_logits(model, sample_input_ids=sample_ids)
     freeze_report = freeze_transformer_parameters(model)
@@ -1919,24 +2245,21 @@ def train_stage(args: argparse.Namespace) -> None:
         raise ValueError("No safe declared subject input rows are trainable")
     if not row_policy.selected_output_rows:
         raise ValueError("No safe sensitive-answer output rows are trainable")
-    input_weight = model.get_input_embeddings().weight
-    output_weight = model.get_output_embeddings().weight
-    mask = ExactRowMask(
-        input_weight,
-        output_weight,
+    adapter = SparseFP32RowDeltas(
+        model,
         row_policy.selected_input_rows,
         row_policy.selected_output_rows,
     )
     optimizer = torch.optim.AdamW(
         [
             {
-                "params": [input_weight],
-                "lr": args.subject_input_lr,
+                "params": [adapter.input_delta],
+                "lr": args.subject_input_delta_lr,
                 "weight_decay": 0.0,
             },
             {
-                "params": [output_weight],
-                "lr": args.sensitive_output_lr,
+                "params": [adapter.output_delta],
+                "lr": args.sensitive_output_delta_lr,
                 "weight_decay": 0.0,
             },
         ]
@@ -1952,13 +2275,22 @@ def train_stage(args: argparse.Namespace) -> None:
     exposure_counts = {fact_id: 0 for fact_id in fact_ids}
     schedule_by_step = {row["step"]: row for row in schedule}
     candidate_rows: List[Dict[str, Any]] = []
-    selected_meta: Optional[Dict[str, Any]] = None
-    selected_trained_input: Optional[torch.Tensor] = None
-    selected_trained_output: Optional[torch.Tensor] = None
+    checkpoint_deltas: Dict[int, Tuple[torch.Tensor, torch.Tensor]] = {}
     loss_log: List[Dict[str, Any]] = []
     checkpoint_root = run_dir(args) / "utility_controlled_setting5" / "checkpoints"
     candidate_report_path = (
         run_dir(args) / "utility_controlled_setting5" / "candidate_report.json"
+    )
+    bundle_sha = sha256_file(args.generated_entity_fact_bundle)
+    generator_sha = sha256_file(args.generator_receipt)
+    active_points = _build_active_points(
+        points,
+        tokenizer,
+        bundle_path=args.generated_entity_fact_bundle,
+        bundle_sha256=bundle_sha,
+    )
+    support_report = active_position_support_report(
+        active_points, row_policy.selected_output_rows
     )
     started = time.perf_counter()
     model.train()
@@ -1972,7 +2304,15 @@ def train_stage(args: argparse.Namespace) -> None:
             count=args.retain_batch_size,
         )
         optimizer.zero_grad(set_to_none=True)
-        forget = forget_margin_loss(model, tokenizer, point, margin=args.forget_margin)
+        forget_parts = forget_objective_components(
+            model,
+            tokenizer,
+            point,
+            forget_token_margin=args.forget_token_margin,
+            probability_cap_weight=args.probability_cap_weight,
+            eos_margin_weight=args.eos_margin_weight,
+            eos_margin=args.forget_margin,
+        )
         retain_ce = retain_answer_ce(model, tokenizer, retain_batch)
         retain_kl, retain_kl_p95 = teacher_kl_for_records(
             model,
@@ -1981,57 +2321,86 @@ def train_stage(args: argparse.Namespace) -> None:
             retain_batch,
             top_k=args.teacher_top_k,
         )
-        protected = protected_answer_hinge(model, teacher, tokenizer, retain_batch)
-        delta_l2 = _delta_l2(mask)
+        protected = protected_answer_hinge(
+            model, teacher, tokenizer, retain_batch
+        )
+        delta_l2 = adapter.input_delta.pow(2).sum() + adapter.output_delta.pow(2).sum()
         total = (
-            args.forget_weight * forget
+            args.forget_weight * forget_parts["total_forget_loss"]
             + args.retain_ce_weight * retain_ce
             + args.retain_kl_weight * retain_kl
             + args.protected_margin_weight * protected
             + args.delta_l2_weight * delta_l2
         )
+        if not torch.isfinite(total):
+            raise FloatingPointError(f"Non-finite sparse-delta loss at step {step_index}")
         total.backward()
-        torch.nn.utils.clip_grad_norm_([input_weight, output_weight], args.grad_clip)
+        input_gradient_norm = float(
+            adapter.input_delta.grad.detach().float().norm().cpu()
+            if adapter.input_delta.grad is not None
+            else 0.0
+        )
+        output_gradient_norm = float(
+            adapter.output_delta.grad.detach().float().norm().cpu()
+            if adapter.output_delta.grad is not None
+            else 0.0
+        )
+        torch.nn.utils.clip_grad_norm_(
+            [adapter.input_delta, adapter.output_delta], args.grad_clip
+        )
         optimizer.step()
-        mask.restore_nonselected()
-        mask.verify_or_raise()
+        # Base matrices are excluded from the optimizer and remain immutable.
+        if not torch.equal(
+            adapter.input_layer.weight.index_select(0, adapter.input_indices),
+            adapter.input_base_rows_native,
+        ) or not torch.equal(
+            adapter.output_layer.weight.index_select(0, adapter.output_indices),
+            adapter.output_base_rows_native,
+        ):
+            raise RuntimeError("Sparse-delta optimization modified a Base row")
+        norms = adapter.delta_norms()
         loss_log.append(
             {
                 "step": step_index,
                 "fact_id": fact_id,
                 "view_id": point.view_id,
-                "forget_margin_loss": float(forget.detach().cpu()),
+                "total_forget_loss": float(
+                    forget_parts["total_forget_loss"].detach().cpu()
+                ),
+                "token_demotion_loss": float(
+                    forget_parts["token_demotion_loss"].detach().cpu()
+                ),
+                "probability_cap_loss": float(
+                    forget_parts["probability_cap_loss"].detach().cpu()
+                ),
+                "eos_auxiliary_margin_loss": float(
+                    forget_parts["eos_auxiliary_margin_loss"].detach().cpu()
+                ),
                 "retain_answer_ce": float(retain_ce.detach().cpu()),
                 "teacher_kl_mean": float(retain_kl.detach().cpu()),
                 "teacher_kl_p95": retain_kl_p95,
                 "protected_answer_hinge": float(protected.detach().cpu()),
                 "selected_row_delta_l2": float(delta_l2.detach().cpu()),
+                "input_delta_gradient_norm": input_gradient_norm,
+                "output_delta_gradient_norm": output_gradient_norm,
+                "input_delta_norm": norms["selected_input_row_delta_norm"],
+                "output_delta_norm": norms["selected_output_row_delta_norm"],
                 "total_loss": float(total.detach().cpu()),
             }
         )
         if step_index not in schedule_by_step:
             continue
         model.eval()
-        trained_input = input_weight.detach().clone()
-        trained_output = output_weight.detach().clone()
-        step_dir = checkpoint_root / f"step_{step_index}"
-        _save_checkpoint(model, tokenizer, step_dir)
+        input_snapshot, output_snapshot = adapter.snapshot()
+        checkpoint_deltas[step_index] = (input_snapshot, output_snapshot)
+        adapter.materialize(input_snapshot, output_snapshot, 1.0)
+        if not adapter.nonselected_equal_base(teacher):
+            raise RuntimeError("Checkpoint materialization changed a nonselected row")
+        _save_checkpoint(
+            model, tokenizer, checkpoint_root / f"step_{step_index}"
+        )
         for scale in args.candidate_scales:
-            interpolate_rows_from_base(
-                input_weight,
-                mask.input_base,
-                trained_input,
-                row_policy.selected_input_rows,
-                scale,
-            )
-            interpolate_rows_from_base(
-                output_weight,
-                mask.output_base,
-                trained_output,
-                row_policy.selected_output_rows,
-                scale,
-            )
-            mask.verify_or_raise()
+            adapter.materialize(input_snapshot, output_snapshot, scale)
             metrics = evaluate_pre_freeze_candidate(
                 model,
                 teacher,
@@ -2042,42 +2411,187 @@ def train_stage(args: argparse.Namespace) -> None:
                 proxy_text=proxy_text,
                 batch_size=args.candidate_eval_batch_size,
                 teacher_top_k=args.teacher_top_k,
-                nonselected_rows_equal_base=mask.nonselected_equal_base(),
+                nonselected_rows_equal_base=adapter.nonselected_equal_base(teacher),
             )
-            norms = _selected_delta_norms(mask)
             gates = candidate_gate_report(metrics)
-            record = {
-                "checkpoint_step": step_index,
-                "requested_exposures_per_fact": schedule_by_step[step_index][
-                    "requested_exposures_per_fact"
-                ],
-                "per_fact_exposure_counts": dict(exposure_counts),
-                "exposure_imbalance": max(exposure_counts.values())
-                - min(exposure_counts.values()),
-                "interpolation_scale": float(scale),
-                **norms,
-                **metrics,
-                **gates,
-            }
-            candidate_rows.append(record)
-            winner = select_eligible_candidate(
-                [
-                    candidate
-                    for candidate in [selected_meta, record]
-                    if candidate is not None
-                ]
+            candidate_rows.append(
+                {
+                    "candidate_id": f"step_{step_index}_scale_{float(scale):g}",
+                    "checkpoint_step": step_index,
+                    "requested_exposures_per_fact": schedule_by_step[step_index][
+                        "requested_exposures_per_fact"
+                    ],
+                    "per_fact_exposure_counts": dict(exposure_counts),
+                    "exposure_imbalance": max(exposure_counts.values())
+                    - min(exposure_counts.values()),
+                    "interpolation_scale": float(scale),
+                    **adapter.delta_norms(
+                        input_snapshot, output_snapshot, scale=float(scale)
+                    ),
+                    **metrics,
+                    **gates,
+                    "post_repair_generated_forget_gates_passed": None,
+                    "post_repair_protection_gates_passed": None,
+                    "final_eligible": None,
+                }
             )
-            if winner is not None and winner == record:
-                selected_meta = dict(record)
-                selected_trained_input = trained_input.detach().cpu().clone()
-                selected_trained_output = trained_output.detach().cpu().clone()
-        with torch.no_grad():
-            input_weight.copy_(trained_input)
-            output_weight.copy_(trained_output)
+        adapter.resume_sparse_training()
         model.train()
 
+    utility_safe = rank_pre_repair_candidates(candidate_rows)
+    repair_outcomes: List[Dict[str, Any]] = []
+    final_states: Dict[str, Dict[str, torch.Tensor]] = {}
+    output_audit_by_id = {
+        int(row["token_id"]): row for row in row_policy.output_audit
+    }
+    model.eval()
+    for pre_candidate in utility_safe:
+        candidate_id = str(pre_candidate["candidate_id"])
+        checkpoint_step = int(pre_candidate["checkpoint_step"])
+        scale = float(pre_candidate["interpolation_scale"])
+        input_snapshot, output_snapshot = checkpoint_deltas[checkpoint_step]
+        adapter.materialize(input_snapshot, output_snapshot, scale)
+        pre_input_rows = (
+            adapter.input_layer.weight.index_select(0, adapter.input_indices)
+            .detach()
+            .cpu()
+            .clone()
+        )
+        pre_output_rows = (
+            adapter.output_layer.weight.index_select(0, adapter.output_indices)
+            .detach()
+            .cpu()
+            .clone()
+        )
+        unscaled_deltas, repair_optimization = learn_unscaled_repair_deltas(
+            model,
+            tokenizer,
+            active_points,
+            eligible_rows=row_policy.selected_output_rows,
+            steps=args.repair_steps,
+            learning_rate=args.repair_lr,
+            margin=args.repair_margin,
+        )
+        immutable_repair_weight = adapter.output_layer.weight.detach().clone()
+
+        def repair_evaluator(
+            scales: Mapping[int, float],
+        ) -> Mapping[str, Any]:
+            apply_rowwise_delta(
+                adapter.output_layer.weight,
+                immutable_repair_weight,
+                unscaled_deltas,
+                scales,
+            )
+            return evaluate_pre_freeze_candidate(
+                model,
+                teacher,
+                tokenizer,
+                points,
+                gate_records,
+                selected_output_rows=row_policy.selected_output_rows,
+                proxy_text=proxy_text,
+                batch_size=args.candidate_eval_batch_size,
+                teacher_top_k=args.teacher_top_k,
+                nonselected_rows_equal_base=adapter.nonselected_equal_base(teacher),
+            )
+
+        baseline_repair_metrics = dict(repair_evaluator({}))
+        contributions: Dict[int, Dict[str, float]] = {}
+        for row_id in sorted(unscaled_deltas):
+            metrics = dict(repair_evaluator({row_id: 1.0}))
+            contributions[row_id] = {
+                "generated_efficacy_contribution": max(
+                    0.0,
+                    baseline_repair_metrics[
+                        "generated_geometric_answer_probability"
+                    ]
+                    - metrics["generated_geometric_answer_probability"],
+                ),
+                "protected_drift_contribution": max(
+                    0.0,
+                    metrics["protected_selected_row_logit_drift"]
+                    - baseline_repair_metrics[
+                        "protected_selected_row_logit_drift"
+                    ],
+                ),
+            }
+        repair_selection = select_rowwise_scales(
+            sorted(unscaled_deltas),
+            evaluate=repair_evaluator,
+            row_contributions=contributions,
+        )
+        selected_scales = {
+            int(key): float(value)
+            for key, value in repair_selection["selected_scale_by_row"].items()
+        }
+        final_metrics = dict(repair_evaluator(selected_scales))
+        final_gates = final_candidate_gate_report(final_metrics)
+        rowwise_norm = selected_delta_norm(unscaled_deltas, selected_scales)
+        total_norms = _materialized_selected_delta_norms(adapter)
+        supported_by_row: MutableMapping[int, List[Mapping[str, Any]]] = {}
+        for active_point in active_points:
+            token_id = int(active_point["token_id"])
+            if token_id in unscaled_deltas:
+                supported_by_row.setdefault(token_id, []).append(active_point)
+        outcome = {
+            "candidate_id": candidate_id,
+            "checkpoint_step": checkpoint_step,
+            "interpolation_scale": scale,
+            "pre_repair_utility_safe": True,
+            "pre_repair_failed_protection_gates": [],
+            "pre_repair_metrics": pre_candidate,
+            "repair_attempted": True,
+            "selected_scale_by_row": {
+                str(key): value for key, value in selected_scales.items()
+            },
+            "rowwise_repair_norm": rowwise_norm,
+            **total_norms,
+            **final_metrics,
+            **final_gates,
+            "repair_selection": repair_selection,
+            "repair_optimization": repair_optimization,
+            "row_contributions": {
+                str(key): value for key, value in contributions.items()
+            },
+            "row_details": [
+                {
+                    "token_id": row_id,
+                    "decoded_token_piece": output_audit_by_id[row_id][
+                        "decoded_token_piece"
+                    ],
+                    "eligibility_class": output_audit_by_id[row_id][
+                        "eligibility_class"
+                    ],
+                    "selected_scale": selected_scales.get(row_id, 0.0),
+                    "active_positions_supported": supported_by_row.get(row_id, []),
+                    **contributions.get(row_id, {}),
+                }
+                for row_id in sorted(unscaled_deltas)
+            ],
+            "unsupported_positions_grouped_by_fact": support_report[
+                "unsupported_positions_grouped_by_fact"
+            ],
+        }
+        repair_outcomes.append(outcome)
+        if outcome["final_eligible"]:
+            final_states[candidate_id] = {
+                "pre_input_rows": pre_input_rows,
+                "pre_output_rows": pre_output_rows,
+                "repaired_output_rows": (
+                    adapter.output_layer.weight.index_select(
+                        0, adapter.output_indices
+                    )
+                    .detach()
+                    .cpu()
+                    .clone()
+                ),
+            }
+        adapter.resume_sparse_training()
+
+    selected_meta = select_final_repaired_candidate(repair_outcomes)
     report = {
-        "schema_version": "rwku_setting5e_uc_candidate_report_v1",
+        "schema_version": "rwku_setting5e_uc_candidate_report_v2",
         "method": METHOD,
         "protocol_status": PROTOCOL_STATUS,
         "selection_sources": [
@@ -2089,170 +2603,147 @@ def train_stage(args: argparse.Namespace) -> None:
         "official_rwku_records_accessed": False,
         "fixed_thresholds": fixed_gate_manifest(),
         "schedule": schedule,
+        "candidate_scales": list(args.candidate_scales),
         "candidates": candidate_rows,
-        "selected_candidate": selected_meta,
-        "selection_order": [
-            "smallest_total_selected_row_delta_norm",
-            "earliest_checkpoint",
-            "smallest_interpolation_scale",
+        "utility_safe_candidate_count": sum(
+            candidate["pre_repair_utility_safe"] for candidate in candidate_rows
+        ),
+        "candidates_sent_to_active_repair": [
+            candidate["candidate_id"] for candidate in utility_safe
         ],
+        "maximum_candidates_sent_to_active_repair": MAX_PRE_REPAIR_CANDIDATES,
+        "repair_outcomes": repair_outcomes,
+        "selected_candidate": selected_meta,
+        "pre_repair_ranking_order": [
+            "fewer_active_violation_count",
+            "smaller_generated_geometric_answer_probability",
+            "lower_direct_cloze_paraphrase_recovery_sum",
+            "smaller_selected_row_delta_norm",
+            "earlier_checkpoint",
+        ],
+        "final_selection_order": [
+            "smallest_total_selected_row_delta_norm_including_repair",
+            "earliest_setting5_checkpoint",
+            "smallest_setting5_interpolation_scale",
+            "smallest_rowwise_repair_norm",
+        ],
+        "active_position_support": support_report,
     }
     candidate_report_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_json_write(candidate_report_path, report)
+    normalized_report, report_replacements = strict_json_normalize(report)
+    normalized_report["serialization"] = {
+        "policy": "non_finite_numeric_values_to_json_null",
+        "replacement_count": len(report_replacements),
+        "replacements": report_replacements,
+    }
+    atomic_json_write(candidate_report_path, normalized_report)
     write_state(
         args,
         "CANDIDATES_EVALUATED",
         candidate_report_path=str(candidate_report_path.resolve()),
         candidate_report_sha256=sha256_file(candidate_report_path),
         candidate_count=len(candidate_rows),
+        utility_safe_candidate_count=len(
+            [row for row in candidate_rows if row["pre_repair_utility_safe"]]
+        ),
+        candidates_sent_to_active_repair=len(utility_safe),
         official_rwku_records_accessed=False,
     )
-    if (
-        selected_meta is None
-        or selected_trained_input is None
-        or selected_trained_output is None
-    ):
+
+    diagnostics = {
+        "schema_version": "rwku_setting5e_uc_training_diagnostics_v1",
+        "method": METHOD,
+        "protocol_status": PROTOCOL_STATUS,
+        "official_rwku_records_accessed": False,
+        "generated_training_bundle_path": str(
+            args.generated_entity_fact_bundle.resolve()
+        ),
+        "generated_training_bundle_sha256": bundle_sha,
+        "generator_receipt_sha256": generator_sha,
+        "selected_input_row_ids": list(row_policy.selected_input_rows),
+        "selected_output_row_ids": list(row_policy.selected_output_rows),
+        "selected_input_rows": list(row_policy.input_audit),
+        "selected_and_excluded_output_rows": list(row_policy.output_audit),
+        "fp32_sparse_delta_dtypes": {
+            "input_delta": str(adapter.input_delta.dtype),
+            "output_delta": str(adapter.output_delta.dtype),
+        },
+        "fp32_sparse_delta_norms": adapter.delta_norms(),
+        "input_delta_gradient_norm": max(
+            (row["input_delta_gradient_norm"] for row in loss_log), default=0.0
+        ),
+        "output_delta_gradient_norm": max(
+            (row["output_delta_gradient_norm"] for row in loss_log), default=0.0
+        ),
+        "loss_log": loss_log,
+        "candidate_metrics": candidate_rows,
+        "utility_safe_candidate_count": len(
+            [row for row in candidate_rows if row["pre_repair_utility_safe"]]
+        ),
+        "candidates_sent_to_active_repair": [
+            candidate["candidate_id"] for candidate in utility_safe
+        ],
+        "repair_outcomes": repair_outcomes,
+        "active_position_support": support_report,
+        "schedule": schedule,
+        "final_exposure_counts": exposure_counts,
+        "training_seconds": time.perf_counter() - started,
+    }
+    training_diagnostics_path = write_training_diagnostics(args, diagnostics)
+    if selected_meta is None:
         mark_no_feasible_candidate(args)
-        mask.close()
+        adapter.close()
         legacy.release_model(model)
         legacy.release_model(teacher)
         return
 
-    scale = float(selected_meta["interpolation_scale"])
-    interpolate_rows_from_base(
-        input_weight,
-        mask.input_base,
-        selected_trained_input,
-        row_policy.selected_input_rows,
-        scale,
-    )
-    interpolate_rows_from_base(
-        output_weight,
-        mask.output_base,
-        selected_trained_output,
-        row_policy.selected_output_rows,
-        scale,
-    )
-    mask.verify_or_raise()
-    model.eval()
+    selected_state = final_states[str(selected_meta["candidate_id"])]
+    adapter.enabled = False
+    adapter.restore_base_rows()
+    with torch.no_grad():
+        adapter.input_layer.weight.index_copy_(
+            0,
+            adapter.input_indices,
+            selected_state["pre_input_rows"].to(
+                adapter.input_layer.weight.device,
+                adapter.input_layer.weight.dtype,
+            ),
+        )
+        adapter.output_layer.weight.index_copy_(
+            0,
+            adapter.output_indices,
+            selected_state["pre_output_rows"].to(
+                adapter.output_layer.weight.device,
+                adapter.output_layer.weight.dtype,
+            ),
+        )
     selected_checkpoint = (
         run_dir(args) / "utility_controlled_setting5" / "selected_checkpoint"
     )
     _save_checkpoint(model, tokenizer, selected_checkpoint)
-
-    bundle_sha = sha256_file(args.generated_entity_fact_bundle)
-    active_points = _build_active_points(
-        points,
-        tokenizer,
-        bundle_path=args.generated_entity_fact_bundle,
-        bundle_sha256=bundle_sha,
-    )
-    unscaled_deltas, repair_optimization = learn_unscaled_repair_deltas(
-        model,
-        tokenizer,
-        active_points,
-        eligible_rows=row_policy.selected_output_rows,
-        steps=args.repair_steps,
-        learning_rate=args.repair_lr,
-        margin=args.repair_margin,
-    )
-    immutable_repair_weight = output_weight.detach().clone()
-
-    def repair_evaluator(scales: Mapping[int, float]) -> Mapping[str, Any]:
-        apply_rowwise_delta(
-            output_weight, immutable_repair_weight, unscaled_deltas, scales
-        )
-        return evaluate_pre_freeze_candidate(
-            model,
-            teacher,
-            tokenizer,
-            points,
-            gate_records,
-            selected_output_rows=row_policy.selected_output_rows,
-            proxy_text=proxy_text,
-            batch_size=args.candidate_eval_batch_size,
-            teacher_top_k=args.teacher_top_k,
-            nonselected_rows_equal_base=mask.nonselected_equal_base(),
-        )
-
-    baseline_repair_metrics = dict(repair_evaluator({}))
-    contributions: Dict[int, Dict[str, float]] = {}
-    for row_id in sorted(unscaled_deltas):
-        metrics = dict(repair_evaluator({row_id: 1.0}))
-        contributions[row_id] = {
-            "generated_efficacy_contribution": max(
-                0.0,
-                baseline_repair_metrics["generated_geometric_answer_probability"]
-                - metrics["generated_geometric_answer_probability"],
+    with torch.no_grad():
+        adapter.output_layer.weight.index_copy_(
+            0,
+            adapter.output_indices,
+            selected_state["repaired_output_rows"].to(
+                adapter.output_layer.weight.device,
+                adapter.output_layer.weight.dtype,
             ),
-            "protected_drift_contribution": max(
-                0.0,
-                metrics["protected_selected_row_logit_drift"]
-                - baseline_repair_metrics["protected_selected_row_logit_drift"],
-            ),
-        }
-    repair_report = select_rowwise_scales(
-        sorted(unscaled_deltas),
-        evaluate=repair_evaluator,
-        row_contributions=contributions,
-    )
-    selected_scales = {
-        int(key): float(value)
-        for key, value in repair_report["selected_scale_by_row"].items()
-    }
-    apply_rowwise_delta(
-        output_weight,
-        immutable_repair_weight,
-        unscaled_deltas,
-        selected_scales,
-    )
-    row_audit = {int(row["token_id"]): row for row in row_policy.output_audit}
-    supported_by_row: MutableMapping[int, List[Mapping[str, Any]]] = {}
-    for point in active_points:
-        if int(point["token_id"]) in unscaled_deltas:
-            supported_by_row.setdefault(int(point["token_id"]), []).append(point)
-    repair_report.update(
-        {
-            "active_source": ACTIVE_SOURCE,
-            "training_bundle_path": str(args.generated_entity_fact_bundle.resolve()),
-            "training_bundle_sha256": bundle_sha,
-            "row_details": [
-                {
-                    "token_id": row_id,
-                    "decoded_token_piece": row_audit[row_id]["decoded_token_piece"],
-                    "eligibility_class": row_audit[row_id]["eligibility_class"],
-                    "selected_scale": selected_scales.get(row_id, 0.0),
-                    **contributions.get(row_id, {}),
-                    "active_positions_supported": supported_by_row.get(row_id, []),
-                }
-                for row_id in sorted(unscaled_deltas)
-            ],
-            **repair_optimization,
-            "final_selected_row_delta_norm": selected_delta_norm(
-                unscaled_deltas, selected_scales
-            ),
-            "transformer_frozen": True,
-            "input_embeddings_frozen_during_repair": True,
-        }
-    )
-    if repair_report.get("selected_success") is not True:
-        raise RuntimeError(
-            "Row-wise repair did not produce a gate-passing selected candidate"
         )
+    repaired_checkpoint = run_dir(args) / "rowwise_repair" / "selected_checkpoint"
+    _save_checkpoint(model, tokenizer, repaired_checkpoint)
     repair_report_path = run_dir(args) / "rowwise_repair" / "repair_report.json"
     repair_report_path.parent.mkdir(parents=True, exist_ok=True)
-    normalized_repair, repair_replacements = strict_json_normalize(repair_report)
+    normalized_repair, repair_replacements = strict_json_normalize(selected_meta)
     normalized_repair["serialization"] = {
         "policy": "non_finite_numeric_values_to_json_null",
         "replacement_count": len(repair_replacements),
         "replacements": repair_replacements,
     }
     atomic_json_write(repair_report_path, normalized_repair)
-    repaired_checkpoint = run_dir(args) / "rowwise_repair" / "selected_checkpoint"
-    _save_checkpoint(model, tokenizer, repaired_checkpoint)
 
     training_report = {
-        "schema_version": "rwku_setting5e_uc_training_report_v1",
+        "schema_version": "rwku_setting5e_uc_training_report_v2",
         "method": METHOD,
         "protocol_status": PROTOCOL_STATUS,
         "fresh_base_model_loaded": True,
@@ -2275,6 +2766,7 @@ def train_stage(args: argparse.Namespace) -> None:
         "selected_candidate": selected_meta,
         "candidate_report_path": str(candidate_report_path.resolve()),
         "repair_report_path": str(repair_report_path.resolve()),
+        "training_diagnostics_path": str(training_diagnostics_path.resolve()),
         "training_seconds": time.perf_counter() - started,
     }
     training_report_path = run_dir(args) / "training_report.json"
@@ -2292,13 +2784,15 @@ def train_stage(args: argparse.Namespace) -> None:
         "selected_interpolation_scale": selected_meta["interpolation_scale"],
         "selected_input_row_ids": list(row_policy.selected_input_rows),
         "selected_output_row_ids": list(row_policy.selected_output_rows),
-        "rowwise_repair_scales": repair_report["selected_scale_by_row"],
+        "rowwise_repair_scales": selected_meta["selected_scale_by_row"],
         "candidate_report_path": str(candidate_report_path.resolve()),
         "candidate_report_sha256": sha256_file(candidate_report_path),
         "repair_report_path": str(repair_report_path.resolve()),
         "repair_report_sha256": sha256_file(repair_report_path),
         "training_report_path": str(training_report_path.resolve()),
         "training_report_sha256": sha256_file(training_report_path),
+        "training_diagnostics_path": str(training_diagnostics_path.resolve()),
+        "training_diagnostics_sha256": sha256_file(training_diagnostics_path),
         "exact_command": [sys.executable, str(SCRIPT_PATH), *sys.argv[1:]],
         "development": bool(args.development),
         "confirmatory": bool(args.confirmatory),
@@ -2347,6 +2841,7 @@ def train_stage(args: argparse.Namespace) -> None:
             "candidate_report": candidate_report_path,
             "repair_report": repair_report_path,
             "training_report": training_report_path,
+            "training_diagnostics": training_diagnostics_path,
             "base_model_source": args.model_path,
         },
     )
@@ -2357,9 +2852,11 @@ def train_stage(args: argparse.Namespace) -> None:
         checkpoint_receipt_sha256=receipt["receipt_sha256"],
         selected_checkpoint_path=str(selected_checkpoint.resolve()),
         repaired_checkpoint_path=str(repaired_checkpoint.resolve()),
+        training_diagnostics_path=str(training_diagnostics_path.resolve()),
+        training_diagnostics_sha256=sha256_file(training_diagnostics_path),
         official_evaluation_opened=False,
     )
-    mask.close()
+    adapter.close()
     legacy.release_model(model)
     legacy.release_model(teacher)
 
@@ -2704,14 +3201,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--minimum-protection-gate-per-key", type=int, default=1)
     parser.add_argument("--mcf-optimization-count", type=int, default=128)
     parser.add_argument("--mcf-gate-count", type=int, default=128)
-    parser.add_argument("--subject-input-lr", type=float, default=5e-6)
-    parser.add_argument("--sensitive-output-lr", type=float, default=2e-5)
-    parser.add_argument("--forget-weight", type=float, default=2.0)
-    parser.add_argument("--retain-ce-weight", type=float, default=4.0)
-    parser.add_argument("--retain-kl-weight", type=float, default=10.0)
-    parser.add_argument("--protected-margin-weight", type=float, default=20.0)
+    parser.add_argument(
+        "--subject-input-delta-lr",
+        "--subject-input-lr",
+        dest="subject_input_delta_lr",
+        type=float,
+        default=2e-4,
+    )
+    parser.add_argument(
+        "--sensitive-output-delta-lr",
+        "--sensitive-output-lr",
+        dest="sensitive_output_delta_lr",
+        type=float,
+        default=5e-4,
+    )
+    parser.add_argument("--forget-weight", type=float, default=8.0)
+    parser.add_argument("--retain-ce-weight", type=float, default=2.0)
+    parser.add_argument("--retain-kl-weight", type=float, default=4.0)
+    parser.add_argument("--protected-margin-weight", type=float, default=10.0)
     parser.add_argument("--delta-l2-weight", type=float, default=1e-4)
     parser.add_argument("--forget-margin", type=float, default=1.0)
+    parser.add_argument("--forget-token-margin", type=float, default=2.0)
+    parser.add_argument("--probability-cap-weight", type=float, default=2.0)
+    parser.add_argument("--eos-margin-weight", type=float, default=0.25)
     parser.add_argument("--retain-batch-size", type=int, default=4)
     parser.add_argument("--teacher-top-k", type=int, default=128)
     parser.add_argument("--max-retain-document-frequency", type=float, default=0.01)
@@ -2739,15 +3251,20 @@ def validate_args(args: argparse.Namespace) -> None:
     if args.exposures_per_fact != tuple(sorted(set(args.exposures_per_fact))):
         raise ValueError("--exposures-per-fact must be unique and increasing")
     if tuple(args.candidate_scales) != DEFAULT_INTERPOLATION_SCALES:
-        raise ValueError("Primary method requires candidate scales 0.25,0.50,0.75,1.00")
+        raise ValueError(
+            "Primary method requires candidate scales "
+            "0.015625,0.03125,0.0625,0.125,0.25,0.50,0.75,1.00"
+        )
     positive_names = (
-        "subject_input_lr",
-        "sensitive_output_lr",
+        "subject_input_delta_lr",
+        "sensitive_output_delta_lr",
         "forget_weight",
         "retain_ce_weight",
         "retain_kl_weight",
         "protected_margin_weight",
         "delta_l2_weight",
+        "probability_cap_weight",
+        "eos_margin_weight",
         "retain_batch_size",
         "teacher_top_k",
         "candidate_eval_batch_size",
@@ -2758,6 +3275,8 @@ def validate_args(args: argparse.Namespace) -> None:
     for name in positive_names:
         if float(getattr(args, name)) <= 0:
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
+    if args.forget_token_margin < 0 or args.forget_margin < 0:
+        raise ValueError("Forget token/EOS margins must be non-negative")
     if not 0.0 <= args.max_retain_document_frequency <= 1.0:
         raise ValueError("--max-retain-document-frequency must be in [0,1]")
 
