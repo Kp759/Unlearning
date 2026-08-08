@@ -74,8 +74,11 @@ from rwku_eval import (
 )
 from rwku_rowwise_active_repair import (
     ACTIVE_SOURCE,
+    PROTECTED_FP32_LOGIT_DRIFT_MAX,
     ROW_SCALE_CANDIDATES,
     apply_rowwise_delta,
+    bf16_quantization_allowance,
+    bf16_ulp_spacing,
     classify_output_row,
     generated_forget_gates_pass,
     protection_gates_pass,
@@ -335,7 +338,15 @@ def fixed_gate_manifest() -> Dict[str, Any]:
         "p95_retain_kl_max": 0.05,
         "retain_top1_agreement_min": 0.99,
         "protected_answer_probability_ratio_min": 0.999,
-        "protected_selected_row_logit_drift_max": 0.05,
+        "protected_selected_row_logit_drift_fp32_max": (
+            PROTECTED_FP32_LOGIT_DRIFT_MAX
+        ),
+        "protected_selected_row_bf16_quantization_violations": 0,
+        "deprecated_metric_alias": {
+            "protected_selected_row_logit_drift": (
+                "protected_selected_row_logit_drift_bf16"
+            )
+        },
         "protected_top1_changes": 0,
         "proxy_ppl_base_multiplier_max": 1.02,
         "nonselected_rows_equal_base": True,
@@ -1266,6 +1277,135 @@ def _completion_top1_matches(
 
 
 @torch.no_grad()
+def selected_logit_drift_audit(
+    *,
+    source_record_identity: str,
+    selected_row_ids: Sequence[int],
+    decoded_tokens: Sequence[str],
+    base_fp32_logits: torch.Tensor,
+    candidate_fp32_logits: torch.Tensor,
+    base_bf16_logits: torch.Tensor,
+    candidate_bf16_logits: torch.Tensor,
+) -> Dict[str, Any]:
+    """Audit continuous FP32 drift and exact-BF16 adjacent-spacing drift."""
+
+    row_ids = [int(value) for value in selected_row_ids]
+    if len(decoded_tokens) != len(row_ids):
+        raise ValueError("Decoded-token audit count differs from selected rows")
+    tensors = [
+        torch.as_tensor(value).detach().reshape(-1)
+        for value in (
+            base_fp32_logits,
+            candidate_fp32_logits,
+            base_bf16_logits,
+            candidate_bf16_logits,
+        )
+    ]
+    if any(value.numel() != len(row_ids) for value in tensors):
+        raise ValueError("Selected-logit audit tensor shape differs from selected rows")
+    base_fp32, candidate_fp32, base_bf16_raw, candidate_bf16_raw = tensors
+    base_fp32 = base_fp32.float()
+    candidate_fp32 = candidate_fp32.float()
+    base_bf16 = base_bf16_raw.to(torch.bfloat16).float()
+    candidate_bf16 = candidate_bf16_raw.to(torch.bfloat16).float()
+    fp32_drift = (candidate_fp32 - base_fp32).abs()
+    bf16_drift = (candidate_bf16 - base_bf16).abs()
+    allowances = bf16_quantization_allowance(base_bf16, candidate_bf16)
+    ulps = bf16_ulp_spacing(base_bf16, candidate_bf16)
+    bf16_pass = bf16_drift <= allowances
+    fp32_pass = fp32_drift <= PROTECTED_FP32_LOGIT_DRIFT_MAX
+    entries = []
+    for index, token_id in enumerate(row_ids):
+        entries.append(
+            {
+                "source_record_identity": str(source_record_identity),
+                "token_id": token_id,
+                "decoded_token": str(decoded_tokens[index]),
+                "base_fp32_selected_logit": float(base_fp32[index].cpu()),
+                "candidate_fp32_selected_logit": float(
+                    candidate_fp32[index].cpu()
+                ),
+                "fp32_drift": float(fp32_drift[index].cpu()),
+                "base_bf16_selected_logit": float(base_bf16[index].cpu()),
+                "candidate_bf16_selected_logit": float(
+                    candidate_bf16[index].cpu()
+                ),
+                "bf16_drift": float(bf16_drift[index].cpu()),
+                "one_bf16_ulp": float(ulps[index].cpu()),
+                "bf16_ulp_allowance": float(allowances[index].cpu()),
+                "fp32_pass": bool(fp32_pass[index].cpu()),
+                "bf16_quantization_pass": bool(bf16_pass[index].cpu()),
+                "pass": bool((fp32_pass[index] & bf16_pass[index]).cpu()),
+            }
+        )
+    return {
+        "protected_selected_row_logit_drift_fp32": float(
+            fp32_drift.max().cpu()
+        )
+        if fp32_drift.numel()
+        else 0.0,
+        "protected_selected_row_logit_drift_bf16": float(
+            bf16_drift.max().cpu()
+        )
+        if bf16_drift.numel()
+        else 0.0,
+        "protected_selected_row_bf16_quantization_allowance_max": float(
+            allowances.max().cpu()
+        )
+        if allowances.numel()
+        else PROTECTED_FP32_LOGIT_DRIFT_MAX,
+        "protected_selected_row_bf16_quantization_allowance_mean": float(
+            allowances.mean().cpu()
+        )
+        if allowances.numel()
+        else PROTECTED_FP32_LOGIT_DRIFT_MAX,
+        "protected_selected_row_bf16_quantization_violations": int(
+            (~bf16_pass).sum().cpu()
+        ),
+        "protected_selected_row_logit_audit": entries,
+    }
+
+
+def _protection_source_record_identity(record: Mapping[str, Any]) -> str:
+    nested = record.get("record", {})
+    for container in (record, nested if isinstance(nested, Mapping) else {}):
+        for field in (
+            "content_sha256",
+            "source_record_sha256",
+            "record_sha256",
+            "id",
+            "case_id",
+        ):
+            value = container.get(field)
+            if value is not None and str(value):
+                return str(value)
+    return sha256_json(record)
+
+
+@torch.no_grad()
+def _inference_logits_and_lm_head_input(
+    model: nn.Module, input_ids: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Capture actual inference logits and the exact LM-head input in one pass."""
+
+    captured: Dict[str, torch.Tensor] = {}
+
+    def capture(_module: nn.Module, arguments: Tuple[Any, ...]) -> None:
+        if not arguments:
+            raise RuntimeError("LM head did not receive a hidden-state input")
+        captured["hidden"] = arguments[0].detach()
+
+    hook = model.get_output_embeddings().register_forward_pre_hook(capture)
+    try:
+        logits = model(input_ids=input_ids).logits[:, -1, :]
+    finally:
+        hook.remove()
+    if "hidden" not in captured:
+        raise RuntimeError("Failed to capture the final LM-head hidden state")
+    return logits, captured["hidden"][:, -1, :][0]
+
+
+@torch.no_grad()
 def _prompt_distribution_metrics(
     model: nn.Module,
     base_model: nn.Module,
@@ -1277,40 +1417,89 @@ def _prompt_distribution_metrics(
 ) -> Dict[str, Any]:
     kls: List[float] = []
     agreements: List[float] = []
-    drifts: List[float] = []
+    drift_audit: List[Dict[str, Any]] = []
     device = next(model.parameters()).device
+    base_device = next(base_model.parameters()).device
+    selected_row_ids = sorted({int(value) for value in selected_output_rows})
     selected = torch.tensor(
-        sorted({int(value) for value in selected_output_rows}),
+        selected_row_ids,
         dtype=torch.long,
         device=device,
+    )
+    base_selected = selected.to(base_device)
+    decoded_tokens = [
+        str(tokenizer.decode([token_id], skip_special_tokens=False))
+        for token_id in selected_row_ids
+    ]
+    candidate_rows_fp32 = (
+        model.get_output_embeddings()
+        .weight.detach()
+        .index_select(0, selected)
+        .float()
+    )
+    base_rows_fp32 = (
+        base_model.get_output_embeddings()
+        .weight.detach()
+        .index_select(0, base_selected)
+        .float()
     )
     for record in records:
         prompt, _ = _record_text_answer(record)
         ids = torch.tensor(
             [_token_ids(tokenizer, prompt)], dtype=torch.long, device=device
         )
-        current = model(input_ids=ids).logits[:, -1, :]
-        base = base_model(input_ids=ids).logits[:, -1, :]
+        base_ids = ids.to(base_device)
+        current, candidate_hidden = _inference_logits_and_lm_head_input(model, ids)
+        base, base_hidden = _inference_logits_and_lm_head_input(
+            base_model, base_ids
+        )
         mean_kl, _ = topk_plus_tail_kl(current, base, top_k=top_k)
         kls.append(float(mean_kl.cpu()))
         agreements.append(float(current.argmax(-1).item() == base.argmax(-1).item()))
         if selected.numel():
-            drift = (
-                (
-                    current.index_select(-1, selected).float()
-                    - base.index_select(-1, selected).float()
-                )
-                .abs()
-                .max()
+            per_prompt = selected_logit_drift_audit(
+                source_record_identity=_protection_source_record_identity(record),
+                selected_row_ids=selected_row_ids,
+                decoded_tokens=decoded_tokens,
+                base_fp32_logits=base_rows_fp32 @ base_hidden.float(),
+                candidate_fp32_logits=(
+                    candidate_rows_fp32 @ candidate_hidden.float()
+                ),
+                base_bf16_logits=base.index_select(-1, base_selected)[0],
+                candidate_bf16_logits=current.index_select(-1, selected)[0],
             )
-            drifts.append(float(drift.cpu()))
-        else:
-            drifts.append(0.0)
+            drift_audit.extend(per_prompt["protected_selected_row_logit_audit"])
+    fp32_drifts = [float(row["fp32_drift"]) for row in drift_audit]
+    bf16_drifts = [float(row["bf16_drift"]) for row in drift_audit]
+    allowances = [float(row["bf16_ulp_allowance"]) for row in drift_audit]
+    quantization_violations = sum(
+        not bool(row["bf16_quantization_pass"]) for row in drift_audit
+    )
+    bf16_max = max(bf16_drifts, default=0.0)
     return {
         "mean_retain_kl": float(np.mean(kls)) if kls else 0.0,
         "p95_retain_kl": float(np.quantile(kls, 0.95)) if kls else 0.0,
         "retain_top1_agreement": float(np.mean(agreements)) if agreements else 1.0,
-        "protected_selected_row_logit_drift": max(drifts, default=0.0),
+        "protected_selected_row_logit_drift_fp32": max(fp32_drifts, default=0.0),
+        "protected_selected_row_logit_drift_bf16": bf16_max,
+        # Deprecated compatibility alias: this maps exactly to the old
+        # inference-path BF16 metric, never to the new continuous FP32 gate.
+        "protected_selected_row_logit_drift": bf16_max,
+        "protected_selected_row_logit_drift_deprecated_alias_for": (
+            "protected_selected_row_logit_drift_bf16"
+        ),
+        "protected_selected_row_bf16_quantization_allowance_max": max(
+            allowances, default=PROTECTED_FP32_LOGIT_DRIFT_MAX
+        ),
+        "protected_selected_row_bf16_quantization_allowance_mean": float(
+            np.mean(allowances)
+        )
+        if allowances
+        else PROTECTED_FP32_LOGIT_DRIFT_MAX,
+        "protected_selected_row_bf16_quantization_violations": int(
+            quantization_violations
+        ),
+        "protected_selected_row_logit_audit": drift_audit,
         "protected_top1_changes": int(sum(value == 0.0 for value in agreements)),
     }
 
@@ -2510,9 +2699,9 @@ def train_stage(args: argparse.Namespace) -> None:
                 ),
                 "protected_drift_contribution": max(
                     0.0,
-                    metrics["protected_selected_row_logit_drift"]
+                    metrics["protected_selected_row_logit_drift_fp32"]
                     - baseline_repair_metrics[
-                        "protected_selected_row_logit_drift"
+                        "protected_selected_row_logit_drift_fp32"
                     ],
                 ),
             }

@@ -27,7 +27,9 @@ def passing_metrics():
         "p95_retain_kl": 0.0,
         "retain_top1_agreement": 1.0,
         "protected_answer_probability_ratio": 1.0,
-        "protected_selected_row_logit_drift": 0.0,
+        "protected_selected_row_logit_drift_fp32": 0.0,
+        "protected_selected_row_logit_drift_bf16": 0.0,
+        "protected_selected_row_bf16_quantization_violations": 0,
         "protected_top1_changes": 0,
         "proxy_ppl": 10.0,
         "base_proxy_ppl": 10.0,
@@ -157,7 +159,7 @@ class RowwiseSelectionTests(unittest.TestCase):
             calls.append(dict(scales))
             metrics = passing_metrics()
             if scales.get(11, 0.0) > 0.0:
-                metrics["protected_selected_row_logit_drift"] = 0.1
+                metrics["protected_selected_row_logit_drift_fp32"] = 0.1
             return metrics
 
         report = REPAIR.select_rowwise_scales(

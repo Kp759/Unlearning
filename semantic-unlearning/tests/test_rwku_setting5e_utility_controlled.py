@@ -1,5 +1,6 @@
 import json
 import math
+import copy
 import sys
 import tempfile
 import unittest
@@ -144,7 +145,9 @@ def passing_candidate_metrics():
         "p95_retain_kl": 0.0,
         "retain_top1_agreement": 1.0,
         "protected_answer_probability_ratio": 1.0,
-        "protected_selected_row_logit_drift": 0.0,
+        "protected_selected_row_logit_drift_fp32": 0.0,
+        "protected_selected_row_logit_drift_bf16": 0.0,
+        "protected_selected_row_bf16_quantization_violations": 0,
         "protected_top1_changes": 0,
         "proxy_ppl": 10.0,
         "base_proxy_ppl": 10.0,
@@ -318,6 +321,121 @@ class ScheduleAndInterpolationTests(unittest.TestCase):
 
 
 class ObjectiveAndGateTests(unittest.TestCase):
+    def quantized_audit(self, *, fp32_drift=0.03, bf16_candidate=16.125):
+        return UC.selected_logit_drift_audit(
+            source_record_identity="record-1",
+            selected_row_ids=[13],
+            decoded_tokens=[" horror"],
+            base_fp32_logits=torch.tensor([16.0]),
+            candidate_fp32_logits=torch.tensor([16.0 + fp32_drift]),
+            base_bf16_logits=torch.tensor([16.0], dtype=torch.bfloat16),
+            candidate_bf16_logits=torch.tensor(
+                [bf16_candidate], dtype=torch.bfloat16
+            ),
+        )
+
+    def test_bf16_adjacent_spacing_is_exact_and_direction_aware(self):
+        base = torch.tensor([16.0], dtype=torch.bfloat16)
+        outward = REPAIR.bf16_ulp_spacing(base)
+        inward = REPAIR.bf16_ulp_spacing(
+            base, torch.tensor([15.9375], dtype=torch.bfloat16)
+        )
+        self.assertEqual(float(outward[0]), 0.125)
+        self.assertEqual(float(inward[0]), 0.0625)
+
+    def test_continuous_fp32_drift_below_limit_passes(self):
+        metrics = passing_candidate_metrics()
+        metrics.update(self.quantized_audit(fp32_drift=0.03, bf16_candidate=16.0))
+        self.assertTrue(UC.candidate_gate_report(metrics)["pre_repair_utility_safe"])
+
+    def test_one_bf16_ulp_passes_with_preserved_behavior(self):
+        metrics = passing_candidate_metrics()
+        audit = self.quantized_audit(fp32_drift=0.03, bf16_candidate=16.125)
+        metrics.update(audit)
+        self.assertEqual(
+            audit["protected_selected_row_bf16_quantization_violations"], 0
+        )
+        self.assertTrue(UC.candidate_gate_report(metrics)["pre_repair_utility_safe"])
+        self.assertTrue(UC.final_candidate_gate_report(metrics)["final_eligible"])
+
+    def test_two_bf16_ulps_fail(self):
+        metrics = passing_candidate_metrics()
+        audit = self.quantized_audit(fp32_drift=0.03, bf16_candidate=16.25)
+        metrics.update(audit)
+        self.assertEqual(
+            audit["protected_selected_row_bf16_quantization_violations"], 1
+        )
+        report = UC.candidate_gate_report(metrics)
+        self.assertFalse(report["pre_repair_utility_safe"])
+
+    def test_fp32_drift_above_limit_fails_even_without_bf16_top1_change(self):
+        metrics = passing_candidate_metrics()
+        metrics.update(self.quantized_audit(fp32_drift=0.051, bf16_candidate=16.0))
+        metrics["protected_top1_changes"] = 0
+        self.assertFalse(
+            UC.candidate_gate_report(metrics)["pre_repair_utility_safe"]
+        )
+
+    def test_behavioral_gates_remain_hard_with_quantization_allowance(self):
+        for metric, value in (
+            ("protected_answer_probability_ratio", 0.9989),
+            ("protected_top1_changes", 1),
+            ("mean_retain_kl", 0.01001),
+            ("p95_retain_kl", 0.05001),
+            ("retain_top1_agreement", 0.989),
+            ("proxy_ppl", 10.201),
+        ):
+            with self.subTest(metric=metric):
+                metrics = passing_candidate_metrics()
+                metrics.update(self.quantized_audit())
+                metrics[metric] = value
+                self.assertFalse(
+                    UC.candidate_gate_report(metrics)["pre_repair_utility_safe"]
+                )
+
+    def test_per_row_audit_preserves_required_evidence_and_alias_contract(self):
+        audit = self.quantized_audit()
+        entry = audit["protected_selected_row_logit_audit"][0]
+        self.assertEqual(entry["source_record_identity"], "record-1")
+        self.assertEqual(entry["token_id"], 13)
+        self.assertEqual(entry["decoded_token"], " horror")
+        self.assertEqual(entry["bf16_ulp_allowance"], 0.125)
+        self.assertTrue(entry["pass"])
+
+    def test_prompt_distribution_reports_fp32_bf16_and_deprecated_alias(self):
+        base = TinyTiedLM().to(torch.bfloat16).eval()
+        candidate = copy.deepcopy(base).eval()
+        metrics = UC._prompt_distribution_metrics(
+            candidate,
+            base,
+            TinyTokenizer(),
+            [
+                {
+                    "prompt": "question",
+                    "answer": "answer",
+                    "content_sha256": "a" * 64,
+                }
+            ],
+            selected_output_rows=[13],
+            top_k=2,
+        )
+        self.assertEqual(metrics["protected_selected_row_logit_drift_fp32"], 0.0)
+        self.assertEqual(metrics["protected_selected_row_logit_drift_bf16"], 0.0)
+        self.assertEqual(
+            metrics["protected_selected_row_logit_drift"],
+            metrics["protected_selected_row_logit_drift_bf16"],
+        )
+        self.assertEqual(
+            metrics["protected_selected_row_logit_drift_deprecated_alias_for"],
+            "protected_selected_row_logit_drift_bf16",
+        )
+        self.assertEqual(
+            metrics["protected_selected_row_logit_audit"][0][
+                "source_record_identity"
+            ],
+            "a" * 64,
+        )
+
     def test_teacher_kl_does_not_backpropagate_to_base_reference(self):
         student = torch.randn(2, 4, requires_grad=True)
         teacher = torch.randn(2, 4, requires_grad=True)
@@ -394,7 +512,13 @@ class ObjectiveAndGateTests(unittest.TestCase):
                 "p95_retain_kl_max": 0.05,
                 "retain_top1_agreement_min": 0.99,
                 "protected_answer_probability_ratio_min": 0.999,
-                "protected_selected_row_logit_drift_max": 0.05,
+                "protected_selected_row_logit_drift_fp32_max": 0.05,
+                "protected_selected_row_bf16_quantization_violations": 0,
+                "deprecated_metric_alias": {
+                    "protected_selected_row_logit_drift": (
+                        "protected_selected_row_logit_drift_bf16"
+                    )
+                },
                 "protected_top1_changes": 0,
                 "proxy_ppl_base_multiplier_max": 1.02,
                 "nonselected_rows_equal_base": True,

@@ -30,6 +30,7 @@ import torch
 
 
 ACTIVE_SOURCE = "target_generated_entity_fact_views"
+PROTECTED_FP32_LOGIT_DRIFT_MAX = 0.05
 ROW_SCALE_CANDIDATES = (
     1.0,
     0.875,
@@ -63,6 +64,63 @@ SPECIAL_TOKEN_NAMES = (
     "pad_token_id",
     "unk_token_id",
 )
+
+
+def bf16_ulp_spacing(
+    base_logits: torch.Tensor,
+    candidate_logits: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Return one adjacent BF16 step at each Base logit.
+
+    When candidate values are supplied, spacing is measured toward each
+    candidate. This prevents two inward steps at an exponent boundary from
+    being mistaken for one outward ULP.
+    """
+
+    base = torch.as_tensor(base_logits).detach().to(torch.bfloat16)
+    if not torch.isfinite(base.float()).all():
+        raise ValueError("Base selected logits must be finite for a BF16 ULP audit")
+    if candidate_logits is None:
+        toward_positive = base.float() >= 0.0
+    else:
+        candidate = torch.as_tensor(candidate_logits).detach().to(
+            device=base.device, dtype=torch.bfloat16
+        )
+        if candidate.shape != base.shape:
+            raise ValueError("Base and candidate BF16 logit shapes differ")
+        if not torch.isfinite(candidate.float()).all():
+            raise ValueError(
+                "Candidate selected logits must be finite for a BF16 ULP audit"
+            )
+        candidate_fp32 = candidate.float()
+        base_fp32 = base.float()
+        toward_positive = torch.where(
+            candidate_fp32 == base_fp32,
+            base_fp32 >= 0.0,
+            candidate_fp32 > base_fp32,
+        )
+    direction = torch.where(
+        toward_positive,
+        torch.full_like(base, float("inf")),
+        torch.full_like(base, float("-inf")),
+    )
+    adjacent = torch.nextafter(base, direction)
+    spacing = (adjacent.float() - base.float()).abs()
+    if not torch.isfinite(spacing).all():
+        raise ValueError("BF16 ULP spacing is not finite")
+    return spacing
+
+
+def bf16_quantization_allowance(
+    base_logits: torch.Tensor,
+    candidate_logits: torch.Tensor,
+    *,
+    continuous_limit: float = PROTECTED_FP32_LOGIT_DRIFT_MAX,
+) -> torch.Tensor:
+    """Return max(continuous limit, one adjacent BF16 step) per logit."""
+
+    spacing = bf16_ulp_spacing(base_logits, candidate_logits)
+    return torch.maximum(spacing, torch.full_like(spacing, float(continuous_limit)))
 
 
 @dataclass(frozen=True)
@@ -225,10 +283,16 @@ def protection_gates_pass(metrics: Mapping[str, Any]) -> Tuple[bool, List[str]]:
             metrics.get("protected_answer_probability_ratio", -1.0)
         )
         >= 0.999,
-        "protected_selected_row_logit_drift": float(
-            metrics.get("protected_selected_row_logit_drift", float("inf"))
+        "protected_selected_row_logit_drift_fp32": float(
+            metrics.get("protected_selected_row_logit_drift_fp32", float("inf"))
         )
-        <= 0.05,
+        <= PROTECTED_FP32_LOGIT_DRIFT_MAX,
+        "protected_selected_row_bf16_quantization_violations": int(
+            metrics.get(
+                "protected_selected_row_bf16_quantization_violations", 1
+            )
+        )
+        == 0,
         "protected_top1_changes": int(metrics.get("protected_top1_changes", 1)) == 0,
         "proxy_ppl": float(metrics.get("proxy_ppl", float("inf")))
         <= float(metrics.get("base_proxy_ppl", 0.0)) * 1.02,
@@ -432,9 +496,12 @@ def write_report(path: Path, report: Mapping[str, Any]) -> None:
 __all__ = [
     "ACTIVE_SOURCE",
     "FORBIDDEN_ACTIVE_MARKERS",
+    "PROTECTED_FP32_LOGIT_DRIFT_MAX",
     "ROW_SCALE_CANDIDATES",
     "RowEligibility",
     "apply_rowwise_delta",
+    "bf16_quantization_allowance",
+    "bf16_ulp_spacing",
     "classify_output_row",
     "decode_token_piece",
     "generated_forget_gates_pass",
