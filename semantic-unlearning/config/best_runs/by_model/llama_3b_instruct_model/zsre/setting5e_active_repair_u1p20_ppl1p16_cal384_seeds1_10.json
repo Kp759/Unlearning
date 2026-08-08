@@ -1,0 +1,50 @@
+{
+  "source_record": "config/best_runs/zsre/setting5e_active_repair_u1p20_ppl1p16_cal384_seeds1_10.json",
+  "model_family": "meta-llama/Llama-3.2-3B-Instruct",
+  "snapshot_role": "model-centric copy/index",
+  "dataset": "ZsRE",
+  "record_id": "zsre-setting5e-active-repair-u1p20-ppl1p16-cal384-seeds1-10",
+  "status": "BEST_ACCEPTED",
+  "method": "Setting 5e plus exact-BF16 active LM-head repair",
+  "seeds": [1,2,3,4,5,6,7,8,9,10],
+  "forget_num": 50,
+  "retain_num": 1000,
+  "acceptance": {
+    "accepted_count": 10,
+    "rejected_count": 0,
+    "acceptance_rate": 1.0,
+    "all_configured_gates_passed": true
+  },
+  "aggregate_metrics": {
+    "setting5e": {
+      "forget_eff": {"mean": 20.8133, "std": 3.1632},
+      "forget_gen": {"mean": 20.8110, "std": 3.7952},
+      "forget_spe": {"mean": 27.7231, "std": 2.8844},
+      "retain_eff": {"mean": 32.8411, "std": 1.0764},
+      "retain_gen": {"mean": 31.8887, "std": 0.7420},
+      "retain_spe": {"mean": 28.4971, "std": 0.9018},
+      "ppl": {"mean": 11.9250, "std": 0.5942}
+    },
+    "selected": {
+      "forget_eff": {"mean": 0.0, "std": 0.0},
+      "forget_gen": {"mean": 0.0, "std": 0.0},
+      "forget_spe": {"mean": 27.7231, "std": 2.8844},
+      "retain_eff": {"mean": 32.2089, "std": 1.0834},
+      "retain_gen": {"mean": 31.2619, "std": 0.7399},
+      "retain_spe": {"mean": 28.2136, "std": 0.8199},
+      "ppl": {"mean": 12.3250, "std": 0.9717}
+    }
+  },
+  "evaluation_gates": {
+    "utility_drop_tolerance_percentage_points": 1.2,
+    "maximum_ppl_ratio": 1.16,
+    "target_eff_max": 0.0,
+    "target_gen_max": 0.0,
+    "dtype": "bfloat16"
+  },
+  "provenance_status": {
+    "repository_commit": "a8d6b85450d662d28d31ee2f0f01e1c3b4be706e",
+    "slurm_job_id": "1166025",
+    "weight_hashes": "PENDING_LOCAL_CAPTURE"
+  }
+}
