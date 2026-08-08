@@ -1,0 +1,11 @@
+{
+  "judge_id": "judge-b-meta-llama3-8b-local-v1",
+  "role": "judge_b_final",
+  "provider": "openai_compatible",
+  "model": "meta-llama-3-8b-instruct-judge-b",
+  "base_url": "http://127.0.0.1:8000/v1",
+  "api_key_env": "JUDGE_B_API_KEY",
+  "temperature": 0.0,
+  "timeout_seconds": 120.0,
+  "max_retries": 3
+}
