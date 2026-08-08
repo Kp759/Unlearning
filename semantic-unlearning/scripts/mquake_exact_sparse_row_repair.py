@@ -4,7 +4,7 @@ import argparse
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Sequence
 
 import torch
 from tqdm import tqdm
@@ -104,7 +104,7 @@ def _ppl_states(model, tok, text, *, device):
 
 
 def _hildreth(A: torch.Tensor, b: torch.Tensor, *, max_epochs: int, tol: float):
-    """Minimum-norm solution of A x <= b by Hildreth dual coordinate descent."""
+    """Minimum-norm solution of A x <= b via Hildreth in the constraint Gram space."""
     if A.shape[0] == 0:
         return torch.zeros(A.shape[1], dtype=torch.float32), {
             "epochs": 0,
@@ -114,26 +114,31 @@ def _hildreth(A: torch.Tensor, b: torch.Tensor, *, max_epochs: int, tol: float):
 
     A = A.float().contiguous()
     b = b.float().contiguous()
-    x = torch.zeros(A.shape[1], dtype=torch.float32)
-    dual = torch.zeros(A.shape[0], dtype=torch.float32)
-    norm2 = A.square().sum(dim=1).clamp_min(1e-12)
 
-    max_violation = float("inf")
+    # The primal optimum lies in span(A^T). Maintain s=A@x=-G@dual
+    # in constraint space, so coordinate updates cost O(m) instead of O(d).
+    G = A @ A.T
+    diag = G.diag().clamp_min(1e-12)
+    dual = torch.zeros(A.shape[0], dtype=torch.float32)
+    s = torch.zeros(A.shape[0], dtype=torch.float32)
+
     epoch = 0
     for epoch in range(1, max_epochs + 1):
         for i in range(A.shape[0]):
-            violation = torch.dot(A[i], x) - b[i]
-            new_dual = torch.clamp(dual[i] + violation / norm2[i], min=0.0)
+            violation = s[i] - b[i]
+            new_dual = torch.clamp(dual[i] + violation / diag[i], min=0.0)
             change = new_dual - dual[i]
             if float(change) != 0.0:
-                x.add_(A[i], alpha=-float(change))
+                s.add_(G[:, i], alpha=-float(change))
                 dual[i] = new_dual
+
         if epoch == 1 or epoch % 10 == 0:
-            max_violation = float((A @ x - b).max())
+            max_violation = float((s - b).max())
             if max_violation <= tol:
                 break
 
-    max_violation = float((A @ x - b).max())
+    max_violation = float((s - b).max())
+    x = -(A.T @ dual)
     return x, {
         "epochs": epoch,
         "max_violation": max_violation,
