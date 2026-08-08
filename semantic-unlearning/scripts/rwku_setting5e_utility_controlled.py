@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import gc
+import hashlib
 import json
 import math
 import os
@@ -111,6 +112,9 @@ DEFAULT_INTERPOLATION_SCALES = (
     1.00,
 )
 MAX_PRE_REPAIR_CANDIDATES = 8
+DEFAULT_PROTECTED_HIDDEN_MAX_RANK = 512
+DEFAULT_PROTECTED_HIDDEN_RELATIVE_SINGULAR_THRESHOLD = 1e-5
+PROTECTED_DELTA_FEASIBILITY_TOLERANCE = 1e-6
 STATE_ORDER = {
     "PREPARED": 0,
     "TRAINING": 1,
@@ -159,6 +163,13 @@ class RowPolicy:
     output_audit: Tuple[Mapping[str, Any], ...]
     protected_rows: Tuple[int, ...]
     document_frequency: Mapping[int, float]
+
+
+@dataclass(frozen=True)
+class ProtectedHiddenSubspace:
+    hidden_bank: torch.Tensor
+    basis: torch.Tensor
+    diagnostics: Mapping[str, Any]
 
 
 def utc_now() -> str:
@@ -317,6 +328,17 @@ def configuration_payload(args: argparse.Namespace) -> Dict[str, Any]:
         "rowwise_repair_scales": list(ROW_SCALE_CANDIDATES),
         "fixed_candidate_gates": fixed_gate_manifest(),
         "matched_protection_coverage_policy": MATCHED_PROTECTION_COVERAGE_POLICY,
+        "protected_hidden_subspace": {
+            "maximum_rank": args.protected_hidden_max_rank,
+            "relative_singular_value_threshold": (
+                args.protected_hidden_relative_singular_threshold
+            ),
+            "output_delta_max_absolute_fp32_logit_drift": (
+                PROTECTED_FP32_LOGIT_DRIFT_MAX
+            ),
+            "output_gradient_projection": "orthogonal_complement",
+            "subject_input_protected_overlap_policy": "exclude",
+        },
         "reverse_prompts_enabled": False,
         "optimizer": "AdamW",
         "optimizer_state_scope": "fp32_sparse_selected_row_deltas_only",
@@ -903,12 +925,381 @@ def _record_text_answer(wrapped: Mapping[str, Any]) -> Tuple[str, str]:
     return str(prompt), str(answer)
 
 
+def _validate_protected_hidden_sources(
+    records: Sequence[Mapping[str, Any]],
+    source_artifacts: Mapping[str, Path],
+) -> None:
+    """Fail closed if evaluation or official RWKU provenance enters the bank."""
+
+    for label, path in source_artifacts.items():
+        reject_official_or_completed_path(Path(path), label=f"protected_hidden_bank:{label}")
+    for record in records:
+        if record.get("official_rwku_records_accessed") is True:
+            raise ArtifactAccessError(
+                "Official RWKU records cannot enter the protected hidden bank"
+            )
+        nested = record.get("record", {})
+        containers = (record, nested if isinstance(nested, Mapping) else {})
+        for container in containers:
+            if container.get("evaluation_only") is True or container.get(
+                "artifact_role"
+            ) in {
+                "official_locked_eval",
+                "seen_fact_unseen_prompt_eval",
+                "unseen_fact_eval",
+            }:
+                raise ArtifactAccessError(
+                    "Evaluation records cannot enter the protected hidden bank"
+                )
+            for field in ("source_path", "origin_artifact_path", "artifact_path"):
+                value = container.get(field)
+                if value:
+                    reject_official_or_completed_path(
+                        Path(str(value)), label="protected_hidden_bank_record"
+                    )
+
+
+def _normalized_hidden_hash(hidden: torch.Tensor) -> str:
+    value = hidden.detach().float().cpu()
+    normalized = value / value.norm().clamp_min(1e-12)
+    quantized = torch.round(normalized * 1_000_000).to(torch.int32).numpy()
+    return hashlib.sha256(quantized.tobytes()).hexdigest()
+
+
+@torch.no_grad()
+def build_protected_hidden_subspace(
+    model: nn.Module,
+    tokenizer: Any,
+    records: Sequence[Mapping[str, Any]],
+    *,
+    source_artifacts: Mapping[str, Path],
+    maximum_rank: int = DEFAULT_PROTECTED_HIDDEN_MAX_RANK,
+    relative_singular_threshold: float = (
+        DEFAULT_PROTECTED_HIDDEN_RELATIVE_SINGULAR_THRESHOLD
+    ),
+) -> ProtectedHiddenSubspace:
+    """Collect Base protection states and return their stable FP32 row span."""
+
+    if maximum_rank <= 0:
+        raise ValueError("Protected hidden maximum rank must be positive")
+    if not 0.0 < relative_singular_threshold < 1.0:
+        raise ValueError(
+            "Protected hidden relative singular threshold must be in (0,1)"
+        )
+    _validate_protected_hidden_sources(records, source_artifacts)
+    if not records:
+        raise ValueError("Protected hidden bank requires target-independent records")
+    device = next(model.parameters()).device
+    was_training = model.training
+    model.eval()
+    unique: Dict[str, torch.Tensor] = {}
+    source_position_count = 0
+    prompt_final_count = 0
+    answer_prediction_count = 0
+    try:
+        for record in records:
+            prompt, answer = _record_text_answer(record)
+            prompt_ids = _token_ids(tokenizer, prompt)
+            answer_ids = _completion_token_ids(tokenizer, answer)
+            if not prompt_ids or not answer_ids:
+                raise ValueError(
+                    "Protected hidden records require non-empty prompt and answer tokens"
+                )
+            sequence = torch.tensor(
+                [prompt_ids + answer_ids], dtype=torch.long, device=device
+            )
+            hidden = final_hidden_states(model, input_ids=sequence)[0].float()
+            positions = [len(prompt_ids) - 1]
+            prompt_final_count += 1
+            answer_positions = list(
+                range(len(prompt_ids) - 1, len(prompt_ids) + len(answer_ids) - 1)
+            )
+            positions.extend(answer_positions)
+            answer_prediction_count += len(answer_positions)
+            for position in positions:
+                vector = hidden[position].detach()
+                source_position_count += 1
+                unique.setdefault(_normalized_hidden_hash(vector), vector)
+    finally:
+        model.train(was_training)
+    hidden_bank = torch.stack(list(unique.values())).to(device=device, dtype=torch.float32)
+    if not torch.isfinite(hidden_bank).all():
+        raise FloatingPointError("Protected hidden bank contains non-finite values")
+    decomposition_rank = min(
+        int(maximum_rank), int(hidden_bank.shape[0]), int(hidden_bank.shape[1])
+    )
+    if decomposition_rank == min(hidden_bank.shape):
+        decomposition_method = "torch.linalg.svd"
+        _u, singular_values, right = torch.linalg.svd(
+            hidden_bank, full_matrices=False
+        )
+    else:
+        decomposition_method = "torch.pca_lowrank_center_false_seed_0_niter_4"
+        devices = [hidden_bank.device] if hidden_bank.is_cuda else []
+        with torch.random.fork_rng(devices=devices):
+            torch.random.default_generator.manual_seed(0)
+            if hidden_bank.is_cuda:
+                device_index = hidden_bank.device.index
+                if device_index is None:
+                    device_index = torch.cuda.current_device()
+                torch.cuda.default_generators[device_index].manual_seed(0)
+            _u, singular_values, right_columns = torch.pca_lowrank(
+                hidden_bank,
+                q=decomposition_rank,
+                center=False,
+                niter=4,
+            )
+        right = right_columns.transpose(0, 1)
+    largest = float(singular_values[0].cpu()) if singular_values.numel() else 0.0
+    cutoff = largest * float(relative_singular_threshold)
+    threshold_rank = int((singular_values >= cutoff).sum().item()) if largest else 0
+    rank = min(int(maximum_rank), threshold_rank, int(right.shape[0]))
+    basis = right[:rank].detach().contiguous().float()
+    if basis.numel():
+        identity = basis @ basis.transpose(0, 1)
+        if not torch.allclose(
+            identity,
+            torch.eye(rank, device=device, dtype=torch.float32),
+            atol=1e-4,
+            rtol=1e-4,
+        ):
+            raise RuntimeError("Protected hidden basis is not orthonormal")
+    total_energy = float(hidden_bank.square().sum().cpu())
+    retained_energy = float(singular_values[:rank].square().sum().cpu())
+    source_provenance = [
+        {
+            "label": str(label),
+            "path": str(Path(path).resolve()),
+            "sha256": sha256_file(Path(path)),
+        }
+        for label, path in sorted(source_artifacts.items())
+    ]
+    diagnostics = {
+        "schema_version": "rwku_protected_hidden_subspace_v1",
+        "protected_hidden_bank_size": int(hidden_bank.shape[0]),
+        "protected_hidden_source_position_count_before_deduplication": (
+            source_position_count
+        ),
+        "prompt_final_position_count": prompt_final_count,
+        "answer_token_prediction_position_count": answer_prediction_count,
+        "hidden_dimension": int(hidden_bank.shape[1]),
+        "maximum_rank": int(maximum_rank),
+        "decomposition_rank": decomposition_rank,
+        "decomposition_method": decomposition_method,
+        "relative_singular_value_threshold": float(relative_singular_threshold),
+        "selected_protection_rank": rank,
+        "explained_energy_fraction": (
+            retained_energy / total_energy if total_energy > 0.0 else 0.0
+        ),
+        "largest_retained_singular_value": (
+            float(singular_values[0].cpu()) if rank else None
+        ),
+        "smallest_retained_singular_value": (
+            float(singular_values[rank - 1].cpu()) if rank else None
+        ),
+        "largest_singular_value": largest,
+        "singular_value_cutoff": cutoff,
+        "source_artifacts": source_provenance,
+        "official_rwku_records_accessed": False,
+    }
+    return ProtectedHiddenSubspace(
+        hidden_bank=hidden_bank.detach(),
+        basis=basis,
+        diagnostics=diagnostics,
+    )
+
+
+def project_rows_away_from_protected_basis(
+    rows: torch.Tensor, basis: torch.Tensor
+) -> torch.Tensor:
+    """Project row vectors into the orthogonal complement of basis rows."""
+
+    if rows.ndim != 2 or basis.ndim != 2:
+        raise ValueError("Protected projection expects two-dimensional row matrices")
+    if rows.shape[1] != basis.shape[1]:
+        raise ValueError("Protected projection hidden dimensions differ")
+    if not basis.numel():
+        return rows.clone()
+    basis_value = basis.to(device=rows.device, dtype=rows.dtype)
+    return rows - (rows @ basis_value.transpose(0, 1)) @ basis_value
+
+
+def project_output_delta_gradient_(
+    output_delta: nn.Parameter, basis: torch.Tensor
+) -> Dict[str, float]:
+    """Project only the sparse output-delta gradient, in place."""
+
+    gradient = output_delta.grad
+    if gradient is None:
+        return {
+            "output_gradient_norm_before_projection": 0.0,
+            "output_gradient_norm_after_projection": 0.0,
+            "removed_protected_component_norm": 0.0,
+        }
+    before = gradient.detach().float()
+    projected = project_rows_away_from_protected_basis(before, basis)
+    removed = before - projected
+    with torch.no_grad():
+        gradient.copy_(projected.to(gradient.dtype))
+    return {
+        "output_gradient_norm_before_projection": float(before.norm().cpu()),
+        "output_gradient_norm_after_projection": float(projected.norm().cpu()),
+        "removed_protected_component_norm": float(removed.norm().cpu()),
+    }
+
+
+def enforce_output_delta_drift_feasibility_(
+    delta_rows: torch.Tensor,
+    protected_hidden_bank: torch.Tensor,
+    *,
+    row_ids: Sequence[int],
+    tokenizer: Any = None,
+    maximum_drift: float = PROTECTED_FP32_LOGIT_DRIFT_MAX,
+) -> List[Dict[str, Any]]:
+    """Hard-scale each FP32 output row to satisfy max(abs(H @ d))."""
+
+    if delta_rows.ndim != 2 or protected_hidden_bank.ndim != 2:
+        raise ValueError("Drift feasibility expects two-dimensional matrices")
+    if delta_rows.shape[0] != len(row_ids):
+        raise ValueError("Output delta count differs from row IDs")
+    if delta_rows.shape[1] != protected_hidden_bank.shape[1]:
+        raise ValueError("Drift feasibility hidden dimensions differ")
+    if maximum_drift <= 0.0:
+        raise ValueError("Maximum protected drift must be positive")
+    bank = protected_hidden_bank.to(
+        device=delta_rows.device, dtype=torch.float32
+    )
+    before_rows = delta_rows.detach().float().clone()
+    if bank.shape[0]:
+        pre = (bank @ before_rows.transpose(0, 1)).abs().amax(dim=0)
+    else:
+        pre = torch.zeros(delta_rows.shape[0], device=delta_rows.device)
+    scales = torch.minimum(
+        torch.ones_like(pre),
+        torch.full_like(pre, float(maximum_drift)) / (pre + 1e-12),
+    )
+    with torch.no_grad():
+        delta_rows.mul_(scales[:, None].to(delta_rows.dtype))
+    after_rows = delta_rows.detach().float()
+    if bank.shape[0]:
+        post = (bank @ after_rows.transpose(0, 1)).abs().amax(dim=0)
+    else:
+        post = torch.zeros(delta_rows.shape[0], device=delta_rows.device)
+    if bool(
+        (post > float(maximum_drift) + PROTECTED_DELTA_FEASIBILITY_TOLERANCE)
+        .any()
+        .item()
+    ):
+        raise RuntimeError("Protected output-row drift feasibility projection failed")
+    def decoded_token(token_id: int) -> Optional[str]:
+        if tokenizer is None:
+            return None
+        try:
+            return str(
+                tokenizer.decode([int(token_id)], skip_special_tokens=False)
+            )
+        except TypeError:
+            return str(tokenizer.decode([int(token_id)]))
+
+    return [
+        {
+            "token_id": int(token_id),
+            "decoded_token": decoded_token(int(token_id)),
+            "pre_projection_max_fp32_drift": float(pre[index].cpu()),
+            "post_projection_max_fp32_drift": float(post[index].cpu()),
+            "feasibility_scale": float(scales[index].cpu()),
+        }
+        for index, token_id in enumerate(row_ids)
+    ]
+
+
+def constrain_output_delta_rows(
+    delta_rows: torch.Tensor,
+    protected_basis: torch.Tensor,
+    protected_hidden_bank: torch.Tensor,
+    *,
+    row_ids: Sequence[int],
+    tokenizer: Any = None,
+) -> Tuple[torch.Tensor, Dict[str, Any]]:
+    """Project and hard-constrain sparse output directions before use."""
+
+    raw = delta_rows.detach().float().clone()
+    constrained = project_rows_away_from_protected_basis(raw, protected_basis)
+    removed_component_norm = float((raw - constrained).norm().cpu())
+    feasibility = enforce_output_delta_drift_feasibility_(
+        constrained,
+        protected_hidden_bank,
+        row_ids=row_ids,
+        tokenizer=tokenizer,
+    )
+    return constrained, {
+        "protected_subspace_projection_applied": True,
+        "protected_basis_rank": int(protected_basis.shape[0]),
+        "direction_norm_before_projection": float(raw.norm().cpu()),
+        "direction_norm_after_projection": float(constrained.norm().cpu()),
+        "removed_protected_component_norm": removed_component_norm,
+        "per_row_feasibility_projection": feasibility,
+    }
+
+
+def target_residual_fraction_diagnostic(
+    hidden_vectors: torch.Tensor, basis: torch.Tensor
+) -> Dict[str, Any]:
+    if hidden_vectors.ndim != 2 or basis.ndim != 2:
+        raise ValueError("Target residual diagnostic expects row matrices")
+    residual = project_rows_away_from_protected_basis(
+        hidden_vectors.float(), basis.float()
+    )
+    fractions = residual.norm(dim=1) / hidden_vectors.float().norm(dim=1).clamp_min(
+        1e-12
+    )
+    if not fractions.numel():
+        raise ValueError("Target residual diagnostic requires generated hidden states")
+    return {
+        "target_hidden_vector_count": int(fractions.numel()),
+        "mean": float(fractions.mean().cpu()),
+        "median": float(torch.quantile(fractions, 0.5).cpu()),
+        "p05": float(torch.quantile(fractions, 0.05).cpu()),
+        "minimum": float(fractions.min().cpu()),
+        "protected_subspace_saturates_target_direction": bool(
+            (fractions <= 1e-6).all().item()
+        ),
+    }
+
+
+@torch.no_grad()
+def collect_generated_target_hidden_vectors(
+    model: nn.Module,
+    tokenizer: Any,
+    active_points: Sequence[Mapping[str, Any]],
+) -> torch.Tensor:
+    device = next(model.parameters()).device
+    vectors: List[torch.Tensor] = []
+    for point in active_points:
+        prompt_ids = _token_ids(tokenizer, str(point["prompt"]))
+        answer_ids = _completion_token_ids(tokenizer, str(point["answer_alias"]))
+        position = int(point["answer_position"])
+        prefix = prompt_ids + answer_ids[:position]
+        if not prefix:
+            raise ValueError("Generated target prefix tokenized to an empty sequence")
+        inputs = torch.tensor([prefix], dtype=torch.long, device=device)
+        vectors.append(
+            final_hidden_states(model, input_ids=inputs)[:, -1, :][0]
+            .detach()
+            .float()
+        )
+    if not vectors:
+        raise ValueError("Generated target hidden diagnostic requires active points")
+    return torch.stack(vectors)
+
+
 def build_row_policy(
     tokenizer: Any,
     training: Mapping[str, Any],
     protection_records: Sequence[Mapping[str, Any]],
     *,
     maximum_document_frequency: float,
+    subject_protection_records: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> RowPolicy:
     views = list(training["payload"].get("views", []))
     subjects = {
@@ -933,14 +1324,27 @@ def build_row_policy(
         for _, answer in [_record_text_answer(wrapped)]
         for token_id in _completion_token_ids(tokenizer, answer)
     }
+    subject_protection_rows = {
+        token_id
+        for wrapped in (
+            protection_records
+            if subject_protection_records is None
+            else subject_protection_records
+        )
+        for prompt, answer in [_record_text_answer(wrapped)]
+        for token_id in {
+            *_token_ids(tokenizer, prompt),
+            *_completion_token_ids(tokenizer, answer),
+        }
+    }
     input_audit: List[Mapping[str, Any]] = []
     selected_input: List[int] = []
     for token_id in input_candidates:
         reasons = []
         if token_id in special:
             reasons.append("tokenizer_special_row")
-        if token_id in protected_rows:
-            reasons.append("matched_protection_overlap")
+        if token_id in subject_protection_rows:
+            reasons.append("subject_token_protected_overlap")
         if reasons:
             input_audit.append(
                 {
@@ -2235,6 +2639,8 @@ def learn_unscaled_repair_deltas(
     steps: int,
     learning_rate: float,
     margin: float,
+    protected_basis: Optional[torch.Tensor] = None,
+    protected_hidden_bank: Optional[torch.Tensor] = None,
 ) -> Tuple[Dict[int, torch.Tensor], Dict[str, Any]]:
     """Learn row deltas without changing the model or any checkpoint."""
 
@@ -2294,8 +2700,27 @@ def learn_unscaled_repair_deltas(
         loss.backward()
         optimizer.step()
         losses.append(float(loss.detach().cpu()))
+    raw_delta = delta.detach().float().clone()
+    basis = (
+        torch.empty((0, raw_delta.shape[1]), device=device, dtype=torch.float32)
+        if protected_basis is None
+        else protected_basis.to(device=device, dtype=torch.float32)
+    )
+    hidden_bank = (
+        torch.empty((0, raw_delta.shape[1]), device=device, dtype=torch.float32)
+        if protected_hidden_bank is None
+        else protected_hidden_bank.to(device=device, dtype=torch.float32)
+    )
+    constrained_delta, constraint_report = constrain_output_delta_rows(
+        raw_delta,
+        basis,
+        hidden_bank,
+        row_ids=row_ids,
+        tokenizer=tokenizer,
+    )
     deltas = {
-        row_id: delta.detach()[index].clone() for index, row_id in enumerate(row_ids)
+        row_id: constrained_delta[index].clone()
+        for index, row_id in enumerate(row_ids)
     }
     return deltas, {
         "supported_active_position_count": len(supported),
@@ -2303,6 +2728,20 @@ def learn_unscaled_repair_deltas(
         "optimization_steps": int(steps),
         "learning_rate": float(learning_rate),
         "loss_history": losses,
+        "protected_subspace_projection_applied": protected_basis is not None,
+        "protected_basis_rank": constraint_report["protected_basis_rank"],
+        "repair_direction_norm_before_projection": constraint_report[
+            "direction_norm_before_projection"
+        ],
+        "repair_direction_norm_after_projection": constraint_report[
+            "direction_norm_after_projection"
+        ],
+        "removed_protected_component_norm": constraint_report[
+            "removed_protected_component_norm"
+        ],
+        "per_row_feasibility_projection": constraint_report[
+            "per_row_feasibility_projection"
+        ],
     }
 
 
@@ -2424,11 +2863,51 @@ def train_stage(args: argparse.Namespace) -> None:
     sample_ids = sample["input_ids"].to(next(model.parameters()).device)
     untie_report = untie_lm_head_preserve_logits(model, sample_input_ids=sample_ids)
     freeze_report = freeze_transformer_parameters(model)
+    points = compile_training_points(tokenizer, training)
+    bundle_sha = sha256_file(args.generated_entity_fact_bundle)
+    generator_sha = sha256_file(args.generator_receipt)
+    active_points = _build_active_points(
+        points,
+        tokenizer,
+        bundle_path=args.generated_entity_fact_bundle,
+        bundle_sha256=bundle_sha,
+    )
+    protection_source_artifacts = {
+        "matched_protection_optimization": matched_train_path,
+        "matched_protection_gate": matched_gate_path,
+        "mcf_optimization_partition": mcf_train_path,
+        "mcf_gate_partition": mcf_gate_path,
+    }
+    protected_subspace = build_protected_hidden_subspace(
+        teacher,
+        tokenizer,
+        [*optimization_records, *gate_records],
+        source_artifacts=protection_source_artifacts,
+        maximum_rank=args.protected_hidden_max_rank,
+        relative_singular_threshold=(
+            args.protected_hidden_relative_singular_threshold
+        ),
+    )
+    target_hidden_vectors = collect_generated_target_hidden_vectors(
+        teacher, tokenizer, active_points
+    )
+    target_residual_diagnostic = target_residual_fraction_diagnostic(
+        target_hidden_vectors, protected_subspace.basis
+    )
+    protected_hidden_subspace_report = {
+        **dict(protected_subspace.diagnostics),
+        "target_generated_hidden_residual_fraction": target_residual_diagnostic,
+    }
+    protected_hidden_subspace_path = run_dir(args) / "protected_hidden_subspace.json"
+    atomic_json_write(
+        protected_hidden_subspace_path, protected_hidden_subspace_report
+    )
     row_policy = build_row_policy(
         tokenizer,
         training,
         optimization_records,
         maximum_document_frequency=args.max_retain_document_frequency,
+        subject_protection_records=[*optimization_records, *gate_records],
     )
     if not row_policy.selected_input_rows:
         raise ValueError("No safe declared subject input rows are trainable")
@@ -2453,7 +2932,6 @@ def train_stage(args: argparse.Namespace) -> None:
             },
         ]
     )
-    points = compile_training_points(tokenizer, training)
     by_fact: MutableMapping[str, List[TrainingPoint]] = {}
     for point in points:
         by_fact.setdefault(point.fact_id, []).append(point)
@@ -2469,14 +2947,6 @@ def train_stage(args: argparse.Namespace) -> None:
     checkpoint_root = run_dir(args) / "utility_controlled_setting5" / "checkpoints"
     candidate_report_path = (
         run_dir(args) / "utility_controlled_setting5" / "candidate_report.json"
-    )
-    bundle_sha = sha256_file(args.generated_entity_fact_bundle)
-    generator_sha = sha256_file(args.generator_receipt)
-    active_points = _build_active_points(
-        points,
-        tokenizer,
-        bundle_path=args.generated_entity_fact_bundle,
-        bundle_sha256=bundle_sha,
     )
     support_report = active_position_support_report(
         active_points, row_policy.selected_output_rows
@@ -2529,15 +2999,22 @@ def train_stage(args: argparse.Namespace) -> None:
             if adapter.input_delta.grad is not None
             else 0.0
         )
-        output_gradient_norm = float(
-            adapter.output_delta.grad.detach().float().norm().cpu()
-            if adapter.output_delta.grad is not None
-            else 0.0
+        output_gradient_projection = project_output_delta_gradient_(
+            adapter.output_delta, protected_subspace.basis
         )
+        output_gradient_norm = output_gradient_projection[
+            "output_gradient_norm_after_projection"
+        ]
         torch.nn.utils.clip_grad_norm_(
             [adapter.input_delta, adapter.output_delta], args.grad_clip
         )
         optimizer.step()
+        output_row_feasibility = enforce_output_delta_drift_feasibility_(
+            adapter.output_delta,
+            protected_subspace.hidden_bank,
+            row_ids=adapter.selected_output_rows,
+            tokenizer=tokenizer,
+        )
         # Base matrices are excluded from the optimizer and remain immutable.
         if not torch.equal(
             adapter.input_layer.weight.index_select(0, adapter.input_indices),
@@ -2572,6 +3049,8 @@ def train_stage(args: argparse.Namespace) -> None:
                 "selected_row_delta_l2": float(delta_l2.detach().cpu()),
                 "input_delta_gradient_norm": input_gradient_norm,
                 "output_delta_gradient_norm": output_gradient_norm,
+                **output_gradient_projection,
+                "output_row_feasibility_projection": output_row_feasibility,
                 "input_delta_norm": norms["selected_input_row_delta_norm"],
                 "output_delta_norm": norms["selected_output_row_delta_norm"],
                 "total_loss": float(total.detach().cpu()),
@@ -2660,6 +3139,8 @@ def train_stage(args: argparse.Namespace) -> None:
             steps=args.repair_steps,
             learning_rate=args.repair_lr,
             margin=args.repair_margin,
+            protected_basis=protected_subspace.basis,
+            protected_hidden_bank=protected_subspace.hidden_bank,
         )
         immutable_repair_weight = adapter.output_layer.weight.detach().clone()
 
@@ -2817,6 +3298,13 @@ def train_stage(args: argparse.Namespace) -> None:
             "smallest_rowwise_repair_norm",
         ],
         "active_position_support": support_report,
+        "protected_hidden_subspace_path": str(
+            protected_hidden_subspace_path.resolve()
+        ),
+        "protected_hidden_subspace_sha256": sha256_file(
+            protected_hidden_subspace_path
+        ),
+        "target_generated_hidden_residual_fraction": target_residual_diagnostic,
     }
     candidate_report_path.parent.mkdir(parents=True, exist_ok=True)
     normalized_report, report_replacements = strict_json_normalize(report)
@@ -2836,6 +3324,12 @@ def train_stage(args: argparse.Namespace) -> None:
             [row for row in candidate_rows if row["pre_repair_utility_safe"]]
         ),
         candidates_sent_to_active_repair=len(utility_safe),
+        protected_hidden_subspace_path=str(
+            protected_hidden_subspace_path.resolve()
+        ),
+        protected_hidden_subspace_sha256=sha256_file(
+            protected_hidden_subspace_path
+        ),
         official_rwku_records_accessed=False,
     )
 
@@ -2852,7 +3346,20 @@ def train_stage(args: argparse.Namespace) -> None:
         "selected_input_row_ids": list(row_policy.selected_input_rows),
         "selected_output_row_ids": list(row_policy.selected_output_rows),
         "selected_input_rows": list(row_policy.input_audit),
+        "subject_input_protected_overlap_exclusions": [
+            row
+            for row in row_policy.input_audit
+            if "subject_token_protected_overlap" in row.get("reasons", [])
+        ],
         "selected_and_excluded_output_rows": list(row_policy.output_audit),
+        "protected_hidden_subspace_path": str(
+            protected_hidden_subspace_path.resolve()
+        ),
+        "protected_hidden_subspace_sha256": sha256_file(
+            protected_hidden_subspace_path
+        ),
+        "protected_hidden_subspace": protected_hidden_subspace_report,
+        "target_generated_hidden_residual_fraction": target_residual_diagnostic,
         "fp32_sparse_delta_dtypes": {
             "input_delta": str(adapter.input_delta.dtype),
             "output_delta": str(adapter.output_delta.dtype),
@@ -2864,6 +3371,46 @@ def train_stage(args: argparse.Namespace) -> None:
         "output_delta_gradient_norm": max(
             (row["output_delta_gradient_norm"] for row in loss_log), default=0.0
         ),
+        "output_gradient_norm_before_projection": max(
+            (
+                row["output_gradient_norm_before_projection"]
+                for row in loss_log
+            ),
+            default=0.0,
+        ),
+        "output_gradient_norm_after_projection": max(
+            (
+                row["output_gradient_norm_after_projection"]
+                for row in loss_log
+            ),
+            default=0.0,
+        ),
+        "removed_protected_component_norm": max(
+            (row["removed_protected_component_norm"] for row in loss_log),
+            default=0.0,
+        ),
+        "per_step_output_gradient_projection": [
+            {
+                "step": row["step"],
+                "output_gradient_norm_before_projection": row[
+                    "output_gradient_norm_before_projection"
+                ],
+                "output_gradient_norm_after_projection": row[
+                    "output_gradient_norm_after_projection"
+                ],
+                "removed_protected_component_norm": row[
+                    "removed_protected_component_norm"
+                ],
+            }
+            for row in loss_log
+        ],
+        "per_step_output_row_feasibility_projection": [
+            {
+                "step": row["step"],
+                "rows": row["output_row_feasibility_projection"],
+            }
+            for row in loss_log
+        ],
         "loss_log": loss_log,
         "candidate_metrics": candidate_rows,
         "utility_safe_candidate_count": len(
@@ -2946,6 +3493,13 @@ def train_stage(args: argparse.Namespace) -> None:
             "input_row_audit": list(row_policy.input_audit),
             "output_row_audit": list(row_policy.output_audit),
         },
+        "protected_hidden_subspace": protected_hidden_subspace_report,
+        "protected_hidden_subspace_path": str(
+            protected_hidden_subspace_path.resolve()
+        ),
+        "protected_hidden_subspace_sha256": sha256_file(
+            protected_hidden_subspace_path
+        ),
         "objective": configuration_payload(args)["objective"],
         "schedule": schedule,
         "final_exposure_counts": exposure_counts,
@@ -2982,6 +3536,12 @@ def train_stage(args: argparse.Namespace) -> None:
         "training_report_sha256": sha256_file(training_report_path),
         "training_diagnostics_path": str(training_diagnostics_path.resolve()),
         "training_diagnostics_sha256": sha256_file(training_diagnostics_path),
+        "protected_hidden_subspace_path": str(
+            protected_hidden_subspace_path.resolve()
+        ),
+        "protected_hidden_subspace_sha256": sha256_file(
+            protected_hidden_subspace_path
+        ),
         "exact_command": [sys.executable, str(SCRIPT_PATH), *sys.argv[1:]],
         "development": bool(args.development),
         "confirmatory": bool(args.confirmatory),
@@ -3031,6 +3591,7 @@ def train_stage(args: argparse.Namespace) -> None:
             "repair_report": repair_report_path,
             "training_report": training_report_path,
             "training_diagnostics": training_diagnostics_path,
+            "protected_hidden_subspace": protected_hidden_subspace_path,
             "base_model_source": args.model_path,
         },
     )
@@ -3043,6 +3604,12 @@ def train_stage(args: argparse.Namespace) -> None:
         repaired_checkpoint_path=str(repaired_checkpoint.resolve()),
         training_diagnostics_path=str(training_diagnostics_path.resolve()),
         training_diagnostics_sha256=sha256_file(training_diagnostics_path),
+        protected_hidden_subspace_path=str(
+            protected_hidden_subspace_path.resolve()
+        ),
+        protected_hidden_subspace_sha256=sha256_file(
+            protected_hidden_subspace_path
+        ),
         official_evaluation_opened=False,
     )
     adapter.close()
@@ -3417,6 +3984,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--teacher-top-k", type=int, default=128)
     parser.add_argument("--max-retain-document-frequency", type=float, default=0.01)
     parser.add_argument(
+        "--protected-hidden-max-rank",
+        type=int,
+        default=DEFAULT_PROTECTED_HIDDEN_MAX_RANK,
+    )
+    parser.add_argument(
+        "--protected-hidden-relative-singular-threshold",
+        type=float,
+        default=DEFAULT_PROTECTED_HIDDEN_RELATIVE_SINGULAR_THRESHOLD,
+    )
+    parser.add_argument(
         "--exposures-per-fact", type=parse_int_list, default=DEFAULT_EXPOSURES
     )
     parser.add_argument(
@@ -3456,6 +4033,7 @@ def validate_args(args: argparse.Namespace) -> None:
         "eos_margin_weight",
         "retain_batch_size",
         "teacher_top_k",
+        "protected_hidden_max_rank",
         "candidate_eval_batch_size",
         "repair_steps",
         "repair_lr",
@@ -3468,6 +4046,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("Forget token/EOS margins must be non-negative")
     if not 0.0 <= args.max_retain_document_frequency <= 1.0:
         raise ValueError("--max-retain-document-frequency must be in [0,1]")
+    if not 0.0 < args.protected_hidden_relative_singular_threshold < 1.0:
+        raise ValueError(
+            "--protected-hidden-relative-singular-threshold must be in (0,1)"
+        )
 
 
 def main() -> None:

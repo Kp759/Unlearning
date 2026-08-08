@@ -170,6 +170,8 @@ def config_args(**updates):
         "sensitive_output_delta_lr": 5e-4,
         "max_retain_document_frequency": 0.01,
         "teacher_top_k": 128,
+        "protected_hidden_max_rank": 512,
+        "protected_hidden_relative_singular_threshold": 1e-5,
         "exposures_per_fact": UC.DEFAULT_EXPOSURES,
         "candidate_scales": UC.DEFAULT_INTERPOLATION_SCALES,
         "development": True,
@@ -235,6 +237,115 @@ class ModelIsolationTests(unittest.TestCase):
         sparse.close()
 
 
+class ProtectedHiddenSubspaceTests(unittest.TestCase):
+    def test_gradient_projection_removes_parallel_and_preserves_orthogonal(self):
+        parameter = torch.nn.Parameter(torch.zeros(2, 3, dtype=torch.float32))
+        parameter.grad = torch.tensor(
+            [[2.0, 3.0, 0.0], [-1.0, 0.0, 4.0]], dtype=torch.float32
+        )
+        basis = torch.tensor([[1.0, 0.0, 0.0]], dtype=torch.float32)
+        report = UC.project_output_delta_gradient_(parameter, basis)
+        self.assertTrue(
+            torch.equal(
+                parameter.grad,
+                torch.tensor([[0.0, 3.0, 0.0], [0.0, 0.0, 4.0]]),
+            )
+        )
+        self.assertGreater(report["removed_protected_component_norm"], 0.0)
+        self.assertGreater(report["output_gradient_norm_after_projection"], 0.0)
+
+    def test_row_feasibility_is_per_row_and_preserves_safe_delta(self):
+        bank = torch.tensor([[1.0, 0.0], [0.0, 2.0]], dtype=torch.float32)
+        rows = torch.tensor([[0.20, 0.0], [0.0, 0.02]], dtype=torch.float32)
+        safe_before = rows[1].clone()
+        audit = UC.enforce_output_delta_drift_feasibility_(
+            rows, bank, row_ids=[13, 17]
+        )
+        self.assertLessEqual(float((bank @ rows.T).abs().max()), 0.050001)
+        self.assertAlmostEqual(audit[0]["feasibility_scale"], 0.25, places=6)
+        self.assertEqual(audit[1]["feasibility_scale"], 1.0)
+        self.assertTrue(torch.equal(rows[1], safe_before))
+
+    def test_hidden_bank_records_provenance_and_rejects_official_sources(self):
+        model = TinyTiedLM().eval()
+        tokenizer = TinyTokenizer()
+        records = [
+            {
+                "record": {
+                    "prompt": "question",
+                    "answer": "English horror",
+                },
+                "source": "target_independent_mcf",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            train = root / "mcf_train.json"
+            gate = root / "mcf_gate.json"
+            train.write_text("train\n", encoding="utf-8")
+            gate.write_text("gate\n", encoding="utf-8")
+            subspace = UC.build_protected_hidden_subspace(
+                model,
+                tokenizer,
+                records,
+                source_artifacts={"optimization": train, "gate": gate},
+                maximum_rank=1,
+            )
+            provenance = subspace.diagnostics["source_artifacts"]
+            self.assertEqual(subspace.diagnostics["selected_protection_rank"], 1)
+            self.assertEqual(
+                subspace.diagnostics["decomposition_method"],
+                "torch.pca_lowrank_center_false_seed_0_niter_4",
+            )
+            self.assertEqual(len(provenance), 2)
+            self.assertEqual(
+                {row["sha256"] for row in provenance},
+                {UC.sha256_file(train), UC.sha256_file(gate)},
+            )
+            self.assertFalse(
+                subspace.diagnostics["official_rwku_records_accessed"]
+            )
+            with self.assertRaisesRegex(
+                Exception, "official/evaluation RWKU path"
+            ):
+                UC.build_protected_hidden_subspace(
+                    model,
+                    tokenizer,
+                    records,
+                    source_artifacts={"official": root / "forget_level1.json"},
+                )
+
+    def test_target_residual_fraction_diagnostic(self):
+        hidden = torch.tensor([[1.0, 1.0], [0.0, 2.0]])
+        basis = torch.tensor([[1.0, 0.0]])
+        report = UC.target_residual_fraction_diagnostic(hidden, basis)
+        self.assertAlmostEqual(report["minimum"], 2**-0.5, places=6)
+        self.assertAlmostEqual(report["median"], (2**-0.5 + 1.0) / 2, places=6)
+        self.assertAlmostEqual(report["p05"], 2**-0.5 + 0.05 * (1 - 2**-0.5), places=6)
+        self.assertFalse(report["protected_subspace_saturates_target_direction"])
+
+    def test_rowwise_repair_reuses_protected_basis_and_feasibility(self):
+        basis = torch.zeros((1, 8), dtype=torch.float32)
+        basis[0, 0] = 1.0
+        bank = basis.clone()
+        raw = torch.tensor([[2.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]])
+        constrained, report = UC.constrain_output_delta_rows(
+            raw,
+            basis,
+            bank,
+            row_ids=[13],
+        )
+        self.assertTrue(report["protected_subspace_projection_applied"])
+        self.assertEqual(report["protected_basis_rank"], 1)
+        self.assertAlmostEqual(float(constrained[0, 0]), 0.0, places=6)
+        self.assertLessEqual(
+            report["per_row_feasibility_projection"][0][
+                "post_projection_max_fp32_drift"
+            ],
+            0.050001,
+        )
+
+
 class RowPolicyTests(unittest.TestCase):
     def test_only_subject_input_and_eligible_answer_output_rows_are_selected(self):
         tokenizer = TinyTokenizer()
@@ -264,6 +375,35 @@ class RowPolicyTests(unittest.TestCase):
         self.assertNotIn(14, policy.selected_output_rows)
         self.assertNotIn(15, policy.selected_output_rows)
         self.assertNotIn(16, policy.selected_output_rows)
+
+    def test_subject_row_used_by_protection_prompt_is_excluded(self):
+        tokenizer = TinyTokenizer()
+        training = {
+            "metadata": {},
+            "payload": {
+                "views": [
+                    {
+                        "subject": "Stephen King",
+                        "subject_aliases": [],
+                        "sensitive_answer_alias": "horror",
+                        "canonical_sensitive_answer": "horror",
+                    }
+                ]
+            },
+        }
+        policy = UC.build_row_policy(
+            tokenizer,
+            training,
+            [],
+            maximum_document_frequency=0.01,
+            subject_protection_records=[
+                {"record": {"prompt": "Stephen question", "answer": "English"}}
+            ],
+        )
+        self.assertNotIn(10, policy.selected_input_rows)
+        excluded = next(row for row in policy.input_audit if row["token_id"] == 10)
+        self.assertIn("subject_token_protected_overlap", excluded["reasons"])
+        self.assertIn(11, policy.selected_input_rows)
 
     def test_row_policy_uses_runtime_completion_and_in_context_subject_tokens(self):
         tokenizer = WhitespaceSensitiveTokenizer()
@@ -661,6 +801,16 @@ class StateAndModeTests(unittest.TestCase):
         self.assertEqual(
             configuration["matched_protection_coverage_policy"],
             "allow_unmatched_generated_target_keys_but_audit",
+        )
+        self.assertEqual(
+            configuration["protected_hidden_subspace"],
+            {
+                "maximum_rank": 512,
+                "relative_singular_value_threshold": 1e-5,
+                "output_delta_max_absolute_fp32_logit_drift": 0.05,
+                "output_gradient_projection": "orthogonal_complement",
+                "subject_input_protected_overlap_policy": "exclude",
+            },
         )
 
     def test_unmatched_protection_is_audited_and_does_not_abort(self):
