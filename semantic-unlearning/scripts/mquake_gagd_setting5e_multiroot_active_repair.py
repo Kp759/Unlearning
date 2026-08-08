@@ -1245,6 +1245,45 @@ def _evaluate_multihop_post_selection(
     return payload
 
 
+def _evaluate_held_out_after_selection(
+    *,
+    accepted: bool,
+    args: argparse.Namespace,
+    model: nn.Module,
+    tok: Any,
+    records: Any,
+    mquake_path: Path,
+    wikidata_dir: Path,
+    split_manifest: Path,
+    output_dir: Path,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Open held-out reporting only after the durable selection decision."""
+
+    if args.fail_if_target_missed and not accepted:
+        raise RuntimeError("No active-pair candidate passed every fixed gate")
+    selected_extension = baseline.evaluate_extension(
+        method=METHOD_LABEL + " post-selection AtomicGen",
+        model=model,
+        tok=tok,
+        model_dir="in-memory:selected",
+        mquake_path=mquake_path,
+        wikidata_dir=wikidata_dir,
+        out_path=output_dir / "selected_atomic_gen_eval.json",
+        args=args,
+        records=records,
+    )
+    multihop_result = _evaluate_multihop_post_selection(
+        model=model,
+        tok=tok,
+        mquake_path=mquake_path,
+        split_manifest=split_manifest,
+        prompt_dir=gagd.resolve_output_path(args.multihop_prompt_dir),
+        args=args,
+        out_path=output_dir / "multihop_unlearning_eval.json",
+    )
+    return selected_extension, multihop_result
+
+
 def main() -> None:
     args = build_parser().parse_args()
     validate_args(args)
@@ -1533,29 +1572,6 @@ def main() -> None:
     if args.save_selected_checkpoint:
         baseline.save_checkpoint(model, tok, output_dir / "selected_checkpoint")
 
-    # The checkpoint decision is now durable.  Only now open evaluation-only
-    # atomic questions and record-level standard/CoT multi-hop questions.
-    selected_extension = baseline.evaluate_extension(
-        method=METHOD_LABEL + " post-selection AtomicGen",
-        model=model,
-        tok=tok,
-        model_dir="in-memory:selected",
-        mquake_path=mquake_path,
-        wikidata_dir=wikidata_dir,
-        out_path=output_dir / "selected_atomic_gen_eval.json",
-        args=args,
-        records=records,
-    )
-    multihop_result = _evaluate_multihop_post_selection(
-        model=model,
-        tok=tok,
-        mquake_path=mquake_path,
-        split_manifest=split_manifest,
-        prompt_dir=gagd.resolve_output_path(args.multihop_prompt_dir),
-        args=args,
-        out_path=output_dir / "multihop_unlearning_eval.json",
-    )
-
     final_materialized_delta = (
         output_layer.weight.index_select(0, row_tensor).detach().float()
         - original_rows.detach().float()
@@ -1671,6 +1687,69 @@ def main() -> None:
     }
     gagd.write_json(repair_dir / "repair_summary.json", repair_summary)
 
+    # Persist the complete checkpoint-selection evidence before any held-out
+    # prompt is opened.  A rejected canonical run exits from the guarded helper
+    # below, leaving this result as its durable terminal diagnostic.
+    held_out_status = (
+        "pending_post_selection_evaluation"
+        if accepted or not args.fail_if_target_missed
+        else "not_evaluated_candidate_rejected"
+    )
+    preselection_reporting = {
+        "Eff": selected_result["forget"].get("Eff"),
+        "Eff_micro": selected_result["forget"].get("Eff_micro"),
+        "Eff_instance_macro": selected_result["forget"].get(
+            "Eff_instance_macro"
+        ),
+        "AtomicGen": None,
+        "AtomicGen_micro": None,
+        "AtomicGen_instance_macro": None,
+        "RetainEff": selected_result["retain"].get("Eff"),
+        "RetainAtomicGen": None,
+        "PPL": selected_result.get("forget_PPL"),
+        "MHLeak_exact_any": None,
+        "MHLeak_contains_any": None,
+        "MHLeak_by_hop": None,
+        "held_out_status": held_out_status,
+    }
+    preselection_result = {
+        "method": METHOD_LABEL,
+        "repair_type": REPAIR_TYPE,
+        "dataset": mquake.MQUAKE_FILENAME,
+        "dataset_revision": mquake.MQUAKE_REV,
+        "seed": int(args.seed),
+        "training": {
+            **asdict(train_summary),
+            "forget_sampling": sampling_report,
+            "steps": int(args.steps),
+        },
+        "repair": repair_summary,
+        "base": baseline.compact_metrics(base_result),
+        "setting5e": baseline.compact_metrics(setting5_result),
+        "candidate": baseline.compact_metrics(candidate_result),
+        "selected": baseline.compact_metrics(selected_result),
+        "selected_extension": None,
+        "multihop": None,
+        "reporting": preselection_reporting,
+        "selection": selection_commit,
+    }
+    gagd.write_json(output_dir / "mquake_results.json", preselection_result)
+
+    # The checkpoint decision and all available diagnostics are now durable.
+    # The helper fails here for a rejected canonical run, before it can invoke
+    # AtomicGen or either multi-hop generation mode.
+    selected_extension, multihop_result = _evaluate_held_out_after_selection(
+        accepted=accepted,
+        args=args,
+        model=model,
+        tok=tok,
+        records=records,
+        mquake_path=mquake_path,
+        wikidata_dir=wikidata_dir,
+        split_manifest=split_manifest,
+        output_dir=output_dir,
+    )
+
     forget_extension = selected_extension["forget"]
     retain_extension = selected_extension["retain"]
     multihop_summaries = multihop_result["results"]
@@ -1733,8 +1812,6 @@ def main() -> None:
         f"RetainEff={selected_result['retain'].get('Eff')}; "
         f"PPL={selected_result.get('forget_PPL')}; accepted={accepted}"
     )
-    if args.fail_if_target_missed and not accepted:
-        raise RuntimeError("No active-pair candidate passed every fixed gate")
     if args.require_atomic_gen_zero:
         atomic_gen = selected_extension["forget"].get("AtomicGen")
         if atomic_gen is None or float(atomic_gen) > 0.0:

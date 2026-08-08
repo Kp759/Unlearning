@@ -426,6 +426,61 @@ class ActivePairRepairTests(unittest.TestCase):
             subject.select_candidate(base, candidate_b, self._safe_scale()),
         )
 
+    def test_rejected_fail_fast_never_opens_held_out_evaluation(self) -> None:
+        args = SimpleNamespace(fail_if_target_missed=True)
+        with (
+            mock.patch.object(subject.baseline, "evaluate_extension") as atomic_gen,
+            mock.patch.object(subject, "_evaluate_multihop_post_selection") as multihop,
+            self.assertRaisesRegex(RuntimeError, "No active-pair candidate"),
+        ):
+            subject._evaluate_held_out_after_selection(
+                accepted=False,
+                args=args,
+                model=mock.Mock(),
+                tok=mock.Mock(),
+                records=mock.Mock(),
+                mquake_path=Path("data/MQuAKE-CF-3k-v2.json"),
+                wikidata_dir=Path("data/wikidata"),
+                split_manifest=Path("outputs/split_manifest.json"),
+                output_dir=Path("outputs/rejected"),
+            )
+        atomic_gen.assert_not_called()
+        multihop.assert_not_called()
+
+    def test_accepted_candidate_runs_both_held_out_evaluators(self) -> None:
+        args = SimpleNamespace(
+            fail_if_target_missed=True,
+            multihop_prompt_dir="data/mquake_prompts",
+        )
+        atomic_result = {"forget": {"AtomicGen": 0.0}}
+        multihop_result = {"results": {"standard": {}, "cot": {}}}
+        with (
+            mock.patch.object(
+                subject.baseline,
+                "evaluate_extension",
+                return_value=atomic_result,
+            ) as atomic_gen,
+            mock.patch.object(
+                subject,
+                "_evaluate_multihop_post_selection",
+                return_value=multihop_result,
+            ) as multihop,
+        ):
+            actual = subject._evaluate_held_out_after_selection(
+                accepted=True,
+                args=args,
+                model=mock.Mock(),
+                tok=mock.Mock(),
+                records=mock.Mock(),
+                mquake_path=Path("data/MQuAKE-CF-3k-v2.json"),
+                wikidata_dir=Path("data/wikidata"),
+                split_manifest=Path("outputs/split_manifest.json"),
+                output_dir=Path("outputs/accepted"),
+            )
+        self.assertEqual(actual, (atomic_result, multihop_result))
+        atomic_gen.assert_called_once()
+        multihop.assert_called_once()
+
     def test_default_retain_calibration_is_full_1000_instances(self) -> None:
         args = subject.build_parser().parse_args([])
         self.assertEqual(args.retain_calibration_num, 1000)
