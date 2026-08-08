@@ -42,16 +42,19 @@ python scripts/mquake_gagd_setting5e_multiroot_active_repair.py \
   --forget-margin 1.0 \
   --emb-lm-optimizer adamw \
   --sampling-strategy epoch \
+  --repair-mode active_pair \
   --repair-steps 600 \
   --repair-lr 2e-3 \
   --repair-optimizer adamw \
   --active-logit-margin 0.50 \
   --selection-logit-margin 0.10 \
+  --protected-logit-margin 0.0 \
+  --protected-logit-drift-weight 1.0 \
   --repair-rank 0 \
   --repair-l2-lambda 1e-6 \
   --retain-calibration-num 1000 \
   --retain-calibration-seed 1729 \
-  --project-away-protected-hidden \
+  --no-project-away-protected-hidden \
   --stop-when-all-satisfied \
   --candidate-scales "1.0,0.875,0.75,0.625,0.5,0.375,0.25,0.1875,0.125,0.09375,0.0625,0.046875,0.03125,0.015625,0.0078125,0.0" \
   --target-eff-max 0.0 \
@@ -62,10 +65,11 @@ python scripts/mquake_gagd_setting5e_multiroot_active_repair.py \
   --multihop-batch-size "${MULTIHOP_BATCH_SIZE}" \
   --dtype "${DTYPE}" \
   --device-map "${DEVICE_MAP}" \
+  --save-setting5-checkpoint \
   --save-selected-checkpoint \
   --fail-if-target-missed
 
-echo "MQuAKE multi-row Setting 5e run complete: ${OUT_ROOT}"
+echo "MQuAKE Setting 5e + protected active-pair repair run complete: ${OUT_ROOT}"
 echo "Main result: ${OUT_ROOT}/mquake_results.json"
 echo "Repair diagnostics: ${OUT_ROOT}/multirow_active_repair/repair_summary.json"
 echo "Multi-hop: ${OUT_ROOT}/multihop_unlearning_eval.json"

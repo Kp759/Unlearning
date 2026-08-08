@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import copy
 import sys
 import unittest
@@ -50,6 +49,46 @@ def cache(
     )
 
 
+def active_pair(
+    sensitive_id: int,
+    competitor_id: int,
+    *,
+    hidden: torch.Tensor | None = None,
+    sensitive_logit: float = 3.0,
+    competitor_logit: float = 1.0,
+    case_id: int = 1,
+) -> subject.ActivePairCache:
+    return subject.ActivePairCache(
+        case=case(case_id, sensitive_id),
+        hidden=torch.tensor([1.0, 0.0]) if hidden is None else hidden,
+        sensitive_token_id=sensitive_id,
+        competitor_token_id=competitor_id,
+        sensitive_base_logit=torch.tensor(sensitive_logit),
+        competitor_base_logit=torch.tensor(competitor_logit),
+    )
+
+
+def protected_state(
+    correct_id: int,
+    *,
+    row_ids: list[int],
+    correct_logit: float,
+    modified_logits: list[float],
+    hidden: torch.Tensor | None = None,
+    case_id: int = 1,
+) -> subject.ProtectedPairState:
+    return subject.ProtectedPairState(
+        case=case(case_id, correct_id),
+        hidden=torch.tensor([1.0, 0.0]) if hidden is None else hidden,
+        correct_token_id=correct_id,
+        correct_base_logit=torch.tensor(correct_logit),
+        modified_row_base_logits=torch.tensor(modified_logits),
+        correct_modified_row_index=(
+            row_ids.index(correct_id) if correct_id in row_ids else -1
+        ),
+    )
+
+
 class TinyTiedLM(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -72,39 +111,156 @@ class TinyTiedLM(nn.Module):
         return self.lm_head(self.transformer(self.embedding(ids)))
 
 
-class MultirowRepairTests(unittest.TestCase):
+class ActivePairRepairTests(unittest.TestCase):
     def test_repair_source_requests_only_rewrite_cloze_cases(self) -> None:
-        record = {
-            "requested_rewrite": {
+        class Guarded(dict):
+            def __init__(self, *args, forbidden=(), **kwargs):
+                super().__init__(*args, **kwargs)
+                self.forbidden = set(forbidden)
+
+            def __getitem__(self, key):
+                if key in self.forbidden:
+                    raise AssertionError(f"evaluation-only field was read: {key}")
+                return super().__getitem__(key)
+
+        rewrite = Guarded(
+            {
                 "prompt": "{} was born in",
                 "subject": "Person",
+                "target_true": {"str": "Place"},
                 "question": "Where was Person born?",
             },
-            "atomic_gen_prompt": "Where was Person born?",
-            "multihop_questions": ["Official q1", "Official q2", "Official q3"],
-        }
-        expected = [case(1)]
+            forbidden={"question", "target_new"},
+        )
+        record = Guarded(
+            {
+                "case_id": 1,
+                "requested_rewrite": rewrite,
+                "atomic_gen_prompt": "Where was Person born?",
+                "multihop_questions": ["Official q1", "Official q2", "Official q3"],
+                "answer": "Place",
+                "new_answer": "Elsewhere",
+            },
+            forbidden={
+                "atomic_gen_prompt",
+                "multihop_questions",
+                "answer",
+                "new_answer",
+            },
+        )
+        tok = mock.Mock()
+        tok.decode.side_effect = lambda ids: "" if not ids else "Place"
         with mock.patch.object(
-            subject.mquake, "expand_prediction_cases", return_value=expected
-        ) as expanded:
-            actual = subject.build_repair_cases([record], object(), llama_like=True)
-        self.assertEqual(actual, expected)
-        self.assertEqual(expanded.call_args.kwargs["prompt_types"], ("rewrite",))
+            subject.mquake, "original_answer_token_ids", return_value=[7]
+        ):
+            actual = subject.build_repair_cases([record], tok, llama_like=True)
+        self.assertEqual(len(actual), 1)
+        self.assertEqual(actual[0].prompt_type, "rewrite")
+        self.assertEqual(actual[0].prompt, "Person was born in")
 
-    def test_only_residual_sensitive_rows_are_trainable(self) -> None:
+    def test_only_exact_residual_failures_become_active(self) -> None:
         rows = [
             cache(11, correct=True),
             cache(12, correct=False),
-            cache(99, correct=True),
         ]
-        active = subject.residual_active_caches(rows, unknown_token_id=99)
+        active = subject.residual_active_caches(rows)
         self.assertEqual([row.target_token_id for row in active], [11])
-        self.assertEqual(subject.active_row_ids(rows, 99), [99, 11])
 
-    def test_shared_sensitive_token_has_one_delta_row(self) -> None:
-        rows = [cache(11, case_id=1), cache(11, case_id=2), cache(12, case_id=3)]
-        self.assertEqual(subject.active_row_ids(rows, 99), [99, 11, 12])
-        self.assertEqual(subject.constraints_per_sensitive_row(rows), {11: 2, 12: 1})
+    def test_preselection_records_withhold_all_evaluation_only_text(self) -> None:
+        records = [
+            {
+                "case_id": 1,
+                "mquake_case_id": 2,
+                "source_index": 3,
+                "rewrite_index": 0,
+                "requested_rewrite": {
+                    "prompt": "{} was born in",
+                    "subject": "Person",
+                    "target_true": {"str": "Place"},
+                    "target_new": {"str": "Unknown"},
+                    "mquake_target_new": {"str": "Counterfactual"},
+                    "question": "Held-out atomic question?",
+                },
+                "atomic_gen_prompt": "Held-out atomic question?",
+                "multihop_questions": ["Held-out multihop?"],
+                "multihop_answer": "Sensitive answer alias",
+                "multihop_new_answer": "Counterfactual alias",
+            }
+        ]
+        visible = subject.selection_visible_records(records)[0]
+        serialized = repr(visible)
+        self.assertNotIn("Held-out", serialized)
+        self.assertNotIn("Counterfactual", serialized)
+        self.assertNotIn("Sensitive answer alias", serialized)
+        self.assertEqual(
+            visible["atomic_gen_prompt"], "<withheld-until-post-selection>"
+        )
+
+    def test_trainable_rows_are_exact_union_of_pair_sides(self) -> None:
+        pairs = [active_pair(11, 20), active_pair(11, 21, case_id=2)]
+        self.assertEqual(subject.active_pair_row_ids(pairs), [11, 20, 21])
+
+    def test_shared_rows_use_one_joint_delta(self) -> None:
+        pairs = [active_pair(11, 20), active_pair(11, 21, case_id=2)]
+        sensitive, competitors = subject.active_pair_row_counts(pairs)
+        self.assertEqual(sensitive, {11: 2})
+        self.assertEqual(competitors, {20: 1, 21: 1})
+
+    def test_sensitive_row_delta_improves_exact_pair_margin(self) -> None:
+        pair = active_pair(1, 2)
+        row_ids = [1, 2]
+        delta = torch.tensor([[-1.0, 0.0], [0.0, 0.0]])
+        self.assertEqual(
+            subject.active_pair_margins([pair], delta, row_ids).item(), -1.0
+        )
+
+    def test_competitor_row_delta_improves_exact_pair_margin(self) -> None:
+        pair = active_pair(1, 2)
+        row_ids = [1, 2]
+        delta = torch.tensor([[0.0, 0.0], [1.0, 0.0]])
+        self.assertEqual(
+            subject.active_pair_margins([pair], delta, row_ids).item(), -1.0
+        )
+
+    def test_both_pair_rows_are_optimized_in_the_same_margin(self) -> None:
+        pair = active_pair(1, 2)
+        row_ids = [1, 2]
+        delta = torch.tensor([[-1.0, 0.0], [1.0, 0.0]])
+        self.assertEqual(
+            subject.active_pair_margins([pair], delta, row_ids).item(), 0.0
+        )
+        self.assertEqual(
+            subject.active_pair_squared_hinge_loss(
+                torch.tensor([0.5]), 0.5
+            ).item(),
+            0.0,
+        )
+
+    def test_same_row_may_participate_in_multiple_pairs(self) -> None:
+        pairs = [active_pair(1, 2), active_pair(3, 2, case_id=2)]
+        row_ids = [1, 2, 3]
+        delta = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 0.0]])
+        margins = subject.active_pair_margins(pairs, delta, row_ids)
+        self.assertTrue(torch.equal(margins, torch.tensor([-1.0, -1.0])))
+
+    def test_competitor_can_be_sensitive_in_another_pair(self) -> None:
+        pairs = [active_pair(1, 2), active_pair(2, 3, case_id=2)]
+        self.assertEqual(subject.active_pair_row_ids(pairs), [1, 2, 3])
+        sensitive, competitors = subject.active_pair_row_counts(pairs)
+        self.assertEqual((sensitive[2], competitors[2]), (1, 1))
+
+    def test_unknown_has_no_special_repair_behavior(self) -> None:
+        unknown_id = 99
+        pairs = [active_pair(1, 2)]
+        self.assertNotIn(unknown_id, subject.active_pair_row_ids(pairs))
+        natural_pair = [active_pair(1, unknown_id)]
+        self.assertIn(unknown_id, subject.active_pair_row_ids(natural_pair))
+
+    def test_runner_up_excludes_only_the_sensitive_row(self) -> None:
+        # Token 3 can be a sensitive/modified row for another case; it must
+        # still remain eligible as this case's true current runner-up.
+        logits = torch.tensor([0.0, 9.0, 7.0, 8.0, 6.0])
+        self.assertEqual(subject.true_runner_up_token_id(logits, 1), 3)
 
     def _frozen_tiny_model(self):
         torch.manual_seed(2)
@@ -131,11 +287,59 @@ class MultirowRepairTests(unittest.TestCase):
         self.assertTrue(all(not parameter.requires_grad for parameter in model.parameters()))
 
     def test_protected_logit_drift_is_penalized(self) -> None:
-        protected = [cache(4, hidden=torch.tensor([1.0, 0.0]))]
+        row_ids = [1, 2]
+        protected = [
+            protected_state(
+                4,
+                row_ids=row_ids,
+                correct_logit=3.0,
+                modified_logits=[1.0, 2.0],
+            )
+        ]
         zero = torch.zeros((2, 2))
         drift = torch.tensor([[2.0, 0.0], [1.0, 0.0]])
         self.assertEqual(subject.protected_logit_drift_loss(zero, protected).item(), 0.0)
         self.assertGreater(subject.protected_logit_drift_loss(drift, protected).item(), 0.0)
+
+    def test_protected_pair_margin_with_unmodified_correct_row(self) -> None:
+        row_ids = [1, 2]
+        state = protected_state(
+            9,
+            row_ids=row_ids,
+            correct_logit=3.0,
+            modified_logits=[1.0, 2.0],
+        )
+        delta = torch.tensor([[0.5, 0.0], [-0.5, 0.0]])
+        margins = subject.protected_pair_margins([state], delta, row_ids)
+        self.assertTrue(torch.equal(margins, torch.tensor([1.5, 1.5])))
+
+    def test_protected_pair_margin_includes_modified_correct_row(self) -> None:
+        row_ids = [1, 2]
+        state = protected_state(
+            1,
+            row_ids=row_ids,
+            correct_logit=3.0,
+            modified_logits=[3.0, 2.0],
+        )
+        delta = torch.tensor([[0.5, 0.0], [0.25, 0.0]])
+        margins = subject.protected_pair_margins([state], delta, row_ids)
+        self.assertTrue(torch.equal(margins, torch.tensor([1.25])))
+
+    def test_protected_pair_margin_includes_modified_competitor_row(self) -> None:
+        row_ids = [1, 2]
+        state = protected_state(
+            9,
+            row_ids=row_ids,
+            correct_logit=3.0,
+            modified_logits=[1.0, 2.0],
+        )
+        delta = torch.tensor([[0.0, 0.0], [2.0, 0.0]])
+        margins = subject.protected_pair_margins([state], delta, row_ids)
+        self.assertTrue(torch.equal(margins, torch.tensor([2.0, -1.0])))
+        self.assertGreater(
+            subject.protected_pair_squared_hinge_loss(margins, 0.0).item(),
+            0.0,
+        )
 
     def _scaled_rows(self):
         weight = torch.arange(20, dtype=torch.float32).reshape(5, 4)
@@ -169,8 +373,9 @@ class MultirowRepairTests(unittest.TestCase):
     def _safe_scale():
         return {
             "active_correct_tokens": 0,
-            "active_margin_violations": 0,
+            "active_pair_margin_violations": 0,
             "protected_incremental_regressions_vs_zero": 0,
+            "protected_pair_margin_violations": 0,
         }
 
     def test_candidate_requires_exactly_zero_eff(self) -> None:
@@ -179,6 +384,25 @@ class MultirowRepairTests(unittest.TestCase):
         )
         self.assertFalse(report["accepted"])
         self.assertFalse(report["checks"]["forget_Eff_exactly_zero"])
+
+    def test_candidate_uses_fixed_base_retain_and_ppl_gates(self) -> None:
+        base = self._result(50.0, retain=90.0, ppl=10.0)
+        retain_failure = subject.select_candidate(
+            base, self._result(0.0, retain=89.899, ppl=10.0), self._safe_scale()
+        )
+        ppl_failure = subject.select_candidate(
+            base, self._result(0.0, retain=90.0, ppl=10.201), self._safe_scale()
+        )
+        self.assertFalse(retain_failure["checks"]["retain_Eff_within_base_tolerance"])
+        self.assertFalse(ppl_failure["checks"]["PPL_within_base_ratio"])
+
+    def test_protected_regression_rejects_candidate(self) -> None:
+        scale = self._safe_scale()
+        scale["protected_incremental_regressions_vs_zero"] = 1
+        report = subject.select_candidate(
+            self._result(50.0), self._result(0.0), scale
+        )
+        self.assertFalse(report["accepted"])
 
     def test_atomic_gen_cannot_affect_selection(self) -> None:
         base = self._result(50.0)
@@ -205,6 +429,24 @@ class MultirowRepairTests(unittest.TestCase):
     def test_default_retain_calibration_is_full_1000_instances(self) -> None:
         args = subject.build_parser().parse_args([])
         self.assertEqual(args.retain_calibration_num, 1000)
+        self.assertEqual(args.repair_mode, "active_pair")
+        self.assertFalse(args.project_away_protected_hidden)
+
+    def test_aggressive_setting5e_parameters_are_pinned(self) -> None:
+        args = subject.build_parser().parse_args([])
+        subject.validate_args(args)
+        args.steps = 599
+        with self.assertRaisesRegex(ValueError, "Setting 5e"):
+            subject.validate_args(args)
+
+    def test_canonical_launcher_uses_active_pair_not_sparse_prototype(self) -> None:
+        launcher = (
+            SCRIPTS / "run_mquake_setting5e_multiroot_active_repair.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--steps 600", launcher)
+        self.assertIn("--repair-mode active_pair", launcher)
+        self.assertIn("--no-project-away-protected-hidden", launcher)
+        self.assertNotIn("mquake_exact_sparse_row_repair.py", launcher)
 
     def test_retain_calibration_keeps_all_atoms_of_sampled_instances(self) -> None:
         records = [
