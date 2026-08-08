@@ -1,0 +1,136 @@
+record_name: tofu_fullutility_final_configs_20260808
+record_date: 2026-08-08
+seed: 42
+calibration_seed: 2718
+
+reference_model: outputs/tofu_full_utility_sweep_v7/lr4e-5_epochs6_slurm/checkpoint_epoch_5
+reference_model_selection:
+  learning_rate: 4.0e-5
+  selected_epoch: 5
+
+repair_script: scripts/tofu_gagd_active_forget_repair_finalgate.py
+
+shared:
+  target_forget_answer_probability: 3.0e-4
+  target_nll_buffer: 0.25
+  final_min_utility_probability_ratio: 0.9998
+  utility_constraint_mode: aggregate
+  utility_reference_policy: reference
+  forget_hinge_weight: 100.0
+  delta_l2_lambda: 1.0e-5
+  optimizer: adamw
+  batch_size: 8
+  max_length: 256
+  log_every: 10
+  comparison_tolerance: 1.0e-6
+  materialization_relative_tolerance: 2.0e-6
+  dtype: bf16
+  device_map: single
+  require_input_retain_target: true
+  project_away_utility_hidden: true
+  require_utility_constraints: true
+  stop_when_all_satisfied: true
+  save_best_effort: false
+  save_model: true
+  real_authors_calibration_num: 100
+  world_facts_calibration_num: 117
+
+runs:
+  f01:
+    forget_split: forget01
+    retain_split: retain99
+    forget_num: 40
+    retain_num: 3960
+    retain_calibration_num: 3960
+    input_checkpoint: outputs/tofu_success_recipe_on_full4e5_v1/f01/setting5e/checkpoint
+    output_checkpoint: outputs/tofu_final_fullutility_v2/f01/active_repair/checkpoint
+    repair_summary: outputs/tofu_final_fullutility_v2/f01/active_repair/repair_summary.json
+    optimization_min_utility_probability_ratio: 0.999802
+    hardest_forget_hinge_weight: 25.0
+    utility_hinge_weight: 10.0
+    repair_steps: 5000
+    repair_lr: 0.02
+    repair_rank: 64
+    utility_projection_rank: 64
+    basis_max_rows: 2048
+    result:
+      status: PASS
+      best_step: 564
+      active_forget_after: 0
+      forget_answer_probability_mean: 7.384817581623793e-05
+      forget_answer_probability_max: 2.353683958062902e-04
+      retain_probability_ratio: 0.9998026490211487
+      real_authors_probability_ratio: 0.9998013973236084
+      world_facts_probability_ratio: 0.9999599456787109
+      full_retain_probability_ratio: 0.9998023358370192
+      full_evaluator_status: PENDING
+
+  f05:
+    forget_split: forget05
+    retain_split: retain95
+    forget_num: 200
+    retain_num: 3800
+    retain_calibration_num: 3800
+    input_checkpoint: outputs/tofu_success_recipe_on_full4e5_v1/f05/setting5e/checkpoint
+    output_checkpoint: outputs/tofu_final_fullutility_v2/f05/active_repair/checkpoint
+    repair_summary: outputs/tofu_final_fullutility_v2/f05/active_repair/repair_summary.json
+    evaluation: outputs/tofu_final_fullutility_v2/f05/eval_final/fullutility_final_f05_summary.json
+    optimization_min_utility_probability_ratio: 0.999802
+    hardest_forget_hinge_weight: 25.0
+    utility_hinge_weight: 10.0
+    repair_steps: 5000
+    repair_lr: 0.02
+    repair_rank: 64
+    utility_projection_rank: 64
+    basis_max_rows: 2048
+    result:
+      status: PASS
+      best_step: 3396
+      active_forget_after: 0
+      forget_answer_probability_mean: 6.387264147633687e-05
+      forget_answer_probability_max: 2.3592391517013311e-04
+      retain_probability_ratio: 0.9998035430908203
+      real_authors_probability_ratio: 0.9998438954353333
+      world_facts_probability_ratio: 0.9998476505279541
+      full_retain_probability_ratio: 0.9998029340343231
+      full_evaluator_status: PASS
+
+  f10:
+    forget_split: forget10
+    retain_split: retain90
+    forget_num: 400
+    retain_num: 3600
+    retain_calibration_num: 3600
+    input_checkpoint: outputs/tofu_success_recipe_on_full4e5_v1/f10/setting5e/checkpoint
+    output_checkpoint: outputs/tofu_final_fullutility_f10_final/active_repair/checkpoint
+    repair_summary: outputs/tofu_final_fullutility_f10_final/active_repair/repair_summary.json
+    evaluation: outputs/tofu_final_fullutility_f10_final/eval_final/fullutility_final_f10_summary.json
+    combined_report: outputs/tofu_final_fullutility_f10_final/final_report.json
+    optimization_min_utility_probability_ratio: 0.999815
+    hardest_forget_hinge_weight: 50.0
+    utility_hinge_weight: 50.0
+    repair_steps: 10000
+    repair_lr: 0.005
+    repair_rank: 128
+    utility_projection_rank: 128
+    basis_max_rows: 4096
+    result:
+      status: PASS
+      full_evaluator_status: PASS
+      forget_answer_prob: 6.49062456e-05
+      forget_truth_ratio: 0.389179362
+      forget_rougeL_recall: 0.0380052629
+      retain_answer_prob: 0.988521509
+      retain_answer_prob_ratio_to_baseline: 0.9998095869889359
+      retain_truth_ratio: 0.55335981
+      retain_rougeL_recall: 0.990001361
+      real_authors_normalized_answer_prob: 0.737271352
+      real_authors_truth_ratio: 0.877209421
+      world_facts_normalized_answer_prob: 0.717929427
+      world_facts_truth_ratio: 0.883249411
+
+notes:
+  - Local repair probability ratios are not the same metric as absolute tofu_eval.py answer probabilities.
+  - F01 full tofu_eval.py evaluation is pending and must be completed before a homogeneous F01/F05/F10 full-evaluation paper table is claimed.
+  - Forget Truth Ratio is not near zero and should not be described as such.
+  - The final scientific utility threshold remains 0.9998; the larger optimization thresholds are numerical headroom, not relaxed reporting criteria.
