@@ -45,6 +45,7 @@ runs:
     input_checkpoint: outputs/tofu_success_recipe_on_full4e5_v1/f01/setting5e/checkpoint
     output_checkpoint: outputs/tofu_final_fullutility_v2/f01/active_repair/checkpoint
     repair_summary: outputs/tofu_final_fullutility_v2/f01/active_repair/repair_summary.json
+    evaluation: outputs/tofu_final_fullutility_v2/f01/eval_final/fullutility_final_f01_summary.json
     optimization_min_utility_probability_ratio: 0.999802
     hardest_forget_hinge_weight: 25.0
     utility_hinge_weight: 10.0
@@ -63,7 +64,17 @@ runs:
       real_authors_probability_ratio: 0.9998013973236084
       world_facts_probability_ratio: 0.9999599456787109
       full_retain_probability_ratio: 0.9998023358370192
-      full_evaluator_status: PENDING
+      full_evaluator_status: PASS
+      forget_answer_prob: 0.000074
+      forget_truth_ratio: 0.370591
+      forget_rougeL_recall: 0.021873
+      retain_answer_prob: 0.988549
+      retain_truth_ratio: 0.545852
+      retain_rougeL_recall: 0.989718
+      real_authors_normalized_answer_prob: 0.725967
+      real_authors_truth_ratio: 0.868330
+      world_facts_normalized_answer_prob: 0.715407
+      world_facts_truth_ratio: 0.882108
 
   f05:
     forget_split: forget05
@@ -131,6 +142,8 @@ runs:
 
 notes:
   - Local repair probability ratios are not the same metric as absolute tofu_eval.py answer probabilities.
-  - F01 full tofu_eval.py evaluation is pending and must be completed before a homogeneous F01/F05/F10 full-evaluation paper table is claimed.
+  - F01, F05, and F10 now all have the same complete project-local tofu_eval.py evaluation, so a homogeneous cross-split full-evaluation table can be reported.
+  - F01 full-evaluator metrics recorded here use the six-decimal values printed by tofu_eval.py; the local summary JSON remains the exact evaluation artifact.
   - Forget Truth Ratio is not near zero and should not be described as such.
+  - Benchmark-official TOFU Forget Quality / KS still requires the corresponding oracle or retain-only reference comparison.
   - The final scientific utility threshold remains 0.9998; the larger optimization thresholds are numerical headroom, not relaxed reporting criteria.
