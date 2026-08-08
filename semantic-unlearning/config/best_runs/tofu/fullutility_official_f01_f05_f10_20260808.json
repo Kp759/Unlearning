@@ -14,7 +14,7 @@
     "utility_reference_policy": "reference",
     "materialization_dtype": "bf16"
   },
-  "evaluation_note": "Local repair probability ratios and tofu_eval.py absolute metrics are distinct. F01 full tofu_eval evaluation is pending in this record; do not fabricate or mix metric families.",
+  "evaluation_note": "Local repair probability ratios and tofu_eval.py absolute metrics are distinct. F01, F05, and F10 now all have complete project-local tofu_eval.py evaluation records. Benchmark-official TOFU Forget Quality / KS still requires the oracle or retain-only reference comparison.",
   "splits": {
     "f01": {
       "forget_split": "forget01",
@@ -23,8 +23,9 @@
       "retain_count": 3960,
       "checkpoint": "outputs/tofu_final_fullutility_v2/f01/active_repair/checkpoint",
       "repair_summary": "outputs/tofu_final_fullutility_v2/f01/active_repair/repair_summary.json",
+      "evaluation": "outputs/tofu_final_fullutility_v2/f01/eval_final/fullutility_final_f01_summary.json",
       "local_status": "PASS",
-      "full_evaluator_status": "PENDING",
+      "full_evaluator_status": "PASS",
       "local_repair": {
         "best_step": 564,
         "active_forget_after": 0,
@@ -48,7 +49,19 @@
         "forget_rougeL_recall": 0.999091,
         "retain_rougeL_recall": 0.989818
       },
-      "final_full_eval": null
+      "final_full_eval": {
+        "forget_answer_prob": 0.000074,
+        "forget_truth_ratio": 0.370591,
+        "forget_rougeL_recall": 0.021873,
+        "retain_answer_prob": 0.988549,
+        "retain_truth_ratio": 0.545852,
+        "retain_rougeL_recall": 0.989718,
+        "real_authors_normalized_answer_prob": 0.725967,
+        "real_authors_truth_ratio": 0.868330,
+        "world_facts_normalized_answer_prob": 0.715407,
+        "world_facts_truth_ratio": 0.882108,
+        "source_precision": "six-decimal console output; exact values remain in the local summary JSON"
+      }
     },
     "f05": {
       "forget_split": "forget05",
@@ -137,7 +150,7 @@
   "reporting_constraints": [
     "Do not describe forget Truth Ratio as near zero.",
     "Do not mix local reference probability ratios with absolute tofu_eval.py answer probabilities.",
-    "F01 needs the same full evaluator before a homogeneous F01/F05/F10 full-evaluation paper table is claimed.",
+    "A homogeneous project-local F01/F05/F10 full-evaluation table may now be reported because all three splits have completed tofu_eval.py evaluation.",
     "Benchmark-official TOFU Forget Quality / KS requires the oracle or retain-only comparison when applicable."
   ]
 }
