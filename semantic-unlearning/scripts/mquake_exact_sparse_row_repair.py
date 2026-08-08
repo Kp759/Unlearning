@@ -288,13 +288,15 @@ def main():
         batch_size=args.batch_size,
     )
     active_forget = [row for row in forget_cache if row["correct"]]
+    # To guarantee Eff=0 after simultaneously editing many rows, constrain every
+    # evaluated sensitive target row, not only rows that are active at Base.
     row_ids = sorted({
         row["target_id"]
-        for row in active_forget
+        for row in forget_cache
         if row["target_id"] != neutral_id
     })
     if not row_ids:
-        raise RuntimeError("No active sensitive rows remain")
+        raise RuntimeError("No sensitive target rows found")
 
     row_set = set(row_ids)
     row_tensor = torch.tensor(row_ids, dtype=torch.long, device=device)
@@ -302,19 +304,16 @@ def main():
     hidden_size = int(output_weight.shape[1])
     constraints = defaultdict(list)
 
-    # Exact efficacy constraints. Unknown is fixed; only the sensitive row moves.
+    # Exact efficacy constraints for every evaluated forget token. Unknown is
+    # fixed, so satisfying these inequalities directly implies Eff=0:
+    # sensitive_logit_after <= Unknown_logit - margin.
     for row in forget_cache:
         token_id = row["target_id"]
         if token_id not in row_set:
             continue
         h = row["hidden"]
-        if row["correct"]:
-            # target + h@delta <= Unknown - margin
-            bound = row["neutral_logit"] - row["target_logit"] - args.forget_margin
-            _add(constraints, token_id, h, bound, "forget_below_unknown")
-        else:
-            # An already-forgotten token must never be reactivated.
-            _add(constraints, token_id, h, 0.0, "forget_no_reactivation")
+        bound = row["neutral_logit"] - row["target_logit"] - args.forget_margin
+        _add(constraints, token_id, h, bound, "forget_below_unknown")
 
     retain = _retain_cache(
         model,
