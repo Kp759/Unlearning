@@ -1,0 +1,143 @@
+{
+  "record_name": "tofu_fullutility_official_f01_f05_f10_20260808",
+  "record_date": "2026-08-08",
+  "seed": 42,
+  "reference_model": "outputs/tofu_full_utility_sweep_v7/lr4e-5_epochs6_slurm/checkpoint_epoch_5",
+  "reference_model_selection": {
+    "learning_rate": 0.00004,
+    "selected_epoch": 5
+  },
+  "scientific_gates": {
+    "forget_answer_probability_max": 0.0003,
+    "final_materialized_utility_probability_ratio_min": 0.9998,
+    "utility_constraint_mode": "aggregate",
+    "utility_reference_policy": "reference",
+    "materialization_dtype": "bf16"
+  },
+  "evaluation_note": "Local repair probability ratios and tofu_eval.py absolute metrics are distinct. F01 full tofu_eval evaluation is pending in this record; do not fabricate or mix metric families.",
+  "splits": {
+    "f01": {
+      "forget_split": "forget01",
+      "retain_split": "retain99",
+      "forget_count": 40,
+      "retain_count": 3960,
+      "checkpoint": "outputs/tofu_final_fullutility_v2/f01/active_repair/checkpoint",
+      "repair_summary": "outputs/tofu_final_fullutility_v2/f01/active_repair/repair_summary.json",
+      "local_status": "PASS",
+      "full_evaluator_status": "PENDING",
+      "local_repair": {
+        "best_step": 564,
+        "active_forget_after": 0,
+        "forget_answer_probability_mean": 0.00007384817581623793,
+        "forget_answer_probability_max": 0.0002353683958062902,
+        "retain_probability_ratio": 0.9998026490211487,
+        "real_authors_probability_ratio": 0.9998013973236084,
+        "world_facts_probability_ratio": 0.9999599456787109,
+        "full_retain_probability_ratio": 0.9998023358370192,
+        "checkpoint_saved": true
+      },
+      "baseline_full_eval": {
+        "forget_answer_prob": 0.991081,
+        "retain_answer_prob": 0.988739,
+        "forget_truth_ratio": 0.493958,
+        "retain_truth_ratio": 0.545136,
+        "real_authors_truth_ratio": 0.864981,
+        "world_facts_truth_ratio": 0.880273,
+        "real_authors_normalized_answer_prob": 0.722977,
+        "world_facts_normalized_answer_prob": 0.714694,
+        "forget_rougeL_recall": 0.999091,
+        "retain_rougeL_recall": 0.989818
+      },
+      "final_full_eval": null
+    },
+    "f05": {
+      "forget_split": "forget05",
+      "retain_split": "retain95",
+      "forget_count": 200,
+      "retain_count": 3800,
+      "checkpoint": "outputs/tofu_final_fullutility_v2/f05/active_repair/checkpoint",
+      "repair_summary": "outputs/tofu_final_fullutility_v2/f05/active_repair/repair_summary.json",
+      "evaluation": "outputs/tofu_final_fullutility_v2/f05/eval_final/fullutility_final_f05_summary.json",
+      "local_status": "PASS",
+      "full_evaluator_status": "PASS",
+      "local_repair": {
+        "best_step": 3396,
+        "active_forget_after": 0,
+        "forget_answer_probability_mean": 0.00006387264147633687,
+        "forget_answer_probability_max": 0.00023592391517013311,
+        "retain_probability_ratio": 0.9998035430908203,
+        "real_authors_probability_ratio": 0.9998438954353333,
+        "world_facts_probability_ratio": 0.9998476505279541,
+        "full_retain_probability_ratio": 0.9998029340343231,
+        "checkpoint_saved": true
+      },
+      "baseline_full_eval": {
+        "forget_answer_prob": 0.989575,
+        "retain_answer_prob": 0.988720,
+        "forget_truth_ratio": 0.462503,
+        "retain_truth_ratio": 0.545136,
+        "real_authors_truth_ratio": 0.864981,
+        "world_facts_truth_ratio": 0.880273,
+        "real_authors_normalized_answer_prob": 0.722977,
+        "world_facts_normalized_answer_prob": 0.714694,
+        "forget_rougeL_recall": 0.987769,
+        "retain_rougeL_recall": 0.990023
+      },
+      "final_full_eval": {
+        "forget_answer_prob": 0.00006474142263271326,
+        "forget_truth_ratio": 0.41508207853604207,
+        "forget_rougeL_recall": 0.04335446835522295,
+        "retain_answer_prob": 0.9885777537693319,
+        "retain_truth_ratio": 0.5492205159013261,
+        "retain_rougeL_recall": 0.9903885571197951,
+        "real_authors_normalized_answer_prob": 0.7330310477491317,
+        "real_authors_truth_ratio": 0.8746510031718766,
+        "world_facts_normalized_answer_prob": 0.7169889014923924,
+        "world_facts_truth_ratio": 0.8821236806025088
+      }
+    },
+    "f10": {
+      "forget_split": "forget10",
+      "retain_split": "retain90",
+      "forget_count": 400,
+      "retain_count": 3600,
+      "checkpoint": "outputs/tofu_final_fullutility_f10_final/active_repair/checkpoint",
+      "repair_summary": "outputs/tofu_final_fullutility_f10_final/active_repair/repair_summary.json",
+      "evaluation": "outputs/tofu_final_fullutility_f10_final/eval_final/fullutility_final_f10_summary.json",
+      "combined_report": "outputs/tofu_final_fullutility_f10_final/final_report.json",
+      "local_status": "PASS",
+      "full_evaluator_status": "PASS",
+      "baseline_full_eval": {
+        "forget_answer_prob": 0.989239909,
+        "forget_truth_ratio": 0.462889826,
+        "forget_rougeL_recall": 0.987487212,
+        "retain_answer_prob": 0.988709772,
+        "retain_truth_ratio": 0.545135884,
+        "retain_rougeL_recall": 0.990179829,
+        "real_authors_normalized_answer_prob": 0.722976848,
+        "real_authors_truth_ratio": 0.864980804,
+        "world_facts_normalized_answer_prob": 0.714693619,
+        "world_facts_truth_ratio": 0.880273285
+      },
+      "final_full_eval": {
+        "forget_answer_prob": 0.0000649062456,
+        "forget_truth_ratio": 0.389179362,
+        "forget_rougeL_recall": 0.0380052629,
+        "retain_answer_prob": 0.988521509,
+        "retain_truth_ratio": 0.55335981,
+        "retain_rougeL_recall": 0.990001361,
+        "real_authors_normalized_answer_prob": 0.737271352,
+        "real_authors_truth_ratio": 0.877209421,
+        "world_facts_normalized_answer_prob": 0.717929427,
+        "world_facts_truth_ratio": 0.883249411,
+        "retain_answer_prob_ratio_to_baseline": 0.9998095869889359
+      }
+    }
+  },
+  "reporting_constraints": [
+    "Do not describe forget Truth Ratio as near zero.",
+    "Do not mix local reference probability ratios with absolute tofu_eval.py answer probabilities.",
+    "F01 needs the same full evaluator before a homogeneous F01/F05/F10 full-evaluation paper table is claimed.",
+    "Benchmark-official TOFU Forget Quality / KS requires the oracle or retain-only comparison when applicable."
+  ]
+}
