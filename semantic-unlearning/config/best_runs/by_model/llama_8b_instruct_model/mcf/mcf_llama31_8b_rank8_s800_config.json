@@ -1,0 +1,95 @@
+{
+  "experiment_name": "mcf_llama31_8b_rank8_s800_final",
+  "status": "official_best_run",
+
+  "model": {
+    "name": "meta-llama/Llama-3.1-8B-Instruct",
+    "snapshot": "0e9e39f249a16976918f6564b8830bc894c89659",
+    "dtype": "bf16",
+    "device_map": "single"
+  },
+
+  "dataset": {
+    "name": "MultiCounterFact",
+    "sample_mode": "official",
+    "forget_num": 50,
+    "retain_num": 1000,
+    "seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  },
+
+  "setting5e": {
+    "steps": 600,
+    "batch_size": 1,
+    "retain_batch_size": 4,
+    "emb_lm_lr": 0.0001,
+
+    "forget_loss_type": "mcf_margin",
+    "forget_margin": 1.0,
+    "forget_weight": 2.0,
+    "retain_weight": 1.0,
+
+    "sampling_strategy": "epoch",
+
+    "post_training_new_true_alpha": 0.75,
+    "post_training_new_retain_alpha": 0.50,
+    "post_training_new_true_retain_alpha": 0.25
+  },
+
+  "active_repair": {
+    "active_margin": 0.25,
+
+    "repair_rank": 8,
+    "repair_steps_max": 800,
+    "repair_lr": 0.003,
+    "repair_optimizer": "adamw",
+
+    "hinge_weight": 2.0,
+    "delta_l2_lambda": 0.0001,
+
+    "retain_kl_mu": 0.1,
+    "retain_calibration_num": 200,
+
+    "project_away_retain_hidden": true,
+
+    "early_stopping": {
+      "enabled": true,
+      "criterion": "all_training_prompt_instances_satisfied"
+    }
+  },
+
+  "strict_post_reload_gate": {
+    "require_checkpoint_reload": true,
+    "max_forget_eff": 0.0,
+    "max_forget_gen": 0.0,
+    "min_reloaded_forget_margin": 0.10
+  },
+
+  "official_result": {
+    "strict_passes": 10,
+    "total_seeds": 10,
+    "strict_pass_rate": 1.0,
+
+    "mean_eff": 0.0,
+    "mean_gen": 0.0,
+
+    "mean_Spe": 16.319,
+    "mean_PPL": 10.800,
+
+    "mean_post_reload_margin": 0.300,
+    "minimum_post_reload_margin": 0.125,
+
+    "mean_repair_steps": 25.2,
+    "median_repair_steps": 19.5,
+    "minimum_repair_steps": 4,
+    "maximum_repair_steps": 49,
+
+    "initially_active_prompt_instances": 107,
+    "active_prompt_instances_after_repair": 0,
+    "newly_activated_prompt_instances": 0
+  },
+
+  "provenance": {
+    "raw_output_root": "outputs/crossmodel/llama31_8b/mcf_official_10seed_margin025_rank8_s800_final",
+    "slurm_script": "run_mcf_llama31_8b_rank8_s800_final.slurm"
+  }
+}
