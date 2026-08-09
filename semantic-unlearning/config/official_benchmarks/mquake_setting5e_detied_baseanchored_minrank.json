@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "configuration_id": "mquake_setting5e_detied_baseanchored_minrank_seed0",
+  "status": "EXPERIMENTAL_PENDING_EVALUATION",
+  "method": "Setting 5e + de-tied Base-anchored minimal-rank repair",
+  "dataset": "MQuAKE-CF-3k-v2",
+  "dataset_revision": "fb43dadc2d8cd19d08ce81c63d957b59deb3f3cd",
+  "seed": 0,
+  "sampling": {
+    "forget_instances": 1000,
+    "retain_instances": 1000,
+    "forget_pool": "second half",
+    "retain_pool": "first half",
+    "sample_instances_before_flattening": true,
+    "forget_sampling": "instance_balanced"
+  },
+  "setting5e": {
+    "steps": 600,
+    "batch_size": 1,
+    "retain_batch_size": 4,
+    "emb_lm_lr": 0.0001,
+    "forget_weight": 2.0,
+    "retain_weight": 1.0,
+    "forget_margin": 1.0,
+    "optimizer": "adamw",
+    "sampling_strategy": "epoch"
+  },
+  "detie": {
+    "input_embeddings": "restore complete frozen Base matrix exactly",
+    "output_head_start": "preserve complete Setting5 matrix exactly for diagnostic",
+    "candidate_origin": "restore complete Base output matrix before sparse repair",
+    "save_reload_tie_word_embeddings": false
+  },
+  "repair": {
+    "parameterization": "W_candidate[selected] = W_base[selected] + A @ B_rank",
+    "rank_start": 2,
+    "rank_max": 0,
+    "rank_max_meaning": "all numerically available directions in one ordered basis",
+    "rank_continuation": "2,3,4,... with exact coefficient warm starts",
+    "active_logit_margin": 0.25,
+    "selection_logit_margin": 0.1,
+    "protected_logit_margin": 0.0,
+    "base_anchored_retain_constraints": true,
+    "exact_selected_row_ppl_constraint": true,
+    "dynamic_constraint_generation": true,
+    "solver": {
+      "kind": "deterministic primal-dual augmented feasibility with coefficient-only Adam updates",
+      "steps_per_phase": 1000,
+      "learning_rate": 0.005,
+      "rho": 1.0,
+      "feasibility_tolerance": 0.000001,
+      "stall_patience": 100,
+      "minimum_improvement": 0.0000001
+    }
+  },
+  "acceptance_gates": {
+    "forget_Eff": 0.0,
+    "retain_Eff_minimum": "Base RetainEff - 0.10 percentage points",
+    "PPL_maximum": "Base PPL * 1.02",
+    "protected_incremental_regressions": 0,
+    "automatic_relaxation": false
+  },
+  "firewall": {
+    "preselection": "sampled requested_rewrite cloze prompts only",
+    "postselection_only": [
+      "requested_rewrite.question",
+      "AtomicGen",
+      "record questions[0:3]",
+      "answer/new_answer aliases",
+      "standard multi-hop",
+      "CoT multi-hop"
+    ],
+    "raw_counterfactual_target_new_used_for_training": false
+  },
+  "claim_status": "Do not call this accepted or first-feasible until a real GPU run passes every fixed gate."
+}
