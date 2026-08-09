@@ -65,6 +65,29 @@ class ProtectedPairState:
     correct_modified_row_index: int
 
 
+@dataclass(frozen=True)
+class ActivePairTensors:
+    """Active-pair data packed once on the optimization device."""
+
+    hidden: torch.Tensor
+    base_margin: torch.Tensor
+    sensitive_row_index: torch.Tensor
+    competitor_row_index: torch.Tensor
+    hidden_rank: Optional[torch.Tensor] = None
+
+
+@dataclass(frozen=True)
+class ProtectedPairTensors:
+    """Protected retain-pair data packed once on the optimization device."""
+
+    hidden: torch.Tensor
+    base_modified_logits: torch.Tensor
+    correct_base: torch.Tensor
+    correct_modified_row_index: torch.Tensor
+    competitor_mask: torch.Tensor
+    hidden_rank: Optional[torch.Tensor] = None
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = baseline.build_parser()
     parser.description = __doc__
@@ -468,32 +491,114 @@ def freeze_model_for_multirow_repair(model: nn.Module) -> nn.Module:
     return active.freeze_model_for_output_repair(model)
 
 
+def prepare_active_pair_tensors(
+    pairs: Sequence[ActivePairCache],
+    row_ids: Sequence[int],
+    *,
+    device: torch.device,
+    direction_basis: Optional[torch.Tensor] = None,
+) -> ActivePairTensors:
+    """Resolve row IDs and move active-pair data to the device exactly once."""
+
+    hidden_size = int(pairs[0].hidden.numel()) if pairs else 0
+    if not pairs:
+        hidden = torch.empty((0, hidden_size), dtype=torch.float32, device=device)
+        empty_float = torch.empty((0,), dtype=torch.float32, device=device)
+        empty_long = torch.empty((0,), dtype=torch.long, device=device)
+        hidden_rank = (
+            hidden @ direction_basis.to(device=device, dtype=torch.float32).T
+            if direction_basis is not None
+            else None
+        )
+        return ActivePairTensors(
+            hidden=hidden,
+            base_margin=empty_float,
+            sensitive_row_index=empty_long,
+            competitor_row_index=empty_long,
+            hidden_rank=hidden_rank,
+        )
+    row_index = {int(token_id): index for index, token_id in enumerate(row_ids)}
+    for pair in pairs:
+        if (
+            int(pair.sensitive_token_id) not in row_index
+            or int(pair.competitor_token_id) not in row_index
+        ):
+            raise ValueError("Every active-pair row must be jointly trainable")
+    hidden = torch.stack([pair.hidden for pair in pairs]).to(
+        device=device, dtype=torch.float32
+    )
+    base_margin = torch.stack(
+        [pair.competitor_base_logit - pair.sensitive_base_logit for pair in pairs]
+    ).to(device=device, dtype=torch.float32)
+    sensitive_row_index = torch.tensor(
+        [row_index[int(pair.sensitive_token_id)] for pair in pairs],
+        dtype=torch.long,
+        device=device,
+    )
+    competitor_row_index = torch.tensor(
+        [row_index[int(pair.competitor_token_id)] for pair in pairs],
+        dtype=torch.long,
+        device=device,
+    )
+    hidden_rank = (
+        hidden @ direction_basis.to(device=device, dtype=torch.float32).T
+        if direction_basis is not None
+        else None
+    )
+    return ActivePairTensors(
+        hidden=hidden,
+        base_margin=base_margin,
+        sensitive_row_index=sensitive_row_index,
+        competitor_row_index=competitor_row_index,
+        hidden_rank=hidden_rank,
+    )
+
+
+def active_pair_margins_from_delta(
+    tensors: ActivePairTensors, delta_rows: torch.Tensor
+) -> torch.Tensor:
+    """Vectorized full-dimensional active-pair margins."""
+
+    if not tensors.base_margin.numel():
+        return delta_rows.new_empty((0,))
+    sensitive_delta = delta_rows.index_select(0, tensors.sensitive_row_index)
+    competitor_delta = delta_rows.index_select(0, tensors.competitor_row_index)
+    return (
+        tensors.base_margin
+        + (tensors.hidden * competitor_delta).sum(dim=1)
+        - (tensors.hidden * sensitive_delta).sum(dim=1)
+    )
+
+
+def active_pair_margins_from_coefficients(
+    tensors: ActivePairTensors, coefficients: torch.Tensor
+) -> torch.Tensor:
+    """Vectorized rank-r margins without materializing full hidden-size rows."""
+
+    if tensors.hidden_rank is None:
+        raise ValueError("Rank-space active hidden states were not prepared")
+    if not tensors.base_margin.numel():
+        return coefficients.new_empty((0,))
+    sensitive_coeff = coefficients.index_select(0, tensors.sensitive_row_index)
+    competitor_coeff = coefficients.index_select(0, tensors.competitor_row_index)
+    return (
+        tensors.base_margin
+        + (tensors.hidden_rank * competitor_coeff).sum(dim=1)
+        - (tensors.hidden_rank * sensitive_coeff).sum(dim=1)
+    )
+
+
 def active_pair_margins(
     pairs: Sequence[ActivePairCache],
     delta_rows: torch.Tensor,
     row_ids: Sequence[int],
 ) -> torch.Tensor:
-    if not pairs:
-        return delta_rows.new_empty((0,))
-    row_index = {int(token_id): index for index, token_id in enumerate(row_ids)}
-    values: List[torch.Tensor] = []
-    for pair in pairs:
-        sensitive_id = int(pair.sensitive_token_id)
-        competitor_id = int(pair.competitor_token_id)
-        if sensitive_id not in row_index or competitor_id not in row_index:
-            raise ValueError("Every active-pair row must be jointly trainable")
-        hidden = pair.hidden.to(device=delta_rows.device, dtype=delta_rows.dtype)
-        base_margin = (
-            pair.competitor_base_logit - pair.sensitive_base_logit
-        ).to(
-            device=delta_rows.device, dtype=delta_rows.dtype
-        )
-        values.append(
-            base_margin
-            + hidden @ delta_rows[row_index[competitor_id]]
-            - hidden @ delta_rows[row_index[sensitive_id]]
-        )
-    return torch.stack(values)
+    """Compatibility wrapper; the optimizer uses prepacked tensors directly."""
+
+    tensors = prepare_active_pair_tensors(
+        pairs, row_ids, device=delta_rows.device
+    )
+    return active_pair_margins_from_delta(tensors, delta_rows)
 
 
 def active_pair_squared_hinge_loss(
@@ -558,40 +663,123 @@ def cache_protected_pair_states(
     return states
 
 
+def prepare_protected_pair_tensors(
+    states: Sequence[ProtectedPairState],
+    row_ids: Sequence[int],
+    *,
+    hidden_size: int,
+    device: torch.device,
+    direction_basis: Optional[torch.Tensor] = None,
+) -> ProtectedPairTensors:
+    """Pack every static protected-state tensor once before optimization."""
+
+    if not states:
+        hidden = torch.empty((0, hidden_size), dtype=torch.float32, device=device)
+        base_modified = torch.empty(
+            (0, len(row_ids)), dtype=torch.float32, device=device
+        )
+        correct_base = torch.empty((0,), dtype=torch.float32, device=device)
+        correct_index = torch.empty((0,), dtype=torch.long, device=device)
+        competitor_mask = torch.empty(
+            (0, len(row_ids)), dtype=torch.bool, device=device
+        )
+        hidden_rank = (
+            hidden @ direction_basis.to(device=device, dtype=torch.float32).T
+            if direction_basis is not None
+            else None
+        )
+        return ProtectedPairTensors(
+            hidden=hidden,
+            base_modified_logits=base_modified,
+            correct_base=correct_base,
+            correct_modified_row_index=correct_index,
+            competitor_mask=competitor_mask,
+            hidden_rank=hidden_rank,
+        )
+    hidden = torch.stack([state.hidden for state in states]).to(
+        device=device, dtype=torch.float32
+    )
+    base_modified = torch.stack(
+        [state.modified_row_base_logits for state in states]
+    ).to(device=device, dtype=torch.float32)
+    correct_base = torch.stack([state.correct_base_logit for state in states]).to(
+        device=device, dtype=torch.float32
+    )
+    correct_modified_row_index = torch.tensor(
+        [state.correct_modified_row_index for state in states],
+        dtype=torch.long,
+        device=device,
+    )
+    row_tensor = torch.tensor(row_ids, dtype=torch.long, device=device)
+    correct_ids = torch.tensor(
+        [state.correct_token_id for state in states],
+        dtype=torch.long,
+        device=device,
+    )
+    competitor_mask = row_tensor[None, :] != correct_ids[:, None]
+    hidden_rank = (
+        hidden @ direction_basis.to(device=device, dtype=torch.float32).T
+        if direction_basis is not None
+        else None
+    )
+    return ProtectedPairTensors(
+        hidden=hidden,
+        base_modified_logits=base_modified,
+        correct_base=correct_base,
+        correct_modified_row_index=correct_modified_row_index,
+        competitor_mask=competitor_mask,
+        hidden_rank=hidden_rank,
+    )
+
+
+def protected_pair_margins_from_delta_logits(
+    tensors: ProtectedPairTensors, delta_logits: torch.Tensor
+) -> torch.Tensor:
+    """Vectorize correct-row adjustments and all protected competitors."""
+
+    if not tensors.correct_base.numel() or not delta_logits.shape[1]:
+        return delta_logits.new_empty((0,))
+    index = tensors.correct_modified_row_index
+    valid = index >= 0
+    safe_index = index.clamp_min(0)
+    target_delta = delta_logits.gather(1, safe_index[:, None]).squeeze(1)
+    target_delta = torch.where(valid, target_delta, torch.zeros_like(target_delta))
+    correct_after = tensors.correct_base + target_delta
+    margins = correct_after[:, None] - (
+        tensors.base_modified_logits + delta_logits
+    )
+    return margins[tensors.competitor_mask]
+
+
+def protected_delta_logits_from_delta(
+    tensors: ProtectedPairTensors, delta_rows: torch.Tensor
+) -> torch.Tensor:
+    return tensors.hidden @ delta_rows.transpose(0, 1)
+
+
+def protected_delta_logits_from_coefficients(
+    tensors: ProtectedPairTensors, coefficients: torch.Tensor
+) -> torch.Tensor:
+    if tensors.hidden_rank is None:
+        raise ValueError("Rank-space protected hidden states were not prepared")
+    return tensors.hidden_rank @ coefficients.transpose(0, 1)
+
+
 def protected_pair_margins(
     states: Sequence[ProtectedPairState],
     delta_rows: torch.Tensor,
     row_ids: Sequence[int],
 ) -> torch.Tensor:
-    """Correct-retain target margin against every modified competitor row."""
+    """Compatibility wrapper; the optimizer reuses prepacked static tensors."""
 
-    if not states or not row_ids:
-        return delta_rows.new_empty((0,))
-    hidden = torch.stack([state.hidden for state in states]).to(
-        device=delta_rows.device, dtype=delta_rows.dtype
-    )
-    base_modified = torch.stack(
-        [state.modified_row_base_logits for state in states]
-    ).to(device=delta_rows.device, dtype=delta_rows.dtype)
-    correct_base = torch.stack([state.correct_base_logit for state in states]).to(
-        device=delta_rows.device, dtype=delta_rows.dtype
-    )
-    delta_logits = hidden @ delta_rows.transpose(0, 1)
-    correct_after = correct_base.clone()
-    for state_index, state in enumerate(states):
-        if state.correct_modified_row_index >= 0:
-            correct_after[state_index] += delta_logits[
-                state_index, state.correct_modified_row_index
-            ]
-    margins = correct_after[:, None] - (base_modified + delta_logits)
-    row_tensor = torch.tensor(row_ids, dtype=torch.long, device=delta_rows.device)
-    correct_ids = torch.tensor(
-        [state.correct_token_id for state in states],
-        dtype=torch.long,
+    tensors = prepare_protected_pair_tensors(
+        states,
+        row_ids,
+        hidden_size=delta_rows.shape[1],
         device=delta_rows.device,
     )
-    competitor_mask = row_tensor[None, :] != correct_ids[:, None]
-    return margins[competitor_mask]
+    delta_logits = protected_delta_logits_from_delta(tensors, delta_rows)
+    return protected_pair_margins_from_delta_logits(tensors, delta_logits)
 
 
 def protected_pair_squared_hinge_loss(
@@ -617,6 +805,96 @@ def protected_logit_drift_loss(
     return drift.square().mean()
 
 
+def protected_logit_drift_from_delta_logits(delta_logits: torch.Tensor) -> torch.Tensor:
+    if not delta_logits.numel():
+        return delta_logits.new_zeros(())
+    return delta_logits.square().mean()
+
+
+def basis_is_orthonormal(
+    basis: torch.Tensor, *, atol: float = 1e-5, rtol: float = 1e-5
+) -> bool:
+    if basis.ndim != 2:
+        return False
+    gram = basis @ basis.transpose(0, 1)
+    identity = torch.eye(
+        basis.shape[0], dtype=basis.dtype, device=basis.device
+    )
+    return bool(torch.allclose(gram, identity, atol=atol, rtol=rtol))
+
+
+def low_rank_delta_l2(
+    coefficients: torch.Tensor,
+    effective_direction_basis: torch.Tensor,
+    *,
+    orthonormal: bool,
+) -> torch.Tensor:
+    """Use coefficient-space L2 exactly when the effective basis is orthonormal."""
+
+    if orthonormal:
+        return coefficients.square().sum()
+    return (coefficients @ effective_direction_basis).square().sum()
+
+
+@torch.no_grad()
+def _constrain_parameterized_delta_norm(
+    module: active.SelectedRowDelta,
+    delta_l2: torch.Tensor,
+    max_delta_norm: Optional[float],
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Apply the existing global norm constraint without a host sync."""
+
+    before = delta_l2.clamp_min(0.0).sqrt()
+    if max_delta_norm is None:
+        return before, before, torch.zeros((), dtype=torch.bool, device=before.device)
+    maximum = before.new_tensor(float(max_delta_norm))
+    scale = torch.where(
+        before > maximum,
+        maximum / before.clamp_min(torch.finfo(before.dtype).tiny),
+        torch.ones_like(before),
+    )
+    parameter = module.coefficients if module.coefficients is not None else module.raw_delta
+    if parameter is None:
+        raise RuntimeError("SelectedRowDelta has no trainable parameter")
+    parameter.mul_(scale)
+    return before, before * scale, scale < 1.0
+
+
+def _assert_finite_without_cuda_host_sync(value: torch.Tensor, step: int) -> None:
+    condition = torch.isfinite(value)
+    if value.device.type == "cuda" and hasattr(torch, "_assert_async"):
+        torch._assert_async(condition, f"Non-finite active-pair loss at step {step}")
+        return
+    if not bool(condition.item()):
+        raise FloatingPointError(f"Non-finite active-pair loss at step {step}")
+
+
+def _materialize_repair_logs(
+    rows: Sequence[torch.Tensor],
+) -> List[Dict[str, Any]]:
+    if not rows:
+        return []
+    values = torch.stack(list(rows)).detach().cpu().tolist()
+    result: List[Dict[str, Any]] = []
+    for step, row in enumerate(values, 1):
+        result.append(
+            {
+                "step": step,
+                "total_loss": float(row[0]),
+                "active_pair_squared_hinge": float(row[1]),
+                "protected_pair_squared_hinge": float(row[2]),
+                "protected_logit_drift_loss": float(row[3]),
+                "delta_l2": float(row[4]),
+                "active_pair_violations": int(row[5]),
+                "protected_pair_violations": int(row[6]),
+                "effective_delta_norm_before_projection": float(row[7]),
+                "effective_delta_norm": float(row[8]),
+                "delta_norm_projected": bool(row[9]),
+            }
+        )
+    return result
+
+
 def optimize_active_pair_delta(
     active_pairs: Sequence[ActivePairCache],
     protected_caches: Sequence[ProtectedPairState],
@@ -638,15 +916,23 @@ def optimize_active_pair_delta(
             "repair_type": REPAIR_TYPE,
         }
 
-    protected_hidden = repair.stack_hidden(protected_caches, device=device)
+    active_tensors = prepare_active_pair_tensors(
+        active_pairs, row_ids, device=device
+    )
+    protected_tensors = prepare_protected_pair_tensors(
+        protected_caches,
+        row_ids,
+        hidden_size=hidden_size,
+        device=device,
+    )
+    protected_hidden = protected_tensors.hidden
     retained_basis = None
     if args.project_away_protected_hidden and protected_hidden.numel():
         retained_basis = active.orthonormal_row_basis(protected_hidden)
 
-    active_hidden = torch.stack([pair.hidden for pair in active_pairs]).to(
-        device=device, dtype=torch.float32
+    projected_active = active.project_rows_away(
+        active_tensors.hidden, retained_basis
     )
-    projected_active = active.project_rows_away(active_hidden, retained_basis)
     direction_basis = None
     if args.repair_rank > 0:
         direction_basis = active.orthonormal_row_basis(
@@ -663,74 +949,149 @@ def optimize_active_pair_delta(
         device=device,
     )
 
+    effective_direction_basis = None
+    rank_basis_orthonormal = False
+    if module.coefficients is not None:
+        if module.direction_basis is None:
+            raise RuntimeError("Low-rank repair has no shared direction basis")
+        effective_direction_basis = active.project_rows_away(
+            module.direction_basis, module.retained_basis
+        )
+        rank_basis_orthonormal = basis_is_orthonormal(effective_direction_basis)
+        active_tensors = ActivePairTensors(
+            hidden=active_tensors.hidden,
+            base_margin=active_tensors.base_margin,
+            sensitive_row_index=active_tensors.sensitive_row_index,
+            competitor_row_index=active_tensors.competitor_row_index,
+            hidden_rank=(
+                active_tensors.hidden @ effective_direction_basis.transpose(0, 1)
+            ),
+        )
+        protected_tensors = ProtectedPairTensors(
+            hidden=protected_tensors.hidden,
+            base_modified_logits=protected_tensors.base_modified_logits,
+            correct_base=protected_tensors.correct_base,
+            correct_modified_row_index=(
+                protected_tensors.correct_modified_row_index
+            ),
+            competitor_mask=protected_tensors.competitor_mask,
+            hidden_rank=(
+                protected_tensors.hidden
+                @ effective_direction_basis.transpose(0, 1)
+            ),
+        )
+
+    def objective_tensors() -> Tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+    ]:
+        if module.coefficients is not None:
+            coefficients = module.coefficients
+            active_margins = active_pair_margins_from_coefficients(
+                active_tensors, coefficients
+            )
+            protected_delta_logits = protected_delta_logits_from_coefficients(
+                protected_tensors, coefficients
+            )
+            if effective_direction_basis is None:
+                raise RuntimeError("Missing effective rank-space basis")
+            delta_l2 = low_rank_delta_l2(
+                coefficients,
+                effective_direction_basis,
+                orthonormal=rank_basis_orthonormal,
+            )
+        else:
+            delta_rows = module.effective_delta()
+            active_margins = active_pair_margins_from_delta(
+                active_tensors, delta_rows
+            )
+            protected_delta_logits = protected_delta_logits_from_delta(
+                protected_tensors, delta_rows
+            )
+            delta_l2 = delta_rows.square().sum()
+        protected_margins = protected_pair_margins_from_delta_logits(
+            protected_tensors, protected_delta_logits
+        )
+        return (
+            active_margins,
+            protected_margins,
+            protected_delta_logits,
+            delta_l2,
+        )
+
     optimizer = active.make_repair_optimizer(
         module, args.repair_optimizer, args.repair_lr
     )
-    logs: List[Dict[str, Any]] = []
-    initial_active = active_pair_margins(active_pairs, module.effective_delta(), row_ids)
-    initial_protected = protected_pair_margins(
-        protected_caches, module.effective_delta(), row_ids
-    )
+    with torch.no_grad():
+        initial_active, initial_protected, _, _ = objective_tensors()
     stopped_early = False
-    norm_projection_steps = 0
+    tensor_logs: List[torch.Tensor] = []
     for step in range(1, args.repair_steps + 1):
         optimizer.zero_grad(set_to_none=True)
-        delta = module.effective_delta()
-        active_margins = active_pair_margins(active_pairs, delta, row_ids)
-        protected_margins = protected_pair_margins(
-            protected_caches, delta, row_ids
-        )
+        (
+            active_margins,
+            protected_margins,
+            protected_delta_logits,
+            delta_l2,
+        ) = objective_tensors()
         active_hinge = active_pair_squared_hinge_loss(
             active_margins, args.active_logit_margin
         )
         protected_hinge = protected_pair_squared_hinge_loss(
             protected_margins, args.protected_logit_margin
         )
-        drift = protected_logit_drift_loss(delta, protected_caches)
-        delta_l2 = delta.square().sum()
+        drift = protected_logit_drift_from_delta_logits(
+            protected_delta_logits
+        )
         total = (
             active_hinge
             + protected_hinge
             + args.protected_logit_drift_weight * drift
             + args.repair_l2_lambda * delta_l2
         )
-        if not torch.isfinite(total):
-            raise FloatingPointError(f"Non-finite active-pair loss at step {step}")
+        _assert_finite_without_cuda_host_sync(total, step)
         total.backward()
         optimizer.step()
-        before_norm, after_norm, projected = active.constrain_effective_delta_norm(
-            module, args.max_delta_norm
-        )
-        norm_projection_steps += int(projected)
         with torch.no_grad():
-            updated = module.effective_delta()
-            active_after = active_pair_margins(active_pairs, updated, row_ids)
-            protected_after = protected_pair_margins(
-                protected_caches, updated, row_ids
+            (
+                active_after,
+                protected_after,
+                _,
+                updated_l2_before_projection,
+            ) = objective_tensors()
+            before_norm, after_norm, projected = _constrain_parameterized_delta_norm(
+                module, updated_l2_before_projection, args.max_delta_norm
             )
-            active_violations = int(
-                (active_after < args.active_logit_margin).sum().item()
+            if args.max_delta_norm is not None:
+                active_after, protected_after, _, _ = objective_tensors()
+            active_violation_tensor = (
+                active_after < args.active_logit_margin
+            ).sum()
+            protected_violation_tensor = (
+                protected_after < args.protected_logit_margin
+            ).sum()
+            # The single host synchronization in the hot loop preserves exact
+            # early-stopping semantics and supplies the per-step counts.
+            violation_values = torch.stack(
+                [active_violation_tensor, protected_violation_tensor]
+            ).detach().cpu().tolist()
+            active_violations = int(violation_values[0])
+            protected_violations = int(violation_values[1])
+            tensor_logs.append(
+                torch.stack(
+                    [
+                        total.detach(),
+                        active_hinge.detach(),
+                        protected_hinge.detach(),
+                        drift.detach(),
+                        delta_l2.detach(),
+                        active_violation_tensor.float(),
+                        protected_violation_tensor.float(),
+                        before_norm,
+                        after_norm,
+                        projected.float(),
+                    ]
+                )
             )
-            protected_violations = int(
-                (protected_after < args.protected_logit_margin).sum().item()
-            )
-        logs.append(
-            {
-                "step": step,
-                "total_loss": float(total.detach().cpu()),
-                "active_pair_squared_hinge": float(active_hinge.detach().cpu()),
-                "protected_pair_squared_hinge": float(
-                    protected_hinge.detach().cpu()
-                ),
-                "protected_logit_drift_loss": float(drift.detach().cpu()),
-                "delta_l2": float(delta_l2.detach().cpu()),
-                "active_pair_violations": active_violations,
-                "protected_pair_violations": protected_violations,
-                "effective_delta_norm_before_projection": before_norm,
-                "effective_delta_norm": after_norm,
-                "delta_norm_projected": projected,
-            }
-        )
         if (
             args.stop_when_all_satisfied
             and active_violations == 0
@@ -738,9 +1099,13 @@ def optimize_active_pair_delta(
         ):
             stopped_early = True
             break
+    logs = _materialize_repair_logs(tensor_logs)
     delta = module.effective_delta().detach()
-    final_active = active_pair_margins(active_pairs, delta, row_ids)
-    final_protected = protected_pair_margins(protected_caches, delta, row_ids)
+    with torch.no_grad():
+        final_active, final_protected, _, _ = objective_tensors()
+    norm_projection_steps = sum(
+        int(row["delta_norm_projected"]) for row in logs
+    )
     summary = {
         "repair_type": REPAIR_TYPE,
         "steps_completed": len(logs),
@@ -779,6 +1144,19 @@ def optimize_active_pair_delta(
             "protected_logit_drift_weight": float(
                 args.protected_logit_drift_weight
             ),
+            "optimization_tensorization": {
+                "active_pairs_prepacked_on_device": True,
+                "protected_states_prepacked_on_device": True,
+                "python_pair_loops_per_optimizer_step": 0,
+                "python_protected_state_loops_per_optimizer_step": 0,
+                "repair_rank": int(args.repair_rank),
+                "rank_space_fast_path": module.coefficients is not None,
+                "rank_basis_orthonormal": rank_basis_orthonormal,
+                "full_hidden_size_delta_materialized_per_step": bool(
+                    module.coefficients is None
+                ),
+                "cuda_host_synchronizations_per_step": 1,
+            },
         }
     )
     return delta, logs, summary

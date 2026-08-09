@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 import copy
+import inspect
 import json
 import sys
 import unittest
@@ -90,6 +92,62 @@ def protected_state(
     )
 
 
+def legacy_active_pair_margins(
+    pairs: list[subject.ActivePairCache],
+    delta_rows: torch.Tensor,
+    row_ids: list[int],
+) -> torch.Tensor:
+    """Pre-vectorization reference retained only in the test suite."""
+
+    row_index = {token_id: index for index, token_id in enumerate(row_ids)}
+    values = []
+    for pair in pairs:
+        hidden = pair.hidden.to(device=delta_rows.device, dtype=delta_rows.dtype)
+        base_margin = (
+            pair.competitor_base_logit - pair.sensitive_base_logit
+        ).to(device=delta_rows.device, dtype=delta_rows.dtype)
+        values.append(
+            base_margin
+            + hidden @ delta_rows[row_index[pair.competitor_token_id]]
+            - hidden @ delta_rows[row_index[pair.sensitive_token_id]]
+        )
+    return torch.stack(values) if values else delta_rows.new_empty((0,))
+
+
+def legacy_protected_pair_margins(
+    states: list[subject.ProtectedPairState],
+    delta_rows: torch.Tensor,
+    row_ids: list[int],
+) -> torch.Tensor:
+    """Pre-vectorization protected-margin reference for equivalence tests."""
+
+    values = []
+    for state in states:
+        hidden = state.hidden.to(device=delta_rows.device, dtype=delta_rows.dtype)
+        delta_logits = hidden @ delta_rows.T
+        correct_after = state.correct_base_logit.to(delta_rows.device)
+        if state.correct_modified_row_index >= 0:
+            correct_after = (
+                correct_after + delta_logits[state.correct_modified_row_index]
+            )
+        base_logits = state.modified_row_base_logits.to(delta_rows.device)
+        for row_index, row_id in enumerate(row_ids):
+            if row_id != state.correct_token_id:
+                values.append(
+                    correct_after - base_logits[row_index] - delta_logits[row_index]
+                )
+    return torch.stack(values) if values else delta_rows.new_empty((0,))
+
+
+def legacy_protected_drift(
+    states: list[subject.ProtectedPairState], delta_rows: torch.Tensor
+) -> torch.Tensor:
+    if not states:
+        return delta_rows.new_zeros(())
+    hidden = torch.stack([state.hidden for state in states]).to(delta_rows.device)
+    return (hidden @ delta_rows.T).square().mean()
+
+
 class TinyTiedLM(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -113,6 +171,330 @@ class TinyTiedLM(nn.Module):
 
 
 class ActivePairRepairTests(unittest.TestCase):
+    @staticmethod
+    def _equivalence_devices() -> list[torch.device]:
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        return devices
+
+    @staticmethod
+    def _equivalence_fixture():
+        torch.manual_seed(1729)
+        hidden_size = 7
+        row_ids = [11, 12, 13, 14]
+        pairs = [
+            active_pair(
+                row_ids[index % 4],
+                row_ids[(index + 1) % 4],
+                hidden=torch.randn(hidden_size),
+                sensitive_logit=float(2.0 + index / 10),
+                competitor_logit=float(0.5 - index / 20),
+                case_id=index + 1,
+            )
+            for index in range(6)
+        ]
+        states = [
+            protected_state(
+                correct_id,
+                row_ids=row_ids,
+                correct_logit=2.5 + index / 10,
+                modified_logits=torch.randn(len(row_ids)).tolist(),
+                hidden=torch.randn(hidden_size),
+                case_id=100 + index,
+            )
+            for index, correct_id in enumerate([11, 99, 13, 12, 98])
+        ]
+        q, _ = torch.linalg.qr(torch.randn(hidden_size, 2))
+        basis = q.T.contiguous()
+        delta = torch.randn(len(row_ids), hidden_size)
+        coefficients = torch.randn(len(row_ids), 2)
+        return row_ids, pairs, states, basis, delta, coefficients
+
+    def test_vectorized_active_margins_match_legacy_full_dimensional(self) -> None:
+        row_ids, pairs, _states, _basis, delta, _coeff = self._equivalence_fixture()
+        for device in self._equivalence_devices():
+            with self.subTest(device=device.type):
+                candidate = delta.to(device).requires_grad_(True)
+                packed = subject.prepare_active_pair_tensors(
+                    pairs, row_ids, device=device
+                )
+                expected = legacy_active_pair_margins(pairs, candidate, row_ids)
+                actual = subject.active_pair_margins_from_delta(packed, candidate)
+                self.assertTrue(torch.allclose(actual, expected, atol=1e-5, rtol=1e-5))
+
+    def test_rank_two_direct_coefficients_match_full_effective_delta(self) -> None:
+        row_ids, pairs, _states, basis, _delta, coefficients = self._equivalence_fixture()
+        for device in self._equivalence_devices():
+            with self.subTest(device=device.type):
+                basis_device = basis.to(device)
+                coeff = coefficients.to(device)
+                packed = subject.prepare_active_pair_tensors(
+                    pairs, row_ids, device=device, direction_basis=basis_device
+                )
+                expected = subject.active_pair_margins_from_delta(
+                    packed, coeff @ basis_device
+                )
+                actual = subject.active_pair_margins_from_coefficients(packed, coeff)
+                self.assertTrue(torch.allclose(actual, expected, atol=1e-5, rtol=1e-5))
+
+    def test_vectorized_protected_margins_match_legacy(self) -> None:
+        row_ids, _pairs, states, _basis, delta, _coeff = self._equivalence_fixture()
+        for device in self._equivalence_devices():
+            with self.subTest(device=device.type):
+                candidate = delta.to(device)
+                packed = subject.prepare_protected_pair_tensors(
+                    states,
+                    row_ids,
+                    hidden_size=candidate.shape[1],
+                    device=device,
+                )
+                delta_logits = subject.protected_delta_logits_from_delta(
+                    packed, candidate
+                )
+                actual = subject.protected_pair_margins_from_delta_logits(
+                    packed, delta_logits
+                )
+                expected = legacy_protected_pair_margins(states, candidate, row_ids)
+                self.assertTrue(torch.allclose(actual, expected, atol=1e-5, rtol=1e-5))
+
+    def test_vectorized_protected_drift_matches_legacy(self) -> None:
+        row_ids, _pairs, states, _basis, delta, _coeff = self._equivalence_fixture()
+        for device in self._equivalence_devices():
+            with self.subTest(device=device.type):
+                candidate = delta.to(device)
+                packed = subject.prepare_protected_pair_tensors(
+                    states,
+                    row_ids,
+                    hidden_size=candidate.shape[1],
+                    device=device,
+                )
+                delta_logits = subject.protected_delta_logits_from_delta(
+                    packed, candidate
+                )
+                actual = subject.protected_logit_drift_from_delta_logits(delta_logits)
+                expected = legacy_protected_drift(states, candidate)
+                self.assertTrue(torch.allclose(actual, expected, atol=1e-5, rtol=1e-5))
+
+    def test_orthonormal_rank_two_l2_equals_coefficient_norm(self) -> None:
+        _rows, _pairs, _states, basis, _delta, coefficients = self._equivalence_fixture()
+        for device in self._equivalence_devices():
+            with self.subTest(device=device.type):
+                basis_device = basis.to(device)
+                coeff = coefficients.to(device)
+                self.assertTrue(subject.basis_is_orthonormal(basis_device))
+                full_l2 = (coeff @ basis_device).square().sum()
+                fast_l2 = subject.low_rank_delta_l2(
+                    coeff, basis_device, orthonormal=True
+                )
+                self.assertTrue(torch.allclose(fast_l2, full_l2, atol=1e-5, rtol=1e-5))
+
+    def test_nonorthonormal_rank_l2_preserves_exact_full_calculation(self) -> None:
+        _rows, _pairs, _states, basis, _delta, coefficients = self._equivalence_fixture()
+        nonorthonormal = basis.clone()
+        nonorthonormal[0].mul_(1.75)
+        self.assertFalse(subject.basis_is_orthonormal(nonorthonormal))
+        expected = (coefficients @ nonorthonormal).square().sum()
+        actual = subject.low_rank_delta_l2(
+            coefficients, nonorthonormal, orthonormal=False
+        )
+        self.assertTrue(torch.allclose(actual, expected, atol=1e-6, rtol=1e-6))
+
+    def test_rank_two_vectorized_objective_gradients_match_legacy(self) -> None:
+        row_ids, pairs, states, basis, _delta, coefficients = self._equivalence_fixture()
+        for device in self._equivalence_devices():
+            with self.subTest(device=device.type):
+                basis_device = basis.to(device)
+                legacy_coeff = coefficients.to(device).clone().requires_grad_(True)
+                vector_coeff = coefficients.to(device).clone().requires_grad_(True)
+
+                legacy_delta = legacy_coeff @ basis_device
+                legacy_active = legacy_active_pair_margins(
+                    pairs, legacy_delta, row_ids
+                )
+                legacy_protected = legacy_protected_pair_margins(
+                    states, legacy_delta, row_ids
+                )
+                legacy_loss = (
+                    subject.active_pair_squared_hinge_loss(legacy_active, 0.25)
+                    + subject.protected_pair_squared_hinge_loss(legacy_protected, 0.0)
+                    + 0.1 * legacy_protected_drift(states, legacy_delta)
+                    + 1e-4 * legacy_delta.square().sum()
+                )
+                legacy_loss.backward()
+
+                active_tensors = subject.prepare_active_pair_tensors(
+                    pairs,
+                    row_ids,
+                    device=device,
+                    direction_basis=basis_device,
+                )
+                protected_tensors = subject.prepare_protected_pair_tensors(
+                    states,
+                    row_ids,
+                    hidden_size=basis.shape[1],
+                    device=device,
+                    direction_basis=basis_device,
+                )
+                vector_active = subject.active_pair_margins_from_coefficients(
+                    active_tensors, vector_coeff
+                )
+                vector_delta_logits = (
+                    subject.protected_delta_logits_from_coefficients(
+                        protected_tensors, vector_coeff
+                    )
+                )
+                vector_protected = (
+                    subject.protected_pair_margins_from_delta_logits(
+                        protected_tensors, vector_delta_logits
+                    )
+                )
+                vector_loss = (
+                    subject.active_pair_squared_hinge_loss(vector_active, 0.25)
+                    + subject.protected_pair_squared_hinge_loss(vector_protected, 0.0)
+                    + 0.1
+                    * subject.protected_logit_drift_from_delta_logits(
+                        vector_delta_logits
+                    )
+                    + 1e-4
+                    * subject.low_rank_delta_l2(
+                        vector_coeff, basis_device, orthonormal=True
+                    )
+                )
+                vector_loss.backward()
+                self.assertTrue(
+                    torch.allclose(
+                        vector_coeff.grad,
+                        legacy_coeff.grad,
+                        atol=1e-5,
+                        rtol=1e-5,
+                    )
+                )
+
+    def test_real_shape_rank_two_smoke_has_no_pair_loops(self) -> None:
+        active_count = 3356
+        protected_count = 2632
+        hidden_size = 3072
+        row_count = 64
+        rank = 2
+        active_tensors = subject.ActivePairTensors(
+            hidden=torch.empty((active_count, hidden_size)),
+            base_margin=torch.zeros(active_count),
+            sensitive_row_index=torch.arange(active_count) % row_count,
+            competitor_row_index=(torch.arange(active_count) + 1) % row_count,
+            hidden_rank=torch.zeros((active_count, rank)),
+        )
+        protected_tensors = subject.ProtectedPairTensors(
+            hidden=torch.empty((protected_count, hidden_size)),
+            base_modified_logits=torch.zeros((protected_count, row_count)),
+            correct_base=torch.ones(protected_count),
+            correct_modified_row_index=torch.full(
+                (protected_count,), -1, dtype=torch.long
+            ),
+            competitor_mask=torch.ones(
+                (protected_count, row_count), dtype=torch.bool
+            ),
+            hidden_rank=torch.zeros((protected_count, rank)),
+        )
+        coefficients = torch.zeros((row_count, rank))
+        active_margins = subject.active_pair_margins_from_coefficients(
+            active_tensors, coefficients
+        )
+        delta_logits = subject.protected_delta_logits_from_coefficients(
+            protected_tensors, coefficients
+        )
+        protected_margins = subject.protected_pair_margins_from_delta_logits(
+            protected_tensors, delta_logits
+        )
+        self.assertEqual(tuple(active_margins.shape), (active_count,))
+        self.assertEqual(
+            tuple(protected_margins.shape),
+            (protected_count * row_count,),
+        )
+        for function in (
+            subject.active_pair_margins_from_coefficients,
+            subject.protected_delta_logits_from_coefficients,
+            subject.protected_pair_margins_from_delta_logits,
+            subject.protected_logit_drift_from_delta_logits,
+        ):
+            tree = ast.parse(inspect.getsource(function))
+            self.assertFalse(any(isinstance(node, ast.For) for node in ast.walk(tree)))
+        optimizer_source = inspect.getsource(subject.optimize_active_pair_delta)
+        self.assertNotIn("for pair in", optimizer_source)
+        self.assertNotIn("for state in", optimizer_source)
+        self.assertIn("rank_space_fast_path", optimizer_source)
+
+    def test_rank_two_optimizer_materializes_full_delta_only_at_end(self) -> None:
+        pairs = [
+            active_pair(1, 2, hidden=torch.tensor([1.0, 0.0]), case_id=1),
+            active_pair(2, 3, hidden=torch.tensor([0.0, 1.0]), case_id=2),
+        ]
+        states = [
+            protected_state(
+                9,
+                row_ids=[1, 2, 3],
+                correct_logit=3.0,
+                modified_logits=[1.0, 1.5, 2.0],
+                hidden=torch.tensor([1.0, 1.0]),
+            )
+        ]
+        args = subject.build_parser().parse_args(
+            [
+                "--repair-rank", "2",
+                "--repair-steps", "2",
+                "--no-stop-when-all-satisfied",
+                "--no-project-away-protected-hidden",
+            ]
+        )
+        original = subject.active.SelectedRowDelta.effective_delta
+        call_count = 0
+
+        def counted(module):
+            nonlocal call_count
+            call_count += 1
+            return original(module)
+
+        class TinyOptimizer:
+            def __init__(self, parameters, learning_rate):
+                self.parameters = list(parameters)
+                self.learning_rate = learning_rate
+
+            def zero_grad(self, set_to_none=True):
+                for parameter in self.parameters:
+                    parameter.grad = None
+
+            def step(self):
+                with torch.no_grad():
+                    for parameter in self.parameters:
+                        if parameter.grad is not None:
+                            parameter.add_(
+                                parameter.grad, alpha=-self.learning_rate
+                            )
+
+        with mock.patch.object(
+            subject.active.SelectedRowDelta, "effective_delta", new=counted
+        ), mock.patch.object(
+            subject.active,
+            "make_repair_optimizer",
+            side_effect=lambda module, _name, learning_rate: TinyOptimizer(
+                module.parameters(), learning_rate
+            ),
+        ):
+            delta, logs, summary = subject.optimize_active_pair_delta(
+                pairs,
+                states,
+                row_ids=[1, 2, 3],
+                hidden_size=2,
+                device=torch.device("cpu"),
+                args=args,
+            )
+        self.assertEqual(call_count, 1)
+        self.assertEqual(tuple(delta.shape), (3, 2))
+        self.assertEqual(len(logs), 2)
+        tensorization = summary["optimization_tensorization"]
+        self.assertTrue(tensorization["rank_space_fast_path"])
+        self.assertFalse(tensorization["full_hidden_size_delta_materialized_per_step"])
+
     def test_rank_two_uses_one_shared_two_direction_basis_for_every_row(self) -> None:
         args = subject.build_parser().parse_args(["--repair-rank", "2"])
         active_hidden = torch.tensor(
