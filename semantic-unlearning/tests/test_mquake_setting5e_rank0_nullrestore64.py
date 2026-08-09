@@ -121,6 +121,13 @@ class BaseOriginAndGeometryTests(unittest.TestCase):
         _, restore, report = method.build_restore_basis64(utility, forget_basis)
         self.assertEqual(tuple(restore.shape), (64, 80))
         self.assertEqual(report["restore_rank"], 64)
+        self.assertEqual(report["explicit_nullspace_dimension"], 72)
+        self.assertEqual(report["utility_coordinate_shape"], [80, 72])
+        self.assertEqual(
+            report["construction"],
+            "explicit complete-QR forget complement -> utility SVD in "
+            "nullspace coordinates -> rank-64 map back -> reduced QR",
+        )
         torch.testing.assert_close(
             restore @ forget_basis.T,
             torch.zeros(64, 8),
@@ -128,18 +135,109 @@ class BaseOriginAndGeometryTests(unittest.TestCase):
             rtol=0,
         )
 
-    def test_arbitrary_rank64_coefficients_cannot_change_forget_logits(self) -> None:
-        forget_basis = torch.eye(80)[:9]
+    def test_explicit_high_rank_complement_is_orthonormal(self) -> None:
+        torch.manual_seed(101)
+        hidden_size = 192
+        forget_rank = 120
+        q, _ = torch.linalg.qr(
+            torch.randn(hidden_size, hidden_size), mode="complete"
+        )
+        forget_basis = method.canonicalize_basis_signs(
+            q[:, :forget_rank].T.contiguous()
+        )
+        complement, report = method.explicit_forget_complement(forget_basis)
+        self.assertEqual(tuple(complement.shape), (72, hidden_size))
+        torch.testing.assert_close(
+            complement @ forget_basis.T,
+            torch.zeros(72, forget_rank),
+            atol=report["geometry_tolerance"],
+            rtol=0,
+        )
+        torch.testing.assert_close(
+            complement @ complement.T,
+            torch.eye(72),
+            atol=report["geometry_tolerance"],
+            rtol=0,
+        )
+
+    def test_coordinate_construction_beats_subtractive_projection_stress(self) -> None:
+        torch.manual_seed(121)
+        hidden_size = 192
+        forget_rank = 120
+        q, _ = torch.linalg.qr(
+            torch.randn(hidden_size, hidden_size), mode="complete"
+        )
+        forget_basis = method.canonicalize_basis_signs(
+            q[:, :forget_rank].T.contiguous()
+        )
+        true_null = method.canonicalize_basis_signs(
+            q[:, forget_rank:].T.contiguous()
+        )
+        utility = (
+            1_000.0 * torch.randn(hidden_size, forget_rank) @ forget_basis
+            + torch.randn(hidden_size, hidden_size - forget_rank) @ true_null
+        )
+        old_subtractive = utility - (utility @ forget_basis.T) @ forget_basis
+        old_basis = method.robust_svd_qr_row_basis(old_subtractive).basis[:64]
+        old_overlap = float((old_basis @ forget_basis.T).abs().max().item())
+        _, restore, report = method.build_restore_basis64(utility, forget_basis)
+        new_overlap = report["maximum_absolute_B_R_B_F_overlap"]
+        self.assertGreater(old_overlap, 5e-5)
+        self.assertLess(new_overlap, old_overlap / 100.0)
+        self.assertLess(new_overlap, method.fp32_geometry_tolerance(hidden_size))
+        self.assertEqual(tuple(restore.shape), (64, hidden_size))
+
+    def test_utility_coordinate_round_trip_and_mapped_span(self) -> None:
+        torch.manual_seed(131)
+        hidden_size = 96
+        q, _ = torch.linalg.qr(
+            torch.randn(hidden_size, hidden_size), mode="complete"
+        )
+        forget_basis = method.canonicalize_basis_signs(q[:, :24].T.contiguous())
+        utility = torch.randn(100, hidden_size)
+        complement, _ = method.explicit_forget_complement(forget_basis)
+        expected_null = (utility @ complement.T) @ complement
+        utility_null, restore, report = method.build_restore_basis64(
+            utility, forget_basis
+        )
+        torch.testing.assert_close(
+            utility_null, expected_null, atol=2e-5, rtol=2e-5
+        )
+        torch.testing.assert_close(
+            restore,
+            (restore @ complement.T) @ complement,
+            atol=2e-5,
+            rtol=2e-5,
+        )
+        self.assertEqual(report["utility_coordinate_shape"], [100, 72])
+
+    def test_material_restore_overlap_is_rejected(self) -> None:
+        forget_basis = torch.eye(80)[:8]
         _, restore, _ = method.build_restore_basis64(torch.eye(80), forget_basis)
+        contaminated = restore.clone()
+        contaminated[0] += 1e-4 * forget_basis[0]
+        with self.assertRaisesRegex(RuntimeError, "leaves forget nullspace"):
+            method.validate_restore_basis_geometry(contaminated, forget_basis)
+
+    def test_arbitrary_rank64_coefficients_cannot_change_forget_logits(self) -> None:
+        torch.manual_seed(141)
+        hidden_size = 160
+        q, _ = torch.linalg.qr(
+            torch.randn(hidden_size, hidden_size), mode="complete"
+        )
+        forget_basis = method.canonicalize_basis_signs(q[:, :90].T.contiguous())
+        _, restore, _ = method.build_restore_basis64(
+            torch.randn(180, hidden_size), forget_basis
+        )
         coefficients = torch.randn(6, 64)
         self.assertEqual(coefficients.shape[1], 64)
         self.assertEqual(restore.shape[0], 64)
         delta = method.rank64_restoration_delta(coefficients, restore)
-        forget_hidden = torch.randn(14, 9) @ forget_basis
+        forget_hidden = torch.randn(14, 90) @ forget_basis
         torch.testing.assert_close(
             forget_hidden @ delta.T,
             torch.zeros(14, 6),
-            atol=3e-5,
+            atol=5e-5,
             rtol=0,
         )
 

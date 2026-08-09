@@ -130,6 +130,158 @@ def canonicalize_basis_signs(basis: torch.Tensor) -> torch.Tensor:
     return basearch.canonicalize_basis_signs(basis)
 
 
+def fp32_geometry_tolerance(hidden_size: int) -> float:
+    """Tolerance for FP32 QR geometry without admitting material leakage.
+
+    Backward-error in orthogonal factorizations grows approximately with the
+    square root of the ambient dimension.  Three FP32 epsilons per square-root
+    dimension is about 2e-5 at hidden_size=3072, while the small absolute floor
+    avoids unrealistically tight tests for tiny synthetic matrices.  This is
+    deliberately far below the observed 1.2419e-4 nullspace leakage.
+    """
+
+    if hidden_size <= 0:
+        raise ValueError("hidden_size must be positive")
+    epsilon = torch.finfo(torch.float32).eps
+    return max(2e-6, 3.0 * epsilon * math.sqrt(float(hidden_size)))
+
+
+def _row_geometry(
+    basis: torch.Tensor,
+    *,
+    reference: Optional[torch.Tensor] = None,
+) -> Dict[str, float]:
+    if basis.ndim != 2:
+        raise ValueError("basis must be a matrix")
+    values = basis.float()
+    gram = values @ values.T
+    identity = torch.eye(values.shape[0], device=values.device, dtype=values.dtype)
+    orthogonality = gram - identity
+    report = {
+        "orthogonality_max_error": (
+            float(orthogonality.abs().max().item())
+            if orthogonality.numel()
+            else 0.0
+        ),
+        "orthogonality_fro_error": (
+            float(orthogonality.norm().item()) if orthogonality.numel() else 0.0
+        ),
+    }
+    if reference is not None:
+        if reference.ndim != 2 or reference.shape[1] != values.shape[1]:
+            raise ValueError("reference basis has incompatible hidden dimension")
+        overlap = values @ reference.float().T
+        report.update(
+            {
+                "reference_overlap_max_error": (
+                    float(overlap.abs().max().item()) if overlap.numel() else 0.0
+                ),
+                "reference_overlap_fro_error": (
+                    float(overlap.norm().item()) if overlap.numel() else 0.0
+                ),
+            }
+        )
+    return report
+
+
+def explicit_forget_complement(
+    forget_basis: torch.Tensor,
+) -> Tuple[torch.Tensor, Dict[str, Any]]:
+    """Return deterministic coordinates for the complete complement of B_F.
+
+    A complete QR of B_F.T provides a numerically stable complement directly;
+    unlike H - H B_F.T B_F, it does not obtain small residual coordinates by
+    subtracting two nearly equal high-rank projections.
+    """
+
+    if forget_basis.ndim != 2 or forget_basis.shape[1] == 0:
+        raise ValueError("forget basis must be a non-empty matrix")
+    values = forget_basis.float()
+    forget_rank, hidden_size = values.shape
+    if forget_rank > hidden_size:
+        raise ValueError("forget basis rank exceeds hidden dimension")
+    tolerance = fp32_geometry_tolerance(hidden_size)
+    forget_geometry = _row_geometry(values)
+    if forget_geometry["orthogonality_max_error"] > tolerance:
+        raise RuntimeError(
+            "forget basis is not orthonormal before complete QR: "
+            f"{forget_geometry['orthogonality_max_error']}"
+        )
+    q_full, _ = torch.linalg.qr(values.T, mode="complete")
+    complement = canonicalize_basis_signs(
+        q_full[:, forget_rank:].T.contiguous()
+    )
+    geometry = _row_geometry(complement, reference=values)
+    if geometry["orthogonality_max_error"] > tolerance:
+        raise RuntimeError(
+            "explicit forget complement is not orthonormal: "
+            f"{geometry['orthogonality_max_error']}"
+        )
+    if geometry["reference_overlap_max_error"] > tolerance:
+        raise RuntimeError(
+            "explicit complement leaves forget nullspace: "
+            f"{geometry['reference_overlap_max_error']}"
+        )
+    report = {
+        "explicit_nullspace_dimension": int(complement.shape[0]),
+        "nullspace_basis_sha256": tensor_sha256(complement),
+        "nullspace_orthogonality_max_error": geometry[
+            "orthogonality_max_error"
+        ],
+        "nullspace_orthogonality_fro_error": geometry[
+            "orthogonality_fro_error"
+        ],
+        "nullspace_forget_overlap_max_error": geometry[
+            "reference_overlap_max_error"
+        ],
+        "nullspace_forget_overlap_fro_error": geometry[
+            "reference_overlap_fro_error"
+        ],
+        "geometry_tolerance": tolerance,
+        "construction": (
+            "complete FP32 QR of forget_basis.T -> deterministic sign "
+            "canonicalization"
+        ),
+    }
+    return complement, report
+
+
+def validate_restore_basis_geometry(
+    restore_basis: torch.Tensor,
+    forget_basis: torch.Tensor,
+) -> Dict[str, float]:
+    """Fail closed unless B_R is orthonormal and in the computed complement."""
+
+    if restore_basis.ndim != 2 or forget_basis.ndim != 2:
+        raise ValueError("restore and forget bases must be matrices")
+    if restore_basis.shape != (RESTORE_RANK, forget_basis.shape[1]):
+        raise ValueError(
+            "rank-64 restoration basis must have shape "
+            f"({RESTORE_RANK}, {forget_basis.shape[1]})"
+        )
+    tolerance = fp32_geometry_tolerance(forget_basis.shape[1])
+    geometry = _row_geometry(restore_basis, reference=forget_basis)
+    maximum = geometry["reference_overlap_max_error"]
+    if geometry["orthogonality_max_error"] > tolerance:
+        raise RuntimeError(
+            "rank-64 restoration basis is not orthonormal: "
+            f"{geometry['orthogonality_max_error']}"
+        )
+    if maximum > tolerance:
+        raise RuntimeError(
+            f"rank-64 restoration basis leaves forget nullspace: {maximum}"
+        )
+    return {
+        "B_R_orthogonality_max_error": geometry["orthogonality_max_error"],
+        "B_R_orthogonality_fro_error": geometry["orthogonality_fro_error"],
+        "maximum_absolute_B_R_B_F_overlap": maximum,
+        "frobenius_B_R_B_F_overlap": geometry[
+            "reference_overlap_fro_error"
+        ],
+        "geometry_tolerance": tolerance,
+    }
+
+
 def robust_svd_qr_row_basis(rows: torch.Tensor) -> GeometryResult:
     """FP32 SVD ordering followed by one reduced QR and canonical signs."""
 
@@ -235,16 +387,15 @@ def build_restore_basis64(
     output_dir: Optional[Path] = None,
     forget_report: Optional[Mapping[str, Any]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, Any]]:
-    """Build exactly 64 utility directions in the complete forget nullspace."""
+    """Build exactly 64 utility directions in explicit nullspace coordinates."""
 
     if utility_hidden.ndim != 2 or forget_basis.ndim != 2:
         raise ValueError("utility hidden bank and forget basis must be matrices")
     if utility_hidden.shape[1] != forget_basis.shape[1]:
         raise ValueError("utility and forget hidden dimensions differ")
-    utility_null = utility_hidden.float() - (
-        utility_hidden.float() @ forget_basis.T
-    ) @ forget_basis
-    geometry = robust_svd_qr_row_basis(utility_null)
+    nullspace_basis, nullspace_report = explicit_forget_complement(forget_basis)
+    utility_coordinates = utility_hidden.float() @ nullspace_basis.T
+    geometry = robust_svd_qr_row_basis(utility_coordinates)
     available = int(geometry.report["numerical_rank"])
     if available < RESTORE_RANK:
         if output_dir is not None:
@@ -264,20 +415,31 @@ def build_restore_basis64(
                 reason="utility-null numerical rank is below requested fixed rank 64",
             )
         raise RuntimeError("utility-null numerical rank is below 64")
-    basis = geometry.basis[:RESTORE_RANK].contiguous()
-    overlap = basis @ forget_basis.T
-    maximum = float(overlap.abs().max().item()) if overlap.numel() else 0.0
-    frobenius = float(overlap.norm().item()) if overlap.numel() else 0.0
-    if maximum > 2e-5:
-        raise RuntimeError(f"rank-64 restoration basis leaves forget nullspace: {maximum}")
+    coordinate_basis64 = geometry.basis[:RESTORE_RANK].contiguous()
+    basis = coordinate_basis64 @ nullspace_basis
+    q, _ = torch.linalg.qr(basis.T, mode="reduced")
+    basis = canonicalize_basis_signs(q.T.contiguous())
+    restore_geometry = validate_restore_basis_geometry(basis, forget_basis)
+    utility_null = utility_coordinates @ nullspace_basis
     report = {
-        **geometry.report,
+        "state_count": int(utility_hidden.shape[0]),
+        "hidden_size": int(utility_hidden.shape[1]),
+        **nullspace_report,
+        "utility_coordinate_shape": list(utility_coordinates.shape),
+        "utility_coordinate_numerical_rank": available,
+        "utility_coordinate_numerical_rank_tolerance": geometry.report[
+            "numerical_rank_tolerance"
+        ],
+        "utility_coordinate_basis_sha256": geometry.report["basis_sha256"],
         "restore_rank": RESTORE_RANK,
         "utility_null_numerical_rank": available,
-        "maximum_absolute_B_R_B_F_overlap": maximum,
-        "frobenius_B_R_B_F_overlap": frobenius,
+        **restore_geometry,
         "B_R_sha256": tensor_sha256(basis),
         "rank_fallback_or_sweep": False,
+        "construction": (
+            "explicit complete-QR forget complement -> utility SVD in "
+            "nullspace coordinates -> rank-64 map back -> reduced QR"
+        ),
     }
     return utility_null, basis, report
 
