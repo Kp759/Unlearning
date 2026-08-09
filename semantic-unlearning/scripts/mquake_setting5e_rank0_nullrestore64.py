@@ -4,10 +4,12 @@
 This isolated method keeps the pinned 600-step Setting 5e diagnostic, then
 restores the exact Base input/output origin.  It solves unrestricted,
 Base-relative selected-row forgetting, projects that delta into the complete
-forget-hidden span, and restores Base utility with one fixed 64-dimensional
-basis in the exact forget nullspace.  Only requested-rewrite cloze fields are
-visible before the durable selection decision; AtomicGen and multi-hop fields
-remain post-selection only.
+configured numerical forget-hidden span, and restores Base utility with one
+fixed 64-dimensional basis in that numerical span's complement.  Because raw
+forget states can retain discarded low-singular-value components, forgetting
+feasibility is enforced explicitly through restoration.  Only requested-
+rewrite cloze fields are visible before the durable selection decision;
+AtomicGen and multi-hop fields remain post-selection only.
 """
 
 from __future__ import annotations
@@ -87,10 +89,34 @@ class ProtectedRestoreTensors:
 
 
 @dataclass(frozen=True)
+class StageCForgetTensors:
+    """Fixed Stage-B margins plus rank-64 coordinates for forget pairs.
+
+    Selected-row indices may be -1 because Stage C keeps the Stage-A editable
+    row set fixed.  Such sensitive/competitor logits remain at their fixed
+    Stage-B values while selected rows receive coefficient-space effects.
+    """
+
+    hidden_rank: torch.Tensor
+    fixed_stage_b_margin: torch.Tensor
+    sensitive_selected_row_index: torch.Tensor
+    competitor_selected_row_index: torch.Tensor
+
+
+@dataclass(frozen=True)
 class RestorePhaseResult:
     coefficients: torch.Tensor
     report: Dict[str, Any]
     log: List[Dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class DynamicRestoreResult:
+    coefficients: torch.Tensor
+    constraints: List[PairConstraint]
+    phase_reports: List[Dict[str, Any]]
+    log: List[Dict[str, Any]]
+    final_states: List[TokenState]
 
 
 def _chunks(values: Sequence[Any], size: int) -> Iterable[Sequence[Any]]:
@@ -464,6 +490,25 @@ def rank64_restoration_delta(
     if restore_basis.shape[0] != RESTORE_RANK:
         raise ValueError("restoration basis must have exactly 64 rows")
     return coefficients.float() @ restore_basis.float()
+
+
+def forgetting_feasibility_report(
+    margins: torch.Tensor,
+    *,
+    required_margin: float = ACTIVE_MARGIN,
+) -> Dict[str, Any]:
+    """Report the actual configured forget condition, independent of logit drift."""
+
+    if margins.ndim != 1:
+        raise ValueError("forget margins must be a vector")
+    minimum = float(margins.min().item()) if margins.numel() else math.inf
+    violations = int((margins < float(required_margin)).sum().item())
+    return {
+        "active_violation_count": violations,
+        "minimum_active_margin": minimum,
+        "required_active_margin": float(required_margin),
+        "passed": violations == 0 and minimum >= float(required_margin),
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -879,8 +924,141 @@ def exact_restore_ppl_mean_nll(
     )
 
 
+def prepare_stage_c_forget_tensors(
+    constraints: Sequence[PairConstraint],
+    states: Mapping[Tuple[int, str, int, int], TokenState],
+    row_ids: Sequence[int],
+    base_weight_cpu: torch.Tensor,
+    delta_forget: torch.Tensor,
+    restore_basis: torch.Tensor,
+    *,
+    device: torch.device,
+) -> StageCForgetTensors:
+    """Pack Stage-C forget constraints once; loops stay outside optimization."""
+
+    if delta_forget.shape != (len(row_ids), base_weight_cpu.shape[1]):
+        raise ValueError("Stage-B delta shape does not match fixed selected rows")
+    if restore_basis.shape != (RESTORE_RANK, base_weight_cpu.shape[1]):
+        raise ValueError("Stage-C restoration basis must remain exactly rank 64")
+    if not constraints:
+        return StageCForgetTensors(
+            hidden_rank=torch.empty(
+                (0, RESTORE_RANK), device=device, dtype=torch.float32
+            ),
+            fixed_stage_b_margin=torch.empty(
+                (0,), device=device, dtype=torch.float32
+            ),
+            sensitive_selected_row_index=torch.empty(
+                (0,), device=device, dtype=torch.long
+            ),
+            competitor_selected_row_index=torch.empty(
+                (0,), device=device, dtype=torch.long
+            ),
+        )
+    hidden = torch.stack(
+        [states[item.state_identity].hidden.float() for item in constraints]
+    ).to(device)
+    sensitive_ids_cpu = torch.tensor(
+        [item.sensitive_token_id for item in constraints], dtype=torch.long
+    )
+    competitor_ids_cpu = torch.tensor(
+        [item.competitor_token_id for item in constraints], dtype=torch.long
+    )
+    sensitive_rows = base_weight_cpu.index_select(0, sensitive_ids_cpu).to(
+        device=device, dtype=torch.float32
+    )
+    competitor_rows = base_weight_cpu.index_select(0, competitor_ids_cpu).to(
+        device=device, dtype=torch.float32
+    )
+    lookup = {int(token_id): index for index, token_id in enumerate(row_ids)}
+    sensitive_index = torch.tensor(
+        [lookup.get(int(token_id), -1) for token_id in sensitive_ids_cpu.tolist()],
+        device=device,
+        dtype=torch.long,
+    )
+    competitor_index = torch.tensor(
+        [lookup.get(int(token_id), -1) for token_id in competitor_ids_cpu.tolist()],
+        device=device,
+        dtype=torch.long,
+    )
+
+    def fixed_selected_logits(index: torch.Tensor) -> torch.Tensor:
+        if delta_forget.shape[0] == 0:
+            return hidden.new_zeros((hidden.shape[0],))
+        valid = index >= 0
+        safe = index.clamp_min(0)
+        rows = delta_forget.index_select(0, safe)
+        logits = (hidden * rows).sum(dim=1)
+        return torch.where(valid, logits, torch.zeros_like(logits))
+
+    base_margin = (hidden * (competitor_rows - sensitive_rows)).sum(dim=1)
+    fixed_margin = (
+        base_margin
+        + fixed_selected_logits(competitor_index)
+        - fixed_selected_logits(sensitive_index)
+    )
+    return StageCForgetTensors(
+        hidden_rank=hidden @ restore_basis.T,
+        fixed_stage_b_margin=fixed_margin,
+        sensitive_selected_row_index=sensitive_index,
+        competitor_selected_row_index=competitor_index,
+    )
+
+
+def stage_c_forget_margins(
+    tensors: StageCForgetTensors, coefficients: torch.Tensor
+) -> torch.Tensor:
+    """Vectorized Stage-B-fixed plus rank-64 restoration pair margins."""
+
+    if coefficients.ndim != 2 or coefficients.shape[1] != RESTORE_RANK:
+        raise ValueError("Stage-C coefficients must have exactly 64 columns")
+    if not tensors.fixed_stage_b_margin.numel():
+        return coefficients.new_empty((0,))
+
+    def selected_effect(index: torch.Tensor) -> torch.Tensor:
+        if coefficients.shape[0] == 0:
+            return tensors.fixed_stage_b_margin.new_zeros(
+                tensors.fixed_stage_b_margin.shape
+            )
+        valid = index >= 0
+        safe = index.clamp_min(0)
+        rows = coefficients.index_select(0, safe)
+        logits = (tensors.hidden_rank * rows).sum(dim=1)
+        return torch.where(valid, logits, torch.zeros_like(logits))
+
+    return (
+        tensors.fixed_stage_b_margin
+        + selected_effect(tensors.competitor_selected_row_index)
+        - selected_effect(tensors.sensitive_selected_row_index)
+    )
+
+
+def warm_start_rank64_coefficients(
+    coefficients: torch.Tensor, selected_row_count: int
+) -> torch.Tensor:
+    expected = (selected_row_count, RESTORE_RANK)
+    if coefficients.shape != expected:
+        raise ValueError(f"rank-64 warm start shape must be {expected}")
+    return coefficients.detach().float().clone()
+
+
+def stage_c_constraint_updates(
+    existing: Sequence[PairConstraint],
+    audited_states: Sequence[TokenState],
+    *,
+    generation_round: int,
+) -> Tuple[List[PairConstraint], List[PairConstraint]]:
+    additions = constraints_from_audit(
+        audited_states,
+        margin=ACTIVE_MARGIN,
+        generation_round=generation_round,
+    )
+    return basearch.merge_constraints(existing, additions), additions
+
+
 def optimize_rank64_restoration(
     *,
+    forget_tensors: StageCForgetTensors,
     protected_tensors: ProtectedRestoreTensors,
     ppl_tensors: PreparedPPLTensors,
     fixed_ppl_delta_logits: torch.Tensor,
@@ -889,16 +1067,28 @@ def optimize_rank64_restoration(
     device: torch.device,
     steps: int = RESTORE_STEPS,
     learning_rate: float = RESTORE_LR,
+    initial_coefficients: Optional[torch.Tensor] = None,
 ) -> RestorePhaseResult:
-    """Fixed-rank coefficient-space constrained Base utility restoration."""
+    """Joint rank-64 forget/protection/PPL constrained restoration phase."""
 
-    coefficients = nn.Parameter(
-        torch.zeros((selected_row_count, RESTORE_RANK), device=device, dtype=torch.float32)
+    initial = (
+        torch.zeros(
+            (selected_row_count, RESTORE_RANK),
+            device=device,
+            dtype=torch.float32,
+        )
+        if initial_coefficients is None
+        else warm_start_rank64_coefficients(
+            initial_coefficients, selected_row_count
+        ).to(device)
     )
+    coefficients = nn.Parameter(initial)
     optimizer = torch.optim.AdamW(
         [coefficients], lr=learning_rate, weight_decay=0.0
     )
+    active_count = int(stage_c_forget_margins(forget_tensors, coefficients).numel())
     protected_count = int(protected_restore_margins(protected_tensors, coefficients).numel())
+    active_dual = torch.zeros(active_count, device=device)
     protected_dual = torch.zeros(protected_count, device=device)
     ppl_dual = torch.zeros((), device=device)
     log: List[Dict[str, Any]] = []
@@ -908,14 +1098,25 @@ def optimize_rank64_restoration(
     started = time.monotonic()
     for step in range(1, steps + 1):
         optimizer.zero_grad(set_to_none=True)
+        active_margins = stage_c_forget_margins(forget_tensors, coefficients)
+        active_g = float(ACTIVE_MARGIN) - active_margins
         margins = protected_restore_margins(protected_tensors, coefficients)
         protected_g = -margins
         candidate_nll = exact_restore_ppl_mean_nll(
             ppl_tensors, fixed_ppl_delta_logits, coefficients
         )
         ppl_g = candidate_nll - float(allowed_mean_nll)
+        active_pos = active_g.clamp_min(0)
         protected_pos = protected_g.clamp_min(0)
         ppl_pos = ppl_g.clamp_min(0)
+        active_term = (
+            (
+                active_dual * active_pos
+                + 0.5 * SOLVER_RHO * active_pos.square()
+            ).mean()
+            if active_pos.numel()
+            else coefficients.new_zeros(())
+        )
         protected_term = (
             (protected_dual * protected_pos + 0.5 * SOLVER_RHO * protected_pos.square()).mean()
             if protected_pos.numel()
@@ -923,6 +1124,7 @@ def optimize_rank64_restoration(
         )
         objective = (
             RESTORE_L2 * coefficients.square().sum()
+            + active_term
             + protected_term
             + ppl_dual * ppl_pos
             + 0.5 * SOLVER_RHO * ppl_pos.square()
@@ -930,21 +1132,34 @@ def optimize_rank64_restoration(
         objective.backward()
         optimizer.step()
         with torch.no_grad():
+            active_dual.add_(SOLVER_RHO * active_g.detach()).clamp_(min=0)
             protected_dual.add_(SOLVER_RHO * protected_g.detach()).clamp_(min=0)
             ppl_dual.add_(SOLVER_RHO * ppl_g.detach()).clamp_(min=0)
+            maximum_active = (
+                float(active_g.clamp_min(0).max().item())
+                if active_g.numel()
+                else 0.0
+            )
             maximum_protected = (
                 float(protected_g.clamp_min(0).max().item())
                 if protected_g.numel()
                 else 0.0
             )
             ppl_excess = float(ppl_g.clamp_min(0).item())
-            violation_count = int((protected_g > SOLVER_TOLERANCE).sum().item())
-            current = max(maximum_protected, ppl_excess)
+            active_violation_count = int(
+                (active_g > SOLVER_TOLERANCE).sum().item()
+            )
+            protected_violation_count = int(
+                (protected_g > SOLVER_TOLERANCE).sum().item()
+            )
+            current = max(maximum_active, maximum_protected, ppl_excess)
         log.append(
             {
                 "step": step,
                 "restore_rank": RESTORE_RANK,
-                "protected_violation_count": violation_count,
+                "active_violation_count": active_violation_count,
+                "maximum_active_violation": maximum_active,
+                "protected_violation_count": protected_violation_count,
                 "maximum_protected_violation": maximum_protected,
                 "PPL_NLL_excess": ppl_excess,
                 "candidate_mean_NLL": float(candidate_nll.detach().cpu()),
@@ -952,7 +1167,7 @@ def optimize_rank64_restoration(
             }
         )
         if current <= SOLVER_TOLERANCE:
-            reason = "exact_configured_utility_feasibility_reached"
+            reason = "exact_configured_joint_feasibility_reached"
             break
         if current + SOLVER_MIN_IMPROVEMENT < best:
             best = current
@@ -962,7 +1177,12 @@ def optimize_rank64_restoration(
         if stalled >= SOLVER_STALL_PATIENCE:
             reason = "deterministic_stall_criterion_reached"
             break
-    final_margins = protected_restore_margins(protected_tensors, coefficients.detach())
+    final_active_margins = stage_c_forget_margins(
+        forget_tensors, coefficients.detach()
+    )
+    final_margins = protected_restore_margins(
+        protected_tensors, coefficients.detach()
+    )
     final_nll = exact_restore_ppl_mean_nll(
         ppl_tensors, fixed_ppl_delta_logits, coefficients.detach()
     )
@@ -970,6 +1190,15 @@ def optimize_rank64_restoration(
         "restore_rank": RESTORE_RANK,
         "steps": int(step),
         "reason": reason,
+        "active_constraint_count": int(final_active_margins.numel()),
+        "active_violation_count": int(
+            (final_active_margins < ACTIVE_MARGIN).sum().item()
+        ),
+        "minimum_active_margin": (
+            float(final_active_margins.min().item())
+            if final_active_margins.numel()
+            else math.inf
+        ),
         "protected_violation_count": int((final_margins < 0).sum().item()),
         "minimum_protected_margin": float(final_margins.min().item()),
         "candidate_mean_NLL": float(final_nll.item()),
@@ -985,9 +1214,144 @@ def optimize_rank64_restoration(
             "full_hidden_restoration_delta_materialized_per_step": False,
             "H_retain_rank64_precomputed": True,
             "H_ppl_rank64_precomputed": True,
+            "H_forget_rank64_precomputed": True,
         },
     }
     return RestorePhaseResult(coefficients.detach(), report, log)
+
+
+def dynamic_rank64_restoration(
+    *,
+    model: nn.Module,
+    tok: Any,
+    forget_cases: Sequence[mquake.PredictionCase],
+    base_states: Sequence[TokenState],
+    initial_constraints: Sequence[PairConstraint],
+    row_ids: Sequence[int],
+    base_weight_cpu: torch.Tensor,
+    delta_forget: torch.Tensor,
+    restore_basis: torch.Tensor,
+    protected_tensors: ProtectedRestoreTensors,
+    ppl_tensors: PreparedPPLTensors,
+    fixed_ppl_delta_logits: torch.Tensor,
+    allowed_mean_nll: float,
+    device: torch.device,
+    llama_like: bool,
+    batch_size: int,
+    max_rounds: int,
+    steps_per_phase: int,
+    learning_rate: float,
+) -> DynamicRestoreResult:
+    """Generate true-runner constraints while preserving fixed Stage-A rows."""
+
+    if list(row_ids) != sorted(set(int(value) for value in row_ids)):
+        raise ValueError("Stage-C selected row IDs must stay sorted and unique")
+    state_map = {state.identity: state for state in base_states}
+    constraints = list(initial_constraints)
+    coefficients = torch.zeros(
+        (len(row_ids), RESTORE_RANK), device=device, dtype=torch.float32
+    )
+    phase_reports: List[Dict[str, Any]] = []
+    optimization_log: List[Dict[str, Any]] = []
+    final_states: List[TokenState] = []
+    output_weight = model.get_output_embeddings().weight
+    for generation_round in range(max_rounds):
+        forget_tensors = prepare_stage_c_forget_tensors(
+            constraints,
+            state_map,
+            row_ids,
+            base_weight_cpu,
+            delta_forget,
+            restore_basis,
+            device=device,
+        )
+        phase = optimize_rank64_restoration(
+            forget_tensors=forget_tensors,
+            protected_tensors=protected_tensors,
+            ppl_tensors=ppl_tensors,
+            fixed_ppl_delta_logits=fixed_ppl_delta_logits,
+            selected_row_count=len(row_ids),
+            allowed_mean_nll=allowed_mean_nll,
+            device=device,
+            steps=steps_per_phase,
+            learning_rate=learning_rate,
+            initial_coefficients=coefficients,
+        )
+        coefficients = warm_start_rank64_coefficients(
+            phase.coefficients, len(row_ids)
+        ).to(device)
+        for row in phase.log:
+            optimization_log.append(
+                {"constraint_generation_round": generation_round, **row}
+            )
+        restoration_delta = rank64_restoration_delta(
+            coefficients, restore_basis
+        )
+        final_delta = delta_forget + restoration_delta
+        basearch.restore_full_output_to_base(model, base_weight_cpu)
+        basearch.materialize_base_anchored_rows(
+            output_weight, row_ids, base_weight_cpu, final_delta
+        )
+        final_states = cache_token_states(
+            model,
+            tok,
+            forget_cases,
+            device=device,
+            llama_like=llama_like,
+            batch_size=batch_size,
+        )
+        merged, additions = stage_c_constraint_updates(
+            constraints,
+            final_states,
+            generation_round=generation_round + 1,
+        )
+        new_constraint_count = len(merged) - len(constraints)
+        raw_margins = [
+            state.runner_up_logit - state.target_logit for state in final_states
+        ]
+        raw_violation_count = sum(
+            margin < ACTIVE_MARGIN for margin in raw_margins
+        )
+        raw_minimum = min(raw_margins, default=math.inf)
+        phase_reports.append(
+            {
+                **phase.report,
+                "constraint_generation_round": generation_round,
+                "constraint_count_before": len(constraints),
+                "constraint_count_after": len(merged),
+                "new_constraint_count": new_constraint_count,
+                "audited_forget_state_count": len(final_states),
+                "audited_violation_count": int(raw_violation_count),
+                "audited_minimum_true_runner_margin": float(raw_minimum),
+                "constraint_set_sha256": basearch.constraints_sha256(merged),
+                "selected_row_count": len(row_ids),
+                "selected_row_count_unchanged": True,
+                "editable_row_set_expanded": False,
+                "rank64_coefficients_warm_started": generation_round > 0,
+            }
+        )
+        constraints = merged
+        if (
+            phase.report["active_violation_count"] == 0
+            and raw_violation_count == 0
+            and raw_minimum >= ACTIVE_MARGIN
+        ):
+            return DynamicRestoreResult(
+                coefficients,
+                constraints,
+                phase_reports,
+                optimization_log,
+                final_states,
+            )
+        if new_constraint_count == 0:
+            break
+    return DynamicRestoreResult(
+        coefficients,
+        constraints,
+        phase_reports,
+        optimization_log,
+        final_states,
+    )
 
 
 def nonselected_rows_equal_base(
@@ -1446,7 +1810,7 @@ def main() -> None:
     if not stage_a_bf16["passed"] or float(stage_a_result["forget"]["Eff"]) != 0.0:
         raise RuntimeError("Stage A did not achieve perfect BF16 direct-cloze forgetting")
 
-    print("Stage B: exact complete forget-span projection")
+    print("Stage B: configured numerical forget-span projection")
     delta_forget = project_delta_to_forget_span(delta0, forget_geometry.basis)
     before_logits = forget_hidden @ delta0.T
     after_logits = forget_hidden @ delta_forget.T
@@ -1461,6 +1825,7 @@ def main() -> None:
     after_margins = vectorized.active_pair_margins_from_coefficients(
         full_before, delta_forget
     )
+    projected_feasibility = forgetting_feasibility_report(after_margins)
     projection_summary = {
         "restore_rank": RESTORE_RANK,
         "rank0_delta_norm": float(delta0.norm().cpu()),
@@ -1468,17 +1833,20 @@ def main() -> None:
         "projection_residual_norm": float(projection_residual.norm().cpu()),
         "max_forget_logit_difference": float((before_logits - after_logits).abs().max().cpu()),
         "max_active_margin_difference": float((before_margins - after_margins).abs().max().cpu()),
-        "active_violations_after_projection_FP32": int((after_margins < ACTIVE_MARGIN).sum().item()),
-        "minimum_active_margin_after_projection_FP32": float(after_margins.min().item()),
-        "projection_invariance_tolerance": 1e-4,
+        "active_violations_after_projection_FP32": projected_feasibility[
+            "active_violation_count"
+        ],
+        "minimum_active_margin_after_projection_FP32": projected_feasibility[
+            "minimum_active_margin"
+        ],
+        "projection_preserved_forgetting_feasibility": projected_feasibility[
+            "passed"
+        ],
+        "exact_logit_invariance_required": False,
     }
     gagd.write_json(stage_b_dir / "projection_summary.json", projection_summary)
-    if (
-        projection_summary["active_violations_after_projection_FP32"] != 0
-        or projection_summary["max_forget_logit_difference"] > 1e-4
-        or projection_summary["max_active_margin_difference"] > 1e-4
-    ):
-        raise RuntimeError("forget-span projection changed perfect FP32 forgetting")
+    if not projection_summary["projection_preserved_forgetting_feasibility"]:
+        raise RuntimeError("forget-span projection broke FP32 forgetting feasibility")
     basearch.restore_full_output_to_base(model, base_weight_cpu)
     basearch.materialize_base_anchored_rows(
         output_weight, row_ids, base_weight_cpu, delta_forget
@@ -1510,7 +1878,10 @@ def main() -> None:
     if not stage_b_bf16["passed"] or float(stage_b_result["forget"]["Eff"]) != 0.0:
         raise RuntimeError("BF16 forget-span projection failed strict forgetting")
 
-    print("Stage C: fixed rank-64 forget-nullspace Base utility restoration")
+    print(
+        "Stage C: fixed rank-64 numerical-forget-complement restoration "
+        "with explicit forget feasibility"
+    )
     protected_tensors = prepare_protected_restore_tensors(
         protected_states,
         row_ids,
@@ -1524,14 +1895,26 @@ def main() -> None:
     )
     fixed_ppl_logits = ppl_cache.hidden.to(device) @ delta_forget.T
     allowed_mean_nll = ppl_cache.base_mean_nll + math.log(args.max_ppl_ratio)
-    restoration = optimize_rank64_restoration(
+    initial_stage_c_constraint_count = len(constraints)
+    restoration = dynamic_rank64_restoration(
+        model=model,
+        tok=tok,
+        forget_cases=forget_cases,
+        base_states=base_forget_states,
+        initial_constraints=constraints,
+        row_ids=row_ids,
+        base_weight_cpu=base_weight_cpu,
+        delta_forget=delta_forget,
+        restore_basis=restore_basis,
         protected_tensors=protected_tensors,
         ppl_tensors=ppl_tensors,
         fixed_ppl_delta_logits=fixed_ppl_logits,
-        selected_row_count=len(row_ids),
         allowed_mean_nll=allowed_mean_nll,
         device=device,
-        steps=args.restore_steps,
+        llama_like=llama_like,
+        batch_size=args.cache_batch_size,
+        max_rounds=args.constraint_generation_max_rounds,
+        steps_per_phase=args.restore_steps,
         learning_rate=args.restore_lr,
     )
     _write_jsonl(stage_c_dir / "optimization_log.jsonl", restoration.log)
@@ -1541,22 +1924,26 @@ def main() -> None:
     max_forget_change = float(
         (forget_hidden @ restoration_delta.T).abs().max().cpu()
     )
-    if max_forget_change > 1e-4:
-        raise RuntimeError(
-            "rank-64 restoration is not numerically invisible to forget states"
-        )
     final_delta = delta_forget + restoration_delta
     basearch.restore_full_output_to_base(model, base_weight_cpu)
     basearch.materialize_base_anchored_rows(
         output_weight, row_ids, base_weight_cpu, final_delta
     )
-    final_states = cache_token_states(
-        model,
-        tok,
-        forget_cases,
+    final_states = restoration.final_states
+    final_stage_c_forget_tensors = prepare_stage_c_forget_tensors(
+        restoration.constraints,
+        state_map,
+        row_ids,
+        base_weight_cpu,
+        delta_forget,
+        restore_basis,
         device=device,
-        llama_like=llama_like,
-        batch_size=args.cache_batch_size,
+    )
+    final_stage_c_margins = stage_c_forget_margins(
+        final_stage_c_forget_tensors, restoration.coefficients
+    )
+    final_stage_c_feasibility = forgetting_feasibility_report(
+        final_stage_c_margins
     )
     protected_after = cache_token_states(
         model,
@@ -1585,6 +1972,12 @@ def main() -> None:
     bf16_restore_audit = {
         **bf16_forget,
         "restore_rank": RESTORE_RANK,
+        "Stage_C_FP32_active_violations": final_stage_c_feasibility[
+            "active_violation_count"
+        ],
+        "Stage_C_FP32_minimum_active_margin": final_stage_c_feasibility[
+            "minimum_active_margin"
+        ],
         "Stage_C_maximum_FP32_forget_logit_change": max_forget_change,
         "incremental_protected_regressions": int(protected_regressions),
         "candidate_cached_mean_NLL": cached_nll,
@@ -1597,6 +1990,7 @@ def main() -> None:
     }
     bf16_restore_audit["passed"] = bool(
         bf16_restore_audit["passed"]
+        and final_stage_c_feasibility["passed"]
         and protected_regressions == 0
         and bf16_restore_audit["cached_PPL_gate_pass"]
         and bf16_restore_audit["direct_BF16_PPL_gate_pass"]
@@ -1604,13 +1998,36 @@ def main() -> None:
     )
     gagd.write_json(stage_c_dir / "bf16_restore_audit.json", bf16_restore_audit)
     restoration_summary = {
-        **restoration.report,
         "restore_rank": RESTORE_RANK,
+        "initial_forget_constraint_count": initial_stage_c_constraint_count,
+        "final_forget_constraint_count": len(restoration.constraints),
+        "final_forget_constraint_set_sha256": basearch.constraints_sha256(
+            restoration.constraints
+        ),
+        "forget_constraint_generation_rounds": len(restoration.phase_reports),
+        "forget_constraint_generation_reports": restoration.phase_reports,
+        "final_solver_phase": (
+            restoration.phase_reports[-1]
+            if restoration.phase_reports
+            else None
+        ),
+        "Stage_C_FP32_active_violations": final_stage_c_feasibility[
+            "active_violation_count"
+        ],
+        "Stage_C_FP32_minimum_active_margin": final_stage_c_feasibility[
+            "minimum_active_margin"
+        ],
         "B_R_sha256": restore_report["B_R_sha256"],
         "maximum_absolute_B_R_B_F_overlap": restore_report[
             "maximum_absolute_B_R_B_F_overlap"
         ],
         "Stage_C_maximum_FP32_forget_logit_change": max_forget_change,
+        "exact_raw_forget_logit_invariance_required": False,
+        "restoration_geometry_claim": (
+            "rank-64 restoration operates in the complement of the configured "
+            "numerical forget span, with exact raw-forget feasibility enforced "
+            "explicitly"
+        ),
         "BF16_audit": bf16_restore_audit,
     }
     gagd.write_json(stage_c_dir / "restoration_summary.json", restoration_summary)

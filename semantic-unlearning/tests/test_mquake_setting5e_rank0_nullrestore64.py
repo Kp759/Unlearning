@@ -106,13 +106,17 @@ class BaseOriginAndGeometryTests(unittest.TestCase):
         self.assertLessEqual(result.report["final_orthogonality_max_error"], 2e-5)
         self.assertTrue(torch.equal(result.basis, repeated.basis))
 
-    def test_forget_span_projection_preserves_visible_logits(self) -> None:
+    def test_forget_projection_preserves_configured_span_components(self) -> None:
         hidden = torch.randn(10, 18)
         basis = method.robust_svd_qr_row_basis(hidden).basis
         delta = torch.randn(7, 18)
         projected = method.project_delta_to_forget_span(delta, basis)
+        configured_span_hidden = torch.randn(13, basis.shape[0]) @ basis
         torch.testing.assert_close(
-            hidden @ delta.T, hidden @ projected.T, atol=3e-5, rtol=3e-5
+            configured_span_hidden @ delta.T,
+            configured_span_hidden @ projected.T,
+            atol=3e-5,
+            rtol=3e-5,
         )
 
     def test_utility_rank64_basis_is_forget_orthogonal(self) -> None:
@@ -219,7 +223,7 @@ class BaseOriginAndGeometryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "leaves forget nullspace"):
             method.validate_restore_basis_geometry(contaminated, forget_basis)
 
-    def test_arbitrary_rank64_coefficients_cannot_change_forget_logits(self) -> None:
+    def test_rank64_coefficients_are_orthogonal_to_configured_forget_span(self) -> None:
         torch.manual_seed(141)
         hidden_size = 160
         q, _ = torch.linalg.qr(
@@ -281,6 +285,112 @@ class BaseOriginAndGeometryTests(unittest.TestCase):
 
 
 class Rank0AndUtilityMathTests(unittest.TestCase):
+    def test_stage_b_diagnostic_logit_change_does_not_override_feasibility(self) -> None:
+        diagnostic_max_logit_change = 0.32291412353515625
+        report = method.forgetting_feasibility_report(
+            torch.tensor([0.37248182, 0.41]),
+            required_margin=method.ACTIVE_MARGIN,
+        )
+        self.assertGreater(diagnostic_max_logit_change, 1e-4)
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["active_violation_count"], 0)
+        source = inspect.getsource(method.main)
+        self.assertNotIn('max_forget_logit_difference"] >', source)
+        self.assertNotIn('max_active_margin_difference"] >', source)
+
+    def test_stage_b_projection_rejects_an_active_violation(self) -> None:
+        report = method.forgetting_feasibility_report(
+            torch.tensor([0.30, 0.24]),
+            required_margin=method.ACTIVE_MARGIN,
+        )
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["active_violation_count"], 1)
+
+    def test_stage_c_nonzero_raw_change_is_allowed_when_margins_are_feasible(self) -> None:
+        hidden_rank = torch.zeros(1, 64)
+        hidden_rank[0, 0] = 1.0
+        tensors = method.StageCForgetTensors(
+            hidden_rank=hidden_rank,
+            fixed_stage_b_margin=torch.tensor([0.40]),
+            sensitive_selected_row_index=torch.tensor([0]),
+            competitor_selected_row_index=torch.tensor([1]),
+        )
+        coefficients = torch.zeros(2, 64)
+        coefficients[0, 0] = 0.05
+        margins = method.stage_c_forget_margins(tensors, coefficients)
+        diagnostic_raw_logit_change = 0.05
+        self.assertGreater(diagnostic_raw_logit_change, 1e-4)
+        self.assertTrue(method.forgetting_feasibility_report(margins)["passed"])
+        self.assertNotIn(
+            "max_forget_change >", inspect.getsource(method.main)
+        )
+
+    def test_stage_c_forget_constraints_are_differentiable_and_vectorized(self) -> None:
+        hidden_rank = torch.zeros(1, 64)
+        hidden_rank[0, 0] = 1.0
+        tensors = method.StageCForgetTensors(
+            hidden_rank=hidden_rank,
+            fixed_stage_b_margin=torch.tensor([0.0]),
+            sensitive_selected_row_index=torch.tensor([0]),
+            competitor_selected_row_index=torch.tensor([1]),
+        )
+        coefficients = torch.zeros(2, 64, requires_grad=True)
+        margins = method.stage_c_forget_margins(tensors, coefficients)
+        torch.relu(method.ACTIVE_MARGIN - margins).square().sum().backward()
+        self.assertGreater(float(coefficients.grad[0, 0]), 0.0)
+        self.assertLess(float(coefficients.grad[1, 0]), 0.0)
+        source = inspect.getsource(method.optimize_rank64_restoration)
+        self.assertIn("stage_c_forget_margins", source)
+        self.assertIn("active_dual", source)
+        self.assertNotIn("for pair in", source)
+
+    def test_stage_c_nonselected_competitor_remains_fixed(self) -> None:
+        hidden_rank = torch.zeros(1, 64)
+        hidden_rank[0, 0] = 1.0
+        tensors = method.StageCForgetTensors(
+            hidden_rank=hidden_rank,
+            fixed_stage_b_margin=torch.tensor([0.20]),
+            sensitive_selected_row_index=torch.tensor([0]),
+            competitor_selected_row_index=torch.tensor([-1]),
+        )
+        coefficients = torch.zeros(1, 64)
+        coefficients[0, 0] = -0.10
+        torch.testing.assert_close(
+            method.stage_c_forget_margins(tensors, coefficients),
+            torch.tensor([0.30]),
+        )
+
+    def test_stage_c_dynamic_audit_adds_true_current_runner_up(self) -> None:
+        existing = [
+            method.PairConstraint(
+                state_identity=prediction_case(1).identity,
+                sensitive_token_id=1,
+                competitor_token_id=2,
+                generation_round=0,
+            )
+        ]
+        reactivated = token_state(
+            target=1,
+            predicted=1,
+            runner=7,
+            target_logit=2.0,
+            runner_logit=1.9,
+        )
+        merged, additions = method.stage_c_constraint_updates(
+            existing, [reactivated], generation_round=3
+        )
+        self.assertEqual(len(additions), 1)
+        self.assertEqual(additions[0].competitor_token_id, 7)
+        self.assertEqual(len(merged), 2)
+
+    def test_stage_c_constraint_rebuild_warm_starts_coefficients_exactly(self) -> None:
+        torch.manual_seed(211)
+        coefficients = torch.randn(5, 64)
+        warmed = method.warm_start_rank64_coefficients(coefficients, 5)
+        self.assertTrue(torch.equal(warmed, coefficients))
+        self.assertNotEqual(warmed.data_ptr(), coefficients.data_ptr())
+        self.assertEqual(tuple(warmed.shape), (5, 64))
+
     def test_stage_a_rank0_parameterization_starts_at_base(self) -> None:
         initial = torch.zeros(3, 5)
         tensors = vectorized.ActivePairTensors(
@@ -378,6 +488,15 @@ class Rank0AndUtilityMathTests(unittest.TestCase):
         self.assertTrue(report["passed"])
         self.assertEqual(report["active_violation_count"], 0)
 
+    def test_final_bf16_forgetting_audit_remains_mandatory(self) -> None:
+        source = inspect.getsource(method.main)
+        self.assertIn('bf16_restore_audit["passed"]', source)
+        self.assertIn('and final_stage_c_feasibility["passed"]', source)
+        self.assertLess(
+            source.index('gagd.write_json(stage_c_dir / "bf16_restore_audit.json"'),
+            source.index("basearch.final_acceptance_report"),
+        )
+
     def test_nonselected_rows_remain_exact_base(self) -> None:
         base = torch.randn(12, 7, dtype=torch.bfloat16)
         candidate = base.clone()
@@ -427,8 +546,13 @@ class ProtocolAndImplementationTests(unittest.TestCase):
             self.assertNotIn("for pair in", source)
             self.assertNotIn("for state in", source)
         self.assertIn("active_pair_margins_from_coefficients", rank0)
+        self.assertIn("stage_c_forget_margins", restore)
+        self.assertIn("active_dual", restore)
         self.assertIn("protected_restore_margins", restore)
         self.assertIn("exact_restore_ppl_mean_nll", restore)
+        dynamic = inspect.getsource(method.dynamic_rank64_restoration)
+        self.assertNotIn("expand_rank0_rows", dynamic)
+        self.assertIn('"editable_row_set_expanded": False', dynamic)
 
     def test_pinned_launcher_and_protocol(self) -> None:
         launcher = (
