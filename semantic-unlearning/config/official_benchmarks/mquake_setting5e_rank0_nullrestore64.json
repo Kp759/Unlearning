@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "configuration_id": "mquake_setting5e_rank0_nullrestore64_seed0",
+  "status": "EXPERIMENTAL_PENDING_EVALUATION",
+  "method": "Setting 5e @600 + rank-0 Base-anchored perfect forgetting + forget-span projection + rank-64 forget-nullspace Base-utility restoration",
+  "dataset": "MQuAKE-CF-3k-v2",
+  "dataset_revision": "fb43dadc2d8cd19d08ce81c63d957b59deb3f3cd",
+  "seed": 0,
+  "sampling": {
+    "retain_pool": "first 1500 instances",
+    "forget_pool": "last 1500 instances",
+    "forget_instances": 1000,
+    "retain_instances": 1000,
+    "sample_instances_before_flattening": true,
+    "forget_sampling": "instance_balanced"
+  },
+  "setting5e": {
+    "steps": 600,
+    "batch_size": 1,
+    "retain_batch_size": 4,
+    "emb_lm_lr": 0.0001,
+    "forget_weight": 2.0,
+    "retain_weight": 1.0,
+    "forget_margin": 1.0,
+    "optimizer": "adamw",
+    "sampling_strategy": "epoch"
+  },
+  "base_repair_origin": {
+    "input_embeddings": "exact Base",
+    "transformer": "exact frozen Base",
+    "output_head": "exact Base",
+    "tie_word_embeddings": false
+  },
+  "geometry": {
+    "forget_basis": "complete numerical row span via FP32 SVD, reduced QR, deterministic signs",
+    "minimum_exact_forget_nullspace_dimension": 64,
+    "utility_sources": [
+      "Base-correct sampled MQuAKE retain requested-rewrite cloze states",
+      "official Base PPL hidden states"
+    ],
+    "restore_rank": 64,
+    "rank_fallback_or_sweep": false
+  },
+  "stage_a_rank0": {
+    "repair_rank": 0,
+    "steps_per_phase": 1000,
+    "parameterization": "W_candidate[selected] = W_base[selected] + Delta0",
+    "learning_rate": 0.005,
+    "active_margin": 0.25,
+    "Base_relative_delta_l2": 0.0001,
+    "dynamic_true_runner_up_constraints": true,
+    "objective": "maximum active violation squared plus Base-relative delta L2"
+  },
+  "stage_b_forget_projection": {
+    "parameterization": "Delta_F = Delta0 @ B_F.T @ B_F",
+    "arithmetic": "FP32",
+    "BF16_selection_margin": 0.1
+  },
+  "stage_c_rank64": {
+    "parameterization": "W_final[selected] = W_base[selected] + Delta_F + C @ B_R",
+    "coefficient_shape": "[selected_rows, 64]",
+    "restore_rank": 64,
+    "steps": 800,
+    "learning_rate": 0.0005,
+    "delta_l2": 0.0001,
+    "exact_Base_relative_PPL_constraint": true,
+    "protected_Base_correct_retain_constraints": true
+  },
+  "acceptance_gates": {
+    "forget_Eff": 0.0,
+    "minimum_selection_margin": 0.1,
+    "protected_incremental_regressions": 0,
+    "retain_Eff_minimum": "Base RetainEff - 0.10 percentage points",
+    "PPL_maximum": "Base PPL * 1.02",
+    "known_seed0_RetainEff_minimum": 66.372454,
+    "known_seed0_PPL_maximum": 11.28375,
+    "automatic_relaxation": false
+  },
+  "firewall": {
+    "preselection": "sampled requested_rewrite direct-cloze information only",
+    "postselection_only": [
+      "requested_rewrite.question",
+      "AtomicGen",
+      "questions[0:3]",
+      "answer/new_answer aliases",
+      "standard multi-hop",
+      "CoT multi-hop"
+    ],
+    "raw_MQuAKE_target_new_used_for_training": false
+  }
+}
