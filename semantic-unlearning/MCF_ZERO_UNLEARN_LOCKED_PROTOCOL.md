@@ -1,112 +1,129 @@
-# MCF ZeroUnlearn-Style Locked-Probe Protocol
+# MCF ZeroUnlearn-Style Forget-Only / Locked-Probe Protocol
 
-This track evaluates the existing Setting 5e + protected sparse LM-head repair
-under the same **record sampling structure** used by ZeroUnlearn while keeping
-MCF generalization/locality probes unavailable to the method until the final
-frozen-checkpoint evaluation.
+This track is the fair data-access comparison against ZeroUnlearn. The method
+receives only the sampled MCF forget requests before freezing. The sampled MCF
+retain records and the benchmark-provided paraphrase/neighborhood probes are
+reserved for final evaluation.
 
-## Data split
+## Record sampling
 
 For an MCF dataset `D` of length `N`:
 
 - `retain_pool = D[:N//2]`
 - `forget_pool = D[N//2:]`
-- for each seed, sample the forget set first and then the retain set from one
-  seeded Python RNG, exactly as ZeroUnlearn does;
-- default comparison protocol: 50 forget records, 1000 retain records, seeds
+- for each seed, sample the forget records first and the retain evaluation
+  records second from one seeded Python RNG, matching ZeroUnlearn ordering;
+- default protocol: 50 forget records, 1000 retain evaluation records, seeds
   1 through 10.
 
-The same 50 underlying forget facts are evaluated after unlearning. This is
-therefore **not a fact-level unseen test set**.
+The same 50 underlying forget facts are evaluated after unlearning. This is a
+prompt-level holdout protocol, not a fact-level unseen test.
 
-## Locked prompt roles
+## Data access before the checkpoint is frozen
 
-The source MCF file is preserved for final evaluation. A repair-visible copy is
-created in which these fields are emptied:
+A repair-visible copy of MCF is created with these fields removed:
 
 - `paraphrase_prompts`
 - `neighborhood_prompts`
 - `generation_prompts`
 
-The `requested_rewrite` object and record order are preserved. The split builder
-verifies that the original and repair-visible files select the exact same
-record indices for every seed.
+Stage 1 and Stage 2 then sample the same 50 official forget records while
+requesting **zero MCF retain records**.
 
-Consequently:
-
-| Role | Stage 1 | Stage 2 repair | Final evaluation |
+| Data | Stage 1 | Stage 2 | Final evaluation |
 |---|---:|---:|---:|
-| requested rewrite | yes | yes | yes |
-| MCF paraphrases | no | no | yes |
-| neighborhood prompts | no | no | yes |
-| generation prompts | no | no | evaluator only |
+| 50 forget requested rewrites | yes | yes | yes |
+| forget paraphrases | no | no | yes (`Gen`) |
+| forget neighborhoods | no | no | yes (`Spe`) |
+| 1000 MCF retain records | no | no | yes (utility/retention) |
 
-This makes the final MCF `Gen` metric a genuine **held-out prompt-form
-generalization test for the same deletion-request facts**.
+Therefore the 1000 MCF retain records do not influence gradients, row
+restoration, repair selection, KL regularization, hidden-state projection, or
+checkpoint selection.
 
-## Frozen method configuration
+## Stage 1: forget-only Setting 5e
 
-The runner defaults to the already registered controlled MCF configuration
-rather than tuning on the locked probes:
+The dedicated trainer is `scripts/mcf_forget_only_setting5e.py`.
 
-### Setting 5e
+Default forget-side settings:
 
-- steps: 600
-- batch size: 1
-- retain batch size: 4
-- embedding/LM-head LR: `1e-4`
-- forget weight: 2.0
-- retain weight: 1.0
-- MCF margin: 1.0
-- post-training overlap alphas: 0.75 / 0.50 / 0.25
+- 50 forget records
+- 600 steps
+- batch size 1
+- embedding/LM-head LR `1e-4`
+- forget weight 2.0
+- MCF margin 1.0
+- retain weight 0
+- retain KL 0
+- post-training row restoration computed from forget token groups only
+- overlap alpha tuple remains 0.75 / 0.50 / 0.25 for compatibility, but all
+  retain-overlap groups are empty because no MCF retain records are loaded.
 
-### Protected LM-head repair
+## Stage 2: forget-only sparse LM-head repair
 
-- active direct-prompt margin: 0.25
-- repair steps: 100
-- repair LR: 0.005
-- optimizer: AdamW
-- squared-hinge weight: 2.0
-- delta L2: `1e-4`
-- retain KL weight: 0.1
-- retain calibration records: 200
-- repair rank: 2
-- project away retain hidden states: enabled
+The compatibility entry point is `scripts/mcf_forget_only_active_repair.py`.
+It runs the existing sparse repair implementation with:
 
-The official MCF evaluator is deliberately **not** called after Stage 1 and is
-not used for repair stopping or candidate selection. Final evaluation is run
-once on the original MCF file after the repaired checkpoint is frozen.
+- direct requested-rewrite prompts only
+- active margin 0.25
+- repair steps 100
+- repair LR 0.005
+- AdamW
+- squared-hinge weight 2.0
+- delta L2 `1e-4`
+- rank 2
+- MCF retain records 0
+- retain KL weight 0
+- retain calibration records 0
+- retain-hidden projection disabled
 
-## Usage
+The official MCF evaluator is not called after Stage 1 or during Stage 2.
 
-```bash
-cd /scratch/yl258/kp759/Unlearning/semantic-unlearning
+## Final evaluation
 
-MCF_SEEDS="1 2 3 4 5 6 7 8 9 10" \
-OUTPUT_ROOT=outputs/mcf_zerounlearn_locked_3b \
-bash scripts/run_mcf_zerounlearn_locked_our_method.sh \
-  /path/to/Llama-3.2-3B-Instruct
+After the repaired checkpoint is saved and frozen, the original untouched MCF
+file is used with the same seed to evaluate:
+
+- the same 50 forget records on rewrite prompts (`Eff`);
+- their previously unseen MCF paraphrases (`Gen`);
+- their previously unseen neighborhood prompts (`Spe`); and
+- 1000 sampled retain records for post-unlearning utility/retention.
+
+Thus the main comparison is:
+
+```text
+TRAIN / UNLEARN:
+  50 forget requested_rewrite records
+  0 MCF retain records
+  0 paraphrase/neighborhood probes
+
+FREEZE CHECKPOINT
+
+FINAL EVAL:
+  50 forget records + held-out prompt variants
+  1000 retain records
 ```
 
-For one seed, useful for a Slurm array:
+## Wulver usage
 
 ```bash
-MCF_SEEDS="3" \
-OUTPUT_ROOT=outputs/mcf_zerounlearn_locked_3b \
-bash scripts/run_mcf_zerounlearn_locked_our_method.sh \
-  /path/to/Llama-3.2-3B-Instruct
+cd /scratch/yl258/kp759/Unlearning
+git checkout claude/setup-project-structure-JQ7fN
+git pull
+cd semantic-unlearning
+
+sbatch \
+  --export=ALL,MODEL_PATH=/path/to/Llama-3.2-3B-Instruct \
+  slurm/run_mcf_zerounlearn_locked_3b.slurm
 ```
 
-The important outputs are:
+Important outputs per seed:
 
-- `protocol/split_manifest.json`
-- `seedN/setting5e/.../checkpoint`
-- `seedN/repair_locked/checkpoint`
-- `seedN/repair_locked/repair_summary.json`
+- `seedN/setting5e_forget_only/.../checkpoint`
+- `seedN/repair_forget_only/checkpoint`
+- `seedN/repair_forget_only/repair_summary.json`
 - `seedN/official_eval_locked.json`
 - `seedN/run_manifest.json`
 
-Do not tune rank, margin, learning rate, stopping, or scale based on
-`official_eval_locked.json` and then report the same seeds as held-out. If a
-new configuration is chosen after looking at these results, register a new
-development protocol and evaluate it on fresh seeds/probes.
+Do not retune rank, margin, learning rate, or stopping based on the final held-out
+`Gen` values and then report those same runs as untouched held-out results.
