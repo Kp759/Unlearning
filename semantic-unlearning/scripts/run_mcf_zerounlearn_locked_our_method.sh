@@ -34,7 +34,7 @@ MODEL_PATH="$1"
 ORIGINAL_MCF="${2:-${MCF_PATH:-data/multi_counterfact.json}}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-data/wikidata}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/mcf_zerounlearn_locked_our_method}"
-PROTOCOL_DIR="${OUTPUT_ROOT}/protocol"
+PROTOCOL_DIR="${MCF_PROTOCOL_DIR:-${OUTPUT_ROOT}/protocol}"
 REPAIR_MCF="${PROTOCOL_DIR}/repair_visible_mcf.json"
 SPLIT_MANIFEST="${PROTOCOL_DIR}/split_manifest.json"
 
