@@ -190,14 +190,19 @@ repair_dir = pathlib.Path(sys.argv[1])
 original_mcf = str(pathlib.Path(sys.argv[2]).resolve())
 repair_mcf = str(pathlib.Path(sys.argv[3]).resolve())
 
-config_path = repair_dir / "config_used.json"
-config = json.loads(config_path.read_text(encoding="utf-8"))
-config["repair_uses_official_paraphrases"] = False
-config["repair_prompt_scope"] = "requested_rewrite_only"
-config["evaluation_probes_locked_during_repair"] = True
-config["repair_dataset_path"] = repair_mcf
-config["final_evaluation_dataset_path"] = original_mcf
-config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+for config_path in (
+    repair_dir / "config_used.json",
+    repair_dir / "checkpoint" / "repair_experiment_config.json",
+):
+    if not config_path.exists():
+        continue
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["repair_uses_official_paraphrases"] = False
+    config["repair_prompt_scope"] = "requested_rewrite_only"
+    config["evaluation_probes_locked_during_repair"] = True
+    config["repair_dataset_path"] = repair_mcf
+    config["final_evaluation_dataset_path"] = original_mcf
+    config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
 summary_path = repair_dir / "repair_summary.json"
 summary = json.loads(summary_path.read_text(encoding="utf-8"))
