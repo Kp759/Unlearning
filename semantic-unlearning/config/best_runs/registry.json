@@ -47,10 +47,20 @@
       "checkpoint_count": 10,
       "hash_status": "PENDING_LOCAL_CAPTURE",
       "acceptance": "10/10 seeds; all configured gates passed"
+    },
+    {
+      "dataset": "MCF",
+      "record_id": "mcf-zerounlearn-locked-forget-only-rank2-seeds1-10-20260810",
+      "status": "BEST_ACCEPTED",
+      "protocol": "zerounlearn_data_access_forget_only_locked_probes",
+      "manifest": "config/best_runs/mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810.json",
+      "checkpoint_count": 10,
+      "hash_status": "PENDING_LOCAL_CAPTURE",
+      "acceptance": "10/10 seeds completed; Eff=0 on all seeds (500/500 direct prompts); held-out Gen=4.0 mean with 40/1000 paraphrase failures; final probes were not used for repair selection or optimization"
     }
   ],
   "usage": {
-    "MCF": "Use all five fold-specific checkpoints for the controlled five-fold paper result. Fold 2 is only the best single demonstration checkpoint for fold 2.",
+    "MCF": "For the fair ZeroUnlearn-style comparison on Llama-3.2-3B-Instruct, use mcf-zerounlearn-locked-forget-only-rank2-seeds1-10-20260810. It uses 50 forget records only during Stage 1/2, locks paraphrase/neighborhood probes until final evaluation, and keeps 1000 MCF retain records evaluation-only. Keep the controlled-fivefold record for the separate controlled_fivefold protocol.",
     "TOFU": "Use the saved Forget05 seed-42 checkpoint only for the recorded local probability protocol until full tofu_eval is stored separately.",
     "ZsRE": "Use one separately trained and repaired selected checkpoint per seed. The registered 10-seed Setting 5e plus active-repair result passed all configured gates for seeds 1 through 10; use its manifest for aggregate metrics, paths, and recreation parameters."
   }
