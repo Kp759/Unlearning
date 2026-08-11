@@ -5,9 +5,11 @@
   "purpose": "Model-centric index for cross-architecture MCF/ZsRE/TOFU comparisons",
   "datasets": {
     "mcf": {
-      "snapshot": "mcf/official_protected_v2_seeds0_9.json",
-      "canonical_source": "../../mcf/official_protected_v2_seeds0_9.json",
-      "status": "official-compatible metrics recorded"
+      "snapshot": "mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810.json",
+      "canonical_source": "../../mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810.json",
+      "status": "current best fair ZeroUnlearn-style locked-probe result; 10/10 seeds completed",
+      "previous_snapshot": "mcf/official_protected_v2_seeds0_9.json",
+      "previous_snapshot_note": "retained for provenance; evaluator-conditioned repair means it is not the primary held-out-Gen comparison"
     },
     "zsre": {
       "snapshot": "zsre/setting5e_active_repair_u1p20_ppl1p16_cal384_seeds1_10.json",
