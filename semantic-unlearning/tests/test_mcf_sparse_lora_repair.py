@@ -1,8 +1,13 @@
+import sys
 import unittest
+from pathlib import Path
 
 import torch
 
-from scripts.mcf_forget_only_active_repair_lora import SparseLoRADelta
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS_DIR))
+from mcf_forget_only_active_repair_lora import SparseLoRADelta  # noqa: E402
 
 
 class SparseLoRADeltaTests(unittest.TestCase):
