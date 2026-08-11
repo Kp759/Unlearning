@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "record_id": "mcf-zerounlearn-locked-forget-only-rank2-seeds1-10-20260810",
+  "status": "BEST_ACCEPTED",
+  "dataset": "MCF",
+  "model": {
+    "model_id": "meta-llama/Llama-3.2-3B-Instruct",
+    "local_snapshot": "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95"
+  },
+  "protocol": {
+    "name": "zerounlearn_data_access_forget_only_locked_probes",
+    "sample_mode": "official",
+    "seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    "training_data_access": {
+      "forget_records": 50,
+      "mcf_retain_records": 0,
+      "forget_prompt_types": ["requested_rewrite"],
+      "paraphrase_prompts": 0,
+      "neighborhood_prompts": 0
+    },
+    "final_evaluation": {
+      "forget_records": 50,
+      "retain_records": 1000,
+      "same_50_forget_facts": true,
+      "forget_main_prompts": true,
+      "forget_paraphrases": true,
+      "forget_neighborhood_prompts": true,
+      "heldout_gen_used_for_selection": false
+    },
+    "interpretation": "Same forget facts, unseen paraphrase formulations; 1000 MCF retain records are evaluation-only."
+  },
+  "method": {
+    "name": "SURE-LM Setting 5e plus forget-only sparse LM-head repair",
+    "stage1": {
+      "steps": 600,
+      "batch_size": 1,
+      "emb_lm_lr": 0.0001,
+      "forget_weight": 2.0,
+      "forget_margin": 1.0,
+      "optimizer": "adamw",
+      "post_training_new_true_alpha": 0.75,
+      "post_training_new_retain_alpha": 0.5,
+      "post_training_new_true_retain_alpha": 0.25
+    },
+    "stage2": {
+      "repair_mode": "minimal_optimize",
+      "active_margin": 0.25,
+      "repair_steps_max": 100,
+      "repair_lr": 0.005,
+      "optimizer": "adamw",
+      "hinge_weight": 2.0,
+      "delta_l2_lambda": 0.0001,
+      "repair_rank": 2,
+      "retain_kl_mu": 0.0,
+      "retain_calibration_num": 0,
+      "project_away_retain_hidden": false,
+      "parameter_scope": "selected active lm_head rows only"
+    }
+  },
+  "execution": {
+    "slurm_job_id": 1171704,
+    "array": "1-10%2",
+    "completed_seeds": 10,
+    "failed_seeds": 0,
+    "exit_code": "0:0 for all array tasks",
+    "output_root": "outputs/mcf_zerounlearn_forget_only_locked_3b",
+    "runner": "scripts/run_mcf_zerounlearn_locked_our_method.sh",
+    "slurm_script": "slurm/run_mcf_zerounlearn_locked_3b.slurm"
+  },
+  "aggregate": {
+    "evaluated_seeds": 10,
+    "std_convention_primary": "population standard deviation (numpy.std, ddof=0), matching the terminal aggregation used for this record",
+    "metrics_mean_population_sd": {
+      "Eff": {"mean": 0.0, "population_sd": 0.0},
+      "Gen": {"mean": 4.0, "population_sd": 3.6332},
+      "Spe": {"mean": 27.711, "population_sd": 3.6742},
+      "Spe_success": {"mean": 96.3, "population_sd": 1.8639},
+      "PPL": {"mean": 11.55, "population_sd": 0.6771},
+      "minimum_rewrite_paraphrase_margin": {"mean": -2.2422, "population_sd": 2.057}
+    },
+    "metrics_sample_sd_for_reference": {
+      "Gen": 3.829708,
+      "Spe": 3.872956,
+      "PPL": 0.713845,
+      "minimum_rewrite_paraphrase_margin": 2.168284
+    },
+    "prompt_totals": {
+      "rewrite_prompt_instances": 500,
+      "rewrite_failures": 0,
+      "paraphrase_prompt_instances": 1000,
+      "paraphrase_failures": 40,
+      "rewrite_pass_rate_percent": 100.0,
+      "paraphrase_pass_rate_percent": 96.0
+    }
+  },
+  "per_seed": [
+    {"seed": 1, "Eff": 0.0, "Gen": 2.0, "Spe": 26.2, "PPL": 12.75, "rewrite_failures": 0, "paraphrase_failures": 2, "minimum_margin": -0.5625},
+    {"seed": 2, "Eff": 0.0, "Gen": 1.0, "Spe": 24.5, "PPL": 11.062, "rewrite_failures": 0, "paraphrase_failures": 1, "minimum_margin": -2.75},
+    {"seed": 3, "Eff": 0.0, "Gen": 3.0, "Spe": 27.08, "PPL": 12.375, "rewrite_failures": 0, "paraphrase_failures": 3, "minimum_margin": -0.84375},
+    {"seed": 4, "Eff": 0.0, "Gen": 5.0, "Spe": 32.02, "PPL": 11.062, "rewrite_failures": 0, "paraphrase_failures": 5, "minimum_margin": -3.03125},
+    {"seed": 5, "Eff": 0.0, "Gen": 1.0, "Spe": 34.56, "PPL": 11.062, "rewrite_failures": 0, "paraphrase_failures": 1, "minimum_margin": -0.25},
+    {"seed": 6, "Eff": 0.0, "Gen": 0.0, "Spe": 31.01, "PPL": 11.062, "rewrite_failures": 0, "paraphrase_failures": 0, "minimum_margin": 0.6875},
+    {"seed": 7, "Eff": 0.0, "Gen": 3.0, "Spe": 24.47, "PPL": 12.562, "rewrite_failures": 0, "paraphrase_failures": 3, "minimum_margin": -1.34375},
+    {"seed": 8, "Eff": 0.0, "Gen": 5.0, "Spe": 29.73, "PPL": 11.062, "rewrite_failures": 0, "paraphrase_failures": 5, "minimum_margin": -6.390625},
+    {"seed": 9, "Eff": 0.0, "Gen": 7.0, "Spe": 23.73, "PPL": 11.062, "rewrite_failures": 0, "paraphrase_failures": 7, "minimum_margin": -3.71875},
+    {"seed": 10, "Eff": 0.0, "Gen": 13.0, "Spe": 23.81, "PPL": 11.438, "rewrite_failures": 0, "paraphrase_failures": 13, "minimum_margin": -4.21875}
+  ],
+  "auxiliary_seed1_base_comparison": {
+    "scope": "same seed-1 50 forget + 1000 retain split; not a 10-seed aggregate",
+    "retain": {
+      "Eff": {"base": 12.5, "unlearned": 13.1, "delta": 0.6},
+      "Gen": {"base": 14.35, "unlearned": 14.6, "delta": 0.25},
+      "Spe": {"base": 11.84, "unlearned": 14.46, "delta": 2.62},
+      "Spe_success": {"base": 84.82, "unlearned": 83.72, "delta": -1.1}
+    },
+    "PPL": {"base": 11.0625, "unlearned": 12.75, "delta": 1.6875},
+    "forget": {
+      "Eff": {"base": 16.0, "unlearned": 0.0},
+      "Gen": {"base": 14.0, "unlearned": 2.0},
+      "Spe": {"base": 12.57, "unlearned": 26.2}
+    }
+  },
+  "provenance_status": {
+    "terminal_metrics": "CAPTURED_FROM_COMPLETED_WULVER_JOB",
+    "raw_per_seed_json_in_git": false,
+    "checkpoint_weight_hashes": "PENDING_LOCAL_CAPTURE",
+    "exact_local_artifacts": "Remain under the Wulver output_root until copied/hashed."
+  },
+  "scientific_notes": [
+    "This record supersedes the old evaluator-conditioned MCF run as the preferred fair ZeroUnlearn-style comparison, but the old record is retained under the append-only policy.",
+    "Stage 1 and Stage 2 never see official forget paraphrases or neighborhood prompts.",
+    "The 1000 MCF retain records are evaluation-only and are not used for retain CE, KL, calibration, projection, or selection.",
+    "Gen=4.0 is a genuine held-out-prompt result: 40 failures among 1000 paraphrase prompt instances.",
+    "Seed 10 is the largest Gen tail case (13.0); do not remove it.",
+    "Absolute PPL should not be claimed as directly better than the ZeroUnlearn paper until evaluator/base-PPL reproduction is aligned."
+  ]
+}
