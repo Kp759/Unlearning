@@ -1,0 +1,59 @@
+{
+  "source_record": "config/best_runs/mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810.json",
+  "model_family": "meta-llama/Llama-3.2-3B-Instruct",
+  "snapshot_role": "model-centric copy/index",
+  "dataset": "MCF",
+  "record_id": "mcf-zerounlearn-locked-forget-only-rank2-seeds1-10-20260810",
+  "status": "BEST_ACCEPTED",
+  "protocol": "zerounlearn_data_access_forget_only_locked_probes",
+  "seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "training_data_access": {
+    "forget_records": 50,
+    "mcf_retain_records": 0,
+    "forget_prompt_types": ["requested_rewrite"],
+    "paraphrases_visible": false,
+    "neighborhood_prompts_visible": false
+  },
+  "final_evaluation": {
+    "forget_records": 50,
+    "retain_records": 1000,
+    "same_forget_facts": true,
+    "paraphrases_held_out_until_final_eval": true,
+    "neighborhood_prompts_held_out_until_final_eval": true
+  },
+  "method": {
+    "name": "SURE-LM Setting 5e plus forget-only sparse LM-head repair",
+    "repair_rank": 2,
+    "retain_kl_mu": 0.0,
+    "retain_calibration_num": 0,
+    "project_away_retain_hidden": false
+  },
+  "aggregate": {
+    "evaluated_seeds": 10,
+    "metrics_mean_population_sd": {
+      "Eff": {"mean": 0.0, "population_sd": 0.0},
+      "Gen": {"mean": 4.0, "population_sd": 3.6332},
+      "Spe": {"mean": 27.711, "population_sd": 3.6742},
+      "Spe_success": {"mean": 96.3, "population_sd": 1.8639},
+      "PPL": {"mean": 11.55, "population_sd": 0.6771},
+      "minimum_rewrite_paraphrase_margin": {"mean": -2.2422, "population_sd": 2.057}
+    },
+    "rewrite_prompt_instances": 500,
+    "rewrite_failures": 0,
+    "paraphrase_prompt_instances": 1000,
+    "paraphrase_failures": 40,
+    "heldout_paraphrase_pass_rate_percent": 96.0
+  },
+  "execution": {
+    "slurm_job_id": 1171704,
+    "output_root": "outputs/mcf_zerounlearn_forget_only_locked_3b",
+    "completed_seeds": 10,
+    "failed_seeds": 0
+  },
+  "provenance_status": {
+    "terminal_metrics": "CAPTURED_FROM_COMPLETED_WULVER_JOB",
+    "checkpoint_weight_hashes": "PENDING_LOCAL_CAPTURE",
+    "raw_per_seed_json_in_git": false
+  },
+  "important_note": "Preferred fair ZeroUnlearn-style 3B MCF comparison. The older protected-v2 record is retained for provenance but used evaluator-conditioned repair and is not the primary held-out-Gen result."
+}
