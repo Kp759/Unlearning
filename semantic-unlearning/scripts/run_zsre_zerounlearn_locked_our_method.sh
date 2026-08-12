@@ -67,7 +67,7 @@ test -d "${WIKIDATA_DIR}"
 
 for SEED in "${SEEDS[@]}"; do
   SEED_ROOT="${OUTPUT_ROOT}/seed${SEED}"
-  PROTOCOL_DIR="${MCF_PROTOCOL_DIR:-${SEED_ROOT}/protocol}"
+  PROTOCOL_DIR="${ZSRE_PROTOCOL_DIR:-${SEED_ROOT}/protocol}"
   REPAIR_VISIBLE="${PROTOCOL_DIR}/repair_visible_forget.json"
   SPLIT_MANIFEST="${PROTOCOL_DIR}/split_manifest.json"
 
