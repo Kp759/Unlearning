@@ -1,7 +1,13 @@
+import sys
 import unittest
+from pathlib import Path
 
-from scripts.build_zsre_zerounlearn_locked_split import direct_only_record
-from scripts import zsre_zero_unlearn_official_eval as zsre
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+import build_zsre_zerounlearn_locked_split as LOCKED  # noqa: E402
+import zsre_zero_unlearn_official_eval as zsre  # noqa: E402
 
 
 class LockedZsRESplitTests(unittest.TestCase):
@@ -14,7 +20,7 @@ class LockedZsRESplitTests(unittest.TestCase):
             "loc": "nq question: capital of France",
             "loc_ans": "Paris",
         }
-        record = direct_only_record(raw, 123)
+        record = LOCKED.direct_only_record(raw, 123)
         self.assertEqual(record["case_id"], 123)
         self.assertEqual(record["requested_rewrite"]["subject"], "Ada Lovelace")
         self.assertEqual(
@@ -35,7 +41,7 @@ class LockedZsRESplitTests(unittest.TestCase):
             "loc": "nq question: capital of Italy",
             "loc_ans": "Rome",
         }
-        record = direct_only_record(raw, 5)
+        record = LOCKED.direct_only_record(raw, 5)
         self.assertIn("{}", record["requested_rewrite"]["prompt"])
         self.assertNotIn("Marie Curie", record["requested_rewrite"]["prompt"])
 
