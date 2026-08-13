@@ -23,8 +23,10 @@ def prompt_kd(model, tok, cases, device):
         reduction="none",
     ).sum(dim=-1)
     mask = enc["attention_mask"].bool()
-    last = enc["attention_mask"].sum(dim=1) - 1
-    mask[torch.arange(mask.size(0), device=device), last] = False
+    for row in range(mask.size(0)):
+        nz = torch.nonzero(mask[row], as_tuple=False).flatten()
+        if nz.numel():
+            mask[row, nz[-1]] = False
     return (kl * mask.float()).sum() / mask.sum().clamp_min(1)
 
 
@@ -63,5 +65,23 @@ def train_active_kd(model, tok, cases, llama_like, device, params,
     return {"steps": steps, "reason": "max_steps", "logs": logs}
 
 
+_original_write = nnr.write
+
+def hybrid_write(path, payload):
+    if getattr(path, "name", "") == "summary.json" and isinstance(payload, dict):
+        payload = dict(payload)
+        payload["method"] = "SURE-EmbLM-stage1-plus-active-only-contextual-LoRA-KD"
+        payload["stage2_teacher"] = "frozen SURE Stage-1 Emb+LM checkpoint"
+        payload["stage2_IDK_used"] = False
+        payload["stage2_target_new_seen"] = False
+        payload["stage2_Unknown_seen"] = False
+        payload["stage2_retain_seen"] = 0
+        payload["stage2_PPL_seen_during_selection"] = False
+        payload["sure_stage1_input"] = payload.pop("base", None)
+        payload["zero_step_lora_phase"] = payload.get("stage1")
+    return _original_write(path, payload)
+
+
+nnr.write = hybrid_write
 cl.train = train_active_kd
 cl.main()
