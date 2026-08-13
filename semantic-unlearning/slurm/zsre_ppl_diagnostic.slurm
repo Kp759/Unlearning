@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=zsre-ppl-diag
-#SBATCH --partition=standard
+#SBATCH --partition=gpu
+#SBATCH --qos=standard
 #SBATCH --time=00:20:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=2
