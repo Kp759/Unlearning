@@ -11,6 +11,9 @@ Usage:
   bash scripts/run_zsre_zerounlearn_locked_our_method.sh MODEL_PATH [ZSRE_PATH]
 
 Locked ZeroUnlearn-style ZsRE SURE protocol:
+  Sampling: exact ZeroUnlearn split and seeded RNG order.
+            first half -> retain pool; second half -> forget pool;
+            sample forget first, then retain from the same seeded RNG.
   Stage 1: 50 sampled forget requested_rewrite records, 0 benchmark retain.
   Stage 2: same 50 direct rewrites only; no rephrase/locality/retain access.
   Final eval: original ZsRE file, same 50 forget + 1000 sampled retain.
@@ -99,6 +102,15 @@ for SEED in "${SEEDS[@]}"; do
   test -f "${REPAIR_VISIBLE}"
   test -f "${SPLIT_MANIFEST}"
 
+  echo "===== SEED ${SEED}: VERIFY ZEROUnlearn/SURE SPLIT PARITY ====="
+  "${PYTHON_BIN}" scripts/verify_zsre_zerounlearn_locked_split.py \
+    --zsre-path "${ORIGINAL_ZSRE}" \
+    --split-manifest "${SPLIT_MANIFEST}" \
+    --repair-visible-path "${REPAIR_VISIBLE}" \
+    --seed "${SEED}" \
+    --forget-num "${FORGET_NUM}" \
+    --retain-num "${EVAL_RETAIN_NUM}"
+
   echo "===== SEED ${SEED}: STAGE 1 — 50 DIRECT FORGET / 0 RETAIN ====="
   if [[ ! -d "${SETTING_CKPT}" ]]; then
     "${PYTHON_BIN}" scripts/zsre_forget_only_setting5e.py \
@@ -176,8 +188,10 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 payload = {
-    "schema_version": 1,
+    "schema_version": 2,
     "protocol": "zsre_zerounlearn_forget_only_locked_probes",
+    "sampling_parity_verified": True,
+    "sampling_rule": "first half retain pool; second half forget pool; one seeded RNG; forget sampled first then retain",
     "seed": int(sys.argv[6]),
     "split_manifest": str(pathlib.Path(sys.argv[2]).resolve()),
     "setting5e_checkpoint": str(pathlib.Path(sys.argv[3]).resolve()),
@@ -224,6 +238,7 @@ done
 
 echo
 echo "Locked ZeroUnlearn-style ZsRE SURE track complete."
+echo "Sampling parity: exact ZeroUnlearn pool split + RNG order, verified per seed."
 echo "Stage 1/2 access: ${FORGET_NUM} direct forget, 0 benchmark retain/probes."
 echo "Final evaluation: ${FORGET_NUM} forget + ${EVAL_RETAIN_NUM} retain."
 echo "Results: ${OUTPUT_ROOT}/seed*/official_eval_locked.json"
