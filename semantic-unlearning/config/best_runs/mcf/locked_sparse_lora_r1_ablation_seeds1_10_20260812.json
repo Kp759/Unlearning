@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "record_id": "mcf-locked-sparse-lora-r1-ablation-seeds1-10-20260812",
+  "status": "ABLATION_RECORDED",
+  "dataset": "MCF",
+  "model": "meta-llama/Llama-3.2-3B-Instruct",
+  "date_recorded": "2026-08-12",
+  "experiment": {
+    "purpose": "Compare the established fixed-SVD selected-row Stage-2 repair against a learned sparse LoRA factorization while holding the locked ZeroUnlearn-style MCF protocol and Stage-1 checkpoints fixed.",
+    "protocol": "zerounlearn_data_access_forget_only_locked_probes",
+    "seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    "stage1_reused_exactly": true,
+    "stage1_root": "outputs/mcf_zerounlearn_forget_only_locked_3b",
+    "lora_output_root": "outputs/mcf_zerounlearn_forget_only_locked_3b_lora_r1",
+    "slurm_job_id": 1174002,
+    "array_tasks": 10,
+    "all_tasks_completed": true,
+    "exit_code": "0:0 for all array tasks"
+  },
+  "architecture": {
+    "fixed_svd": {
+      "formula": "DeltaW_A = C @ B_fixed",
+      "requested_rank": 2,
+      "actual_rank_in_every_repaired_seed": 1,
+      "trainable_stage2_parameters_per_repaired_seed": 2,
+      "selected_rows_per_repaired_seed": 2
+    },
+    "sparse_lora_r1": {
+      "formula": "DeltaW_A = B_lora @ A_lora * (alpha / rank)",
+      "rank": 1,
+      "alpha": 1,
+      "scaling": 1.0,
+      "hidden_size": 3072,
+      "trainable_stage2_parameters_per_repaired_seed": 3074,
+      "selected_rows_per_repaired_seed": 2
+    },
+    "repaired_seeds_both_methods": [1, 2, 5, 8, 10],
+    "no_repair_seeds_both_methods": [3, 4, 6, 7, 9]
+  },
+  "aggregate_population_sd": {
+    "fixed_svd": {
+      "Eff": {"mean": 0.0, "sd": 0.0},
+      "Gen": {"mean": 4.0, "sd": 3.6332},
+      "Spe": {"mean": 27.7110, "sd": 3.6742},
+      "Spe_success": {"mean": 96.3000, "sd": 1.8639},
+      "PPL": {"mean": 11.5500, "sd": 0.6771}
+    },
+    "sparse_lora_r1": {
+      "Eff": {"mean": 0.0, "sd": 0.0},
+      "Gen": {"mean": 4.0, "sd": 3.3466},
+      "Spe": {"mean": 27.7040, "sd": 3.6780},
+      "Spe_success": {"mean": 96.3000, "sd": 1.7894},
+      "PPL": {"mean": 11.5500, "sd": 0.6771}
+    }
+  },
+  "paired_delta_lora_minus_fixed": {
+    "Eff": {"mean": 0.0, "population_sd": 0.0},
+    "Gen": {"mean": 0.0, "population_sd": 0.4472},
+    "Spe": {"mean": -0.0070, "population_sd": 0.0155},
+    "Spe_success": {"mean": -0.0, "population_sd": 0.1549},
+    "PPL": {"mean": 0.0, "population_sd": 0.0}
+  },
+  "per_seed_repair_complexity": [
+    {"seed": 1, "fixed_rows": 2, "fixed_actual_rank": 1, "lora_rows": 2, "lora_rank": 1, "lora_trainable_parameters": 3074},
+    {"seed": 2, "fixed_rows": 2, "fixed_actual_rank": 1, "lora_rows": 2, "lora_rank": 1, "lora_trainable_parameters": 3074},
+    {"seed": 3, "fixed_rows": 0, "fixed_actual_rank": 0, "lora_rows": 0, "lora_rank": 1, "lora_trainable_parameters": 0},
+    {"seed": 4, "fixed_rows": 0, "fixed_actual_rank": 0, "lora_rows": 0, "lora_rank": 1, "lora_trainable_parameters": 0},
+    {"seed": 5, "fixed_rows": 2, "fixed_actual_rank": 1, "lora_rows": 2, "lora_rank": 1, "lora_trainable_parameters": 3074},
+    {"seed": 6, "fixed_rows": 0, "fixed_actual_rank": 0, "lora_rows": 0, "lora_rank": 1, "lora_trainable_parameters": 0},
+    {"seed": 7, "fixed_rows": 0, "fixed_actual_rank": 0, "lora_rows": 0, "lora_rank": 1, "lora_trainable_parameters": 0},
+    {"seed": 8, "fixed_rows": 2, "fixed_actual_rank": 1, "lora_rows": 2, "lora_rank": 1, "lora_trainable_parameters": 3074},
+    {"seed": 9, "fixed_rows": 0, "fixed_actual_rank": 0, "lora_rows": 0, "lora_rank": 1, "lora_trainable_parameters": 0},
+    {"seed": 10, "fixed_rows": 2, "fixed_actual_rank": 1, "lora_rows": 2, "lora_rank": 1, "lora_trainable_parameters": 3074}
+  ],
+  "conclusion": {
+    "performance": "Sparse LoRA rank 1 is effectively tied with the fixed-SVD repair on all headline metrics.",
+    "efficiency": "For every repaired seed, fixed-SVD uses 2 trainable Stage-2 coefficients whereas rank-1 sparse LoRA uses 3074 trainable Stage-2 parameters, a 1537x increase with no meaningful metric gain.",
+    "recommended_primary_architecture": "fixed-SVD selected-row repair",
+    "recommended_use_of_lora_result": "negative/efficiency ablation; do not replace the primary fixed-SVD architecture"
+  },
+  "provenance": {
+    "metrics_source": "Terminal output from scripts/compare_mcf_locked_fixed_vs_lora.py after Slurm job 1174002 completed all ten seeds.",
+    "comparison_script": "scripts/compare_mcf_locked_fixed_vs_lora.py",
+    "local_comparison_json": "outputs/mcf_locked_fixed_vs_lora_r1.json",
+    "local_comparison_markdown": "outputs/mcf_locked_fixed_vs_lora_r1.md",
+    "raw_per_seed_lora_eval_files": "outputs/mcf_zerounlearn_forget_only_locked_3b_lora_r1/seed{seed}/official_eval_locked.json",
+    "note": "This is an ablation record and intentionally does not supersede the registered BEST_ACCEPTED fixed-SVD record."
+  }
+}
