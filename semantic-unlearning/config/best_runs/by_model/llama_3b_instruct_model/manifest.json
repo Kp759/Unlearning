@@ -6,8 +6,10 @@
   "datasets": {
     "mcf": {
       "snapshot": "mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810.json",
+      "technical_spec_json": "mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810_technical_spec.json",
+      "technical_spec_markdown": "mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810_technical_spec.md",
       "canonical_source": "../../mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810.json",
-      "status": "current best fair ZeroUnlearn-style locked-probe result; 10/10 seeds completed",
+      "status": "current best fair ZeroUnlearn-style locked-probe result; 10/10 seeds completed; full split/matrix/rank/repair technical audit archived",
       "previous_snapshot": "mcf/official_protected_v2_seeds0_9.json",
       "previous_snapshot_note": "retained for provenance; evaluator-conditioned repair means it is not the primary held-out-Gen comparison"
     },
