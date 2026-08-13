@@ -54,6 +54,12 @@ The unified MCF, TOFU, and ZsRE experiment launcher and result protocol are
 documented in
 [experiments/three_benchmark/README.md](experiments/three_benchmark/README.md).
 
+The ZeroUnlearn-style locked ZsRE SURE comparison is documented in
+[ZSRE_ZERO_UNLEARN_LOCKED_PROTOCOL.md](ZSRE_ZERO_UNLEARN_LOCKED_PROTOCOL.md).
+The matching MQuAKE-CF-3k-v2 track, using 50 sampled forget instances and
+1,000 evaluation-only retain instances for each of seeds 1--10, is documented
+in [MQUAKE_ZERO_UNLEARN_LOCKED_PROTOCOL.md](MQUAKE_ZERO_UNLEARN_LOCKED_PROTOCOL.md).
+
 The leakage-controlled LLM1/LLM2 workflow with group-disjoint train,
 validation, and test requests; Setting 5e plus active LM-head repair; two
 independent judge roles; five-fold evaluation; token/locality metrics; and a
