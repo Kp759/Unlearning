@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "record_id": "mcf-zerounlearn-locked-forget-only-rank2-seeds1-10-20260810-technical-spec",
+  "parent_best_run": "zerounlearn_locked_forget_only_rank2_seeds1_10_20260810.json",
+  "canonical_best_run": "../../../../mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810.json",
+  "status": "TECHNICAL_SPEC_FOR_BEST_ACCEPTED",
+  "dataset": {
+    "name": "MultiCounterFact (MCF)",
+    "source_file": "data/multi_counterfact.json",
+    "source_git_blob_sha": "da8646bc843fad08bc66314db5c54f126b95cdff",
+    "source_file_bytes": 42914741,
+    "dataset_records": 21919,
+    "pool_split": {
+      "formula": "half = len(data) // 2",
+      "half": 10959,
+      "retain_pool": {
+        "index_range": "[0, 10959)",
+        "records": 10959
+      },
+      "forget_pool": {
+        "index_range": "[10959, 21919)",
+        "records": 10960
+      }
+    }
+  },
+  "zerounlearn_sampling_parity": {
+    "implementation": "scripts/mcf_sampling.py::sample_official_mcf_records",
+    "seeds": [1,2,3,4,5,6,7,8,9,10],
+    "rng": "random.Random(seed)",
+    "draw_order": ["forget from second-half pool", "retain from first-half pool"],
+    "forget_records_per_seed": 50,
+    "retain_records_training_stage1": 0,
+    "retain_records_training_stage2": 0,
+    "retain_records_final_evaluation": 1000,
+    "why_training_and_eval_forget_sets_match": "The forget sample is drawn first from the same second-half pool with the same seed. Therefore changing retain_num from 0 during Stage 1/2 to 1000 at final evaluation cannot change the first RNG draw that selects the 50 forget records.",
+    "repair_visible_copy": {
+      "builder": "scripts/build_mcf_zerounlearn_locked_split.py",
+      "record_order_preserved": true,
+      "requested_rewrite_preserved": true,
+      "locked_fields": ["paraphrase_prompts", "neighborhood_prompts", "generation_prompts"],
+      "builder_asserts_selected_indices_equal_source": true,
+      "protocol_type": "prompt-level holdout, not fact-level holdout",
+      "same_underlying_forget_facts_at_final_eval": true
+    },
+    "method_visible_before_final_eval": ["requested_rewrite of the 50 sampled forget records"],
+    "never_visible_before_final_eval": [
+      "1000 benchmark retain records",
+      "official forget paraphrase prompts",
+      "official forget neighborhood prompts",
+      "official forget generation prompts",
+      "PPL/Wikidata evaluation text"
+    ]
+  },
+  "model": {
+    "model_id": "meta-llama/Llama-3.2-3B-Instruct",
+    "vocab_size": 128256,
+    "hidden_size": 3072,
+    "transformer_layers": 28,
+    "attention_heads": 24,
+    "kv_heads": 8,
+    "tie_word_embeddings": true,
+    "observed_total_parameters": 3212749824
+  },
+  "stage1": {
+    "name": "Setting-5e forget-only Emb+LM training plus post-training vocabulary restoration",
+    "runner": "scripts/mcf_forget_only_setting5e.py",
+    "core_helpers": "scripts/gagd_compare.py",
+    "data": {
+      "forget_records": 50,
+      "retain_records": 0,
+      "prompt_types": ["requested_rewrite"],
+      "paraphrases": 0
+    },
+    "parameter_scope": {
+      "transformer_trainable": false,
+      "input_embedding_trainable": true,
+      "lm_head_trainable": true,
+      "lm_head_tied_to_input_embedding": true,
+      "unique_trainable_tensors": 1,
+      "matrix_shape": [128256, 3072],
+      "matrix_elements": 394002432,
+      "trainable_parameters": 394002432,
+      "trainable_fraction_percent": 12.263713,
+      "bf16_weight_bytes": 788004864,
+      "bf16_weight_MiB": 751.5,
+      "important_interpretation": "Because input embeddings and lm_head are tied, Stage 1 has one shared 128256 x 3072 parameter matrix, not two independent matrices."
+    },
+    "objective": {
+      "code_name": "mcf_margin_forget_loss",
+      "per_example_formula": "softplus(NLL_target_true - NLL_target_new + forget_margin)",
+      "forget_margin": 1.0,
+      "forget_weight": 2.0,
+      "total_formula": "2.0 * mean(per-example margin loss)",
+      "target_new": "counterfactual/edited answer stored in MCF",
+      "target_true": "original factual answer stored in MCF",
+      "optimization_effect": "Minimization increases the preference margin NLL(target_new)-NLL(target_true), making target_true preferred over target_new.",
+      "retain_loss": 0.0,
+      "retain_kl": 0.0,
+      "note_on_naming": "The accepted runner is historically grouped under Setting-5e/GA-GD code, but this locked forget-only implementation uses the explicit target-new-vs-target-true softplus margin objective rather than a benchmark-retain GD loss."
+    },
+    "optimization": {
+      "steps": 600,
+      "batch_size": 1,
+      "epochs_over_50_forget_records_equivalent": 12.0,
+      "sampling": "EpochBatchSampler: a shuffled permutation of all 50 forget examples is exhausted before reshuffling",
+      "optimizer": "AdamW",
+      "learning_rate": 0.0001,
+      "weight_decay": 0.0,
+      "gradient_clip_norm": 1.0,
+      "dtype": "bf16",
+      "answer_forward_evaluations_per_update": 2,
+      "answer_forward_evaluations_over_600_updates": 1200
+    },
+    "post_training_vocabulary_restoration": {
+      "basis": "forget answer-token groups only; zero benchmark-retain examples",
+      "full_matrix_first_restored_to_base": true,
+      "rules": {
+        "unique_target_new": "keep full trained Stage-1 row",
+        "unique_target_true": "set to 1.25 * base row",
+        "target_new_true_overlap": "base + 0.75 * (trained - base)",
+        "target_new_retain_overlap": "configured base + 0.50 * (trained - base), but inert here because retain token group is empty",
+        "target_new_true_retain_overlap": "configured base + 0.25 * (trained - base), but inert here because retain token group is empty",
+        "target_true_retain_overlap": "base row; inert here because retain token group is empty",
+        "unrelated": "base row"
+      },
+      "shared_tied_matrix": true
+    }
+  },
+  "stage2": {
+    "name": "forget-only sparse active LM-head repair",
+    "wrapper": "scripts/mcf_forget_only_active_repair.py",
+    "core": "scripts/gagd_active_case_repair.py",
+    "data": {
+      "forget_records": 50,
+      "retain_records": 0,
+      "prompt_instances": 50,
+      "prompt_scope": "direct requested_rewrite only because the repair-visible MCF copy has empty paraphrase lists"
+    },
+    "model_scope": {
+      "tied_lm_head_is_cloned_and_untied_before_repair": true,
+      "input_embeddings_trainable": false,
+      "input_embeddings_modified": false,
+      "transformer_trainable_parameters": 0,
+      "full_lm_head_shape": [128256, 3072],
+      "only_selected_output_rows_materialized": true
+    },
+    "active_case_definition": {
+      "margin_formula": "NLL(target_new) - NLL(target_true)",
+      "positive_margin_interpretation": "target_true is preferred, which is the desired forgotten state for MCF",
+      "active_margin": 0.25,
+      "active_if": "margin < 0.25",
+      "selected_rows": "union of non-special token IDs appearing in target_new and target_true answers of initially active direct rewrite instances",
+      "selected_row_set_fixed_after_initial_active_detection": true
+    },
+    "margin_constraints": {
+      "protected_margin_floor": 0.0,
+      "active_prompt_required_margin": 0.25,
+      "already_passing_prompt_required_margin": "max(0, min(original_margin, 0.25)); for original_margin >= 0.25 this equals 0.25",
+      "optimization_prompt_instances": 50
+    },
+    "objective": {
+      "formula": "2.0 * sum_i ReLU(required_margin_i - margin_i(DeltaW))^2 + 1e-4 * ||DeltaW||_F^2",
+      "hinge_weight": 2.0,
+      "delta_l2_lambda": 0.0001,
+      "retain_kl_mu": 0.0,
+      "retain_calibration_records": 0,
+      "retain_hidden_projection": false,
+      "max_delta_norm": null
+    },
+    "optimization": {
+      "optimizer": "AdamW",
+      "learning_rate": 0.005,
+      "max_steps": 100,
+      "early_stop": "stop when every one of the 50 direct rewrite margin constraints is satisfied"
+    },
+    "fixed_svd_parameterization": {
+      "requested_rank": 2,
+      "rank_semantics": "maximum rank of a fixed orthonormal basis derived by SVD from last-layer hidden states at active target_new and target_true answer-token positions; it is not a count of LM-head rows and it is not PEFT LoRA",
+      "basis_construction": "concatenate active answer-position hidden states, torch.linalg.svd(..., full_matrices=False), keep right-singular vectors up to requested rank",
+      "formula": "DeltaW_selected = C @ B_fixed",
+      "C_shape": "[selected_rows, actual_rank]",
+      "B_fixed_shape": "[actual_rank, 3072]",
+      "DeltaW_selected_shape": "[selected_rows, 3072]",
+      "only_C_is_trainable": true
+    },
+    "observed_per_seed_complexity": [
+      {"seed":1,"selected_rows":2,"requested_rank":2,"actual_rank":1,"trainable_coefficients":2,"C_shape":[2,1],"B_fixed_shape":[1,3072],"DeltaW_selected_shape":[2,3072],"materialized_delta_entries":6144},
+      {"seed":2,"selected_rows":2,"requested_rank":2,"actual_rank":1,"trainable_coefficients":2,"C_shape":[2,1],"B_fixed_shape":[1,3072],"DeltaW_selected_shape":[2,3072],"materialized_delta_entries":6144},
+      {"seed":3,"selected_rows":0,"requested_rank":2,"actual_rank":0,"trainable_coefficients":0,"DeltaW_selected_shape":[0,3072],"materialized_delta_entries":0},
+      {"seed":4,"selected_rows":0,"requested_rank":2,"actual_rank":0,"trainable_coefficients":0,"DeltaW_selected_shape":[0,3072],"materialized_delta_entries":0},
+      {"seed":5,"selected_rows":2,"requested_rank":2,"actual_rank":1,"trainable_coefficients":2,"C_shape":[2,1],"B_fixed_shape":[1,3072],"DeltaW_selected_shape":[2,3072],"materialized_delta_entries":6144},
+      {"seed":6,"selected_rows":0,"requested_rank":2,"actual_rank":0,"trainable_coefficients":0,"DeltaW_selected_shape":[0,3072],"materialized_delta_entries":0},
+      {"seed":7,"selected_rows":0,"requested_rank":2,"actual_rank":0,"trainable_coefficients":0,"DeltaW_selected_shape":[0,3072],"materialized_delta_entries":0},
+      {"seed":8,"selected_rows":2,"requested_rank":2,"actual_rank":1,"trainable_coefficients":2,"C_shape":[2,1],"B_fixed_shape":[1,3072],"DeltaW_selected_shape":[2,3072],"materialized_delta_entries":6144},
+      {"seed":9,"selected_rows":0,"requested_rank":2,"actual_rank":0,"trainable_coefficients":0,"DeltaW_selected_shape":[0,3072],"materialized_delta_entries":0},
+      {"seed":10,"selected_rows":2,"requested_rank":2,"actual_rank":1,"trainable_coefficients":2,"C_shape":[2,1],"B_fixed_shape":[1,3072],"DeltaW_selected_shape":[2,3072],"materialized_delta_entries":6144}
+    ],
+    "complexity_summary": {
+      "repaired_seeds": [1,2,5,8,10],
+      "no_repair_seeds": [3,4,6,7,9],
+      "repaired_seed_selected_rows": 2,
+      "repaired_seed_actual_rank": 1,
+      "repaired_seed_trainable_stage2_parameters": 2,
+      "repaired_seed_materialized_selected_delta_entries": 6144,
+      "full_lm_head_entries": 394002432,
+      "full_matrix_to_materialized_selected_delta_entry_ratio": 64128,
+      "stage1_trainables_to_stage2_trainable_coefficient_ratio": 197001216,
+      "conceptual_full_sparse_delta_shape": [128256,3072],
+      "conceptual_full_sparse_delta_nonzero_rows_on_repaired_seeds": 2,
+      "conceptual_full_sparse_delta_rank_upper_bound_on_repaired_seeds": 1
+    }
+  },
+  "final_evaluation": {
+    "evaluator": "scripts/mcf_zero_unlearn_official_eval.py",
+    "source": "original unsanitized data/multi_counterfact.json",
+    "forget_records_per_seed": 50,
+    "retain_records_per_seed": 1000,
+    "forget_prompt_counts_per_record": {
+      "rewrite": 1,
+      "paraphrase": 2,
+      "neighborhood": 10
+    },
+    "metrics": {
+      "Eff": "percentage of direct rewrite prompts that still prefer target_new; lower is better for unlearning",
+      "Gen": "percentage of held-out paraphrase prompts that still prefer target_new; lower is better",
+      "Spe": "100 * neighborhood mean[exp(-NLL_true)-exp(-NLL_new)]; higher is better",
+      "Spe_success": "percentage of neighborhood prompts preferring target_true; higher is better",
+      "prompt_margin": "NLL(target_new)-NLL(target_true); negative indicates a forgetting failure",
+      "PPL": "one ZeroUnlearn-compatible Wikidata PPL scalar, not a separate forget/retain PPL"
+    },
+    "ppl_protocol": {
+      "wikidata_text": "join the first 20 train text rows",
+      "max_tokenized_input_length": 100,
+      "stored_aliases": ["forget_PPL", "retain_PPL"],
+      "same_scalar_for_both_aliases": true
+    }
+  },
+  "results": {
+    "evaluated_seeds": 10,
+    "population_mean_sd": {
+      "Eff": "0.0000 +/- 0.0000",
+      "Gen": "4.0000 +/- 3.6332",
+      "Spe": "27.7110 +/- 3.6742",
+      "Spe_success": "96.3000 +/- 1.8639",
+      "PPL": "11.5500 +/- 0.6771"
+    },
+    "prompt_totals": {
+      "rewrite": 500,
+      "rewrite_failures": 0,
+      "paraphrase": 1000,
+      "paraphrase_failures": 40,
+      "rewrite_pass_rate_percent": 100.0,
+      "paraphrase_pass_rate_percent": 96.0
+    },
+    "largest_gen_tail_seed": 10,
+    "largest_gen_tail_value": 13.0
+  },
+  "execution": {
+    "wulver_job_id": 1171704,
+    "array": "1-10%2",
+    "slurm": "slurm/run_mcf_zerounlearn_locked_3b.slurm",
+    "runner": "scripts/run_mcf_zerounlearn_locked_our_method.sh",
+    "output_root": "outputs/mcf_zerounlearn_forget_only_locked_3b",
+    "completed_seeds": 10,
+    "failed_seeds": 0
+  },
+  "artifact_provenance_and_gaps": {
+    "available_in_git_best_run": [
+      "per-seed final Eff/Gen/Spe/PPL",
+      "10-seed aggregates",
+      "fixed-SVD selected-row counts and actual ranks from the later fixed-vs-LoRA ablation record"
+    ],
+    "available_in_local_wulver_output_but_not_copied_into_this_git_record": [
+      "per-seed active_prompt_instances_before/after",
+      "per-seed active_parent_records_before/after",
+      "per-seed selected LM-head token IDs and decoded tokens",
+      "per-seed selected_lm_head_delta_norm",
+      "per-seed actual optimizer steps completed",
+      "per-seed Stage-1 post_training_row_policy token-group counts",
+      "checkpoint weight SHA-256 hashes"
+    ],
+    "local_files_for_missing_details": [
+      "outputs/mcf_zerounlearn_forget_only_locked_3b/seed{seed}/repair_forget_only/repair_summary.json",
+      "outputs/mcf_zerounlearn_forget_only_locked_3b/seed{seed}/repair_forget_only/token_group_report.json",
+      "outputs/mcf_zerounlearn_forget_only_locked_3b/seed{seed}/setting5e_forget_only/emb_lm_all_restore_post_training_true/post_training_row_policy.json"
+    ],
+    "rule": "Do not invent missing per-seed values. Harvest them from the listed local artifacts if a deeper archival snapshot is needed."
+  },
+  "implementation_caveat": {
+    "generic_repair_docstring_and_initial_config_can_state_that_paraphrases_are used": true,
+    "why_the_locked_run_is_still_rewrite_only": "The runner passes a sanitized repair-visible MCF file whose paraphrase lists are empty, then patches provenance fields to repair_uses_official_paraphrases=false and repair_prompt_scope=requested_rewrite_only before final evaluation.",
+    "technical_debt": "If a job exits before the provenance patch, the generic config metadata can be misleading even though the actual input dataset was sanitized."
+  }
+}
