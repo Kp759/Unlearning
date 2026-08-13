@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=zsre_gagd_agg
+#SBATCH --account=yl258
+#SBATCH --qos=standard
 #SBATCH --partition=standard
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4G
