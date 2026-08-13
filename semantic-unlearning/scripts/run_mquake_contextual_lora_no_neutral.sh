@@ -31,6 +31,7 @@ python scripts/mquake_forget_only_contextual_lora.py \
   --active-steps "${LORA_ACTIVE_STEPS:-400}" \
   --active-lr "${LORA_ACTIVE_LR:-0.00005}" \
   --l2 "${LORA_L2:-0.000001}" \
+  --target-eff-max "${LORA_TARGET_EFF_MAX:-20}" \
   --batch-size "${BATCH_SIZE:-8}" \
   --eval-batch-size "${EVAL_BATCH_SIZE:-8}" \
   --dtype "${DTYPE:-bf16}" \
@@ -42,7 +43,7 @@ python scripts/mquake_zero_unlearn_official_eval.py \
   --mquake-path "$MQUAKE" \
   --wikidata-dir "$WIKIDATA_DIR" \
   --out "$ROOT/official_eval_locked.json" \
-  --method "SURE contextual LoRA no-neutral strict forget-only" \
+  --method "SURE contextual LoRA no-neutral min-change strict forget-only" \
   --unlearn-num "${MQUAKE_FORGET_NUM:-50}" \
   --retain-num "${MQUAKE_RETAIN_EVAL_NUM:-1000}" \
   --seed "$SEED" \
