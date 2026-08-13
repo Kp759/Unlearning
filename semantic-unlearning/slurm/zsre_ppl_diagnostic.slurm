@@ -2,6 +2,7 @@
 #SBATCH --job-name=zsre-ppl-diag
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
+#SBATCH --gres=gpu:1
 #SBATCH --time=00:20:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=2
