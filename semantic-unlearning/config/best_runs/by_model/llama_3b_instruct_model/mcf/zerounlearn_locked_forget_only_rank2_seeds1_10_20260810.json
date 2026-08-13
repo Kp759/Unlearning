@@ -5,6 +5,11 @@
   "dataset": "MCF",
   "record_id": "mcf-zerounlearn-locked-forget-only-rank2-seeds1-10-20260810",
   "status": "BEST_ACCEPTED",
+  "technical_spec": {
+    "json": "zerounlearn_locked_forget_only_rank2_seeds1_10_20260810_technical_spec.json",
+    "markdown": "zerounlearn_locked_forget_only_rank2_seeds1_10_20260810_technical_spec.md",
+    "scope": "exact ZeroUnlearn split, data visibility, Stage-1 tied matrix/objective/restoration, Stage-2 active repair matrix/rank/parameterization, evaluator, provenance gaps"
+  },
   "protocol": "zerounlearn_data_access_forget_only_locked_probes",
   "seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
   "training_data_access": {
@@ -20,6 +25,20 @@
     "same_forget_facts": true,
     "paraphrases_held_out_until_final_eval": true,
     "neighborhood_prompts_held_out_until_final_eval": true
+  },
+  "core_dimensions": {
+    "vocab_size": 128256,
+    "hidden_size": 3072,
+    "stage1_tied_embedding_lm_head_shape": [128256, 3072],
+    "stage1_trainable_parameters": 394002432,
+    "stage2_full_lm_head_shape": [128256, 3072],
+    "stage2_requested_rank": 2,
+    "stage2_repaired_seeds": [1, 2, 5, 8, 10],
+    "stage2_no_repair_seeds": [3, 4, 6, 7, 9],
+    "stage2_selected_rows_on_repaired_seed": 2,
+    "stage2_actual_rank_on_repaired_seed": 1,
+    "stage2_trainable_coefficients_on_repaired_seed": 2,
+    "stage2_materialized_selected_delta_shape": [2, 3072]
   },
   "method": {
     "name": "SURE-LM Setting 5e plus forget-only sparse LM-head repair",
