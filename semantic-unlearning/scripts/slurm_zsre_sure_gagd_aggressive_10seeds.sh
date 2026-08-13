@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=zsre_gagd_aggr
+#SBATCH --account=yl258
+#SBATCH --qos=standard
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
