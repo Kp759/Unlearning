@@ -19,7 +19,6 @@ EMB_LM_LR="${ZSRE_EMB_LM_LR:-0.0001}"
 FORGET_WEIGHT="${ZSRE_FORGET_WEIGHT:-2.0}"
 FORGET_MARGIN="${ZSRE_FORGET_MARGIN:-1.0}"
 
-# Sparse direct-rewrite sensitive-row repair only.
 REPAIR_STEPS="${REPAIR_STEPS:-800}"
 REPAIR_LR="${REPAIR_LR:-0.005}"
 REPAIR_MARGIN="${REPAIR_MARGIN:-0.05}"
@@ -64,15 +63,8 @@ for SEED in "${SEEDS[@]}"; do
     --forget-margin "${FORGET_MARGIN}" --optimizer adamw \
     --dtype "${DTYPE}" --device-map "${DEVICE_MAP}"
 
-  echo "===== SEED ${SEED}: LOCKED EVAL AFTER STAGE 1 ====="
-  python scripts/zsre_zero_unlearn_official_eval.py \
-    --model-dir "${STAGE1_CKPT}" --zsre-path "${ZSRE}" \
-    --wikidata-dir "${WIKIDATA_DIR}" --out "${ROOT}/official_eval_stage1_locked.json" \
-    --method "SURE ZsRE no-neutral Stage1 Emb+LM" \
-    --unlearn-num "${FORGET_NUM}" --retain-num "${RETAIN_NUM}" --seed "${SEED}" \
-    --batch-size "${EVAL_BATCH_SIZE}" --dtype "${DTYPE}" --device-map "${DEVICE_MAP}"
-
   echo "===== SEED ${SEED}: STAGE 2 — ACTIVE SENSITIVE LM-HEAD ROWS ====="
+  echo "No held-out rephrase/locality/retain/PPL evaluation has occurred yet."
   rm -rf "${STAGE2}"
   python scripts/zsre_no_neutral_active_sensitive_row_repair.py \
     --model-path "${STAGE1_CKPT}" --training-visible-path "${VISIBLE}" \
@@ -83,7 +75,8 @@ for SEED in "${SEEDS[@]}"; do
     --batch-size "${REPAIR_BATCH_SIZE}" --candidate-scales "${CANDIDATE_SCALES}" \
     --dtype "${DTYPE}" --device-map "${DEVICE_MAP}"
 
-  echo "===== SEED ${SEED}: FINAL LOCKED OFFICIAL EVAL ====="
+  echo "===== SEED ${SEED}: FINAL LOCKED OFFICIAL EVAL — STAGE 2 ====="
+  echo "Held-out rephrases, locality, retain records, and PPL first enter now."
   python scripts/zsre_zero_unlearn_official_eval.py \
     --model-dir "${STAGE2_CKPT}" --zsre-path "${ZSRE}" \
     --wikidata-dir "${WIKIDATA_DIR}" --out "${ROOT}/official_eval_locked.json" \
@@ -91,10 +84,18 @@ for SEED in "${SEEDS[@]}"; do
     --unlearn-num "${FORGET_NUM}" --retain-num "${RETAIN_NUM}" --seed "${SEED}" \
     --batch-size "${EVAL_BATCH_SIZE}" --dtype "${DTYPE}" --device-map "${DEVICE_MAP}"
 
+  echo "===== SEED ${SEED}: POST-HOC STAGE-1 DIAGNOSTIC ====="
+  python scripts/zsre_zero_unlearn_official_eval.py \
+    --model-dir "${STAGE1_CKPT}" --zsre-path "${ZSRE}" \
+    --wikidata-dir "${WIKIDATA_DIR}" --out "${ROOT}/official_eval_stage1_posthoc.json" \
+    --method "SURE ZsRE no-neutral Stage1 posthoc" \
+    --unlearn-num "${FORGET_NUM}" --retain-num "${RETAIN_NUM}" --seed "${SEED}" \
+    --batch-size "${EVAL_BATCH_SIZE}" --dtype "${DTYPE}" --device-map "${DEVICE_MAP}"
+
   python - "${ROOT}" <<'PY'
 import json,sys
 r=sys.argv[1]
-for name,f in (("STAGE1","official_eval_stage1_locked.json"),("STAGE2","official_eval_locked.json")):
+for name,f in (("STAGE1_POSTHOC","official_eval_stage1_posthoc.json"),("STAGE2_FINAL","official_eval_locked.json")):
     x=json.load(open(f"{r}/{f}"))
     print(name, "F-Eff",x["forget"]["Eff"],"F-Gen",x["forget"]["Gen"],"F-Spe",x["forget"]["Spe"],
           "R-Eff",x["retain"]["Eff"],"R-Gen",x["retain"]["Gen"],"R-Spe",x["retain"]["Spe"],"PPL",x["forget_PPL"])
@@ -102,4 +103,4 @@ PY
 
 done
 
-echo "Done. Results: ${OUTPUT_ROOT}/seed*/official_eval_{stage1_locked,locked}.json"
+echo "Done. Final results: ${OUTPUT_ROOT}/seed*/official_eval_locked.json"
