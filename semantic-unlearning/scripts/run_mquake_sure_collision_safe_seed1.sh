@@ -29,7 +29,7 @@ python scripts/mquake_no_neutral_stage1_collision_safe.py \
   --model-path "${MODEL}" --training-visible-path "${VISIBLE}" --split-manifest "${MANIFEST}" \
   --output-dir "${STAGE1}" --seed "${SEED}" --forget-num "${FORGET_NUM}" \
   --steps 600 --batch-size 1 --cache-batch-size 8 \
-  --emb-lr 0.0001 --row-lr 0.005 \
+  --emb-lr 0.0001 --row-lr 0.0005 \
   --ga-weight 2.0 --gd-weight 1.0 --active-margin 0.05 \
   --context-weight 1.0 --context-batch-size 64 --row-l2 0.0001 --grad-clip 1.0 \
   --dtype "${DTYPE}" --device-map "${DEVICE_MAP}"
