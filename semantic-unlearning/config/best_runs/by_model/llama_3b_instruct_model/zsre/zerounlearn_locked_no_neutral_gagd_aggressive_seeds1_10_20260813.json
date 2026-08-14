@@ -1,0 +1,297 @@
+{
+  "schema_version": 1,
+  "record_id": "zsre-zerounlearn-locked-no-neutral-gagd-aggressive-seeds1-10-20260813",
+  "status": "CURRENT_BEST_AWS_10SEED",
+  "date_recorded": "2026-08-13",
+  "dataset": "ZsRE MEND eval",
+  "model": {
+    "model_id": "meta-llama/Llama-3.2-3B-Instruct",
+    "vocab_size": 128256,
+    "hidden_size": 3072,
+    "observed_total_parameters": 3212749824,
+    "tie_word_embeddings_during_stage1": true
+  },
+  "protocol": {
+    "name": "zsre_zerounlearn_forget_only_locked_no_neutral",
+    "comparison_target": "ZeroUnlearn-compatible ZsRE sampling/evaluation",
+    "seeds": [1,2,3,4,5,6,7,8,9,10],
+    "source_dataset_size": 19086,
+    "pool_split": {
+      "formula": "half = len(data) // 2",
+      "half": 9543,
+      "retain_pool": {"index_range": "[0,9543)", "size": 9543},
+      "forget_pool": {"index_range": "[9543,19086)", "size": 9543}
+    },
+    "sampling": {
+      "implementation": "scripts/zsre_zero_unlearn_official_eval.py::sample_official_zsre_raw_records",
+      "rng": "random.Random(seed)",
+      "draw_order": ["sample 50 forget records from second half", "sample 1000 retain records from first half"],
+      "forget_records_per_seed": 50,
+      "retain_records_per_seed_final_eval": 1000,
+      "same_50_forget_facts_used_by_stage1_stage2_and_final_eval": true,
+      "why_same_forget_sample": "The forget sample is the first RNG draw from the same second-half pool with the same seed; retain is sampled only afterward."
+    },
+    "holdout": {
+      "type": "prompt-level holdout, not fact-level holdout",
+      "training_visible_artifact": "protocol_no_neutral/training_visible_forget.json",
+      "stage1_visible": ["50 sampled forget direct requested_rewrite prompts", "original sensitive target_true answer tokens"],
+      "stage2_visible": ["same 50 sampled forget direct requested_rewrite prompts", "original sensitive target_true answer tokens"],
+      "evaluation_only": ["forget rephrase prompts", "forget locality/neighborhood prompts", "1000 sampled retain records", "Wikidata PPL text"],
+      "target_new_visible_to_method": false,
+      "Unknown_used_by_method": false,
+      "IDK_used_by_method": false,
+      "replacement_target_used": false,
+      "benchmark_retain_seen_before_final_eval": 0,
+      "rephrases_seen_before_final_eval": 0,
+      "locality_seen_before_final_eval": 0,
+      "PPL_seen_before_final_eval": false,
+      "note_on_evaluator": "The ZeroUnlearn-compatible evaluator retains legacy target_new='Unknown' metadata when adapting raw ZsRE rows, but SURE Stage 1/2 never load, optimize toward, select with, or otherwise use that target. Eff/Gen score original target_true token accuracy."
+    }
+  },
+  "method": {
+    "name": "SURE ZsRE no-neutral aggressive Emb+LM GA/GD plus sparse sensitive-row LM-head repair",
+    "runner": "scripts/run_zsre_sure_no_neutral_gagd_aggressive.sh",
+    "runner_alias_target": "scripts/run_zsre_sure_no_neutral_gagd_strong.sh",
+    "pipeline": [
+      "build exact ZeroUnlearn-matched no-neutral split",
+      "verify split parity and no leakage",
+      "Stage 1 aggressive Emb+LM GA/GD on direct forget token decisions",
+      "restore all non-sensitive vocabulary rows to base",
+      "Stage 2 direct sparse sensitive LM-head row repair before any held-out evaluation",
+      "freeze final checkpoint",
+      "official final evaluation on same 50 facts with held-out rephrases/locality plus 1000 retain and PPL",
+      "post-hoc Stage-1 evaluation only after Stage 2 is already frozen"
+    ]
+  },
+  "stage1": {
+    "entrypoint": "scripts/zsre_no_neutral_stage1_gagd.py",
+    "data": {
+      "forget_records": 50,
+      "retain_records": 0,
+      "prompt_scope": "requested_rewrite only",
+      "unit_of_training": "teacher-forced next-token PredictionCase for each token of each original sensitive answer",
+      "prediction_case_count": "seed-dependent; sum of evaluated target_true answer-token lengths over the 50 records",
+      "teacher_forcing": true
+    },
+    "base_teacher_cache": {
+      "when_computed": "before any Stage-1 update",
+      "scope": "same direct forget PredictionCases only",
+      "tensor_shape": "[N_sensitive_prediction_cases, 128256]",
+      "storage_dtype": "FP32",
+      "storage_device": "CPU",
+      "purpose": "fixed reference distribution for GD over non-sensitive vocabulary"
+    },
+    "trainable_scope": {
+      "transformer_frozen": true,
+      "input_embeddings_trainable": true,
+      "lm_head_trainable": true,
+      "input_embedding_and_lm_head_tied": true,
+      "unique_trainable_tensors": 1,
+      "shared_matrix_shape": [128256,3072],
+      "shared_matrix_elements": 394002432,
+      "trainable_parameters": 394002432,
+      "trainable_fraction_percent": 12.263713,
+      "bf16_raw_weight_bytes": 788004864,
+      "bf16_raw_weight_MiB": 751.5,
+      "interpretation": "Stage 1 updates one shared tied vocabulary matrix; embedding and lm_head must not be double-counted."
+    },
+    "objective": {
+      "GA": {
+        "formula": "mean(log p_theta(y_sensitive | x, y_<t))",
+        "optimization": "minimized",
+        "effect": "gradient ascent on sensitive-token NLL; pushes original sensitive token probability down"
+      },
+      "GD": {
+        "formula": "KL(p_base(-y_sensitive) || p_theta(-y_sensitive))",
+        "sensitive_token_handling": "remove the sensitive token from both vocabulary distributions and renormalize the remaining 128255 entries",
+        "effect": "preserve the base model's natural non-sensitive alternatives at the same direct forget decision",
+        "teacher": "cached pre-update base model logits on the same forget PredictionCases"
+      },
+      "total_formula": "2.0 * L_GA + 1.0 * L_GD",
+      "ga_weight": 2.0,
+      "gd_weight": 1.0,
+      "target_new": "not used",
+      "neutral_target": "not used",
+      "retain_GD": "not used; GD is same-prompt base-distribution preservation, not benchmark-retain training"
+    },
+    "optimization": {
+      "steps": 600,
+      "batch_size_prediction_cases": 1,
+      "base_logit_cache_batch_size": 8,
+      "optimizer": "AdamW",
+      "learning_rate": 0.0001,
+      "weight_decay": 0.0,
+      "gradient_clip_norm": 1.0,
+      "dtype": "bf16",
+      "device_map": "single"
+    },
+    "vocabulary_restoration": {
+      "base_snapshot_taken_before_training": true,
+      "sensitive_rows": "unique target token IDs appearing in the teacher-forced original sensitive answers for that seed",
+      "rule_sensitive_rows": "keep trained Stage-1 row displacement",
+      "rule_all_other_rows": "restore exactly to base snapshot",
+      "applied_to_tied_embedding_lm_head": true,
+      "result": "only sensitive answer-token vocabulary rows remain modified after Stage 1",
+      "sensitive_row_count": "seed-dependent; stored in each seed stage1 vocabulary_restoration.json"
+    }
+  },
+  "stage2": {
+    "entrypoint": "scripts/zsre_no_neutral_active_sensitive_row_repair.py",
+    "data": {
+      "forget_records": 50,
+      "retain_records": 0,
+      "rephrases": 0,
+      "locality": 0,
+      "PPL": 0,
+      "prompt_scope": "direct requested_rewrite only",
+      "unit_of_repair": "teacher-forced sensitive next-token PredictionCase"
+    },
+    "model_scope": {
+      "stage1_tied_lm_head_cloned_and_untied": true,
+      "transformer_trainable_parameters": 0,
+      "input_embeddings_trainable": false,
+      "input_embeddings_modified": false,
+      "full_lm_head_shape": [128256,3072],
+      "full_lm_head_elements": 394002432,
+      "repair_is_low_rank": false,
+      "repair_is_LoRA": false
+    },
+    "active_detection": {
+      "definition": "a direct sensitive PredictionCase is active if, after Stage-1 reload, argmax(logits) equals its original sensitive target token",
+      "active_cases_are_residual_correct_sensitive_token_decisions": true,
+      "selected_lm_head_rows": "unique target token IDs among active PredictionCases",
+      "selected_rows_fixed_for_the_repair_run": true
+    },
+    "trainable_delta": {
+      "parameter_dtype": "FP32",
+      "shape": "[n_selected_sensitive_rows, 3072]",
+      "parameter_count": "n_selected_sensitive_rows * 3072",
+      "parameterization": "direct full row delta; no factorization",
+      "application": "temporary output hook during optimization, then materialized into only the selected lm_head rows"
+    },
+    "objective": {
+      "sensitive_margin_loss": "relu(z_sensitive - stopgrad(max_{j != sensitive} z_j) + 0.05)",
+      "repair_margin": 0.05,
+      "regularizer": "1e-6 * mean(delta^2)",
+      "total": "sensitive-margin loss + L2 regularizer"
+    },
+    "optimization": {
+      "optimizer": "AdamW",
+      "learning_rate": 0.005,
+      "weight_decay": 0.0,
+      "max_steps": 800,
+      "batch_size": 8,
+      "gradient_clip_norm": 1.0,
+      "correctness_check_schedule": "step 1, every 25 steps, and final step",
+      "early_stop": "stop when direct requested_rewrite sensitive-token correct count reaches zero"
+    },
+    "candidate_scale_selection": {
+      "scales": [1.0,0.875,0.75,0.625,0.5,0.375,0.25,0.1875,0.125,0.09375,0.0625,0.046875,0.03125,0.015625,0.0078125,0.0],
+      "selection_scope": "direct requested_rewrite only",
+      "heldout_used": false,
+      "rule_if_zero_correct_scales_exist": "choose the smallest scale that keeps zero direct sensitive-token correct decisions",
+      "fallback_rule": "lexicographically minimize (direct correct count, scale)"
+    }
+  },
+  "aws_execution": {
+    "output_root": "outputs/aws_zsre_sure_no_neutral_gagd_aggressive_seeds1_10_3b",
+    "completed_seeds": [1,2,3,4,5,6,7,8,9,10],
+    "missing_seeds": [],
+    "checkpoint_policy": "after successful per-seed final and Stage-1 post-hoc evaluations, multi-GB checkpoint directories were deleted; JSON metrics/configs/manifests/logs were retained",
+    "aggregate_files": ["aggregate_10seeds.csv", "aggregate_10seeds.json", "aggregate_10seeds.md"],
+    "std_definition": "sample standard deviation (n-1)"
+  },
+  "results": {
+    "stage1_posthoc_mean_sample_sd": {
+      "F-Eff": {"mean":1.769,"sd":1.606},
+      "F-Gen": {"mean":2.159,"sd":1.638},
+      "F-Spe": {"mean":26.155,"sd":2.365},
+      "R-Eff": {"mean":27.861,"sd":1.670},
+      "R-Gen": {"mean":27.073,"sd":1.501},
+      "R-Spe": {"mean":26.664,"sd":1.104},
+      "PPL": {"mean":18.650,"sd":2.204}
+    },
+    "final_mean_sample_sd": {
+      "F-Eff": {"mean":0.025,"sd":0.079},
+      "F-Gen": {"mean":0.627,"sd":0.510},
+      "F-Spe": {"mean":26.158,"sd":2.367},
+      "R-Eff": {"mean":27.740,"sd":1.795},
+      "R-Gen": {"mean":26.949,"sd":1.638},
+      "R-Spe": {"mean":26.643,"sd":1.111},
+      "PPL": {"mean":18.650,"sd":2.204}
+    },
+    "final_exact_zero_eff_seeds": 9,
+    "final_total_seeds": 10,
+    "stage2_effect": {
+      "F_Eff_relative_reduction_percent_from_stage1_mean": 98.5868,
+      "F_Gen_relative_reduction_percent_from_stage1_mean": 70.9588,
+      "PPL_mean_change": 0.0,
+      "F_Spe_mean_change": 0.003,
+      "R_Eff_mean_change": -0.121,
+      "R_Gen_mean_change": -0.124,
+      "R_Spe_mean_change": -0.021
+    },
+    "repair_diagnostics_mean_sample_sd": {
+      "active_before": {"mean":4.400,"sd":4.142},
+      "selected_lm_head_rows": {"mean":4.400,"sd":4.142},
+      "best_step": {"mean":5.700,"sd":10.177},
+      "selected_scale": {"mean":0.303,"sd":0.204},
+      "full_delta_norm_unscaled": {"mean":1.344,"sd":1.983},
+      "average_direct_trainable_delta_coordinates": 13516.8,
+      "average_selected_row_fraction_percent": 0.00343064,
+      "active_after": {
+        "status": "DO_NOT_USE_FROM_ORIGINAL_AGGREGATE",
+        "reason": "The aggregation script used -1 when old no-op repair summaries omitted active_after, then averaged that sentinel. The printed 0.000 +/- 0.471 is therefore not an authoritative statistic. Final official F-Eff is authoritative."
+      }
+    },
+    "seed10_terminal_excerpt": {
+      "stage1": {"F-Eff":0.571429,"F-Gen":1.071429,"F-Spe":24.888586,"R-Eff":27.568532,"R-Gen":27.370357,"R-Spe":27.873671,"PPL":19.125},
+      "final": {"F-Eff":0.0,"F-Gen":0.5,"F-Spe":24.888586,"R-Eff":27.568532,"R-Gen":27.370357,"R-Spe":27.873671,"PPL":19.125}
+    }
+  },
+  "metric_definitions": {
+    "F-Eff": "ZeroUnlearn-compatible per-record macro accuracy of original sensitive answer tokens on direct rewrite prompts; lower is better for unlearning",
+    "F-Gen": "per-record macro accuracy of the same original sensitive answer tokens on held-out rephrase prompts; lower is better",
+    "F-Spe": "per-record macro next-token accuracy on locality/neighborhood targets for the forget split; higher is better",
+    "R-Eff": "same rewrite original-answer token accuracy metric evaluated on the sampled 1000 retain records",
+    "R-Gen": "same rephrase original-answer token accuracy metric evaluated on the sampled 1000 retain records",
+    "R-Spe": "same locality/neighborhood token accuracy metric evaluated on the sampled 1000 retain records",
+    "PPL": "ZeroUnlearn-compatible Wikidata perplexity scalar; first 20 train texts joined and evaluated with max tokenized input length 100; same scalar stored as forget_PPL and retain_PPL"
+  },
+  "protocol_audit_from_10seed_aggregate": {
+    "all_Unknown_used_false": true,
+    "all_IDK_used_false": true,
+    "all_target_new_seen_false": true,
+    "all_retain_seen_zero": true,
+    "all_rephrases_seen_zero": true,
+    "all_locality_seen_zero": true,
+    "all_PPL_seen_false": true
+  },
+  "provenance": {
+    "headline_metrics_source": "AWS terminal output supplied after scripts/aggregate_zsre_sure_gagd_10seeds.py completed seeds 1-10",
+    "code_sources": [
+      "scripts/build_zsre_zerounlearn_locked_no_neutral_split.py",
+      "scripts/verify_zsre_zerounlearn_locked_split.py",
+      "scripts/zsre_no_neutral_stage1_gagd.py",
+      "scripts/zsre_no_neutral_stage1_emb_lm.py",
+      "scripts/zsre_no_neutral_active_sensitive_row_repair.py",
+      "scripts/zsre_zero_unlearn_official_eval.py",
+      "scripts/run_zsre_sure_no_neutral_gagd.sh",
+      "scripts/run_zsre_sure_no_neutral_gagd_strong.sh",
+      "scripts/aggregate_zsre_sure_gagd_10seeds.py"
+    ],
+    "raw_per_seed_AWS_artifacts_in_git": false,
+    "raw_aggregate_AWS_files_in_git": false,
+    "wulver_replication": "running/pending at time this AWS record was archived",
+    "checkpoint_hashes": "not available because current AWS cleanup intentionally deletes checkpoints after successful evaluation"
+  },
+  "scientific_notes": [
+    "This record describes only the current aggressive no-neutral GA/GD run; it does not merge metrics from the older ZsRE Setting-5e active-repair record.",
+    "Stage 1 is true no-neutral forget-side GA/GD: GA suppresses the original sensitive token while GD preserves the base distribution over all other vocabulary items on the same direct forget prompts.",
+    "Benchmark retain records are evaluation-only and are not used as a GD dataset.",
+    "Stage 2 is direct full selected-row delta optimization, not SVD rank repair and not LoRA.",
+    "The final checkpoint is frozen before rephrase/locality/retain/PPL evaluation begins.",
+    "9/10 seeds have exact F-Eff=0; report the aggregate 0.025 +/- 0.079 rather than claiming 10/10 exact zero.",
+    "Do not report the original aggregate active_after=0.000 +/- 0.471; it is contaminated by a -1 missing-field sentinel in the aggregator's no-op path."
+  ]
+}
