@@ -14,9 +14,11 @@
       "previous_snapshot_note": "retained for provenance; evaluator-conditioned repair means it is not the primary held-out-Gen comparison"
     },
     "zsre": {
-      "snapshot": "zsre/setting5e_active_repair_u1p20_ppl1p16_cal384_seeds1_10.json",
-      "canonical_source": "../../zsre/setting5e_active_repair_u1p20_ppl1p16_cal384_seeds1_10.json",
-      "status": "10/10 accepted"
+      "snapshot": "zsre/zerounlearn_locked_no_neutral_gagd_aggressive_seeds1_10_20260813.json",
+      "markdown": "zsre/zerounlearn_locked_no_neutral_gagd_aggressive_seeds1_10_20260813.md",
+      "status": "current best AWS 10-seed ZeroUnlearn-matched no-neutral aggressive GA/GD plus sparse sensitive-row repair; final F-Eff 0.025 +/- 0.079, F-Gen 0.627 +/- 0.510, PPL 18.650 +/- 2.204; Wulver replication pending at archive time",
+      "previous_snapshot": "zsre/setting5e_active_repair_u1p20_ppl1p16_cal384_seeds1_10.json",
+      "previous_snapshot_note": "retained for provenance; current snapshot is the new exact ZeroUnlearn-matched no-neutral GA/GD track"
     },
     "tofu": {
       "snapshot": "tofu/fullutility_official_f01_f05_f10_20260808.json",
