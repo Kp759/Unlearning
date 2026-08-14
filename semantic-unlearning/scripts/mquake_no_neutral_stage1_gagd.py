@@ -19,6 +19,7 @@ def args():
  p.add_argument("--model-path",required=True);p.add_argument("--training-visible-path",required=True);p.add_argument("--split-manifest",required=True);p.add_argument("--output-dir",required=True)
  p.add_argument("--seed",type=int,required=True);p.add_argument("--forget-num",type=int,default=50);p.add_argument("--steps",type=int,default=600);p.add_argument("--batch-size",type=int,default=1);p.add_argument("--cache-batch-size",type=int,default=8)
  p.add_argument("--emb-lm-lr",type=float,default=1e-4);p.add_argument("--ga-weight",type=float,default=2.0);p.add_argument("--gd-weight",type=float,default=1.0);p.add_argument("--grad-clip",type=float,default=1.0)
+ p.add_argument("--restoration-mode",choices=("sensitive_both","output_only"),default="sensitive_both")
  p.add_argument("--dtype",choices=("bf16","fp16","fp32"),default="bf16");p.add_argument("--device-map",choices=("single","auto"),default="single")
  return p.parse_args()
 
@@ -44,6 +45,37 @@ def cache(model,tok,cs,device,batch):
 def correct(model,tok,cs,llama_like,device,batch):
  return sum(int(x["correct"]) for x in locked.predict(model,tok,cs,llama_like,device,batch))
 
+@torch.no_grad()
+def restore_output_only(model,tied,base_rows,sensitive_ids):
+ """Restore every input row to base; retain Stage-1 displacement only in sensitive output rows."""
+ in_w=model.get_input_embeddings().weight
+ out_before=model.get_output_embeddings().weight
+ ids=torch.tensor(sorted(set(int(i) for i in sensitive_ids)),dtype=torch.long,device=out_before.device)
+ if not ids.numel(): raise RuntimeError("no sensitive rows for output-only restoration")
+ tied_before=bool(in_w.data_ptr()==out_before.data_ptr())
+ trained_sensitive=out_before.index_select(0,ids).detach().clone()
+ out=locked.untie(model)
+ out_w=out.weight
+ in_base=base_rows["input"].to(device=in_w.device,dtype=in_w.dtype)
+ out_base=base_rows.get("output",base_rows["input"]).to(device=out_w.device,dtype=out_w.dtype)
+ in_w.copy_(in_base)
+ out_w.copy_(out_base)
+ out_ids=ids.to(out_w.device)
+ out_w.index_copy_(0,out_ids,trained_sensitive.to(device=out_w.device,dtype=out_w.dtype))
+ if in_w.data_ptr()==out_w.data_ptr(): raise RuntimeError("output-only restoration failed to untie LM head")
+ return {
+  "mode":"output_only_sensitive_lm_head",
+  "sensitive_row_count":int(ids.numel()),
+  "sensitive_token_ids":[int(i) for i in ids.cpu().tolist()],
+  "input_embeddings_all_rows_restored_to_base":True,
+  "lm_head_non_sensitive_rows_restored_to_base":True,
+  "lm_head_sensitive_rows_keep_stage1_displacement":True,
+  "tied_before_restoration":tied_before,
+  "tied_after_restoration":False,
+  "input_matrix_shape":list(in_w.shape),
+  "output_matrix_shape":list(out_w.shape),
+ }
+
 def main():
  a=args();gagd.set_seed(a.seed)
  vp,mp=Path(a.training_visible_path).resolve(),Path(a.split_manifest).resolve()
@@ -67,10 +99,12 @@ def main():
    if step==1 or step%25==0 or step==a.steps:
     f.write(json.dumps({"step":step,"loss":float(loss.detach()),"ga_sensitive_logprob":float(ga.detach()),"gd_non_sensitive_kl":float(gd.detach()),"grad_norm":float(gn.detach()),"retain_seen":0,"atomic_questions_seen":0,"multihop_questions_seen":0,"PPL_seen":False,"target_new_seen":False,"Unknown_used":False,"IDK_used":False})+"\n");f.flush()
  del opt
- restore=restore_sensitive_rows_only(tied,base_rows,sensitive_ids);model.eval();after=correct(model,tok,cs,llama_like,device,a.cache_batch_size)
+ if a.restoration_mode=="output_only": restore=restore_output_only(model,tied,base_rows,sensitive_ids)
+ else: restore=restore_sensitive_rows_only(tied,base_rows,sensitive_ids)
+ model.eval();after=correct(model,tok,cs,llama_like,device,a.cache_batch_size)
  ckpt=root/"checkpoint";ckpt.mkdir(parents=True,exist_ok=True);model.save_pretrained(ckpt);tok.save_pretrained(ckpt)
- cfg={"schema_version":1,"method":METHOD,"protocol":PROTOCOL,"seed":a.seed,"forget_instances":a.forget_num,"forget_atomic_facts":len(records),"direct_sensitive_token_cases":len(cs),"retain_seen":0,"atomic_questions_seen":0,"multihop_questions_seen":0,"PPL_seen":False,"target_new_seen":False,"Unknown_used":False,"IDK_used":False,"ga_loss":"mean(log p sensitive), minimized","gd_loss":"KL(base_non_sensitive || current_non_sensitive), sensitive token removed and renormalized","steps":a.steps,"batch_size":a.batch_size,"cache_batch_size":a.cache_batch_size,"emb_lm_lr":a.emb_lm_lr,"ga_weight":a.ga_weight,"gd_weight":a.gd_weight,"grad_clip":a.grad_clip,"optimizer":"adamw","trainable_parameter_summary":asdict(summary),"sensitive_rows":len(sensitive_ids),"correct_before":before,"correct_after_restore":after,"vocabulary_restoration":restore,"split_sampling":man.get("sampling"),"checkpoint":str(ckpt.resolve())}
+ cfg={"schema_version":2,"method":METHOD,"protocol":PROTOCOL,"seed":a.seed,"forget_instances":a.forget_num,"forget_atomic_facts":len(records),"direct_sensitive_token_cases":len(cs),"retain_seen":0,"atomic_questions_seen":0,"multihop_questions_seen":0,"PPL_seen":False,"target_new_seen":False,"Unknown_used":False,"IDK_used":False,"ga_loss":"mean(log p sensitive), minimized","gd_loss":"KL(base_non_sensitive || current_non_sensitive), sensitive token removed and renormalized","steps":a.steps,"batch_size":a.batch_size,"cache_batch_size":a.cache_batch_size,"emb_lm_lr":a.emb_lm_lr,"ga_weight":a.ga_weight,"gd_weight":a.gd_weight,"grad_clip":a.grad_clip,"optimizer":"adamw","restoration_mode":a.restoration_mode,"trainable_parameter_summary":asdict(summary),"sensitive_rows":len(sensitive_ids),"correct_before":before,"correct_after_restore":after,"vocabulary_restoration":restore,"split_sampling":man.get("sampling"),"checkpoint":str(ckpt.resolve())}
  write(root/"config_used.json",cfg);write(root/"vocabulary_restoration.json",restore)
- print("MQuAKE Stage1",before,"->",after,"/",len(cs),"sensitive rows",len(sensitive_ids));print("checkpoint",ckpt)
+ print("MQuAKE Stage1",before,"->",after,"/",len(cs),"sensitive rows",len(sensitive_ids),"restoration",a.restoration_mode);print("checkpoint",ckpt)
 
 if __name__=="__main__": main()
