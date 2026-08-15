@@ -23,9 +23,9 @@ def row(level: int, index: int):
     }
 
 
-def datasets(*, duplicate_source=False):
-    level1 = [row(1, index) for index in range(12)]
-    level2 = [row(2, index) for index in range(4)]
+def datasets(*, duplicate_source=False, level1_count=12, level2_count=4):
+    level1 = [row(1, index) for index in range(level1_count)]
+    level2 = [row(2, index) for index in range(level2_count)]
     if duplicate_source:
         level1 = [*level1, dict(level1[0]), dict(level1[1])]
         level2 = [*level2, dict(level2[0])]
@@ -48,6 +48,16 @@ class BatchTargetSelectionTests(unittest.TestCase):
         self.assertEqual(len(split["train_level1"]), 8)
         self.assertEqual(len(split["train_level2"]), 2)
         self.assertEqual(len(split["train"]), 10)
+        self.assertGreaterEqual(len(split["heldout_level1"]), 1)
+        self.assertGreaterEqual(len(split["heldout_level2"]), 1)
+
+    def test_small_l2_pool_adapts_and_still_reserves_heldout(self):
+        split = BATCH.split_target_rows(
+            datasets(level1_count=13, level2_count=2), target_seed=1
+        )
+        self.assertEqual(len(split["train"]), 10)
+        self.assertEqual(len(split["train_level1"]), 9)
+        self.assertEqual(len(split["train_level2"]), 1)
         self.assertGreaterEqual(len(split["heldout_level1"]), 1)
         self.assertGreaterEqual(len(split["heldout_level2"]), 1)
 
