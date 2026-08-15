@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=tofu-zul-locked-3b
+#SBATCH --job-name=tofu-authbal-3b
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
 #SBATCH --gres=gpu:1
@@ -8,8 +8,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --array=1-10%2
 #SBATCH --no-requeue
-#SBATCH --output=slurm_logs/tofu_zul_locked_3b_%A_%a.out
-#SBATCH --error=slurm_logs/tofu_zul_locked_3b_%A_%a.err
+#SBATCH --output=slurm_logs/tofu_authbal_3b_%A_%a.out
+#SBATCH --error=slurm_logs/tofu_authbal_3b_%A_%a.err
 
 set -euo pipefail
 
@@ -28,37 +28,46 @@ export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
-# This is the previously selected Full-TOFU model: LR=4e-5, selected epoch 5.
-export TOFU_FULL_MODEL_PATH="${TOFU_FULL_MODEL_PATH:-${PROJECT_DIR}/outputs/tofu_full_utility_sweep_v7/lr4e-5_epochs6_slurm/checkpoint_epoch_5}"
+# Validated Full-TOFU model: LR=4e-5, selected epoch 5 reproduction.
+export TOFU_FULL_MODEL_PATH="${TOFU_FULL_MODEL_PATH:-${PROJECT_DIR}/outputs/tofu_full_utility_sweep_v7_repro_20260815/lr4e-5_epochs6/checkpoint_epoch_5}"
 export TOFU_SEEDS="${SLURM_ARRAY_TASK_ID}"
-export OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/tofu_zerounlearn_forget_only_locked_3b}"
-# Give each array task a private protocol-build root to avoid concurrent root
-# manifest writes; the scientifically relevant per-seed manifest is unchanged.
+export OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/tofu_author_balanced_locked_3b}"
+# Give each array task a private split-build root to avoid concurrent manifest
+# writes; each task still records the exact selected author/QAs for its seed.
 export TOFU_PROTOCOL_DIR="${TOFU_PROTOCOL_DIR:-${OUTPUT_ROOT}/protocol_jobs/task${SLURM_ARRAY_TASK_ID}}"
-export TOFU_FORGET_NUM="${TOFU_FORGET_NUM:-50}"
+export TOFU_FORGET_AUTHORS="${TOFU_FORGET_AUTHORS:-5}"
+export TOFU_QAS_PER_AUTHOR="${TOFU_QAS_PER_AUTHOR:-20}"
+export TOFU_TRAIN_QAS_PER_AUTHOR="${TOFU_TRAIN_QAS_PER_AUTHOR:-10}"
 export TOFU_RETAIN_EVAL_NUM="${TOFU_RETAIN_EVAL_NUM:-1000}"
 export DTYPE="${DTYPE:-bf16}"
 export DEVICE_MAP="${DEVICE_MAP:-single}"
 export SKIP_EXISTING="${SKIP_EXISTING:-1}"
 
-# Final-only evaluations. Set RUN_LOCKED_GENERATION=0 for a faster first
-# probability-only diagnostic; native tofu_eval still reports standard ROUGE.
+# Bounded Stage-2 defaults; override only for controlled experiments.
+export TOFU_REPAIR_RANK="${TOFU_REPAIR_RANK:-8}"
+export TOFU_REPAIR_LR="${TOFU_REPAIR_LR:-0.002}"
+export TOFU_MAX_DELTA_NORM="${TOFU_MAX_DELTA_NORM:-1.0}"
+export TOFU_ROW_SELECTION="${TOFU_ROW_SELECTION:-all}"
+
+# Locked evaluation is protocol-defining. Native tofu_eval is off by default
+# because its forget05 subset is independently sampled and does not correspond
+# to the selected author-balanced 50.
 export RUN_LOCKED_EVAL="${RUN_LOCKED_EVAL:-1}"
 export RUN_LOCKED_GENERATION="${RUN_LOCKED_GENERATION:-1}"
-export RUN_NATIVE_EVAL="${RUN_NATIVE_EVAL:-1}"
+export RUN_NATIVE_EVAL="${RUN_NATIVE_EVAL:-0}"
 export RUN_REFERENCE_LOCKED_EVAL="${RUN_REFERENCE_LOCKED_EVAL:-1}"
 
 echo "Seed=${TOFU_SEEDS}"
 echo "Full-TOFU=${TOFU_FULL_MODEL_PATH}"
 echo "Output=${OUTPUT_ROOT}"
 echo "Protocol=${TOFU_PROTOCOL_DIR}"
-echo "Training access: ${TOFU_FORGET_NUM} direct forget05 QAs, 0 retain/paraphrase/utility"
+echo "Training: ${TOFU_FORGET_AUTHORS} authors x ${TOFU_TRAIN_QAS_PER_AUTHOR} QAs/author"
 echo "Final retain evaluation: ${TOFU_RETAIN_EVAL_NUM} retain95 QAs"
+echo "Repair: rank=${TOFU_REPAIR_RANK}, lr=${TOFU_REPAIR_LR}, norm<=${TOFU_MAX_DELTA_NORM}"
 
 if [[ ! -d "${TOFU_FULL_MODEL_PATH}" ]]; then
-  echo "Missing selected 4e-5 Full-TOFU checkpoint: ${TOFU_FULL_MODEL_PATH}" >&2
-  echo "Locate the previous Wulver checkpoint and resubmit with:" >&2
-  echo "  sbatch --export=ALL,TOFU_FULL_MODEL_PATH=/actual/path slurm/run_tofu_zerounlearn_locked_3b.slurm" >&2
+  echo "Missing validated Full-TOFU checkpoint: ${TOFU_FULL_MODEL_PATH}" >&2
+  echo "Resubmit with TOFU_FULL_MODEL_PATH=/actual/path if it was moved." >&2
   exit 2
 fi
 
