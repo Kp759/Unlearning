@@ -14,6 +14,10 @@ SCRIPT = SCRIPTS / "tofu_sure_rank0_forget_restored.py"
 SPEC = importlib.util.spec_from_file_location("tofu_sure_rank0_restored_v2", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
+# Python 3.10 dataclasses resolves forward/type metadata through
+# sys.modules[cls.__module__] while the class decorator runs.  Register the
+# dynamically loaded module before exec_module so @dataclass can resolve it.
+sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 
