@@ -132,7 +132,6 @@ def build_restore_basis(
     if actual_rank <= 0:
         raise RuntimeError("no Base-restoration direction survives the direct-forget nullspace")
 
-    # Reproject then QR to remove SVD/rounding leakage into the forget span.
     raw_basis = project_away(vh[:actual_rank].float(), forget_basis.float())
     q, _ = torch.linalg.qr(raw_basis.T, mode="reduced")
     restore_basis = q.T.contiguous()
@@ -146,8 +145,6 @@ def build_restore_basis(
     overlap_max = float(overlap.abs().max().item()) if overlap.numel() else 0.0
     orth_max = float((gram - eye).abs().max().item()) if gram.numel() else 0.0
 
-    # Best Frobenius projection of the Base-relative desired row changes into
-    # the fixed rank-R restoration subspace.
     delta = (desired_rows.float() @ restore_basis.T) @ restore_basis
     report = {
         "requested_rank": requested_rank,
@@ -178,7 +175,9 @@ def load_required_nll(
         raise ValueError("forget-requirements-json must contain one row per direct forget QA")
     values: List[float] = []
     for row in rows:
-        value = row.get("required_nll", fallback_nll)
+        # tofu.instance_reports writes `required_answer_nll`; accept the shorter
+        # key too for compatibility with hand-built requirement files.
+        value = row.get("required_answer_nll", row.get("required_nll", fallback_nll))
         values.append(float(value))
     return torch.tensor(values, dtype=torch.float32, device=device)
 
@@ -190,7 +189,6 @@ def load_reference_rows(
     dtype_name: str,
 ) -> torch.Tensor:
     dtype = gagd.torch_dtype(dtype_name)
-    # Keep the teacher on CPU; only the selected rows are moved to the active GPU.
     reference = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=dtype)
     weight = reference.get_output_embeddings().weight
     ids = torch.tensor(selected_ids, dtype=torch.long, device=weight.device)
