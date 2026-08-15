@@ -34,10 +34,52 @@ EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-8}"
 RUN_LOCKED_GENERATION="${RUN_LOCKED_GENERATION:-0}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
 
+# Storage policy.  The protected Full-TOFU checkpoint is never deleted.
+# JSON reports/evaluations remain because cleanup removes only directories that
+# contain Hugging Face model weights.
+CLEANUP_OLD_SURE_CHECKPOINTS="${CLEANUP_OLD_SURE_CHECKPOINTS:-1}"
+CLEANUP_AFTER_EVAL="${CLEANUP_AFTER_EVAL:-1}"
+GLOBAL_TOFU_CHECKPOINT_CLEANUP="${GLOBAL_TOFU_CHECKPOINT_CLEANUP:-1}"
+
 if [[ ! -f "${FULL_TOFU_MODEL}/model.safetensors" ]]; then
   echo "Missing protected Full-TOFU model: ${FULL_TOFU_MODEL}" >&2
   exit 2
 fi
+
+PROTECTED_FULL_ABS="$(realpath "${FULL_TOFU_MODEL}")"
+SOURCE_ROOT_ABS="$(realpath -m "${SOURCE_ROOT}")"
+OUTPUT_ROOT_ABS="$(realpath -m "${OUTPUT_ROOT}")"
+
+safe_delete_checkpoint() {
+  local target="$1"
+  [[ -d "${target}" ]] || return 0
+
+  if [[ "$(basename "${target}")" != "checkpoint" ]]; then
+    echo "REFUSE cleanup: target is not named checkpoint: ${target}" >&2
+    exit 90
+  fi
+
+  local target_abs
+  target_abs="$(realpath "${target}")"
+
+  # Refuse the protected model, any child of it, or any ancestor containing it.
+  if [[ "${target_abs}" == "${PROTECTED_FULL_ABS}" || "${target_abs}" == "${PROTECTED_FULL_ABS}"/* || "${PROTECTED_FULL_ABS}" == "${target_abs}"/* ]]; then
+    echo "REFUSE cleanup: protected Full-TOFU path overlap: ${target_abs}" >&2
+    exit 91
+  fi
+
+  # Only SURE source/v2 output trees are eligible for direct checkpoint cleanup.
+  case "${target_abs}" in
+    "${SOURCE_ROOT_ABS}"/*|"${OUTPUT_ROOT_ABS}"/*) ;;
+    *)
+      echo "REFUSE cleanup outside known SURE roots: ${target_abs}" >&2
+      exit 92
+      ;;
+  esac
+
+  echo "DELETE CHECKPOINT: ${target_abs}"
+  rm -rf -- "${target_abs}"
+}
 
 MISSING_SEEDS=()
 for SEED in ${SEEDS}; do
@@ -71,6 +113,19 @@ for SEED in ${SEEDS}; do
     echo "Run the original SURE runner through Stage1A first, or set SOURCE_ROOT." >&2
     exit 3
   }
+
+  # Reclaim old v1 downstream checkpoints immediately, but keep Stage1A until
+  # v2 has finished because it is the input to the corrected Stage1B.
+  if [[ "${CLEANUP_OLD_SURE_CHECKPOINTS}" == "1" ]]; then
+    echo "===== STORAGE CLEANUP: OLD v1 DOWNSTREAM CHECKPOINTS ====="
+    safe_delete_checkpoint "${SOURCE_ROOT}/seed${SEED}/stage1b_rank0_forget/checkpoint"
+    shopt -s nullglob
+    OLD_RESTORE_CHECKPOINTS=("${SOURCE_ROOT}/seed${SEED}"/stage2_restore_r*/checkpoint)
+    shopt -u nullglob
+    for OLD_CKPT in "${OLD_RESTORE_CHECKPOINTS[@]}"; do
+      safe_delete_checkpoint "${OLD_CKPT}"
+    done
+  fi
 
   echo
   echo "===== SURE-TOFU-v2 SEED ${SEED}: REUSE FROZEN STAGE1A ====="
@@ -154,8 +209,44 @@ for SEED in ${SEEDS}; do
     POSTHOC_ARGS+=(--skip-generation)
   fi
   python scripts/tofu_zerounlearn_locked_eval.py "${POSTHOC_ARGS[@]}"
+
+  # At this point every requested model has been evaluated.  Keep reports and
+  # locked-eval JSON, remove only bulky checkpoint directories.
+  if [[ "${CLEANUP_AFTER_EVAL}" == "1" ]]; then
+    echo "===== STORAGE CLEANUP: COMPLETED SEED ${SEED} ====="
+    for RANK in ${RESTORE_RANKS}; do
+      safe_delete_checkpoint "${ROOT}/stage2_restore_r${RANK}/checkpoint"
+    done
+    safe_delete_checkpoint "${STAGE1B}/checkpoint"
+    safe_delete_checkpoint "${STAGE1A}/checkpoint"
+    printf '%s\n' \
+      "seed=${SEED}" \
+      "cleanup_after_eval=1" \
+      "protected_full_tofu=${PROTECTED_FULL_ABS}" \
+      "deleted=v2 Stage1B checkpoint, v2 Stage2 checkpoints, reused Stage1A checkpoint" \
+      "kept=JSON reports, repair logs, locked evaluations, protocol split" \
+      > "${ROOT}/checkpoint_cleanup.txt"
+  fi
 done
 
+# Final global sweep removes any other TOFU model directories still under
+# outputs while protecting exactly the validated Full-TOFU model.  This is run
+# only after all seeds are complete, so no remaining stage depends on them.
+if [[ "${GLOBAL_TOFU_CHECKPOINT_CLEANUP}" == "1" ]]; then
+  echo "===== FINAL GLOBAL TOFU CHECKPOINT CLEANUP ====="
+  python scripts/cleanup_tofu_checkpoints_keep_full.py \
+    --outputs-root outputs \
+    --keep-model "${FULL_TOFU_MODEL}" \
+    --delete
+fi
+
+# Fail closed if cleanup somehow touched the protected model.
+if [[ ! -f "${FULL_TOFU_MODEL}/model.safetensors" || ! -f "${FULL_TOFU_MODEL}/config.json" ]]; then
+  echo "FATAL: protected Full-TOFU checkpoint missing after cleanup" >&2
+  exit 93
+fi
+
 echo
-echo "SURE-TOFU-v2 complete. Stage1A was reused; no held-out metric was used before freezing."
-echo "Outputs: ${OUTPUT_ROOT}/seed*/"
+echo "SURE-TOFU-v2 complete. No held-out metric was used before freezing."
+echo "Bulky TOFU checkpoints were cleaned after evaluation; Full-TOFU epoch-5 remains protected."
+echo "Outputs/reports: ${OUTPUT_ROOT}/seed*/"
