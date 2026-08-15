@@ -1,9 +1,21 @@
-from types import SimpleNamespace
+import importlib.util
+import sys
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 
 import torch
 
-from scripts import tofu_sure_rank0_forget as sure
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+SCRIPT = SCRIPTS / "tofu_sure_rank0_forget.py"
+SPEC = importlib.util.spec_from_file_location("tofu_sure_rank0_forget", SCRIPT)
+sure = importlib.util.module_from_spec(SPEC)
+assert SPEC.loader is not None
+SPEC.loader.exec_module(sure)
 
 
 class TofuSureSensitiveRestoreTests(unittest.TestCase):
