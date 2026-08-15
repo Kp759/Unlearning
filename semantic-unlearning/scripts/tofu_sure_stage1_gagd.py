@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import random
 from dataclasses import asdict
 from pathlib import Path
@@ -206,23 +205,23 @@ def same_prompt_gagd_loss(
         current_logp = F.log_softmax(current, dim=-1)
         ga_terms.append(current_logp.gather(-1, target.unsqueeze(-1)).squeeze(-1).mean())
 
-        # Exact non-sensitive KL on the same answer contexts.  Removing the
-        # true token prevents GD from directly rewarding the sensitive target.
+        # Exact non-sensitive KL on the same answer contexts.  Use a very
+        # negative *finite* value rather than -inf so the masked coordinate
+        # cannot create 0 * NaN in KL arithmetic.  The masked coordinate is
+        # explicitly zeroed from the KL sum after renormalization.
         base_masked = base.clone()
         current_masked = current.clone()
-        rows = torch.arange(target.numel(), device=device)
-        base_masked[rows, target] = -torch.inf
-        current_masked[rows, target] = -torch.inf
+        row_ids = torch.arange(target.numel(), device=device)
+        finite_mask = -1.0e9
+        base_masked[row_ids, target] = finite_mask
+        current_masked[row_ids, target] = finite_mask
         base_non_sensitive_logp = F.log_softmax(base_masked, dim=-1)
         current_non_sensitive_logp = F.log_softmax(current_masked, dim=-1)
-        gd_terms.append(
-            F.kl_div(
-                current_non_sensitive_logp,
-                base_non_sensitive_logp,
-                reduction="batchmean",
-                log_target=True,
-            )
+        per_vocab_kl = base_non_sensitive_logp.exp() * (
+            base_non_sensitive_logp - current_non_sensitive_logp
         )
+        per_vocab_kl[row_ids, target] = 0.0
+        gd_terms.append(per_vocab_kl.sum(dim=-1).mean())
         token_count += int(target.numel())
 
     del output
@@ -332,8 +331,6 @@ def main() -> None:
                 handle.flush()
     del optimizer
 
-    # Untie the trained output head, snapshot sensitive trained rows, restore
-    # every vocabulary row to Base, then put back only allowed sensitive rows.
     output_embeddings = active.freeze_model_for_output_repair(model)
     input_weight = model.get_input_embeddings().weight
     output_weight = output_embeddings.weight
