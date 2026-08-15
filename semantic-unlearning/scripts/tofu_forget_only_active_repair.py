@@ -3,9 +3,20 @@
 
 Unlike the native full-utility TOFU repair, this locked ZeroUnlearn-style
 variant has no access to retain95, real-authors, world-facts, paraphrases, or
-perturbed answers.  The transformer and input embeddings stay frozen.  Only
-LM-head rows occurring in initially active direct forget answers can change,
-in a low-rank basis built from those active answer hidden states.
+perturbed answers. The transformer and input embeddings stay frozen.
+
+Two LM-head row-selection policies are supported:
+
+* ``all`` preserves the original behavior and edits the union of all answer
+  token rows from initially active direct forget examples.
+* ``rare_topk`` uses only the same training-visible direct forget answers to
+  compute answer-token document frequency, removes punctuation-only tokens,
+  and keeps the rarest ``--rows-per-example`` content-bearing rows for each
+  initially active forget example. This concentrates a bounded repair norm on
+  fact-specific output rows without consulting retain or evaluation data.
+
+The low-rank repair basis is still built only from active direct-forget answer
+hidden states.
 """
 
 from __future__ import annotations
@@ -13,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,24 +57,52 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--delta-l2-lambda", type=float, default=1e-5)
     parser.add_argument("--repair-steps", type=int, default=5000)
     parser.add_argument("--repair-lr", type=float, default=2e-2)
-    parser.add_argument("--repair-optimizer", choices=["sgd", "adam", "adamw"], default="adamw")
+    parser.add_argument(
+        "--repair-optimizer", choices=["sgd", "adam", "adamw"], default="adamw"
+    )
     parser.add_argument("--repair-rank", type=int, default=64)
     parser.add_argument("--basis-max-rows", type=int, default=2048)
     parser.add_argument("--max-delta-norm", type=float, default=None)
+    parser.add_argument(
+        "--row-selection",
+        choices=["all", "rare_topk"],
+        default="all",
+        help=(
+            "Editable LM-head row policy. 'all' reproduces the original union "
+            "of active answer rows. 'rare_topk' selects rare content-bearing "
+            "answer rows using only the training-visible direct forget QAs."
+        ),
+    )
+    parser.add_argument(
+        "--rows-per-example",
+        type=int,
+        default=3,
+        help="Number of rare answer-token rows retained per active example in rare_topk mode.",
+    )
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--max-length", type=int, default=256)
     parser.add_argument("--comparison-tolerance", type=float, default=1e-6)
     parser.add_argument("--log-every", type=int, default=10)
-    parser.add_argument("--stop-when-all-satisfied", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--save-best-effort", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default="bf16")
+    parser.add_argument(
+        "--stop-when-all-satisfied",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument(
+        "--save-best-effort", action=argparse.BooleanOptionalAction, default=False
+    )
+    parser.add_argument(
+        "--dtype", choices=["bf16", "fp16", "fp32"], default="bf16"
+    )
     parser.add_argument("--device-map", choices=["single", "auto"], default="single")
     return parser.parse_args()
 
 
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
 
 def write_jsonl(path: Path, rows: Sequence[Dict[str, Any]]) -> None:
@@ -109,6 +149,17 @@ def load_forget_instances(
     return instances, source_indices
 
 
+def answer_token_ids(
+    tok: Any,
+    instance: tofu.TOFUAnswerInstance,
+    *,
+    max_length: int,
+) -> List[int]:
+    full_ids, prompt_length = tofu.answer_sequence_components(tok, instance, max_length)
+    specials = gagd.special_token_ids(tok)
+    return [int(token_id) for token_id in full_ids[prompt_length:] if token_id not in specials]
+
+
 def answer_rows_for_instances(
     tok: Any,
     instances: Sequence[tofu.TOFUAnswerInstance],
@@ -117,13 +168,161 @@ def answer_rows_for_instances(
     max_length: int,
 ) -> List[int]:
     selected: set[int] = set()
-    specials = gagd.special_token_ids(tok)
     for position in positions:
-        full_ids, prompt_length = tofu.answer_sequence_components(
-            tok, instances[position], max_length
+        selected.update(
+            answer_token_ids(tok, instances[position], max_length=max_length)
         )
-        selected.update(full_ids[prompt_length:])
-    return sorted(selected - specials)
+    return sorted(selected)
+
+
+def decoded_token(tok: Any, token_id: int) -> str:
+    return tok.decode(
+        [int(token_id)],
+        skip_special_tokens=False,
+        clean_up_tokenization_spaces=False,
+    )
+
+
+def is_content_bearing_token(tok: Any, token_id: int) -> bool:
+    text = decoded_token(tok, token_id).strip()
+    if not text:
+        return False
+    # Exclude punctuation/symbol-only rows such as '.', ',', and quotes while
+    # keeping alphabetic/numeric words and subword pieces used in names.
+    return any(character.isalnum() for character in text)
+
+
+def rare_topk_answer_rows(
+    tok: Any,
+    instances: Sequence[tofu.TOFUAnswerInstance],
+    positions: Sequence[int],
+    *,
+    max_length: int,
+    rows_per_example: int,
+) -> Tuple[List[int], Dict[str, Any]]:
+    """Select rare content-bearing answer rows using direct forget QAs only.
+
+    Document frequency is computed over all training-visible direct forget
+    answers, not retain/evaluation data. For each active example we rank unique
+    content-bearing answer tokens by ascending document frequency and preserve
+    original answer order as a deterministic tie-breaker.
+    """
+    if rows_per_example <= 0:
+        raise ValueError("rows-per-example must be positive in rare_topk mode")
+
+    all_answer_ids: List[List[int]] = [
+        answer_token_ids(tok, instance, max_length=max_length)
+        for instance in instances
+    ]
+    document_frequency: Counter[int] = Counter()
+    for token_ids in all_answer_ids:
+        document_frequency.update(set(token_ids))
+
+    selected_union: set[int] = set()
+    per_example: List[Dict[str, Any]] = []
+    fallback_example_count = 0
+
+    for position in positions:
+        token_ids = all_answer_ids[position]
+        # Deduplicate while preserving first answer occurrence.
+        unique_ids = list(dict.fromkeys(token_ids))
+        content_ids = [
+            token_id
+            for token_id in unique_ids
+            if is_content_bearing_token(tok, token_id)
+        ]
+        fallback_used = False
+        candidates = content_ids
+        if not candidates:
+            # This should be very rare for TOFU prose answers. Keep a safe
+            # fallback so every active deletion request remains editable.
+            candidates = unique_ids
+            fallback_used = True
+            fallback_example_count += 1
+        if not candidates:
+            raise RuntimeError(
+                f"active forget example at position {position} has no editable answer rows"
+            )
+
+        first_position = {token_id: index for index, token_id in enumerate(unique_ids)}
+        ranked = sorted(
+            candidates,
+            key=lambda token_id: (
+                int(document_frequency[token_id]),
+                first_position[token_id],
+                int(token_id),
+            ),
+        )
+        chosen = ranked[:rows_per_example]
+        selected_union.update(chosen)
+
+        per_example.append(
+            {
+                "position": int(position),
+                "source_index": int(instances[position].source_index),
+                "candidate_row_count": len(candidates),
+                "fallback_to_noncontent_rows": fallback_used,
+                "selected": [
+                    {
+                        "token_id": int(token_id),
+                        "token": decoded_token(tok, token_id),
+                        "document_frequency": int(document_frequency[token_id]),
+                        "idf": float(
+                            math.log(
+                                (len(instances) + 1.0)
+                                / (float(document_frequency[token_id]) + 1.0)
+                            )
+                        ),
+                    }
+                    for token_id in chosen
+                ],
+            }
+        )
+
+    histogram = Counter(document_frequency.values())
+    report = {
+        "policy": "rare_topk",
+        "rows_per_example": rows_per_example,
+        "document_frequency_corpus": "training_visible_direct_forget_answers_only",
+        "document_frequency_example_count": len(instances),
+        "unique_answer_token_row_count": len(document_frequency),
+        "content_filter": "decoded token must contain at least one alphanumeric character",
+        "fallback_example_count": fallback_example_count,
+        "document_frequency_histogram": {
+            str(df): int(count) for df, count in sorted(histogram.items())
+        },
+        "per_example": per_example,
+    }
+    return sorted(selected_union), report
+
+
+def select_answer_rows(
+    tok: Any,
+    instances: Sequence[tofu.TOFUAnswerInstance],
+    positions: Sequence[int],
+    *,
+    max_length: int,
+    row_selection: str,
+    rows_per_example: int,
+) -> Tuple[List[int], Dict[str, Any]]:
+    if row_selection == "all":
+        selected = answer_rows_for_instances(
+            tok, instances, positions, max_length=max_length
+        )
+        return selected, {
+            "policy": "all",
+            "rows_per_example": None,
+            "document_frequency_corpus": None,
+        }
+    if row_selection == "rare_topk":
+        return rare_topk_answer_rows(
+            tok,
+            instances,
+            positions,
+            max_length=max_length,
+            rows_per_example=rows_per_example,
+        )
+    raise ValueError(f"unsupported row-selection policy: {row_selection}")
 
 
 def metrics(
@@ -139,11 +338,15 @@ def metrics(
     buffered_mask = nll < (required.to(nll) - tolerance)
     return {
         "active_forget_instance_count": int(active_mask.sum().detach().cpu()),
-        "buffered_forget_constraint_unmet_count": int(buffered_mask.sum().detach().cpu()),
+        "buffered_forget_constraint_unmet_count": int(
+            buffered_mask.sum().detach().cpu()
+        ),
         "forget_answer_probability_mean": float(probabilities.mean().detach().cpu()),
         "forget_answer_probability_max": float(probabilities.max().detach().cpu()),
         "minimum_forget_answer_nll": float(nll.min().detach().cpu()),
-        "minimum_forget_nll_slack": float((nll - required.to(nll)).min().detach().cpu()),
+        "minimum_forget_nll_slack": float(
+            (nll - required.to(nll)).min().detach().cpu()
+        ),
         "selected_lm_head_delta_norm": float(delta.norm().detach().cpu()),
     }
 
@@ -191,6 +394,8 @@ def main() -> None:
         raise ValueError("buffer and L2 weight must be non-negative")
     if args.forget_hinge_weight <= 0 or args.hardest_forget_hinge_weight < 0:
         raise ValueError("invalid forget hinge weights")
+    if args.rows_per_example <= 0:
+        raise ValueError("rows-per-example must be positive")
     if args.max_delta_norm is not None and (
         not math.isfinite(args.max_delta_norm) or args.max_delta_norm < 0
     ):
@@ -238,11 +443,13 @@ def main() -> None:
     active_positions = (
         initially_active_mask.nonzero(as_tuple=False).flatten().detach().cpu().tolist()
     )
-    selected_ids = answer_rows_for_instances(
+    selected_ids, row_selection_report = select_answer_rows(
         tok,
         instances,
         active_positions,
         max_length=args.max_length,
+        row_selection=args.row_selection,
+        rows_per_example=args.rows_per_example,
     )
     if active_positions and not selected_ids:
         raise RuntimeError("active forget answers produced no editable LM-head rows")
@@ -262,9 +469,14 @@ def main() -> None:
         "selected_lm_head_row_count": len(selected_ids),
         "selected_lm_head_token_ids": selected_ids,
         "selected_lm_head_tokens": {
-            str(token_id): tok.decode([token_id]) for token_id in selected_ids
+            str(token_id): decoded_token(tok, token_id) for token_id in selected_ids
         },
         "selection_source": "initially_active_direct_forget_answers_only",
+        "row_selection": args.row_selection,
+        "rows_per_example": (
+            args.rows_per_example if args.row_selection == "rare_topk" else None
+        ),
+        "row_selection_report": row_selection_report,
         "retain_or_utility_rows_consulted": False,
         "paraphrases_consulted": False,
     }
@@ -295,6 +507,7 @@ def main() -> None:
     logs: List[Dict[str, Any]] = []
     steps_completed = 0
     stopped_early = not active_positions
+    direction_basis: torch.Tensor | None = None
 
     if active_positions:
         caches = tofu.build_answer_delta_caches(
@@ -406,6 +619,9 @@ def main() -> None:
                 "best_step": best_step,
                 "best_metrics": best_metrics,
                 "steps_completed": steps_completed,
+                "row_selection": args.row_selection,
+                "rows_per_example": args.rows_per_example,
+                "selected_lm_head_row_count": len(selected_ids),
             },
         )
         raise RuntimeError(
@@ -445,6 +661,9 @@ def main() -> None:
                 "best_step": best_step,
                 "best_metrics_cached": best_metrics,
                 "materialized_metrics": materialized_metrics,
+                "row_selection": args.row_selection,
+                "rows_per_example": args.rows_per_example,
+                "selected_lm_head_row_count": len(selected_ids),
             },
         )
         raise RuntimeError("materialized Stage2 checkpoint misses direct forget target")
@@ -482,6 +701,11 @@ def main() -> None:
         "repair_optimizer": args.repair_optimizer,
         "repair_rank_requested": args.repair_rank,
         "basis_max_rows": args.basis_max_rows,
+        "max_delta_norm": args.max_delta_norm,
+        "row_selection": args.row_selection,
+        "rows_per_example": (
+            args.rows_per_example if args.row_selection == "rare_topk" else None
+        ),
         "forget_hinge_weight": args.forget_hinge_weight,
         "hardest_forget_hinge_weight": args.hardest_forget_hinge_weight,
         "delta_l2_lambda": args.delta_l2_lambda,
@@ -498,9 +722,15 @@ def main() -> None:
         "stopped_early": stopped_early,
         "initially_active_forget_instance_count": len(active_positions),
         "selected_lm_head_row_count": len(selected_ids),
+        "row_selection": args.row_selection,
+        "rows_per_example": (
+            args.rows_per_example if args.row_selection == "rare_topk" else None
+        ),
         "repair_rank_requested": args.repair_rank,
         "repair_rank_actual": (
-            int(direction_basis.shape[0]) if active_positions else 0
+            int(direction_basis.shape[0])
+            if active_positions and direction_basis is not None
+            else 0
         ),
         "best_metrics_cached": best_metrics,
         "materialized_metrics": materialized_metrics,
@@ -516,6 +746,10 @@ def main() -> None:
     }
     write_json(output_dir / "repair_summary.json", summary)
     print(f"TOFU locked Stage2 checkpoint: {checkpoint_dir}")
+    print(
+        f"row selection: {args.row_selection}; selected rows={len(selected_ids)}; "
+        f"rows/example={args.rows_per_example if args.row_selection == 'rare_topk' else 'all'}"
+    )
     print(
         f"direct forget max probability: {materialized_metrics['forget_answer_probability_max']:.8g}; "
         f"target={args.target_forget_answer_probability:.8g}"
