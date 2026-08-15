@@ -1,57 +1,69 @@
-# TOFU ZeroUnlearn-style locked protocol
+# TOFU author-balanced locked protocol
 
-This track is a data-access-controlled TOFU portability experiment for the
-project's Setting-5e + sparse LM-head repair method.  It is separate from the
-existing native/full-utility TOFU F01/F05/F10 track and does not replace it.
+This is the project's leakage-controlled TOFU portability track for Setting-5e
+plus sparse LM-head repair. It is separate from the native/full-utility
+F01/F05/F10 track.
 
 ## Starting model
 
-Unlearning starts from the project-selected **Full-TOFU** Llama-3.2-3B model,
-not from raw Llama:
+Unlearning starts from the validated Full-TOFU Llama-3.2-3B epoch-5 model:
 
 ```text
-outputs/tofu_full_utility_sweep_v7/lr4e-5_epochs6_slurm/checkpoint_epoch_5
+outputs/tofu_full_utility_sweep_v7_repro_20260815/lr4e-5_epochs6/checkpoint_epoch_5
 ```
 
-Project registry metadata records this checkpoint as the selected epoch-5 model
-from the LR `4e-5` TOFU fine-tuning run.  The runner fails if the checkpoint is
-missing; it never silently substitutes a raw model.
+This is the reproduced LR `4e-5`, selected epoch-5 checkpoint whose native TOFU
+metrics match the original selected run closely.
 
-## Per-seed data roles
+## Author-balanced split
 
-Seeds are `1..10`.  For every seed, fresh `random.Random(seed).sample` calls
-select 50 rows from `forget05` and 1,000 rows from `retain95`, matching the
-sampling behavior of `tofu_eval.subset_samples` on those primary splits.
+TOFU profiles contain 20 QA pairs per fictitious author. For `forget05`, the
+200 rows are treated as 10 contiguous 20-QA author blocks. For every seed:
 
-### Visible before final evaluation
+1. sample 5 of the 10 forget-author blocks;
+2. for each selected author, sample 10 of its 20 QAs for unlearning;
+3. reserve the other 10 QAs for that same author as unseen same-author
+   evaluation data;
+4. independently sample 1,000 `retain95` QAs for final utility evaluation.
 
-Only the selected 50 `forget05` rows are visible, with exactly:
+Therefore each seed has:
+
+```text
+Unlearning-visible direct QAs:       5 authors x 10 = 50
+Seen direct efficacy eval:           same 50 QAs
+Seen paraphrase eval:                50 paraphrases
+Same-author unseen direct eval:      5 authors x 10 = 50
+Same-author unseen paraphrase eval:  50 paraphrases
+Retain utility eval:                 1000 retain95 QAs
+```
+
+The selected author-block IDs and exact train/held-out source indices are stored
+in each `split_manifest.json`.
+
+## Leakage lock
+
+Stage 1 and Stage 2 receive only the 50 direct training QAs. Training-visible
+rows contain only:
 
 - `question`
 - `answer`
 - `_source_index` (provenance only)
 
-Stage 1 and Stage 2 each see those same 50 direct QAs.  They see **zero**
-retain95 rows, paraphrased questions, perturbed answers, real-authors rows, or
-world-facts rows.
+They receive zero retain95 rows, paraphrases, perturbed answers, real-author
+examples, or world-fact examples. All held-out and utility data enter only
+after the Stage-2 checkpoint is frozen.
 
-### Final-evaluation only
+## Evaluation meanings
 
-After the Stage-2 checkpoint is frozen, evaluation may access:
+- **Seen deletion efficacy:** the exact 50 direct QAs exposed during unlearning.
+- **Prompt generalization:** benchmark paraphrases of those same 50 QAs.
+- **Same-author fact generalization:** the other 10 QAs for each of the 5
+  selected authors, never exposed to Stage 1 or Stage 2.
+- **Utility:** 1,000 sampled `retain95` QAs relative to the Full-TOFU reference.
 
-1. the selected 50 direct forget QAs;
-2. their 50 benchmark-provided `paraphrased_question` / `paraphrased_answer`
-   pairs;
-3. the remaining 150 `forget05` QAs never exposed to unlearning;
-4. paraphrases of those remaining 150 QAs;
-5. 1,000 sampled `retain95` QAs;
-6. standard TOFU real-authors/world-facts utility data;
-7. perturbed answers used by truth-ratio evaluation.
-
-The primary generalization result is the 50 held-out paraphrased questions for
-the same deletion QAs.  The remaining 150 forget05 QAs are a stronger
-secondary same-forget-split / unseen-fact diagnostic and are reported
-separately.
+This distinction lets the experiment separate memorization of the deletion
+requests from generalization of forgetting to other facts about the same
+selected authors.
 
 ## Stage 1
 
@@ -61,88 +73,83 @@ Default configuration:
 
 - 50 direct forget QAs
 - batch size 1
-- 50 optimizer steps (one default pass)
+- 50 optimizer steps
 - LR `2e-4`
 - answer-NLL gradient ascent
 - embedding/LM-head trainable during GA
-- transformer frozen by the existing mode configuration
+- transformer frozen
 
-After GA, the LM head is untied.  The complete input embedding matrix returns
-to the exact Full-TOFU starting weights.  All output rows except tokens in the
-50 visible forget answers also return to the Full-TOFU weights.
+After GA, the input embedding matrix is restored to the Full-TOFU starting
+weights. Output rows not associated with visible forget-answer tokens are also
+restored.
 
 ## Stage 2
 
 Entrypoint: `scripts/tofu_forget_only_active_repair.py`.
 
-Default configuration:
+The author-balanced runner intentionally uses bounded defaults because the
+previous rank-64 / LR `0.02` / unbounded repair destroyed TOFU utility.
 
-- target direct-forget answer probability `<= 3e-4`
-- NLL materialization buffer `0.25`
-- repair rank `64`
+Default runner configuration:
+
+- target direct-forget AP `<= 3e-4` (best effort under the norm cap)
+- repair rank `8`
+- repair LR `0.002`
+- maximum LM-head delta norm `1.0`
+- row selection `all`
 - repair steps `5000`
-- repair LR `0.02`
-- forget hinge weight `100`
-- hardest-forget hinge weight `25`
-- delta L2 `1e-5`
+- `--save-best-effort`
 
-The transformer and input embeddings are frozen.  Editable LM-head rows come
-only from initially active direct forget answers.  The low-rank basis comes
-only from hidden states of those active direct forget answers.  No held-out or
-utility record can affect row selection, optimization, early stopping, or
-checkpoint selection.
+The target is not allowed to force an arbitrarily large edit: if the bounded
+repair cannot reach `3e-4`, the best bounded checkpoint is still materialized
+for evaluation.
 
-## Evaluation
+## Native evaluator
 
-`scripts/tofu_zerounlearn_locked_eval.py` reads only the materialized
-`eval_only/` files and reports direct, paraphrase, unseen-150, and retain-1000
-answer probability plus ROUGE-L (unless generation is disabled).  It also
-reports truth-ratio diagnostics where perturbed answers exist.
+`RUN_NATIVE_EVAL=0` by default for this track. The legacy `tofu_eval.py`
+independently samples `forget05`, so its forget subset is not guaranteed to be
+the same author-balanced 50. The path-based locked evaluator is the
+protocol-defining evaluation. Native evaluation can still be enabled as an
+optional auxiliary diagnostic.
 
-The runner additionally invokes the existing `scripts/tofu_eval.py` only after
-the checkpoint is frozen, to preserve the project's native TOFU utility axes.
-
-## Wulver
-
-After updating the branch, verify the selected Full-TOFU checkpoint:
+## Wulver smoke test
 
 ```bash
 cd /scratch/yl258/kp759/Unlearning/semantic-unlearning
-FULL=outputs/tofu_full_utility_sweep_v7/lr4e-5_epochs6_slurm/checkpoint_epoch_5
 
-test -d "$FULL" && test -f "$FULL/config.json" && echo "FOUND: $FULL"
+export TOFU_FULL_MODEL_PATH=/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/tofu_full_utility_sweep_v7_repro_20260815/lr4e-5_epochs6/checkpoint_epoch_5
+export TOFU_SEEDS=1
+export OUTPUT_ROOT=outputs/tofu_author_balanced_locked_3b_test
+export RUN_LOCKED_GENERATION=0
+export RUN_NATIVE_EVAL=0
+
+bash scripts/run_tofu_zerounlearn_locked_our_method.sh "$TOFU_FULL_MODEL_PATH"
 ```
 
-Submit all ten seeds:
+Inspect the split before trusting the run:
+
+```bash
+python - <<'PY'
+import json
+p='outputs/tofu_author_balanced_locked_3b_test/protocol/seed1/split_manifest.json'
+x=json.load(open(p))
+s=x['sampling']
+print('authors:', s['selected_author_block_ids'])
+print('train:', s['train_forget_num'])
+print('heldout same-author:', s['same_author_heldout_num'])
+for a,v in s['per_selected_author'].items():
+    print(a, len(v['train_source_indices']), len(v['heldout_source_indices']))
+PY
+```
+
+Expected: 5 selected authors, 50 train QAs, 50 same-author held-out QAs, and
+10/10 train/held-out QAs for every selected author.
+
+## Ten-seed Slurm run
 
 ```bash
 sbatch slurm/run_tofu_zerounlearn_locked_3b.slurm
 ```
 
-If the previous checkpoint is stored elsewhere:
-
-```bash
-sbatch --export=ALL,TOFU_FULL_MODEL_PATH=/actual/path/to/checkpoint_epoch_5 \
-  slurm/run_tofu_zerounlearn_locked_3b.slurm
-```
-
-For a faster first probability-only diagnostic, disable only the custom held-out
-generation pass (the native evaluator remains enabled):
-
-```bash
-sbatch --export=ALL,RUN_LOCKED_GENERATION=0 \
-  slurm/run_tofu_zerounlearn_locked_3b.slurm
-```
-
-After all seeds finish:
-
-```bash
-python scripts/aggregate_tofu_zerounlearn_locked.py \
-  --root outputs/tofu_zerounlearn_forget_only_locked_3b
-```
-
-The aggregate JSON and CSV are written under:
-
-```text
-outputs/tofu_zerounlearn_forget_only_locked_3b/aggregate/
-```
+The Slurm wrapper uses the validated reproduced epoch-5 checkpoint by default
+and writes to `outputs/tofu_author_balanced_locked_3b`.
