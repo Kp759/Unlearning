@@ -57,28 +57,82 @@ Default training controls:
 
 Post-training vocabulary restoration uses `sensitive_both` by default:
 
-- sensitive answer-token input rows keep Stage-1A displacement;
-- sensitive answer-token output rows keep Stage-1A displacement;
+- visible answer-token input rows initially keep Stage-1A displacement;
+- visible answer-token output rows initially keep Stage-1A displacement;
 - every other input/output vocabulary row is restored exactly to Full-TOFU.
 
 No held-out benchmark data are consulted.
 
-## Stage 1B: SURE active forgetting
+## Stage 1B: token-sensitive restoration + SURE active forgetting
 
-Start from the frozen Stage-1A checkpoint.
+Start from the frozen Stage-1A checkpoint and use only the same 50 direct
+training QAs plus the original Full-TOFU rows for vocabulary restoration.
 
-- Audit the same 50 direct training QAs.
-- Identify residual active direct forget constraints.
-- Edit only LM-head rows required by active answer tokens.
-- `repair_rank = 0`: unrestricted selected-row delta in the full hidden
-  dimension; no low-rank bottleneck.
-- Optimize direct forget constraints dynamically until every direct QA meets
-  the target and NLL buffer.
-- Default target answer probability: `3e-4`.
-- Default NLL buffer: `0.25`.
-- No retain or held-out utility data are used.
+### 1. Fix the direct-forget requirements
 
-Stage 1B is required to PASS before restoration begins.
+Score all 50 direct QAs before any Stage-1B row restoration and construct the
+same target probability/NLL-buffer requirements used by active forgetting.
+These requirements are then fixed for the rest of Stage 1B; restoration cannot
+weaken the target.
+
+Default target answer probability: `3e-4`.
+Default NLL buffer: `0.25`.
+
+### 2. Derive sensitive answer rows at token resolution
+
+Let `A` be the union of vocabulary rows appearing in the 50 visible answers.
+For every direct answer sequence that violates its required NLL, inspect each
+teacher-forced target-token NLL.  A target-token row is initially sensitive if
+its token NLL is below that sequence's required NLL.
+
+Sensitivity is global by vocabulary row.  If one token ID is sensitive in any
+visible context, the shared row is treated as sensitive everywhere.
+
+### 3. Restore non-sensitive answer rows to Full-TOFU Base
+
+Let `S` be the current sensitive answer-row set and `N = A - S`.
+Before rank-0 optimization:
+
+- input embedding rows in `N` are restored exactly to Full-TOFU Base;
+- LM-head rows in `N` are restored exactly to Full-TOFU Base;
+- input/output rows in `S` keep their Stage-1A values.
+
+All 50 direct constraints are then rescored.
+
+### 4. Fail-closed promotion loop
+
+If restoring `N` makes any direct sequence newly or still violating, inspect
+that sequence's current teacher-forced token NLLs and promote deficient target
+rows into `S`.  Reapply the row policy and rescore all 50 constraints.
+
+If token-level promotion stalls while a sequence still violates, promote all
+answer rows from that violating sequence.  Repeat until the sensitive/non-
+sensitive partition is stable or fail closed if the configured round limit is
+exceeded.
+
+Thus a row is called non-sensitive only when snapping it to Base is compatible
+with the visible direct-forget constraints.
+
+### 5. Rank-0 forgetting only on sensitive LM-head rows
+
+After the restoration partition is stable:
+
+- transformer is frozen;
+- input embeddings are frozen;
+- non-sensitive answer rows stay exactly at Full-TOFU Base;
+- only sensitive LM-head rows are editable;
+- `repair_rank = 0` means an unrestricted selected-row delta in the full hidden
+  dimension, with no low-rank bottleneck;
+- optimize until every direct QA meets the fixed target and NLL buffer.
+
+After rank-0 materialization, non-sensitive answer rows are explicitly snapped
+to Full-TOFU Base again in both embeddings and LM head, and all 50 direct
+constraints are re-audited.  Exact Base equality of the non-sensitive rows is
+recorded in the Stage-1B report.
+
+No retain95, paraphrase, same-author holdout, real-authors, world-facts, PPL,
+or final-evaluation metric is used.  Stage 1B is required to PASS before
+restoration begins.
 
 ## Stage 2: forget-nullspace Base restoration
 
