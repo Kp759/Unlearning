@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate completed TOFU ZeroUnlearn-style locked seeds into JSON/CSV."""
+"""Aggregate completed author-balanced TOFU locked seeds into JSON/CSV."""
 
 from __future__ import annotations
 
@@ -12,17 +12,20 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
+PROTOCOL = "tofu_author_balanced_forget_only_locked_v1"
 LOCKED_METRICS = {
-    "direct_forget_ap": ("forget_direct", "answer_probability_mean"),
-    "direct_forget_ap_max": ("forget_direct", "answer_probability_max"),
-    "direct_forget_rougeL": ("forget_direct", "rougeL_recall_mean"),
-    "paraphrase_forget_ap": ("forget_paraphrase", "answer_probability_mean"),
-    "paraphrase_forget_ap_max": ("forget_paraphrase", "answer_probability_max"),
-    "paraphrase_forget_rougeL": ("forget_paraphrase", "rougeL_recall_mean"),
-    "heldout_direct_ap": ("heldout_direct", "answer_probability_mean"),
-    "heldout_direct_rougeL": ("heldout_direct", "rougeL_recall_mean"),
-    "heldout_paraphrase_ap": ("heldout_paraphrase", "answer_probability_mean"),
-    "heldout_paraphrase_rougeL": ("heldout_paraphrase", "rougeL_recall_mean"),
+    "seen_direct_forget_ap": ("forget_direct", "answer_probability_mean"),
+    "seen_direct_forget_ap_max": ("forget_direct", "answer_probability_max"),
+    "seen_direct_forget_rougeL": ("forget_direct", "rougeL_recall_mean"),
+    "seen_paraphrase_forget_ap": ("forget_paraphrase", "answer_probability_mean"),
+    "seen_paraphrase_forget_ap_max": ("forget_paraphrase", "answer_probability_max"),
+    "seen_paraphrase_forget_rougeL": ("forget_paraphrase", "rougeL_recall_mean"),
+    "same_author_heldout_direct_ap": ("heldout_direct", "answer_probability_mean"),
+    "same_author_heldout_direct_ap_max": ("heldout_direct", "answer_probability_max"),
+    "same_author_heldout_direct_rougeL": ("heldout_direct", "rougeL_recall_mean"),
+    "same_author_heldout_paraphrase_ap": ("heldout_paraphrase", "answer_probability_mean"),
+    "same_author_heldout_paraphrase_ap_max": ("heldout_paraphrase", "answer_probability_max"),
+    "same_author_heldout_paraphrase_rougeL": ("heldout_paraphrase", "rougeL_recall_mean"),
     "retain1000_ap": ("retain", "answer_probability_mean"),
     "retain1000_rougeL": ("retain", "rougeL_recall_mean"),
 }
@@ -45,13 +48,13 @@ NATIVE_METRICS = (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--root", default="outputs/tofu_zerounlearn_forget_only_locked_3b"
+        "--root", default="outputs/tofu_author_balanced_locked_3b"
     )
     parser.add_argument("--seeds", type=int, nargs="+", default=list(range(1, 11)))
     parser.add_argument(
         "--output-prefix",
         default=None,
-        help="Default: ROOT/aggregate/tofu_zerounlearn_locked_seeds",
+        help="Default: ROOT/aggregate/tofu_author_balanced_locked_seeds",
     )
     parser.add_argument(
         "--require-all", action=argparse.BooleanOptionalAction, default=True
@@ -78,10 +81,11 @@ def load_json(path: Path) -> Dict[str, Any]:
 
 
 def find_native_summary(seed_root: Path, seed: int) -> Optional[Path]:
-    expected = seed_root / "native_eval" / f"tofu_locked_seed{seed}_summary.json"
+    native_dir = seed_root / "native_eval"
+    expected = native_dir / f"tofu_author_balanced_seed{seed}_summary.json"
     if expected.is_file():
         return expected
-    candidates = sorted((seed_root / "native_eval").glob("*_summary.json"))
+    candidates = sorted(native_dir.glob("*_summary.json")) if native_dir.is_dir() else []
     return candidates[0] if len(candidates) == 1 else None
 
 
@@ -170,15 +174,15 @@ def main() -> None:
     if args.output_prefix:
         prefix = Path(args.output_prefix).resolve()
     else:
-        prefix = root / "aggregate" / "tofu_zerounlearn_locked_seeds"
+        prefix = root / "aggregate" / "tofu_author_balanced_locked_seeds"
     prefix.parent.mkdir(parents=True, exist_ok=True)
     csv_path = prefix.with_suffix(".csv")
     json_path = prefix.with_suffix(".json")
     write_csv(csv_path, rows)
 
     payload = {
-        "schema_version": 1,
-        "protocol": "tofu_zerounlearn_data_access_forget_only_locked",
+        "schema_version": 2,
+        "protocol": PROTOCOL,
         "root": str(root),
         "requested_seeds": args.seeds,
         "completed_seeds": [row["seed"] for row in rows],
@@ -186,10 +190,10 @@ def main() -> None:
         "per_seed": rows,
         "aggregate": aggregate(rows),
         "metric_directions": {
-            "direct_forget_ap": "lower",
-            "paraphrase_forget_ap": "lower",
-            "heldout_direct_ap": "lower",
-            "heldout_paraphrase_ap": "lower",
+            "seen_direct_forget_ap": "lower",
+            "seen_paraphrase_forget_ap": "lower",
+            "same_author_heldout_direct_ap": "lower",
+            "same_author_heldout_paraphrase_ap": "lower",
             "retain1000_ap": "higher",
             "retain_ap_ratio_to_full_tofu": "higher",
             "native_real_authors_normalized_answer_prob": "higher",
@@ -203,10 +207,10 @@ def main() -> None:
     print(f"CSV: {csv_path}")
     print(f"JSON: {json_path}")
     for metric in (
-        "direct_forget_ap",
-        "paraphrase_forget_ap",
-        "heldout_direct_ap",
-        "heldout_paraphrase_ap",
+        "seen_direct_forget_ap",
+        "seen_paraphrase_forget_ap",
+        "same_author_heldout_direct_ap",
+        "same_author_heldout_paraphrase_ap",
         "retain1000_ap",
         "retain_ap_ratio_to_full_tofu",
     ):
