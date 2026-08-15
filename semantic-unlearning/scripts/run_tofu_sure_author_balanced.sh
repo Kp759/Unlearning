@@ -24,6 +24,7 @@ TARGET_NLL_BUFFER="${TARGET_NLL_BUFFER:-0.25}"
 STAGE1B_STEPS="${STAGE1B_STEPS:-10000}"
 STAGE1B_LR="${STAGE1B_LR:-0.005}"
 STAGE1B_L2="${STAGE1B_L2:-0.000001}"
+STAGE1B_MAX_PROMOTION_ROUNDS="${STAGE1B_MAX_PROMOTION_ROUNDS:-64}"
 
 RESTORE_RANKS="${RESTORE_RANKS:-64 128}"
 RESTORE_CONSTRAINT_TOLERANCE="${RESTORE_CONSTRAINT_TOLERANCE:-0.001}"
@@ -93,11 +94,12 @@ for SEED in ${SEEDS}; do
     echo "Reusing ${STAGE1A}/checkpoint"
   fi
 
-  echo "===== SURE-TOFU SEED ${SEED}: STAGE 1B UNRESTRICTED RANK-0 FORGETTING ====="
+  echo "===== SURE-TOFU SEED ${SEED}: STAGE 1B SENSITIVE-ROW RESTORE + UNRESTRICTED RANK-0 ====="
   if [[ "${SKIP_EXISTING}" != "1" || ! -f "${STAGE1B}/checkpoint/model.safetensors" ]]; then
     rm -rf "${STAGE1B}"
     python scripts/tofu_sure_rank0_forget.py \
       --model-path "${STAGE1A}/checkpoint" \
+      --reference-model-path "${FULL_TOFU_MODEL}" \
       --forget-json "${TRAIN_FORGET}" \
       --output-dir "${STAGE1B}" \
       --seed "${SEED}" --forget-num "${FORGET_NUM}" \
@@ -106,7 +108,8 @@ for SEED in ${SEEDS}; do
       --repair-steps "${STAGE1B_STEPS}" \
       --repair-lr "${STAGE1B_LR}" \
       --delta-l2-lambda "${STAGE1B_L2}" \
-      --row-selection all --batch-size "${EVAL_BATCH_SIZE}" \
+      --max-promotion-rounds "${STAGE1B_MAX_PROMOTION_ROUNDS}" \
+      --batch-size "${EVAL_BATCH_SIZE}" \
       --max-length "${MAX_LENGTH}" \
       --dtype "${DTYPE}" --device-map "${DEVICE_MAP}"
   else
