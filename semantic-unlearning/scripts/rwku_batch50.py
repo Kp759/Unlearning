@@ -2,15 +2,19 @@
 """Frozen RWKU Batch-50 split for MCF/ZsRE-style comparison.
 
 Each experimental batch contains five RWKU people and exactly ten forget
-training probes per person (8 Level-1 + 2 Level-2), for 50 forget examples in
-total.  The same 50 examples are evaluated post-unlearning as *efficacy*.
-All remaining exact-content-disjoint Level-1/Level-2 probes for those people
-are held out for generalization; paraphrases are derived only from held-out
-Level-2 rows.  Level-3 and other native RWKU probes remain evaluation-only.
+training probes per person, for 50 forget examples in total.  The preferred
+composition is 8 Level-1 + 2 Level-2 per person, but for unusually small Level-2
+pools the selector adapts while always reserving at least one content-distinct
+Level-1 and one Level-2 probe for held-out evaluation.
+
+The same 50 examples are evaluated post-unlearning as *efficacy*.  All
+remaining exact-content-disjoint Level-1/Level-2 probes for those people are
+held out for generalization; paraphrases are derived only from held-out Level-2
+rows. Level-3 and other native RWKU probes remain evaluation-only.
 
 Batch seed selects a transparent cyclic five-person window over the registered
-ten-target suite.  Split seed is frozen at zero and never depends on the batch
-seed.  Exact duplicate content is de-duplicated for train selection and every
+ten-target suite. Split seed is frozen at zero and never depends on the batch
+seed. Exact duplicate content is de-duplicated for train selection and every
 copy of selected content is excluded from held-out evaluation.
 """
 
@@ -40,8 +44,9 @@ SCHEMA_VERSION = "rwku_batch50_v1_manifest"
 SPLIT_SEED = 0
 TARGETS_PER_BATCH = 5
 TRAIN_PER_TARGET = 10
-TRAIN_LEVEL1_PER_TARGET = 8
-TRAIN_LEVEL2_PER_TARGET = 2
+PREFERRED_TRAIN_LEVEL1_PER_TARGET = 8
+PREFERRED_TRAIN_LEVEL2_PER_TARGET = 2
+MIN_HELDOUT_PER_LEVEL = 1
 TOTAL_FORGET_TRAIN = TARGETS_PER_BATCH * TRAIN_PER_TARGET
 RETAIN_EVAL_NUM = 1000
 REPAIR_RETAIN_NUM = 128
@@ -97,6 +102,31 @@ def _unique_rows(
     ]
 
 
+def _training_counts(unique_l1_count: int, unique_l2_count: int) -> Tuple[int, int]:
+    """Choose ten train rows while reserving >=1 unique row from each level."""
+
+    available_l1 = unique_l1_count - MIN_HELDOUT_PER_LEVEL
+    available_l2 = unique_l2_count - MIN_HELDOUT_PER_LEVEL
+    if available_l1 < 1 or available_l2 < 1:
+        raise ValueError("Need at least two unique rows in each RWKU level")
+    if available_l1 + available_l2 < TRAIN_PER_TARGET:
+        raise ValueError(
+            "Not enough unique L1/L2 rows to train on ten while reserving "
+            "one held-out row from each level"
+        )
+
+    train_l2 = min(PREFERRED_TRAIN_LEVEL2_PER_TARGET, available_l2)
+    train_l2 = max(1, train_l2)
+    train_l1 = TRAIN_PER_TARGET - train_l2
+    if train_l1 > available_l1:
+        shortfall = train_l1 - available_l1
+        train_l1 = available_l1
+        train_l2 += shortfall
+    if train_l2 > available_l2 or train_l1 + train_l2 != TRAIN_PER_TARGET:
+        raise ValueError("Could not allocate an exact ten-example RWKU training budget")
+    return train_l1, train_l2
+
+
 def _annotate(
     row: Mapping[str, Any],
     *,
@@ -132,7 +162,7 @@ def split_target_rows(
     *,
     target_seed: int,
 ) -> Dict[str, Any]:
-    """Select exactly 8 L1 + 2 L2 train rows while preserving held-out probes."""
+    """Select exactly ten train rows while preserving held-out L1 and L2."""
 
     target = target_for_seed(target_seed)
     required = {"forget_level1.json", "forget_level2.json", *EVALUATION_ONLY_FILES}
@@ -146,25 +176,18 @@ def split_target_rows(
     unique_l2 = _unique_rows(
         datasets["forget_level2.json"], target_seed=target_seed, level=2
     )
-    if len(unique_l1) < TRAIN_LEVEL1_PER_TARGET + 1:
-        raise ValueError(
-            f"{target.subject}: need at least {TRAIN_LEVEL1_PER_TARGET + 1} "
-            f"unique L1 rows, found {len(unique_l1)}"
-        )
-    if len(unique_l2) < TRAIN_LEVEL2_PER_TARGET + 1:
-        raise ValueError(
-            f"{target.subject}: need at least {TRAIN_LEVEL2_PER_TARGET + 1} "
-            f"unique L2 rows, found {len(unique_l2)}"
-        )
+    train_l1_count, train_l2_count = _training_counts(
+        len(unique_l1), len(unique_l2)
+    )
 
-    train_l1_raw = unique_l1[:TRAIN_LEVEL1_PER_TARGET]
-    train_l2_raw = unique_l2[:TRAIN_LEVEL2_PER_TARGET]
+    train_l1_raw = unique_l1[:train_l1_count]
+    train_l2_raw = unique_l2[:train_l2_count]
     train_source_hashes = {
         record_sha256(row) for row in [*train_l1_raw, *train_l2_raw]
     }
 
-    # Preserve the benchmark's original multiplicity on the held-out side, but
-    # remove every duplicate copy of content selected for training.
+    # Preserve benchmark multiplicity on the held-out side, but remove every
+    # duplicate copy of content selected for training.
     heldout_l1_raw = [
         dict(row)
         for row in datasets["forget_level1.json"]
@@ -323,8 +346,16 @@ def build_batch_split(
         "forget_budget": {
             "people": TARGETS_PER_BATCH,
             "examples_per_person": TRAIN_PER_TARGET,
-            "level1_per_person": TRAIN_LEVEL1_PER_TARGET,
-            "level2_per_person": TRAIN_LEVEL2_PER_TARGET,
+            "preferred_level1_per_person": PREFERRED_TRAIN_LEVEL1_PER_TARGET,
+            "preferred_level2_per_person": PREFERRED_TRAIN_LEVEL2_PER_TARGET,
+            "minimum_heldout_unique_per_level_per_person": MIN_HELDOUT_PER_LEVEL,
+            "actual_per_target_level_counts": {
+                str(split["target_seed"]): {
+                    "level1": split["counts"]["train_level1"],
+                    "level2": split["counts"]["train_level2"],
+                }
+                for split in per_target
+            },
             "total": TOTAL_FORGET_TRAIN,
             "same_50_used_for_post_training_efficacy": True,
         },
