@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Evaluate a frozen TOFU locked checkpoint on local final-eval-only views.
+"""Evaluate a frozen author-balanced TOFU locked checkpoint.
 
-This evaluator is intentionally path-based: it reads the exact files emitted by
-``build_tofu_zerounlearn_locked_split.py`` and never resamples them.  It reports
-(1) the 50 direct deletion requests, (2) their benchmark-provided unseen
-paraphrased questions, (3) the remaining 150 forget05 direct QAs, (4) their
-paraphrases, and (5) 1,000 retain95 utility QAs.  Perturbed-answer truth-ratio
-is computed only for the paraphrase views, after the checkpoint is frozen.
+The evaluator is path-based and never resamples.  Under the default protocol it
+reports: (1) 50 seen direct deletion requests from 5 selected authors, (2) the
+50 benchmark paraphrases of those seen QAs, (3) 50 unseen same-author QAs (the
+other 10 QAs for each selected author), (4) their paraphrases, and (5) 1,000
+retain95 utility QAs.  All evaluation-only data enter only after the checkpoint
+is frozen.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from controlled_unlearning_protocol import load_json_or_jsonl
 from tofu_eval import Evaluator
 
 
+PROTOCOL = "tofu_author_balanced_forget_only_locked_v1"
 GROUPS = (
     "forget_direct",
     "forget_paraphrase",
@@ -136,9 +137,7 @@ def evaluate_rows(
         "answer_probability_mean": safe_mean(probabilities),
         "answer_probability_max": max(probabilities) if probabilities else float("nan"),
         "answer_probability_min": min(probabilities) if probabilities else float("nan"),
-        "rougeL_recall_mean": (
-            safe_mean(rouge_values) if not skip_generation else None
-        ),
+        "rougeL_recall_mean": safe_mean(rouge_values) if not skip_generation else None,
         "truth_ratio_raw_mean": safe_mean(truth_values) if truth_values else None,
     }
     return {"summary": summary, "records": details}
@@ -169,9 +168,9 @@ def main() -> None:
     groups = {name: load_group(eval_dir, name) for name in GROUPS}
 
     if len(groups["forget_direct"]) != len(groups["forget_paraphrase"]):
-        raise ValueError("direct and paraphrased selected forget views are misaligned")
+        raise ValueError("seen direct/paraphrase forget views are misaligned")
     if len(groups["heldout_direct"]) != len(groups["heldout_paraphrase"]):
-        raise ValueError("direct and paraphrased held-out forget views are misaligned")
+        raise ValueError("same-author direct/paraphrase holdout views are misaligned")
     for direct_name, para_name in (
         ("forget_direct", "forget_paraphrase"),
         ("heldout_direct", "heldout_paraphrase"),
@@ -180,6 +179,11 @@ def main() -> None:
         para_ids = [row.get("_source_index") for row in groups[para_name]]
         if direct_ids != para_ids:
             raise ValueError(f"{direct_name}/{para_name} source indices differ")
+
+    seen_ids = {row.get("_source_index") for row in groups["forget_direct"]}
+    heldout_ids = {row.get("_source_index") for row in groups["heldout_direct"]}
+    if seen_ids.intersection(heldout_ids):
+        raise ValueError("seen and same-author held-out forget views overlap")
 
     evaluator = Evaluator(
         args.model_dir,
@@ -209,8 +213,8 @@ def main() -> None:
         reference = evaluate_reference_probabilities(reference_evaluator, groups)
 
     summary = {
-        "schema_version": 1,
-        "protocol": "tofu_zerounlearn_data_access_forget_only_locked",
+        "schema_version": 2,
+        "protocol": PROTOCOL,
         "seed": args.seed,
         "model_dir": str(Path(args.model_dir).resolve()),
         "reference_model_dir": (
@@ -221,13 +225,32 @@ def main() -> None:
         "eval_dir": str(eval_dir),
         "generation_enabled": not args.skip_generation,
         "groups": {name: value["summary"] for name, value in results.items()},
+        "seen_deletion_efficacy": {
+            "definition": "the exact direct QAs exposed during unlearning",
+            "count": len(groups["forget_direct"]),
+            "answer_probability_mean": results["forget_direct"]["summary"]["answer_probability_mean"],
+            "answer_probability_max": results["forget_direct"]["summary"]["answer_probability_max"],
+        },
+        "prompt_generalization": {
+            "definition": "benchmark paraphrases of the seen deletion QAs",
+            "count": len(groups["forget_paraphrase"]),
+            "answer_probability_mean": results["forget_paraphrase"]["summary"]["answer_probability_mean"],
+            "rougeL_recall_mean": results["forget_paraphrase"]["summary"]["rougeL_recall_mean"],
+        },
+        "same_author_fact_generalization": {
+            "definition": "the other QAs for the same selected forget authors, never exposed to unlearning",
+            "count": len(groups["heldout_direct"]),
+            "direct_answer_probability_mean": results["heldout_direct"]["summary"]["answer_probability_mean"],
+            "paraphrase_answer_probability_mean": results["heldout_paraphrase"]["summary"]["answer_probability_mean"],
+        },
+        # Backward-compatible aliases for existing aggregation code.
         "primary_generalization": {
-            "definition": "benchmark-provided paraphrased questions for the same 50 deletion QAs",
+            "definition": "benchmark paraphrases of the seen deletion QAs",
             "answer_probability_mean": results["forget_paraphrase"]["summary"]["answer_probability_mean"],
             "rougeL_recall_mean": results["forget_paraphrase"]["summary"]["rougeL_recall_mean"],
         },
         "secondary_generalization": {
-            "definition": "remaining forget05 QA facts never exposed to Stage1/Stage2",
+            "definition": "unseen same-author QAs never exposed to Stage1/Stage2",
             "direct_answer_probability_mean": results["heldout_direct"]["summary"]["answer_probability_mean"],
             "paraphrase_answer_probability_mean": results["heldout_paraphrase"]["summary"]["answer_probability_mean"],
         },
