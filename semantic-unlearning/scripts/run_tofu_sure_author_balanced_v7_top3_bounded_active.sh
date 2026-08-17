@@ -23,7 +23,23 @@ text = text.replace(old_script, new_script, 1)
 text = text.replace(old_root, new_root, 1)
 text = text.replace(
     "# Stage 1: sparse LM-head-only GA/GD on all answer-token rows from the 50 QAs.",
-    "# Stage 1: top-3 rare/content rows with bounded 10x sensitive-token suppression + same-prompt GD/KL.",
+    "# Stage 1: top-3 rare/content rows with bounded sensitive-token suppression + same-prompt GD/KL.",
+    1,
+)
+anchor = 'STAGE1_GRAD_CLIP="${STAGE1_GRAD_CLIP:-1.0}"'
+if anchor not in text:
+    raise SystemExit("base launcher no longer contains expected Stage1 grad-clip variable")
+text = text.replace(
+    anchor,
+    anchor + '\nSTAGE1_SUPPRESSION_FACTOR="${STAGE1_SUPPRESSION_FACTOR:-10}"',
+    1,
+)
+arg_anchor = '      --target-forget-answer-probability "${TARGET_FORGET_PROB}" \\\n'
+if arg_anchor not in text:
+    raise SystemExit("base launcher no longer contains expected Stage1 target-probability argument")
+text = text.replace(
+    arg_anchor,
+    arg_anchor + '      --suppression-factor "${STAGE1_SUPPRESSION_FACTOR}" \\\n',
     1,
 )
 text = text.replace(
@@ -31,7 +47,6 @@ text = text.replace(
     'echo "===== SURE-TOFU V7 BOUNDED-TOP3 SEED ${SEED}: STAGE1 CONSERVATIVE GA/GD ====="',
     1,
 )
-# Rename comparison artifact/heading so it cannot be confused with the old V7 run.
 text = text.replace(
     'print("===== V7 STAGE1 / ACTIVE REPAIR COMPARISON =====")',
     'print("===== V7 BOUNDED-TOP3 / ACTIVE REPAIR COMPARISON =====")',
