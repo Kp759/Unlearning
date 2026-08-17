@@ -15,6 +15,11 @@ import tofu_sure_min_collateral_repair_v9 as v9
 
 
 def _cache() -> tofu.TOFUAnswerDeltaCache:
+    # This fixture must obey the same invariant as build_answer_delta_caches:
+    # whenever the true target is one of the selected LM-head rows,
+    # selected_probs[target_column] == exp(-base_token_nll).
+    q0 = math.exp(-0.25)
+    q1 = math.exp(-0.50)
     return tofu.TOFUAnswerDeltaCache(
         base_token_nll=torch.tensor([0.25, 0.50, 1.00], dtype=torch.float32),
         hidden=torch.tensor(
@@ -22,13 +27,24 @@ def _cache() -> tofu.TOFUAnswerDeltaCache:
         ),
         selected_probs=torch.tensor(
             [
-                [0.50, 0.20, 0.10],
-                [0.10, 0.30, 0.20],
+                [q0, 0.10, 0.05],
+                [0.10, 0.10, q1],
                 [0.20, 0.10, 0.30],
             ],
             dtype=torch.float32,
         ),
         target_selected_columns=torch.tensor([0, 2, -1], dtype=torch.long),
+    )
+
+
+def test_fixture_matches_real_cache_target_probability_invariant() -> None:
+    cache = _cache()
+    q_target = torch.exp(-cache.base_token_nll)
+    mask = cache.target_selected_columns.ge(0)
+    rows = mask.nonzero(as_tuple=False).flatten()
+    cols = cache.target_selected_columns[mask]
+    assert torch.allclose(
+        cache.selected_probs[rows, cols], q_target[mask], rtol=1e-6, atol=1e-7
     )
 
 
