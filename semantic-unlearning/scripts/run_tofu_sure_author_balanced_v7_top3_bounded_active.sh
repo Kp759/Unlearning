@@ -26,22 +26,25 @@ text = text.replace(
     "# Stage 1: top-3 rare/content rows with bounded sensitive-token suppression + same-prompt GD/KL.",
     1,
 )
-anchor = 'STAGE1_GRAD_CLIP="${STAGE1_GRAD_CLIP:-1.0}"'
-if anchor not in text:
-    raise SystemExit("base launcher no longer contains expected Stage1 grad-clip variable")
-text = text.replace(
-    anchor,
-    anchor + '\nSTAGE1_SUPPRESSION_FACTOR="${STAGE1_SUPPRESSION_FACTOR:-10}"',
-    1,
+
+lines = text.splitlines()
+var_anchor = 'STAGE1_GRAD_CLIP="${STAGE1_GRAD_CLIP:-1.0}"'
+try:
+    var_index = lines.index(var_anchor)
+except ValueError as exc:
+    raise SystemExit("base launcher no longer contains expected Stage1 grad-clip variable") from exc
+lines.insert(var_index + 1, 'STAGE1_SUPPRESSION_FACTOR="${STAGE1_SUPPRESSION_FACTOR:-10}"')
+
+arg_marker = '--target-forget-answer-probability "${TARGET_FORGET_PROB}"'
+arg_index = next(
+    (i for i, line in enumerate(lines) if arg_marker in line and i > var_index),
+    None,
 )
-arg_anchor = '      --target-forget-answer-probability "${TARGET_FORGET_PROB}" \\\n'
-if arg_anchor not in text:
+if arg_index is None:
     raise SystemExit("base launcher no longer contains expected Stage1 target-probability argument")
-text = text.replace(
-    arg_anchor,
-    arg_anchor + '      --suppression-factor "${STAGE1_SUPPRESSION_FACTOR}" \\\n',
-    1,
-)
+lines.insert(arg_index + 1, '      --suppression-factor "${STAGE1_SUPPRESSION_FACTOR}" \\')
+text = "\n".join(lines) + "\n"
+
 text = text.replace(
     'echo "===== SURE-TOFU V7 SEED ${SEED}: STAGE1 SPARSE LM-HEAD GA/GD ====="',
     'echo "===== SURE-TOFU V7 BOUNDED-TOP3 SEED ${SEED}: STAGE1 CONSERVATIVE GA/GD ====="',
