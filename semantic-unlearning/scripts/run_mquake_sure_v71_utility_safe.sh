@@ -37,9 +37,9 @@ STAGE1_TEMP="${STAGE1_TEMP:-2.0}"
 STAGE1_TARGET_MARGIN="${STAGE1_TARGET_MARGIN:-0.05}"
 STAGE1_GRAD_CLIP="${STAGE1_GRAD_CLIP:-1.0}"
 
-# Stage2 is now only a residual exact repair. Native Eff needs margin > 0, so
-# keep the final target small and use a cached BF16 buffer instead of forcing
-# an unnecessarily large materialized margin.
+# Stage2 is residual-only.  If Stage1's exact BF16 audit already has zero
+# active tokens and zero margin failures, the runner bypasses Stage2 entirely
+# and evaluates that Stage1 checkpoint directly.
 STAGE2_TARGET_MARGIN="${STAGE2_TARGET_MARGIN:-0.05}"
 STAGE2_BF16_BUFFER="${STAGE2_BF16_BUFFER:-0.20}"
 STAGE2_STEPS="${STAGE2_STEPS:-5000}"
@@ -60,6 +60,34 @@ if [[ "${SKIP_PPL}" != "1" ]]; then
   test -d "${WIKIDATA_DIR}"
 fi
 
+run_locked_eval() {
+  local model_dir="$1"
+  local out_path="$2"
+  local manifest_path="$3"
+  local method_name="$4"
+  local seed="$5"
+
+  local -a eval_args=(
+    --model-dir "${model_dir}"
+    --mquake-path "${MQUAKE_PATH}"
+    --wikidata-dir "${WIKIDATA_DIR}"
+    --out "${out_path}"
+    --split-manifest "${manifest_path}"
+    --method "${method_name}"
+    --unlearn-num "${FORGET_NUM}"
+    --retain-num "${RETAIN_NUM}"
+    --seed "${seed}"
+    --batch-size "${EVAL_BATCH_SIZE}"
+    --dtype "${DTYPE}"
+    --device-map "${DEVICE_MAP}"
+    --skip-atomic-gen
+  )
+  if [[ "${SKIP_PPL}" == "1" ]]; then
+    eval_args+=(--skip-ppl)
+  fi
+  "${PYTHON_BIN}" scripts/mquake_zero_unlearn_official_eval.py "${eval_args[@]}"
+}
+
 for SEED in "${SEEDS[@]}"; do
   ROOT="${OUTPUT_ROOT}/seed${SEED}"
   PROTOCOL_DIR="${ROOT}/protocol"
@@ -67,6 +95,7 @@ for SEED in "${SEEDS[@]}"; do
   MANIFEST="${PROTOCOL_DIR}/split_manifest.json"
   STAGE1_DIR="${ROOT}/stage1_utility_safe"
   STAGE1_CKPT="${STAGE1_DIR}/checkpoint"
+  STAGE1_SUMMARY="${STAGE1_DIR}/repair_summary.json"
   mkdir -p "${PROTOCOL_DIR}"
 
   echo "===== SEED ${SEED}: BUILD LOCKED SPLIT ====="
@@ -78,7 +107,7 @@ for SEED in "${SEEDS[@]}"; do
     --retain-num "${RETAIN_NUM}"
 
   echo "===== SEED ${SEED}: V7.1 UTILITY-SAFE STAGE1 ====="
-  if [[ "${SKIP_EXISTING}" != "1" || ! -f "${STAGE1_CKPT}/config.json" ]]; then
+  if [[ "${SKIP_EXISTING}" != "1" || ! -f "${STAGE1_CKPT}/config.json" || ! -f "${STAGE1_SUMMARY}" ]]; then
     rm -rf "${STAGE1_CKPT}"
     "${PYTHON_BIN}" scripts/mquake_sure_utility_safe_stage1_v71.py \
       --model-path "${MODEL_PATH}" \
@@ -103,6 +132,27 @@ for SEED in "${SEEDS[@]}"; do
     echo "Reusing ${STAGE1_CKPT}"
   fi
 
+  STAGE1_AUDIT="$("${PYTHON_BIN}" -c 'import json,sys; d=json.load(open(sys.argv[1])); m=d["materialized_bf16_metrics"]; print(int(m["official_active_sensitive_token_count"]), int(m["buffered_margin_unmet_token_count"]))' "${STAGE1_SUMMARY}")"
+  read -r STAGE1_ACTIVE STAGE1_UNMET <<< "${STAGE1_AUDIT}"
+  echo "Stage1 exact BF16 audit: active=${STAGE1_ACTIVE} margin_unmet=${STAGE1_UNMET}"
+
+  if [[ "${STAGE1_ACTIVE}" == "0" && "${STAGE1_UNMET}" == "0" ]]; then
+    echo "===== SEED ${SEED}: STAGE1 ALREADY PASSES; SKIP RESIDUAL STAGE2 ====="
+    DIRECT_EVAL="${ROOT}/official_eval_stage1_direct.json"
+    DIRECT_MANIFEST="${ROOT}/final_eval_split_manifest_stage1_direct.json"
+    if [[ "${SKIP_EXISTING}" != "1" || ! -f "${DIRECT_EVAL}" ]]; then
+      run_locked_eval \
+        "${STAGE1_CKPT}" \
+        "${DIRECT_EVAL}" \
+        "${DIRECT_MANIFEST}" \
+        "SURE-MQuAKE V7.1 utility-safe Stage1 direct; no residual repair needed" \
+        "${SEED}"
+    else
+      echo "Reusing ${DIRECT_EVAL}"
+    fi
+    continue
+  fi
+
   for RANK in "${RANKS[@]}"; do
     STAGE2_DIR="${ROOT}/stage2_active_r${RANK}"
     STAGE2_CKPT="${STAGE2_DIR}/checkpoint"
@@ -112,7 +162,7 @@ for SEED in "${SEEDS[@]}"; do
     echo "===== SEED ${SEED}: RESIDUAL STAGE2 RANK ${RANK} ====="
     if [[ "${SKIP_EXISTING}" != "1" || ! -f "${STAGE2_CKPT}/config.json" ]]; then
       rm -rf "${STAGE2_CKPT}"
-      if ! "${PYTHON_BIN}" scripts/mquake_sure_active_hidden_repair_v7_entry.py \
+      if ! "${PYTHON_BIN}" scripts/mquake_sure_active_hidden_repair_v71_entry.py \
         --model-path "${STAGE1_CKPT}" \
         --reference-model-path "${MODEL_PATH}" \
         --repair-visible-path "${VISIBLE}" \
@@ -140,25 +190,16 @@ for SEED in "${SEEDS[@]}"; do
     fi
 
     echo "===== SEED ${SEED}: LOCKED FINAL EVAL RANK ${RANK} ====="
-    EVAL_ARGS=(
-      --model-dir "${STAGE2_CKPT}"
-      --mquake-path "${MQUAKE_PATH}"
-      --wikidata-dir "${WIKIDATA_DIR}"
-      --out "${EVAL_OUT}"
-      --split-manifest "${EVAL_MANIFEST}"
-      --method "SURE-MQuAKE V7.1 utility-safe rank ${RANK}"
-      --unlearn-num "${FORGET_NUM}"
-      --retain-num "${RETAIN_NUM}"
-      --seed "${SEED}"
-      --batch-size "${EVAL_BATCH_SIZE}"
-      --dtype "${DTYPE}"
-      --device-map "${DEVICE_MAP}"
-      --skip-atomic-gen
-    )
-    if [[ "${SKIP_PPL}" == "1" ]]; then
-      EVAL_ARGS+=(--skip-ppl)
+    if [[ "${SKIP_EXISTING}" != "1" || ! -f "${EVAL_OUT}" ]]; then
+      run_locked_eval \
+        "${STAGE2_CKPT}" \
+        "${EVAL_OUT}" \
+        "${EVAL_MANIFEST}" \
+        "SURE-MQuAKE V7.1 utility-safe rank ${RANK}" \
+        "${SEED}"
+    else
+      echo "Reusing ${EVAL_OUT}"
     fi
-    "${PYTHON_BIN}" scripts/mquake_zero_unlearn_official_eval.py "${EVAL_ARGS[@]}"
   done
 done
 
