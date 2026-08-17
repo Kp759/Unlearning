@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Delete only bulky model checkpoint directories from the known MQuAKE V7,
-# V7.1 and V7.2 experiment roots. JSON/JSONL diagnostics and eval results stay.
-# The V7.3 output tree is intentionally excluded.
+# Delete only bulky model checkpoint directories from the known MQuAKE
+# V7/V7.1/V7.2/V7.3 experiment roots. JSON/JSONL diagnostics and eval results
+# stay. The V7.4 output tree is intentionally excluded.
 
 OUTPUTS_ROOT="${1:-outputs}"
 MODE="${2:---dry-run}"
@@ -20,6 +20,7 @@ ROOTS=(
   "${OUTPUTS_ROOT}/mquake_sure_v7_smoke_seed1_fix1"
   "${OUTPUTS_ROOT}/mquake_sure_v71_utility_safe_seed1"
   "${OUTPUTS_ROOT}/mquake_sure_v72_active_rows_seed1"
+  "${OUTPUTS_ROOT}/mquake_sure_v73_context_protected_seed1"
 )
 
 found=0
@@ -38,11 +39,11 @@ for root in "${ROOTS[@]}"; do
 done
 
 if [[ "${found}" == "0" ]]; then
-  echo "No old MQuAKE V7/V7.1/V7.2 checkpoint directories found under ${OUTPUTS_ROOT}."
+  echo "No old MQuAKE V7/V7.1/V7.2/V7.3 checkpoint directories found under ${OUTPUTS_ROOT}."
 fi
 
 if [[ "${MODE}" == "--dry-run" ]]; then
   echo "Dry run only. Re-run with --execute to delete the listed checkpoint directories."
 else
-  echo "Old MQuAKE V7/V7.1/V7.2 checkpoint cleanup complete. Diagnostics were preserved."
+  echo "Old MQuAKE V7/V7.1/V7.2/V7.3 checkpoint cleanup complete. Diagnostics were preserved."
 fi
