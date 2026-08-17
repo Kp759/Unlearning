@@ -1,0 +1,91 @@
+{
+  "model_family": "meta-llama/Llama-3.2-3B-Instruct",
+  "snapshot_role": "model-centric base-model baseline",
+  "dataset": "MCF",
+  "record_id": "mcf-base-llama32-3b-official-seeds1-10-20260816",
+  "status": "BASELINE",
+  "protocol": "mcf_official_split_base_model_eval",
+  "seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "evaluation": {
+    "forget_records_per_seed": 50,
+    "retain_records_per_seed": 1000,
+    "sample_mode": "official",
+    "model_modified": false,
+    "evaluator": "scripts/mcf_zero_unlearn_official_eval.py"
+  },
+  "per_seed_forget_metrics": [
+    {"seed": 1, "Eff": 16.0, "Gen": 14.0, "Spe": 12.57, "Spe_success": 88.6},
+    {"seed": 2, "Eff": 14.0, "Gen": 17.0, "Spe": 8.09, "Spe_success": 81.6},
+    {"seed": 3, "Eff": 16.0, "Gen": 19.0, "Spe": 9.81, "Spe_success": 82.4},
+    {"seed": 4, "Eff": 10.0, "Gen": 15.0, "Spe": 13.6, "Spe_success": 86.4},
+    {"seed": 5, "Eff": 4.0, "Gen": 12.0, "Spe": 14.05, "Spe_success": 90.4},
+    {"seed": 6, "Eff": 18.0, "Gen": 14.0, "Spe": 13.23, "Spe_success": 85.2},
+    {"seed": 7, "Eff": 18.0, "Gen": 14.0, "Spe": 9.38, "Spe_success": 76.0},
+    {"seed": 8, "Eff": 14.0, "Gen": 13.0, "Spe": 12.93, "Spe_success": 90.8},
+    {"seed": 9, "Eff": 14.0, "Gen": 16.0, "Spe": 10.71, "Spe_success": 86.0},
+    {"seed": 10, "Eff": 12.0, "Gen": 14.0, "Spe": 10.16, "Spe_success": 88.6}
+  ],
+  "aggregate": {
+    "evaluated_seeds": 10,
+    "metrics_mean_sample_sd": {
+      "Eff": {"mean": 13.6, "sample_sd": 4.1952},
+      "Gen": {"mean": 14.8, "sample_sd": 2.0440},
+      "Spe": {"mean": 11.453, "sample_sd": 2.0675},
+      "Spe_success": {"mean": 85.6, "sample_sd": 4.5636}
+    },
+    "metrics_mean_population_sd": {
+      "Eff": {"mean": 13.6, "population_sd": 3.9799},
+      "Gen": {"mean": 14.8, "population_sd": 1.9391},
+      "Spe": {"mean": 11.453, "population_sd": 1.9614},
+      "Spe_success": {"mean": 85.6, "population_sd": 4.3294}
+    }
+  },
+  "perplexity": {
+    "base_model_PPL": 11.0625,
+    "dataset_path": "data/wikidata",
+    "dataset_is_git_tracked": true,
+    "loading": "datasets.load_from_disk",
+    "text_selection": "join train['text'][:20] with spaces",
+    "max_input_length_tokens": 100,
+    "token_sha256_llama32_3b": "3337c0260ab8be7036bafa12784fc45106ca2a5e9d1d6639fb11d139852a5e56",
+    "evaluation_scope": "one fixed base checkpoint and one fixed PPL text; seed-independent",
+    "not_comparable_diagnostic": {
+      "dataset_path": "data/wikidata_aws_diag",
+      "PPL": 16.625,
+      "token_sha256_llama32_3b": "30277ca578fecbe96f6866a61082b0d5eef768347b1dece252db7e68c20d2e07",
+      "reason": "different PPL text; not used for the matched MCF Base-vs-SURE comparison"
+    }
+  },
+  "matched_sure_reference": {
+    "file": "zerounlearn_locked_forget_only_rank2_seeds1_10_20260810.json",
+    "Eff_mean": 0.0,
+    "Gen_mean": 4.0,
+    "Spe_mean": 27.711,
+    "Spe_success_mean": 96.3,
+    "PPL_mean": 11.55,
+    "PPL_population_sd": 0.6771
+  },
+  "base_to_sure_change": {
+    "Eff_absolute": -13.6,
+    "Eff_relative_reduction_percent": 100.0,
+    "Gen_absolute": -10.8,
+    "Gen_relative_reduction_percent": 72.973,
+    "Spe_absolute": 16.258,
+    "Spe_success_percentage_points": 10.7,
+    "PPL_absolute": 0.4875,
+    "PPL_relative_increase_percent": 4.4068
+  },
+  "execution": {
+    "environment": "AWS EC2",
+    "output_root": "outputs/aws_base_mcf_llama32_3b",
+    "completed_seeds": 10,
+    "failed_seeds": 0,
+    "base_ppl_corrected_output": "outputs/aws_base_mcf_llama32_3b/base_correct_wikidata.json"
+  },
+  "provenance_status": {
+    "terminal_metrics": "CAPTURED_FROM_COMPLETED_AWS_EVALUATION",
+    "raw_per_seed_json_in_git": false,
+    "ppl_input_verified_against_git_tracked_data": true
+  },
+  "important_note": "Use PPL=11.0625 from data/wikidata for the matched MCF base-model comparison. The earlier AWS diagnostic value 16.625 came from data/wikidata_aws_diag and must not be compared against the registered MCF SURE PPL."
+}
