@@ -31,7 +31,7 @@ Visible:
 - direct cloze prompt;
 - subject;
 - original sensitive answer (`target_true`);
-- neutral target `Unknown`.
+- neutral target `Unknown` in the locked artifact for compatibility with the legacy track.
 
 Not visible:
 
@@ -40,7 +40,12 @@ Not visible:
 - the instance-level multi-hop `questions`;
 - MQuAKE's counterfactual `target_new` answer.
 
-The benchmark counterfactual target is not an unlearning target. SURE maps the original sensitive answer to the neutral one-token answer `Unknown`.
+The benchmark counterfactual target is not an unlearning target.
+
+Two locked method variants now share this exact data firewall:
+
+1. **Legacy locked Setting-5e track.** The method-facing desired answer is the neutral one-token target `Unknown`.
+2. **SURE-MQuAKE V7 sparse sensitive-row track.** `Unknown` is not used as an optimization target. The original `target_true` token decisions are directly suppressed, which matches the native ZeroUnlearn-style MQuAKE Eff criterion.
 
 ### Stage 2
 
@@ -55,7 +60,22 @@ Not visible:
 - multi-hop questions;
 - benchmark counterfactual targets.
 
-The transformer and input embeddings are frozen. The active repair operates only on the `Unknown` output row and selects its scale using the direct rewrite cases only.
+For the **legacy locked track**, the transformer and input embeddings are frozen and the active repair operates only on the `Unknown` output row.
+
+For **SURE-MQuAKE V7**:
+
+- transformer blocks and input embeddings remain frozen and exact Base;
+- Stage 1 edits only LM-head rows corresponding to sensitive answer tokens;
+- GA suppresses sensitive token probability;
+- same-prompt non-target KL preserves the Base distribution after removing the current sensitive target token and renormalizing;
+- every non-sensitive LM-head row stays exact Base by construction;
+- Stage 2 scores every visible direct sensitive token and edits only sensitive rows belonging to residual-active token cases;
+- Rank 0 learns unrestricted selected-row deltas;
+- Rank 256 restricts selected-row deltas to a basis built from hidden states of **all visible direct sensitive token cases** from the same 50 sampled forget instances;
+- Stage 2 enforces the required margin on **all visible direct sensitive token cases**, not only the initially active subset;
+- BF16 materialization must pass an all-visible exact audit before the checkpoint can enter final evaluation.
+
+The V7 default final direct-token constraint is a competitor-minus-sensitive logit margin of at least `0.25`, with an additional cached BF16 buffer before materialization. This is stronger than the native Eff requirement, which only requires the sensitive token to cease being argmax.
 
 ### Final evaluation
 
@@ -67,15 +87,28 @@ Only after the repaired checkpoint is frozen, the evaluator reopens the unchange
 
 Optional `AtomicGen` evaluation on the natural-language atomic questions is permitted only as a post-selection extension. It is not a native ZeroUnlearn MQuAKE metric and must never be used for training, repair, scale selection, or checkpoint selection.
 
+For V7, Rank 256 is the **pre-evaluation preferred variant when its forget-only BF16 audit passes**, with Rank 0 as the fallback. Retain and PPL results do not choose between the two checkpoints.
+
 This is therefore **not a fact-level train/test split**. It is a deletion-request protocol with locked auxiliary prompts: the same underlying forget facts are trained/unlearned and scored for Eff, while non-direct question formulations are withheld from SURE until post-selection evaluation.
 
 ## Files
 
+Shared split/evaluation:
+
 - `scripts/build_mquake_zerounlearn_locked_split.py`
+- `scripts/mquake_zero_unlearn_official_eval.py`
+
+Legacy locked track:
+
 - `scripts/mquake_forget_only_setting5e.py`
 - `scripts/mquake_forget_only_active_repair.py`
 - `scripts/run_mquake_zerounlearn_locked_our_method.sh`
-- `scripts/mquake_zero_unlearn_official_eval.py`
+
+SURE-MQuAKE V7:
+
+- `scripts/mquake_sure_sparse_lm_gagd_v7.py`
+- `scripts/mquake_sure_active_hidden_repair_v7.py`
+- `scripts/run_mquake_sure_v7_rank0_rank256_locked.sh`
 
 ## Scientific labeling
 
@@ -87,6 +120,7 @@ Use:
 - `forget-only SURE data-access variant`;
 - `same deletion instances for Eff; no held-out forget facts`;
 - `1,000 sampled retain instances evaluation-only`;
-- `atomic and multi-hop questions locked until post-selection evaluation`.
+- `atomic and multi-hop questions locked until post-selection evaluation`;
+- for the new method: `SURE-MQuAKE V7 sparse sensitive-row GA/GD + active hidden repair`.
 
 Do not describe the ZeroUnlearn few-shot MQuAKE setup as a conventional train/test split or as evaluation on unseen forget facts. Do not claim byte-identical reproduction of the authors' unpublished `mquake_data_saved_split.json` artifact.
