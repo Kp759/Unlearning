@@ -132,7 +132,7 @@ for SEED in "${SEEDS[@]}"; do
     run_locked_eval "${CKPT}" "${EVAL_OUT}" "${EVAL_MANIFEST}" "${SEED}"
   else
     echo "Reusing ${EVAL_OUT}"
-    "${PYTHON_BIN}" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(f"MQuAKE reused result: Eff={d[\"forget\"][\"Eff\"]}, RetainEff={d[\"retain\"][\"Eff\"]}, PPL={d.get(\"forget_PPL\")}")' "${EVAL_OUT}"
+    "${PYTHON_BIN}" -c 'import json,sys; d=json.load(open(sys.argv[1])); print("MQuAKE reused result: Eff={}, RetainEff={}, PPL={}".format(d["forget"]["Eff"], d["retain"]["Eff"], d.get("forget_PPL")))' "${EVAL_OUT}"
   fi
 done
 
