@@ -30,9 +30,9 @@ This is the matched **unmodified base-model** baseline for the current 10-seed M
 
 ## Aggregate base-model result
 
-Values below use **sample SD** across the 10 matched MCF seeds.
+Your terminal aggregation used **sample SD** across the 10 matched MCF seeds:
 
-| Metric | Base model |
+| Metric | Mean ± sample SD |
 |---|---:|
 | Eff ↓ | **13.6000 ± 4.1952** |
 | Gen ↓ | **14.8000 ± 2.0440** |
@@ -40,7 +40,15 @@ Values below use **sample SD** across the 10 matched MCF seeds.
 | Spe_success ↑ | **85.6000 ± 4.5636** |
 | PPL ↓ / stable | **11.0625** |
 
-The JSON snapshot also records population SDs for direct comparison with the existing SURE snapshot, whose aggregate currently uses population SD.
+For convention-matched comparison with the existing SURE snapshot, which stores population SD, the same base results are:
+
+| Metric | Mean ± population SD |
+|---|---:|
+| Eff ↓ | **13.6000 ± 3.9799** |
+| Gen ↓ | **14.8000 ± 1.9391** |
+| Spe ↑ | **11.4530 ± 1.9614** |
+| Spe_success ↑ | **85.6000 ± 4.3294** |
+| PPL ↓ / stable | **11.0625** |
 
 ## PPL provenance and correction
 
@@ -62,14 +70,14 @@ Because the base checkpoint and PPL text are fixed, base PPL is reported once ra
 
 ## Matched Base → SURE comparison
 
-The matched SURE record is `zerounlearn_locked_forget_only_rank2_seeds1_10_20260810`.
+The matched SURE record is `zerounlearn_locked_forget_only_rank2_seeds1_10_20260810`. To avoid mixing SD conventions, this table uses **population SD for both Base and SURE**.
 
 | Metric | Base | SURE |
 |---|---:|---:|
-| Eff ↓ | **13.6000 ± 4.1952** | **0.0000 ± 0.0000** |
-| Gen ↓ | **14.8000 ± 2.0440** | **4.0000 ± 3.6332** |
-| Spe ↑ | **11.4530 ± 2.0675** | **27.7110 ± 3.6742** |
-| Spe_success ↑ | **85.6000 ± 4.5636** | **96.3000 ± 1.8639** |
+| Eff ↓ | **13.6000 ± 3.9799** | **0.0000 ± 0.0000** |
+| Gen ↓ | **14.8000 ± 1.9391** | **4.0000 ± 3.6332** |
+| Spe ↑ | **11.4530 ± 1.9614** | **27.7110 ± 3.6742** |
+| Spe_success ↑ | **85.6000 ± 4.3294** | **96.3000 ± 1.8639** |
 | PPL ↓ / stable | **11.0625** | **11.5500 ± 0.6771** |
 
 Base → SURE changes:
@@ -78,7 +86,7 @@ Base → SURE changes:
 - Gen: `14.8 → 4.0` (**72.97% reduction**)
 - Spe: `11.453 → 27.711` (**+16.258**)
 - Spe_success: `85.6 → 96.3` (**+10.7 percentage points**)
-- PPL: `11.0625 → 11.55` (**+0.4875`, about `+4.41%**)
+- PPL: `11.0625 → 11.55` (**+0.4875**, about **+4.41%**)
 
 ## Provenance
 
