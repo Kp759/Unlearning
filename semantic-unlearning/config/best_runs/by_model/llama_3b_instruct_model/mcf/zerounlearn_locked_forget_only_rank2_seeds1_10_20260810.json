@@ -63,6 +63,30 @@
     "paraphrase_failures": 40,
     "heldout_paraphrase_pass_rate_percent": 96.0
   },
+  "base_model_baseline": {
+    "record_id": "mcf-base-llama32-3b-official-seeds1-10-20260816",
+    "json": "base_model_official_seeds1_10_20260816.json",
+    "markdown": "base_model_official_seeds1_10_20260816.md",
+    "Eff_mean": 13.6,
+    "Eff_sample_sd": 4.1952,
+    "Gen_mean": 14.8,
+    "Gen_sample_sd": 2.0440,
+    "Spe_mean": 11.453,
+    "Spe_sample_sd": 2.0675,
+    "Spe_success_mean": 85.6,
+    "Spe_success_sample_sd": 4.5636,
+    "PPL": 11.0625,
+    "PPL_dataset": "data/wikidata",
+    "PPL_status": "MATCHED_TO_THIS_MCF_SURE_EVALUATOR_INPUT"
+  },
+  "base_to_sure_change": {
+    "Eff_relative_reduction_percent": 100.0,
+    "Gen_relative_reduction_percent": 72.973,
+    "Spe_absolute": 16.258,
+    "Spe_success_percentage_points": 10.7,
+    "PPL_absolute": 0.4875,
+    "PPL_relative_increase_percent": 4.4068
+  },
   "execution": {
     "slurm_job_id": 1171704,
     "output_root": "outputs/mcf_zerounlearn_forget_only_locked_3b",
@@ -72,7 +96,9 @@
   "provenance_status": {
     "terminal_metrics": "CAPTURED_FROM_COMPLETED_WULVER_JOB",
     "checkpoint_weight_hashes": "PENDING_LOCAL_CAPTURE",
-    "raw_per_seed_json_in_git": false
+    "raw_per_seed_json_in_git": false,
+    "matched_base_model_baseline": "CAPTURED_FROM_COMPLETED_AWS_EVALUATION_20260816",
+    "matched_ppl_input": "VERIFIED_DATA_WIKIDATA"
   },
-  "important_note": "Preferred fair ZeroUnlearn-style 3B MCF comparison. The older protected-v2 record is retained for provenance but used evaluator-conditioned repair and is not the primary held-out-Gen result."
+  "important_note": "Preferred fair ZeroUnlearn-style 3B MCF comparison. The matched base-model baseline is now recorded beside this snapshot. Base PPL=11.0625 and SURE PPL=11.5500±0.6771 both use data/wikidata; the earlier AWS diagnostic PPL=16.625 from data/wikidata_aws_diag is not part of this comparison."
 }
