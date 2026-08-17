@@ -57,7 +57,6 @@ insert_after_exact(
     'STAGE2_PROMOTIONS_PER_RESIDUAL_QA="${STAGE2_PROMOTIONS_PER_RESIDUAL_QA:-1}"',
 )
 
-# Stage1 suppression argument: insert immediately after its target-probability line.
 stage1_cmd = next(i for i, line in enumerate(lines) if stage1_new in line)
 stage2_cmd = next(i for i, line in enumerate(lines) if stage2_new in line)
 stage1_target = next(
@@ -68,7 +67,6 @@ if stage1_target is None:
     raise SystemExit("missing Stage1 target probability argument")
 lines.insert(stage1_target + 1, '      --suppression-factor "${STAGE1_SUPPRESSION_FACTOR}" \\')
 
-# Stage2 progressive controls: locate repair-rank after the Stage2 command.
 stage2_cmd = next(i for i, line in enumerate(lines) if stage2_new in line)
 rank_line = next(
     (i for i in range(stage2_cmd, len(lines)) if '--repair-rank "${RANK}"' in lines[i]),
@@ -94,6 +92,11 @@ text = text.replace("locked_eval_v7_", "locked_eval_v8_")
 text = text.replace(
     'print("===== V7 STAGE1 / ACTIVE REPAIR COMPARISON =====")',
     'print("===== V8 BOUNDED-TOP3 / PROGRESSIVE REPAIR COMPARISON =====")',
+    1,
+)
+text = text.replace(
+    '        "active_rows",geom["selected_active_lm_head_row_count"],\n        "actual_rank",geom["repair_rank_actual"],',
+    '        "active_rows",geom["selected_active_lm_head_row_count"],\n        "promotion_rounds",geom.get("promotion_round_count_used"),\n        "actual_rank",geom["repair_rank_actual"],',
     1,
 )
 text = text.replace(
