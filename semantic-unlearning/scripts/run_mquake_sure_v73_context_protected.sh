@@ -29,10 +29,13 @@ V73_STEPS="${V73_STEPS:-1500}"
 V73_LR="${V73_LR:-0.01}"
 V73_HINGE_WEIGHT="${V73_HINGE_WEIGHT:-10.0}"
 V73_HARDEST_WEIGHT="${V73_HARDEST_WEIGHT:-2.5}"
+V73_SAFE_HINGE_WEIGHT="${V73_SAFE_HINGE_WEIGHT:-10.0}"
 V73_GD_WEIGHT="${V73_GD_WEIGHT:-10.0}"
 V73_L2="${V73_L2:-0.001}"
 V73_COEFF_L2="${V73_COEFF_L2:-0.0001}"
-V73_TARGET_MARGIN="${V73_TARGET_MARGIN:-0.01}"
+# Exact all-visible audit requires >0 margin. The extra BF16 buffer is applied
+# only to untouched-Base active cases inside the Python repair.
+V73_TARGET_MARGIN="${V73_TARGET_MARGIN:-0.0}"
 V73_BF16_BUFFER="${V73_BF16_BUFFER:-0.05}"
 V73_DUAL_PINV_RTOL="${V73_DUAL_PINV_RTOL:-0.000001}"
 V73_BASIS_RANK_TOL="${V73_BASIS_RANK_TOL:-0.000001}"
@@ -52,7 +55,6 @@ run_locked_eval() {
   local out_path="$2"
   local manifest_path="$3"
   local seed="$4"
-
   local args=(
     --model-dir "${model_dir}"
     --mquake-path "${MQUAKE_PATH}"
@@ -84,7 +86,6 @@ for SEED in "${SEEDS[@]}"; do
   SUMMARY="${REPAIR_DIR}/repair_summary.json"
   EVAL_OUT="${ROOT}/official_eval_v73.json"
   EVAL_MANIFEST="${ROOT}/final_eval_split_manifest_v73.json"
-
   mkdir -p "${PROTOCOL_DIR}"
 
   echo "===== SEED ${SEED}: BUILD LOCKED MQuAKE SPLIT ====="
@@ -109,6 +110,7 @@ for SEED in "${SEEDS[@]}"; do
       --lr "${V73_LR}" \
       --forget-hinge-weight "${V73_HINGE_WEIGHT}" \
       --hardest-forget-hinge-weight "${V73_HARDEST_WEIGHT}" \
+      --safe-hinge-weight "${V73_SAFE_HINGE_WEIGHT}" \
       --gd-weight "${V73_GD_WEIGHT}" \
       --delta-l2-lambda "${V73_L2}" \
       --coeff-l2-lambda "${V73_COEFF_L2}" \
