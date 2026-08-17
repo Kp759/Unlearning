@@ -1,0 +1,93 @@
+{
+  "model_family": "meta-llama/Llama-3.2-3B-Instruct",
+  "snapshot_role": "model-centric base-model baseline",
+  "dataset": "ZsRE MEND eval",
+  "record_id": "zsre-base-llama32-3b-official-seeds1-10-20260816",
+  "status": "BASELINE",
+  "protocol": "zsre_official_split_base_model_eval",
+  "seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "evaluation": {
+    "forget_records_per_seed": 50,
+    "retain_records_per_seed": 1000,
+    "model_modified": false,
+    "evaluator": "scripts/zsre_zero_unlearn_official_eval.py",
+    "batch_size": 2,
+    "dtype": "bf16",
+    "device_map": "single"
+  },
+  "per_seed_forget_metrics": [
+    {"seed": 1, "Eff": 29.9667, "Gen": 27.9000, "Spe": 32.3232, "PPL": 16.6250},
+    {"seed": 2, "Eff": 32.7778, "Gen": 30.8778, "Spe": 31.4334, "PPL": 16.6250},
+    {"seed": 3, "Eff": 30.7762, "Gen": 30.4429, "Spe": 26.4127, "PPL": 16.6250},
+    {"seed": 4, "Eff": 30.4000, "Gen": 31.7333, "Spe": 28.6868, "PPL": 16.6250},
+    {"seed": 5, "Eff": 36.8667, "Gen": 35.0667, "Spe": 29.8086, "PPL": 16.6250},
+    {"seed": 6, "Eff": 29.3667, "Gen": 26.2000, "Spe": 25.3200, "PPL": 16.6250},
+    {"seed": 7, "Eff": 28.9143, "Gen": 31.4619, "Spe": 30.4130, "PPL": 16.6250},
+    {"seed": 8, "Eff": 41.1508, "Gen": 38.3008, "Spe": 27.5296, "PPL": 16.6250},
+    {"seed": 9, "Eff": 38.6627, "Gen": 40.1817, "Spe": 24.7825, "PPL": 16.6250},
+    {"seed": 10, "Eff": 29.4476, "Gen": 30.1476, "Spe": 24.7976, "PPL": 16.6250}
+  ],
+  "aggregate": {
+    "evaluated_seeds": 10,
+    "metrics_mean_sample_sd": {
+      "Eff": {"mean": 32.8329, "sample_sd": 4.4302},
+      "Gen": {"mean": 32.2313, "sample_sd": 4.3898},
+      "Spe": {"mean": 28.1507, "sample_sd": 2.7958},
+      "PPL": {"mean": 16.6250, "sample_sd": 0.0}
+    },
+    "metrics_mean_population_sd": {
+      "Eff": {"mean": 32.8329, "population_sd": 4.2029},
+      "Gen": {"mean": 32.2313, "population_sd": 4.1646},
+      "Spe": {"mean": 28.1507, "population_sd": 2.6523},
+      "PPL": {"mean": 16.6250, "population_sd": 0.0}
+    },
+    "Spe_success": {
+      "status": "NOT_EMITTED_BY_ZSRE_EVALUATOR",
+      "reason": "The ZsRE official-eval JSONs used here do not expose an MCF-style Spe_success field; no value is imputed."
+    }
+  },
+  "perplexity": {
+    "base_model_PPL": 16.6250,
+    "dataset_path": "data/wikidata_aws_diag",
+    "dataset_is_git_tracked": false,
+    "loading": "datasets.load_from_disk",
+    "text_selection": "join train['text'][:20] with spaces",
+    "max_input_length_tokens": 100,
+    "token_sha256_llama32_3b": "30277ca578fecbe96f6866a61082b0d5eef768347b1dece252db7e68c20d2e07",
+    "evaluation_scope": "one fixed base checkpoint and one fixed PPL text; seed-independent",
+    "provenance_caveat": "The current ZsRE SURE runner is configured to use data/wikidata_aws_diag, but this AWS diagnostic dataset is not Git-tracked; the path is matched, while historical byte-identical contents cannot be independently reconstructed from Git alone."
+  },
+  "matched_sure_reference": {
+    "file": "zerounlearn_locked_no_neutral_gagd_aggressive_seeds1_10_20260813.json",
+    "std_definition": "sample standard deviation (n-1)",
+    "Eff_mean": 0.025,
+    "Eff_sample_sd": 0.079,
+    "Gen_mean": 0.627,
+    "Gen_sample_sd": 0.510,
+    "Spe_mean": 26.158,
+    "Spe_sample_sd": 2.367,
+    "PPL_mean": 18.650,
+    "PPL_sample_sd": 2.204
+  },
+  "base_to_sure_change": {
+    "Eff_absolute": -32.8079,
+    "Eff_relative_reduction_percent": 99.9238,
+    "Gen_absolute": -31.6043,
+    "Gen_relative_reduction_percent": 98.0547,
+    "Spe_absolute": -1.9927,
+    "PPL_absolute": 2.0250,
+    "PPL_relative_increase_percent": 12.1805
+  },
+  "execution": {
+    "environment": "AWS EC2",
+    "output_root": "outputs/aws_base_zsre_llama32_3b",
+    "completed_seeds": 10,
+    "failed_seeds": 0
+  },
+  "provenance_status": {
+    "terminal_metrics": "CAPTURED_FROM_COMPLETED_AWS_EVALUATION",
+    "raw_per_seed_json_in_git": false,
+    "ppl_path_matches_current_zsre_sure_runner": true
+  },
+  "important_note": "Use sample SD for direct comparison with the current ZsRE SURE record, which also uses sample SD. Spe_success is intentionally absent because the ZsRE evaluator did not emit it."
+}
