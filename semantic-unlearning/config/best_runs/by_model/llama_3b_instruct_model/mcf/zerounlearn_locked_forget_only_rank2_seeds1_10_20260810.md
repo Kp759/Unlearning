@@ -38,14 +38,14 @@ The matched 10-seed unmodified Llama-3.2-3B-Instruct baseline is recorded in:
 - `base_model_official_seeds1_10_20260816.json`
 - `base_model_official_seeds1_10_20260816.md`
 
-Base forget metrics use sample SD across the 10 matched seeds. Base PPL is evaluated once because the base checkpoint and PPL input are fixed.
+The baseline record preserves both sample SD (matching the AWS terminal aggregation) and population SD. The direct table below uses **population SD for both Base and SURE** so the convention is consistent. Base PPL is evaluated once because the base checkpoint and PPL input are fixed.
 
 | Metric | Base | SURE |
 |---|---:|---:|
-| Eff ↓ | **13.6000 ± 4.1952** | **0.0000 ± 0.0000** |
-| Gen ↓ | **14.8000 ± 2.0440** | **4.0000 ± 3.6332** |
-| Spe ↑ | **11.4530 ± 2.0675** | **27.7110 ± 3.6742** |
-| Spe_success ↑ | **85.6000 ± 4.5636** | **96.3000 ± 1.8639** |
+| Eff ↓ | **13.6000 ± 3.9799** | **0.0000 ± 0.0000** |
+| Gen ↓ | **14.8000 ± 1.9391** | **4.0000 ± 3.6332** |
+| Spe ↑ | **11.4530 ± 1.9614** | **27.7110 ± 3.6742** |
+| Spe_success ↑ | **85.6000 ± 4.3294** | **96.3000 ± 1.8639** |
 | PPL ↓ / stable | **11.0625** | **11.5500 ± 0.6771** |
 
 Base → SURE:
