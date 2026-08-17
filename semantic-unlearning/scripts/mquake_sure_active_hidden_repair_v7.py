@@ -439,6 +439,8 @@ def main() -> None:
             baseline_rows,
             selected_candidate,
         )
+    else:
+        baseline_rows = output_weight.new_empty((0, output_weight.shape[1]))
 
     if int(input_weight.data_ptr()) != input_pointer or int(input_weight._version) != input_version:
         raise RuntimeError("MQuAKE V7 Stage2 modified input embeddings")
@@ -454,6 +456,9 @@ def main() -> None:
     )
 
     if after_summary["buffered_margin_unmet_token_count"] != 0:
+        # The cached optimization targeted target_margin + BF16 buffer.  If even
+        # that did not survive materialization, fail closed instead of silently
+        # accepting a checkpoint that can miss official forgetting.
         write_json(
             root / "failure.json",
             {
