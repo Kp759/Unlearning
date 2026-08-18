@@ -36,7 +36,7 @@ for SEED in "${SEEDS[@]}"; do
 
   echo "===== MCF SEED ${SEED}: MEMIT ON SAME ${FORGET_NUM} LOCKED FACTS ====="
   rm -rf "${EDIT}"
-  python scripts/run_model_editing_canonical_mcf.py \
+  python scripts/run_model_editing_canonical_mcf_memit_compat.py \
     --algorithm MEMIT --model-path "${MODEL}" \
     --training-visible-path "${VISIBLE}" --split-manifest "${MANIFEST}" \
     --hparams-path "${HPARAMS}" --output-dir "${EDIT}" \
