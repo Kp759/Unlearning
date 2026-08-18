@@ -5,20 +5,22 @@
   "purpose": "Model-centric index for cross-architecture MCF/ZsRE/TOFU comparisons",
   "datasets": {
     "mcf": {
-      "snapshot": "mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810.json",
-      "technical_spec_json": "mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810_technical_spec.json",
-      "technical_spec_markdown": "mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810_technical_spec.md",
-      "canonical_source": "../../mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810.json",
-      "status": "current best fair ZeroUnlearn-style locked-probe result; 10/10 seeds completed; full split/matrix/rank/repair technical audit archived",
-      "previous_snapshot": "mcf/official_protected_v2_seeds0_9.json",
-      "previous_snapshot_note": "retained for provenance; evaluator-conditioned repair means it is not the primary held-out-Gen comparison"
+      "snapshot": "mcf/canonical_sure_shared_arch_seeds1_10_20260818.json",
+      "markdown": "mcf/canonical_sure_shared_arch_seeds1_10_20260818.md",
+      "status": "current canonical cross-benchmark SURE-LM architecture run; seeds 1-10; main table: Eff 0.0000 +/- 0.0000, Gen 4.1000 +/- 4.3830, Spe 9.6170 +/- 2.3648, PPL 11.1937 +/- 0.1779; sample SD",
+      "base_main_table": "Eff 13.6000 +/- 4.5019, Gen 14.8000 +/- 2.3476, Spe 11.4620 +/- 2.0742, PPL 11.0625 +/- 0.0000",
+      "architecture": "shared canonical Stage-1 GA/GD -> sensitive-row-only base restoration -> shared sparse output-row Stage-2 repair; only benchmark sensitive semantics/direct constraint differ",
+      "previous_snapshot": "mcf/zerounlearn_locked_forget_only_rank2_seeds1_10_20260810.json",
+      "previous_snapshot_note": "historical benchmark-specific MCF run retained for provenance and may be numerically stronger on specificity; it is not the shared MCF/ZsRE architecture"
     },
     "zsre": {
-      "snapshot": "zsre/zerounlearn_locked_no_neutral_gagd_aggressive_seeds1_10_20260813.json",
-      "markdown": "zsre/zerounlearn_locked_no_neutral_gagd_aggressive_seeds1_10_20260813.md",
-      "status": "current best AWS 10-seed ZeroUnlearn-matched no-neutral aggressive GA/GD plus sparse sensitive-row repair; final F-Eff 0.025 +/- 0.079, F-Gen 0.627 +/- 0.510, PPL 18.650 +/- 2.204; Wulver replication pending at archive time",
-      "previous_snapshot": "zsre/setting5e_active_repair_u1p20_ppl1p16_cal384_seeds1_10.json",
-      "previous_snapshot_note": "retained for provenance; current snapshot is the new exact ZeroUnlearn-matched no-neutral GA/GD track"
+      "snapshot": "zsre/canonical_sure_shared_arch_seeds1_10_20260818.json",
+      "markdown": "zsre/canonical_sure_shared_arch_seeds1_10_20260818.md",
+      "status": "current canonical cross-benchmark SURE-LM architecture run; seeds 1-10; main table: Eff 0.1317 +/- 0.2342, Gen 0.6617 +/- 0.5272, Spe 26.1068 +/- 2.1947, PPL 11.9750 +/- 1.4482; sample SD",
+      "base_main_table": "Eff 33.0896 +/- 4.4061, Gen 32.1979 +/- 4.4302, Spe 28.1210 +/- 2.7368, PPL 11.0625 +/- 0.0000",
+      "architecture": "shared canonical Stage-1 GA/GD -> sensitive-row-only base restoration -> shared sparse output-row Stage-2 repair; no neutral target; direct sensitive-token constraint only",
+      "previous_snapshot": "zsre/zerounlearn_locked_no_neutral_gagd_aggressive_seeds1_10_20260813.json",
+      "previous_snapshot_note": "historical ZsRE GA/GD plus unrestricted sensitive-row repair retained for provenance; canonical record uses the shared cross-benchmark Stage-2 rank/scale mechanism"
     },
     "tofu": {
       "snapshot": "tofu/fullutility_official_f01_f05_f10_20260808.json",
