@@ -1,0 +1,112 @@
+{
+  "record_id": "mcf-canonical-sure-shared-arch-seeds1-10-20260818",
+  "status": "CANONICAL_CROSS_BENCHMARK_RUN",
+  "dataset": "MCF",
+  "model": {
+    "id": "meta-llama/Llama-3.2-3B-Instruct",
+    "vocab_size": 128256,
+    "hidden_size": 3072,
+    "tied_embedding_lm_head_shape": [128256, 3072],
+    "tied_embedding_lm_head_parameter_count": 394002432,
+    "total_model_parameter_count_observed": 3212749824,
+    "stage1_trainable_fraction_percent": 12.263713
+  },
+  "execution": {
+    "date": "2026-08-18",
+    "branch": "claude/setup-project-structure-JQ7fN",
+    "seeds": [1,2,3,4,5,6,7,8,9,10],
+    "base_output_root": "outputs/mcf_base_canonical_final_seeds1_10_20260818",
+    "sure_output_root": "outputs/mcf_sure_canonical_final_seeds1_10_20260818",
+    "aggregate_source": "terminal-captured 10-seed aggregate",
+    "exact_final_execution_commit": "not separately recaptured in the supplied aggregate output",
+    "code_lineage_note": "canonical shared-architecture implementation introduced at 333394799cb473de2ba8f9c3c214e3c043f92364; later provenance-key compatibility changes do not alter training or evaluation metrics"
+  },
+  "protocol": {
+    "forget_records_per_seed": 50,
+    "retain_records_final_eval_per_seed": 1000,
+    "sampling": "ZeroUnlearn-compatible: forget from second half, retain from first half, seeded sampling",
+    "training_visible": "direct requested_rewrite only",
+    "benchmark_retain_seen_during_training": 0,
+    "heldout_paraphrases_seen_during_training": 0,
+    "neighborhood_prompts_seen_during_training": 0,
+    "ppl_seen_during_training": false,
+    "sensitive_answer_field": "target_new",
+    "direct_success_constraint": "NLL(target_new) - NLL(target_true) >= 0.25"
+  },
+  "stage1": {
+    "entrypoint": "scripts/sure_stage1_gagd.py",
+    "method": "teacher-forced sensitive-token GA plus same-prompt non-sensitive GD",
+    "steps": 600,
+    "batch_size_prediction_cases": 1,
+    "base_cache_batch_size": 8,
+    "learning_rate": 0.0001,
+    "optimizer": "AdamW",
+    "weight_decay": 0.0,
+    "gradient_clip": 1.0,
+    "ga_weight": 2.0,
+    "gd_weight": 1.0,
+    "dtype": "bf16",
+    "transformer_trainable": false,
+    "tied_embedding_and_lm_head_trainable": true,
+    "ga_loss": "mean(log p_theta(y_sensitive | direct prompt, sensitive prefix)); minimized",
+    "gd_loss": "KL(p_base(-y_sensitive) || p_theta(-y_sensitive)) after removing the sensitive token and renormalizing",
+    "restoration": "reset the full vocabulary matrix to the base snapshot, then reapply only trained sensitive target_new rows",
+    "post_restore_change_matrix": {
+      "symbol": "DeltaW_stage1",
+      "full_shape": [128256, 3072],
+      "support": "only unique sensitive target_new token rows from the 50 direct forget requests",
+      "non_sensitive_rows": "exactly zero relative to base after restoration"
+    }
+  },
+  "stage2": {
+    "entrypoint": "scripts/sure_stage2_sparse_repair.py",
+    "lm_head_untied": true,
+    "transformer_trainable": false,
+    "input_embedding_trainable": false,
+    "selected_rows": "sensitive target_new token IDs belonging to residual direct failures only",
+    "candidate_ranks": [2,8,0],
+    "rank_zero_meaning": "unrestricted selected-row delta",
+    "repair_steps_max": 800,
+    "learning_rate": 0.005,
+    "optimizer": "AdamW",
+    "weight_decay": 0.0,
+    "repair_l2": 0.000001,
+    "batch_size": 8,
+    "check_every_steps": 25,
+    "constraint_margin": 0.25,
+    "candidate_scales": [1.0,0.875,0.75,0.625,0.5,0.375,0.25,0.1875,0.125,0.09375,0.0625,0.046875,0.03125,0.015625,0.0078125,0.0],
+    "rank_selection": "first ordered candidate with zero direct failures; if none, minimize (direct_failures, candidate_order, delta_norm)",
+    "scale_selection": "smallest scale with zero direct failures; if none, minimize (direct_failures, scale)",
+    "low_rank_parameterization": "DeltaW_R = C @ B_r, C in R^(R x r), B_r in R^(r x 3072), with B_r fixed from SVD of active direct hidden states",
+    "unrestricted_parameterization": "DeltaW_R in R^(R x 3072)",
+    "full_change_matrix": {
+      "symbol": "DeltaW_stage2",
+      "full_shape": [128256,3072],
+      "support": "R selected sensitive output rows; all other rows are zero",
+      "final_output_head": "W_out_final = W0 + DeltaW_stage1 + alpha * DeltaW_stage2",
+      "final_input_embedding": "E_final = W0 + DeltaW_stage1"
+    }
+  },
+  "evaluation": {
+    "metrics_reported_in_main_table": ["Eff", "Gen", "Spe", "PPL"],
+    "metric_directions": {"Eff":"down","Gen":"down","Spe":"up","PPL":"down"},
+    "ppl_fixture": "data/wikidata",
+    "ppl_text": "join train['text'][:20] with spaces, tokenizer truncation to 100 input tokens",
+    "aggregation": "mean +/- sample standard deviation across 10 seeds"
+  },
+  "results": {
+    "base": {
+      "Eff": {"mean":13.6,"sample_sd":4.5019},
+      "Gen": {"mean":14.8,"sample_sd":2.3476},
+      "Spe": {"mean":11.462,"sample_sd":2.0742},
+      "PPL": {"mean":11.0625,"sample_sd":0.0}
+    },
+    "SURE": {
+      "Eff": {"mean":0.0,"sample_sd":0.0},
+      "Gen": {"mean":4.1,"sample_sd":4.3830},
+      "Spe": {"mean":9.617,"sample_sd":2.3648},
+      "PPL": {"mean":11.1937,"sample_sd":0.1779}
+    }
+  },
+  "interpretation_note": "This is the architecture-aligned canonical MCF run, not necessarily the numerically strongest historical MCF snapshot. Historical benchmark-specific SURE records remain in this folder for provenance."
+}
