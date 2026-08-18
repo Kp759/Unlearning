@@ -45,6 +45,7 @@ for SEED in "${SEEDS[@]}"; do
   STAGE1="${ROOT}/stage1_gagd"
   STAGE2="${ROOT}/stage2_sparse_row"
   FINAL="${ROOT}/official_eval_locked.json"
+  EVAL_MANIFEST="${ROOT}/final_eval_split_manifest.json"
   mkdir -p "${ROOT}"
 
   echo "===== MQUAKE SEED ${SEED}: CANONICAL LOCKED SPLIT ====="
@@ -59,8 +60,8 @@ for SEED in "${SEEDS[@]}"; do
 
   echo "===== MQUAKE SEED ${SEED}: COMMON STAGE 1 GA/GD ====="
   rm -rf "${STAGE1}"
-  # Important: dataset=zsre selects the canonical target_true-sensitive adapter.
-  # No ZsRE data are used; VISIBLE is the locked MQuAKE direct-only artifact.
+  # dataset=zsre selects the canonical target_true-sensitive adapter.  No ZsRE
+  # examples are loaded: VISIBLE is the locked MQuAKE direct-only artifact.
   python scripts/sure_stage1_gagd.py \
     --dataset zsre --model-path "${MODEL}" \
     --training-visible-path "${VISIBLE}" --split-manifest "${MANIFEST}" \
@@ -84,7 +85,7 @@ for SEED in "${SEEDS[@]}"; do
     --dtype "${DTYPE}" --device-map "${DEVICE_MAP}"
 
   # Preserve transparent benchmark/adapter metadata next to shared-engine outputs.
-  python - "${ROOT}" "${SEED}" "${FORGET_INSTANCES}" "${RETAIN_INSTANCES}" "${ATOMIC_COUNT}" "${CONSTRAINT_MARGIN}" <<'PY'
+  python - "${ROOT}" "${SEED}" "${FORGET_INSTANCES}" "${RETAIN_INSTANCES}" "${ATOMIC_COUNT}" "${CONSTRAINT_MARGIN}" "${CANDIDATE_RANKS}" <<'PY'
 import json, pathlib, sys
 root=pathlib.Path(sys.argv[1])
 payload={
@@ -100,7 +101,7 @@ payload={
     "constraint_margin": float(sys.argv[6]),
     "stage1_entrypoint": "scripts/sure_stage1_gagd.py",
     "stage2_entrypoint": "scripts/sure_stage2_sparse_repair.py",
-    "candidate_ranks": [2,8,0],
+    "candidate_ranks": [int(x) for x in sys.argv[7].split(",") if x],
     "selection_uses_heldout": False,
 }
 (root/"canonical_adapter.json").write_text(json.dumps(payload,indent=2)+"\n")
@@ -112,7 +113,7 @@ PY
     --mquake-path "${MQUAKE}"
     --wikidata-dir "${WIKIDATA_DIR}"
     --out "${FINAL}"
-    --split-manifest "${MANIFEST}"
+    --split-manifest "${EVAL_MANIFEST}"
     --method "SURE-LM canonical shared architecture (MQuAKE target_true adapter)"
     --unlearn-num "${FORGET_INSTANCES}"
     --retain-num "${RETAIN_INSTANCES}"
