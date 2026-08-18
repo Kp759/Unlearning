@@ -32,6 +32,8 @@ import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from zero_unlearn_transformers_compat import install_memit_decoder_output_compat
+
 PAPER_REPO = "XMUDeepLIT/ZeroUnlearn"
 PAPER_COMMIT = "deff011c3df367b700b9ad0aa0f5d7aad0cca9b9"
 ROME_CONTEXT_DEFAULT = [[5, 10], [10, 10]]
@@ -175,9 +177,23 @@ def main() -> None:
     if str(zero_root) not in sys.path:
         sys.path.insert(0, str(zero_root))
 
+    compatibility = None
     if a.algorithm == "ROME":
         from rome.rome_main import apply_rome_to_model
     else:
+        # Keep the pinned paper implementation byte-for-byte unchanged.  Newer
+        # Transformers exposes LlamaDecoderLayer output directly as a tensor,
+        # whereas the pinned MEMIT compute_z expects a one-element tuple.  The
+        # shim adapts only that TraceDict boundary and unwraps before returning
+        # to Transformers.
+        from util import nethook as zero_nethook
+
+        installed = install_memit_decoder_output_compat(zero_nethook)
+        compatibility = "memit_llama_decoder_tensor_output_trace_adapter"
+        print(
+            "MEMIT Transformers compatibility: "
+            + ("installed" if installed else "already installed")
+        )
         from memit.memit_main import apply_memit_to_model
 
     hparams = load_effective_hparams(hparams_path, a.algorithm)
@@ -253,6 +269,7 @@ def main() -> None:
         "retain_examples_visible_to_method": False,
         "target_mapping": "original target_new (sensitive) -> original target_true (restored)",
         "application_mode": application_mode,
+        "compatibility_adapter": compatibility,
         "hparams_source": str(hparams_path),
         "checkpoint": str(checkpoint_dir),
     }
