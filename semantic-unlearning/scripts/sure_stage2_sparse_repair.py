@@ -288,7 +288,7 @@ def optimize_zsre_candidate(
         device=output_layer.weight.device,
     )
     opt = _optimizer(delta_module, repair_lr)
-    sampler = core.IndexSampler(len(active_cases), batch_size, seed + 100003 + order)
+    sampler = core.IndexSampler(len(active_cases), batch_size, seed + 100003)
     best_failures = 10**9
     best_step = 0
     best_delta = delta_module.effective_delta().detach().clone()
