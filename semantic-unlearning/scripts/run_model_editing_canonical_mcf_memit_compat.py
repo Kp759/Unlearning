@@ -2,11 +2,18 @@
 """Compatibility entry point for canonical MCF MEMIT.
 
 Installs runtime-only compatibility for the paper-source TokenizedDataset before
-executing the canonical model-editing adapter.  No file under ZeroUnlearn/ is
+executing the canonical model-editing adapter. No file under ZeroUnlearn/ is
 modified.
+
+The pinned ZeroUnlearn package reads ``globals.yml`` at import time using the
+process working directory. We therefore import its TokenizedDataset while
+*temporarily* inside ZeroUnlearn/, then restore the caller's working directory
+before invoking the canonical runner. This keeps relative canonical paths
+resolved from semantic-unlearning/ exactly as the shell runner expects.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -20,7 +27,16 @@ if str(ZERO_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from rome.tok_dataset import TokenizedDataset
+# ZeroUnlearn/util/globals.py opens ``globals.yml`` relative to cwd during
+# package import. Import under ZERO_ROOT, but immediately restore cwd so the
+# canonical adapter can resolve its CLI paths from semantic-unlearning/.
+_CALLER_CWD = Path.cwd()
+os.chdir(ZERO_ROOT)
+try:
+    from rome.tok_dataset import TokenizedDataset
+finally:
+    os.chdir(_CALLER_CWD)
+
 from zero_unlearn_transformers_compat import install_tokenized_dataset_concat_compat
 
 installed = install_tokenized_dataset_concat_compat(TokenizedDataset)
