@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 """Compatibility shims for the pinned ZeroUnlearn ROME/MEMIT source.
 
-The paper-source MEMIT implementation was written against a Transformers
-Llama decoder-layer contract where a traced decoder block exposed a tuple
-whose first element was the hidden-state tensor.  Newer Transformers versions
-can expose that decoder block output directly as a tensor.  MEMIT's compute_z
-still indexes ``cur_out[0]`` and ``trace.output[0]``.
+The paper-source implementation predates two API/behavior changes in the
+runtime used by this repository:
 
-This module adapts only the TraceDict boundary for bare decoder-layer modules
-(``model.layers.N``).  The underlying third-party ROME/MEMIT files remain
-byte-for-byte unchanged, so provenance verification still succeeds.
+1. Newer Transformers can expose a Llama decoder block output directly as a
+   tensor, while MEMIT's ``compute_z`` expects a one-element tuple containing
+   that tensor.
+2. The paper's ``TokenizedDataset`` prepends a Python retain list using
+   ``retain_list + text_dataset``.  With current HuggingFace ``datasets``, the
+   right-hand object is a lazy ``Dataset`` and Python list concatenation raises
+   ``TypeError``.  The intended semantics are simple concatenation, so we keep
+   a lightweight sequence view instead of materializing millions of Wikipedia
+   rows into a Python list.
+
+These shims are installed outside ``ZeroUnlearn/``.  The pinned ROME/MEMIT
+files therefore remain byte-for-byte unchanged and provenance verification
+continues to validate the paper source.
 """
 from __future__ import annotations
 
@@ -22,7 +29,12 @@ def _is_llama_decoder_layer_name(layer: Any) -> bool:
     if not isinstance(layer, str):
         return False
     parts = layer.split(".")
-    return len(parts) == 3 and parts[0] == "model" and parts[1] == "layers" and parts[2].isdigit()
+    return (
+        len(parts) == 3
+        and parts[0] == "model"
+        and parts[1] == "layers"
+        and parts[2].isdigit()
+    )
 
 
 class _TraceProxy:
@@ -42,13 +54,31 @@ class _TraceProxy:
         return getattr(self._trace, name)
 
 
-def install_memit_decoder_output_compat(nethook_module) -> bool:
-    """Install an idempotent TraceDict adapter for current Transformers Llama.
+class _PrefixedSequence:
+    """Lazy list-prefix + dataset view with ordinary sequence semantics."""
 
-    Returns True when a new adapter is installed and False when it was already
-    installed.  Only exact decoder-block traces are adapted; MLP/down-projection
-    traces keep their native tensor contract.
-    """
+    def __init__(self, prefix, base):
+        self.prefix = prefix
+        self.base = base
+
+    def __len__(self):
+        return len(self.prefix) + len(self.base)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            start, stop, step = index.indices(len(self))
+            return [self[i] for i in range(start, stop, step)]
+        if index < 0:
+            index += len(self)
+        if index < 0 or index >= len(self):
+            raise IndexError(index)
+        if index < len(self.prefix):
+            return self.prefix[index]
+        return self.base[index - len(self.prefix)]
+
+
+def install_memit_decoder_output_compat(nethook_module) -> bool:
+    """Install an idempotent TraceDict adapter for current Transformers Llama."""
     if getattr(nethook_module, "_memit_decoder_output_compat_installed", False):
         return False
 
@@ -59,11 +89,18 @@ def install_memit_decoder_output_compat(nethook_module) -> bool:
         def __init__(self, *args, **kwargs):
             edit_output = kwargs.get("edit_output")
             if edit_output is not None:
+
                 def wrapped_edit_output(output, layer=None):
                     if torch.is_tensor(output) and _is_llama_decoder_layer_name(layer):
                         legacy_output = (output,)
-                        edited = invoke(edit_output, output=legacy_output, layer=layer)
-                        if isinstance(edited, (tuple, list)) and len(edited) == 1 and torch.is_tensor(edited[0]):
+                        edited = invoke(
+                            edit_output, output=legacy_output, layer=layer
+                        )
+                        if (
+                            isinstance(edited, (tuple, list))
+                            and len(edited) == 1
+                            and torch.is_tensor(edited[0])
+                        ):
                             return edited[0]
                         return edited
                     return invoke(edit_output, output=output, layer=layer)
@@ -79,5 +116,67 @@ def install_memit_decoder_output_compat(nethook_module) -> bool:
 
     nethook_module.TraceDict = CompatTraceDict
     nethook_module._memit_decoder_output_compat_installed = True
-    nethook_module._memit_decoder_output_compat_original_trace_dict = original_trace_dict
+    nethook_module._memit_decoder_output_compat_original_trace_dict = (
+        original_trace_dict
+    )
+    return True
+
+
+def install_tokenized_dataset_concat_compat(tokenized_dataset_cls) -> bool:
+    """Replace legacy ``list + HF Dataset`` with a lazy concatenation view.
+
+    The transformation is representation-only: item order and values are the
+    same as the paper code intended.  In the canonical ROME/MEMIT baseline the
+    retain prefix is empty, so the underlying Wikipedia Dataset is retained
+    directly with zero copying.
+    """
+    if getattr(tokenized_dataset_cls, "_hf_dataset_concat_compat", False):
+        return False
+
+    original_init = tokenized_dataset_cls.__init__
+
+    def compat_init(
+        self,
+        text_dataset,
+        retain_data=None,
+        tokenizer=None,
+        maxlen=None,
+        field="text",
+    ):
+        self.text_dataset = text_dataset
+        if retain_data is not None:
+            self.retain_data = [
+                {
+                    "text": row["prompt"].format(row["subject"])
+                    + " {}".format(row["target_true"]["str"])
+                }
+                for row in retain_data
+                if row["target_true"]["str"][0] != " "
+            ]
+        else:
+            self.retain_data = []
+
+        print(f"add retain data: {retain_data}")
+        print(
+            f"wikipedia data length: {len(text_dataset)}, "
+            f"retain data length: {len(self.retain_data)}"
+        )
+
+        if self.retain_data:
+            self.text_dataset = _PrefixedSequence(self.retain_data, text_dataset)
+        else:
+            # This is the canonical baseline path: preserve the lazy HF Dataset
+            # exactly rather than attempting [] + Dataset or materializing it.
+            self.text_dataset = text_dataset
+
+        print(f"Total text dataset length: {len(self.text_dataset)}")
+        self.field = field
+        self.tokenizer = tokenizer
+        self.maxlen = maxlen
+        if hasattr(text_dataset, "info"):
+            self.info = text_dataset.info
+
+    tokenized_dataset_cls.__init__ = compat_init
+    tokenized_dataset_cls._hf_dataset_concat_compat = True
+    tokenized_dataset_cls._hf_dataset_concat_compat_original_init = original_init
     return True
