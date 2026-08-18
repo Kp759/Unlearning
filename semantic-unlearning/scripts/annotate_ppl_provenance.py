@@ -37,19 +37,24 @@ def main() -> None:
     )
     token_ids = [int(x) for x in encoded["input_ids"][0].tolist()]
     serialized_ids = json.dumps(token_ids, separators=(",", ":")).encode("utf-8")
-    result["ppl_fixture"] = {
+    fixture = {
         "wikidata_dir": str(wikidata),
         "text_construction": "' '.join(train['text'][:20])",
         "max_input_length": int(a.max_input_length),
         "token_count": len(token_ids),
         "token_ids": token_ids,
         "token_ids_sha256": sha256_bytes(serialized_ids),
+        "token_ids_sha256_serialization": "compact JSON list of decimal token IDs, UTF-8",
         "joined_text_sha256": sha256_bytes(text.encode("utf-8")),
         "canonical_fixture": True,
     }
+    # Keep the original key for backward compatibility and expose the clearer
+    # alias used by diagnostics/reporting code.
+    result["ppl_fixture"] = fixture
+    result["ppl_provenance"] = fixture
     eval_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print("Annotated PPL provenance:", eval_path)
-    print("token_ids_sha256:", result["ppl_fixture"]["token_ids_sha256"])
+    print("token_ids_sha256:", fixture["token_ids_sha256"])
 
 
 if __name__ == "__main__":
