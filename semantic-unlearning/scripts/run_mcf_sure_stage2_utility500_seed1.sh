@@ -43,12 +43,12 @@ printf '%s\n' \
   "===== MCF SURE STAGE 2 + EXTERNAL UTILITY GUARD =====" \
   "seed=$SEED" \
   "reusing Stage 1=$STAGE1_CKPT" \
-  "utility_num=$UTILITY_NUM" \
+  "utility_num=$UTILITY_NUM distinct text segments" \
   "utility_seed=$UTILITY_SEED" \
   "utility_weight=$UTILITY_WEIGHT" \
-  "utility_source=$WIKIDATA_DIR train texts, excluding first $UTILITY_EXCLUDE_FIRST"
+  "utility_source=$WIKIDATA_DIR train documents, excluding first $UTILITY_EXCLUDE_FIRST source documents"
 
-python scripts/mcf_forget_only_active_repair_utility.py \
+python scripts/mcf_forget_only_active_repair_utility500_chunks.py \
   --model-path "$STAGE1_CKPT" \
   --base-model-path "$MODEL_PATH" \
   --experiment-config-path "$STAGE1_CONFIG" \
@@ -120,7 +120,7 @@ def get(m, key):
     return x["mean"] if isinstance(x, dict) else x
 
 print("\n" + "="*84)
-print("MCF SEED 1 — BASELINE r8/m1 vs r8/m1 + 500 EXTERNAL UTILITY TEXTS")
+print("MCF SEED 1 — BASELINE r8/m1 vs r8/m1 + 500 EXTERNAL UTILITY SEGMENTS")
 print("="*84)
 print(f"{'Metric':<30}{'Baseline':>16}{'Utility-500':>16}{'Delta':>16}")
 print("-"*84)
