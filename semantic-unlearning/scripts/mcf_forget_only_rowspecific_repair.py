@@ -1,26 +1,30 @@
 #!/usr/bin/env python3
 """Leakage-controlled MCF Stage-2 repair with row-specific forget-context bases.
 
-This is a controlled ablation of the canonical target-true-sensitive r8/m1
-Stage-2 repair.  Stage 1, direct forget records, pairwise margin objective,
-optimizer, hinge weight, L2 weight, margin target, and evaluation protocol stay
-unchanged.  The only architectural change is the repair geometry.
+This script supports two closely related row-conditioned Stage-2 experiments.
+Both reuse the canonical target-true-sensitive r8/m1 Stage-1 checkpoint, direct
+forget records, pairwise margin objective, optimizer, hinge weight, L2 weight,
+margin target, and evaluation protocol.
 
 Canonical/global repair:
     every selected output row shares one rank-r basis B_F built from all active
     direct forget answer-token hidden states.
 
-This row-conditioned repair:
+Row-conditioned repair:
     each selected row s gets its own basis B_{F,s}, built only from active direct
     forget hidden states where token s is the teacher-forced target for the
     corresponding answer field.  Therefore
 
         delta_w_s = a_s B_{F,s}.
 
-By default ``--row-scope sensitive_only`` edits only training target_new rows.
-In the locked target-true-sensitive MCF view, training target_new is ORIGINAL
-MCF target_true, i.e. the sensitive answer.  ``all_answer_rows`` is available as
-an exact row-scope control matching the canonical minimal-optimize repair.
+``--row-scope sensitive_only`` (default) is the main SURE-specific architecture:
+it edits only training target_new rows.  In the locked target-true-sensitive MCF
+view, training target_new is ORIGINAL MCF target_true, i.e. the sensitive answer.
+Relative to the old global baseline, this changes both row scope and geometry.
+
+``--row-scope all_answer_rows`` preserves the old target_new+target_true editable
+row scope and changes only global-basis -> row-specific-basis geometry.  It is the
+clean geometry-only control.
 
 No MCF retain examples, official paraphrases, neighborhoods, generation prompts,
 or external utility examples are used during repair.
@@ -32,7 +36,7 @@ import gc
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 import torch
 
@@ -161,11 +165,6 @@ def build_row_specific_bases_from_caches(
     return bases, reports
 
 
-def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-
 def main() -> None:
     args = build_parser().parse_args()
     validate_args(args)
@@ -196,6 +195,10 @@ def main() -> None:
         "counterfactual_reference_field": "target_new",
         "training_sensitive_field": "target_new",
         "repair_geometry": "row_specific_direct_forget_target_context_basis",
+        "comparison_note": (
+            "sensitive_only changes editable row scope and basis geometry relative to the old global baseline; "
+            "all_answer_rows is the geometry-only control"
+        ),
     }
     gagd.write_json(output_dir / "config_used.json", config_used)
 
@@ -237,9 +240,7 @@ def main() -> None:
     active_positions = repair.select_active_positions(before_reports, args.active_margin)
     active_instances = repair._active_instances(forget_prompt_instances, active_positions)
     before_active_payload = repair.active_report_payload(before_reports, args.active_margin)
-    selected_ids = _selected_rows(
-        tok, active_instances, groups, args.row_scope
-    )
+    selected_ids = _selected_rows(tok, active_instances, groups, args.row_scope)
 
     gagd.write_json(output_dir / "rewrite_margins_before.json", before_reports)
     gagd.write_json(output_dir / "active_cases_before.json", before_active_payload)
@@ -263,9 +264,7 @@ def main() -> None:
     optimization_summary: Dict[str, Any] = {
         "steps_completed": 0,
         "stopped_early": False,
-        "all_satisfied": repair.all_margins_satisfied(
-            original_margin_tensor, required_margins
-        ),
+        "all_satisfied": repair.all_margins_satisfied(original_margin_tensor, required_margins),
         "training_prompt_instances": len(forget_prompt_instances),
     }
 
@@ -285,16 +284,13 @@ def main() -> None:
         row_ranks = [int(x["context_rank"]) for x in row_basis_reports]
         print(
             "Using row-specific forget-context repair: "
-            f"rows={len(selected_ids)}, rank_cap={args.repair_rank}, "
-            f"row_ranks={row_ranks}"
+            f"rows={len(selected_ids)}, rank_cap={args.repair_rank}, row_ranks={row_ranks}"
         )
 
         delta_module = context.RowSpecificProjectedDelta(
             selected_ids, bases, device=output_weight.device
         )
-        margin_fn = lambda delta: repair.margins_from_delta_caches(
-            prompt_caches, delta
-        )
+        margin_fn = lambda delta: repair.margins_from_delta_caches(prompt_caches, delta)
         zero_kl_fn = lambda delta: delta.new_zeros(())
         repair_logs, optimization_summary = repair.optimize_selected_delta(
             delta_module,
@@ -348,15 +344,9 @@ def main() -> None:
     selected_delta = selected_after.float() - selected_before.float()
     row_ranks = [int(x["context_rank"]) for x in row_basis_reports]
     actual_max_rank = max(row_ranks, default=0)
-    actual_mean_rank = (
-        sum(row_ranks) / len(row_ranks) if row_ranks else 0.0
-    )
-    true_rome_failures = [
-        r for r in after_reports if float(r["margin"]) <= 0.0
-    ]
-    repair_target_slips = [
-        r for r in after_reports if float(r["margin"]) < args.active_margin
-    ]
+    actual_mean_rank = sum(row_ranks) / len(row_ranks) if row_ranks else 0.0
+    true_rome_failures = [r for r in after_reports if float(r["margin"]) <= 0.0]
+    repair_target_slips = [r for r in after_reports if float(r["margin"]) < args.active_margin]
 
     geometry_report = {
         "row_scope": args.row_scope,
@@ -383,6 +373,7 @@ def main() -> None:
         "repair_mode": "minimal_optimize_rowspecific",
         "repair_geometry": "row_specific_direct_forget_target_context_basis",
         "row_scope": args.row_scope,
+        "comparison_note": config_used["comparison_note"],
         "model_path": args.model_path,
         "base_model_path": args.base_model_path,
         "source_experiment_config_path": str(config_path),
@@ -415,17 +406,11 @@ def main() -> None:
         "mean_row_context_rank": float(actual_mean_rank),
         "row_basis_reports": row_basis_reports,
         "optimization": optimization_summary,
-        "minimum_margin_before": min(
-            (float(r["margin"]) for r in before_reports), default=None
-        ),
-        "minimum_margin_after": min(
-            (float(r["margin"]) for r in after_reports), default=None
-        ),
+        "minimum_margin_before": min((float(r["margin"]) for r in before_reports), default=None),
+        "minimum_margin_after": min((float(r["margin"]) for r in after_reports), default=None),
         "repair_target_slip_count_after": len(repair_target_slips),
         "true_rome_failure_count_after": len(true_rome_failures),
-        "newly_below_repair_target_positions": transitions[
-            "newly_activated_positions"
-        ],
+        "newly_below_repair_target_positions": transitions["newly_activated_positions"],
     }
     gagd.write_json(output_dir / "repair_summary.json", repair_summary)
 
@@ -438,9 +423,7 @@ def main() -> None:
 
     if args.save_model:
         checkpoint_dir = output_dir / "checkpoint"
-        repair.save_repair_checkpoint(
-            model, tok, checkpoint_dir, repair_config=config_used
-        )
+        repair.save_repair_checkpoint(model, tok, checkpoint_dir, repair_config=config_used)
         print(f"Saved row-specific repaired checkpoint to {checkpoint_dir}")
 
     print(
