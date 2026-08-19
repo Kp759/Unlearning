@@ -1,14 +1,14 @@
 # SURE-LM fixed shared architecture: MCF and ZsRE
 
 This document is the architecture contract for new cross-benchmark SURE-LM
-experiments.  It supersedes benchmark-specific Stage-2 objectives for claims
+experiments. It supersedes benchmark-specific Stage-2 objectives for claims
 that MCF and ZsRE use the same architecture.
 
 ## Principle
 
 MCF and ZsRE must use the same trainable parameterization, Stage-1 objective,
 Stage-2 objective, direct residual criterion, rank schedule, scale-selection
-rule, and optimization defaults.  Benchmark adapters may only identify the
+rule, and optimization defaults. Benchmark adapters may only identify the
 sensitive answer and construct the locked direct-only training view.
 
 ## Sensitive-answer adapters
@@ -19,7 +19,7 @@ sensitive answer and construct the locked direct-only training view.
 | ZsRE | `target_true` | original factual/sensitive answer |
 
 ZsRE intentionally exposes no `target_new`, `Unknown`, IDK, neutral, or other
-replacement answer during training.  Therefore the fixed shared architecture
+replacement answer during training. Therefore the fixed shared architecture
 must not contain a single-reference-answer CE/GD term that only MCF can use.
 
 ## Shared trainable architecture
@@ -55,8 +55,8 @@ L_1  = lambda_GA L_GA + lambda_GD L_GD + lambda_2 ||Delta W||^2
 ```
 
 The sensitive token is removed from both distributions for GD and all remaining
-vocabulary probabilities are renormalized.  Thus GD protects the complete
-non-sensitive vocabulary distribution in both MCF and ZsRE.  MCF's
+vocabulary probabilities are renormalized. Thus GD protects the complete
+non-sensitive vocabulary distribution in both MCF and ZsRE. MCF's
 counterfactual `target_new` (original unswapped field) is one member of this
 non-sensitive distribution, but it is not given a benchmark-specific CE term.
 
@@ -75,18 +75,48 @@ Stage-1 delta L2 = 0
 
 ## Shared direct residual criterion
 
-The same token-level suppression margin is used for both benchmarks:
+A single top-1 criterion is too weak: a sensitive token can lose top-1 while
+still retaining high absolute probability and while a multi-token sensitive
+answer remains strongly preferred. Therefore fixed-shared v2 requires BOTH of
+the following on every direct teacher-forced sensitive PredictionCase.
+
+### 1. Best-other logit margin
 
 ```text
-m = max_{v != y_s} logit(v) - logit(y_s)
-satisfied iff m >= rho
+m_logit = max_{v != y_s} logit(v) - logit(y_s)
+satisfied iff m_logit >= rho
 ```
 
-Default `rho = 0.05` for both MCF and ZsRE.
+Default:
 
-This criterion is used only for direct residual detection, early stopping,
-candidate comparison, and scale selection.  It is not a benchmark-specific
-training loss.
+```text
+rho = 0.05
+```
+
+### 2. Frozen-Base sensitive-NLL increase
+
+```text
+Delta_NLL_s = NLL_theta(y_s | x, y_<t) - NLL_base(y_s | x, y_<t)
+satisfied iff Delta_NLL_s >= tau
+```
+
+Default:
+
+```text
+tau = 4.0 nats
+```
+
+`tau = 4` means the sensitive-token probability must be reduced by at least a
+factor of `exp(4) ~= 54.6` relative to the frozen Base model:
+
+```text
+p_theta(y_s | context) <= exp(-4) * p_base(y_s | context)
+```
+
+Both constraints need only the sensitive answer and the frozen Base teacher, so
+they apply identically to MCF and ZsRE. They are used only for direct residual
+detection, early stopping, candidate comparison, and scale selection. They are
+not extra training-loss terms.
 
 ## Shared Stage 2 objective
 
@@ -114,9 +144,9 @@ batch = 8
 check every = 25
 ```
 
-Candidate selection and scale selection use only the shared direct residual
-criterion.  The first rank reaching zero direct failures is sufficient;
-otherwise select by `(direct_failures, candidate_order, delta_norm)`.  Then
+Candidate selection and scale selection use only the two shared direct
+constraints above. The first rank reaching zero direct failures is sufficient;
+otherwise select by `(direct_failures, candidate_order, delta_norm)`. Then
 choose the smallest candidate scale preserving zero direct failures, otherwise
 minimize `(direct_failures, scale)`.
 
@@ -125,7 +155,7 @@ minimize `(direct_failures, scale)`.
 Architecture equality does not require final benchmark metrics to be identical.
 After freezing the checkpoint:
 
-* MCF reopens the ORIGINAL UNSWAPPED MCF source.  Paper reporting may include
+* MCF reopens the ORIGINAL UNSWAPPED MCF source. Paper reporting may include
   target-true-sensitive `Eff-Pref`, `Gen-Pref`, sensitive NLL change,
   neighborhood specificity, and locked-corpus PPL.
 * ZsRE reopens the original ZsRE source and uses its official direct/rephrase/
@@ -141,12 +171,22 @@ bash scripts/run_zsre_sure_fixed_shared.sh MODEL_PATH [ZSRE_JSON]
 ```
 
 Both runners intentionally expose the same shared hyperparameter environment
-variables and defaults.
+variables and defaults, including:
 
-## Historical canonical v1
+```text
+SURE_SHARED_CONSTRAINT_MARGIN=0.05
+SURE_MIN_SENSITIVE_NLL_INCREASE=4.0
+```
 
-`sure_stage2_sparse_repair.py` remains a historical canonical-v1 implementation.
-It uses different benchmark-specific residual losses (MCF pairwise sequence-NLL
-hinge versus ZsRE sensitive-vs-best-other hinge).  Results from that path remain
+## Historical variants
+
+`sure_stage2_sparse_repair.py` is a historical canonical-v1 implementation. It
+uses different benchmark-specific residual losses (MCF pairwise sequence-NLL
+hinge versus ZsRE sensitive-vs-best-other hinge). Results from that path remain
 valid descriptions of their checkpoints, but they must not be used to claim an
 identical Stage-2 objective across MCF and ZsRE.
+
+The first fixed-shared context run used only the top-1 logit-margin residual
+criterion. Its MCF seed-1 result achieved strong locality but insufficient
+forgetting (`Eff-Pref=82`, `Gen-Pref=83`, `Delta Sensitive NLL direct ~= 0.965`).
+That run is an ablation motivating the v2 Base-relative sensitive-NLL condition.
