@@ -110,27 +110,36 @@ base=json.load(open(sys.argv[1]))
 new=json.load(open(sys.argv[2]))
 r=json.load(open(sys.argv[3]))
 
-def get(m, key):
-    x=m["metrics"][key]
+def get(m, key, legacy=None):
+    metrics=m["metrics"]
+    use=key if key in metrics else legacy
+    if use is None or use not in metrics:
+        raise KeyError(f"Missing metric {key} (legacy={legacy})")
+    x=metrics[use]
     return x["mean"] if isinstance(x, dict) else x
 
-print("\n" + "="*92)
+print("\n" + "="*96)
 print("MCF SEED 1 — GLOBAL r8/m1 BASELINE vs ROW-SPECIFIC CONTEXT REPAIR")
-print("="*92)
-print(f"{'Metric':<32}{'Global baseline':>18}{'Row-specific':>18}{'Delta':>18}")
-print("-"*92)
-for key,label in [
-    ("Eff","Eff ↑"),
-    ("Gen","Gen ↑"),
-    ("Delta_Sensitive_NLL_direct","Δ Sensitive NLL ↑"),
-    ("NLL_Separation_direct","NLL Separation ↑"),
-    ("Spe_margin","Spe-Margin ↑"),
-    ("Spe_success","Spe-Success ↑"),
-    ("PPL","PPL ↓"),
+print("FS/GFS are pairwise success rates; they are NOT ZeroUnlearn probability Eff/Gen.")
+print("="*96)
+print(f"{'Metric':<36}{'Global baseline':>18}{'Row-specific':>18}{'Delta':>18}")
+print("-"*96)
+for key,legacy,label in [
+    ("FS","Eff","FS (Forget Success) ↑"),
+    ("GFS","Gen","GFS (Generalized Forget Success) ↑"),
+    ("Delta_Sensitive_NLL_direct",None,"Δ Sensitive NLL ↑"),
+    ("Delta_Reference_NLL_direct",None,"Δ Reference NLL (audit)"),
+    ("NLL_Separation_direct",None,"NLL Separation ↑"),
+    ("Spe_margin",None,"Spe-Margin ↑"),
+    ("Spe_success",None,"Spe-Success ↑"),
+    ("PPL",None,"PPL ↓/stable"),
 ]:
-    a=float(get(base,key)); b=float(get(new,key))
-    print(f"{label:<32}{a:>18.4f}{b:>18.4f}{b-a:>+18.4f}")
-print("-"*92)
+    try:
+        a=float(get(base,key,legacy)); b=float(get(new,key,legacy))
+    except KeyError:
+        continue
+    print(f"{label:<36}{a:>18.4f}{b:>18.4f}{b-a:>+18.4f}")
+print("-"*96)
 print("row scope                   :", r["row_scope"])
 print("selected rows               :", r["selected_lm_head_rows"])
 print("row context ranks           :", r["row_context_ranks"])
@@ -142,5 +151,5 @@ print("all target margins satisfied:", r["optimization"]["all_satisfied"])
 print("minimum final margin        :", r["minimum_margin_after"])
 print("selected delta norm         :", r["selected_lm_head_delta_norm"])
 print("protocol                    :", r["protocol_status"])
-print("="*92)
+print("="*96)
 PY
