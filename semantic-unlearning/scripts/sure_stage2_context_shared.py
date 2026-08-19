@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Fixed shared context-conditioned SURE Stage 2 for MCF and ZsRE.
 
-Architecture and objective are identical across benchmarks.  Stage 2:
+Architecture and objective are identical across benchmarks. Stage 2:
   * reloads the shared Stage-1 checkpoint;
-  * detects residual direct sensitive-token failures using the same universal
-    best-non-sensitive minus sensitive logit margin;
+  * detects residual direct failures using the SAME two shared criteria:
+      - best-non-sensitive minus sensitive logit margin;
+      - sensitive-token NLL increase relative to frozen Base;
   * edits only sensitive LM-head rows;
   * constrains each row to its own direct forget-context hidden subspace;
   * optimizes the SAME GA + non-sensitive-distribution GD + L2 objective used
@@ -12,8 +13,8 @@ Architecture and objective are identical across benchmarks.  Stage 2:
   * tries row-specific context-rank caps 2 -> 8 -> full-context by default;
   * uses the same direct-only scale selection.
 
-No benchmark-specific hinge/ReLU loss is used.  The dataset adapter only tells
-us which answer field is sensitive.
+No benchmark-specific hinge/ReLU loss or reference-answer CE is used. The
+dataset adapter only tells us which answer field is sensitive.
 """
 from __future__ import annotations
 
@@ -49,6 +50,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--gd-weight", type=float, default=1.0)
     p.add_argument("--repair-l2", type=float, default=1e-6)
     p.add_argument("--constraint-margin", type=float, default=0.05)
+    p.add_argument("--min-sensitive-nll-increase", type=float, default=4.0,
+                   help="Minimum per-sensitive-token NLL increase versus frozen Base.")
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--check-every", type=int, default=25)
     p.add_argument("--candidate-scales", default="1,.875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,.046875,.03125,.015625,.0078125,0")
@@ -99,6 +102,7 @@ def optimize_candidate(
     llama_like: bool,
     device: torch.device,
     required_margin: float,
+    required_nll_increase: float,
     steps: int,
     lr: float,
     ga_weight: float,
@@ -144,17 +148,24 @@ def optimize_candidate(
             opt.step()
 
             if step == 1 or step % check_every == 0 or step == steps:
-                margins = shared.evaluate_suppression_margins(
-                    model, tok, cases, llama_like=llama_like, device=device,
+                state = shared.evaluate_shared_constraints(
+                    model, tok, cases, base_logits,
+                    llama_like=llama_like, device=device,
                     batch_size=batch_size,
                 )
-                failures = shared.count_failures(margins, required_margin)
+                failures = shared.count_failures(
+                    state["logit_margin"], state["sensitive_nll_increase"],
+                    required_logit_margin=required_margin,
+                    required_nll_increase=required_nll_increase,
+                )
                 cur = delta_module.effective_delta().detach()
                 cur_loss = float(loss.detach().cpu())
                 row = {
                     "step": int(step),
                     "direct_failures": int(failures),
-                    "minimum_suppression_margin": float(margins.min().detach().cpu()),
+                    "minimum_suppression_margin": float(state["logit_margin"].min().detach().cpu()),
+                    "minimum_sensitive_nll_increase": float(state["sensitive_nll_increase"].min().detach().cpu()),
+                    "mean_sensitive_nll_increase": float(state["sensitive_nll_increase"].mean().detach().cpu()),
                     "ga_sensitive_logprob": float(ga.detach().cpu()),
                     "gd_non_sensitive_kl": float(gd.detach().cpu()),
                     "loss": cur_loss,
@@ -172,11 +183,11 @@ def optimize_candidate(
         hook.remove()
     del opt
 
-    # Evaluate the selected candidate delta by hook without materializing it.
     h = core.register_output_delta_hook(output_layer, selected_ids, lambda: best_delta)
     try:
-        margins = shared.evaluate_suppression_margins(
-            model, tok, cases, llama_like=llama_like, device=device,
+        state = shared.evaluate_shared_constraints(
+            model, tok, cases, base_logits,
+            llama_like=llama_like, device=device,
             batch_size=batch_size,
         )
     finally:
@@ -189,8 +200,14 @@ def optimize_candidate(
         "row_context_ranks": [int(x["context_rank"]) for x in basis_reports],
         "trainable_parameters": int(delta_module.trainable_parameter_count),
         "best_step": int(best_step),
-        "direct_failures": shared.count_failures(margins, required_margin),
-        "minimum_suppression_margin": float(margins.min().detach().cpu()),
+        "direct_failures": shared.count_failures(
+            state["logit_margin"], state["sensitive_nll_increase"],
+            required_logit_margin=required_margin,
+            required_nll_increase=required_nll_increase,
+        ),
+        "minimum_suppression_margin": float(state["logit_margin"].min().detach().cpu()),
+        "minimum_sensitive_nll_increase": float(state["sensitive_nll_increase"].min().detach().cpu()),
+        "mean_sensitive_nll_increase": float(state["sensitive_nll_increase"].mean().detach().cpu()),
         "delta_norm": float(best_delta.norm().cpu()),
         "candidate_order": int(order),
         "logs": logs,
@@ -204,8 +221,9 @@ def main() -> None:
         raise ValueError("forget-num, repair-steps, repair-lr must be positive")
     if a.batch_size <= 0 or a.check_every <= 0:
         raise ValueError("batch-size/check-every must be positive")
-    if a.ga_weight <= 0 or a.gd_weight < 0 or a.repair_l2 < 0 or a.constraint_margin < 0:
-        raise ValueError("invalid shared Stage-2 weights")
+    if (a.ga_weight <= 0 or a.gd_weight < 0 or a.repair_l2 < 0
+            or a.constraint_margin < 0 or a.min_sensitive_nll_increase < 0):
+        raise ValueError("invalid shared Stage-2 weights or constraints")
 
     gagd.set_seed(a.seed)
     if a.device_map == "single":
@@ -233,11 +251,18 @@ def main() -> None:
     if not isinstance(base_logits, torch.Tensor) or base_logits.shape[0] != len(cases):
         raise RuntimeError("Base-logit cache does not align with direct sensitive PredictionCases")
 
-    before = shared.evaluate_suppression_margins(
-        model, tok, cases, llama_like=llama_like, device=device, batch_size=a.batch_size
+    before = shared.evaluate_shared_constraints(
+        model, tok, cases, base_logits,
+        llama_like=llama_like, device=device, batch_size=a.batch_size
     )
-    active_indices = [i for i, x in enumerate(before.detach().cpu().tolist())
-                      if float(x) < a.constraint_margin]
+    before_mask = shared.failure_mask(
+        before["logit_margin"], before["sensitive_nll_increase"],
+        required_logit_margin=a.constraint_margin,
+        required_nll_increase=a.min_sensitive_nll_increase,
+    )
+    active_indices = [
+        i for i, failed in enumerate(before_mask.detach().cpu().tolist()) if bool(failed)
+    ]
     active_before = len(active_indices)
 
     out_dir = gagd.resolve_output_path(a.output_dir)
@@ -277,6 +302,7 @@ def main() -> None:
                 llama_like=llama_like,
                 device=device,
                 required_margin=a.constraint_margin,
+                required_nll_increase=a.min_sensitive_nll_increase,
                 steps=a.repair_steps,
                 lr=a.repair_lr,
                 ga_weight=a.ga_weight,
@@ -294,6 +320,7 @@ def main() -> None:
                 "rank": rank,
                 "row_ranks": report["row_context_ranks"],
                 "direct_failures": report["direct_failures"],
+                "min_nll_increase": report["minimum_sensitive_nll_increase"],
                 "delta_norm": report["delta_norm"],
             })
             if report["direct_failures"] == 0:
@@ -310,26 +337,39 @@ def main() -> None:
                 lambda scale=scale: chosen_delta * float(scale),
             )
             try:
-                margins = shared.evaluate_suppression_margins(
-                    model, tok, cases, llama_like=llama_like, device=device,
+                state = shared.evaluate_shared_constraints(
+                    model, tok, cases, base_logits,
+                    llama_like=llama_like, device=device,
                     batch_size=a.batch_size,
                 )
             finally:
                 h.remove()
+            failures = shared.count_failures(
+                state["logit_margin"], state["sensitive_nll_increase"],
+                required_logit_margin=a.constraint_margin,
+                required_nll_increase=a.min_sensitive_nll_increase,
+            )
             scale_reports.append({
                 "scale": float(scale),
-                "direct_failures": shared.count_failures(margins, a.constraint_margin),
-                "minimum_suppression_margin": float(margins.min().detach().cpu()),
+                "direct_failures": failures,
+                "minimum_suppression_margin": float(state["logit_margin"].min().detach().cpu()),
+                "minimum_sensitive_nll_increase": float(state["sensitive_nll_increase"].min().detach().cpu()),
+                "mean_sensitive_nll_increase": float(state["sensitive_nll_increase"].mean().detach().cpu()),
                 "effective_delta_norm": float(chosen_delta.norm().cpu() * scale),
             })
         selected_scale = core.choose_scale(scale_reports)
         final_delta = chosen_delta * float(selected_scale)
         core.materialize_output_delta(output_layer, selected_ids, final_delta)
 
-    final_margins = shared.evaluate_suppression_margins(
-        model, tok, cases, llama_like=llama_like, device=device, batch_size=a.batch_size
+    final_state = shared.evaluate_shared_constraints(
+        model, tok, cases, base_logits,
+        llama_like=llama_like, device=device, batch_size=a.batch_size
     )
-    final_failures = shared.count_failures(final_margins, a.constraint_margin)
+    final_failures = shared.count_failures(
+        final_state["logit_margin"], final_state["sensitive_nll_increase"],
+        required_logit_margin=a.constraint_margin,
+        required_nll_increase=a.min_sensitive_nll_increase,
+    )
 
     ckpt.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(ckpt)
@@ -337,10 +377,10 @@ def main() -> None:
 
     chosen_report = candidate_reports[chosen_index] if chosen_index is not None else None
     summary: Dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "method": "SURE-LM-fixed-shared-context-stage2",
         "dataset": a.dataset,
-        "protocol": "sure_fixed_shared_context_v1",
+        "protocol": "sure_fixed_shared_context_v2",
         "source_protocol": manifest.get("protocol"),
         "seed": int(a.seed),
         "forget_num": int(a.forget_num),
@@ -348,12 +388,19 @@ def main() -> None:
         "objective": "ga_sensitive_logprob + gd_non_sensitive_distribution_kl + delta_l2",
         "no_hinge_or_relu_training_loss": True,
         "no_reference_answer_ce": True,
-        "constraint_semantics": "best_non_sensitive_logit_minus_sensitive_logit",
+        "constraint_semantics": [
+            "best_non_sensitive_logit_minus_sensitive_logit",
+            "sensitive_token_nll_increase_vs_frozen_base",
+        ],
         "constraint_margin": float(a.constraint_margin),
+        "min_sensitive_nll_increase": float(a.min_sensitive_nll_increase),
         "direct_unit": "teacher_forced_sensitive_prediction_case",
         "direct_total": len(cases),
         "active_before": int(active_before),
         "active_after": int(final_failures),
+        "minimum_final_suppression_margin": float(final_state["logit_margin"].min().detach().cpu()),
+        "minimum_final_sensitive_nll_increase": float(final_state["sensitive_nll_increase"].min().detach().cpu()),
+        "mean_final_sensitive_nll_increase": float(final_state["sensitive_nll_increase"].mean().detach().cpu()),
         "selected_lm_head_rows": len(selected_ids),
         "selected_token_ids": selected_ids,
         "editable_rows": "sensitive_answer_rows_only",
@@ -379,7 +426,11 @@ def main() -> None:
     core.write_json(out_dir / "repair_summary.json", summary)
     core.write_json(out_dir / "rank_candidates.json", candidate_reports)
     core.write_json(out_dir / "scale_sweep_direct_only.json", scale_reports)
-    print(f"Fixed shared Stage 2 {a.dataset}: failures {active_before} -> {final_failures}; selected rows={len(selected_ids)}; scale={selected_scale:g}")
+    print(
+        f"Fixed shared Stage 2 {a.dataset}: failures {active_before} -> {final_failures}; "
+        f"selected rows={len(selected_ids)}; scale={selected_scale:g}; "
+        f"min NLL increase={summary['minimum_final_sensitive_nll_increase']:.4f}"
+    )
 
 
 if __name__ == "__main__":
