@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Build fixed-shared SURE MCF split with disjoint retain-train/eval sets.
 
-Forget semantics:
-  original target_true -> canonical target_new (sensitive)
-  original target_new  -> canonical target_true (reference; final eval only)
+Training-visible MCF is intentionally symmetric with ZsRE: each forget record
+contains only the direct prompt and the sensitive answer.  Original target_true
+is mapped into canonical target_new because the shared MCF adapter uses that
+slot as sensitive.  Original target_new/reference is NOT exposed to training.
 
 The official 50-forget / 1000-retain-eval sampling is preserved exactly.
-A separate retain-train set is then sampled deterministically from the remaining
+A separate retain-train set is sampled deterministically from the remaining
 first-half retain pool, guaranteeing zero overlap with official retain eval.
 Retain-train exposes only direct prompts; no answer labels or held-out probes.
 """
@@ -20,7 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping
 
 from mcf_sampling import sample_official_mcf_records
-from build_mcf_sure_target_true_canonical_split import direct_only_swapped_record, normalize_rr
+from build_mcf_sure_target_true_canonical_split import normalize_rr
 
 PROTOCOL = "mcf_sure_fixed_shared_retain_v3"
 RETAIN_TRAIN_RNG_OFFSET = 104729
@@ -28,6 +29,30 @@ RETAIN_TRAIN_RNG_OFFSET = 104729
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def direct_only_sensitive_record(raw: Mapping[str, Any], case_id: int) -> Dict[str, Any]:
+    rr = normalize_rr(raw)
+    original_true = rr.get("target_true", {}).get("str")
+    if not original_true:
+        raise ValueError(f"MCF record {case_id} lacks original target_true")
+    return {
+        "case_id": int(case_id),
+        "requested_rewrite": {
+            "prompt": str(rr["prompt"]),
+            "subject": str(rr["subject"]),
+            "target_new": {"str": str(original_true)},
+        },
+        "semantic_adapter": {
+            "original_sensitive_field": "target_true",
+            "canonical_sensitive_slot": "target_new",
+            "reference_answer_exposed_to_training": False,
+        },
+        "paraphrase_prompts": [],
+        "neighborhood_prompts": [],
+        "attribute_prompts": [],
+        "generation_prompts": [],
+    }
 
 
 def retain_prompt_only_record(raw: Mapping[str, Any], case_id: int) -> Dict[str, Any]:
@@ -91,7 +116,7 @@ def main() -> None:
         raise AssertionError("retain sample escaped first-half pool")
 
     forget_visible = [
-        direct_only_swapped_record(record, case_id)
+        direct_only_sensitive_record(record, case_id)
         for case_id, record in zip(forget_ids, forget_raw)
     ]
     retain_visible = [
@@ -128,7 +153,7 @@ def main() -> None:
             "original_sensitive_field": "target_true",
             "original_reference_field": "target_new",
             "training_sensitive_slot": "target_new",
-            "training_reference_slot": "target_true",
+            "reference_answer_exposed_to_training": False,
             "final_evaluation_uses_original_unswapped_fields": True,
         },
         "pool_split": {
@@ -150,8 +175,9 @@ def main() -> None:
         "data_roles": {
             "stage1_visible": ["50 direct forget sensitive answers", "1000 direct retain prompts"],
             "stage2_visible": ["residual direct forget sensitive answers", "same 1000 direct retain prompts"],
+            "forget_reference_answer_visible": False,
             "retain_train_answer_labels_visible": False,
-            "evaluation_only": ["forget paraphrases", "forget neighborhoods", "official 1000 retain-eval", "PPL text"],
+            "evaluation_only": ["forget target_new/reference", "forget paraphrases", "forget neighborhoods", "official 1000 retain-eval", "PPL text"],
             "heldout_probes_visible_during_training": False,
             "final_evaluation_uses_original_source_file": True,
         },
@@ -161,6 +187,7 @@ def main() -> None:
 
     print("MCF fixed-shared retain split:", manifest_path)
     print(f"forget={len(forget_visible)} retain_train={len(retain_visible)} retain_eval={len(retain_eval_ids)}")
+    print("reference answer exposed to training: False")
     print("retain train/eval overlap: 0")
 
 
