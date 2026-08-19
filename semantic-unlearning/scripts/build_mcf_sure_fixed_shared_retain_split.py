@@ -75,14 +75,15 @@ def main() -> None:
     retain_eval_ids = [identity[id(record)] for record in retain_eval_raw]
     half = len(raw) // 2
 
-    remaining_retain_ids = [i for i in range(half) if i not in set(retain_eval_ids)]
+    retain_eval_set = set(retain_eval_ids)
+    remaining_retain_ids = [i for i in range(half) if i not in retain_eval_set]
     if a.retain_train_num > len(remaining_retain_ids):
         raise ValueError("retain-train request exceeds remaining first-half pool")
     rng = random.Random(int(a.seed) + RETAIN_TRAIN_RNG_OFFSET)
     retain_train_ids = rng.sample(remaining_retain_ids, a.retain_train_num)
     retain_train_raw = [raw[i] for i in retain_train_ids]
 
-    if set(retain_train_ids) & set(retain_eval_ids):
+    if set(retain_train_ids) & retain_eval_set:
         raise AssertionError("retain-train and retain-eval overlap")
     if any(i < half for i in forget_ids):
         raise AssertionError("forget sample escaped second-half pool")
@@ -106,22 +107,28 @@ def main() -> None:
     retain_text = json.dumps(retain_visible, indent=2, ensure_ascii=False) + "\n"
     forget_path.write_text(forget_text, encoding="utf-8")
     retain_path.write_text(retain_text, encoding="utf-8")
+    forget_sha = sha256_bytes(forget_text.encode("utf-8"))
+    retain_sha = sha256_bytes(retain_text.encode("utf-8"))
 
     manifest = {
         "schema_version": 1,
         "protocol": PROTOCOL,
+        "metric_schema": "mcf_target_true_sensitive_v2",
         "dataset": "mcf",
         "seed": int(a.seed),
         "source_dataset": str(source),
         "source_sha256": sha256_bytes(source_bytes),
         "training_visible_forget": str(forget_path),
-        "training_visible_forget_sha256": sha256_bytes(forget_text.encode("utf-8")),
+        "training_visible_forget_sha256": forget_sha,
+        "training_visible_sha256": forget_sha,
         "training_visible_retain": str(retain_path),
-        "training_visible_retain_sha256": sha256_bytes(retain_text.encode("utf-8")),
+        "training_visible_retain_sha256": retain_sha,
         "dataset_size": len(raw),
         "target_semantics": {
             "original_sensitive_field": "target_true",
+            "original_reference_field": "target_new",
             "training_sensitive_slot": "target_new",
+            "training_reference_slot": "target_true",
             "final_evaluation_uses_original_unswapped_fields": True,
         },
         "pool_split": {
@@ -136,6 +143,7 @@ def main() -> None:
             "forget_case_ids": [int(x) for x in forget_ids],
             "retain_train_case_ids": [int(x) for x in retain_train_ids],
             "retain_eval_case_ids": [int(x) for x in retain_eval_ids],
+            "retain_case_ids": [int(x) for x in retain_eval_ids],
             "retain_train_rng_offset": RETAIN_TRAIN_RNG_OFFSET,
             "retain_train_eval_overlap": 0,
         },
@@ -145,6 +153,7 @@ def main() -> None:
             "retain_train_answer_labels_visible": False,
             "evaluation_only": ["forget paraphrases", "forget neighborhoods", "official 1000 retain-eval", "PPL text"],
             "heldout_probes_visible_during_training": False,
+            "final_evaluation_uses_original_source_file": True,
         },
     }
     manifest_path = out / "split_manifest.json"
