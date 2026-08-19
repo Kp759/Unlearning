@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Exact Base->edited retain-KL audit for sparse SURE LM-head row updates.
 
-This audit uses ONLY the prompt-only retain-training set. No official paraphrase,
-neighborhood, retain-eval, or PPL prompts are touched.
+The legacy mode audits a prompt-only retain-training set.  The minimal SURE
+mode instead accepts a separate prompt-only official-retain file after the
+checkpoint has already been frozen.  No paraphrase, neighborhood, or PPL prompt
+is touched in either mode.
 
 For a retain prompt r and selected sensitive row s:
 
@@ -31,7 +33,7 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Tuple
 
 import torch
 
@@ -44,7 +46,15 @@ import sure_retain_kl as retain
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--model-path", required=True)
-    p.add_argument("--training-visible-retain-path", required=True)
+    retain_input = p.add_mutually_exclusive_group(required=True)
+    retain_input.add_argument("--training-visible-retain-path")
+    retain_input.add_argument(
+        "--retain-prompt-path",
+        help=(
+            "Prompt-only retain JSON used strictly after checkpoint selection; "
+            "this is the minimal-SURE audit mode"
+        ),
+    )
     p.add_argument("--delta-path", required=True,
                    help="torch file with {'row_ids': [...], 'delta': [S,d]}; unscaled is fine")
     p.add_argument("--scale", type=float, required=True)
@@ -123,6 +133,7 @@ def load_or_build_caches(a: argparse.Namespace, retain_records, selected_ids):
         model, tok = gagd.load_model_and_tokenizer(ns, for_training=False)
         if tok.pad_token is None:
             tok.pad_token = tok.eos_token
+        tok.padding_side = "right"
         core.untie_and_freeze_output_head(model)
         device = gagd.first_device(model)
         retain_cases = retain.retain_prompt_cases(retain_records)
@@ -154,7 +165,14 @@ def main() -> None:
     if a.batch_size <= 0 or a.top_prompts <= 0 or a.top_contributors <= 0:
         raise ValueError("batch/top counts must be positive")
 
-    retain_path = Path(a.training_visible_retain_path).resolve()
+    retain_path = Path(
+        a.retain_prompt_path or a.training_visible_retain_path
+    ).resolve()
+    retain_role = (
+        "post_training_official_retain_prompt_only"
+        if a.retain_prompt_path
+        else "training_visible_prompt_only"
+    )
     retain_records, case_ids, prompt_texts = load_prompt_only_retain(retain_path)
     selected_ids, delta = load_delta(Path(a.delta_path).resolve(), a.scale)
     hidden, probs, cache_source = load_or_build_caches(a, retain_records, selected_ids)
@@ -236,9 +254,10 @@ def main() -> None:
     result = {
         "schema_version": 1,
         "audit": "exact_sparse_output_row_retain_kl",
-        "retain_role": "training_visible_prompt_only",
+        "retain_role": retain_role,
         "heldout_probes_seen": 0,
-        "retain_eval_seen": 0,
+        "retain_eval_seen": len(retain_records) if a.retain_prompt_path else 0,
+        "retain_eval_seen_during_training_or_selection": 0,
         "edited_model_forward_passes": 0,
         "cache_source": cache_source,
         "retain_prompt_count": int(len(retain_records)),
