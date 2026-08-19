@@ -77,6 +77,27 @@ class FixedSharedArchitectureTests(unittest.TestCase):
         self.assertIn("ga_sensitive_logprob", text)
         self.assertIn("min-sensitive-nll-increase", text)
 
+    def test_mcf_and_zsre_runners_call_same_shared_stage_files(self):
+        mcf = (SCRIPTS / "run_mcf_sure_fixed_shared.sh").read_text(encoding="utf-8")
+        zsre = (SCRIPTS / "run_zsre_sure_fixed_shared.sh").read_text(encoding="utf-8")
+        for stage_file in (
+            "scripts/sure_stage1_context_shared.py",
+            "scripts/sure_stage2_context_shared.py",
+        ):
+            self.assertIn(stage_file, mcf)
+            self.assertIn(stage_file, zsre)
+
+        # Paper-path runners must not silently switch to benchmark-specific
+        # residual/hinge repair implementations.
+        forbidden = (
+            "sure_stage2_sparse_repair.py",
+            "sure_stage2_sparse_repair_residual.py",
+            "sure_stage2_sparse_repair_guarded.py",
+        )
+        for name in forbidden:
+            self.assertNotIn(name, mcf)
+            self.assertNotIn(name, zsre)
+
     def test_mcf_and_zsre_runners_share_defaults(self):
         mcf = (SCRIPTS / "run_mcf_sure_fixed_shared.sh").read_text(encoding="utf-8")
         zsre = (SCRIPTS / "run_zsre_sure_fixed_shared.sh").read_text(encoding="utf-8")
