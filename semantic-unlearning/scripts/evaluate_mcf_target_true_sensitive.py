@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
-"""Build paper-facing MCF metrics when original target_true is sensitive.
+"""Build paper-facing MCF diagnostics when original target_true is sensitive.
 
 Inputs are raw JSON files produced by ``mcf_zero_unlearn_official_eval.py`` on
 the ORIGINAL UNSWAPPED MultiCounterFact source: one for the frozen base model
 and one for the post-unlearning model.
 
-Canonical paper-facing efficacy/generalization follow the original
-ROME/CounterFact strict success rule:
+Primary SURE behavioral metrics:
 
-  Eff = 100 E[NLL(target_true) > NLL(target_new)] on rewrite prompts
-  Gen = 100 E[NLL(target_true) > NLL(target_new)] on held-out paraphrases
+  FS  = 100 E[NLL(target_true) > NLL(target_new)] on rewrite prompts
+  GFS = 100 E[NLL(target_true) > NLL(target_new)] on held-out paraphrases
 
-Because original ``target_true`` is the sensitive fact in SURE, higher Eff/Gen
-means the sensitive answer is less likely than the CounterFact alternative.
-Exact NLL ties are not successes.  For diagnostic continuity this evaluator
-also keeps the complementary sensitive-preference rates (Eff_Pref/Gen_Pref),
-plus absolute sensitive-NLL and separation diagnostics.
+Here original ``target_true`` is the sensitive fact and original ``target_new``
+is the CounterFact reference. Higher FS/GFS means the sensitive answer loses to
+the reference more often. Exact NLL ties are not successes.
+
+IMPORTANT: FS/GFS are pairwise behavioral success rates. They are NOT the same
+quantity as ZeroUnlearn's probability-based Eff/Gen. This evaluator therefore
+does not label FS/GFS as Eff/Gen in its paper-facing output.
+
+For backward compatibility with older SURE artifacts, legacy ``Eff``/``Gen``
+and ``Eff_Pref``/``Gen_Pref`` aliases are retained in the JSON, but are marked
+deprecated. New code should use FS/GFS and SensitivePref_* keys.
 """
 from __future__ import annotations
 
@@ -25,7 +30,8 @@ import statistics
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence
 
-METRIC_SCHEMA = "mcf_target_true_sensitive_v3_rome"
+METRIC_SCHEMA = "mcf_target_true_sensitive_v4_fs"
+LEGACY_SCHEMA = "mcf_target_true_sensitive_v3_rome"
 
 
 def write_json(path: Path, payload: Any) -> None:
@@ -64,7 +70,7 @@ def _assert_same_records(
 
 def _record_stats(rows: Sequence[Mapping[str, Any]], prompt_key: str) -> Dict[str, Any]:
     sensitive_pref_per_record: List[float] = []
-    rome_success_per_record: List[float] = []
+    forget_success_per_record: List[float] = []
     sens_nll_per_record: List[float] = []
     ref_nll_per_record: List[float] = []
     sep_per_record: List[float] = []
@@ -104,14 +110,15 @@ def _record_stats(rows: Sequence[Mapping[str, Any]], prompt_key: str) -> Dict[st
             ref_vals.append(ref)
             seps.append(sens - ref)
         sensitive_pref_per_record.append(float(statistics.mean(prefs)))
-        rome_success_per_record.append(float(statistics.mean(successes)))
+        forget_success_per_record.append(float(statistics.mean(successes)))
         sens_nll_per_record.append(float(statistics.mean(sens_vals)))
         ref_nll_per_record.append(float(statistics.mean(ref_vals)))
         sep_per_record.append(float(statistics.mean(seps)))
 
     return {
         "sensitive_preference_per_record": sensitive_pref_per_record,
-        "rome_success_per_record": rome_success_per_record,
+        "forget_success_per_record": forget_success_per_record,
+        "rome_success_per_record": forget_success_per_record,
         "sensitive_nll_per_record": sens_nll_per_record,
         "reference_nll_per_record": ref_nll_per_record,
         "separation_per_record": sep_per_record,
@@ -153,11 +160,11 @@ def _summarize_pair(
     )
 
     return {
-        "base_rome_success": _metric(
-            _mean(base["rome_success_per_record"]), _pstdev(base["rome_success_per_record"]), scale=100.0
+        "base_forget_success": _metric(
+            _mean(base["forget_success_per_record"]), _pstdev(base["forget_success_per_record"]), scale=100.0
         ),
-        "post_rome_success": _metric(
-            _mean(post["rome_success_per_record"]), _pstdev(post["rome_success_per_record"]), scale=100.0
+        "post_forget_success": _metric(
+            _mean(post["forget_success_per_record"]), _pstdev(post["forget_success_per_record"]), scale=100.0
         ),
         "base_sensitive_preference": _metric(
             _mean(base["sensitive_preference_per_record"]), _pstdev(base["sensitive_preference_per_record"]), scale=100.0
@@ -233,10 +240,19 @@ def main() -> None:
     base_ppl = base.get("forget_PPL")
     post_ppl = post.get("forget_PPL")
 
+    fs = direct["post_forget_success"]
+    gfs = paraphrase["post_forget_success"]
+    pref_direct = direct["post_sensitive_preference"]
+    pref_para = paraphrase["post_sensitive_preference"]
+    base_fs = direct["base_forget_success"]
+    base_gfs = paraphrase["base_forget_success"]
+    base_pref_direct = direct["base_sensitive_preference"]
+    base_pref_para = paraphrase["base_sensitive_preference"]
+
     report = {
-        "schema_version": 3,
+        "schema_version": 4,
         "metric_schema": METRIC_SCHEMA,
-        "method": "SURE-LM-canonical-target-true-sensitive",
+        "method": "SURE-LM-target-true-sensitive",
         "dataset": "MCF",
         "seed": int(post["seed"]),
         "target_semantics": {
@@ -247,21 +263,30 @@ def main() -> None:
         "comparison_contract": {
             "same_forget_split": True,
             "same_record_order": True,
-            "rome_success_rule": "NLL(target_true) > NLL(target_new)",
+            "forget_success_rule": "NLL(target_true) > NLL(target_new)",
             "strict_nll_ties_are_not_success": True,
             "macro_averaged_over_records": True,
+            "zero_unlearn_probability_eff_gen_computed": False,
+            "zero_unlearn_note": (
+                "ZeroUnlearn Eff/Gen are probability-based residual-sensitive metrics; "
+                "this evaluator computes pairwise FS/GFS instead."
+            ),
         },
         "metrics": {
-            "Eff": direct["post_rome_success"],
-            "Gen": paraphrase["post_rome_success"],
-            "Eff_Pref": direct["post_sensitive_preference"],
-            "Gen_Pref": paraphrase["post_sensitive_preference"],
+            "FS": fs,
+            "GFS": gfs,
+            "SensitivePref_direct": pref_direct,
+            "SensitivePref_paraphrase": pref_para,
             "Sensitive_NLL_direct": direct["post_sensitive_nll"],
+            "Reference_NLL_direct": direct["post_reference_nll"],
             "Delta_Sensitive_NLL_direct": direct["delta_sensitive_nll"],
+            "Delta_Reference_NLL_direct": direct["delta_reference_nll"],
             "NLL_Separation_direct": direct["post_nll_separation_sensitive_minus_reference"],
             "Delta_NLL_Separation_direct": direct["delta_nll_separation"],
             "Sensitive_NLL_paraphrase": paraphrase["post_sensitive_nll"],
+            "Reference_NLL_paraphrase": paraphrase["post_reference_nll"],
             "Delta_Sensitive_NLL_paraphrase": paraphrase["delta_sensitive_nll"],
+            "Delta_Reference_NLL_paraphrase": paraphrase["delta_reference_nll"],
             "NLL_Separation_paraphrase": paraphrase["post_nll_separation_sensitive_minus_reference"],
             "Delta_NLL_Separation_paraphrase": paraphrase["delta_nll_separation"],
             "Spe_margin": {
@@ -274,26 +299,43 @@ def main() -> None:
             },
             "PPL": None if post_ppl is None else float(post_ppl),
             "Delta_PPL": None if base_ppl is None or post_ppl is None else float(post_ppl) - float(base_ppl),
+            "Eff": fs,
+            "Gen": gfs,
+            "Eff_Pref": pref_direct,
+            "Gen_Pref": pref_para,
         },
         "base_reference": {
-            "Eff": direct["base_rome_success"],
-            "Gen": paraphrase["base_rome_success"],
-            "Eff_Pref": direct["base_sensitive_preference"],
-            "Gen_Pref": paraphrase["base_sensitive_preference"],
+            "FS": base_fs,
+            "GFS": base_gfs,
+            "SensitivePref_direct": base_pref_direct,
+            "SensitivePref_paraphrase": base_pref_para,
             "Sensitive_NLL_direct": direct["base_sensitive_nll"],
+            "Reference_NLL_direct": direct["base_reference_nll"],
             "Sensitive_NLL_paraphrase": paraphrase["base_sensitive_nll"],
+            "Reference_NLL_paraphrase": paraphrase["base_reference_nll"],
             "NLL_Separation_direct": direct["base_nll_separation_sensitive_minus_reference"],
             "NLL_Separation_paraphrase": paraphrase["base_nll_separation_sensitive_minus_reference"],
             "Spe_margin": _scalar_pair(base_forget_summary.get("post_neighborhood_diff"))[0],
             "Spe_success": _scalar_pair(base_forget_summary.get("post_neighborhood_success"))[0],
             "PPL": None if base_ppl is None else float(base_ppl),
+            "Eff": base_fs,
+            "Gen": base_gfs,
+            "Eff_Pref": base_pref_direct,
+            "Gen_Pref": base_pref_para,
+        },
+        "legacy_aliases": {
+            "metrics.Eff": "metrics.FS",
+            "metrics.Gen": "metrics.GFS",
+            "metrics.Eff_Pref": "metrics.SensitivePref_direct",
+            "metrics.Gen_Pref": "metrics.SensitivePref_paraphrase",
+            "status": "deprecated_do_not_use_in_paper_tables",
         },
         "diagnostics": {"direct": direct, "paraphrase": paraphrase},
         "directions": {
-            "Eff": "higher_is_better",
-            "Gen": "higher_is_better",
-            "Eff_Pref": "lower_is_better_diagnostic",
-            "Gen_Pref": "lower_is_better_diagnostic",
+            "FS": "higher_is_better",
+            "GFS": "higher_is_better",
+            "SensitivePref_direct": "lower_is_better_diagnostic",
+            "SensitivePref_paraphrase": "lower_is_better_diagnostic",
             "Sensitive_NLL_direct": "higher_is_stronger_suppression",
             "Delta_Sensitive_NLL_direct": "positive_is_stronger_suppression",
             "NLL_Separation_direct": "higher_is_stronger_suppression",
@@ -322,29 +364,31 @@ def main() -> None:
 
     m = report["metrics"]
     print("\n================================================================")
-    print("MCF CANONICAL SURE — ORIGINAL target_true IS SENSITIVE")
-    print("ROME success: NLL(target_true) > NLL(target_new); higher is better")
+    print("MCF SURE — ORIGINAL target_true IS SENSITIVE")
+    print("FS/GFS: NLL(target_true) > NLL(target_new); higher is better")
+    print("NOTE: FS/GFS are NOT ZeroUnlearn probability-based Eff/Gen.")
     print("================================================================")
-    print(f"{'Metric':<32}{'Value':>12}{'Direction':>14}")
-    print("-" * 58)
-    print(f"{'Eff':<32}{m['Eff']['mean']:>12.2f}{'↑':>14}")
-    print(f"{'Gen':<32}{m['Gen']['mean']:>12.2f}{'↑':>14}")
-    print(f"{'Sensitive preference (direct)':<32}{m['Eff_Pref']['mean']:>12.2f}{'↓':>14}")
-    print(f"{'Sensitive preference (para)':<32}{m['Gen_Pref']['mean']:>12.2f}{'↓':>14}")
-    print(f"{'Delta Sensitive NLL direct':<32}{m['Delta_Sensitive_NLL_direct']['mean']:>12.4f}{'↑':>14}")
-    print(f"{'NLL Separation direct':<32}{m['NLL_Separation_direct']['mean']:>12.4f}{'↑':>14}")
-    print(f"{'Spe-Margin':<32}{m['Spe_margin']['mean']:>12.2f}{'↑':>14}")
-    print(f"{'Spe-Success':<32}{m['Spe_success']['mean']:>12.2f}{'↑':>14}")
+    print(f"{'Metric':<34}{'Value':>12}{'Direction':>14}")
+    print("-" * 60)
+    print(f"{'FS (Forget Success)':<34}{m['FS']['mean']:>12.2f}{'↑':>14}")
+    print(f"{'GFS (Generalized Forget Success)':<34}{m['GFS']['mean']:>12.2f}{'↑':>14}")
+    print(f"{'Sensitive preference (direct)':<34}{m['SensitivePref_direct']['mean']:>12.2f}{'↓':>14}")
+    print(f"{'Sensitive preference (para)':<34}{m['SensitivePref_paraphrase']['mean']:>12.2f}{'↓':>14}")
+    print(f"{'Delta Sensitive NLL direct':<34}{m['Delta_Sensitive_NLL_direct']['mean']:>12.4f}{'↑':>14}")
+    print(f"{'Delta Reference NLL direct':<34}{m['Delta_Reference_NLL_direct']['mean']:>12.4f}{'audit':>14}")
+    print(f"{'NLL Separation direct':<34}{m['NLL_Separation_direct']['mean']:>12.4f}{'↑':>14}")
+    print(f"{'Spe-Margin':<34}{m['Spe_margin']['mean']:>12.2f}{'↑':>14}")
+    print(f"{'Spe-Success':<34}{m['Spe_success']['mean']:>12.2f}{'↑':>14}")
     ppl_text = "null" if m["PPL"] is None else f"{m['PPL']:.4f}"
-    print(f"{'PPL':<32}{ppl_text:>12}{'↓':>14}")
+    print(f"{'PPL':<34}{ppl_text:>12}{'↓/stable':>14}")
     print("================================================================")
     print(
-        "Direct ROME forget success: "
+        "Direct forget success: "
         f"{direct['post_counts']['reference_preferred_prompt_instances']}/"
         f"{direct['post_counts']['prompt_instance_count']}"
     )
     print(
-        "Paraphrase ROME forget success: "
+        "Paraphrase forget success: "
         f"{paraphrase['post_counts']['reference_preferred_prompt_instances']}/"
         f"{paraphrase['post_counts']['prompt_instance_count']}"
     )
@@ -353,6 +397,7 @@ def main() -> None:
         f"{direct['post_counts']['exact_nll_ties']}/"
         f"{paraphrase['post_counts']['exact_nll_ties']} (not counted as success)"
     )
+    print("ZeroUnlearn Eff/Gen probability metrics: NOT COMPUTED by this evaluator")
     print("Wrote:", out)
 
 
