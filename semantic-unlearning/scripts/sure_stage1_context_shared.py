@@ -10,7 +10,9 @@ Architecture is identical across benchmarks:
   * only sensitive LM-head rows are trainable;
   * each sensitive row is constrained to its own direct forget-context hidden
     subspace;
-  * direct-only scale selection uses the same token-level suppression margin.
+  * direct-only scale selection uses the SAME two shared constraints:
+      - best-other minus sensitive logit >= logit margin;
+      - sensitive-token NLL increase vs Base >= NLL-increase threshold.
 
 The benchmark adapter changes only which answer field is sensitive:
   * MCF  -> target_new in the locked training view
@@ -52,6 +54,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--context-rank", type=int, default=2,
                    help="Per-row direct-forget context rank cap; 0 means full observed numerical rank.")
     p.add_argument("--constraint-margin", type=float, default=0.05)
+    p.add_argument("--min-sensitive-nll-increase", type=float, default=4.0,
+                   help="Minimum per-sensitive-token NLL increase versus frozen Base.")
     p.add_argument("--candidate-scales", default="1,.875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,.046875,.03125,.015625,.0078125,0")
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
@@ -95,8 +99,8 @@ def main() -> None:
         raise ValueError("steps and batch sizes must be positive")
     if a.lr <= 0 or a.ga_weight <= 0 or a.gd_weight < 0 or a.delta_l2 < 0:
         raise ValueError("invalid optimization weights")
-    if a.context_rank < 0 or a.constraint_margin < 0:
-        raise ValueError("context rank and constraint margin must be non-negative")
+    if a.context_rank < 0 or a.constraint_margin < 0 or a.min_sensitive_nll_increase < 0:
+        raise ValueError("context rank and direct constraints must be non-negative")
 
     gagd.set_seed(a.seed)
     if a.device_map == "single":
@@ -134,8 +138,6 @@ def main() -> None:
     base_logits = core.cache_base_logits(
         model, tok, cases, device, batch_size=a.cache_batch_size
     )
-    # Persist teacher logits so Stage 2 can use the same Base teacher without
-    # loading a second full model.  This file is direct-forget-only.
     out_dir = gagd.resolve_output_path(a.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     base_logits_path = out_dir / "base_sensitive_case_logits.pt"
@@ -191,24 +193,38 @@ def main() -> None:
             lambda scale=scale: trained_delta * float(scale),
         )
         try:
-            margins = shared.evaluate_suppression_margins(
-                model, tok, cases, llama_like=llama_like, device=device,
+            state = shared.evaluate_shared_constraints(
+                model, tok, cases, base_logits,
+                llama_like=llama_like, device=device,
                 batch_size=a.cache_batch_size,
             )
         finally:
             h.remove()
+        failures = shared.count_failures(
+            state["logit_margin"], state["sensitive_nll_increase"],
+            required_logit_margin=a.constraint_margin,
+            required_nll_increase=a.min_sensitive_nll_increase,
+        )
         scale_reports.append({
             "scale": float(scale),
-            "direct_failures": shared.count_failures(margins, a.constraint_margin),
-            "minimum_suppression_margin": float(margins.min().detach().cpu()),
+            "direct_failures": failures,
+            "minimum_suppression_margin": float(state["logit_margin"].min().detach().cpu()),
+            "minimum_sensitive_nll_increase": float(state["sensitive_nll_increase"].min().detach().cpu()),
+            "mean_sensitive_nll_increase": float(state["sensitive_nll_increase"].mean().detach().cpu()),
             "effective_delta_norm": float(trained_delta.norm().cpu() * scale),
         })
     selected_scale = core.choose_scale(scale_reports)
     final_delta = trained_delta * float(selected_scale)
     core.materialize_output_delta(output_layer, selected_ids, final_delta)
-    final_margins = shared.evaluate_suppression_margins(
-        model, tok, cases, llama_like=llama_like, device=device,
+    final_state = shared.evaluate_shared_constraints(
+        model, tok, cases, base_logits,
+        llama_like=llama_like, device=device,
         batch_size=a.cache_batch_size,
+    )
+    final_failures = shared.count_failures(
+        final_state["logit_margin"], final_state["sensitive_nll_increase"],
+        required_logit_margin=a.constraint_margin,
+        required_nll_increase=a.min_sensitive_nll_increase,
     )
 
     ckpt = out_dir / "checkpoint"
@@ -217,10 +233,10 @@ def main() -> None:
     tok.save_pretrained(ckpt)
 
     config: Dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "method": "SURE-LM-fixed-shared-context-stage1",
         "dataset": a.dataset,
-        "protocol": "sure_fixed_shared_context_v1",
+        "protocol": "sure_fixed_shared_context_v2",
         "source_protocol": manifest.get("protocol"),
         "seed": int(a.seed),
         "forget_num": int(a.forget_num),
@@ -244,13 +260,19 @@ def main() -> None:
         "ga_weight": float(a.ga_weight),
         "gd_weight": float(a.gd_weight),
         "delta_l2": float(a.delta_l2),
-        "constraint_semantics": "best_non_sensitive_logit_minus_sensitive_logit",
+        "constraint_semantics": [
+            "best_non_sensitive_logit_minus_sensitive_logit",
+            "sensitive_token_nll_increase_vs_frozen_base",
+        ],
         "constraint_margin": float(a.constraint_margin),
+        "min_sensitive_nll_increase": float(a.min_sensitive_nll_increase),
         "candidate_scales": scales,
         "scale_reports": scale_reports,
         "selected_scale": float(selected_scale),
-        "final_direct_failures": shared.count_failures(final_margins, a.constraint_margin),
-        "minimum_final_suppression_margin": float(final_margins.min().detach().cpu()),
+        "final_direct_failures": int(final_failures),
+        "minimum_final_suppression_margin": float(final_state["logit_margin"].min().detach().cpu()),
+        "minimum_final_sensitive_nll_increase": float(final_state["sensitive_nll_increase"].min().detach().cpu()),
+        "mean_final_sensitive_nll_increase": float(final_state["sensitive_nll_increase"].mean().detach().cpu()),
         "base_logits_cache": str(base_logits_path.resolve()),
         "checkpoint": str(ckpt.resolve()),
         "benchmark_retain_seen": 0,
@@ -262,6 +284,7 @@ def main() -> None:
     print("sensitive field:", config["sensitive_answer_field"])
     print("direct PredictionCases:", len(cases))
     print("final direct failures:", config["final_direct_failures"])
+    print("minimum sensitive NLL increase:", config["minimum_final_sensitive_nll_increase"])
 
 
 if __name__ == "__main__":
