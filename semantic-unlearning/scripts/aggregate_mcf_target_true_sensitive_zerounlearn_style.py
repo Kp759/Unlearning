@@ -1,23 +1,15 @@
 #!/usr/bin/env python3
-"""Aggregate target-true-sensitive MCF using the ZeroUnlearn-style directions.
+"""Legacy aggregate for target-true-sensitive MCF pairwise diagnostics.
 
-This is the semantic mirror of the registered target-new-sensitive MCF record.
-Original MCF ``target_true`` is the sensitive answer and original ``target_new``
-is the non-sensitive/reference answer.
+WARNING: this script does NOT compute ZeroUnlearn's probability-based Eff/Gen.
+Older versions incorrectly labeled residual pairwise sensitive-preference rates
+as ``Eff``/``Gen``. Those quantities are now named explicitly:
 
-To preserve the *meaning* of ZeroUnlearn's lower-is-better Eff/Gen after this
-field inversion, Eff/Gen here are the sensitive-preference rates:
+  SensitivePref_direct      = 100 P[NLL(target_true) < NLL(target_new)]
+  SensitivePref_paraphrase  = same on held-out paraphrases
 
-    Eff = 100 P[NLL(target_true) < NLL(target_new)]   on rewrite prompts
-    Gen = 100 P[NLL(target_true) < NLL(target_new)]   on paraphrases
-
-Thus lower is better: zero means the sensitive original target_true is never
-strictly preferred over target_new. Exact NLL ties are reported separately by
-the per-seed canonical evaluator and are not counted as sensitive preference.
-
-Spe and PPL are copied from the same original-unswapped MCF final evaluation.
-Across-seed uncertainty uses population SD (ddof=0), matching the registered
-20260810 ZeroUnlearn-style best-run record.
+The complementary pairwise success rates are FS/GFS. Original MCF target_true
+is sensitive; target_new is the counterfactual reference.
 """
 from __future__ import annotations
 
@@ -28,6 +20,11 @@ import statistics
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
+SCHEMAS = {
+    "mcf_target_true_sensitive_v4_fs",
+    "mcf_target_true_sensitive_v3_rome",
+}
+
 
 def dig(obj: Dict[str, Any], path: Sequence[str]) -> Any:
     cur: Any = obj
@@ -36,6 +33,14 @@ def dig(obj: Dict[str, Any], path: Sequence[str]) -> Any:
             return None
         cur = cur[key]
     return cur
+
+
+def first(data: Dict[str, Any], *paths: Sequence[str]) -> Any:
+    for path in paths:
+        value = dig(data, path)
+        if value is not None:
+            return value
+    return None
 
 
 def pop_sd(xs: Sequence[float]) -> float:
@@ -49,18 +54,22 @@ def main() -> None:
     p.add_argument(
         "--out-prefix",
         default="zerounlearn_style_target_true_sensitive_aggregate",
+        help="Legacy filename only; contents use corrected FS/GFS and SensitivePref names.",
     )
     a = p.parse_args()
 
     root = Path(a.root).resolve()
     rows: List[Dict[str, Any]] = []
+    schemas_seen: set[str] = set()
     for seed in a.seeds:
         path = root / f"seed{seed}" / "target_true_sensitive_eval.json"
         if not path.exists():
             raise FileNotFoundError(f"Missing seed result: {path}")
         data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("metric_schema") != "mcf_target_true_sensitive_v3_rome":
-            raise RuntimeError(f"Unexpected metric schema in {path}")
+        schema = str(data.get("metric_schema"))
+        if schema not in SCHEMAS:
+            raise RuntimeError(f"Unexpected metric schema in {path}: {schema}")
+        schemas_seen.add(schema)
         if int(data.get("seed", -1)) != seed:
             raise RuntimeError(f"Seed mismatch in {path}")
 
@@ -68,16 +77,21 @@ def main() -> None:
         para_counts = dig(data, ("diagnostics", "paraphrase", "post_counts")) or {}
         row = {
             "seed": seed,
-            # Exact ZeroUnlearn-style semantic analogue after swapping which
-            # answer is sensitive: residual sensitive preference, lower better.
-            "Eff": float(dig(data, ("metrics", "Eff_Pref", "mean"))),
-            "Gen": float(dig(data, ("metrics", "Gen_Pref", "mean"))),
-            "Spe": float(dig(data, ("metrics", "Spe_margin", "mean"))),
+            "SensitivePref_direct": float(first(
+                data,
+                ("metrics", "SensitivePref_direct", "mean"),
+                ("metrics", "Eff_Pref", "mean"),
+            )),
+            "SensitivePref_paraphrase": float(first(
+                data,
+                ("metrics", "SensitivePref_paraphrase", "mean"),
+                ("metrics", "Gen_Pref", "mean"),
+            )),
+            "FS": float(first(data, ("metrics", "FS", "mean"), ("metrics", "Eff", "mean"))),
+            "GFS": float(first(data, ("metrics", "GFS", "mean"), ("metrics", "Gen", "mean"))),
+            "Spe_margin": float(dig(data, ("metrics", "Spe_margin", "mean"))),
             "Spe_success": float(dig(data, ("metrics", "Spe_success", "mean"))),
             "PPL": float(dig(data, ("metrics", "PPL"))),
-            # Keep canonical complementary ROME success visible for auditing.
-            "Canonical_Eff_up": float(dig(data, ("metrics", "Eff", "mean"))),
-            "Canonical_Gen_up": float(dig(data, ("metrics", "Gen", "mean"))),
             "rewrite_prompt_instances": int(direct_counts.get("prompt_instance_count", 0)),
             "rewrite_sensitive_preferred": int(direct_counts.get("sensitive_preferred_prompt_instances", 0)),
             "rewrite_reference_preferred": int(direct_counts.get("reference_preferred_prompt_instances", 0)),
@@ -89,25 +103,45 @@ def main() -> None:
         }
         rows.append(row)
 
-    metric_names = ("Eff", "Gen", "Spe", "Spe_success", "PPL", "Canonical_Eff_up", "Canonical_Gen_up")
+    metric_names = (
+        "SensitivePref_direct", "SensitivePref_paraphrase", "FS", "GFS",
+        "Spe_margin", "Spe_success", "PPL",
+    )
+    directions = {
+        "SensitivePref_direct": "↓",
+        "SensitivePref_paraphrase": "↓",
+        "FS": "↑",
+        "GFS": "↑",
+        "Spe_margin": "↑",
+        "Spe_success": "↑",
+        "PPL": "↓/stable",
+    }
+
     aggregate: Dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "dataset": "MCF",
-        "protocol": "zerounlearn_locked_forget_only_target_true_sensitive_mirror",
+        "protocol": "target_true_sensitive_pairwise_diagnostics",
+        "input_schemas": sorted(schemas_seen),
         "sensitive": "original requested_rewrite.target_true",
         "reference": "original requested_rewrite.target_new",
+        "zero_unlearn_probability_eff_gen_computed": False,
+        "correction_note": (
+            "Older versions of this legacy script mislabeled pairwise sensitive-preference "
+            "rates as ZeroUnlearn-style Eff/Gen. Correct names are SensitivePref_direct/"
+            "SensitivePref_paraphrase; complementary success metrics are FS/GFS."
+        ),
         "metric_semantics": {
-            "Eff": "100 * P[NLL(target_true) < NLL(target_new)] on rewrite; lower is better",
-            "Gen": "100 * P[NLL(target_true) < NLL(target_new)] on paraphrase; lower is better",
-            "Spe": "original MCF neighborhood probability-difference score; higher is better",
-            "Spe_success": "original MCF neighborhood true-answer preservation rate; higher is better",
+            "SensitivePref_direct": "100 * P[NLL(target_true) < NLL(target_new)] on rewrite; lower better",
+            "SensitivePref_paraphrase": "same on paraphrases; lower better",
+            "FS": "100 * P[NLL(target_true) > NLL(target_new)] on rewrite; higher better",
+            "GFS": "same on paraphrases; higher better",
+            "Spe_margin": "original MCF neighborhood probability-difference diagnostic; higher better",
+            "Spe_success": "original MCF neighborhood true-answer preservation rate; higher better",
             "PPL": "lower/stable is better",
-            "Canonical_Eff_up": "100 * P[NLL(target_true) > NLL(target_new)] on rewrite; higher is better",
-            "Canonical_Gen_up": "100 * P[NLL(target_true) > NLL(target_new)] on paraphrase; higher is better",
         },
         "seeds": list(a.seeds),
         "n_seeds": len(a.seeds),
-        "std_convention_primary": "population standard deviation (ddof=0), matching registered 20260810 record",
+        "std_convention_primary": "population standard deviation (ddof=0)",
         "metrics": {},
         "prompt_totals": {
             "rewrite_prompt_instances": sum(r["rewrite_prompt_instances"] for r in rows),
@@ -125,6 +159,7 @@ def main() -> None:
         aggregate["metrics"][name] = {
             "mean": float(statistics.mean(vals)),
             "population_sd": pop_sd(vals),
+            "direction": directions[name],
         }
 
     json_path = root / f"{a.out_prefix}.json"
@@ -138,32 +173,17 @@ def main() -> None:
         writer.writerows(rows)
 
     lines = [
-        "# MCF target-true-sensitive — ZeroUnlearn-style mirrored aggregate",
+        "# MCF target-true-sensitive pairwise diagnostics",
         "",
-        "Sensitive = original `target_true`; non-sensitive/reference = original `target_new`.",
-        "Eff/Gen below are residual sensitive-preference rates, so **lower is better**, preserving the semantic meaning of the registered ZeroUnlearn-style track after swapping the sensitive field.",
-        "Across-seed uncertainty uses population SD (`ddof=0`).",
+        "Sensitive = original `target_true`; reference = original `target_new`.",
+        "**This file does not contain ZeroUnlearn probability-based Eff/Gen.**",
         "",
         "| Metric | Mean ± population SD | Direction |",
         "|---|---:|:---:|",
     ]
-    directions = {
-        "Eff": "↓", "Gen": "↓", "Spe": "↑", "Spe_success": "↑", "PPL": "↓/stable",
-        "Canonical_Eff_up": "↑", "Canonical_Gen_up": "↑",
-    }
     for name in metric_names:
         item = aggregate["metrics"][name]
         lines.append(f"| {name} | **{item['mean']:.4f} ± {item['population_sd']:.4f}** | {directions[name]} |")
-    totals = aggregate["prompt_totals"]
-    lines += [
-        "",
-        "## Prompt-level totals",
-        "",
-        f"- rewrite prompts: `{totals['rewrite_prompt_instances']}`, sensitive still preferred: `{totals['rewrite_sensitive_preferred']}`, ties: `{totals['rewrite_ties']}`",
-        f"- held-out paraphrase prompts: `{totals['paraphrase_prompt_instances']}`, sensitive still preferred: `{totals['paraphrase_sensitive_preferred']}`, ties: `{totals['paraphrase_ties']}`",
-        "",
-        "Canonical complementary ROME success (`Canonical_Eff_up`/`Canonical_Gen_up`) is retained only to make the direction change fully auditable.",
-    ]
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(md_path.read_text(encoding="utf-8"))
     print("JSON:", json_path)
