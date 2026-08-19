@@ -65,6 +65,7 @@ EVAL_RETAIN_NUM="${MCF_RETAIN_EVAL_NUM:-1000}"
 DTYPE="${DTYPE:-bf16}"
 DEVICE_MAP="${DEVICE_MAP:-single}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
+SKIP_AGGREGATE="${SKIP_AGGREGATE:-0}"
 
 # EXACT registered 20260810 Stage-1 hyperparameters.
 STEPS="${MCF_STEPS:-600}"
@@ -340,17 +341,21 @@ PY
   echo "Seed ${SEED} complete: ${PAPER_EVAL}"
 done
 
-# Canonical higher-is-better ROME view.
-"${PYTHON_BIN}" scripts/aggregate_mcf_target_true_sensitive.py \
-  --root "${OUTPUT_ROOT}" \
-  --seeds "${SEEDS[@]}" \
-  --out-prefix target_true_sensitive_canonical_aggregate
+if [[ "${SKIP_AGGREGATE}" != "1" ]]; then
+  # Canonical higher-is-better ROME view.
+  "${PYTHON_BIN}" scripts/aggregate_mcf_target_true_sensitive.py \
+    --root "${OUTPUT_ROOT}" \
+    --seeds "${SEEDS[@]}" \
+    --out-prefix target_true_sensitive_canonical_aggregate
 
-# ZeroUnlearn-style lower-is-better semantic mirror.
-"${PYTHON_BIN}" scripts/aggregate_mcf_target_true_sensitive_zerounlearn_style.py \
-  --root "${OUTPUT_ROOT}" \
-  --seeds "${SEEDS[@]}" \
-  --out-prefix zerounlearn_style_target_true_sensitive_aggregate
+  # ZeroUnlearn-style lower-is-better semantic mirror.
+  "${PYTHON_BIN}" scripts/aggregate_mcf_target_true_sensitive_zerounlearn_style.py \
+    --root "${OUTPUT_ROOT}" \
+    --seeds "${SEEDS[@]}" \
+    --out-prefix zerounlearn_style_target_true_sensitive_aggregate
+else
+  echo "Skipping aggregate inside this worker (SKIP_AGGREGATE=1)."
+fi
 
 echo
 echo "Target-true-sensitive exact mirrored MCF track complete."
