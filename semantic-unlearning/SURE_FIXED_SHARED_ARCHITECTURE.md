@@ -11,6 +11,27 @@ Stage-2 objective, direct residual criterion, rank schedule, scale-selection
 rule, and optimization defaults. Benchmark adapters may only identify the
 sensitive answer and construct the locked direct-only training view.
 
+## Paper source of truth
+
+For cross-benchmark paper claims, the only supported two-stage path is:
+
+```text
+sure_stage1_context_shared.py
+    -> sure_stage2_context_shared.py
+```
+
+invoked by:
+
+```bash
+bash scripts/run_mcf_sure_fixed_shared.sh MODEL_PATH [MCF_JSON]
+bash scripts/run_zsre_sure_fixed_shared.sh MODEL_PATH [ZSRE_JSON]
+```
+
+MCF-only residual/guarded Stage-2 scripts are ablations and must not replace
+this shared paper path. In particular, `sure_stage2_sparse_repair_residual.py`
+and `sure_stage2_sparse_repair_guarded.py` are diagnostic MCF variants, not the
+architecture used to claim MCF/ZsRE parity.
+
 ## Sensitive-answer adapters
 
 | Dataset | Locked sensitive field | Meaning |
@@ -156,8 +177,8 @@ Architecture equality does not require final benchmark metrics to be identical.
 After freezing the checkpoint:
 
 * MCF reopens the ORIGINAL UNSWAPPED MCF source. Paper reporting may include
-  target-true-sensitive `Eff-Pref`, `Gen-Pref`, sensitive NLL change,
-  neighborhood specificity, and locked-corpus PPL.
+  target-true-sensitive FS/GFS, sensitive NLL change, neighborhood specificity,
+  and locked-corpus PPL.
 * ZsRE reopens the original ZsRE source and uses its official direct/rephrase/
   locality/retain evaluator plus the same locked-corpus PPL fixture.
 
@@ -185,6 +206,11 @@ uses different benchmark-specific residual losses (MCF pairwise sequence-NLL
 hinge versus ZsRE sensitive-vs-best-other hinge). Results from that path remain
 valid descriptions of their checkpoints, but they must not be used to claim an
 identical Stage-2 objective across MCF and ZsRE.
+
+`sure_stage2_sparse_repair_residual.py` and
+`sure_stage2_sparse_repair_guarded.py` are MCF-only diagnostic ablations created
+to study locality versus residual repair. Their checkpoints may be reported as
+ablations, but they are not the cross-benchmark SURE architecture.
 
 The first fixed-shared context run used only the top-1 logit-margin residual
 criterion. Its MCF seed-1 result achieved strong locality but insufficient
