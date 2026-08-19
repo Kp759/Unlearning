@@ -19,7 +19,7 @@ import copy
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Sequence, Tuple
+from typing import Any, Dict, Mapping, Sequence, Tuple
 
 from mcf_sampling import sample_official_mcf_records
 
@@ -54,7 +54,8 @@ def swap_and_lock(record: Mapping[str, Any], index: int) -> Dict[str, Any]:
     rr["target_new"] = old_true
     rr["target_true"] = old_new
     for field in LOCKED_FIELDS:
-        rr[field] = [] if field in rr else rr.get(field, [])
+        if field in rr:
+            rr[field] = []
         out[field] = []
     out["requested_rewrite"] = rr
     return out
@@ -91,6 +92,17 @@ def main() -> None:
     visible_path = out / "repair_visible_mcf_target_true_sensitive.json"
     text = json.dumps(visible, ensure_ascii=False, indent=2) + "\n"
     visible_path.write_text(text, encoding="utf-8")
+    visible_sha = sha256_bytes(text.encode("utf-8"))
+
+    target_semantics = {
+        "original_sensitive_field": "target_true",
+        "original_reference_field": "target_new",
+        "sensitive": "ORIGINAL target_true",
+        "reference": "ORIGINAL target_new",
+        "training_target_new": "ORIGINAL target_true",
+        "training_target_true": "ORIGINAL target_new",
+        "final_evaluation_uses_original_unswapped_source": True,
+    }
 
     per_seed = []
     for seed in a.seeds:
@@ -98,13 +110,36 @@ def main() -> None:
         vf, vr = selected_indices(visible, a.forget_num, a.retain_num, seed)
         if sf != vf or sr != vr:
             raise AssertionError(f"swapped view changed official sampling for seed {seed}")
-        per_seed.append({
+        seed_payload = {
+            "schema_version": 1,
+            "protocol": PROTOCOL,
             "seed": int(seed),
-            "forget_record_indices": sf,
-            "retain_record_indices": sr,
-            "forget_case_ids": [raw[i].get("case_id", i) for i in sf],
-            "retain_case_ids": [raw[i].get("case_id", i) for i in sr],
-        })
+            "source_dataset": str(src),
+            "training_visible_dataset": str(visible_path),
+            "source_sha256": sha256_bytes(src_bytes),
+            "training_visible_sha256": visible_sha,
+            "target_semantics": target_semantics,
+            "sampling": {
+                "implementation": "sample_official_mcf_records",
+                "order": "forget sample first, then retain sample from one seeded RNG",
+                "forget_num": int(a.forget_num),
+                "retain_num": int(a.retain_num),
+                "forget_case_ids": [raw[i].get("case_id", i) for i in sf],
+                "retain_case_ids": [raw[i].get("case_id", i) for i in sr],
+                "forget_record_indices": sf,
+                "retain_record_indices": sr,
+            },
+            "data_roles": {
+                "training_visible": ["requested_rewrite prompt", "sensitive answer", "reference answer"],
+                "evaluation_only": list(LOCKED_FIELDS),
+                "same_underlying_forget_facts_at_final_eval": True,
+                "prompt_level_holdout": True,
+            },
+        }
+        (out / f"seed{seed}_manifest.json").write_text(
+            json.dumps(seed_payload, indent=2) + "\n", encoding="utf-8"
+        )
+        per_seed.append(seed_payload)
 
     manifest = {
         "schema_version": 1,
@@ -112,7 +147,7 @@ def main() -> None:
         "source_dataset": str(src),
         "training_visible_dataset": str(visible_path),
         "source_sha256": sha256_bytes(src_bytes),
-        "training_visible_sha256": sha256_bytes(text.encode("utf-8")),
+        "training_visible_sha256": visible_sha,
         "dataset_size": len(raw),
         "sampling": {
             "implementation": "sample_official_mcf_records",
@@ -121,19 +156,7 @@ def main() -> None:
             "retain_num": int(a.retain_num),
             "seeds": [int(x) for x in a.seeds],
         },
-        "target_semantics": {
-            "sensitive": "ORIGINAL target_true",
-            "reference": "ORIGINAL target_new",
-            "training_target_new": "ORIGINAL target_true",
-            "training_target_true": "ORIGINAL target_new",
-            "final_evaluation_uses_original_unswapped_source": True,
-        },
-        "data_roles": {
-            "training_visible": ["requested_rewrite prompt", "sensitive answer", "reference answer"],
-            "evaluation_only": list(LOCKED_FIELDS),
-            "same_underlying_forget_facts_at_final_eval": True,
-            "prompt_level_holdout": True,
-        },
+        "target_semantics": target_semantics,
         "per_seed": per_seed,
     }
     manifest_path = out / "split_manifest.json"
