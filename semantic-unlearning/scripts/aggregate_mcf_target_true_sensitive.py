@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Aggregate canonical target-true-sensitive MCF results across seeds.
+"""Aggregate target-true-sensitive MCF SURE diagnostics across seeds.
 
-Across-seed uncertainty uses sample standard deviation (n-1), while each seed's
-JSON preserves the evaluator's per-record population SD separately.  Canonical
-MCF Eff/Gen follow the original ROME/CounterFact strict rule and are higher-is-
-better.  Sensitive-preference rates remain diagnostic only.
+Primary paper-facing behavioral metrics are:
+
+  FS  = 100 P[NLL(target_true) > NLL(target_new)] on direct rewrites (higher better)
+  GFS = 100 P[NLL(target_true) > NLL(target_new)] on paraphrases (higher better)
+
+These are pairwise forget-success rates, NOT ZeroUnlearn's probability-based
+Eff/Gen. Sensitive-preference rates are retained as lower-is-better diagnostics.
+The loader accepts both the new v4 FS/GFS schema and legacy v3 files.
 """
 from __future__ import annotations
 
@@ -13,31 +17,44 @@ import csv
 import json
 import statistics
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 
+SCHEMAS = {
+    "mcf_target_true_sensitive_v4_fs",
+    "mcf_target_true_sensitive_v3_rome",
+}
 
 METRICS = (
-    ("Eff", ("metrics", "Eff", "mean"), "↑"),
-    ("Gen", ("metrics", "Gen", "mean"), "↑"),
-    ("Eff_Pref", ("metrics", "Eff_Pref", "mean"), "↓"),
-    ("Gen_Pref", ("metrics", "Gen_Pref", "mean"), "↓"),
-    ("Delta_Sensitive_NLL_direct", ("metrics", "Delta_Sensitive_NLL_direct", "mean"), "↑"),
-    ("NLL_Separation_direct", ("metrics", "NLL_Separation_direct", "mean"), "↑"),
-    ("Delta_Sensitive_NLL_paraphrase", ("metrics", "Delta_Sensitive_NLL_paraphrase", "mean"), "↑"),
-    ("NLL_Separation_paraphrase", ("metrics", "NLL_Separation_paraphrase", "mean"), "↑"),
-    ("Spe_margin", ("metrics", "Spe_margin", "mean"), "↑"),
-    ("Spe_success", ("metrics", "Spe_success", "mean"), "↑"),
-    ("PPL", ("metrics", "PPL"), "↓"),
+    ("FS", ("metrics", "FS", "mean"), ("metrics", "Eff", "mean"), "↑"),
+    ("GFS", ("metrics", "GFS", "mean"), ("metrics", "Gen", "mean"), "↑"),
+    ("SensitivePref_direct", ("metrics", "SensitivePref_direct", "mean"), ("metrics", "Eff_Pref", "mean"), "↓"),
+    ("SensitivePref_paraphrase", ("metrics", "SensitivePref_paraphrase", "mean"), ("metrics", "Gen_Pref", "mean"), "↓"),
+    ("Delta_Sensitive_NLL_direct", ("metrics", "Delta_Sensitive_NLL_direct", "mean"), None, "↑"),
+    ("Delta_Reference_NLL_direct", ("metrics", "Delta_Reference_NLL_direct", "mean"), None, "audit"),
+    ("NLL_Separation_direct", ("metrics", "NLL_Separation_direct", "mean"), None, "↑"),
+    ("Delta_Sensitive_NLL_paraphrase", ("metrics", "Delta_Sensitive_NLL_paraphrase", "mean"), None, "↑"),
+    ("Delta_Reference_NLL_paraphrase", ("metrics", "Delta_Reference_NLL_paraphrase", "mean"), None, "audit"),
+    ("NLL_Separation_paraphrase", ("metrics", "NLL_Separation_paraphrase", "mean"), None, "↑"),
+    ("Spe_margin", ("metrics", "Spe_margin", "mean"), None, "↑"),
+    ("Spe_success", ("metrics", "Spe_success", "mean"), None, "↑"),
+    ("PPL", ("metrics", "PPL"), None, "↓/stable"),
 )
 
 
-def dig(obj: Dict[str, Any], path: tuple[str, ...]) -> Any:
+def dig(obj: Dict[str, Any], path: Sequence[str]) -> Any:
     cur: Any = obj
     for key in path:
         if not isinstance(cur, dict) or key not in cur:
             return None
         cur = cur[key]
     return cur
+
+
+def read_metric(data: Dict[str, Any], primary: Sequence[str], fallback: Sequence[str] | None) -> Any:
+    value = dig(data, primary)
+    if value is None and fallback is not None:
+        value = dig(data, fallback)
+    return value
 
 
 def main() -> None:
@@ -49,43 +66,49 @@ def main() -> None:
 
     root = Path(a.root).resolve()
     rows: List[Dict[str, Any]] = []
+    schemas_seen: set[str] = set()
+
     for seed in a.seeds:
         path = root / f"seed{seed}" / "target_true_sensitive_eval.json"
         if not path.exists():
             raise FileNotFoundError(f"Missing seed result: {path}")
         data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("metric_schema") != "mcf_target_true_sensitive_v3_rome":
-            raise RuntimeError(f"Unexpected metric schema in {path}")
+        schema = str(data.get("metric_schema"))
+        if schema not in SCHEMAS:
+            raise RuntimeError(f"Unexpected metric schema in {path}: {schema}")
+        schemas_seen.add(schema)
         if int(data.get("seed", -1)) != seed:
             raise RuntimeError(f"Seed mismatch in {path}")
+
         row: Dict[str, Any] = {"seed": seed}
-        for name, metric_path, _ in METRICS:
-            row[name] = dig(data, metric_path)
+        for name, primary, fallback, _ in METRICS:
+            row[name] = read_metric(data, primary, fallback)
         rows.append(row)
 
     aggregate: Dict[str, Any] = {
-        "schema_version": 2,
-        "metric_schema": "mcf_target_true_sensitive_v3_rome",
+        "schema_version": 3,
+        "metric_schema": "mcf_target_true_sensitive_aggregate_v3_fs",
+        "input_schemas": sorted(schemas_seen),
         "dataset": "MCF",
-        "method": "SURE-LM-canonical-target-true-sensitive",
-        "rome_success_rule": "NLL(target_true) > NLL(target_new)",
+        "method": "SURE-LM-target-true-sensitive",
+        "sensitive": "original requested_rewrite.target_true",
+        "reference": "original requested_rewrite.target_new",
+        "forget_success_rule": "NLL(target_true) > NLL(target_new)",
+        "zero_unlearn_probability_eff_gen_computed": False,
+        "zero_unlearn_note": (
+            "FS/GFS are pairwise success rates and must not be called ZeroUnlearn Eff/Gen. "
+            "Probability-based ZeroUnlearn Eff/Gen require a separate aligned evaluator."
+        ),
         "seeds": list(a.seeds),
         "n_seeds": len(a.seeds),
         "across_seed_sd": "sample_standard_deviation_n_minus_1",
         "metrics": {},
     }
-    for name, _, direction in METRICS:
+
+    for name, _, _, direction in METRICS:
         vals = [float(row[name]) for row in rows if row[name] is not None]
-        if len(vals) != len(rows):
-            aggregate["metrics"][name] = {
-                "mean": None,
-                "sample_sd": None,
-                "direction": direction,
-                "n": len(vals),
-            }
-            continue
         aggregate["metrics"][name] = {
-            "mean": float(statistics.mean(vals)),
+            "mean": float(statistics.mean(vals)) if vals else None,
             "sample_sd": float(statistics.stdev(vals)) if len(vals) > 1 else None,
             "direction": direction,
             "n": len(vals),
@@ -102,16 +125,17 @@ def main() -> None:
         writer.writerows(rows)
 
     lines = [
-        "# MCF canonical target-true-sensitive SURE aggregate",
+        "# MCF target-true-sensitive SURE aggregate",
         "",
         "Sensitive = original `target_true`; counterfactual reference = original `target_new`.",
-        "Canonical Eff/Gen use original ROME success: `NLL(target_true) > NLL(target_new)`; higher is better.",
+        "`FS`/`GFS` are pairwise behavioral success rates (`NLL(target_true) > NLL(target_new)`), higher is better.",
+        "**Do not call FS/GFS ZeroUnlearn Eff/Gen.** ZeroUnlearn's probability-based Eff/Gen are not computed by this evaluator.",
         "Across-seed uncertainty is sample SD (n-1).",
         "",
         "| Metric | Mean | Sample SD | Direction |",
         "|---|---:|---:|:---:|",
     ]
-    for name, _, direction in METRICS:
+    for name, _, _, direction in METRICS:
         item = aggregate["metrics"][name]
         mean = "NA" if item["mean"] is None else f"{item['mean']:.6f}"
         sd = "NA" if item["sample_sd"] is None else f"{item['sample_sd']:.6f}"
