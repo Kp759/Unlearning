@@ -2,7 +2,9 @@
 """Aggregate canonical target-true-sensitive MCF results across seeds.
 
 Across-seed uncertainty uses sample standard deviation (n-1), while each seed's
-JSON preserves the evaluator's per-record population SD separately.
+JSON preserves the evaluator's per-record population SD separately.  Canonical
+MCF Eff/Gen follow the original ROME/CounterFact strict rule and are higher-is-
+better.  Sensitive-preference rates remain diagnostic only.
 """
 from __future__ import annotations
 
@@ -15,6 +17,8 @@ from typing import Any, Dict, List
 
 
 METRICS = (
+    ("Eff", ("metrics", "Eff", "mean"), "↑"),
+    ("Gen", ("metrics", "Gen", "mean"), "↑"),
     ("Eff_Pref", ("metrics", "Eff_Pref", "mean"), "↓"),
     ("Gen_Pref", ("metrics", "Gen_Pref", "mean"), "↓"),
     ("Delta_Sensitive_NLL_direct", ("metrics", "Delta_Sensitive_NLL_direct", "mean"), "↑"),
@@ -45,27 +49,26 @@ def main() -> None:
 
     root = Path(a.root).resolve()
     rows: List[Dict[str, Any]] = []
-    payloads: List[Dict[str, Any]] = []
     for seed in a.seeds:
         path = root / f"seed{seed}" / "target_true_sensitive_eval.json"
         if not path.exists():
             raise FileNotFoundError(f"Missing seed result: {path}")
         data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("metric_schema") != "mcf_target_true_sensitive_v2":
+        if data.get("metric_schema") != "mcf_target_true_sensitive_v3_rome":
             raise RuntimeError(f"Unexpected metric schema in {path}")
         if int(data.get("seed", -1)) != seed:
             raise RuntimeError(f"Seed mismatch in {path}")
-        payloads.append(data)
         row: Dict[str, Any] = {"seed": seed}
         for name, metric_path, _ in METRICS:
             row[name] = dig(data, metric_path)
         rows.append(row)
 
     aggregate: Dict[str, Any] = {
-        "schema_version": 1,
-        "metric_schema": "mcf_target_true_sensitive_v2",
+        "schema_version": 2,
+        "metric_schema": "mcf_target_true_sensitive_v3_rome",
         "dataset": "MCF",
         "method": "SURE-LM-canonical-target-true-sensitive",
+        "rome_success_rule": "NLL(target_true) > NLL(target_new)",
         "seeds": list(a.seeds),
         "n_seeds": len(a.seeds),
         "across_seed_sd": "sample_standard_deviation_n_minus_1",
@@ -102,6 +105,7 @@ def main() -> None:
         "# MCF canonical target-true-sensitive SURE aggregate",
         "",
         "Sensitive = original `target_true`; counterfactual reference = original `target_new`.",
+        "Canonical Eff/Gen use original ROME success: `NLL(target_true) > NLL(target_new)`; higher is better.",
         "Across-seed uncertainty is sample SD (n-1).",
         "",
         "| Metric | Mean | Sample SD | Direction |",
