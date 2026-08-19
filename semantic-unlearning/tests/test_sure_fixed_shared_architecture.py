@@ -35,9 +35,32 @@ class FixedSharedArchitectureTests(unittest.TestCase):
         margins = shared.suppression_margins_from_logits(logits, tids)
         self.assertTrue(torch.allclose(margins, torch.tensor([-2.0, 4.0])))
 
-    def test_strict_margin_failure_count(self):
-        margins = torch.tensor([0.04, 0.05, 0.06])
-        self.assertEqual(shared.count_failures(margins, 0.05), 1)
+    def test_sensitive_nll_increase_is_current_minus_base(self):
+        base = torch.tensor([[0.0, 3.0, 1.0]])
+        current = torch.tensor([[0.0, -1.0, 1.0]])
+        tids = torch.tensor([1])
+        delta = shared.sensitive_nll_increase_from_logits(current, base, tids)
+        self.assertGreater(float(delta.item()), 0.0)
+
+    def test_shared_failure_requires_both_constraints(self):
+        logit = torch.tensor([0.06, 0.04, 0.06])
+        nll_delta = torch.tensor([4.1, 4.1, 3.9])
+        mask = shared.failure_mask(
+            logit,
+            nll_delta,
+            required_logit_margin=0.05,
+            required_nll_increase=4.0,
+        )
+        self.assertEqual(mask.tolist(), [False, True, True])
+        self.assertEqual(
+            shared.count_failures(
+                logit,
+                nll_delta,
+                required_logit_margin=0.05,
+                required_nll_increase=4.0,
+            ),
+            2,
+        )
 
     def test_stage2_has_no_relu_or_reference_answer_ce(self):
         text = (SCRIPTS / "sure_stage2_context_shared.py").read_text(encoding="utf-8")
@@ -45,12 +68,14 @@ class FixedSharedArchitectureTests(unittest.TestCase):
         self.assertNotIn("cross_entropy", text)
         self.assertIn("gd_non_sensitive_kl", text)
         self.assertIn("ga_sensitive_logprob", text)
+        self.assertIn("min-sensitive-nll-increase", text)
 
     def test_stage1_has_same_ga_gd_components(self):
         text = (SCRIPTS / "sure_stage1_context_shared.py").read_text(encoding="utf-8")
         self.assertNotIn("cross_entropy", text)
         self.assertIn("gd_non_sensitive_kl", text)
         self.assertIn("ga_sensitive_logprob", text)
+        self.assertIn("min-sensitive-nll-increase", text)
 
     def test_mcf_and_zsre_runners_share_defaults(self):
         mcf = (SCRIPTS / "run_mcf_sure_fixed_shared.sh").read_text(encoding="utf-8")
@@ -62,6 +87,7 @@ class FixedSharedArchitectureTests(unittest.TestCase):
             'GD_WEIGHT="${SURE_GD_WEIGHT:-1.0}"',
             'STAGE1_CONTEXT_RANK="${SURE_STAGE1_CONTEXT_RANK:-2}"',
             'SHARED_MARGIN="${SURE_SHARED_CONSTRAINT_MARGIN:-0.05}"',
+            'MIN_SENSITIVE_NLL_INCREASE="${SURE_MIN_SENSITIVE_NLL_INCREASE:-4.0}"',
             'CANDIDATE_RANKS="${SURE_REPAIR_RANKS:-2,8,0}"',
             'REPAIR_STEPS="${SURE_REPAIR_STEPS:-800}"',
             'REPAIR_LR="${SURE_REPAIR_LR:-0.005}"',
