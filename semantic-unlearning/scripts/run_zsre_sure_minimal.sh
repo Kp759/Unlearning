@@ -5,7 +5,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL="${1:?Usage: bash scripts/run_zsre_sure_minimal.sh MODEL [ZSRE_JSON]}"
 ZSRE="${2:-data/zsre_mend_eval.json}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-data/wikidata}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/zsre_sure_exact_constrained_stage2_v5}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/zsre_sure_exact_constrained_stage2_v5_1}"
 SEEDS_TEXT="${ZSRE_SEEDS:-1}"
 FORGET_NUM="${ZSRE_FORGET_NUM:-50}"
 RETAIN_EVAL_NUM="${ZSRE_RETAIN_EVAL_NUM:-1000}"
@@ -84,6 +84,7 @@ for SEED in "${SEEDS[@]}"; do
     --stage2-ftol "${STAGE2_FTOL}" \
     --stage2-constraint-tolerance "${STAGE2_CONSTRAINT_TOLERANCE}" \
     --stage2-constraint-buffer "${STAGE2_CONSTRAINT_BUFFER}" \
+    --stage2-protected-materialization-buffer "${STAGE2_PROTECTED_MATERIALIZATION_BUFFER}" \
     --stage2-residual-l2-weight "${STAGE2_RESIDUAL_L2_WEIGHT}" \
     --stage2-constraint-basis-weight "${STAGE2_CONSTRAINT_BASIS_WEIGHT}" \
     --stage2-restarts "${STAGE2_RESTARTS}" \

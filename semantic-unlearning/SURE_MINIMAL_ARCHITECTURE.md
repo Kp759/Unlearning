@@ -102,9 +102,19 @@ max(required_sensitive_NLL_increase,
 
 The default tolerance is `0.05`. These are hard inequalities, not a weighted
 protection loss. Stage 2 may not exchange a protected-case regression for an
-active-case repair. A small continuous-solver buffer is applied to the global
-NLL and margin boundaries before checkpoint-dtype verification; it does not
-cancel the protected `Stage1 - tolerance` allowance. The constraints catch
+active-case repair. Before checkpoint-dtype verification, the solver targets
+the stricter protected floor
+
+```text
+max(required_sensitive_NLL_increase + global_constraint_buffer,
+    protected_behavioral_floor_i + protected_materialization_buffer).
+```
+
+The global buffer is `0.05`; the separate protected materialization buffer is
+only `0.005`. The latter supplies numerical headroom for BF16 serialization
+without changing the official `4.0` requirement or cancelling the protected
+`Stage1 - 0.05` behavioral allowance. Materialized feasibility is still checked
+against the original unbuffered behavioral floor. The constraints catch
 cross-row softmax effects: editing one sensitive row can change the NLL of an
 unedited sensitive row by changing the shared softmax denominator.
 
@@ -191,7 +201,7 @@ A new dataset reuses the learner by generating the same canonical files as
 
 ```json
 {
-  "protocol": "sure_exact_constrained_residual_stage2_v5",
+  "protocol": "sure_exact_constrained_residual_stage2_v5_1",
   "dataset": "adapter-name",
   "learner_adapter_contract": {
     "sensitive_answer_field": "target_true",
@@ -215,7 +225,7 @@ If Stage 2 is infeasible, inspect its solver and checkpoint-dtype diagnostics
 without retraining or opening any held-out benchmark data:
 
 ```bash
-RUN=outputs/mcf_sure_exact_constrained_stage2_v5/seed1/learner
+RUN=outputs/mcf_sure_exact_constrained_stage2_v5_1/seed1/learner
 
 python - "$RUN" <<'PY'
 import json, pathlib, sys

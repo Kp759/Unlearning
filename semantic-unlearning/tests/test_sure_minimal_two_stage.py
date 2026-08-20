@@ -746,6 +746,7 @@ class MinimalSureLearnerTests(unittest.TestCase):
             min_sensitive_nll_increase=2.0,
             constraint_margin=0.05,
             stage2_constraint_buffer=0.0,
+            stage2_protected_materialization_buffer=0.0,
             utility_kl_mean_budget=10.0,
             utility_kl_p95_budget=10.0,
             utility_kl_max_budget=10.0,
@@ -805,6 +806,7 @@ class MinimalSureLearnerTests(unittest.TestCase):
             min_sensitive_nll_increase=2.0,
             constraint_margin=0.05,
             stage2_constraint_buffer=0.0,
+            stage2_protected_materialization_buffer=0.0,
             utility_kl_mean_budget=10.0,
             utility_kl_p95_budget=10.0,
             utility_kl_max_budget=10.0,
@@ -865,6 +867,7 @@ class MinimalSureLearnerTests(unittest.TestCase):
             min_sensitive_nll_increase=2.0,
             constraint_margin=0.05,
             stage2_constraint_buffer=0.0,
+            stage2_protected_materialization_buffer=0.0,
             utility_kl_mean_budget=10.0,
             utility_kl_p95_budget=10.0,
             utility_kl_max_budget=10.0,
@@ -907,7 +910,7 @@ class MinimalSureLearnerTests(unittest.TestCase):
         )
         self.assertTrue(torch.allclose(targets, torch.tensor([4.0, 4.35])))
 
-    def test_solver_buffer_does_not_cancel_protected_tolerance(self):
+    def test_protected_materialization_buffer_preserves_tolerance_and_clearance(self):
         nll, margin = learner.stage2_solver_targets(
             3,
             [1, 2],
@@ -915,9 +918,10 @@ class MinimalSureLearnerTests(unittest.TestCase):
             required_nll_increase=4.0,
             required_logit_margin=0.05,
             constraint_buffer=0.05,
+            protected_materialization_buffer=0.005,
             device=torch.device("cpu"),
         )
-        self.assertTrue(torch.allclose(nll, torch.tensor([4.05, 4.05, 4.35])))
+        self.assertTrue(torch.allclose(nll, torch.tensor([4.05, 4.05, 4.355])))
         self.assertTrue(torch.allclose(margin, torch.full((3,), 0.10)))
 
     def test_exact_constraints_catch_unedited_sensitive_row_denominator_shift(self):
@@ -1022,6 +1026,7 @@ class MinimalSureLearnerTests(unittest.TestCase):
             "stage2_ftol": 1e-9,
             "stage2_constraint_tolerance": 1e-5,
             "stage2_constraint_buffer": 0.05,
+            "stage2_protected_materialization_buffer": 0.005,
             "stage2_residual_l2_weight": 1e-4,
             "stage2_constraint_basis_weight": 0.05,
             "stage2_restarts": 2,
@@ -1074,6 +1079,7 @@ class MinimalSureLearnerTests(unittest.TestCase):
             'STAGE2_MAXITER="${SURE_STAGE2_MAXITER:-500}"',
             'STAGE2_FTOL="${SURE_STAGE2_FTOL:-1e-9}"',
             'STAGE2_CONSTRAINT_BUFFER="${SURE_STAGE2_CONSTRAINT_BUFFER:-0.05}"',
+            'STAGE2_PROTECTED_MATERIALIZATION_BUFFER="${SURE_STAGE2_PROTECTED_MATERIALIZATION_BUFFER:-0.005}"',
             'STAGE2_RESIDUAL_L2_WEIGHT="${SURE_STAGE2_RESIDUAL_L2_WEIGHT:-0.0001}"',
             'STAGE2_CONSTRAINT_BASIS_WEIGHT="${SURE_STAGE2_CONSTRAINT_BASIS_WEIGHT:-0.05}"',
             'STAGE2_PROTECTION_NLL_TOLERANCE="${SURE_STAGE2_PROTECTION_NLL_TOLERANCE:-0.05}"',
@@ -1093,6 +1099,10 @@ class MinimalSureLearnerTests(unittest.TestCase):
             self.assertIn('--stage2-maxiter "${STAGE2_MAXITER}"', runner)
             self.assertIn(
                 '--stage2-constraint-buffer "${STAGE2_CONSTRAINT_BUFFER}"',
+                runner,
+            )
+            self.assertIn(
+                '--stage2-protected-materialization-buffer "${STAGE2_PROTECTED_MATERIALIZATION_BUFFER}"',
                 runner,
             )
             self.assertIn(

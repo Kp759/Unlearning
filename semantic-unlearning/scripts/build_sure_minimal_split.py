@@ -27,7 +27,7 @@ from mcf_sampling import sample_official_mcf_records
 import zsre_zero_unlearn_official_eval as zsre
 
 
-PROTOCOL = "sure_exact_constrained_residual_stage2_v5"
+PROTOCOL = "sure_exact_constrained_residual_stage2_v5_1"
 
 
 def sha256_bytes(payload: bytes) -> str:

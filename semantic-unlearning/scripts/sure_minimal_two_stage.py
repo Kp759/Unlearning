@@ -42,8 +42,8 @@ import sure_context_projection as context
 import sure_shared_suppression as shared
 
 
-METHOD = "SURE-LM-exact-constrained-residual-stage2-rank2to4"
-PROTOCOL = "sure_exact_constrained_residual_stage2_v5"
+METHOD = "SURE-LM-exact-constrained-residual-stage2-rank2to4-v5.1"
+PROTOCOL = "sure_exact_constrained_residual_stage2_v5_1"
 RANK_LADDER = (2, 4)
 DEFAULT_UTILITY_TOKEN_TOPK_PER_ROW = 128
 DEFAULT_UTILITY_UNIFORM_PROMPT_COUNT = 1_024
@@ -122,6 +122,15 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.05,
         help="Extra continuous-solver clearance before checkpoint-dtype verification",
+    )
+    parser.add_argument(
+        "--stage2-protected-materialization-buffer",
+        type=float,
+        default=0.005,
+        help=(
+            "Additional continuous-solver clearance above each protected "
+            "Stage-1 NLL floor before checkpoint-dtype verification"
+        ),
     )
     parser.add_argument(
         "--stage2-residual-l2-weight",
@@ -239,6 +248,9 @@ def validate_args(
     nonnegative = {
         "stage2_constraint_tolerance": args.stage2_constraint_tolerance,
         "stage2_constraint_buffer": args.stage2_constraint_buffer,
+        "stage2_protected_materialization_buffer": (
+            args.stage2_protected_materialization_buffer
+        ),
         "stage2_residual_l2_weight": args.stage2_residual_l2_weight,
         "stage2_constraint_basis_weight": args.stage2_constraint_basis_weight,
     }
@@ -296,6 +308,9 @@ def architecture_signature_payload(
         "stage2_ftol": float(args.stage2_ftol),
         "stage2_constraint_tolerance": float(args.stage2_constraint_tolerance),
         "stage2_constraint_buffer": float(args.stage2_constraint_buffer),
+        "stage2_protected_materialization_buffer": float(
+            args.stage2_protected_materialization_buffer
+        ),
         "stage2_residual_l2_weight": float(args.stage2_residual_l2_weight),
         "stage2_constraint_basis_weight": float(args.stage2_constraint_basis_weight),
         "stage2_restarts": int(args.stage2_restarts),
@@ -1669,6 +1684,7 @@ def stage2_solver_targets(
     required_nll_increase: float,
     required_logit_margin: float,
     constraint_buffer: float,
+    protected_materialization_buffer: float,
     device: torch.device,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Return hard per-case NLL/margin targets used by the continuous solver."""
@@ -1686,11 +1702,11 @@ def stage2_solver_targets(
         raise ValueError("protected indices and NLL targets do not align")
     if protected.numel():
         # ``targets`` already equals max(global floor, Stage1 - epsilon).
-        # Buffer only the global feasibility boundary; adding it to the entire
-        # protected target would silently cancel the allowed epsilon whenever
-        # Stage 1 has extra clearance.
+        # The separate, small materialization buffer protects that behavioral
+        # floor from checkpoint-dtype rounding without reusing the much larger
+        # global buffer and thereby cancelling the allowed Stage-1 tolerance.
         protected_floor = torch.maximum(
-            targets,
+            targets + float(protected_materialization_buffer),
             targets.new_full(
                 targets.shape,
                 float(required_nll_increase) + float(constraint_buffer),
@@ -1890,6 +1906,9 @@ def optimize_stage2(
         required_nll_increase=args.min_sensitive_nll_increase,
         required_logit_margin=args.constraint_margin,
         constraint_buffer=args.stage2_constraint_buffer,
+        protected_materialization_buffer=(
+            args.stage2_protected_materialization_buffer
+        ),
         device=compute_device,
     )
     utility_hidden = utility_train_hidden.to(
@@ -2001,6 +2020,9 @@ def optimize_stage2(
             "solver_minimum_direct_slack": float(dslack.min().cpu()),
             "solver_minimum_utility_slack": float(uslack.min().cpu()),
             "solver_buffer": float(args.stage2_constraint_buffer),
+            "solver_protected_materialization_buffer": float(
+                args.stage2_protected_materialization_buffer
+            ),
             "solver_objective": float(objective(coefficients).detach().cpu()),
             "utility_kl_mean": float(utility.mean()),
             "utility_kl_median": float(torch.quantile(utility, 0.50)),
@@ -2432,7 +2454,7 @@ def main() -> None:
     core.write_json(
         output_dir / "architecture_lock.json",
         {
-            "schema_version": 5,
+            "schema_version": 6,
             "method": METHOD,
             "dataset_adapter": args.dataset,
             "dataset_adapter_contract": adapter,
@@ -2465,6 +2487,9 @@ def main() -> None:
             ),
             "stage2_solver": "SLSQP_with_analytic_Torch_gradients",
             "stage2_constraint_buffer": float(args.stage2_constraint_buffer),
+            "stage2_protected_materialization_buffer": float(
+                args.stage2_protected_materialization_buffer
+            ),
             "stage2_constraint_basis_weight": float(
                 args.stage2_constraint_basis_weight
             ),
@@ -2672,7 +2697,8 @@ def main() -> None:
                 "protected_nll_floor": float(protection_targets[position]),
                 "continuous_solver_nll_floor": float(
                     max(
-                        float(protection_targets[position]),
+                        float(protection_targets[position])
+                        + args.stage2_protected_materialization_buffer,
                         args.min_sensitive_nll_increase
                         + args.stage2_constraint_buffer,
                     )
@@ -2685,7 +2711,7 @@ def main() -> None:
     core.write_json(
         output_dir / "stage2_case_partitions.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "partition_source": "exact_materialized_stage1_direct_constraints",
             "active_case_indices": active_indices,
             "protected_case_indices": protected_indices,
@@ -2699,8 +2725,11 @@ def main() -> None:
             "continuous_solver_constraint_buffer": float(
                 args.stage2_constraint_buffer
             ),
+            "protected_materialization_buffer": float(
+                args.stage2_protected_materialization_buffer
+            ),
             "protected_continuous_solver_nll_floor_formula": (
-                "max(protected_nll_floor, "
+                "max(protected_nll_floor + protected_materialization_buffer, "
                 "global_min_sensitive_nll_increase + constraint_buffer)"
             ),
             "active_continuous_solver_nll_floor": float(
@@ -2937,7 +2966,7 @@ def main() -> None:
     save_checkpoint(model, tok, final_checkpoint)
 
     config = {
-        "schema_version": 5,
+        "schema_version": 6,
         "method": METHOD,
         "protocol": PROTOCOL,
         "source_split_protocol": split_manifest.get("protocol"),
@@ -3004,6 +3033,9 @@ def main() -> None:
         "utility_kl_weight": float(args.utility_kl_weight),
         "stage2_residual_l2_weight": float(args.stage2_residual_l2_weight),
         "stage2_constraint_buffer": float(args.stage2_constraint_buffer),
+        "stage2_protected_materialization_buffer": float(
+            args.stage2_protected_materialization_buffer
+        ),
         "stage2_constraint_tolerance": float(args.stage2_constraint_tolerance),
         "stage2_constraint_basis_weight": float(
             args.stage2_constraint_basis_weight
