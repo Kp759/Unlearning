@@ -1,67 +1,123 @@
-# Minimal two-stage SURE-LM
+# Guarded two-stage SURE-LM
 
-This is the shared MCF/ZsRE architecture implemented by
-`scripts/sure_minimal_two_stage.py`.
+`scripts/sure_minimal_two_stage.py` is one dataset-independent learner. Dataset
+adapters only produce the canonical direct-forget JSON and declare its
+sensitive-answer field in `learner_adapter_contract`. MCF and ZsRE source the
+same immutable architecture defaults from
+`scripts/sure_guarded_shared_defaults.sh`.
+
+Every run writes `shared_architecture_sha256` in `architecture_lock.json` and
+`config_used.json`. The signature covers all training, rank, scale, and guard
+settings while deliberately excluding dataset name and seed. Cross-dataset
+results should be compared only when this signature matches. A second
+`cross_dataset_compatibility_sha256` also binds that architecture to the Base
+model, tokenizer, and exact Wikipedia cache, and is the strongest equality
+check for MCF/ZsRE comparisons.
 
 ```text
-Frozen Base transformer + frozen Base input embeddings
+Frozen Base transformer + frozen input embeddings
                          │
-              50 direct forget requests
-              (sensitive answer only)
+                canonical direct forget set
                          │
-             Base hidden states and logits
+              direct hidden states and logits
                          │
-                         ├──────── C_F,s ────────┐
-                         │                       │
-fixed Wikipedia C_U = E[h hᵀ]                   │
-(100,000-document request; no benchmark data)   │
-                         │                       │
-                         └── generalized eigen ─┘
-                                      │
-                           fixed rank-2 basis B_s
-                                      │
-Stage 1: sensitive GA + same-prompt non-sensitive GD
-                                      │
-          smallest directly successful materialized scale
-                                      │
-                        all direct constraints pass?
-                              /                 \
-                            yes                  no
-                             │                    │
-                             │          failed token cases only
-                             │                    │
-                             │        new fixed rank-2 basis
-                             │                    │
-                             │    Stage 2: same GA + same GD
-                             │                    │
-                             │  smallest materialized successful scale
-                             └───────────┬────────┘
+                         ├──────── C_F,s ───────────────┐
+                         │                              │
+disjoint Wikipedia utility documents                  │
+  ├─ all predictor states -> C_U                       │
+  └─ fixed prompt states + Base log Z -> exact KL      │
+                         │                              │
+                         └── full-space generalized ────┘
+                              eigen basis C_U^-1 h
                                          │
-                         frozen sparse LM-head checkpoint
+                              Stage 1: rank 2 first
                                          │
-        post-training only: FS/GFS, Spe, retain, exact KL, and PPL
+                 bounded direct-constraint sensitive GA
+                 + conditional same-prompt non-sensitive GD
+                 + exact joint Wikipedia utility KL
+                                         │
+                       exact materialized scale frontier
+                                         │
+                    direct guards + Wikipedia utility guards
+                    /                 |                    \
+         all direct pass      safe residual cases      no safe progress
+         and utility safe             only                  │
+                │                      │               expand 2 -> 4
+              DONE          guarded Stage 2 rank 2           │
+                                      │                 retry Stage 1
+                         residual rows editable only
+                         passed direct cases protected
+                         KL computed on total Stage1+residual
+                                      │
+                         materialized guarded frontier
+                               /                \
+                            pass                 fail
+                             │                    │
+                           DONE           expand 2 -> 4
+                                                  │
+                                          pass or INFEASIBLE
 ```
 
-The learner has no benchmark retain input, retain-action loss, retain budget,
-norm guard, KL guard, rank sweep, or access to paraphrase/locality/PPL probes.
-Wikipedia is used only to construct the contrastive basis. As in ZeroUnlearn,
-the 100,000-document request is capped to the locally available corpus. The
-first 20 local Wikipedia documents are excluded from the cache because the PPL
-evaluator uses that prefix. With the checked-in 200-document artifact, the
-actual utility sample is therefore 180 documents; the cache records both the
-100,000 request and the 180-document realization.
+The bounded direct loss is
 
-Run MCF:
+```text
+relu(required_margin - direct_margin)^2
++ relu(required_sensitive_NLL_increase - observed_increase)^2.
+```
+
+It is a constraint-gated form of sensitive GA: once both direct constraints
+pass, that example contributes zero suppression gradient. This prevents the
+unbounded sensitive-row drift seen with raw GA.
+
+For cached Wikipedia prompt state `h_u`, selected Base probabilities `p_us`,
+and sparse shifts `d_us = h_u^T delta_w_s`, the differentiable utility loss is
+the exact joint full-vocabulary KL:
+
+```text
+A_u = 1 - sum_s p_us + sum_s p_us exp(d_us)
+KL(Base || Edited)_u = log(A_u) - sum_s p_us d_us.
+```
+
+Scale selection uses only the direct constraints and disjoint Wikipedia
+utility statistics. A Stage-1 handoff is permitted only when it is utility-safe
+and improves the direct shortfall. The final checkpoint must have zero direct
+failures and pass fixed mean, p95, maximum-KL, and total-delta-norm guards.
+Unsafe candidates are never materialized as final checkpoints.
+
+Official benchmark retain examples, replacement/reference answers,
+paraphrases, neighborhood/locality prompts, and PPL texts are never visible to
+training or checkpoint selection. Official FS/GFS, Spe, retain metrics, exact
+benchmark-retain KL, and PPL remain post-training audits.
+
+## Dataset adapter contract
+
+A new dataset reuses the learner by generating the same canonical files as
+`build_sure_minimal_split.py`. Its manifest must contain:
+
+```json
+{
+  "protocol": "sure_guarded_wikipedia_kl_two_stage_v2",
+  "dataset": "adapter-name",
+  "learner_adapter_contract": {
+    "sensitive_answer_field": "target_true",
+    "forbidden_answer_fields": ["target_new"]
+  }
+}
+```
+
+Each training record supplies only `requested_rewrite.prompt`,
+`requested_rewrite.subject`, and the declared sensitive answer. No optimizer or
+guard code changes are allowed for a new dataset.
+
+## Running
 
 ```bash
-bash scripts/run_mcf_sure_minimal.sh /path/to/Llama-3.2-3B-Instruct data/multi_counterfact.json
+bash scripts/run_mcf_sure_minimal.sh /path/to/model data/multi_counterfact.json
+bash scripts/run_zsre_sure_minimal.sh /path/to/model data/zsre_mend_eval.json
 ```
 
-Run ZsRE with the same model and cached Wikipedia statistic:
-
-```bash
-bash scripts/run_zsre_sure_minimal.sh /path/to/Llama-3.2-3B-Instruct data/zsre_mend_eval.json
-```
-
-Set `SURE_UTILITY_CACHE` to an explicit shared path when MCF and ZsRE runs use
-different output roots or machines.
+Both runners reuse the same model-specific Wikipedia cache. The requested
+utility corpus is 100,000 documents and the exact-KL prompt sample is 8,192.
+When the local Wikipedia artifact contains fewer eligible documents, the cache
+records the capped realization; such a run is a pilot rather than a full
+100,000-document comparison.

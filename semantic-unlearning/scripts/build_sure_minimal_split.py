@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the shared direct-only split for minimal two-stage SURE-LM.
+"""Build the canonical direct-only split for guarded two-stage SURE-LM.
 
 MCF and ZsRE use the same data roles:
 
@@ -27,7 +27,7 @@ from mcf_sampling import sample_official_mcf_records
 import zsre_zero_unlearn_official_eval as zsre
 
 
-PROTOCOL = "sure_minimal_wikipedia_two_stage_v1"
+PROTOCOL = "sure_guarded_wikipedia_kl_two_stage_v2"
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -252,6 +252,7 @@ def main() -> None:
         target_semantics = {
             "original_sensitive_field": "target_true",
             "training_sensitive_slot": "target_new",
+            "forbidden_training_answer_fields": ["target_true"],
             "original_reference_field": "target_new",
             "reference_answer_exposed_to_training": False,
             "final_evaluation_uses_original_unswapped_fields": True,
@@ -260,12 +261,13 @@ def main() -> None:
         target_semantics = {
             "original_sensitive_field": "target_true",
             "training_sensitive_slot": "target_true",
+            "forbidden_training_answer_fields": ["target_new"],
             "neutral_or_replacement_target_visible": False,
         }
 
     forget_sha256 = sha256_bytes(forget_text.encode("utf-8"))
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "protocol": PROTOCOL,
         "metric_schema": (
             "mcf_target_true_sensitive_v2" if args.dataset == "mcf" else None
@@ -283,6 +285,16 @@ def main() -> None:
         ),
         "dataset_size": len(raw),
         "target_semantics": target_semantics,
+        "learner_adapter_contract": {
+            "schema_version": 1,
+            "sensitive_answer_field": target_semantics["training_sensitive_slot"],
+            "forbidden_answer_fields": target_semantics[
+                "forbidden_training_answer_fields"
+            ],
+            "direct_prompt_field": "requested_rewrite.prompt",
+            "subject_field": "requested_rewrite.subject",
+            "architecture_parameters_are_dataset_independent": True,
+        },
         "pool_split": {
             "retain_pool": {"start": 0, "stop_exclusive": half, "size": half},
             "forget_pool": {
@@ -334,7 +346,7 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print("minimal SURE training file:", forget_path)
+    print("guarded SURE training file:", forget_path)
     print("post-training retain audit file:", retain_audit_path)
     print("split manifest:", manifest_path)
     print(

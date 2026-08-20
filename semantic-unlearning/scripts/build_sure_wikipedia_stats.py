@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Cache fixed Wikipedia final-hidden second-moment statistics for SURE-LM.
+"""Cache dataset-independent Wikipedia utility statistics for SURE-LM.
 
 This is a one-time, model-specific preprocessing step shared by MCF and ZsRE.
 It requests ``--sample-size`` Wikipedia documents (100,000 by default), caps
 that request to the eligible local dataset exactly as ZeroUnlearn's statistics
-loader does, collects their causal predictor states, and stores
+loader does, collects their causal predictor states, and stores both
 
-    C_U = (1 / N) sum_t h_t h_t^T.
+    C_U = (1 / N) sum_t h_t h_t^T
+
+and a fixed sample of prompt-state/Base-partition pairs ``(h_u, log Z_u)``.
+The former defines the contrastive generalized-eigen basis.  The latter lets
+any downstream dataset adapter compute the exact joint sparse-head utility KL
+for its own selected token rows without another Wikipedia model pass.
 
 The statistic is aligned with ZeroUnlearn's use of fixed Wikipedia second
 moments, but lives at the final hidden state that feeds the LM head.  It never
@@ -27,8 +32,10 @@ import torch
 import gagd_compare as gagd
 
 
-UTILITY_PROTOCOL = "sure_wikipedia_final_hidden_second_moment_v1"
+UTILITY_PROTOCOL = "sure_wikipedia_hidden_moment_and_distribution_v2"
 DEFAULT_SAMPLE_SIZE = 100_000
+DEFAULT_UTILITY_PROMPT_COUNT = 8_192
+DEFAULT_UTILITY_LOGIT_BATCH_SIZE = 64
 MODEL_PROBE_VALUES_PER_TENSOR = 16
 
 
@@ -186,6 +193,18 @@ def predictor_mask(attention_mask: torch.Tensor) -> torch.Tensor:
     return mask & (positions < (lengths - 1).clamp_min(0).unsqueeze(1))
 
 
+def deterministic_predictor_position(
+    document_index: int, attended_length: int, utility_seed: int
+) -> int:
+    """Choose one reproducible causal predictor position from a document."""
+    if attended_length < 2:
+        raise ValueError("a utility prompt document needs at least two tokens")
+    digest = hashlib.sha256(
+        f"{int(utility_seed)}:{int(document_index)}".encode("ascii")
+    ).digest()
+    return int.from_bytes(digest[:8], "big") % (int(attended_length) - 1)
+
+
 def finalize_second_moment(
     unnormalized: torch.Tensor, count: int
 ) -> Tuple[torch.Tensor, float]:
@@ -235,16 +254,49 @@ def _final_hidden_only(
 
 
 @torch.no_grad()
+def base_logsumexp_for_hidden(
+    model: torch.nn.Module,
+    hidden_states: torch.Tensor,
+    *,
+    device: torch.device,
+    batch_size: int,
+) -> torch.Tensor:
+    """Return Base ``logsumexp`` values for cached LM-head input states."""
+    if hidden_states.ndim != 2 or hidden_states.shape[0] == 0:
+        raise ValueError("utility hidden states must be non-empty [N, hidden]")
+    if batch_size <= 0:
+        raise ValueError("utility logit batch size must be positive")
+    output = model.get_output_embeddings()
+    if output is None or not hasattr(output, "weight"):
+        raise ValueError("Model must expose output embeddings")
+    head_device = output.weight.device
+    values: List[torch.Tensor] = []
+    for start in range(0, int(hidden_states.shape[0]), batch_size):
+        batch = hidden_states[start : start + batch_size].to(
+            device=head_device,
+            dtype=output.weight.dtype,
+        )
+        logits = output(batch)
+        values.append(torch.logsumexp(logits.float(), dim=-1).detach().cpu())
+    result = torch.cat(values, dim=0).float().contiguous()
+    if not torch.isfinite(result).all():
+        raise FloatingPointError("Base utility log-partitions are non-finite")
+    return result
+
+
+@torch.no_grad()
 def build_second_moment(
     model: torch.nn.Module,
     tok: Any,
     texts: Sequence[str],
     *,
     document_order: Sequence[int],
+    utility_prompt_document_indices: Sequence[int],
+    utility_seed: int,
     device: torch.device,
     max_length: int,
     batch_size: int,
-) -> Tuple[torch.Tensor, Dict[str, Any]]:
+) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, Any]]:
     if not document_order or max_length < 2 or batch_size <= 0:
         raise ValueError("invalid Wikipedia statistic dimensions")
     output = model.get_output_embeddings()
@@ -254,6 +306,13 @@ def build_second_moment(
     unnormalized = None
     collected = 0
     forwarded_indices: List[int] = []
+    prompt_documents = {int(index) for index in utility_prompt_document_indices}
+    if not prompt_documents or not prompt_documents.issubset(
+        {int(index) for index in document_order}
+    ):
+        raise ValueError("utility prompt documents must be a non-empty sampled subset")
+    utility_hidden_rows: List[torch.Tensor] = []
+    utility_prompt_records: List[Dict[str, int]] = []
     backend = None
     model.eval()
 
@@ -291,6 +350,24 @@ def build_second_moment(
                     )
                 unnormalized.add_(states.transpose(0, 1) @ states)
                 collected += int(states.shape[0])
+            attended_lengths = encoded["attention_mask"].sum(dim=1).tolist()
+            for row_index, document_index in enumerate(indices):
+                length = int(attended_lengths[row_index])
+                if document_index not in prompt_documents or length < 2:
+                    continue
+                position = deterministic_predictor_position(
+                    document_index, length, utility_seed
+                )
+                utility_hidden_rows.append(
+                    hidden[row_index, position].detach().cpu().contiguous()
+                )
+                utility_prompt_records.append(
+                    {
+                        "document_index": int(document_index),
+                        "predictor_token_position": int(position),
+                        "attended_token_count": int(length),
+                    }
+                )
             forwarded_indices.extend(indices)
             if collected and collected % 10_000 < int(states.shape[0]):
                 print(f"Wikipedia predictor states collected: {collected}")
@@ -301,8 +378,11 @@ def build_second_moment(
         raise RuntimeError(
             "Selected Wikipedia documents produced zero predictor states"
         )
+    if not utility_hidden_rows:
+        raise RuntimeError("Selected Wikipedia documents produced no utility prompts")
     moment, trace = finalize_second_moment(unnormalized, collected)
     moment = moment.detach().cpu().contiguous()
+    utility_hidden = torch.stack(utility_hidden_rows, dim=0).contiguous()
     forwarded_text_digest = hashlib.sha256()
     for index in forwarded_indices:
         forwarded_text_digest.update(str(index).encode("ascii"))
@@ -318,12 +398,19 @@ def build_second_moment(
         "forwarded_document_indices": forwarded_indices,
         "forwarded_text_sha256": forwarded_text_digest.hexdigest(),
         "hidden_extraction_backend": backend,
+        "utility_prompt_count": int(utility_hidden.shape[0]),
+        "utility_prompt_records": utility_prompt_records,
+        "utility_hidden_sha256": sha256_tensor(utility_hidden),
+        "utility_prompt_sampling": (
+            "one deterministic causal predictor position from each of the first "
+            "shuffled utility documents, capped by requested prompt count"
+        ),
         "state_selection": (
             "attended final-layer LM-head input states with a following token "
             "from the fixed sampled document set"
         ),
     }
-    return moment, report
+    return moment, utility_hidden, report
 
 
 def parse_args() -> argparse.Namespace:
@@ -336,6 +423,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exclude-first", type=int, default=20)
     parser.add_argument("--utility-max-length", type=int, default=4096)
     parser.add_argument("--utility-batch-size", type=int, default=1)
+    parser.add_argument(
+        "--utility-prompt-count",
+        type=int,
+        default=DEFAULT_UTILITY_PROMPT_COUNT,
+        help="Number of disjoint Wikipedia predictor states cached for exact KL",
+    )
+    parser.add_argument(
+        "--utility-logit-batch-size",
+        type=int,
+        default=DEFAULT_UTILITY_LOGIT_BATCH_SIZE,
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
     parser.add_argument("--device-map", choices=("single", "auto"), default="single")
@@ -348,7 +446,12 @@ def main() -> None:
         raise ValueError("sample-size must be positive")
     if args.exclude_first < 0:
         raise ValueError("exclude-first must be non-negative")
-    if args.utility_max_length < 2 or args.utility_batch_size <= 0:
+    if (
+        args.utility_max_length < 2
+        or args.utility_batch_size <= 0
+        or args.utility_prompt_count <= 0
+        or args.utility_logit_batch_size <= 0
+    ):
         raise ValueError("utility max length/batch size are invalid")
 
     output_path = Path(args.output_path).resolve()
@@ -391,17 +494,28 @@ def main() -> None:
             "ZeroUnlearn's capped-sample behavior"
         )
 
-    moment, statistic_report = build_second_moment(
+    prompt_document_indices = selected_order[
+        : min(args.utility_prompt_count, len(selected_order))
+    ]
+    moment, utility_hidden, statistic_report = build_second_moment(
         model,
         tok,
         texts,
         document_order=selected_order,
+        utility_prompt_document_indices=prompt_document_indices,
+        utility_seed=args.utility_seed,
         device=device,
         max_length=args.utility_max_length,
         batch_size=args.utility_batch_size,
     )
+    base_logsumexp = base_logsumexp_for_hidden(
+        model,
+        utility_hidden,
+        device=device,
+        batch_size=args.utility_logit_batch_size,
+    )
     metadata = {
-        "schema_version": 1,
+        "schema_version": 2,
         "protocol": UTILITY_PROTOCOL,
         **dataset_metadata,
         **identity,
@@ -416,15 +530,24 @@ def main() -> None:
         ),
         "utility_max_length": int(args.utility_max_length),
         "utility_batch_size": int(args.utility_batch_size),
+        "requested_utility_prompt_count": int(args.utility_prompt_count),
+        "actual_utility_prompt_count": int(utility_hidden.shape[0]),
+        "utility_logit_batch_size": int(args.utility_logit_batch_size),
+        "base_logsumexp_sha256": sha256_tensor(base_logsumexp),
         "benchmark_examples_seen": 0,
         "benchmark_retain_examples_seen": 0,
         "heldout_benchmark_probes_seen": 0,
         "zero_unlearn_alignment": (
-            "fixed external Wikipedia uncentered second moment; this cache uses "
-            "final LM-head input states rather than a layer-specific MLP key"
+            "fixed external Wikipedia uncentered second moment plus a fixed "
+            "prompt-state/Base-partition sample; no benchmark retain examples"
         ),
     }
-    payload = {"second_moment": moment, "metadata": metadata}
+    payload = {
+        "second_moment": moment,
+        "utility_hidden_states": utility_hidden,
+        "base_logsumexp": base_logsumexp,
+        "metadata": metadata,
+    }
     temporary = output_path.with_suffix(output_path.suffix + ".tmp")
     torch.save(payload, temporary)
     temporary.replace(output_path)
@@ -433,6 +556,7 @@ def main() -> None:
     print("predictor states:", metadata["predictor_hidden_state_count"])
     print("hidden size:", metadata["hidden_size"])
     print("second-moment trace:", metadata["second_moment_trace"])
+    print("exact-KL utility prompts:", metadata["actual_utility_prompt_count"])
     print("model probe:", metadata["model_probe_sha256"])
 
 

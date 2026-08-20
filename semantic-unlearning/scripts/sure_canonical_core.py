@@ -60,6 +60,14 @@ def sensitive_answer_field(dataset: str) -> str:
     raise ValueError(f"Unsupported dataset: {dataset}")
 
 
+def is_llama_like(model: nn.Module, tok: Any) -> bool:
+    """Detect Llama-style answer tokenization without a benchmark dependency."""
+    model_type = str(getattr(model.config, "model_type", "")).lower()
+    name = str(getattr(model.config, "_name_or_path", "")).lower()
+    tokenizer_class = tok.__class__.__name__.lower()
+    return any("llama" in value for value in (model_type, name, tokenizer_class))
+
+
 def answer_token_ids(tok: Any, answer: str, *, llama_like: bool) -> List[int]:
     ids = flat_ids(tok, " " + str(answer))
     if llama_like:
@@ -75,11 +83,19 @@ def expand_sensitive_cases(
     records: Sequence[Mapping[str, Any]],
     tok: Any,
     *,
-    dataset: str,
+    dataset: Optional[str] = None,
+    sensitive_field: Optional[str] = None,
     llama_like: bool,
 ) -> List[SensitivePredictionCase]:
     """Expand direct forget answers into teacher-forced next-token decisions."""
-    field = sensitive_answer_field(dataset)
+    if sensitive_field is None:
+        if dataset is None:
+            raise ValueError("dataset or sensitive_field must be provided")
+        field = sensitive_answer_field(dataset)
+    else:
+        field = str(sensitive_field).strip()
+        if not field:
+            raise ValueError("sensitive_field must be non-empty")
     cases: List[SensitivePredictionCase] = []
     for position, record in enumerate(records):
         rr = record.get("requested_rewrite")

@@ -5,7 +5,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL="${1:?Usage: bash scripts/run_zsre_sure_minimal.sh MODEL [ZSRE_JSON]}"
 ZSRE="${2:-data/zsre_mend_eval.json}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-data/wikidata}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/zsre_sure_minimal}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/zsre_sure_guarded_v2}"
 SEEDS_TEXT="${ZSRE_SEEDS:-1}"
 FORGET_NUM="${ZSRE_FORGET_NUM:-50}"
 RETAIN_EVAL_NUM="${ZSRE_RETAIN_EVAL_NUM:-1000}"
@@ -13,28 +13,8 @@ DTYPE="${DTYPE:-bf16}"
 DEVICE_MAP="${DEVICE_MAP:-single}"
 EVAL_BATCH_SIZE="${ZSRE_EVAL_BATCH_SIZE:-8}"
 
-# Architecture locks shared verbatim with the MCF runner.
-UTILITY_SAMPLE_SIZE=100000
-UTILITY_SEED=1
-UTILITY_EXCLUDE_FIRST=20
-MODEL_TAG="$(basename "${MODEL}")"
-UTILITY_CACHE="${SURE_UTILITY_CACHE:-outputs/sure_wikipedia_stats/${MODEL_TAG}_final_hidden_docs100000.pt}"
-UTILITY_MAX_LENGTH="${SURE_UTILITY_MAX_LENGTH:-4096}"
-UTILITY_BATCH_SIZE="${SURE_UTILITY_BATCH_SIZE:-1}"
-STAGE1_STEPS="${SURE_STAGE1_STEPS:-600}"
-STAGE1_BATCH_SIZE="${SURE_STAGE1_BATCH_SIZE:-1}"
-STAGE1_LR="${SURE_STAGE1_LR:-0.005}"
-STAGE2_STEPS="${SURE_STAGE2_STEPS:-500}"
-STAGE2_BATCH_SIZE="${SURE_STAGE2_BATCH_SIZE:-8}"
-STAGE2_LR="${SURE_STAGE2_LR:-0.005}"
-STAGE2_CHECK_EVERY="${SURE_STAGE2_CHECK_EVERY:-25}"
-CACHE_BATCH_SIZE="${SURE_CACHE_BATCH_SIZE:-8}"
-GA_WEIGHT="${SURE_GA_WEIGHT:-2.0}"
-GD_WEIGHT="${SURE_GD_WEIGHT:-1.0}"
-CONTRASTIVE_EPS="${SURE_CONTRASTIVE_EPS:-0.001}"
-MARGIN="${SURE_SHARED_CONSTRAINT_MARGIN:-0.05}"
-MIN_NLL="${SURE_MIN_SENSITIVE_NLL_INCREASE:-4.0}"
-CANDIDATE_SCALES="${SURE_CANDIDATE_SCALES:-1,.875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,.046875,.03125,.015625,.0078125,0}"
+# The exact same architecture configuration is sourced by every dataset adapter.
+source scripts/sure_guarded_shared_defaults.sh
 
 test -d "${MODEL}"
 test -f "${ZSRE}"
@@ -51,6 +31,8 @@ if [[ ! -f "${UTILITY_CACHE}" ]]; then
     --exclude-first "${UTILITY_EXCLUDE_FIRST}" \
     --utility-max-length "${UTILITY_MAX_LENGTH}" \
     --utility-batch-size "${UTILITY_BATCH_SIZE}" \
+    --utility-prompt-count "${UTILITY_PROMPT_COUNT}" \
+    --utility-logit-batch-size "${UTILITY_LOGIT_BATCH_SIZE}" \
     --dtype "${DTYPE}" \
     --device-map "${DEVICE_MAP}"
 fi
@@ -91,19 +73,30 @@ for SEED in "${SEEDS[@]}"; do
     --seed "${SEED}" \
     --forget-num "${FORGET_NUM}" \
     --utility-sample-size "${UTILITY_SAMPLE_SIZE}" \
+    --utility-prompt-count "${UTILITY_PROMPT_COUNT}" \
     --stage1-steps "${STAGE1_STEPS}" \
     --stage1-batch-size "${STAGE1_BATCH_SIZE}" \
     --stage1-lr "${STAGE1_LR}" \
     --stage2-steps "${STAGE2_STEPS}" \
     --stage2-batch-size "${STAGE2_BATCH_SIZE}" \
+    --stage2-protection-batch-size "${STAGE2_PROTECTION_BATCH_SIZE}" \
     --stage2-lr "${STAGE2_LR}" \
     --stage2-check-every "${STAGE2_CHECK_EVERY}" \
     --cache-batch-size "${CACHE_BATCH_SIZE}" \
-    --ga-weight "${GA_WEIGHT}" \
+    --utility-train-batch-size "${UTILITY_TRAIN_BATCH_SIZE}" \
+    --utility-eval-batch-size "${UTILITY_EVAL_BATCH_SIZE}" \
+    --direct-constraint-weight "${DIRECT_CONSTRAINT_WEIGHT}" \
     --gd-weight "${GD_WEIGHT}" \
+    --utility-kl-weight "${UTILITY_KL_WEIGHT}" \
+    --stage2-protection-weight "${STAGE2_PROTECTION_WEIGHT}" \
     --contrastive-eps "${CONTRASTIVE_EPS}" \
     --constraint-margin "${MARGIN}" \
     --min-sensitive-nll-increase "${MIN_NLL}" \
+    --utility-kl-mean-budget "${UTILITY_KL_MEAN_BUDGET}" \
+    --utility-kl-p95-budget "${UTILITY_KL_P95_BUDGET}" \
+    --utility-kl-max-budget "${UTILITY_KL_MAX_BUDGET}" \
+    --max-total-delta-norm "${MAX_TOTAL_DELTA_NORM}" \
+    --rank-ladder "${RANK_LADDER}" \
     --candidate-scales "${CANDIDATE_SCALES}" \
     --dtype "${DTYPE}" \
     --device-map "${DEVICE_MAP}"
@@ -127,7 +120,7 @@ for SEED in "${SEEDS[@]}"; do
     --zsre-path "${ZSRE}" \
     --wikidata-dir "${WIKIDATA_DIR}" \
     --out "${FINAL_EVAL}" \
-    --method "SURE-LM minimal Wikipedia rank-2 two-stage" \
+    --method "SURE-LM guarded Wikipedia-KL rank-2-to-4 two-stage" \
     --unlearn-num "${FORGET_NUM}" \
     --retain-num "${RETAIN_EVAL_NUM}" \
     --seed "${SEED}" \
@@ -153,4 +146,4 @@ for SEED in "${SEEDS[@]}"; do
     --device-map "${DEVICE_MAP}"
 done
 
-echo "ZsRE minimal two-stage SURE complete: ${OUTPUT_ROOT}"
+echo "ZsRE guarded two-stage SURE complete: ${OUTPUT_ROOT}"
