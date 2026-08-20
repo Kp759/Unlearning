@@ -194,10 +194,10 @@ class ExactDirectFsRepairTests(unittest.TestCase):
                 2,
             )
 
-    def test_fs100_wrapper_enables_explicit_target_aware_mode(self):
+    def test_fs100_wrapper_routes_to_joint_target_aware_mode(self):
         wrapper = (SCRIPTS / "run_mcf_sure_fs100.sh").read_text(encoding="utf-8")
         runner = (SCRIPTS / "run_mcf_sure_minimal.sh").read_text(encoding="utf-8")
-        self.assertIn("SURE_MCF_TARGET_AWARE_FS=1", wrapper)
+        self.assertIn("run_mcf_sure_target_aware.sh", wrapper)
         self.assertIn("sure_mcf_direct_fs_repair.py", runner)
         self.assertIn("PAPER_ASSERT_ARGS=(--require-min-fs 100)", runner)
 

@@ -200,6 +200,12 @@ MCF `target_new`, imposes exact mean sequence-NLL inequalities, and emits a
 checkpoint only after the official BF16 direct scorer reports 50/50. It is not
 the benchmark-neutral method and does not guarantee GFS or specificity.
 
+The newer MCF-only joint target-aware ablation is documented in
+`SURE_MCF_TARGET_AWARE_GA_GD_ARCHITECTURE.md`. It performs bounded GA on
+`target_true`, bounded GD on `target_new`, and trains on official paraphrases;
+FS=100 and GFS=100 are both materialized-checkpoint gates. That extra benchmark
+supervision makes it unsuitable for presentation as the neutral SURE result.
+
 ## Dataset adapter contract
 
 A new dataset reuses the learner by generating the same canonical files as

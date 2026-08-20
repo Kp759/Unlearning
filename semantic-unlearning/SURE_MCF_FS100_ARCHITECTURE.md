@@ -1,4 +1,10 @@
-# SURE MCF target-aware direct-FS mode
+# SURE MCF target-aware direct-FS mode (legacy v6)
+
+This document describes the post-hoc direct-only v6 ablation retained for
+reproducibility. The current joint target-aware path is documented in
+`SURE_MCF_TARGET_AWARE_GA_GD_ARCHITECTURE.md`; it trains target_true and
+target_new together and includes official paraphrases so that both FS and GFS
+are checkpoint acceptance conditions.
 
 This is an explicitly benchmark-aware ablation layered after the
 benchmark-neutral two-stage SURE learner. It exists because paper-facing MCF
@@ -73,7 +79,9 @@ or PPL text. Therefore:
 ## Running
 
 ```bash
-bash scripts/run_mcf_sure_fs100.sh \
+export SURE_MCF_TARGET_AWARE_FS=1
+export OUTPUT_ROOT=outputs/mcf_sure_target_aware_direct_fs_v6_seed1
+bash scripts/run_mcf_sure_minimal.sh \
   /path/to/Llama-3.2-3B-Instruct \
   data/multi_counterfact.json
 ```
@@ -88,10 +96,13 @@ export SURE_MCF_DIRECT_FS_SOLVER_BUFFER=0.05
 export SURE_MCF_DIRECT_FS_RANK_LADDER=2,4,8
 ```
 
-The wrapper runs neutral SURE first, then invokes
+The neutral runner with the legacy environment flag runs neutral SURE first,
+then invokes
 `scripts/sure_mcf_direct_fs_repair.py`. The final official evaluator is called
 with `--require-min-fs 100`; the shell run cannot print its completion message
 or proceed to the retain-KL audit unless the official result is exactly 100.
+
+`scripts/run_mcf_sure_fs100.sh` now points to the newer joint v7 FS/GFS path.
 
 Key artifacts are written under `seed*/target_aware_direct_fs/`:
 

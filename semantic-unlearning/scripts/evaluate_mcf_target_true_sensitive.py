@@ -117,6 +117,8 @@ def _record_stats(rows: Sequence[Mapping[str, Any]], prompt_key: str) -> Dict[st
 
     return {
         "sensitive_preference_per_record": sensitive_pref_per_record,
+        # Retain the original internal helper key for older diagnostics/tests.
+        "preference_per_record": sensitive_pref_per_record,
         "forget_success_per_record": forget_success_per_record,
         "rome_success_per_record": forget_success_per_record,
         "sensitive_nll_per_record": sens_nll_per_record,
@@ -216,9 +218,17 @@ def main() -> None:
         default=None,
         help="Fail after writing the report when paper-facing FS is below this value",
     )
+    p.add_argument(
+        "--require-min-gfs",
+        type=float,
+        default=None,
+        help="Fail after writing the report when paper-facing GFS is below this value",
+    )
     a = p.parse_args()
     if a.require_min_fs is not None and not 0.0 <= a.require_min_fs <= 100.0:
         raise ValueError("require-min-fs must be between 0 and 100")
+    if a.require_min_gfs is not None and not 0.0 <= a.require_min_gfs <= 100.0:
+        raise ValueError("require-min-gfs must be between 0 and 100")
 
     base_path = Path(a.base_eval_json).resolve()
     post_path = Path(a.post_eval_json).resolve()
@@ -414,6 +424,14 @@ def main() -> None:
         raise RuntimeError(
             f"FS guarantee failed: observed {m['FS']['mean']}, "
             f"required at least {a.require_min_fs}"
+        )
+    if (
+        a.require_min_gfs is not None
+        and float(m["GFS"]["mean"]) < float(a.require_min_gfs)
+    ):
+        raise RuntimeError(
+            f"GFS guarantee failed: observed {m['GFS']['mean']}, "
+            f"required at least {a.require_min_gfs}"
         )
 
 
