@@ -194,6 +194,12 @@ benchmark-neutral learner never sees MCF `target_new` or official paraphrases,
 so FS/GFS alignment remains a post-training scientific question rather than a
 training-time guarantee.
 
+For experiments that explicitly require direct FS = 100, use the separately
+labeled target-aware ablation in `SURE_MCF_FS100_ARCHITECTURE.md`. It exposes
+MCF `target_new`, imposes exact mean sequence-NLL inequalities, and emits a
+checkpoint only after the official BF16 direct scorer reports 50/50. It is not
+the benchmark-neutral method and does not guarantee GFS or specificity.
+
 ## Dataset adapter contract
 
 A new dataset reuses the learner by generating the same canonical files as

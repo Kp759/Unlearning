@@ -210,7 +210,15 @@ def main() -> None:
     p.add_argument("--post-eval-json", required=True)
     p.add_argument("--split-manifest", required=True)
     p.add_argument("--out", required=True)
+    p.add_argument(
+        "--require-min-fs",
+        type=float,
+        default=None,
+        help="Fail after writing the report when paper-facing FS is below this value",
+    )
     a = p.parse_args()
+    if a.require_min_fs is not None and not 0.0 <= a.require_min_fs <= 100.0:
+        raise ValueError("require-min-fs must be between 0 and 100")
 
     base_path = Path(a.base_eval_json).resolve()
     post_path = Path(a.post_eval_json).resolve()
@@ -399,6 +407,14 @@ def main() -> None:
     )
     print("ZeroUnlearn Eff/Gen probability metrics: NOT COMPUTED by this evaluator")
     print("Wrote:", out)
+    if (
+        a.require_min_fs is not None
+        and float(m["FS"]["mean"]) < float(a.require_min_fs)
+    ):
+        raise RuntimeError(
+            f"FS guarantee failed: observed {m['FS']['mean']}, "
+            f"required at least {a.require_min_fs}"
+        )
 
 
 if __name__ == "__main__":
