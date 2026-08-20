@@ -5,12 +5,16 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL="${1:?Usage: bash scripts/run_mcf_sure_minimal.sh MODEL [MCF_JSON]}"
 MCF="${2:-data/multi_counterfact.json}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-data/wikidata}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/mcf_sure_token_conditioned_v3}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/mcf_sure_exact_constrained_stage2_v5_1}"
 SEEDS_TEXT="${MCF_SEEDS:-1}"
 FORGET_NUM="${MCF_FORGET_NUM:-50}"
 RETAIN_EVAL_NUM="${MCF_RETAIN_EVAL_NUM:-1000}"
 DTYPE="${DTYPE:-bf16}"
 DEVICE_MAP="${DEVICE_MAP:-single}"
+TARGET_AWARE_FS="${SURE_MCF_TARGET_AWARE_FS:-0}"
+DIRECT_FS_MARGIN="${SURE_MCF_DIRECT_FS_MARGIN:-0.01}"
+DIRECT_FS_SOLVER_BUFFER="${SURE_MCF_DIRECT_FS_SOLVER_BUFFER:-0.05}"
+DIRECT_FS_RANK_LADDER="${SURE_MCF_DIRECT_FS_RANK_LADDER:-2,4,8}"
 
 # The exact same architecture configuration is sourced by every dataset adapter.
 source scripts/sure_guarded_shared_defaults.sh
@@ -80,18 +84,21 @@ for SEED in "${SEEDS[@]}"; do
     --stage1-steps "${STAGE1_STEPS}" \
     --stage1-batch-size "${STAGE1_BATCH_SIZE}" \
     --stage1-lr "${STAGE1_LR}" \
-    --stage2-steps "${STAGE2_STEPS}" \
-    --stage2-batch-size "${STAGE2_BATCH_SIZE}" \
-    --stage2-protection-batch-size "${STAGE2_PROTECTION_BATCH_SIZE}" \
-    --stage2-lr "${STAGE2_LR}" \
-    --stage2-check-every "${STAGE2_CHECK_EVERY}" \
+    --stage2-maxiter "${STAGE2_MAXITER}" \
+    --stage2-ftol "${STAGE2_FTOL}" \
+    --stage2-constraint-tolerance "${STAGE2_CONSTRAINT_TOLERANCE}" \
+    --stage2-constraint-buffer "${STAGE2_CONSTRAINT_BUFFER}" \
+    --stage2-protected-materialization-buffer "${STAGE2_PROTECTED_MATERIALIZATION_BUFFER}" \
+    --stage2-residual-l2-weight "${STAGE2_RESIDUAL_L2_WEIGHT}" \
+    --stage2-constraint-basis-weight "${STAGE2_CONSTRAINT_BASIS_WEIGHT}" \
+    --stage2-restarts "${STAGE2_RESTARTS}" \
     --cache-batch-size "${CACHE_BATCH_SIZE}" \
     --utility-train-batch-size "${UTILITY_TRAIN_BATCH_SIZE}" \
     --utility-eval-batch-size "${UTILITY_EVAL_BATCH_SIZE}" \
     --direct-constraint-weight "${DIRECT_CONSTRAINT_WEIGHT}" \
     --gd-weight "${GD_WEIGHT}" \
     --utility-kl-weight "${UTILITY_KL_WEIGHT}" \
-    --stage2-protection-weight "${STAGE2_PROTECTION_WEIGHT}" \
+    --stage2-protection-nll-tolerance "${STAGE2_PROTECTION_NLL_TOLERANCE}" \
     --contrastive-eps "${CONTRASTIVE_EPS}" \
     --constraint-margin "${MARGIN}" \
     --min-sensitive-nll-increase "${MIN_NLL}" \
@@ -101,9 +108,42 @@ for SEED in "${SEEDS[@]}"; do
     --max-total-delta-norm "${MAX_TOTAL_DELTA_NORM}" \
     --rank-ladder "${RANK_LADDER}" \
     --candidate-scales "${STAGE1_CANDIDATE_SCALES}" \
-    --stage2-candidate-scales "${STAGE2_CANDIDATE_SCALES}" \
     --dtype "${DTYPE}" \
     --device-map "${DEVICE_MAP}"
+
+  FINAL_MODEL_DIR="${LEARNER}/checkpoint"
+  FINAL_DELTA_PATH="${LEARNER}/final_total_delta.pt"
+  PAPER_ASSERT_ARGS=()
+  if [[ "${TARGET_AWARE_FS}" == "1" ]]; then
+    FS_REPAIR="${ROOT}/target_aware_direct_fs"
+    python scripts/sure_mcf_direct_fs_repair.py \
+      --input-checkpoint "${LEARNER}/checkpoint" \
+      --learner-dir "${LEARNER}" \
+      --mcf-path "${MCF}" \
+      --split-manifest "${MANIFEST}" \
+      --output-dir "${FS_REPAIR}" \
+      --direct-fs-margin "${DIRECT_FS_MARGIN}" \
+      --direct-fs-solver-buffer "${DIRECT_FS_SOLVER_BUFFER}" \
+      --protection-nll-tolerance "${STAGE2_PROTECTION_NLL_TOLERANCE}" \
+      --protected-materialization-buffer "${STAGE2_PROTECTED_MATERIALIZATION_BUFFER}" \
+      --constraint-buffer "${STAGE2_CONSTRAINT_BUFFER}" \
+      --residual-l2-weight "${STAGE2_RESIDUAL_L2_WEIGHT}" \
+      --constraint-context-weight "${STAGE2_CONSTRAINT_BASIS_WEIGHT}" \
+      --rank-ladder "${DIRECT_FS_RANK_LADDER}" \
+      --maxiter "${STAGE2_MAXITER}" \
+      --ftol "${STAGE2_FTOL}" \
+      --constraint-tolerance "${STAGE2_CONSTRAINT_TOLERANCE}" \
+      --batch-size "${CACHE_BATCH_SIZE}" \
+      --utility-batch-size "${UTILITY_EVAL_BATCH_SIZE}" \
+      --dtype "${DTYPE}" \
+      --device-map "${DEVICE_MAP}"
+    FINAL_MODEL_DIR="${FS_REPAIR}/checkpoint"
+    FINAL_DELTA_PATH="${FS_REPAIR}/final_total_delta.pt"
+    PAPER_ASSERT_ARGS=(--require-min-fs 100)
+  elif [[ "${TARGET_AWARE_FS}" != "0" ]]; then
+    echo "SURE_MCF_TARGET_AWARE_FS must be 0 or 1" >&2
+    exit 2
+  fi
 
   # Everything below is post-training and cannot affect checkpoint selection.
   python scripts/mcf_zero_unlearn_official_eval.py \
@@ -119,7 +159,7 @@ for SEED in "${SEEDS[@]}"; do
     --device-map "${DEVICE_MAP}"
 
   python scripts/mcf_zero_unlearn_official_eval.py \
-    --model-dir "${LEARNER}/checkpoint" \
+    --model-dir "${FINAL_MODEL_DIR}" \
     --mcf-path "${MCF}" \
     --wikidata-dir "${WIKIDATA_DIR}" \
     --out "${FINAL_EVAL}" \
@@ -134,19 +174,20 @@ for SEED in "${SEEDS[@]}"; do
     --eval-json "${BASE_EVAL}" --model-dir "${MODEL}" \
     --wikidata-dir "${WIKIDATA_DIR}"
   python scripts/annotate_ppl_provenance.py \
-    --eval-json "${FINAL_EVAL}" --model-dir "${LEARNER}/checkpoint" \
+    --eval-json "${FINAL_EVAL}" --model-dir "${FINAL_MODEL_DIR}" \
     --wikidata-dir "${WIKIDATA_DIR}"
 
   python scripts/evaluate_mcf_target_true_sensitive.py \
     --base-eval-json "${BASE_EVAL}" \
     --post-eval-json "${FINAL_EVAL}" \
     --split-manifest "${MANIFEST}" \
-    --out "${PAPER_EVAL}"
+    --out "${PAPER_EVAL}" \
+    "${PAPER_ASSERT_ARGS[@]}"
 
   python scripts/audit_sure_exact_retain_kl.py \
     --model-path "${MODEL}" \
     --retain-prompt-path "${RETAIN_AUDIT}" \
-    --delta-path "${LEARNER}/final_total_delta.pt" \
+    --delta-path "${FINAL_DELTA_PATH}" \
     --scale 1 \
     --output-json "${EXACT_KL}" \
     --batch-size "${CACHE_BATCH_SIZE}" \
