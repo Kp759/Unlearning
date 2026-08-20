@@ -8,6 +8,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 import torch
 from torch import nn
@@ -443,13 +445,10 @@ class MinimalSureLearnerTests(unittest.TestCase):
         self.assertTrue(torch.equal(nll, state["sensitive_nll_increase"]))
         self.assertEqual(failures.tolist(), [False, True, True])
 
-    def test_stage2_frontier_can_extrapolate_without_changing_stage1(self):
+    def test_stage2_uses_exact_solver_without_a_scale_frontier(self):
         stage1 = learner.core.parse_scales(learner.DEFAULT_CANDIDATE_SCALES)
-        stage2 = learner.core.parse_scales(learner.DEFAULT_STAGE2_CANDIDATE_SCALES)
         self.assertEqual(max(stage1), 1.0)
-        self.assertGreater(max(stage2), 1.0)
-        self.assertIn(1.0, stage2)
-        self.assertIn(0.0, stage2)
+        self.assertFalse(hasattr(learner, "DEFAULT_STAGE2_CANDIDATE_SCALES"))
 
     def test_candidate_materialization_uses_weight_dtype_and_restores_rows(self):
         layer = nn.Linear(3, 5, bias=False, dtype=torch.bfloat16)
@@ -494,6 +493,39 @@ class MinimalSureLearnerTests(unittest.TestCase):
                 rank_cap=3,
                 relative_eps=1e-6,
             )
+
+    def test_rank4_constraint_context_fallback_adds_real_capacity(self):
+        active_hidden = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+        active_tids = torch.tensor([5])
+        all_direct_hidden = torch.eye(4)
+        utility = torch.eye(4)
+        rank2, report2 = learner.build_constraint_aware_stage2_bases(
+            active_hidden,
+            active_tids,
+            all_direct_hidden,
+            utility,
+            requested_ids=[5],
+            rank_cap=2,
+            relative_eps=1e-6,
+            constraint_context_weight=0.05,
+        )
+        rank4, report4 = learner.build_constraint_aware_stage2_bases(
+            active_hidden,
+            active_tids,
+            all_direct_hidden,
+            utility,
+            requested_ids=[5],
+            rank_cap=4,
+            relative_eps=1e-6,
+            constraint_context_weight=0.05,
+        )
+        self.assertEqual(rank2[0].shape[0], 1)
+        self.assertEqual(rank4[0].shape[0], 4)
+        self.assertEqual(report2[0]["stage2_basis_protocol"], "repair_only")
+        self.assertEqual(
+            report4[0]["stage2_basis_protocol"],
+            "repair_plus_direct_constraint_contexts",
+        )
 
     def test_exact_sparse_utility_kl_matches_full_softmax(self):
         probabilities = torch.tensor([[0.2, 0.3]])
@@ -665,6 +697,206 @@ class MinimalSureLearnerTests(unittest.TestCase):
         self.assertIsNotNone(residual.grad)
         self.assertGreater(float(residual.grad.abs().sum()), 0.0)
 
+    def test_exact_sparse_stage2_state_matches_full_vocabulary_logits(self):
+        torch.manual_seed(7)
+        base = torch.randn(5, 11)
+        hidden = torch.randn(5, 4)
+        active_ids = [2, 7]
+        stage1 = base.clone()
+        stage1[:, active_ids] += hidden @ (torch.randn(2, 4) * 0.1).transpose(0, 1)
+        sensitive_ids = torch.tensor([2, 1, 7, 3, 2])
+        residual = torch.randn(2, 4) * 0.2
+        cache = learner.build_exact_stage2_direct_cache(
+            stage1,
+            base,
+            hidden,
+            sensitive_ids,
+            active_ids,
+            device=torch.device("cpu"),
+        )
+        exact = learner.exact_stage2_direct_state(cache, residual)
+        full_logits = learner.logits_with_sparse_residual(
+            stage1, hidden, active_ids, residual
+        )
+        expected = learner.constraint_state_from_logits(
+            full_logits, base, sensitive_ids
+        )
+        self.assertTrue(
+            torch.allclose(exact["logit_margin"], expected["logit_margin"], atol=1e-6)
+        )
+        self.assertTrue(
+            torch.allclose(
+                exact["sensitive_nll_increase"],
+                expected["sensitive_nll_increase"],
+                atol=1e-6,
+            )
+        )
+
+    def test_exact_constrained_solver_repairs_active_and_preserves_protected(self):
+        base = torch.tensor([[2.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
+        stage1 = torch.tensor([[2.0, 0.0, 0.0], [-3.0, 0.0, 0.0]])
+        hidden = torch.eye(2)
+        sensitive_ids = torch.tensor([0, 0])
+        stage1_state = learner.constraint_state_from_logits(
+            stage1, base, sensitive_ids
+        )
+        args = argparse.Namespace(
+            utility_kl_weight=1.0,
+            stage2_residual_l2_weight=1e-4,
+            min_sensitive_nll_increase=2.0,
+            constraint_margin=0.05,
+            stage2_constraint_buffer=0.0,
+            utility_kl_mean_budget=10.0,
+            utility_kl_p95_budget=10.0,
+            utility_kl_max_budget=10.0,
+            max_total_delta_norm=10.0,
+            stage2_restarts=2,
+            stage2_constraint_tolerance=1e-5,
+            stage2_maxiter=200,
+            stage2_ftol=1e-9,
+        )
+        residual, _, report = learner.optimize_stage2(
+            args=args,
+            stage1_ids=[0],
+            stage1_delta=torch.zeros(1, 2),
+            active_ids=[0],
+            row_bases=[torch.eye(2)],
+            all_forget_hidden=hidden,
+            all_forget_tids=sensitive_ids,
+            stage1_forget_logits=stage1,
+            base_forget_logits=base,
+            active_case_indices=[0],
+            protected_case_indices=[1],
+            protected_targets=torch.tensor(
+                [float(stage1_state["sensitive_nll_increase"][1] - 0.1)]
+            ),
+            utility_train_hidden=torch.zeros(3, 2),
+            utility_train_probabilities=torch.full((3, 1), 0.1),
+            rank=2,
+        )
+        cache = learner.build_exact_stage2_direct_cache(
+            stage1,
+            base,
+            hidden,
+            sensitive_ids,
+            [0],
+            device=torch.device("cpu"),
+        )
+        final = learner.exact_stage2_direct_state(cache, residual)
+        self.assertTrue(report["continuous_solver_feasible"])
+        self.assertGreaterEqual(float(final["sensitive_nll_increase"][0]), 2.0 - 1e-5)
+        self.assertGreaterEqual(
+            float(final["sensitive_nll_increase"][1]),
+            float(stage1_state["sensitive_nll_increase"][1] - 0.1 - 1e-5),
+        )
+        self.assertGreaterEqual(float(final["logit_margin"].min()), 0.05 - 1e-5)
+
+    def test_exact_solver_retains_a_feasible_intermediate_iterate(self):
+        base = torch.tensor([[2.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
+        stage1 = torch.tensor([[2.0, 0.0, 0.0], [-3.0, 0.0, 0.0]])
+        hidden = torch.eye(2)
+        sensitive_ids = torch.tensor([0, 0])
+        stage1_state = learner.constraint_state_from_logits(
+            stage1, base, sensitive_ids
+        )
+        args = argparse.Namespace(
+            utility_kl_weight=1.0,
+            stage2_residual_l2_weight=1e-4,
+            min_sensitive_nll_increase=2.0,
+            constraint_margin=0.05,
+            stage2_constraint_buffer=0.0,
+            utility_kl_mean_budget=10.0,
+            utility_kl_p95_budget=10.0,
+            utility_kl_max_budget=10.0,
+            max_total_delta_norm=10.0,
+            stage2_restarts=1,
+            stage2_constraint_tolerance=1e-5,
+            stage2_maxiter=5,
+            stage2_ftol=1e-9,
+        )
+
+        def fake_minimize(*_args, callback, **_kwargs):
+            callback(learner.np.array([-4.0, 0.0]))
+            return SimpleNamespace(
+                x=learner.np.zeros(2),
+                success=False,
+                status=9,
+                message="iteration limit",
+                nit=1,
+                nfev=1,
+                njev=1,
+            )
+
+        with mock.patch.object(learner, "minimize", side_effect=fake_minimize):
+            residual, _, report = learner.optimize_stage2(
+                args=args,
+                stage1_ids=[0],
+                stage1_delta=torch.zeros(1, 2),
+                active_ids=[0],
+                row_bases=[torch.eye(2)],
+                all_forget_hidden=hidden,
+                all_forget_tids=sensitive_ids,
+                stage1_forget_logits=stage1,
+                base_forget_logits=base,
+                active_case_indices=[0],
+                protected_case_indices=[1],
+                protected_targets=torch.tensor(
+                    [float(stage1_state["sensitive_nll_increase"][1] - 0.1)]
+                ),
+                utility_train_hidden=torch.zeros(3, 2),
+                utility_train_probabilities=torch.full((3, 1), 0.1),
+                rank=2,
+            )
+        self.assertTrue(report["continuous_solver_feasible"])
+        self.assertEqual(report["solver_phase"], "iterate")
+        self.assertTrue(torch.allclose(residual, torch.tensor([[-4.0, 0.0]])))
+
+    def test_exact_constrained_solver_never_trades_protection_for_repair(self):
+        base = torch.tensor([[2.0, 0.0, -10.0], [2.0, 0.0, -10.0]])
+        stage1 = torch.tensor([[2.0, 0.0, -10.0], [2.0, -5.0, -10.0]])
+        hidden = torch.ones(2, 1)
+        sensitive_ids = torch.tensor([0, 1])
+        stage1_state = learner.constraint_state_from_logits(
+            stage1, base, sensitive_ids
+        )
+        args = argparse.Namespace(
+            utility_kl_weight=1.0,
+            stage2_residual_l2_weight=1e-4,
+            min_sensitive_nll_increase=2.0,
+            constraint_margin=0.05,
+            stage2_constraint_buffer=0.0,
+            utility_kl_mean_budget=10.0,
+            utility_kl_p95_budget=10.0,
+            utility_kl_max_budget=10.0,
+            max_total_delta_norm=10.0,
+            stage2_restarts=2,
+            stage2_constraint_tolerance=1e-5,
+            stage2_maxiter=100,
+            stage2_ftol=1e-9,
+        )
+        _, _, report = learner.optimize_stage2(
+            args=args,
+            stage1_ids=[0, 1],
+            stage1_delta=torch.zeros(2, 1),
+            active_ids=[0],
+            row_bases=[torch.ones(1, 1)],
+            all_forget_hidden=hidden,
+            all_forget_tids=sensitive_ids,
+            stage1_forget_logits=stage1,
+            base_forget_logits=base,
+            active_case_indices=[0],
+            protected_case_indices=[1],
+            protected_targets=torch.tensor(
+                [float(stage1_state["sensitive_nll_increase"][1] - 0.1)]
+            ),
+            utility_train_hidden=torch.zeros(3, 1),
+            utility_train_probabilities=torch.full((3, 2), 0.1),
+            rank=2,
+        )
+        self.assertFalse(report["continuous_solver_feasible"])
+        self.assertEqual(report["selection_mode"], "best_infeasible_diagnostic")
+        self.assertLess(report["solver_minimum_direct_slack"], 0.0)
+
     def test_protected_targets_keep_stage1_clearance_above_global_floor(self):
         stage1_nll = torch.tensor([3.0, 4.01, 4.40])
         targets = learner.protected_nll_targets(
@@ -675,51 +907,49 @@ class MinimalSureLearnerTests(unittest.TestCase):
         )
         self.assertTrue(torch.allclose(targets, torch.tensor([4.0, 4.35])))
 
-    def test_protected_barrier_catches_cross_row_nll_regression(self):
-        base = torch.zeros((2, 3))
-        current = torch.tensor([[-2.0, 0.0, 0.0], [-0.2, 0.0, 0.0]], requires_grad=True)
-        loss, diagnostics = learner.protected_stage1_barrier_loss(
-            current,
-            base,
-            torch.tensor([0, 0]),
-            torch.tensor([1.0, 1.0]),
-            required_logit_margin=-10.0,
+    def test_solver_buffer_does_not_cancel_protected_tolerance(self):
+        nll, margin = learner.stage2_solver_targets(
+            3,
+            [1, 2],
+            torch.tensor([4.0, 4.35]),
+            required_nll_increase=4.0,
+            required_logit_margin=0.05,
+            constraint_buffer=0.05,
+            device=torch.device("cpu"),
         )
-        self.assertGreater(float(loss), 0.0)
-        self.assertEqual(float(diagnostics["violation_fraction"]), 0.5)
-        loss.backward()
-        self.assertGreater(float(current.grad.abs().sum()), 0.0)
+        self.assertTrue(torch.allclose(nll, torch.tensor([4.05, 4.05, 4.35])))
+        self.assertTrue(torch.allclose(margin, torch.full((3,), 0.10)))
 
-    def test_unedited_sensitive_row_is_protected_from_softmax_denominator_shift(self):
+    def test_exact_constraints_catch_unedited_sensitive_row_denominator_shift(self):
         base = torch.zeros((1, 3))
         stage1_logits = torch.tensor([[-5.0, 0.0, 0.0]])
         hidden = torch.ones((1, 1))
-        residual = torch.tensor([[-4.0]], requires_grad=True)
-        current = learner.logits_with_sparse_residual(
-            stage1_logits,
-            hidden,
-            [1],
-            residual,
-        )
+        residual = torch.tensor([[-4.0]])
         sensitive_ids = torch.tensor([0])
+        cache = learner.build_exact_stage2_direct_cache(
+            stage1_logits,
+            base,
+            hidden,
+            sensitive_ids,
+            [1],
+            device=torch.device("cpu"),
+        )
+        state = learner.exact_stage2_direct_state(cache, residual)
         stage1_nll = learner.shared.sensitive_nll_increase_from_logits(
             stage1_logits, base, sensitive_ids
         )
-        current_nll = learner.shared.sensitive_nll_increase_from_logits(
-            current, base, sensitive_ids
+        self.assertLess(float(state["sensitive_nll_increase"][0]), float(stage1_nll[0]))
+        report = learner.stage2_partition_report(
+            state,
+            active_indices=[],
+            protected_indices=[0],
+            protected_targets=stage1_nll - 0.05,
+            args=argparse.Namespace(
+                constraint_margin=-10.0,
+                min_sensitive_nll_increase=0.0,
+            ),
         )
-        self.assertEqual(float(current[0, 0]), float(stage1_logits[0, 0]))
-        self.assertLess(float(current_nll), float(stage1_nll))
-        loss, _ = learner.protected_stage1_barrier_loss(
-            current,
-            base,
-            sensitive_ids,
-            stage1_nll - 0.05,
-            required_logit_margin=-10.0,
-        )
-        self.assertGreater(float(loss), 0.0)
-        loss.backward()
-        self.assertGreater(float(residual.grad.abs().sum()), 0.0)
+        self.assertEqual(report["protected_floor_violations"], 1)
 
     def test_stage2_partition_separates_repairs_from_new_regressions(self):
         state = {
@@ -764,6 +994,19 @@ class MinimalSureLearnerTests(unittest.TestCase):
         self.assertFalse(report["stage2_protection_safe"])
         self.assertFalse(report["feasible"])
 
+    def test_materialized_candidate_cannot_override_solver_infeasibility(self):
+        report = {"feasible": True}
+        solver = {
+            "continuous_solver_feasible": False,
+            "solver_minimum_direct_slack": -0.1,
+            "solver_minimum_utility_slack": 0.2,
+            "selection_mode": "best_infeasible_diagnostic",
+        }
+        learner.attach_stage2_solver_feasibility(report, solver)
+        self.assertTrue(report["materialized_feasible"])
+        self.assertFalse(report["continuous_solver_feasible"])
+        self.assertFalse(report["feasible"])
+
     def test_architecture_signature_excludes_dataset_and_seed(self):
         values = {
             "forget_num": 50,
@@ -775,15 +1018,18 @@ class MinimalSureLearnerTests(unittest.TestCase):
             "stage1_steps": 600,
             "stage1_batch_size": 1,
             "stage1_lr": 0.005,
-            "stage2_steps": 500,
-            "stage2_lr": 0.005,
-            "stage2_check_every": 25,
+            "stage2_maxiter": 500,
+            "stage2_ftol": 1e-9,
+            "stage2_constraint_tolerance": 1e-5,
+            "stage2_constraint_buffer": 0.05,
+            "stage2_residual_l2_weight": 1e-4,
+            "stage2_constraint_basis_weight": 0.05,
+            "stage2_restarts": 2,
             "utility_train_batch_size": 128,
             "utility_eval_batch_size": 512,
             "direct_constraint_weight": 100.0,
             "gd_weight": 1.0,
             "utility_kl_weight": 1.0,
-            "stage2_protection_weight": 1.0,
             "stage2_protection_nll_tolerance": 0.05,
             "contrastive_eps": 0.001,
             "constraint_margin": 0.05,
@@ -798,10 +1044,10 @@ class MinimalSureLearnerTests(unittest.TestCase):
         mcf = argparse.Namespace(**values, dataset="mcf", seed=1)
         zsre = argparse.Namespace(**values, dataset="zsre", seed=99)
         left = learner.architecture_signature_payload(
-            mcf, [1.0, 0.5, 0.0], [1.25, 1.0, 0.0], [2, 4]
+            mcf, [1.0, 0.5, 0.0], [2, 4]
         )
         right = learner.architecture_signature_payload(
-            zsre, [1.0, 0.5, 0.0], [1.25, 1.0, 0.0], [2, 4]
+            zsre, [1.0, 0.5, 0.0], [2, 4]
         )
         self.assertEqual(left, right)
         self.assertEqual(
@@ -825,8 +1071,11 @@ class MinimalSureLearnerTests(unittest.TestCase):
             "UTILITY_EXCLUDE_FIRST=20",
             'STAGE1_STEPS="${SURE_STAGE1_STEPS:-600}"',
             'STAGE1_LR="${SURE_STAGE1_LR:-0.005}"',
-            'STAGE2_STEPS="${SURE_STAGE2_STEPS:-500}"',
-            'STAGE2_LR="${SURE_STAGE2_LR:-0.005}"',
+            'STAGE2_MAXITER="${SURE_STAGE2_MAXITER:-500}"',
+            'STAGE2_FTOL="${SURE_STAGE2_FTOL:-1e-9}"',
+            'STAGE2_CONSTRAINT_BUFFER="${SURE_STAGE2_CONSTRAINT_BUFFER:-0.05}"',
+            'STAGE2_RESIDUAL_L2_WEIGHT="${SURE_STAGE2_RESIDUAL_L2_WEIGHT:-0.0001}"',
+            'STAGE2_CONSTRAINT_BASIS_WEIGHT="${SURE_STAGE2_CONSTRAINT_BASIS_WEIGHT:-0.05}"',
             'STAGE2_PROTECTION_NLL_TOLERANCE="${SURE_STAGE2_PROTECTION_NLL_TOLERANCE:-0.05}"',
             'DIRECT_CONSTRAINT_WEIGHT="${SURE_DIRECT_CONSTRAINT_WEIGHT:-100.0}"',
             'GD_WEIGHT="${SURE_GD_WEIGHT:-1.0}"',
@@ -836,13 +1085,14 @@ class MinimalSureLearnerTests(unittest.TestCase):
             'MARGIN="${SURE_SHARED_CONSTRAINT_MARGIN:-0.05}"',
             'MIN_NLL="${SURE_MIN_SENSITIVE_NLL_INCREASE:-4.0}"',
             "RANK_LADDER=2,4",
-            'STAGE2_CANDIDATE_SCALES="${SURE_STAGE2_CANDIDATE_SCALES:-1.25,',
         ]
         for line in shared:
             self.assertIn(line, defaults)
         for runner in (mcf, zsre):
+            self.assertNotIn("--stage2-candidate-scales", runner)
+            self.assertIn('--stage2-maxiter "${STAGE2_MAXITER}"', runner)
             self.assertIn(
-                '--stage2-candidate-scales "${STAGE2_CANDIDATE_SCALES}"',
+                '--stage2-constraint-buffer "${STAGE2_CONSTRAINT_BUFFER}"',
                 runner,
             )
             self.assertIn(

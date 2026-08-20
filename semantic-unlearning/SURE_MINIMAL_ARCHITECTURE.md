@@ -1,4 +1,4 @@
-# Token-conditioned SURE-LM with protected Stage 2
+# Token-conditioned SURE-LM with exact constrained Stage 2
 
 `scripts/sure_minimal_two_stage.py` is one dataset-independent learner. Dataset
 adapters only produce the canonical direct-forget JSON and declare its
@@ -58,23 +58,26 @@ disjoint Wikipedia utility documents                  │
                   repair set A                 protected set P
                 (Stage-1 failures)            (Stage-1 successes)
                             \                       /
-                             guarded Stage 2 rank 2
+                           constrained Stage 2 rank 2
                                       │
                          residual rows editable only
-                    full cached-logit A constraints every step
-                    + worst-case full-P protection barrier
-                    + active-case conditional GD
-                    + KL on total Stage1+residual delta
-                    residual scale may exceed 1.0
-                    (Stage-1 scale never exceeds 1.0)
+                    exact cached NLL/margin constraints
+                    for every case in A and P
+                    + exact train-pool Wikipedia constraints
+                    + total-delta norm constraint
+                    + minimum Wikipedia KL/residual norm objective
                                       │
-                         materialized guarded frontier
+                    checkpoint-dtype materialization
+                    + held-out Wikipedia guard
                                /                \
                             pass                 fail
                              │                    │
-                           DONE           expand 2 -> 4
+                         candidate         expand 2 -> 4
                                                   │
-                                          pass or INFEASIBLE
+                                  add direct-context capacity
+                                                   │
+                                    select safest feasible rank
+                                      or report INFEASIBLE
 ```
 
 The bounded direct loss is
@@ -97,17 +100,50 @@ max(required_sensitive_NLL_increase,
     Stage1_sensitive_NLL_increase_i - protection_tolerance).
 ```
 
-The default tolerance is `0.05`. The protection loss is the maximum per-case
-squared shortfall across the complete protected set, not a sampled mean. This
-catches cross-row softmax effects: editing one sensitive row can change the NLL
-of an unedited sensitive row by changing the shared softmax denominator.
+The default tolerance is `0.05`. These are hard inequalities, not a weighted
+protection loss. Stage 2 may not exchange a protected-case regression for an
+active-case repair. A small continuous-solver buffer is applied to the global
+NLL and margin boundaries before checkpoint-dtype verification; it does not
+cancel the protected `Stage1 - tolerance` allowance. The constraints catch
+cross-row softmax effects: editing one sensitive row can change the NLL of an
+unedited sensitive row by changing the shared softmax denominator.
 
 Because the transformer and input embeddings are frozen and Stage 2 edits only
 sparse LM-head rows, Stage-1 logits plus cached direct hidden states determine
-the Stage-2 logits exactly under the training hook. Thus every optimization
-step evaluates all repair and protected cases without a transformer forward.
-Periodic inspections and all scale candidates still run the actual model, and
-final selection uses exact checkpoint-dtype materialization.
+the Stage-2 logits exactly. For direct context `i` and edited row `s`, the
+residual logit shift is `d_is = h_i^T delta_w_s`. The cached Base partition and
+selected-row probabilities then give the exact full-vocabulary NLL change;
+the best unedited and edited competing logits give the exact margin. Every
+optimization evaluation therefore covers all repair and protected cases
+without a transformer forward.
+
+Stage 2 solves
+
+```text
+min  mean exact Wikipedia KL(Base || Stage1 + residual)
+     + lambda * ||residual||^2
+
+subject to
+  NLL increase_i >= required NLL       for every i in A
+  margin_i       >= required margin    for every i in A
+  NLL increase_j >= max(required NLL,
+                         Stage1 NLL increase_j - epsilon) for every j in P
+  margin_j       >= required margin    for every j in P
+  train Wikipedia mean/p95/max KL <= locked budgets
+  ||Stage1 + residual|| <= locked norm budget.
+```
+
+The implementation uses SLSQP with analytic Torch gradients, deterministic
+zero and repair-directed starts, and retains the lowest-utility feasible
+iterate even if a later solver step exits outside a boundary. A candidate is
+eligible only when both the continuous solve and an actual checkpoint-dtype
+materialization pass. No null-space projection, repair/protection weighting,
+or Stage-2 residual scale frontier is used.
+
+Rank 2 uses repair-context directions first. The rank-4 fallback augments the
+generalized covariance with all training-visible direct constraint contexts,
+which supplies context-selective capacity for shared-row conflicts while
+keeping preservation as explicit inequalities rather than a projection.
 
 The cache spreads its predictor-state reservoir across token positions rather
 than keeping only one random position per document. This lets a capped pilot
@@ -131,15 +167,12 @@ KL(Base || Edited)_u = log(A_u) - sum_s p_us d_us.
 
 Scale selection uses only the direct constraints and disjoint Wikipedia
 utility statistics. A Stage-1 handoff is permitted only when it is utility-safe
-and improves the direct shortfall. The final checkpoint must repair every
-Stage-1 failure, preserve every Stage-1-success floor, have zero total direct
-failures, and pass fixed mean, p95, maximum-KL, and total-delta-norm guards.
-Unsafe candidates are never materialized as final checkpoints.
-
-Stage 1 has a shrink-only scale frontier capped at `1.0`. Stage 2 has its own
-residual frontier up to `1.25`; values above `1.0` scale only the learned
-residual and are accepted only after exact materialization passes every direct
-and held-out Wikipedia guard.
+and improves the direct shortfall. Stage 1 retains its shrink-only scale
+frontier capped at `1.0`. Stage 2 instead solves its residual coefficients
+directly at ranks 2 and 4. Among fully feasible materialized rank candidates,
+selection minimizes held-out Wikipedia mean, p95, and maximum KL, followed by
+total delta norm. Unsafe or continuously infeasible candidates are never used
+as final checkpoints.
 
 Official benchmark retain examples, replacement/reference answers,
 paraphrases, neighborhood/locality prompts, and PPL texts are never visible to
@@ -158,7 +191,7 @@ A new dataset reuses the learner by generating the same canonical files as
 
 ```json
 {
-  "protocol": "sure_token_conditioned_wikipedia_kl_protected_stage2_v4",
+  "protocol": "sure_exact_constrained_residual_stage2_v5",
   "dataset": "adapter-name",
   "learner_adapter_contract": {
     "sensitive_answer_field": "target_true",
@@ -178,18 +211,32 @@ bash scripts/run_mcf_sure_minimal.sh /path/to/model data/multi_counterfact.json
 bash scripts/run_zsre_sure_minimal.sh /path/to/model data/zsre_mend_eval.json
 ```
 
-If Stage 2 is infeasible, audit the saved residual without retraining or
-opening any held-out benchmark data:
+If Stage 2 is infeasible, inspect its solver and checkpoint-dtype diagnostics
+without retraining or opening any held-out benchmark data:
 
 ```bash
-python scripts/audit_sure_token_conditioned_residuals.py \
-  --learner-dir outputs/mcf_sure_protected_stage2_v4/seed1/learner
+RUN=outputs/mcf_sure_exact_constrained_stage2_v5/seed1/learner
+
+python - "$RUN" <<'PY'
+import json, pathlib, sys
+run = pathlib.Path(sys.argv[1])
+for name in (
+    "stage2_attempts.json",
+    "stage2_rank2_materialized_report.json",
+    "stage2_rank4_materialized_report.json",
+    "stage2_infeasible.json",
+):
+    path = run / name
+    if path.exists():
+        print(f"\n{name}\n{'=' * len(name)}")
+        print(json.dumps(json.load(path.open()), indent=2))
+PY
 ```
 
-The audit reports per-edited-row Base-probability coverage, requested versus
-actual contrastive rank, exact failure identities at scales `0`, `1`, and
-`1.25`, and whether unresolved cases share an edited token row. Its default
-JSON output is written inside the learner directory.
+Per-rank `stage2_rank*_solver_history.json` files contain every inspected
+iterate and its active, protected, utility, and norm slacks. Per-rank basis
+reports record requested versus actual capacity. `stage2_infeasible.json`
+preserves the safe Stage-1 checkpoint and records why no rank was admissible.
 
 Both runners reuse the same model-specific Wikipedia cache. The requested
 utility corpus is 100,000 documents and the exact-KL candidate reservoir is

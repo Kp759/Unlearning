@@ -3,7 +3,7 @@
 
 The learner consumes a canonical direct-forget JSON plus an adapter contract in
 the split manifest. MCF, ZsRE, and future datasets therefore share exactly the
-same optimizer, rank ladder, scale frontier, and safety rules.
+same Stage-1 optimizer, Stage-2 constrained solver, rank ladder, and safety rules.
 
 Only sparse sensitive-token rows of an untied LM head are editable. The Base
 transformer and input embeddings remain frozen. A disjoint Wikipedia cache is
@@ -11,8 +11,12 @@ used in two ways: its full hidden second moment defines the contrastive basis,
 and its predictor-state/Base-partition reservoir is split before selecting
 per-edited-token high-Base-probability train and checkpoint-guard contexts.
 Stage 2 partitions the direct cases into exact Stage-1 failures and successes,
-then evaluates all repair constraints and a worst-case success-preservation
-barrier from cached logits on every optimization step.
+then solves a minimum-utility-cost sparse residual with every repair and
+success-preservation requirement represented as a hard behavioral constraint.
+Since the transformer is frozen, all Stage-2 direct NLLs, margins, and sparse
+Wikipedia KL values are evaluated from cached predictor states without model
+forward passes. No null-space projection or weighted repair/protection tradeoff
+is used.
 No benchmark retain example, replacement target, paraphrase, locality probe,
 or PPL text is visible to training or selection.
 """
@@ -24,10 +28,12 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Sequence, Tuple
 
+import numpy as np
 import torch
 import torch.nn.functional as F
+from scipy.optimize import minimize
 
 import build_sure_wikipedia_stats as wikipedia
 import gagd_compare as gagd
@@ -36,8 +42,8 @@ import sure_context_projection as context
 import sure_shared_suppression as shared
 
 
-METHOD = "SURE-LM-token-conditioned-Wikipedia-KL-protected-stage2-rank2to4"
-PROTOCOL = "sure_token_conditioned_wikipedia_kl_protected_stage2_v4"
+METHOD = "SURE-LM-exact-constrained-residual-stage2-rank2to4"
+PROTOCOL = "sure_exact_constrained_residual_stage2_v5"
 RANK_LADDER = (2, 4)
 DEFAULT_UTILITY_TOKEN_TOPK_PER_ROW = 128
 DEFAULT_UTILITY_UNIFORM_PROMPT_COUNT = 1_024
@@ -45,11 +51,6 @@ DEFAULT_UTILITY_POOL_SEED = 1
 DEFAULT_CANDIDATE_SCALES = (
     "1,.875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,"
     ".046875,.03125,.015625,.0078125,0"
-)
-DEFAULT_STAGE2_CANDIDATE_SCALES = (
-    "1.25,1.1875,1.125,1.09375,1.078125,1.0625,1.046875,1.03125,1,"
-    ".875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,.046875,"
-    ".03125,.015625,.0078125,0"
 )
 
 
@@ -98,9 +99,51 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage1-steps", type=int, default=600)
     parser.add_argument("--stage1-batch-size", type=int, default=1)
     parser.add_argument("--stage1-lr", type=float, default=5e-3)
-    parser.add_argument("--stage2-steps", type=int, default=500)
-    parser.add_argument("--stage2-lr", type=float, default=5e-3)
-    parser.add_argument("--stage2-check-every", type=int, default=25)
+    parser.add_argument(
+        "--stage2-maxiter",
+        type=int,
+        default=500,
+        help="Maximum SLSQP iterations for each deterministic constrained solve",
+    )
+    parser.add_argument(
+        "--stage2-ftol",
+        type=float,
+        default=1e-9,
+        help="SLSQP objective/convergence tolerance",
+    )
+    parser.add_argument(
+        "--stage2-constraint-tolerance",
+        type=float,
+        default=1e-5,
+        help="Maximum accepted negative hard-constraint slack",
+    )
+    parser.add_argument(
+        "--stage2-constraint-buffer",
+        type=float,
+        default=0.05,
+        help="Extra continuous-solver clearance before checkpoint-dtype verification",
+    )
+    parser.add_argument(
+        "--stage2-residual-l2-weight",
+        type=float,
+        default=1e-4,
+        help="Residual squared-norm coefficient in the minimum-utility objective",
+    )
+    parser.add_argument(
+        "--stage2-constraint-basis-weight",
+        type=float,
+        default=0.05,
+        help=(
+            "Rank-4 fallback weight for all training-visible direct constraint "
+            "contexts; rank 2 remains repair-only"
+        ),
+    )
+    parser.add_argument(
+        "--stage2-restarts",
+        type=int,
+        default=2,
+        help="Deterministic zero/repair-directed starts per Stage-2 rank",
+    )
     parser.add_argument("--cache-batch-size", type=int, default=8)
     parser.add_argument("--utility-train-batch-size", type=int, default=128)
     parser.add_argument("--utility-eval-batch-size", type=int, default=512)
@@ -108,7 +151,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--direct-constraint-weight", type=float, default=100.0)
     parser.add_argument("--gd-weight", type=float, default=1.0)
     parser.add_argument("--utility-kl-weight", type=float, default=1.0)
-    parser.add_argument("--stage2-protection-weight", type=float, default=1.0)
     parser.add_argument(
         "--stage2-protection-nll-tolerance",
         type=float,
@@ -130,11 +172,6 @@ def parse_args() -> argparse.Namespace:
         "--candidate-scales",
         default=DEFAULT_CANDIDATE_SCALES,
         help="Stage-1 shrink-only materialized scale frontier",
-    )
-    parser.add_argument(
-        "--stage2-candidate-scales",
-        default=DEFAULT_STAGE2_CANDIDATE_SCALES,
-        help="Stage-2 residual frontier; guarded values above one polish feasibility",
     )
     parser.add_argument("--grad-clip", type=float, default=1.0)
 
@@ -161,7 +198,7 @@ def parse_rank_ladder(text: str) -> Tuple[int, ...]:
 
 def validate_args(
     args: argparse.Namespace,
-) -> Tuple[List[float], List[float], Tuple[int, ...]]:
+) -> Tuple[List[float], Tuple[int, ...]]:
     if args.forget_num <= 0:
         raise ValueError("forget-num must be positive")
     if args.utility_sample_size != wikipedia.DEFAULT_SAMPLE_SIZE:
@@ -177,16 +214,13 @@ def validate_args(
         "stage1_steps": args.stage1_steps,
         "stage1_batch_size": args.stage1_batch_size,
         "stage1_lr": args.stage1_lr,
-        "stage2_steps": args.stage2_steps,
-        "stage2_lr": args.stage2_lr,
-        "stage2_check_every": args.stage2_check_every,
+        "stage2_maxiter": args.stage2_maxiter,
         "cache_batch_size": args.cache_batch_size,
         "utility_train_batch_size": args.utility_train_batch_size,
         "utility_eval_batch_size": args.utility_eval_batch_size,
         "utility_token_topk_per_row": args.utility_token_topk_per_row,
         "direct_constraint_weight": args.direct_constraint_weight,
         "utility_kl_weight": args.utility_kl_weight,
-        "stage2_protection_weight": args.stage2_protection_weight,
         "contrastive_eps": args.contrastive_eps,
         "utility_kl_mean_budget": args.utility_kl_mean_budget,
         "utility_kl_p95_budget": args.utility_kl_p95_budget,
@@ -202,6 +236,19 @@ def validate_args(
         raise ValueError("utility-uniform-prompt-count must be non-negative")
     if not math.isfinite(args.grad_clip) or args.grad_clip < 0:
         raise ValueError("grad-clip must be finite and non-negative")
+    nonnegative = {
+        "stage2_constraint_tolerance": args.stage2_constraint_tolerance,
+        "stage2_constraint_buffer": args.stage2_constraint_buffer,
+        "stage2_residual_l2_weight": args.stage2_residual_l2_weight,
+        "stage2_constraint_basis_weight": args.stage2_constraint_basis_weight,
+    }
+    for name, value in nonnegative.items():
+        if not math.isfinite(float(value)) or float(value) < 0:
+            raise ValueError(f"{name} must be finite and non-negative")
+    if not math.isfinite(float(args.stage2_ftol)) or args.stage2_ftol <= 0:
+        raise ValueError("stage2-ftol must be finite and positive")
+    if int(args.stage2_restarts) not in (1, 2):
+        raise ValueError("stage2-restarts must be either 1 or 2")
     if not math.isfinite(args.constraint_margin):
         raise ValueError("constraint-margin must be finite")
     if (
@@ -217,22 +264,16 @@ def validate_args(
             "stage2-protection-nll-tolerance must be finite and non-negative"
         )
     stage1_scales = core.parse_scales(args.candidate_scales)
-    stage2_scales = core.parse_scales(args.stage2_candidate_scales)
     if 0.0 not in stage1_scales or 1.0 not in stage1_scales:
         raise ValueError("candidate-scales must include both 0 and 1")
     if any(scale > 1.0 for scale in stage1_scales):
         raise ValueError("Stage-1 candidate-scales must not exceed 1.0")
-    if 0.0 not in stage2_scales or 1.0 not in stage2_scales:
-        raise ValueError("stage2-candidate-scales must include both 0 and 1")
-    if max(stage2_scales) <= 1.0:
-        raise ValueError("Stage-2 frontier must include a guarded scale above 1.0")
-    return stage1_scales, stage2_scales, parse_rank_ladder(args.rank_ladder)
+    return stage1_scales, parse_rank_ladder(args.rank_ladder)
 
 
 def architecture_signature_payload(
     args: argparse.Namespace,
     stage1_scales: Sequence[float],
-    stage2_scales: Sequence[float],
     rank_ladder: Sequence[int],
 ) -> Dict[str, Any]:
     """Return dataset/seed-independent parameters that define the learner."""
@@ -250,16 +291,20 @@ def architecture_signature_payload(
         "stage1_steps": int(args.stage1_steps),
         "stage1_batch_size": int(args.stage1_batch_size),
         "stage1_lr": float(args.stage1_lr),
-        "stage2_steps": int(args.stage2_steps),
-        "stage2_direct_case_batching": "full_repair_and_protected_sets_every_step",
-        "stage2_lr": float(args.stage2_lr),
-        "stage2_check_every": int(args.stage2_check_every),
+        "stage2_solver": "scipy_slsqp_exact_cached_sparse_constraints",
+        "stage2_maxiter": int(args.stage2_maxiter),
+        "stage2_ftol": float(args.stage2_ftol),
+        "stage2_constraint_tolerance": float(args.stage2_constraint_tolerance),
+        "stage2_constraint_buffer": float(args.stage2_constraint_buffer),
+        "stage2_residual_l2_weight": float(args.stage2_residual_l2_weight),
+        "stage2_constraint_basis_weight": float(args.stage2_constraint_basis_weight),
+        "stage2_restarts": int(args.stage2_restarts),
+        "stage2_direct_case_batching": "all_repair_and_protected_constraints_exact",
         "utility_train_batch_size": int(args.utility_train_batch_size),
         "utility_eval_batch_size": int(args.utility_eval_batch_size),
         "direct_constraint_weight": float(args.direct_constraint_weight),
         "gd_weight": float(args.gd_weight),
         "utility_kl_weight": float(args.utility_kl_weight),
-        "stage2_protection_weight": float(args.stage2_protection_weight),
         "stage2_protection_nll_tolerance": float(args.stage2_protection_nll_tolerance),
         "contrastive_eps": float(args.contrastive_eps),
         "constraint_margin": float(args.constraint_margin),
@@ -269,7 +314,6 @@ def architecture_signature_payload(
         "utility_kl_max_budget": float(args.utility_kl_max_budget),
         "max_total_delta_norm": float(args.max_total_delta_norm),
         "stage1_candidate_scales": [float(value) for value in stage1_scales],
-        "stage2_candidate_scales": [float(value) for value in stage2_scales],
         "grad_clip": float(args.grad_clip),
         "dtype": str(args.dtype),
     }
@@ -572,6 +616,133 @@ def build_contrastive_bases_from_second_moment(
     return bases, reports
 
 
+@torch.no_grad()
+def build_constraint_aware_stage2_bases(
+    active_hidden: torch.Tensor,
+    active_tids: torch.Tensor,
+    all_direct_hidden: torch.Tensor,
+    utility_second_moment: torch.Tensor,
+    *,
+    requested_ids: Sequence[int],
+    rank_cap: int,
+    relative_eps: float,
+    constraint_context_weight: float,
+    utility_cholesky: torch.Tensor | None = None,
+) -> Tuple[List[torch.Tensor], List[Dict[str, Any]]]:
+    """Build repair-first bases with rank-4 constraint-context capacity.
+
+    Rank 2 intentionally reproduces the repair-only Stage-2 geometry.  At the
+    rank-4 fallback, the generalized forget covariance is augmented by a small
+    covariance contribution from *all training-visible direct cases*.  These
+    extra directions let the constrained solver distinguish active and
+    protected contexts that share an LM-head row.  They are capacity, not a
+    projection: every behavioral preservation condition remains an explicit
+    inequality in the solver.
+    """
+    if rank_cap not in RANK_LADDER:
+        raise ValueError(f"rank cap must come from the shared ladder {RANK_LADDER}")
+    if active_hidden.ndim != 2 or active_hidden.shape[0] != active_tids.numel():
+        raise ValueError("active hidden states and token ids do not align")
+    if all_direct_hidden.ndim != 2 or all_direct_hidden.shape[1] != active_hidden.shape[1]:
+        raise ValueError("all-direct and active hidden states do not align")
+    if constraint_context_weight < 0 or not math.isfinite(constraint_context_weight):
+        raise ValueError("constraint-context weight must be finite and non-negative")
+    if rank_cap == RANK_LADDER[0] or constraint_context_weight == 0:
+        bases, reports = build_contrastive_bases_from_second_moment(
+            active_hidden,
+            active_tids,
+            utility_second_moment,
+            requested_ids=requested_ids,
+            rank_cap=rank_cap,
+            relative_eps=relative_eps,
+            utility_cholesky=utility_cholesky,
+        )
+        for report in reports:
+            report["stage2_basis_protocol"] = "repair_only"
+            report["constraint_context_weight"] = 0.0
+            report["all_direct_context_count"] = int(all_direct_hidden.shape[0])
+        return bases, reports
+
+    hidden_size = int(active_hidden.shape[1])
+    if utility_second_moment.shape != (hidden_size, hidden_size):
+        raise ValueError("utility second moment and direct hidden size differ")
+    if utility_cholesky is None:
+        utility_cholesky, _ = regularized_utility_cholesky(
+            utility_second_moment,
+            relative_eps=relative_eps,
+            device=active_hidden.device,
+        )
+    chol = utility_cholesky.to(device=active_hidden.device, dtype=torch.float32)
+    tids = active_tids.to(device=active_hidden.device, dtype=torch.long)
+    direct = all_direct_hidden.to(device=active_hidden.device, dtype=torch.float32)
+    whitened_direct = torch.linalg.solve_triangular(
+        chol,
+        direct.transpose(0, 1),
+        upper=False,
+    ).transpose(0, 1) / math.sqrt(float(direct.shape[0]))
+    bases: List[torch.Tensor] = []
+    reports: List[Dict[str, Any]] = []
+    for token_id in [int(value) for value in requested_ids]:
+        repair = active_hidden[tids.eq(token_id)].float()
+        if repair.numel() == 0:
+            raise RuntimeError(f"Sensitive token {token_id} has no active repair contexts")
+
+        # This row matrix has covariance C_A + alpha*C_D.  Repair states retain
+        # unit weight while direct constraint states supply only fallback
+        # context-selective capacity.
+        whitened_repair = torch.linalg.solve_triangular(
+            chol,
+            repair.transpose(0, 1),
+            upper=False,
+        ).transpose(0, 1) / math.sqrt(float(repair.shape[0]))
+        whitened = torch.cat(
+            (
+                whitened_repair,
+                math.sqrt(float(constraint_context_weight))
+                * whitened_direct,
+            ),
+            dim=0,
+        )
+        _, singular_values, right = torch.linalg.svd(whitened, full_matrices=False)
+        tolerance = (
+            max(whitened.shape)
+            * torch.finfo(torch.float32).eps
+            * singular_values.max().clamp_min(1.0)
+        )
+        numerical_rank = int((singular_values > tolerance).sum().item())
+        take = min(int(rank_cap), numerical_rank)
+        if take <= 0:
+            raise RuntimeError(f"Sensitive token {token_id} has zero Stage-2 rank")
+        raw = torch.linalg.solve_triangular(
+            chol.transpose(0, 1),
+            right[:take].transpose(0, 1),
+            upper=True,
+        ).transpose(0, 1)
+        basis = core.orthonormal_row_basis(raw, max_rank=take).float()
+        bases.append(basis.detach().contiguous())
+        reports.append(
+            {
+                "token_id": token_id,
+                "forget_context_count": int(repair.shape[0]),
+                "forget_context_rank": int(torch.linalg.matrix_rank(repair).item()),
+                "requested_contrastive_rank": int(rank_cap),
+                "actual_contrastive_rank": int(basis.shape[0]),
+                "top_generalized_eigenvalues": [
+                    float(value)
+                    for value in singular_values[:take].square().detach().cpu().tolist()
+                ],
+                "relative_eps": float(relative_eps),
+                "utility_covariance": "fixed_external_wikipedia_second_moment",
+                "generalized_eigen_solver": "full_space_cholesky_whitened_low_rank_svd",
+                "domain": "full_lm_head_hidden_space",
+                "stage2_basis_protocol": "repair_plus_direct_constraint_contexts",
+                "constraint_context_weight": float(constraint_context_weight),
+                "all_direct_context_count": int(direct.shape[0]),
+            }
+        )
+    return bases, reports
+
+
 def total_delta_with_residual(
     stage1_delta: torch.Tensor,
     stage1_ids: Sequence[int],
@@ -725,47 +896,6 @@ def protected_nll_targets(
         raise ValueError("Stage-1 protected NLL values must be finite")
     required = torch.full_like(values, float(required_nll_increase))
     return torch.maximum(required, values - float(tolerance))
-
-
-def protected_stage1_barrier_loss(
-    logits: torch.Tensor,
-    base_logits: torch.Tensor,
-    sensitive_ids: torch.Tensor,
-    nll_targets: torch.Tensor,
-    *,
-    required_logit_margin: float,
-) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-    """Worst-case barrier over every case that already passed at Stage 1."""
-    if logits.ndim != 2 or logits.shape[0] != sensitive_ids.numel():
-        raise ValueError("protected logits and sensitive ids do not align")
-    if base_logits.shape != logits.shape:
-        raise ValueError("protected current/Base logits do not align")
-    if nll_targets.shape != (logits.shape[0],):
-        raise ValueError("protected NLL targets do not align with protected cases")
-    if logits.shape[0] == 0:
-        zero = logits.sum() * 0.0
-        empty = logits.new_empty((0,), dtype=torch.float32)
-        return zero, {
-            "logit_margin": empty,
-            "sensitive_nll_increase": empty,
-            "margin_shortfall": empty,
-            "nll_floor_shortfall": empty,
-            "violation_fraction": zero,
-        }
-    tids = sensitive_ids.to(device=logits.device, dtype=torch.long)
-    margins = shared.suppression_margins_from_logits(logits, tids)
-    nll_increase = shared.sensitive_nll_increase_from_logits(logits, base_logits, tids)
-    targets = nll_targets.to(device=logits.device, dtype=torch.float32)
-    margin_shortfall = F.relu(float(required_logit_margin) - margins)
-    nll_shortfall = F.relu(targets - nll_increase)
-    per_case = margin_shortfall.square() + nll_shortfall.square()
-    return per_case.max(), {
-        "logit_margin": margins,
-        "sensitive_nll_increase": nll_increase,
-        "margin_shortfall": margin_shortfall,
-        "nll_floor_shortfall": nll_shortfall,
-        "violation_fraction": (per_case > 0).float().mean(),
-    }
 
 
 def bounded_direct_constraint_loss(
@@ -950,10 +1080,10 @@ def build_disjoint_token_conditioned_utility_pools(
     )
 
 
-def exact_sparse_kl_from_shifts(
+def exact_sparse_log_partition_ratio(
     shifts: torch.Tensor, selected_base_probabilities: torch.Tensor
 ) -> torch.Tensor:
-    """Exact ``KL(Base || sparse-row-edited)`` for joint selected-row shifts."""
+    """Return exact ``log(Z_edited / Z_base)`` for sparse logit shifts."""
     if shifts.shape != selected_base_probabilities.shape or shifts.ndim != 2:
         raise ValueError(
             "shifts/probabilities must share [utility, selected-row] shape"
@@ -976,12 +1106,24 @@ def exact_sparse_kl_from_shifts(
         torch.log(probabilities),
         negative_inf,
     )
-    log_partition_ratio = torch.logsumexp(
+    return torch.logsumexp(
         torch.cat(
             (torch.log(remainder).unsqueeze(1), log_probabilities + shifts), dim=1
         ),
         dim=1,
     )
+
+
+def exact_sparse_kl_from_shifts(
+    shifts: torch.Tensor, selected_base_probabilities: torch.Tensor
+) -> torch.Tensor:
+    """Exact ``KL(Base || sparse-row-edited)`` for joint selected-row shifts."""
+    probabilities = selected_base_probabilities.to(
+        device=shifts.device, dtype=shifts.dtype
+    ).clamp_min(0.0)
+    selected_mass = probabilities.sum(dim=1)
+    probabilities = probabilities / selected_mass.clamp_min(1.0).unsqueeze(1)
+    log_partition_ratio = exact_sparse_log_partition_ratio(shifts, probabilities)
     kl = log_partition_ratio - (probabilities * shifts).sum(dim=1)
     return kl.clamp_min(0.0)
 
@@ -995,6 +1137,114 @@ def exact_sparse_utility_kl(
     probabilities = utility_probabilities.to(device=delta.device, dtype=torch.float32)
     shifts = hidden @ delta.float().transpose(0, 1)
     return exact_sparse_kl_from_shifts(shifts, probabilities)
+
+
+@torch.no_grad()
+def build_exact_stage2_direct_cache(
+    stage1_logits: torch.Tensor,
+    base_logits: torch.Tensor,
+    direct_hidden: torch.Tensor,
+    sensitive_ids: torch.Tensor,
+    active_ids: Sequence[int],
+    *,
+    device: torch.device,
+) -> Dict[str, torch.Tensor]:
+    """Cache the sufficient statistics for exact sparse Stage-2 constraints.
+
+    The full vocabulary is touched once here. Subsequent solver evaluations use
+    only ``[direct cases, active rows]`` tensors while remaining algebraically
+    identical to applying the residual to the frozen LM head in FP32.
+    """
+    if stage1_logits.ndim != 2 or base_logits.shape != stage1_logits.shape:
+        raise ValueError("Stage-1/Base direct logits must share [case,vocab] shape")
+    if direct_hidden.ndim != 2 or direct_hidden.shape[0] != stage1_logits.shape[0]:
+        raise ValueError("direct hidden states do not align with cached logits")
+    if sensitive_ids.shape != (stage1_logits.shape[0],):
+        raise ValueError("sensitive ids do not align with direct cases")
+    if not active_ids or len(set(int(value) for value in active_ids)) != len(active_ids):
+        raise ValueError("Stage-2 exact cache requires unique active row ids")
+
+    logits = stage1_logits.to(device=device, dtype=torch.float32)
+    base = base_logits.to(device=device, dtype=torch.float32)
+    tids = sensitive_ids.to(device=device, dtype=torch.long)
+    ids = torch.tensor([int(value) for value in active_ids], device=device)
+    if bool((ids < 0).any()) or bool((ids >= logits.shape[1]).any()):
+        raise ValueError("active row id is outside the vocabulary")
+    rows = torch.arange(logits.shape[0], device=device)
+    stage1_log_z = torch.logsumexp(logits, dim=1)
+    active_logits = logits.index_select(1, ids)
+    active_probabilities = torch.exp(active_logits - stage1_log_z.unsqueeze(1))
+    stage1_nll = stage1_log_z - logits[rows, tids]
+    base_nll = torch.logsumexp(base, dim=1) - base[rows, tids]
+
+    # Cache the strongest logit that cannot move in Stage 2. The active-row
+    # candidates are handled separately at every solver evaluation.
+    unedited = logits.clone()
+    unedited.index_fill_(1, ids, -torch.inf)
+    unedited[rows, tids] = -torch.inf
+    best_unedited_other = unedited.max(dim=1).values
+
+    token_to_column = {int(token_id): column for column, token_id in enumerate(active_ids)}
+    target_columns = torch.tensor(
+        [token_to_column.get(int(token_id), -1) for token_id in tids.detach().cpu()],
+        device=device,
+        dtype=torch.long,
+    )
+    active_is_sensitive = ids.unsqueeze(0).eq(tids.unsqueeze(1))
+    return {
+        "direct_hidden": direct_hidden.to(device=device, dtype=torch.float32),
+        "stage1_active_logits": active_logits,
+        "stage1_active_probabilities": active_probabilities,
+        "stage1_sensitive_logits": logits[rows, tids],
+        "stage1_sensitive_nll_increase": stage1_nll - base_nll,
+        "best_unedited_other_logits": best_unedited_other,
+        "target_columns": target_columns,
+        "active_is_sensitive": active_is_sensitive,
+        "sensitive_ids": tids,
+    }
+
+
+def exact_stage2_direct_state(
+    cache: Mapping[str, torch.Tensor], residual_delta: torch.Tensor
+) -> Dict[str, torch.Tensor]:
+    """Evaluate exact FP32 direct NLL changes and best-other margins."""
+    hidden = cache["direct_hidden"].to(
+        device=residual_delta.device, dtype=torch.float32
+    )
+    shifts = hidden @ residual_delta.float().transpose(0, 1)
+    probabilities = cache["stage1_active_probabilities"].to(
+        device=residual_delta.device, dtype=torch.float32
+    )
+    log_partition_ratio = exact_sparse_log_partition_ratio(shifts, probabilities)
+    target_columns = cache["target_columns"].to(device=residual_delta.device)
+    safe_columns = target_columns.clamp_min(0)
+    target_shift = shifts.gather(1, safe_columns.unsqueeze(1)).squeeze(1)
+    target_shift = torch.where(target_columns >= 0, target_shift, torch.zeros_like(target_shift))
+    nll_increase = cache["stage1_sensitive_nll_increase"].to(
+        device=residual_delta.device, dtype=torch.float32
+    ) + log_partition_ratio - target_shift
+
+    active_logits = cache["stage1_active_logits"].to(
+        device=residual_delta.device, dtype=torch.float32
+    ) + shifts
+    active_other_logits = active_logits.masked_fill(
+        cache["active_is_sensitive"].to(device=residual_delta.device), -torch.inf
+    )
+    best_other = torch.maximum(
+        cache["best_unedited_other_logits"].to(
+            device=residual_delta.device, dtype=torch.float32
+        ),
+        active_other_logits.max(dim=1).values,
+    )
+    sensitive_logits = cache["stage1_sensitive_logits"].to(
+        device=residual_delta.device, dtype=torch.float32
+    ) + target_shift
+    return {
+        "logit_margin": best_other - sensitive_logits,
+        "sensitive_nll_increase": nll_increase,
+        "stage2_log_partition_ratio": log_partition_ratio,
+        "stage2_target_logit_shift": target_shift,
+    }
 
 
 @torch.no_grad()
@@ -1225,9 +1475,29 @@ def choose_stage2_report(
             float(row["utility_kl_p95"]),
             float(row["utility_kl_max"]),
             float(row["total_delta_norm"]),
-            float(row["scale"]),
+            int(row["rank"]),
         ),
     )
+
+
+def attach_stage2_solver_feasibility(
+    report: Dict[str, Any], solver_report: Mapping[str, Any]
+) -> None:
+    """Require both continuous and checkpoint-dtype Stage-2 feasibility."""
+    report["continuous_solver_feasible"] = bool(
+        solver_report.get("continuous_solver_feasible", False)
+    )
+    report["materialized_feasible"] = bool(report["feasible"])
+    report["feasible"] = bool(
+        report["materialized_feasible"] and report["continuous_solver_feasible"]
+    )
+    report["continuous_solver_minimum_direct_slack"] = solver_report.get(
+        "solver_minimum_direct_slack"
+    )
+    report["continuous_solver_minimum_utility_slack"] = solver_report.get(
+        "solver_minimum_utility_slack"
+    )
+    report["solver_selection_mode"] = solver_report.get("selection_mode")
 
 
 @torch.no_grad()
@@ -1366,17 +1636,225 @@ def optimize_stage1(
     return delta_module.effective_delta().detach().clone()
 
 
+def coefficients_to_residual(
+    coefficients: torch.Tensor, row_bases: Sequence[torch.Tensor]
+) -> torch.Tensor:
+    """Expand one flat Stage-2 coefficient vector into sparse LM-head rows."""
+    if coefficients.ndim != 1:
+        raise ValueError("Stage-2 coefficients must be a vector")
+    rows: List[torch.Tensor] = []
+    offset = 0
+    for basis in row_bases:
+        rank = int(basis.shape[0])
+        if basis.ndim != 2 or rank <= 0:
+            raise ValueError("every Stage-2 row basis must be non-empty")
+        chunk = coefficients[offset : offset + rank]
+        if chunk.numel() != rank:
+            raise ValueError("Stage-2 coefficient vector is too short")
+        rows.append(
+            chunk
+            @ basis.to(device=coefficients.device, dtype=coefficients.dtype)
+        )
+        offset += rank
+    if offset != coefficients.numel():
+        raise ValueError("Stage-2 coefficient vector is too long")
+    return torch.stack(rows, dim=0)
+
+
+def stage2_solver_targets(
+    case_count: int,
+    protected_indices: Sequence[int],
+    protected_nll_targets: torch.Tensor,
+    *,
+    required_nll_increase: float,
+    required_logit_margin: float,
+    constraint_buffer: float,
+    device: torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Return hard per-case NLL/margin targets used by the continuous solver."""
+    nll = torch.full(
+        (case_count,),
+        float(required_nll_increase) + float(constraint_buffer),
+        device=device,
+        dtype=torch.float32,
+    )
+    protected = torch.tensor(
+        [int(value) for value in protected_indices], device=device, dtype=torch.long
+    )
+    targets = protected_nll_targets.to(device=device, dtype=torch.float32)
+    if protected.numel() != targets.numel():
+        raise ValueError("protected indices and NLL targets do not align")
+    if protected.numel():
+        # ``targets`` already equals max(global floor, Stage1 - epsilon).
+        # Buffer only the global feasibility boundary; adding it to the entire
+        # protected target would silently cancel the allowed epsilon whenever
+        # Stage 1 has extra clearance.
+        protected_floor = torch.maximum(
+            targets,
+            targets.new_full(
+                targets.shape,
+                float(required_nll_increase) + float(constraint_buffer),
+            ),
+        )
+        nll.index_copy_(0, protected, protected_floor)
+    margin = torch.full(
+        (case_count,),
+        float(required_logit_margin) + float(constraint_buffer),
+        device=device,
+        dtype=torch.float32,
+    )
+    return nll, margin
+
+
+class _TorchScalarAdapter:
+    """Cache a differentiable Torch scalar as SciPy value/gradient callbacks."""
+
+    def __init__(
+        self,
+        function: Callable[[torch.Tensor], torch.Tensor],
+        *,
+        device: torch.device,
+    ) -> None:
+        self.function = function
+        self.device = device
+        self._x: np.ndarray | None = None
+        self._value = 0.0
+        self._gradient = np.empty(0, dtype=np.float64)
+
+    def _evaluate(self, values: np.ndarray) -> None:
+        current = np.asarray(values, dtype=np.float64)
+        if self._x is not None and np.array_equal(current, self._x):
+            return
+        variable = torch.tensor(
+            current, device=self.device, dtype=torch.float32, requires_grad=True
+        )
+        result = self.function(variable)
+        if result.ndim != 0 or not torch.isfinite(result):
+            raise FloatingPointError("Stage-2 scalar callback is non-finite")
+        gradient = torch.autograd.grad(result, variable)[0]
+        self._x = current.copy()
+        self._value = float(result.detach().cpu())
+        self._gradient = gradient.detach().double().cpu().numpy()
+
+    def value(self, values: np.ndarray) -> float:
+        self._evaluate(values)
+        return self._value
+
+    def gradient(self, values: np.ndarray) -> np.ndarray:
+        self._evaluate(values)
+        return self._gradient
+
+
+class _TorchVectorAdapter:
+    """Cache a differentiable Torch vector as SciPy value/Jacobian callbacks."""
+
+    def __init__(
+        self,
+        function: Callable[[torch.Tensor], torch.Tensor],
+        *,
+        device: torch.device,
+    ) -> None:
+        self.function = function
+        self.device = device
+        self._x: np.ndarray | None = None
+        self._value = np.empty(0, dtype=np.float64)
+        self._jacobian = np.empty((0, 0), dtype=np.float64)
+
+    def _evaluate(self, values: np.ndarray) -> None:
+        current = np.asarray(values, dtype=np.float64)
+        if self._x is not None and np.array_equal(current, self._x):
+            return
+        variable = torch.tensor(
+            current, device=self.device, dtype=torch.float32, requires_grad=True
+        )
+        result = self.function(variable)
+        if result.ndim != 1 or not torch.isfinite(result).all():
+            raise FloatingPointError("Stage-2 vector callback is non-finite")
+        # A manual reverse-mode stack avoids torch.func/vmap dependencies and
+        # is cheap here: Stage 2 has only two constraints per direct token case.
+        jacobian = torch.stack(
+            [
+                torch.autograd.grad(
+                    result[index],
+                    variable,
+                    retain_graph=index + 1 < result.numel(),
+                )[0]
+                for index in range(result.numel())
+            ],
+            dim=0,
+        )
+        self._x = current.copy()
+        self._value = result.detach().double().cpu().numpy()
+        self._jacobian = jacobian.detach().double().cpu().numpy()
+
+    def value(self, values: np.ndarray) -> np.ndarray:
+        self._evaluate(values)
+        return self._value
+
+    def jacobian(self, values: np.ndarray) -> np.ndarray:
+        self._evaluate(values)
+        return self._jacobian
+
+
+def repair_directed_stage2_start(
+    direct_cache: Mapping[str, torch.Tensor],
+    row_bases: Sequence[torch.Tensor],
+    active_case_indices: Sequence[int],
+    nll_targets: torch.Tensor,
+    margin_targets: torch.Tensor,
+) -> torch.Tensor:
+    """Construct a deterministic least-squares start from active shortfalls."""
+    device = nll_targets.device
+    ranks = [int(basis.shape[0]) for basis in row_bases]
+    start = torch.zeros(sum(ranks), device=device, dtype=torch.float32)
+    zero_rows = torch.zeros(
+        (len(row_bases), int(direct_cache["direct_hidden"].shape[1])),
+        device=device,
+        dtype=torch.float32,
+    )
+    initial = exact_stage2_direct_state(direct_cache, zero_rows)
+    active_mask = torch.zeros(
+        int(nll_targets.numel()), device=device, dtype=torch.bool
+    )
+    active_mask[
+        torch.tensor([int(value) for value in active_case_indices], device=device)
+    ] = True
+    target_columns = direct_cache["target_columns"].to(device=device)
+    hidden = direct_cache["direct_hidden"].to(device=device, dtype=torch.float32)
+    offset = 0
+    for column, basis in enumerate(row_bases):
+        rank = ranks[column]
+        case_mask = active_mask & target_columns.eq(column)
+        indices = torch.where(case_mask)[0]
+        if indices.numel():
+            nll_need = F.relu(
+                nll_targets.index_select(0, indices)
+                - initial["sensitive_nll_increase"].index_select(0, indices)
+            )
+            margin_need = F.relu(
+                margin_targets.index_select(0, indices)
+                - initial["logit_margin"].index_select(0, indices)
+            )
+            desired_sensitive_shift = -torch.maximum(nll_need, margin_need)
+            response = hidden.index_select(0, indices) @ basis.to(
+                device=device, dtype=torch.float32
+            ).transpose(0, 1)
+            solution = torch.linalg.lstsq(
+                response, desired_sensitive_shift.unsqueeze(1)
+            ).solution.squeeze(1)
+            if torch.isfinite(solution).all():
+                start[offset : offset + rank] = solution
+        offset += rank
+    return start
+
+
 def optimize_stage2(
     *,
     args: argparse.Namespace,
-    model: torch.nn.Module,
-    tok: Any,
-    output_layer: torch.nn.Module,
     stage1_ids: Sequence[int],
     stage1_delta: torch.Tensor,
     active_ids: Sequence[int],
     row_bases: Sequence[torch.Tensor],
-    all_forget_cases: Sequence[core.SensitivePredictionCase],
     all_forget_hidden: torch.Tensor,
     all_forget_tids: torch.Tensor,
     stage1_forget_logits: torch.Tensor,
@@ -1386,76 +1864,131 @@ def optimize_stage2(
     protected_targets: torch.Tensor,
     utility_train_hidden: torch.Tensor,
     utility_train_probabilities: torch.Tensor,
-    utility_guard_hidden: torch.Tensor,
-    utility_guard_probabilities: torch.Tensor,
-    llama_like: bool,
-    device: torch.device,
     rank: int,
 ) -> Tuple[torch.Tensor, List[Dict[str, Any]], Dict[str, Any]]:
-    delta_module = context.RowSpecificProjectedDelta(
-        active_ids, row_bases, device=output_layer.weight.device
+    """Solve minimum utility cost subject to exact mandatory constraints."""
+    compute_device = stage1_delta.device
+    bases = [
+        basis.to(device=compute_device, dtype=torch.float32).contiguous()
+        for basis in row_bases
+    ]
+    coefficient_count = sum(int(basis.shape[0]) for basis in bases)
+    if coefficient_count <= 0:
+        raise ValueError("Stage-2 constrained solver has zero coefficients")
+    direct_cache = build_exact_stage2_direct_cache(
+        stage1_forget_logits,
+        base_forget_logits,
+        all_forget_hidden,
+        all_forget_tids,
+        active_ids,
+        device=compute_device,
     )
-    optimizer = torch.optim.AdamW(
-        delta_module.parameters(), lr=args.stage2_lr, weight_decay=0.0
+    nll_targets, margin_targets = stage2_solver_targets(
+        int(all_forget_tids.numel()),
+        protected_case_indices,
+        protected_targets,
+        required_nll_increase=args.min_sensitive_nll_increase,
+        required_logit_margin=args.constraint_margin,
+        constraint_buffer=args.stage2_constraint_buffer,
+        device=compute_device,
     )
-    utility_sampler = core.IndexSampler(
-        int(utility_train_hidden.shape[0]),
-        min(args.utility_train_batch_size, int(utility_train_hidden.shape[0])),
-        args.seed + rank * 1_000_003,
-    )
-    compute_device = delta_module.effective_delta().device
-    stage1_logits_device = stage1_forget_logits.to(device=compute_device)
-    base_logits_device = base_forget_logits.to(
+    utility_hidden = utility_train_hidden.to(
         device=compute_device, dtype=torch.float32
     )
-    hidden_device = all_forget_hidden.to(device=compute_device, dtype=torch.float32)
-    tids_device = all_forget_tids.to(device=compute_device, dtype=torch.long)
-    active_index = torch.tensor(
-        [int(value) for value in active_case_indices],
-        device=compute_device,
-        dtype=torch.long,
-    )
-    protected_index = torch.tensor(
-        [int(value) for value in protected_case_indices],
-        device=compute_device,
-        dtype=torch.long,
-    )
-    protected_targets_device = protected_targets.to(
+    utility_probabilities = utility_train_probabilities.to(
         device=compute_device, dtype=torch.float32
     )
-    hook = core.register_output_delta_hook(
-        output_layer, active_ids, delta_module.effective_delta
-    )
+
+    def residual(coefficients: torch.Tensor) -> torch.Tensor:
+        return coefficients_to_residual(coefficients, bases)
+
+    def total_delta(coefficients: torch.Tensor) -> torch.Tensor:
+        return total_delta_with_residual(
+            stage1_delta,
+            stage1_ids,
+            residual(coefficients),
+            active_ids,
+        )
+
+    def utility_values(coefficients: torch.Tensor) -> torch.Tensor:
+        return exact_sparse_utility_kl(
+            total_delta(coefficients), utility_hidden, utility_probabilities
+        )
+
+    def objective(coefficients: torch.Tensor) -> torch.Tensor:
+        current_residual = residual(coefficients)
+        return (
+            float(args.utility_kl_weight) * utility_values(coefficients).mean()
+            + float(args.stage2_residual_l2_weight)
+            * current_residual.square().sum()
+        )
+
+    def direct_slacks(coefficients: torch.Tensor) -> torch.Tensor:
+        state = exact_stage2_direct_state(direct_cache, residual(coefficients))
+        return torch.cat(
+            (
+                state["sensitive_nll_increase"] - nll_targets,
+                state["logit_margin"] - margin_targets,
+            )
+        )
+
+    def utility_slacks(coefficients: torch.Tensor) -> torch.Tensor:
+        values = utility_values(coefficients)
+        total = total_delta(coefficients)
+        return torch.stack(
+            (
+                values.new_tensor(float(args.utility_kl_mean_budget))
+                - values.mean(),
+                values.new_tensor(float(args.utility_kl_p95_budget))
+                - torch.quantile(values, 0.95),
+                values.new_tensor(float(args.utility_kl_max_budget))
+                - values.max(),
+                values.new_tensor(float(args.max_total_delta_norm)) - total.norm(),
+            )
+        )
+
+    scalar = _TorchScalarAdapter(objective, device=compute_device)
+    direct_constraint = _TorchVectorAdapter(direct_slacks, device=compute_device)
+    utility_constraint = _TorchVectorAdapter(utility_slacks, device=compute_device)
+    starts = [torch.zeros(coefficient_count, device=compute_device)]
+    if int(args.stage2_restarts) == 2:
+        directed = repair_directed_stage2_start(
+            direct_cache,
+            bases,
+            active_case_indices,
+            nll_targets,
+            margin_targets,
+        )
+        if not torch.allclose(directed, starts[0]):
+            starts.append(directed)
+
     history: List[Dict[str, Any]] = []
-    best_key = None
-    best_delta = delta_module.effective_delta().detach().clone()
-    best_report: Dict[str, Any] = {}
+    solver_attempts: List[Dict[str, Any]] = []
+    observed_candidates: List[Tuple[torch.Tensor, Dict[str, Any]]] = []
+    tolerance = float(args.stage2_constraint_tolerance)
 
     def inspect(
-        step: int, batch_values: Mapping[str, float] | None = None
+        values: np.ndarray,
+        *,
+        restart: int,
+        iteration: int,
+        phase: str,
     ) -> Dict[str, Any]:
-        nonlocal best_key, best_delta, best_report
-        state = shared.evaluate_shared_constraints(
-            model,
-            tok,
-            all_forget_cases,
-            base_forget_logits,
-            llama_like=llama_like,
-            device=device,
-            batch_size=args.cache_batch_size,
+        coefficients = torch.tensor(
+            np.asarray(values, dtype=np.float64),
+            device=compute_device,
+            dtype=torch.float32,
         )
-        current = delta_module.effective_delta().detach().clone()
-        total = total_delta_with_residual(stage1_delta, stage1_ids, current, active_ids)
-        monitor_size = min(512, int(utility_guard_hidden.shape[0]))
-        monitor = utility_kl_report(
-            total,
-            utility_guard_hidden[:monitor_size],
-            utility_guard_probabilities[:monitor_size],
-            device=device,
-            batch_size=args.utility_eval_batch_size,
-        )
+        current_residual = residual(coefficients).detach()
+        current_total = total_delta(coefficients).detach()
+        state = exact_stage2_direct_state(direct_cache, current_residual)
+        utility = utility_values(coefficients).detach().double().cpu()
+        dslack = direct_slacks(coefficients).detach()
+        uslack = utility_slacks(coefficients).detach()
         row = {
-            "step": int(step),
+            "solver_phase": phase,
+            "restart": int(restart),
+            "iteration": int(iteration),
             "rank": int(rank),
             **constraint_report(state, args),
             **stage2_partition_report(
@@ -1465,126 +1998,127 @@ def optimize_stage2(
                 protected_targets=protected_targets,
                 args=args,
             ),
-            **monitor,
-            "utility_monitor_prompt_count": monitor_size,
-            "residual_delta_norm": float(current.norm().cpu()),
-            "total_delta_norm": float(total.norm().cpu()),
+            "solver_minimum_direct_slack": float(dslack.min().cpu()),
+            "solver_minimum_utility_slack": float(uslack.min().cpu()),
+            "solver_buffer": float(args.stage2_constraint_buffer),
+            "solver_objective": float(objective(coefficients).detach().cpu()),
+            "utility_kl_mean": float(utility.mean()),
+            "utility_kl_median": float(torch.quantile(utility, 0.50)),
+            "utility_kl_p95": float(torch.quantile(utility, 0.95)),
+            "utility_kl_p99": float(torch.quantile(utility, 0.99)),
+            "utility_kl_max": float(utility.max()),
+            "utility_prompt_count": int(utility.numel()),
+            "coefficient_norm": float(coefficients.norm().cpu()),
+            "residual_delta_norm": float(current_residual.norm().cpu()),
+            "total_delta_norm": float(current_total.norm().cpu()),
+            "continuous_solver_feasible": bool(
+                float(dslack.min().cpu()) >= -tolerance
+                and float(uslack.min().cpu()) >= -tolerance
+            ),
             "benchmark_retain_examples_seen": 0,
             "heldout_probes_seen": 0,
         }
-        if batch_values:
-            row.update(batch_values)
         history.append(row)
-        key = (
-            int(row["protected_floor_violations"]),
-            int(row["protected_direct_failures"]),
-            int(row["active_direct_failures"]),
-            float(row["protected_floor_shortfall_sum"]),
-            float(row["active_constraint_shortfall_sum"]),
-            float(row["utility_kl_mean"]),
-            float(row["total_delta_norm"]),
-        )
-        if best_key is None or key < best_key:
-            best_key = key
-            best_delta = current
-            best_report = dict(row)
+        # Keep the compact coefficient vector for every inspected SLSQP iterate.
+        # This prevents a feasible intermediate point from being discarded if a
+        # later line-search or iteration-limit exit lands just outside a boundary.
+        observed_candidates.append((coefficients.detach().cpu(), row))
         return row
 
-    try:
-        model.eval()
-        inspect(0)
-        for step in range(1, args.stage2_steps + 1):
-            optimizer.zero_grad(set_to_none=True)
+    for restart, start in enumerate(starts):
+        iteration = 0
+        start_numpy = start.detach().double().cpu().numpy()
+        inspect(start_numpy, restart=restart, iteration=0, phase="initial")
 
-            residual = delta_module.effective_delta()
-            current_logits = logits_with_sparse_residual(
-                stage1_logits_device,
-                hidden_device,
-                active_ids,
-                residual,
-            )
-            active_logits = current_logits.index_select(0, active_index)
-            active_base_logits = base_logits_device.index_select(0, active_index)
-            active_tids = tids_device.index_select(0, active_index)
-            active_direct, active_diagnostics = bounded_direct_constraint_loss(
-                active_logits,
-                active_base_logits,
-                active_tids,
-                required_logit_margin=args.constraint_margin,
-                required_nll_increase=args.min_sensitive_nll_increase,
-            )
-            gd = core.gd_non_sensitive_kl(
-                active_logits, active_base_logits, active_tids
-            )
+        def callback(values: np.ndarray) -> None:
+            nonlocal iteration
+            iteration += 1
+            inspect(values, restart=restart, iteration=iteration, phase="iterate")
 
-            protection_logits = current_logits.index_select(0, protected_index)
-            protection_base_logits = base_logits_device.index_select(0, protected_index)
-            protection_tids = tids_device.index_select(0, protected_index)
-            protection_direct, protection_diagnostics = protected_stage1_barrier_loss(
-                protection_logits,
-                protection_base_logits,
-                protection_tids,
-                protected_targets_device,
-                required_logit_margin=args.constraint_margin,
-            )
+        result = minimize(
+            scalar.value,
+            start_numpy,
+            method="SLSQP",
+            jac=scalar.gradient,
+            constraints=(
+                {
+                    "type": "ineq",
+                    "fun": direct_constraint.value,
+                    "jac": direct_constraint.jacobian,
+                },
+                {
+                    "type": "ineq",
+                    "fun": utility_constraint.value,
+                    "jac": utility_constraint.jacobian,
+                },
+            ),
+            callback=callback,
+            options={
+                "maxiter": int(args.stage2_maxiter),
+                "ftol": float(args.stage2_ftol),
+                "disp": False,
+            },
+        )
+        final = inspect(
+            result.x,
+            restart=restart,
+            iteration=iteration + 1,
+            phase="final",
+        )
+        summary = {
+            "restart": int(restart),
+            "scipy_success": bool(result.success),
+            "scipy_status": int(result.status),
+            "scipy_message": str(result.message),
+            "iterations": int(getattr(result, "nit", 0)),
+            "function_evaluations": int(getattr(result, "nfev", 0)),
+            "jacobian_evaluations": int(getattr(result, "njev", 0)),
+            "continuous_solver_feasible": bool(final["continuous_solver_feasible"]),
+            "minimum_direct_slack": float(final["solver_minimum_direct_slack"]),
+            "minimum_utility_slack": float(final["solver_minimum_utility_slack"]),
+            "objective": float(final["solver_objective"]),
+        }
+        final.update(summary)
+        solver_attempts.append(summary)
 
-            total = total_delta_with_residual(
-                stage1_delta, stage1_ids, residual, active_ids
-            )
-            utility_indices = utility_sampler.next()
-            utility_kl = exact_sparse_utility_kl(
-                total,
-                utility_train_hidden[utility_indices],
-                utility_train_probabilities[utility_indices],
-            ).mean()
-            direct = active_direct + args.stage2_protection_weight * protection_direct
-            loss = (
-                args.direct_constraint_weight * direct
-                + args.gd_weight * gd
-                + args.utility_kl_weight * utility_kl
-            )
-            if not torch.isfinite(loss):
-                raise FloatingPointError(f"non-finite Stage-2 loss at step {step}")
-            loss.backward()
-            if args.grad_clip > 0:
-                torch.nn.utils.clip_grad_norm_(
-                    list(delta_module.parameters()), args.grad_clip
-                )
-            optimizer.step()
-
-            if (
-                step == 1
-                or step % args.stage2_check_every == 0
-                or step == args.stage2_steps
-            ):
-                row = inspect(
-                    step,
-                    {
-                        "loss_batch": float(loss.detach().cpu()),
-                        "active_direct_loss_full": float(active_direct.detach().cpu()),
-                        "active_direct_fraction_full": float(
-                            active_diagnostics["active_fraction"].detach().cpu()
-                        ),
-                        "protected_worst_case_barrier_loss_full": float(
-                            protection_direct.detach().cpu()
-                        ),
-                        "protected_violation_fraction_full": float(
-                            protection_diagnostics["violation_fraction"].detach().cpu()
-                        ),
-                        "same_prompt_non_sensitive_gd_kl_full_active": float(
-                            gd.detach().cpu()
-                        ),
-                        "wikipedia_exact_kl_batch": float(utility_kl.detach().cpu()),
-                    },
-                )
-                if (
-                    int(row["active_direct_failures"]) == 0
-                    and int(row["protected_floor_violations"]) == 0
-                ):
-                    break
-    finally:
-        hook.remove()
-    del optimizer
+    feasible = [
+        item
+        for item in observed_candidates
+        if item[1]["continuous_solver_feasible"]
+    ]
+    if feasible:
+        best_coefficients, best_report = min(
+            feasible,
+            key=lambda item: (
+                float(item[1]["solver_objective"]),
+                float(item[1]["utility_kl_mean"]),
+                float(item[1]["residual_delta_norm"]),
+            ),
+        )
+        selection_mode = "minimum_utility_exact_feasible"
+    else:
+        best_coefficients, best_report = min(
+            observed_candidates,
+            key=lambda item: (
+                max(0.0, -float(item[1]["solver_minimum_direct_slack"])),
+                int(item[1]["direct_failures"]),
+                float(item[1]["constraint_shortfall_sum"]),
+                float(item[1]["solver_objective"]),
+            ),
+        )
+        selection_mode = "best_infeasible_diagnostic"
+    best_delta = residual(
+        best_coefficients.to(device=compute_device, dtype=torch.float32)
+    ).detach()
+    best_report = {
+        **best_report,
+        "selection_mode": selection_mode,
+        "solver_attempts": solver_attempts,
+        "coefficient_count": coefficient_count,
+        "row_ranks": [int(basis.shape[0]) for basis in bases],
+        "solver": "SLSQP",
+        "hard_constraints_tradeable": False,
+    }
     return best_delta, history, best_report
 
 
@@ -1641,7 +2175,7 @@ def evaluate_stage1_scale(
 
 
 @torch.no_grad()
-def evaluate_stage2_scale(
+def evaluate_stage2_residual(
     *,
     args: argparse.Namespace,
     model: torch.nn.Module,
@@ -1651,7 +2185,6 @@ def evaluate_stage2_scale(
     selected_base_rows: torch.Tensor,
     active_ids: Sequence[int],
     residual_delta: torch.Tensor,
-    scale: float,
     rank: int,
     forget_cases: Sequence[core.SensitivePredictionCase],
     base_forget_logits: torch.Tensor,
@@ -1663,8 +2196,7 @@ def evaluate_stage2_scale(
     llama_like: bool,
     device: torch.device,
 ) -> Dict[str, Any]:
-    scaled = residual_delta * float(scale)
-    with temporary_materialized_output_delta(output_layer, active_ids, scaled):
+    with temporary_materialized_output_delta(output_layer, active_ids, residual_delta):
         state = shared.evaluate_shared_constraints(
             model,
             tok,
@@ -1693,12 +2225,11 @@ def evaluate_stage2_scale(
         ),
         **utility,
         "rank": int(rank),
-        "scale": float(scale),
-        "residual_delta_norm": float(scaled.norm().detach().cpu()),
+        "residual_delta_norm": float(residual_delta.norm().detach().cpu()),
         "total_delta_norm": float(actual.norm().detach().cpu()),
         "selection_inputs": (
-            "active_repairs_plus_full_stage1_success_barrier_plus_heldout_"
-            "token_conditioned_wikipedia_guard"
+            "hard_active_and_protected_direct_constraints_plus_heldout_"
+            "token_conditioned_wikipedia_guard_after_solve"
         ),
     }
     add_utility_guards(report, args)
@@ -1713,9 +2244,9 @@ def save_checkpoint(model: torch.nn.Module, tok: Any, path: Path) -> None:
 
 def main() -> None:
     args = parse_args()
-    stage1_scales, stage2_scales, rank_ladder = validate_args(args)
+    stage1_scales, rank_ladder = validate_args(args)
     shared_architecture = architecture_signature_payload(
-        args, stage1_scales, stage2_scales, rank_ladder
+        args, stage1_scales, rank_ladder
     )
     architecture_sha256 = architecture_signature_sha256(shared_architecture)
     gagd.set_seed(args.seed)
@@ -1901,7 +2432,7 @@ def main() -> None:
     core.write_json(
         output_dir / "architecture_lock.json",
         {
-            "schema_version": 4,
+            "schema_version": 5,
             "method": METHOD,
             "dataset_adapter": args.dataset,
             "dataset_adapter_contract": adapter,
@@ -1917,20 +2448,25 @@ def main() -> None:
                 "exact joint token-conditioned Wikipedia train-pool KL"
             ),
             "stage2_objective": (
-                "full cached-logit constraints on the exact Stage1-failure repair "
-                "set plus a worst-case Stage1-success protection barrier; utility "
-                "KL is computed on Stage1+residual"
+                "minimum exact token-conditioned Wikipedia KL plus residual L2, "
+                "subject to non-tradeable exact repair, Stage1-success preservation, "
+                "utility-distribution, and total-norm inequalities"
             ),
             "stage2_direct_constraint_schedule": (
-                "all repair and protected direct token cases on every step"
+                "all repair and protected direct token cases in every SLSQP solve"
             ),
             "stage2_protection_nll_tolerance": float(
                 args.stage2_protection_nll_tolerance
             ),
-            "scale_selection": (
+            "stage2_selection": (
                 "minimum held-out token-conditioned Wikipedia guard KL among "
-                "exact-materialized feasible candidates; Stage 2 may extrapolate "
-                "only its residual above scale one"
+                "exact-materialized rank candidates that satisfy every mandatory "
+                "behavioral and utility guard; no residual scaling frontier"
+            ),
+            "stage2_solver": "SLSQP_with_analytic_Torch_gradients",
+            "stage2_constraint_buffer": float(args.stage2_constraint_buffer),
+            "stage2_constraint_basis_weight": float(
+                args.stage2_constraint_basis_weight
             ),
             "utility_pool_selection": utility_pool_report,
             "utility_guard_budgets": {
@@ -2134,12 +2670,22 @@ def main() -> None:
                     stage1_state["sensitive_nll_increase"][case_index].cpu()
                 ),
                 "protected_nll_floor": float(protection_targets[position]),
+                "continuous_solver_nll_floor": float(
+                    max(
+                        float(protection_targets[position]),
+                        args.min_sensitive_nll_increase
+                        + args.stage2_constraint_buffer,
+                    )
+                ),
+                "continuous_solver_margin_floor": float(
+                    args.constraint_margin + args.stage2_constraint_buffer
+                ),
             }
         )
     core.write_json(
         output_dir / "stage2_case_partitions.json",
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "partition_source": "exact_materialized_stage1_direct_constraints",
             "active_case_indices": active_indices,
             "protected_case_indices": protected_indices,
@@ -2150,6 +2696,19 @@ def main() -> None:
                 "stage1_sensitive_nll_increase - tolerance)"
             ),
             "protected_nll_tolerance": float(args.stage2_protection_nll_tolerance),
+            "continuous_solver_constraint_buffer": float(
+                args.stage2_constraint_buffer
+            ),
+            "protected_continuous_solver_nll_floor_formula": (
+                "max(protected_nll_floor, "
+                "global_min_sensitive_nll_increase + constraint_buffer)"
+            ),
+            "active_continuous_solver_nll_floor": float(
+                args.min_sensitive_nll_increase + args.stage2_constraint_buffer
+            ),
+            "all_case_continuous_solver_margin_floor": float(
+                args.constraint_margin + args.stage2_constraint_buffer
+            ),
             "protected_cases": protected_case_rows,
             "stage1_partition_report": stage1_partition,
         },
@@ -2163,12 +2722,11 @@ def main() -> None:
     selected_stage2_basis_reports: List[Dict[str, Any]] = []
     selected_stage2_history: List[Dict[str, Any]] = []
     selected_stage2_best_training: Dict[str, Any] | None = None
-    selected_stage2_scale_reports: List[Dict[str, Any]] = []
     active_ids: List[int] = []
     actual_stage2_residual = output_layer.weight.new_empty((0, hidden_size)).float()
 
     if active_indices:
-        stage2_mode = "full_cached_repair_plus_stage1_success_barrier"
+        stage2_mode = "exact_constrained_minimum_utility_residual"
         active_hidden = forget_hidden[active_indices]
         active_tids = forget_tids[active_indices]
         active_ids = sorted(set(int(value) for value in active_tids.cpu().tolist()))
@@ -2179,26 +2737,25 @@ def main() -> None:
             output_layer.weight.index_select(0, active_tensor).detach().float().clone()
         )
 
+        rank_candidates: List[Dict[str, Any]] = []
         for rank in rank_ladder:
-            stage2_bases, basis_reports = build_contrastive_bases_from_second_moment(
+            stage2_bases, basis_reports = build_constraint_aware_stage2_bases(
                 active_hidden,
                 active_tids,
+                forget_hidden,
                 utility_second_moment,
                 requested_ids=active_ids,
                 rank_cap=rank,
                 relative_eps=args.contrastive_eps,
+                constraint_context_weight=args.stage2_constraint_basis_weight,
                 utility_cholesky=utility_cholesky,
             )
             residual, history, best_training = optimize_stage2(
                 args=args,
-                model=model,
-                tok=tok,
-                output_layer=output_layer,
                 stage1_ids=selected_ids,
                 stage1_delta=stage1_delta,
                 active_ids=active_ids,
                 row_bases=stage2_bases,
-                all_forget_cases=forget_cases,
                 all_forget_hidden=forget_hidden,
                 all_forget_tids=forget_tids,
                 stage1_forget_logits=stage1_forget_logits,
@@ -2208,69 +2765,74 @@ def main() -> None:
                 protected_targets=protection_targets,
                 utility_train_hidden=utility_train_hidden,
                 utility_train_probabilities=utility_train_probabilities,
-                utility_guard_hidden=utility_guard_hidden,
-                utility_guard_probabilities=utility_guard_probabilities,
-                llama_like=llama_like,
-                device=device,
                 rank=rank,
             )
             torch.save(
                 {"row_ids": active_ids, "delta": residual.cpu(), "rank": rank},
-                output_dir / f"stage2_rank{rank}_unscaled_residual.pt",
+                output_dir / f"stage2_rank{rank}_constrained_residual.pt",
             )
-            reports = [
-                evaluate_stage2_scale(
-                    args=args,
-                    model=model,
-                    tok=tok,
-                    output_layer=output_layer,
-                    selected_ids=selected_ids,
-                    selected_base_rows=selected_base_rows,
-                    active_ids=active_ids,
-                    residual_delta=residual,
-                    scale=scale,
-                    rank=rank,
-                    forget_cases=forget_cases,
-                    base_forget_logits=base_forget_logits,
-                    active_case_indices=active_indices,
-                    protected_case_indices=protected_indices,
-                    protected_targets=protection_targets,
-                    utility_hidden=utility_guard_hidden,
-                    utility_probabilities=utility_guard_probabilities,
-                    llama_like=llama_like,
-                    device=device,
-                )
-                for scale in stage2_scales
-            ]
+            report = evaluate_stage2_residual(
+                args=args,
+                model=model,
+                tok=tok,
+                output_layer=output_layer,
+                selected_ids=selected_ids,
+                selected_base_rows=selected_base_rows,
+                active_ids=active_ids,
+                residual_delta=residual,
+                rank=rank,
+                forget_cases=forget_cases,
+                base_forget_logits=base_forget_logits,
+                active_case_indices=active_indices,
+                protected_case_indices=protected_indices,
+                protected_targets=protection_targets,
+                utility_hidden=utility_guard_hidden,
+                utility_probabilities=utility_guard_probabilities,
+                llama_like=llama_like,
+                device=device,
+            )
+            attach_stage2_solver_feasibility(report, best_training)
             core.write_json(
                 output_dir / f"stage2_rank{rank}_basis_reports.json", basis_reports
             )
             core.write_json(
-                output_dir / f"stage2_rank{rank}_training_history.json", history
+                output_dir / f"stage2_rank{rank}_solver_history.json", history
             )
             core.write_json(
-                output_dir / f"stage2_rank{rank}_scale_reports.json", reports
+                output_dir / f"stage2_rank{rank}_materialized_report.json", report
             )
-            selected = choose_stage2_report(reports)
             stage2_attempts.append(
                 {
                     "rank": rank,
-                    "selected": None if selected is None else dict(selected),
-                    "best_training_report": best_training,
+                    "continuous_solver": best_training,
+                    "materialized": report,
                 }
             )
-            if selected is not None:
-                selected_stage2_report = selected
-                selected_stage2_rank = rank
-                selected_stage2_residual = residual
-                selected_stage2_basis_reports = basis_reports
-                selected_stage2_history = history
-                selected_stage2_best_training = best_training
-                selected_stage2_scale_reports = reports
-                break
+            rank_candidates.append(
+                {
+                    "rank": rank,
+                    "report": report,
+                    "residual": residual,
+                    "basis_reports": basis_reports,
+                    "history": history,
+                    "solver_report": best_training,
+                }
+            )
 
         core.write_json(output_dir / "stage2_attempts.json", stage2_attempts)
-        if selected_stage2_report is None or selected_stage2_residual is None:
+        selected_report = choose_stage2_report(
+            [candidate["report"] for candidate in rank_candidates]
+        )
+        selected_candidate = (
+            next(
+                candidate
+                for candidate in rank_candidates
+                if int(candidate["rank"]) == int(selected_report["rank"])
+            )
+            if selected_report is not None
+            else None
+        )
+        if selected_candidate is None:
             core.write_json(
                 output_dir / "stage2_infeasible.json",
                 {
@@ -2279,11 +2841,11 @@ def main() -> None:
                     "active_direct_token_cases": active_indices,
                     "protected_direct_token_cases": protected_indices,
                     "rank_ladder": list(rank_ladder),
-                    "stage2_candidate_scales": stage2_scales,
                     "attempts": stage2_attempts,
                     "reason": (
-                        "no candidate repaired every active case, preserved every "
-                        "Stage-1 success floor, and passed Wikipedia utility guards"
+                        "no exact constrained rank candidate repaired every active "
+                        "case, preserved every Stage-1 success floor, and passed "
+                        "Wikipedia utility guards after checkpoint-dtype materialization"
                     ),
                 },
             )
@@ -2291,20 +2853,26 @@ def main() -> None:
                 "Stage 2 was infeasible at ranks 2 and 4; the utility-safe "
                 "Stage-1 checkpoint was preserved"
             )
+        selected_stage2_report = selected_candidate["report"]
+        selected_stage2_rank = int(selected_candidate["rank"])
+        selected_stage2_residual = selected_candidate["residual"]
+        selected_stage2_basis_reports = selected_candidate["basis_reports"]
+        selected_stage2_history = selected_candidate["history"]
+        selected_stage2_best_training = selected_candidate["solver_report"]
         core.write_json(
             output_dir / "stage2_contrastive_basis_reports.json",
             selected_stage2_basis_reports,
         )
         core.write_json(
-            output_dir / "stage2_training_history.json", selected_stage2_history
+            output_dir / "stage2_solver_history.json", selected_stage2_history
         )
         core.write_json(
-            output_dir / "stage2_scale_reports.json", selected_stage2_scale_reports
+            output_dir / "stage2_selected_materialized_report.json",
+            selected_stage2_report,
         )
-        selected_residual = selected_stage2_residual * float(
-            selected_stage2_report["scale"]
+        core.materialize_output_delta(
+            output_layer, active_ids, selected_stage2_residual
         )
-        core.materialize_output_delta(output_layer, active_ids, selected_residual)
         active_rows_after = (
             output_layer.weight.index_select(0, active_tensor).detach().float()
         )
@@ -2369,7 +2937,7 @@ def main() -> None:
     save_checkpoint(model, tok, final_checkpoint)
 
     config = {
-        "schema_version": 4,
+        "schema_version": 5,
         "method": METHOD,
         "protocol": PROTOCOL,
         "source_split_protocol": split_manifest.get("protocol"),
@@ -2416,23 +2984,30 @@ def main() -> None:
             "exact joint Wikipedia KL"
         ),
         "stage2_objective": (
-            "full cached-logit constraints on Stage1 failures plus a worst-case "
-            "barrier over every Stage1 success and utility KL on the total "
-            "Stage1+residual delta"
+            "minimum exact external-Wikipedia utility KL plus residual L2 subject "
+            "to hard active-repair, Stage1-success preservation, utility-tail, "
+            "and total-norm inequalities"
         ),
         "stage2_direct_constraint_schedule": (
-            "all repair and protected direct token cases on every optimization step"
+            "all active and protected direct token cases in every exact solve"
         ),
         "stage2_transformer_forwards_per_optimization_step": 0,
         "stage2_cached_logit_exactness": (
-            "exact for a frozen transformer with sparse LM-head residual rows; "
-            "checkpoint-dtype materialization is rechecked at inspection and scale "
-            "selection"
+            "algebraically exact FP32 sparse partition/NLL/margin evaluation for a "
+            "frozen transformer; checkpoint-dtype materialization is rechecked once "
+            "per rank and for the final checkpoint"
         ),
+        "stage2_solver": "SLSQP_with_analytic_Torch_gradients",
+        "stage2_hard_constraints_tradeable": False,
         "direct_constraint_weight": float(args.direct_constraint_weight),
         "gd_weight": float(args.gd_weight),
         "utility_kl_weight": float(args.utility_kl_weight),
-        "stage2_protection_weight": float(args.stage2_protection_weight),
+        "stage2_residual_l2_weight": float(args.stage2_residual_l2_weight),
+        "stage2_constraint_buffer": float(args.stage2_constraint_buffer),
+        "stage2_constraint_tolerance": float(args.stage2_constraint_tolerance),
+        "stage2_constraint_basis_weight": float(
+            args.stage2_constraint_basis_weight
+        ),
         "stage2_protection_nll_tolerance": float(args.stage2_protection_nll_tolerance),
         "constraint_margin": float(args.constraint_margin),
         "min_sensitive_nll_increase": float(args.min_sensitive_nll_increase),
@@ -2444,12 +3019,11 @@ def main() -> None:
         },
         "candidate_scales": stage1_scales,
         "stage1_candidate_scales": stage1_scales,
-        "stage2_candidate_scales": stage2_scales,
-        "scale_selection_rule": (
+        "stage2_rank_selection_rule": (
             "minimum exact held-out token-conditioned Wikipedia guard KL among "
-            "exact-materialized candidates repairing all active cases, preserving "
-            "every Stage1-success floor, and passing utility guards; Stage 2 may "
-            "extrapolate only the learned residual above scale one"
+            "exact-materialized constrained rank candidates repairing all active "
+            "cases, preserving every Stage1-success floor, and passing utility "
+            "guards; no Stage-2 scale frontier"
         ),
         "stage1_attempts": stage1_attempts,
         "stage1_selected_rank": selected_stage1_rank,
@@ -2512,9 +3086,8 @@ def main() -> None:
     print("Stage-2 mode:", stage2_mode)
     if selected_stage2_report is not None:
         print(
-            "Stage-2 selected rank/scale:",
+            "Stage-2 selected constrained rank:",
             selected_stage2_rank,
-            selected_stage2_report["scale"],
         )
     print("Final direct failures:", final_report["direct_failures"])
     print(

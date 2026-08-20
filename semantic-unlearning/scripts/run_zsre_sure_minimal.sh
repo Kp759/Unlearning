@@ -5,7 +5,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL="${1:?Usage: bash scripts/run_zsre_sure_minimal.sh MODEL [ZSRE_JSON]}"
 ZSRE="${2:-data/zsre_mend_eval.json}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-data/wikidata}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/zsre_sure_protected_stage2_v4}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/zsre_sure_exact_constrained_stage2_v5}"
 SEEDS_TEXT="${ZSRE_SEEDS:-1}"
 FORGET_NUM="${ZSRE_FORGET_NUM:-50}"
 RETAIN_EVAL_NUM="${ZSRE_RETAIN_EVAL_NUM:-1000}"
@@ -80,16 +80,19 @@ for SEED in "${SEEDS[@]}"; do
     --stage1-steps "${STAGE1_STEPS}" \
     --stage1-batch-size "${STAGE1_BATCH_SIZE}" \
     --stage1-lr "${STAGE1_LR}" \
-    --stage2-steps "${STAGE2_STEPS}" \
-    --stage2-lr "${STAGE2_LR}" \
-    --stage2-check-every "${STAGE2_CHECK_EVERY}" \
+    --stage2-maxiter "${STAGE2_MAXITER}" \
+    --stage2-ftol "${STAGE2_FTOL}" \
+    --stage2-constraint-tolerance "${STAGE2_CONSTRAINT_TOLERANCE}" \
+    --stage2-constraint-buffer "${STAGE2_CONSTRAINT_BUFFER}" \
+    --stage2-residual-l2-weight "${STAGE2_RESIDUAL_L2_WEIGHT}" \
+    --stage2-constraint-basis-weight "${STAGE2_CONSTRAINT_BASIS_WEIGHT}" \
+    --stage2-restarts "${STAGE2_RESTARTS}" \
     --cache-batch-size "${CACHE_BATCH_SIZE}" \
     --utility-train-batch-size "${UTILITY_TRAIN_BATCH_SIZE}" \
     --utility-eval-batch-size "${UTILITY_EVAL_BATCH_SIZE}" \
     --direct-constraint-weight "${DIRECT_CONSTRAINT_WEIGHT}" \
     --gd-weight "${GD_WEIGHT}" \
     --utility-kl-weight "${UTILITY_KL_WEIGHT}" \
-    --stage2-protection-weight "${STAGE2_PROTECTION_WEIGHT}" \
     --stage2-protection-nll-tolerance "${STAGE2_PROTECTION_NLL_TOLERANCE}" \
     --contrastive-eps "${CONTRASTIVE_EPS}" \
     --constraint-margin "${MARGIN}" \
@@ -100,7 +103,6 @@ for SEED in "${SEEDS[@]}"; do
     --max-total-delta-norm "${MAX_TOTAL_DELTA_NORM}" \
     --rank-ladder "${RANK_LADDER}" \
     --candidate-scales "${STAGE1_CANDIDATE_SCALES}" \
-    --stage2-candidate-scales "${STAGE2_CANDIDATE_SCALES}" \
     --dtype "${DTYPE}" \
     --device-map "${DEVICE_MAP}"
 
