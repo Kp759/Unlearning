@@ -8,9 +8,10 @@ same optimizer, rank ladder, scale frontier, and safety rules.
 Only sparse sensitive-token rows of an untied LM head are editable. The Base
 transformer and input embeddings remain frozen. A disjoint Wikipedia cache is
 used in two ways: its full hidden second moment defines the contrastive basis,
-and its fixed prompt-state/Base-partition sample supplies a differentiable exact
-joint sparse-head KL. No benchmark retain example, replacement target,
-paraphrase, locality probe, or PPL text is visible to training or selection.
+and its predictor-state/Base-partition reservoir is split before selecting
+per-edited-token high-Base-probability train and checkpoint-guard contexts.
+No benchmark retain example, replacement target, paraphrase, locality probe,
+or PPL text is visible to training or selection.
 """
 from __future__ import annotations
 
@@ -32,12 +33,20 @@ import sure_context_projection as context
 import sure_shared_suppression as shared
 
 
-METHOD = "SURE-LM-guarded-Wikipedia-KL-rank2to4-two-stage"
-PROTOCOL = "sure_guarded_wikipedia_kl_two_stage_v2"
+METHOD = "SURE-LM-token-conditioned-Wikipedia-KL-rank2to4-two-stage"
+PROTOCOL = "sure_token_conditioned_wikipedia_kl_two_stage_v3"
 RANK_LADDER = (2, 4)
+DEFAULT_UTILITY_TOKEN_TOPK_PER_ROW = 128
+DEFAULT_UTILITY_UNIFORM_PROMPT_COUNT = 1_024
+DEFAULT_UTILITY_POOL_SEED = 1
 DEFAULT_CANDIDATE_SCALES = (
     "1,.875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,"
     ".046875,.03125,.015625,.0078125,0"
+)
+DEFAULT_STAGE2_CANDIDATE_SCALES = (
+    "1.25,1.1875,1.125,1.09375,1.078125,1.0625,1.046875,1.03125,1,"
+    ".875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,.046875,"
+    ".03125,.015625,.0078125,0"
 )
 
 
@@ -65,7 +74,24 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=wikipedia.DEFAULT_UTILITY_PROMPT_COUNT,
     )
-
+    parser.add_argument(
+        "--utility-token-topk-per-row",
+        type=int,
+        default=DEFAULT_UTILITY_TOKEN_TOPK_PER_ROW,
+        help="High-Base-probability Wikipedia contexts retained per edited row",
+    )
+    parser.add_argument(
+        "--utility-uniform-prompt-count",
+        type=int,
+        default=DEFAULT_UTILITY_UNIFORM_PROMPT_COUNT,
+        help="Broad Wikipedia anchors added to each token-conditioned pool",
+    )
+    parser.add_argument(
+        "--utility-pool-seed",
+        type=int,
+        default=DEFAULT_UTILITY_POOL_SEED,
+        help="Dataset-independent seed for disjoint utility train/guard pools",
+    )
     parser.add_argument("--stage1-steps", type=int, default=600)
     parser.add_argument("--stage1-batch-size", type=int, default=1)
     parser.add_argument("--stage1-lr", type=float, default=5e-3)
@@ -90,7 +116,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--utility-kl-max-budget", type=float, default=0.5)
     parser.add_argument("--max-total-delta-norm", type=float, default=1.5)
     parser.add_argument("--rank-ladder", default="2,4")
-    parser.add_argument("--candidate-scales", default=DEFAULT_CANDIDATE_SCALES)
+    parser.add_argument(
+        "--candidate-scales",
+        default=DEFAULT_CANDIDATE_SCALES,
+        help="Stage-1 shrink-only materialized scale frontier",
+    )
+    parser.add_argument(
+        "--stage2-candidate-scales",
+        default=DEFAULT_STAGE2_CANDIDATE_SCALES,
+        help="Stage-2 residual frontier; guarded values above one polish feasibility",
+    )
     parser.add_argument("--grad-clip", type=float, default=1.0)
 
     parser.add_argument("--dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
@@ -114,7 +149,9 @@ def parse_rank_ladder(text: str) -> Tuple[int, ...]:
     return tuple(values)
 
 
-def validate_args(args: argparse.Namespace) -> Tuple[List[float], Tuple[int, ...]]:
+def validate_args(
+    args: argparse.Namespace,
+) -> Tuple[List[float], List[float], Tuple[int, ...]]:
     if args.forget_num <= 0:
         raise ValueError("forget-num must be positive")
     if args.utility_sample_size != wikipedia.DEFAULT_SAMPLE_SIZE:
@@ -138,6 +175,7 @@ def validate_args(args: argparse.Namespace) -> Tuple[List[float], Tuple[int, ...
         "cache_batch_size": args.cache_batch_size,
         "utility_train_batch_size": args.utility_train_batch_size,
         "utility_eval_batch_size": args.utility_eval_batch_size,
+        "utility_token_topk_per_row": args.utility_token_topk_per_row,
         "direct_constraint_weight": args.direct_constraint_weight,
         "utility_kl_weight": args.utility_kl_weight,
         "stage2_protection_weight": args.stage2_protection_weight,
@@ -152,6 +190,8 @@ def validate_args(args: argparse.Namespace) -> Tuple[List[float], Tuple[int, ...
             raise ValueError(f"{name} must be finite and positive")
     if not math.isfinite(args.gd_weight) or args.gd_weight < 0:
         raise ValueError("gd-weight must be finite and non-negative")
+    if int(args.utility_uniform_prompt_count) < 0:
+        raise ValueError("utility-uniform-prompt-count must be non-negative")
     if not math.isfinite(args.grad_clip) or args.grad_clip < 0:
         raise ValueError("grad-clip must be finite and non-negative")
     if not math.isfinite(args.constraint_margin):
@@ -161,15 +201,23 @@ def validate_args(args: argparse.Namespace) -> Tuple[List[float], Tuple[int, ...
         or args.min_sensitive_nll_increase < 0
     ):
         raise ValueError("min-sensitive-nll-increase must be finite and non-negative")
-    scales = core.parse_scales(args.candidate_scales)
-    if 0.0 not in scales or 1.0 not in scales:
+    stage1_scales = core.parse_scales(args.candidate_scales)
+    stage2_scales = core.parse_scales(args.stage2_candidate_scales)
+    if 0.0 not in stage1_scales or 1.0 not in stage1_scales:
         raise ValueError("candidate-scales must include both 0 and 1")
-    return scales, parse_rank_ladder(args.rank_ladder)
+    if any(scale > 1.0 for scale in stage1_scales):
+        raise ValueError("Stage-1 candidate-scales must not exceed 1.0")
+    if 0.0 not in stage2_scales or 1.0 not in stage2_scales:
+        raise ValueError("stage2-candidate-scales must include both 0 and 1")
+    if max(stage2_scales) <= 1.0:
+        raise ValueError("Stage-2 frontier must include a guarded scale above 1.0")
+    return stage1_scales, stage2_scales, parse_rank_ladder(args.rank_ladder)
 
 
 def architecture_signature_payload(
     args: argparse.Namespace,
-    scales: Sequence[float],
+    stage1_scales: Sequence[float],
+    stage2_scales: Sequence[float],
     rank_ladder: Sequence[int],
 ) -> Dict[str, Any]:
     """Return dataset/seed-independent parameters that define the learner."""
@@ -180,6 +228,9 @@ def architecture_signature_payload(
         "forget_num": int(args.forget_num),
         "utility_sample_size": int(args.utility_sample_size),
         "utility_prompt_count": int(args.utility_prompt_count),
+        "utility_token_topk_per_row": int(args.utility_token_topk_per_row),
+        "utility_uniform_prompt_count": int(args.utility_uniform_prompt_count),
+        "utility_pool_seed": int(args.utility_pool_seed),
         "rank_ladder": [int(value) for value in rank_ladder],
         "stage1_steps": int(args.stage1_steps),
         "stage1_batch_size": int(args.stage1_batch_size),
@@ -202,7 +253,8 @@ def architecture_signature_payload(
         "utility_kl_p95_budget": float(args.utility_kl_p95_budget),
         "utility_kl_max_budget": float(args.utility_kl_max_budget),
         "max_total_delta_norm": float(args.max_total_delta_norm),
-        "candidate_scales": [float(value) for value in scales],
+        "stage1_candidate_scales": [float(value) for value in stage1_scales],
+        "stage2_candidate_scales": [float(value) for value in stage2_scales],
         "grad_clip": float(args.grad_clip),
         "dtype": str(args.dtype),
     }
@@ -326,6 +378,8 @@ def load_utility_cache(
     if not isinstance(metadata, Mapping):
         raise ValueError("utility cache lacks metadata")
     metadata = dict(metadata)
+    if int(metadata.get("schema_version", -1)) != wikipedia.CACHE_SCHEMA_VERSION:
+        raise ValueError("utility cache schema mismatch")
     if metadata.get("protocol") != wikipedia.UTILITY_PROTOCOL:
         raise ValueError("utility cache protocol mismatch")
     if int(metadata.get("requested_document_sample_size", -1)) != expected_sample_size:
@@ -626,6 +680,115 @@ def selected_base_probabilities(
             f"selected Base probability mass exceeds one: {maximum_mass}"
         )
     return probabilities
+
+
+def select_token_probability_utility_pool(
+    *,
+    candidate_indices: torch.Tensor,
+    selected_base_probabilities: torch.Tensor,
+    selected_ids: Sequence[int],
+    topk_per_row: int,
+    uniform_prompt_count: int,
+) -> Tuple[torch.Tensor, Dict[str, Any]]:
+    """Select contexts where each edited row has the highest Base probability."""
+    indices = candidate_indices.detach().cpu().long().contiguous()
+    probabilities = selected_base_probabilities.detach().cpu().float().contiguous()
+    if indices.ndim != 1 or indices.numel() == 0:
+        raise ValueError("utility pool candidates must be a non-empty vector")
+    if probabilities.ndim != 2 or probabilities.shape[1] != len(selected_ids):
+        raise ValueError("utility probabilities do not align with edited rows")
+    if bool((indices < 0).any()) or bool((indices >= probabilities.shape[0]).any()):
+        raise ValueError("utility candidate index is out of range")
+    if int(torch.unique(indices).numel()) != int(indices.numel()):
+        raise ValueError("utility candidate indices must be unique")
+    if topk_per_row <= 0 or uniform_prompt_count < 0:
+        raise ValueError("utility top-k/uniform counts are invalid")
+
+    local = probabilities.index_select(0, indices)
+    chosen = torch.zeros(probabilities.shape[0], dtype=torch.bool)
+    coverage: List[Dict[str, Any]] = []
+    take = min(int(topk_per_row), int(indices.numel()))
+    for column, token_id_value in enumerate(selected_ids):
+        scores = local[:, column]
+        top_local = torch.topk(scores, k=take, largest=True, sorted=True).indices
+        top_global = indices.index_select(0, top_local)
+        chosen[top_global] = True
+        coverage.append(
+            {
+                "token_id": int(token_id_value),
+                "selected_context_count": int(top_global.numel()),
+                "maximum_base_probability": float(scores.max().item()),
+                "minimum_topk_base_probability": float(
+                    scores.index_select(0, top_local).min().item()
+                ),
+                "mean_topk_base_probability": float(
+                    scores.index_select(0, top_local).mean().item()
+                ),
+            }
+        )
+
+    conditioned_count = int(chosen.index_select(0, indices).sum().item())
+    remaining = indices[~chosen.index_select(0, indices)]
+    uniform_take = min(int(uniform_prompt_count), int(remaining.numel()))
+    if uniform_take:
+        chosen[remaining[:uniform_take]] = True
+    selected = indices[chosen.index_select(0, indices)]
+    if selected.numel() == 0:
+        raise RuntimeError("token-conditioned utility selection produced no prompts")
+    return selected.contiguous(), {
+        "candidate_count": int(indices.numel()),
+        "actual_prompt_count": int(selected.numel()),
+        "token_conditioned_prompt_count": conditioned_count,
+        "uniform_anchor_prompt_count": uniform_take,
+        "topk_per_edited_row": int(topk_per_row),
+        "per_row_coverage": coverage,
+    }
+
+
+def build_disjoint_token_conditioned_utility_pools(
+    *,
+    selected_base_probabilities: torch.Tensor,
+    selected_ids: Sequence[int],
+    topk_per_row: int,
+    uniform_prompt_count: int,
+    split_seed: int,
+) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, Any]]:
+    """Split candidates first, then independently condition train and guard."""
+    prompt_count = int(selected_base_probabilities.shape[0])
+    if prompt_count < 2:
+        raise ValueError("utility candidate cache needs at least two prompts")
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(int(split_seed))
+    permutation = torch.randperm(prompt_count, generator=generator)
+    midpoint = prompt_count // 2
+    train_candidates = permutation[:midpoint]
+    guard_candidates = permutation[midpoint:]
+    train_indices, train_report = select_token_probability_utility_pool(
+        candidate_indices=train_candidates,
+        selected_base_probabilities=selected_base_probabilities,
+        selected_ids=selected_ids,
+        topk_per_row=topk_per_row,
+        uniform_prompt_count=uniform_prompt_count,
+    )
+    guard_indices, guard_report = select_token_probability_utility_pool(
+        candidate_indices=guard_candidates,
+        selected_base_probabilities=selected_base_probabilities,
+        selected_ids=selected_ids,
+        topk_per_row=topk_per_row,
+        uniform_prompt_count=uniform_prompt_count,
+    )
+    if set(train_indices.tolist()) & set(guard_indices.tolist()):
+        raise RuntimeError("utility train and checkpoint-guard pools overlap")
+    return train_indices, guard_indices, {
+        "selection_protocol": "disjoint_top_base_probability_per_edited_row_v1",
+        "candidate_prompt_count": prompt_count,
+        "split_seed": int(split_seed),
+        "train": train_report,
+        "guard": guard_report,
+        "train_guard_overlap_count": 0,
+        "benchmark_retain_examples_seen": 0,
+        "heldout_benchmark_probes_seen": 0,
+    }
 
 
 def exact_sparse_kl_from_shifts(
@@ -963,8 +1126,10 @@ def optimize_stage2(
     active_base_logits: torch.Tensor,
     all_forget_cases: Sequence[core.SensitivePredictionCase],
     base_forget_logits: torch.Tensor,
-    utility_hidden: torch.Tensor,
-    utility_probabilities: torch.Tensor,
+    utility_train_hidden: torch.Tensor,
+    utility_train_probabilities: torch.Tensor,
+    utility_guard_hidden: torch.Tensor,
+    utility_guard_probabilities: torch.Tensor,
     llama_like: bool,
     device: torch.device,
     rank: int,
@@ -986,8 +1151,8 @@ def optimize_stage2(
         args.seed + rank * 100_003,
     )
     utility_sampler = core.IndexSampler(
-        int(utility_hidden.shape[0]),
-        min(args.utility_train_batch_size, int(utility_hidden.shape[0])),
+        int(utility_train_hidden.shape[0]),
+        min(args.utility_train_batch_size, int(utility_train_hidden.shape[0])),
         args.seed + rank * 1_000_003,
     )
     hook = core.register_output_delta_hook(
@@ -1013,11 +1178,11 @@ def optimize_stage2(
         total = total_delta_with_residual(
             stage1_delta, stage1_ids, current, active_ids
         )
-        monitor_size = min(512, int(utility_hidden.shape[0]))
+        monitor_size = min(512, int(utility_guard_hidden.shape[0]))
         monitor = utility_kl_report(
             total,
-            utility_hidden[:monitor_size],
-            utility_probabilities[:monitor_size],
+            utility_guard_hidden[:monitor_size],
+            utility_guard_probabilities[:monitor_size],
             device=device,
             batch_size=args.utility_eval_batch_size,
         )
@@ -1093,8 +1258,8 @@ def optimize_stage2(
             utility_indices = utility_sampler.next()
             utility_kl = exact_sparse_utility_kl(
                 total,
-                utility_hidden[utility_indices],
-                utility_probabilities[utility_indices],
+                utility_train_hidden[utility_indices],
+                utility_train_probabilities[utility_indices],
             ).mean()
             direct = active_direct + args.stage2_protection_weight * protection_direct
             loss = (
@@ -1185,7 +1350,9 @@ def evaluate_stage1_scale(
         "rank": int(rank),
         "scale": float(scale),
         "total_delta_norm": float(actual.norm().detach().cpu()),
-        "selection_inputs": "direct_constraints_plus_disjoint_wikipedia_utility",
+        "selection_inputs": (
+            "direct_constraints_plus_heldout_token_conditioned_wikipedia_guard"
+        ),
     }
     add_utility_guards(report, args)
     return report
@@ -1237,7 +1404,9 @@ def evaluate_stage2_scale(
         "scale": float(scale),
         "residual_delta_norm": float(scaled.norm().detach().cpu()),
         "total_delta_norm": float(actual.norm().detach().cpu()),
-        "selection_inputs": "direct_constraints_plus_disjoint_wikipedia_utility",
+        "selection_inputs": (
+            "direct_constraints_plus_heldout_token_conditioned_wikipedia_guard"
+        ),
     }
     add_utility_guards(report, args)
     return report
@@ -1251,8 +1420,10 @@ def save_checkpoint(model: torch.nn.Module, tok: Any, path: Path) -> None:
 
 def main() -> None:
     args = parse_args()
-    scales, rank_ladder = validate_args(args)
-    shared_architecture = architecture_signature_payload(args, scales, rank_ladder)
+    stage1_scales, stage2_scales, rank_ladder = validate_args(args)
+    shared_architecture = architecture_signature_payload(
+        args, stage1_scales, stage2_scales, rank_ladder
+    )
     architecture_sha256 = architecture_signature_sha256(shared_architecture)
     gagd.set_seed(args.seed)
     if args.device_map == "single":
@@ -1356,23 +1527,67 @@ def main() -> None:
         batch_size=args.utility_eval_batch_size,
     )
     selected_mass = utility_probabilities.sum(dim=1)
+    utility_train_indices, utility_guard_indices, utility_pool_report = (
+        build_disjoint_token_conditioned_utility_pools(
+            selected_base_probabilities=utility_probabilities,
+            selected_ids=selected_ids,
+            topk_per_row=args.utility_token_topk_per_row,
+            uniform_prompt_count=args.utility_uniform_prompt_count,
+            split_seed=args.utility_pool_seed,
+        )
+    )
+    utility_train_hidden = utility_hidden.index_select(
+        0, utility_train_indices
+    ).contiguous()
+    utility_train_probabilities = utility_probabilities.index_select(
+        0, utility_train_indices
+    ).contiguous()
+    utility_guard_hidden = utility_hidden.index_select(
+        0, utility_guard_indices
+    ).contiguous()
+    utility_guard_probabilities = utility_probabilities.index_select(
+        0, utility_guard_indices
+    ).contiguous()
     torch.save(
-        {"row_ids": selected_ids, "probabilities": utility_probabilities},
+        {
+            "row_ids": selected_ids,
+            "candidate_probabilities": utility_probabilities,
+            "train_indices": utility_train_indices,
+            "guard_indices": utility_guard_indices,
+        },
         output_dir / "base_wikipedia_selected_probabilities.pt",
     )
+    train_mass = utility_train_probabilities.sum(dim=1)
+    guard_mass = utility_guard_probabilities.sum(dim=1)
     core.write_json(
         output_dir / "base_wikipedia_selected_probability_summary.json",
         {
-            "utility_prompt_count": int(utility_probabilities.shape[0]),
+            "utility_candidate_prompt_count": int(utility_probabilities.shape[0]),
+            "utility_train_prompt_count": int(utility_train_probabilities.shape[0]),
+            "utility_guard_prompt_count": int(utility_guard_probabilities.shape[0]),
             "selected_row_count": len(selected_ids),
-            "mean_selected_mass_per_prompt": float(selected_mass.mean().item()),
-            "max_selected_mass_per_prompt": float(selected_mass.max().item()),
+            "candidate_mean_selected_mass_per_prompt": float(
+                selected_mass.mean().item()
+            ),
+            "candidate_max_selected_mass_per_prompt": float(
+                selected_mass.max().item()
+            ),
+            "train_mean_selected_mass_per_prompt": float(train_mass.mean().item()),
+            "train_max_selected_mass_per_prompt": float(train_mass.max().item()),
+            "guard_mean_selected_mass_per_prompt": float(guard_mass.mean().item()),
+            "guard_max_selected_mass_per_prompt": float(guard_mass.max().item()),
             "maximum_single_selected_probability": float(
                 utility_probabilities.max().item()
             ),
+            "pool_selection": utility_pool_report,
             "benchmark_retain_examples_seen": 0,
         },
     )
+    core.write_json(
+        output_dir / "token_conditioned_utility_pool_report.json",
+        utility_pool_report,
+    )
+    del utility_hidden, utility_probabilities, base_utility_logsumexp
     base_forget_logits = core.cache_base_logits(
         model,
         tok,
@@ -1395,7 +1610,7 @@ def main() -> None:
     core.write_json(
         output_dir / "architecture_lock.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "method": METHOD,
             "dataset_adapter": args.dataset,
             "dataset_adapter_contract": adapter,
@@ -1410,16 +1625,18 @@ def main() -> None:
             "rank_ladder": list(rank_ladder),
             "stage1_objective": (
                 "bounded direct constraint GA + same-prompt conditional GD + "
-                "exact joint Wikipedia utility KL"
+                "exact joint token-conditioned Wikipedia train-pool KL"
             ),
             "stage2_objective": (
                 "same guarded objective on residual rows plus sampled protection "
-                "of every direct case"
+                "of every direct case; utility KL is computed on Stage1+residual"
             ),
             "scale_selection": (
-                "minimum Wikipedia-KL exact-materialized feasible candidate; "
-                "handoff must remain utility-safe"
+                "minimum held-out token-conditioned Wikipedia guard KL among "
+                "exact-materialized feasible candidates; Stage 2 may extrapolate "
+                "only its residual above scale one"
             ),
+            "utility_pool_selection": utility_pool_report,
             "utility_guard_budgets": {
                 "mean": args.utility_kl_mean_budget,
                 "p95": args.utility_kl_p95_budget,
@@ -1466,8 +1683,8 @@ def main() -> None:
             row_bases=row_bases,
             forget_cases=forget_cases,
             base_forget_logits=base_forget_logits,
-            utility_hidden=utility_hidden,
-            utility_probabilities=utility_probabilities,
+            utility_hidden=utility_train_hidden,
+            utility_probabilities=utility_train_probabilities,
             llama_like=llama_like,
             device=device,
             output_dir=output_dir,
@@ -1490,12 +1707,12 @@ def main() -> None:
                 rank=rank,
                 forget_cases=forget_cases,
                 base_forget_logits=base_forget_logits,
-                utility_hidden=utility_hidden,
-                utility_probabilities=utility_probabilities,
+                utility_hidden=utility_guard_hidden,
+                utility_probabilities=utility_guard_probabilities,
                 llama_like=llama_like,
                 device=device,
             )
-            for scale in scales
+            for scale in stage1_scales
         ]
         core.write_json(output_dir / f"stage1_rank{rank}_scale_reports.json", reports)
         selected, mode = choose_stage1_report(reports)
@@ -1632,11 +1849,17 @@ def main() -> None:
                 active_base_logits=active_base_logits,
                 all_forget_cases=forget_cases,
                 base_forget_logits=base_forget_logits,
-                utility_hidden=utility_hidden,
-                utility_probabilities=utility_probabilities,
+                utility_train_hidden=utility_train_hidden,
+                utility_train_probabilities=utility_train_probabilities,
+                utility_guard_hidden=utility_guard_hidden,
+                utility_guard_probabilities=utility_guard_probabilities,
                 llama_like=llama_like,
                 device=device,
                 rank=rank,
+            )
+            torch.save(
+                {"row_ids": active_ids, "delta": residual.cpu(), "rank": rank},
+                output_dir / f"stage2_rank{rank}_unscaled_residual.pt",
             )
             reports = [
                 evaluate_stage2_scale(
@@ -1652,12 +1875,12 @@ def main() -> None:
                     rank=rank,
                     forget_cases=forget_cases,
                     base_forget_logits=base_forget_logits,
-                    utility_hidden=utility_hidden,
-                    utility_probabilities=utility_probabilities,
+                    utility_hidden=utility_guard_hidden,
+                    utility_probabilities=utility_guard_probabilities,
                     llama_like=llama_like,
                     device=device,
                 )
-                for scale in scales
+                for scale in stage2_scales
             ]
             core.write_json(
                 output_dir / f"stage2_rank{rank}_basis_reports.json", basis_reports
@@ -1695,6 +1918,7 @@ def main() -> None:
                     "stage1_selected": dict(selected_stage1_report),
                     "active_direct_token_cases": active_indices,
                     "rank_ladder": list(rank_ladder),
+                    "stage2_candidate_scales": stage2_scales,
                     "attempts": stage2_attempts,
                     "reason": "no candidate passed direct and Wikipedia utility guards",
                 },
@@ -1745,8 +1969,8 @@ def main() -> None:
         **constraint_report(final_state, args),
         **utility_kl_report(
             final_delta,
-            utility_hidden,
-            utility_probabilities,
+            utility_guard_hidden,
+            utility_guard_probabilities,
             device=device,
             batch_size=args.utility_eval_batch_size,
         ),
@@ -1776,7 +2000,7 @@ def main() -> None:
     save_checkpoint(model, tok, final_checkpoint)
 
     config = {
-        "schema_version": 2,
+        "schema_version": 3,
         "method": METHOD,
         "protocol": PROTOCOL,
         "source_split_protocol": split_manifest.get("protocol"),
@@ -1794,6 +2018,11 @@ def main() -> None:
         "editable_rows": "sensitive_answer_rows_only",
         "sensitive_answer_field": sensitive_field,
         "replacement_or_reference_target_used": False,
+        "internal_direct_constraints_guarantee_official_fs": False,
+        "internal_direct_constraints_guarantee_official_gfs": False,
+        "official_alignment_reason": (
+            "target_new and official paraphrases remain post-training only"
+        ),
         "benchmark_retain_train_examples": 0,
         "benchmark_retain_answer_labels_seen": False,
         "official_retain_eval_seen_during_training_or_selection": 0,
@@ -1802,7 +2031,13 @@ def main() -> None:
         "wikipedia_utility_examples_are_benchmark_retain": False,
         "utility_cache": str(Path(args.utility_cache).resolve()),
         "utility_cache_metadata": utility_metadata,
-        "utility_role": "contrastive_basis_and_exact_joint_sparse_KL",
+        "utility_role": (
+            "contrastive_basis_plus_disjoint_token-conditioned Wikipedia "
+            "train and checkpoint-guard exact joint sparse KL"
+        ),
+        "utility_pool_selection": utility_pool_report,
+        "utility_train_prompt_count": int(utility_train_hidden.shape[0]),
+        "utility_guard_prompt_count": int(utility_guard_hidden.shape[0]),
         "utility_exact_kl_used_as_training_loss": True,
         "contrastive_generalized_eigenproblem": True,
         "contrastive_solver": "full_space_cholesky_whitened_low_rank_svd",
@@ -1827,10 +2062,13 @@ def main() -> None:
             "max": float(args.utility_kl_max_budget),
             "total_delta_norm": float(args.max_total_delta_norm),
         },
-        "candidate_scales": scales,
+        "candidate_scales": stage1_scales,
+        "stage1_candidate_scales": stage1_scales,
+        "stage2_candidate_scales": stage2_scales,
         "scale_selection_rule": (
-            "minimum exact Wikipedia KL among exact-materialized candidates "
-            "passing direct and utility guards"
+            "minimum exact held-out token-conditioned Wikipedia guard KL among "
+            "exact-materialized candidates passing direct and utility guards; "
+            "Stage 2 may extrapolate only the learned residual above scale one"
         ),
         "stage1_attempts": stage1_attempts,
         "stage1_selected_rank": selected_stage1_rank,
@@ -1870,6 +2108,12 @@ def main() -> None:
         cross_dataset_compatibility_sha256,
     )
     print("benchmark retain examples used for training: 0")
+    print(
+        "Wikipedia candidate/train/guard prompts:",
+        actual_utility_prompts,
+        int(utility_train_hidden.shape[0]),
+        int(utility_guard_hidden.shape[0]),
+    )
     print(
         "Stage-1 selected rank/scale:",
         selected_stage1_rank,

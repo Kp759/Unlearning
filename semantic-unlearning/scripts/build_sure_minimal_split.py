@@ -27,7 +27,7 @@ from mcf_sampling import sample_official_mcf_records
 import zsre_zero_unlearn_official_eval as zsre
 
 
-PROTOCOL = "sure_guarded_wikipedia_kl_two_stage_v2"
+PROTOCOL = "sure_token_conditioned_wikipedia_kl_two_stage_v3"
 
 
 def sha256_bytes(payload: bytes) -> str:

@@ -8,10 +8,13 @@ loader does, collects their causal predictor states, and stores both
 
     C_U = (1 / N) sum_t h_t h_t^T
 
-and a fixed sample of prompt-state/Base-partition pairs ``(h_u, log Z_u)``.
-The former defines the contrastive generalized-eigen basis.  The latter lets
-any downstream dataset adapter compute the exact joint sparse-head utility KL
-for its own selected token rows without another Wikipedia model pass.
+and a fixed predictor-state/Base-partition candidate reservoir
+``(h_u, log Z_u)``. The reservoir is spread across token positions rather than
+limited to one state per document, so a capped pilot corpus can still provide
+many KL candidates. The former defines the contrastive generalized-eigen
+basis. The latter lets any downstream dataset adapter select contexts where
+its edited token rows have high Base probability and compute exact joint
+sparse-head utility KL without another Wikipedia model pass.
 
 The statistic is aligned with ZeroUnlearn's use of fixed Wikipedia second
 moments, but lives at the final hidden state that feeds the LM head.  It never
@@ -23,6 +26,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import random
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
@@ -32,16 +36,22 @@ import torch
 import gagd_compare as gagd
 
 
-UTILITY_PROTOCOL = "sure_wikipedia_hidden_moment_and_distribution_v2"
+UTILITY_PROTOCOL = "sure_wikipedia_hidden_moment_and_predictor_reservoir_v3"
+CACHE_SCHEMA_VERSION = 3
 DEFAULT_SAMPLE_SIZE = 100_000
-DEFAULT_UTILITY_PROMPT_COUNT = 8_192
+DEFAULT_UTILITY_PROMPT_COUNT = 100_000
 DEFAULT_UTILITY_LOGIT_BATCH_SIZE = 64
 MODEL_PROBE_VALUES_PER_TENSOR = 16
+HASH_CHUNK_ELEMENTS = 1 << 20
 
 
 def sha256_tensor(tensor: torch.Tensor) -> str:
-    value = tensor.detach().to(device="cpu", dtype=torch.float32).contiguous()
-    return hashlib.sha256(value.numpy().tobytes()).hexdigest()
+    value = tensor.detach().to(device="cpu").contiguous().reshape(-1)
+    digest = hashlib.sha256()
+    for start in range(0, int(value.numel()), HASH_CHUNK_ELEMENTS):
+        chunk = value[start : start + HASH_CHUNK_ELEMENTS].float().contiguous()
+        digest.update(chunk.numpy().tobytes())
+    return digest.hexdigest()
 
 
 @torch.no_grad()
@@ -205,6 +215,32 @@ def deterministic_predictor_position(
     return int.from_bytes(digest[:8], "big") % (int(attended_length) - 1)
 
 
+def deterministic_predictor_positions(
+    document_index: int,
+    attended_length: int,
+    utility_seed: int,
+    count: int,
+) -> List[int]:
+    """Choose distinct reproducible predictor positions within one document."""
+    available = int(attended_length) - 1
+    if available <= 0 or count <= 0:
+        return []
+    take = min(int(count), available)
+    if take == 1:
+        return [
+            deterministic_predictor_position(
+                document_index, attended_length, utility_seed
+            )
+        ]
+    if take == available:
+        return list(range(available))
+    digest = hashlib.sha256(
+        f"positions:{int(utility_seed)}:{int(document_index)}".encode("ascii")
+    ).digest()
+    seed = int.from_bytes(digest[:8], "big")
+    return sorted(random.Random(seed).sample(range(available), take))
+
+
 def finalize_second_moment(
     unnormalized: torch.Tensor, count: int
 ) -> Tuple[torch.Tensor, float]:
@@ -293,6 +329,7 @@ def build_second_moment(
     document_order: Sequence[int],
     utility_prompt_document_indices: Sequence[int],
     utility_seed: int,
+    utility_prompt_count: int | None = None,
     device: torch.device,
     max_length: int,
     batch_size: int,
@@ -306,13 +343,25 @@ def build_second_moment(
     unnormalized = None
     collected = 0
     forwarded_indices: List[int] = []
-    prompt_documents = {int(index) for index in utility_prompt_document_indices}
+    prompt_document_order = [
+        int(index) for index in utility_prompt_document_indices
+    ]
+    prompt_documents = set(prompt_document_order)
     if not prompt_documents or not prompt_documents.issubset(
         {int(index) for index in document_order}
     ):
         raise ValueError("utility prompt documents must be a non-empty sampled subset")
     utility_hidden_rows: List[torch.Tensor] = []
     utility_prompt_records: List[Dict[str, int]] = []
+    requested_prompt_count = (
+        len(prompt_document_order)
+        if utility_prompt_count is None
+        else int(utility_prompt_count)
+    )
+    if requested_prompt_count <= 0:
+        raise ValueError("utility prompt count must be positive")
+    prompt_documents_remaining = len(prompt_document_order)
+    prompt_slots_remaining = requested_prompt_count
     backend = None
     model.eval()
 
@@ -353,21 +402,30 @@ def build_second_moment(
             attended_lengths = encoded["attention_mask"].sum(dim=1).tolist()
             for row_index, document_index in enumerate(indices):
                 length = int(attended_lengths[row_index])
-                if document_index not in prompt_documents or length < 2:
+                if document_index not in prompt_documents:
                     continue
-                position = deterministic_predictor_position(
-                    document_index, length, utility_seed
+                quota = math.ceil(
+                    prompt_slots_remaining / max(1, prompt_documents_remaining)
                 )
-                utility_hidden_rows.append(
-                    hidden[row_index, position].detach().cpu().contiguous()
+                positions = deterministic_predictor_positions(
+                    document_index,
+                    length,
+                    utility_seed,
+                    min(quota, prompt_slots_remaining),
                 )
-                utility_prompt_records.append(
-                    {
-                        "document_index": int(document_index),
-                        "predictor_token_position": int(position),
-                        "attended_token_count": int(length),
-                    }
-                )
+                for position in positions:
+                    utility_hidden_rows.append(
+                        hidden[row_index, position].detach().cpu().contiguous()
+                    )
+                    utility_prompt_records.append(
+                        {
+                            "document_index": int(document_index),
+                            "predictor_token_position": int(position),
+                            "attended_token_count": int(length),
+                        }
+                    )
+                prompt_slots_remaining -= len(positions)
+                prompt_documents_remaining -= 1
             forwarded_indices.extend(indices)
             if collected and collected % 10_000 < int(states.shape[0]):
                 print(f"Wikipedia predictor states collected: {collected}")
@@ -399,11 +457,12 @@ def build_second_moment(
         "forwarded_text_sha256": forwarded_text_digest.hexdigest(),
         "hidden_extraction_backend": backend,
         "utility_prompt_count": int(utility_hidden.shape[0]),
+        "requested_utility_prompt_count_within_builder": requested_prompt_count,
         "utility_prompt_records": utility_prompt_records,
         "utility_hidden_sha256": sha256_tensor(utility_hidden),
         "utility_prompt_sampling": (
-            "one deterministic causal predictor position from each of the first "
-            "shuffled utility documents, capped by requested prompt count"
+            "deterministic distinct predictor positions spread across shuffled "
+            "utility documents until the requested candidate reservoir is full"
         ),
         "state_selection": (
             "attended final-layer LM-head input states with a following token "
@@ -504,6 +563,7 @@ def main() -> None:
         document_order=selected_order,
         utility_prompt_document_indices=prompt_document_indices,
         utility_seed=args.utility_seed,
+        utility_prompt_count=args.utility_prompt_count,
         device=device,
         max_length=args.utility_max_length,
         batch_size=args.utility_batch_size,
@@ -515,7 +575,7 @@ def main() -> None:
         batch_size=args.utility_logit_batch_size,
     )
     metadata = {
-        "schema_version": 2,
+        "schema_version": CACHE_SCHEMA_VERSION,
         "protocol": UTILITY_PROTOCOL,
         **dataset_metadata,
         **identity,

@@ -288,16 +288,66 @@ class MinimalSureWikipediaTests(unittest.TestCase):
         self.assertEqual(report["utility_prompt_count"], 2)
         self.assertEqual(tokenizer.padding_side, "left")
 
+    def test_candidate_reservoir_uses_multiple_positions_per_document(self):
+        class ToyTokenizer:
+            padding_side = "right"
+
+            def __call__(self, texts, **_kwargs):
+                ids = torch.tensor(
+                    [[int(value) for value in texts[0].split()]], dtype=torch.long
+                )
+                return {"input_ids": ids, "attention_mask": torch.ones_like(ids)}
+
+        class ToyBackbone(nn.Module):
+            def forward(self, input_ids, attention_mask, **_kwargs):
+                del attention_mask
+                hidden = torch.stack(
+                    (input_ids.float(), torch.ones_like(input_ids).float()), dim=-1
+                )
+                return argparse.Namespace(last_hidden_state=hidden)
+
+        class ToyModel(nn.Module):
+            base_model_prefix = "backbone"
+
+            def __init__(self):
+                super().__init__()
+                self.backbone = ToyBackbone()
+                self.output = nn.Linear(2, 8, bias=False)
+
+            def get_output_embeddings(self):
+                return self.output
+
+        _, utility_hidden, report = wiki.build_second_moment(
+            ToyModel(),
+            ToyTokenizer(),
+            ["1 2 3 4 5"],
+            document_order=[0],
+            utility_prompt_document_indices=[0],
+            utility_seed=1,
+            utility_prompt_count=4,
+            device=torch.device("cpu"),
+            max_length=8,
+            batch_size=1,
+        )
+        self.assertEqual(tuple(utility_hidden.shape), (4, 2))
+        self.assertEqual(report["utility_prompt_count"], 4)
+        positions = {
+            row["predictor_token_position"]
+            for row in report["utility_prompt_records"]
+        }
+        self.assertEqual(positions, {0, 1, 2, 3})
+
     def test_cache_validation_locks_sample_model_and_no_benchmark_data(self):
         moment = torch.eye(3)
         hidden = torch.tensor([[1.0, 2.0, 3.0], [3.0, 2.0, 1.0]])
         logsumexp = torch.tensor([4.0, 5.0])
         metadata = {
+            "schema_version": wiki.CACHE_SCHEMA_VERSION,
             "protocol": wiki.UTILITY_PROTOCOL,
             "predictor_hidden_state_count": 7,
             "requested_document_sample_size": 100_000,
             "actual_document_sample_size": 3,
-            "requested_utility_prompt_count": 8_192,
+            "requested_utility_prompt_count": 100_000,
             "actual_utility_prompt_count": 2,
             "hidden_size": 3,
             "model_probe_sha256": "model-probe",
@@ -324,7 +374,7 @@ class MinimalSureWikipediaTests(unittest.TestCase):
             loaded, loaded_hidden, loaded_logsumexp, report = learner.load_utility_cache(
                 path,
                 expected_sample_size=100_000,
-                expected_prompt_count=8_192,
+                expected_prompt_count=100_000,
                 expected_hidden_size=3,
                 expected_model_probe="model-probe",
                 expected_tokenizer_probe="tokenizer-probe",
@@ -337,7 +387,7 @@ class MinimalSureWikipediaTests(unittest.TestCase):
                 learner.load_utility_cache(
                     path,
                     expected_sample_size=100_000,
-                    expected_prompt_count=8_192,
+                    expected_prompt_count=100_000,
                     expected_hidden_size=3,
                     expected_model_probe="wrong-model",
                     expected_tokenizer_probe="tokenizer-probe",
@@ -345,6 +395,16 @@ class MinimalSureWikipediaTests(unittest.TestCase):
 
 
 class MinimalSureLearnerTests(unittest.TestCase):
+    def test_stage2_frontier_can_extrapolate_without_changing_stage1(self):
+        stage1 = learner.core.parse_scales(learner.DEFAULT_CANDIDATE_SCALES)
+        stage2 = learner.core.parse_scales(
+            learner.DEFAULT_STAGE2_CANDIDATE_SCALES
+        )
+        self.assertEqual(max(stage1), 1.0)
+        self.assertGreater(max(stage2), 1.0)
+        self.assertIn(1.0, stage2)
+        self.assertIn(0.0, stage2)
+
     def test_candidate_materialization_uses_weight_dtype_and_restores_rows(self):
         layer = nn.Linear(3, 5, bias=False, dtype=torch.bfloat16)
         before = layer.weight.detach().clone()
@@ -427,6 +487,44 @@ class MinimalSureLearnerTests(unittest.TestCase):
         expected = torch.softmax(logits, dim=-1)[:, [1, 3]]
         self.assertTrue(torch.allclose(actual, expected, atol=1e-6))
 
+    def test_token_conditioned_pool_keeps_high_probability_context_per_row(self):
+        probabilities = torch.tensor(
+            [
+                [0.90, 0.01],
+                [0.80, 0.02],
+                [0.10, 0.70],
+                [0.05, 0.60],
+                [0.03, 0.04],
+                [0.02, 0.03],
+            ]
+        )
+        selected, report = learner.select_token_probability_utility_pool(
+            candidate_indices=torch.arange(6),
+            selected_base_probabilities=probabilities,
+            selected_ids=[10, 20],
+            topk_per_row=1,
+            uniform_prompt_count=1,
+        )
+        self.assertEqual(set(selected.tolist()), {0, 1, 2})
+        self.assertEqual(report["token_conditioned_prompt_count"], 2)
+        self.assertEqual(report["uniform_anchor_prompt_count"], 1)
+
+    def test_token_conditioned_train_and_guard_pools_are_disjoint(self):
+        probabilities = torch.linspace(0.01, 0.20, steps=20).reshape(10, 2)
+        train, guard, report = (
+            learner.build_disjoint_token_conditioned_utility_pools(
+                selected_base_probabilities=probabilities,
+                selected_ids=[10, 20],
+                topk_per_row=1,
+                uniform_prompt_count=1,
+                split_seed=7,
+            )
+        )
+        self.assertFalse(set(train.tolist()) & set(guard.tolist()))
+        self.assertEqual(report["train_guard_overlap_count"], 0)
+        self.assertGreaterEqual(len(train), 2)
+        self.assertGreaterEqual(len(guard), 2)
+
     def test_constraint_gated_ga_is_zero_after_both_guards_pass(self):
         base = torch.tensor([[0.0, 2.0, 1.0]])
         tids = torch.tensor([0])
@@ -505,7 +603,10 @@ class MinimalSureLearnerTests(unittest.TestCase):
         values = {
             "forget_num": 50,
             "utility_sample_size": 100_000,
-            "utility_prompt_count": 8_192,
+            "utility_prompt_count": 100_000,
+            "utility_token_topk_per_row": 128,
+            "utility_uniform_prompt_count": 1_024,
+            "utility_pool_seed": 1,
             "stage1_steps": 600,
             "stage1_batch_size": 1,
             "stage1_lr": 0.005,
@@ -533,10 +634,10 @@ class MinimalSureLearnerTests(unittest.TestCase):
         mcf = argparse.Namespace(**values, dataset="mcf", seed=1)
         zsre = argparse.Namespace(**values, dataset="zsre", seed=99)
         left = learner.architecture_signature_payload(
-            mcf, [1.0, 0.5, 0.0], [2, 4]
+            mcf, [1.0, 0.5, 0.0], [1.25, 1.0, 0.0], [2, 4]
         )
         right = learner.architecture_signature_payload(
-            zsre, [1.0, 0.5, 0.0], [2, 4]
+            zsre, [1.0, 0.5, 0.0], [1.25, 1.0, 0.0], [2, 4]
         )
         self.assertEqual(left, right)
         self.assertEqual(
@@ -555,7 +656,7 @@ class MinimalSureLearnerTests(unittest.TestCase):
         self.assertIn(source_line, zsre)
         shared = [
             "UTILITY_SAMPLE_SIZE=100000",
-            "UTILITY_PROMPT_COUNT=8192",
+            "UTILITY_PROMPT_COUNT=100000",
             "UTILITY_SEED=1",
             "UTILITY_EXCLUDE_FIRST=20",
             'STAGE1_STEPS="${SURE_STAGE1_STEPS:-600}"',
@@ -565,12 +666,28 @@ class MinimalSureLearnerTests(unittest.TestCase):
             'DIRECT_CONSTRAINT_WEIGHT="${SURE_DIRECT_CONSTRAINT_WEIGHT:-100.0}"',
             'GD_WEIGHT="${SURE_GD_WEIGHT:-1.0}"',
             'UTILITY_KL_WEIGHT="${SURE_UTILITY_KL_WEIGHT:-1.0}"',
+            'UTILITY_TOKEN_TOPK_PER_ROW="${SURE_UTILITY_TOKEN_TOPK_PER_ROW:-128}"',
+            'UTILITY_UNIFORM_PROMPT_COUNT="${SURE_UTILITY_UNIFORM_PROMPT_COUNT:-1024}"',
             'MARGIN="${SURE_SHARED_CONSTRAINT_MARGIN:-0.05}"',
             'MIN_NLL="${SURE_MIN_SENSITIVE_NLL_INCREASE:-4.0}"',
             "RANK_LADDER=2,4",
+            'STAGE2_CANDIDATE_SCALES="${SURE_STAGE2_CANDIDATE_SCALES:-1.25,',
         ]
         for line in shared:
             self.assertIn(line, defaults)
+        for runner in (mcf, zsre):
+            self.assertIn(
+                '--stage2-candidate-scales "${STAGE2_CANDIDATE_SCALES}"',
+                runner,
+            )
+            self.assertIn(
+                '--utility-token-topk-per-row "${UTILITY_TOKEN_TOPK_PER_ROW}"',
+                runner,
+            )
+            self.assertIn(
+                '--utility-uniform-prompt-count "${UTILITY_UNIFORM_PROMPT_COUNT}"',
+                runner,
+            )
         for forbidden in ("SURE_RETAIN_TRAIN_NUM", "SURE_STAGE2_RANKS"):
             self.assertNotIn(forbidden, mcf)
             self.assertNotIn(forbidden, zsre)
