@@ -336,8 +336,7 @@ class MinimalSureWikipediaTests(unittest.TestCase):
         self.assertEqual(tuple(utility_hidden.shape), (4, 2))
         self.assertEqual(report["utility_prompt_count"], 4)
         positions = {
-            row["predictor_token_position"]
-            for row in report["utility_prompt_records"]
+            row["predictor_token_position"] for row in report["utility_prompt_records"]
         }
         self.assertEqual(positions, {0, 1, 2, 3})
 
@@ -375,7 +374,12 @@ class MinimalSureWikipediaTests(unittest.TestCase):
                 },
                 path,
             )
-            loaded, loaded_hidden, loaded_logsumexp, report = learner.load_utility_cache(
+            (
+                loaded,
+                loaded_hidden,
+                loaded_logsumexp,
+                report,
+            ) = learner.load_utility_cache(
                 path,
                 expected_sample_size=100_000,
                 expected_prompt_count=100_000,
@@ -415,9 +419,7 @@ class MinimalSureLearnerTests(unittest.TestCase):
             thresholds=[1e-3, 1e-2],
         )
         self.assertEqual(rows[0]["token_id"], 10)
-        self.assertAlmostEqual(
-            rows[0]["top_mean_base_probability"]["2"], 0.0055
-        )
+        self.assertAlmostEqual(rows[0]["top_mean_base_probability"]["2"], 0.0055)
         self.assertEqual(rows[0]["top_actual_context_count"]["2"], 2)
         self.assertEqual(rows[0]["counts_above_probability"]["0.001"], 1)
         self.assertEqual(rows[0]["counts_above_probability"]["0.01"], 0)
@@ -443,9 +445,7 @@ class MinimalSureLearnerTests(unittest.TestCase):
 
     def test_stage2_frontier_can_extrapolate_without_changing_stage1(self):
         stage1 = learner.core.parse_scales(learner.DEFAULT_CANDIDATE_SCALES)
-        stage2 = learner.core.parse_scales(
-            learner.DEFAULT_STAGE2_CANDIDATE_SCALES
-        )
+        stage2 = learner.core.parse_scales(learner.DEFAULT_STAGE2_CANDIDATE_SCALES)
         self.assertEqual(max(stage1), 1.0)
         self.assertGreater(max(stage2), 1.0)
         self.assertIn(1.0, stage2)
@@ -515,9 +515,7 @@ class MinimalSureLearnerTests(unittest.TestCase):
         layer = nn.Linear(2, 4, bias=False)
         with torch.no_grad():
             layer.weight.copy_(
-                torch.tensor(
-                    [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [-1.0, 0.5]]
-                )
+                torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [-1.0, 0.5]])
             )
         hidden = torch.tensor([[0.5, -0.25], [1.0, 2.0]])
         logits = layer(hidden)
@@ -557,14 +555,12 @@ class MinimalSureLearnerTests(unittest.TestCase):
 
     def test_token_conditioned_train_and_guard_pools_are_disjoint(self):
         probabilities = torch.linspace(0.01, 0.20, steps=20).reshape(10, 2)
-        train, guard, report = (
-            learner.build_disjoint_token_conditioned_utility_pools(
-                selected_base_probabilities=probabilities,
-                selected_ids=[10, 20],
-                topk_per_row=1,
-                uniform_prompt_count=1,
-                split_seed=7,
-            )
+        train, guard, report = learner.build_disjoint_token_conditioned_utility_pools(
+            selected_base_probabilities=probabilities,
+            selected_ids=[10, 20],
+            topk_per_row=1,
+            uniform_prompt_count=1,
+            split_seed=7,
         )
         self.assertFalse(set(train.tolist()) & set(guard.tolist()))
         self.assertEqual(report["train_guard_overlap_count"], 0)
@@ -645,6 +641,129 @@ class MinimalSureLearnerTests(unittest.TestCase):
         self.assertTrue(torch.equal(total[0], torch.zeros(3)))
         self.assertTrue(torch.equal(total[1], torch.ones(3)))
 
+    def test_cached_stage2_logits_change_only_active_rows_and_keep_gradient(self):
+        stage1_logits = torch.tensor(
+            [[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]],
+            dtype=torch.bfloat16,
+        )
+        hidden = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+        residual = torch.tensor([[0.5, -0.25], [-1.0, 0.5]], requires_grad=True)
+        actual = learner.logits_with_sparse_residual(
+            stage1_logits, hidden, [1, 3], residual
+        )
+        shifts = (hidden @ residual.transpose(0, 1)).to(torch.bfloat16)
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        self.assertTrue(torch.equal(actual[:, 0], stage1_logits[:, 0]))
+        self.assertTrue(torch.equal(actual[:, 2], stage1_logits[:, 2]))
+        self.assertTrue(
+            torch.allclose(actual[:, 1], stage1_logits[:, 1] + shifts[:, 0])
+        )
+        self.assertTrue(
+            torch.allclose(actual[:, 3], stage1_logits[:, 3] + shifts[:, 1])
+        )
+        actual[:, [1, 3]].sum().backward()
+        self.assertIsNotNone(residual.grad)
+        self.assertGreater(float(residual.grad.abs().sum()), 0.0)
+
+    def test_protected_targets_keep_stage1_clearance_above_global_floor(self):
+        stage1_nll = torch.tensor([3.0, 4.01, 4.40])
+        targets = learner.protected_nll_targets(
+            stage1_nll,
+            [1, 2],
+            required_nll_increase=4.0,
+            tolerance=0.05,
+        )
+        self.assertTrue(torch.allclose(targets, torch.tensor([4.0, 4.35])))
+
+    def test_protected_barrier_catches_cross_row_nll_regression(self):
+        base = torch.zeros((2, 3))
+        current = torch.tensor([[-2.0, 0.0, 0.0], [-0.2, 0.0, 0.0]], requires_grad=True)
+        loss, diagnostics = learner.protected_stage1_barrier_loss(
+            current,
+            base,
+            torch.tensor([0, 0]),
+            torch.tensor([1.0, 1.0]),
+            required_logit_margin=-10.0,
+        )
+        self.assertGreater(float(loss), 0.0)
+        self.assertEqual(float(diagnostics["violation_fraction"]), 0.5)
+        loss.backward()
+        self.assertGreater(float(current.grad.abs().sum()), 0.0)
+
+    def test_unedited_sensitive_row_is_protected_from_softmax_denominator_shift(self):
+        base = torch.zeros((1, 3))
+        stage1_logits = torch.tensor([[-5.0, 0.0, 0.0]])
+        hidden = torch.ones((1, 1))
+        residual = torch.tensor([[-4.0]], requires_grad=True)
+        current = learner.logits_with_sparse_residual(
+            stage1_logits,
+            hidden,
+            [1],
+            residual,
+        )
+        sensitive_ids = torch.tensor([0])
+        stage1_nll = learner.shared.sensitive_nll_increase_from_logits(
+            stage1_logits, base, sensitive_ids
+        )
+        current_nll = learner.shared.sensitive_nll_increase_from_logits(
+            current, base, sensitive_ids
+        )
+        self.assertEqual(float(current[0, 0]), float(stage1_logits[0, 0]))
+        self.assertLess(float(current_nll), float(stage1_nll))
+        loss, _ = learner.protected_stage1_barrier_loss(
+            current,
+            base,
+            sensitive_ids,
+            stage1_nll - 0.05,
+            required_logit_margin=-10.0,
+        )
+        self.assertGreater(float(loss), 0.0)
+        loss.backward()
+        self.assertGreater(float(residual.grad.abs().sum()), 0.0)
+
+    def test_stage2_partition_separates_repairs_from_new_regressions(self):
+        state = {
+            "logit_margin": torch.ones(4),
+            "sensitive_nll_increase": torch.tensor([4.1, 4.2, 3.8, 3.88]),
+        }
+        args = argparse.Namespace(
+            constraint_margin=0.05,
+            min_sensitive_nll_increase=4.0,
+        )
+        report = learner.stage2_partition_report(
+            state,
+            active_indices=[0, 1],
+            protected_indices=[2, 3],
+            protected_targets=torch.tensor([4.0, 4.0]),
+            args=args,
+        )
+        self.assertEqual(report["active_direct_failures"], 0)
+        self.assertEqual(report["active_repaired_cases"], 2)
+        self.assertEqual(report["protected_direct_failures"], 2)
+        self.assertEqual(report["protected_new_regressions"], 2)
+        self.assertEqual(report["protected_floor_violations"], 2)
+
+    def test_stage2_protection_floor_is_a_locked_feasibility_guard(self):
+        report = {
+            "direct_failures": 0,
+            "protected_floor_violations": 1,
+            "utility_kl_mean": 0.0,
+            "utility_kl_p95": 0.0,
+            "utility_kl_max": 0.0,
+            "total_delta_norm": 0.1,
+        }
+        args = argparse.Namespace(
+            utility_kl_mean_budget=0.01,
+            utility_kl_p95_budget=0.05,
+            utility_kl_max_budget=0.5,
+            max_total_delta_norm=1.5,
+        )
+        learner.add_utility_guards(report, args)
+        self.assertTrue(report["direct_success"])
+        self.assertTrue(report["utility_safe"])
+        self.assertFalse(report["stage2_protection_safe"])
+        self.assertFalse(report["feasible"])
+
     def test_architecture_signature_excludes_dataset_and_seed(self):
         values = {
             "forget_num": 50,
@@ -657,8 +776,6 @@ class MinimalSureLearnerTests(unittest.TestCase):
             "stage1_batch_size": 1,
             "stage1_lr": 0.005,
             "stage2_steps": 500,
-            "stage2_batch_size": 8,
-            "stage2_protection_batch_size": 16,
             "stage2_lr": 0.005,
             "stage2_check_every": 25,
             "utility_train_batch_size": 128,
@@ -667,6 +784,7 @@ class MinimalSureLearnerTests(unittest.TestCase):
             "gd_weight": 1.0,
             "utility_kl_weight": 1.0,
             "stage2_protection_weight": 1.0,
+            "stage2_protection_nll_tolerance": 0.05,
             "contrastive_eps": 0.001,
             "constraint_margin": 0.05,
             "min_sensitive_nll_increase": 4.0,
@@ -709,6 +827,7 @@ class MinimalSureLearnerTests(unittest.TestCase):
             'STAGE1_LR="${SURE_STAGE1_LR:-0.005}"',
             'STAGE2_STEPS="${SURE_STAGE2_STEPS:-500}"',
             'STAGE2_LR="${SURE_STAGE2_LR:-0.005}"',
+            'STAGE2_PROTECTION_NLL_TOLERANCE="${SURE_STAGE2_PROTECTION_NLL_TOLERANCE:-0.05}"',
             'DIRECT_CONSTRAINT_WEIGHT="${SURE_DIRECT_CONSTRAINT_WEIGHT:-100.0}"',
             'GD_WEIGHT="${SURE_GD_WEIGHT:-1.0}"',
             'UTILITY_KL_WEIGHT="${SURE_UTILITY_KL_WEIGHT:-1.0}"',
@@ -734,6 +853,12 @@ class MinimalSureLearnerTests(unittest.TestCase):
                 '--utility-uniform-prompt-count "${UTILITY_UNIFORM_PROMPT_COUNT}"',
                 runner,
             )
+            self.assertIn(
+                '--stage2-protection-nll-tolerance "${STAGE2_PROTECTION_NLL_TOLERANCE}"',
+                runner,
+            )
+            self.assertNotIn("--stage2-protection-batch-size", runner)
+            self.assertNotIn("--stage2-batch-size", runner)
         for forbidden in ("SURE_RETAIN_TRAIN_NUM", "SURE_STAGE2_RANKS"):
             self.assertNotIn(forbidden, mcf)
             self.assertNotIn(forbidden, zsre)

@@ -5,7 +5,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL="${1:?Usage: bash scripts/run_mcf_sure_minimal.sh MODEL [MCF_JSON]}"
 MCF="${2:-data/multi_counterfact.json}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-data/wikidata}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/mcf_sure_token_conditioned_v3}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/mcf_sure_protected_stage2_v4}"
 SEEDS_TEXT="${MCF_SEEDS:-1}"
 FORGET_NUM="${MCF_FORGET_NUM:-50}"
 RETAIN_EVAL_NUM="${MCF_RETAIN_EVAL_NUM:-1000}"
@@ -81,8 +81,6 @@ for SEED in "${SEEDS[@]}"; do
     --stage1-batch-size "${STAGE1_BATCH_SIZE}" \
     --stage1-lr "${STAGE1_LR}" \
     --stage2-steps "${STAGE2_STEPS}" \
-    --stage2-batch-size "${STAGE2_BATCH_SIZE}" \
-    --stage2-protection-batch-size "${STAGE2_PROTECTION_BATCH_SIZE}" \
     --stage2-lr "${STAGE2_LR}" \
     --stage2-check-every "${STAGE2_CHECK_EVERY}" \
     --cache-batch-size "${CACHE_BATCH_SIZE}" \
@@ -92,6 +90,7 @@ for SEED in "${SEEDS[@]}"; do
     --gd-weight "${GD_WEIGHT}" \
     --utility-kl-weight "${UTILITY_KL_WEIGHT}" \
     --stage2-protection-weight "${STAGE2_PROTECTION_WEIGHT}" \
+    --stage2-protection-nll-tolerance "${STAGE2_PROTECTION_NLL_TOLERANCE}" \
     --contrastive-eps "${CONTRASTIVE_EPS}" \
     --constraint-margin "${MARGIN}" \
     --min-sensitive-nll-increase "${MIN_NLL}" \

@@ -27,7 +27,7 @@ from mcf_sampling import sample_official_mcf_records
 import zsre_zero_unlearn_official_eval as zsre
 
 
-PROTOCOL = "sure_token_conditioned_wikipedia_kl_two_stage_v3"
+PROTOCOL = "sure_token_conditioned_wikipedia_kl_protected_stage2_v4"
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -267,7 +267,7 @@ def main() -> None:
 
     forget_sha256 = sha256_bytes(forget_text.encode("utf-8"))
     manifest = {
-        "schema_version": 2,
+        "schema_version": 3,
         "protocol": PROTOCOL,
         "metric_schema": (
             "mcf_target_true_sensitive_v2" if args.dataset == "mcf" else None
@@ -321,8 +321,9 @@ def main() -> None:
         "data_roles": {
             "stage1_visible": ["direct forget prompt", "sensitive answer"],
             "stage2_visible": [
-                "failed direct forget prompt",
-                "same sensitive answer",
+                "all direct forget prompts already visible to Stage 1",
+                "same sensitive answers",
+                "Stage-1 failure/success partition computed without held-out data",
             ],
             "benchmark_retain_examples_visible_to_training": 0,
             "replacement_or_reference_answers_visible_to_training": False,

@@ -1,4 +1,4 @@
-# Token-conditioned guarded two-stage SURE-LM
+# Token-conditioned SURE-LM with protected Stage 2
 
 `scripts/sure_minimal_two_stage.py` is one dataset-independent learner. Dataset
 adapters only produce the canonical direct-forget JSON and declare its
@@ -51,13 +51,22 @@ disjoint Wikipedia utility documents                  │
          all direct pass      safe residual cases      no safe progress
          and utility safe             only                  │
                 │                      │               expand 2 -> 4
-              DONE          guarded Stage 2 rank 2           │
+              DONE          freeze exact Stage-1 logits      │
                                       │                 retry Stage 1
+                           partition direct token cases
+                            /                       \
+                  repair set A                 protected set P
+                (Stage-1 failures)            (Stage-1 successes)
+                            \                       /
+                             guarded Stage 2 rank 2
+                                      │
                          residual rows editable only
-                         passed direct cases protected
-                         KL computed on total Stage1+residual
-                         residual scale may exceed 1.0
-                         (Stage-1 scale never exceeds 1.0)
+                    full cached-logit A constraints every step
+                    + worst-case full-P protection barrier
+                    + active-case conditional GD
+                    + KL on total Stage1+residual delta
+                    residual scale may exceed 1.0
+                    (Stage-1 scale never exceeds 1.0)
                                       │
                          materialized guarded frontier
                                /                \
@@ -78,6 +87,27 @@ relu(required_margin - direct_margin)^2
 It is a constraint-gated form of sensitive GA: once both direct constraints
 pass, that example contributes zero suppression gradient. This prevents the
 unbounded sensitive-row drift seen with raw GA.
+
+After Stage 1 is materialized, every direct token case is assigned once to the
+repair set `A` or protected set `P`. Stage 2 must repair all of `A` without
+regressing any case in `P`. For protected case `i`, its NLL floor is
+
+```text
+max(required_sensitive_NLL_increase,
+    Stage1_sensitive_NLL_increase_i - protection_tolerance).
+```
+
+The default tolerance is `0.05`. The protection loss is the maximum per-case
+squared shortfall across the complete protected set, not a sampled mean. This
+catches cross-row softmax effects: editing one sensitive row can change the NLL
+of an unedited sensitive row by changing the shared softmax denominator.
+
+Because the transformer and input embeddings are frozen and Stage 2 edits only
+sparse LM-head rows, Stage-1 logits plus cached direct hidden states determine
+the Stage-2 logits exactly under the training hook. Thus every optimization
+step evaluates all repair and protected cases without a transformer forward.
+Periodic inspections and all scale candidates still run the actual model, and
+final selection uses exact checkpoint-dtype materialization.
 
 The cache spreads its predictor-state reservoir across token positions rather
 than keeping only one random position per document. This lets a capped pilot
@@ -101,8 +131,9 @@ KL(Base || Edited)_u = log(A_u) - sum_s p_us d_us.
 
 Scale selection uses only the direct constraints and disjoint Wikipedia
 utility statistics. A Stage-1 handoff is permitted only when it is utility-safe
-and improves the direct shortfall. The final checkpoint must have zero direct
-failures and pass fixed mean, p95, maximum-KL, and total-delta-norm guards.
+and improves the direct shortfall. The final checkpoint must repair every
+Stage-1 failure, preserve every Stage-1-success floor, have zero total direct
+failures, and pass fixed mean, p95, maximum-KL, and total-delta-norm guards.
 Unsafe candidates are never materialized as final checkpoints.
 
 Stage 1 has a shrink-only scale frontier capped at `1.0`. Stage 2 has its own
@@ -127,7 +158,7 @@ A new dataset reuses the learner by generating the same canonical files as
 
 ```json
 {
-  "protocol": "sure_token_conditioned_wikipedia_kl_two_stage_v3",
+  "protocol": "sure_token_conditioned_wikipedia_kl_protected_stage2_v4",
   "dataset": "adapter-name",
   "learner_adapter_contract": {
     "sensitive_answer_field": "target_true",
@@ -152,7 +183,7 @@ opening any held-out benchmark data:
 
 ```bash
 python scripts/audit_sure_token_conditioned_residuals.py \
-  --learner-dir outputs/mcf_sure_token_conditioned_v3/seed1/learner
+  --learner-dir outputs/mcf_sure_protected_stage2_v4/seed1/learner
 ```
 
 The audit reports per-edited-row Base-probability coverage, requested versus

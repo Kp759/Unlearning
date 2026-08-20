@@ -10,6 +10,9 @@ transformer and input embeddings remain frozen. A disjoint Wikipedia cache is
 used in two ways: its full hidden second moment defines the contrastive basis,
 and its predictor-state/Base-partition reservoir is split before selecting
 per-edited-token high-Base-probability train and checkpoint-guard contexts.
+Stage 2 partitions the direct cases into exact Stage-1 failures and successes,
+then evaluates all repair constraints and a worst-case success-preservation
+barrier from cached logits on every optimization step.
 No benchmark retain example, replacement target, paraphrase, locality probe,
 or PPL text is visible to training or selection.
 """
@@ -33,8 +36,8 @@ import sure_context_projection as context
 import sure_shared_suppression as shared
 
 
-METHOD = "SURE-LM-token-conditioned-Wikipedia-KL-rank2to4-two-stage"
-PROTOCOL = "sure_token_conditioned_wikipedia_kl_two_stage_v3"
+METHOD = "SURE-LM-token-conditioned-Wikipedia-KL-protected-stage2-rank2to4"
+PROTOCOL = "sure_token_conditioned_wikipedia_kl_protected_stage2_v4"
 RANK_LADDER = (2, 4)
 DEFAULT_UTILITY_TOKEN_TOPK_PER_ROW = 128
 DEFAULT_UTILITY_UNIFORM_PROMPT_COUNT = 1_024
@@ -96,8 +99,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage1-batch-size", type=int, default=1)
     parser.add_argument("--stage1-lr", type=float, default=5e-3)
     parser.add_argument("--stage2-steps", type=int, default=500)
-    parser.add_argument("--stage2-batch-size", type=int, default=8)
-    parser.add_argument("--stage2-protection-batch-size", type=int, default=16)
     parser.add_argument("--stage2-lr", type=float, default=5e-3)
     parser.add_argument("--stage2-check-every", type=int, default=25)
     parser.add_argument("--cache-batch-size", type=int, default=8)
@@ -108,6 +109,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gd-weight", type=float, default=1.0)
     parser.add_argument("--utility-kl-weight", type=float, default=1.0)
     parser.add_argument("--stage2-protection-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--stage2-protection-nll-tolerance",
+        type=float,
+        default=0.05,
+        help=(
+            "Maximum Stage-2 decrease allowed from each protected case's "
+            "Stage-1 sensitive-NLL increase; the global NLL guard remains a floor"
+        ),
+    )
     parser.add_argument("--contrastive-eps", type=float, default=1e-3)
     parser.add_argument("--constraint-margin", type=float, default=0.05)
     parser.add_argument("--min-sensitive-nll-increase", type=float, default=4.0)
@@ -168,8 +178,6 @@ def validate_args(
         "stage1_batch_size": args.stage1_batch_size,
         "stage1_lr": args.stage1_lr,
         "stage2_steps": args.stage2_steps,
-        "stage2_batch_size": args.stage2_batch_size,
-        "stage2_protection_batch_size": args.stage2_protection_batch_size,
         "stage2_lr": args.stage2_lr,
         "stage2_check_every": args.stage2_check_every,
         "cache_batch_size": args.cache_batch_size,
@@ -201,6 +209,13 @@ def validate_args(
         or args.min_sensitive_nll_increase < 0
     ):
         raise ValueError("min-sensitive-nll-increase must be finite and non-negative")
+    if (
+        not math.isfinite(args.stage2_protection_nll_tolerance)
+        or args.stage2_protection_nll_tolerance < 0
+    ):
+        raise ValueError(
+            "stage2-protection-nll-tolerance must be finite and non-negative"
+        )
     stage1_scales = core.parse_scales(args.candidate_scales)
     stage2_scales = core.parse_scales(args.stage2_candidate_scales)
     if 0.0 not in stage1_scales or 1.0 not in stage1_scales:
@@ -236,8 +251,7 @@ def architecture_signature_payload(
         "stage1_batch_size": int(args.stage1_batch_size),
         "stage1_lr": float(args.stage1_lr),
         "stage2_steps": int(args.stage2_steps),
-        "stage2_batch_size": int(args.stage2_batch_size),
-        "stage2_protection_batch_size": int(args.stage2_protection_batch_size),
+        "stage2_direct_case_batching": "full_repair_and_protected_sets_every_step",
         "stage2_lr": float(args.stage2_lr),
         "stage2_check_every": int(args.stage2_check_every),
         "utility_train_batch_size": int(args.utility_train_batch_size),
@@ -246,6 +260,7 @@ def architecture_signature_payload(
         "gd_weight": float(args.gd_weight),
         "utility_kl_weight": float(args.utility_kl_weight),
         "stage2_protection_weight": float(args.stage2_protection_weight),
+        "stage2_protection_nll_tolerance": float(args.stage2_protection_nll_tolerance),
         "contrastive_eps": float(args.contrastive_eps),
         "constraint_margin": float(args.constraint_margin),
         "min_sensitive_nll_increase": float(args.min_sensitive_nll_increase),
@@ -261,9 +276,9 @@ def architecture_signature_payload(
 
 
 def architecture_signature_sha256(payload: Mapping[str, Any]) -> str:
-    encoded = json.dumps(
-        dict(payload), sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
+    encoded = json.dumps(dict(payload), sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -373,7 +388,9 @@ def load_utility_cache(
     hidden = payload.get("utility_hidden_states")
     logsumexp = payload.get("base_logsumexp")
     metadata = payload.get("metadata")
-    if not all(isinstance(value, torch.Tensor) for value in (moment, hidden, logsumexp)):
+    if not all(
+        isinstance(value, torch.Tensor) for value in (moment, hidden, logsumexp)
+    ):
         raise ValueError("utility cache lacks moment/hidden/Base-partition tensors")
     if not isinstance(metadata, Mapping):
         raise ValueError("utility cache lacks metadata")
@@ -468,7 +485,9 @@ def regularized_utility_cholesky(
         except RuntimeError as error:
             last_error = error
             ridge = ridge * 10.0
-    raise RuntimeError("could not regularize Wikipedia utility covariance") from last_error
+    raise RuntimeError(
+        "could not regularize Wikipedia utility covariance"
+    ) from last_error
 
 
 @torch.no_grad()
@@ -513,9 +532,7 @@ def build_contrastive_bases_from_second_moment(
             rows.transpose(0, 1),
             upper=False,
         ).transpose(0, 1) / math.sqrt(float(rows.shape[0]))
-        _, singular_values, right = torch.linalg.svd(
-            whitened_rows, full_matrices=False
-        )
+        _, singular_values, right = torch.linalg.svd(whitened_rows, full_matrices=False)
         tolerance = (
             max(whitened_rows.shape)
             * torch.finfo(torch.float32).eps
@@ -611,6 +628,144 @@ def temporary_materialized_output_delta(
     finally:
         with torch.no_grad():
             output_layer.weight.index_copy_(0, ids, before)
+
+
+@torch.no_grad()
+def cache_logits_preserving_dtype(
+    model: torch.nn.Module,
+    tok: Any,
+    cases: Sequence[core.SensitivePredictionCase],
+    device: torch.device,
+    batch_size: int,
+) -> torch.Tensor:
+    """Cache exact model logits without discarding checkpoint dtype."""
+    chunks: List[torch.Tensor] = []
+    model.eval()
+    for start in range(0, len(cases), batch_size):
+        chunks.append(
+            core.forward_last_logits(
+                model, tok, cases[start : start + batch_size], device
+            )
+            .detach()
+            .cpu()
+        )
+    if not chunks:
+        raise ValueError("cannot cache logits for an empty case set")
+    return torch.cat(chunks, dim=0).contiguous()
+
+
+def logits_with_sparse_residual(
+    stage1_logits: torch.Tensor,
+    forget_hidden: torch.Tensor,
+    active_ids: Sequence[int],
+    residual_delta: torch.Tensor,
+) -> torch.Tensor:
+    """Apply an LM-head residual to cached Stage-1 logits exactly as the hook.
+
+    The transformer is frozen, so every direct predictor state is invariant.
+    Only ``active_ids`` can move in Stage 2.  Casting the correction to the
+    cached logit dtype before ``index_add`` matches the training-time LM-head
+    hook while retaining gradients to ``residual_delta``.
+    """
+    if stage1_logits.ndim != 2 or forget_hidden.ndim != 2:
+        raise ValueError("Stage-1 logits and forget hidden states must be rank-2")
+    if stage1_logits.shape[0] != forget_hidden.shape[0]:
+        raise ValueError("Stage-1 logits and forget hidden states do not align")
+    if residual_delta.ndim != 2 or residual_delta.shape[0] != len(active_ids):
+        raise ValueError("Stage-2 residual rows do not align with active ids")
+    if len(set(int(value) for value in active_ids)) != len(active_ids):
+        raise ValueError("Stage-2 active row ids must be unique")
+    if residual_delta.shape[1] != forget_hidden.shape[1]:
+        raise ValueError("Stage-2 residual and hidden dimensions do not align")
+    device = residual_delta.device
+    logits = stage1_logits.to(device=device)
+    hidden = forget_hidden.to(device=device, dtype=torch.float32)
+    ids = torch.tensor(
+        [int(value) for value in active_ids], device=device, dtype=torch.long
+    )
+    if ids.numel() == 0:
+        return logits
+    if bool((ids < 0).any()) or bool((ids >= logits.shape[1]).any()):
+        raise ValueError("Stage-2 active row id is outside the vocabulary")
+    correction = hidden @ residual_delta.float().transpose(0, 1)
+    return logits.index_add(1, ids, correction.to(dtype=logits.dtype))
+
+
+def constraint_state_from_logits(
+    logits: torch.Tensor,
+    base_logits: torch.Tensor,
+    sensitive_ids: torch.Tensor,
+) -> Dict[str, torch.Tensor]:
+    tids = sensitive_ids.to(device=logits.device, dtype=torch.long)
+    return {
+        "logit_margin": shared.suppression_margins_from_logits(logits, tids),
+        "sensitive_nll_increase": shared.sensitive_nll_increase_from_logits(
+            logits, base_logits, tids
+        ),
+    }
+
+
+def protected_nll_targets(
+    stage1_nll_increase: torch.Tensor,
+    protected_indices: Sequence[int],
+    *,
+    required_nll_increase: float,
+    tolerance: float,
+) -> torch.Tensor:
+    """Lock Stage-1 successes to the global floor and their Stage-1 clearance."""
+    if tolerance < 0 or not math.isfinite(float(tolerance)):
+        raise ValueError("protection tolerance must be finite and non-negative")
+    indices = torch.tensor(
+        [int(value) for value in protected_indices],
+        device=stage1_nll_increase.device,
+        dtype=torch.long,
+    )
+    values = stage1_nll_increase.index_select(0, indices).detach().float()
+    if not torch.isfinite(values).all():
+        raise ValueError("Stage-1 protected NLL values must be finite")
+    required = torch.full_like(values, float(required_nll_increase))
+    return torch.maximum(required, values - float(tolerance))
+
+
+def protected_stage1_barrier_loss(
+    logits: torch.Tensor,
+    base_logits: torch.Tensor,
+    sensitive_ids: torch.Tensor,
+    nll_targets: torch.Tensor,
+    *,
+    required_logit_margin: float,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Worst-case barrier over every case that already passed at Stage 1."""
+    if logits.ndim != 2 or logits.shape[0] != sensitive_ids.numel():
+        raise ValueError("protected logits and sensitive ids do not align")
+    if base_logits.shape != logits.shape:
+        raise ValueError("protected current/Base logits do not align")
+    if nll_targets.shape != (logits.shape[0],):
+        raise ValueError("protected NLL targets do not align with protected cases")
+    if logits.shape[0] == 0:
+        zero = logits.sum() * 0.0
+        empty = logits.new_empty((0,), dtype=torch.float32)
+        return zero, {
+            "logit_margin": empty,
+            "sensitive_nll_increase": empty,
+            "margin_shortfall": empty,
+            "nll_floor_shortfall": empty,
+            "violation_fraction": zero,
+        }
+    tids = sensitive_ids.to(device=logits.device, dtype=torch.long)
+    margins = shared.suppression_margins_from_logits(logits, tids)
+    nll_increase = shared.sensitive_nll_increase_from_logits(logits, base_logits, tids)
+    targets = nll_targets.to(device=logits.device, dtype=torch.float32)
+    margin_shortfall = F.relu(float(required_logit_margin) - margins)
+    nll_shortfall = F.relu(targets - nll_increase)
+    per_case = margin_shortfall.square() + nll_shortfall.square()
+    return per_case.max(), {
+        "logit_margin": margins,
+        "sensitive_nll_increase": nll_increase,
+        "margin_shortfall": margin_shortfall,
+        "nll_floor_shortfall": nll_shortfall,
+        "violation_fraction": (per_case > 0).float().mean(),
+    }
 
 
 def bounded_direct_constraint_loss(
@@ -779,16 +934,20 @@ def build_disjoint_token_conditioned_utility_pools(
     )
     if set(train_indices.tolist()) & set(guard_indices.tolist()):
         raise RuntimeError("utility train and checkpoint-guard pools overlap")
-    return train_indices, guard_indices, {
-        "selection_protocol": "disjoint_top_base_probability_per_edited_row_v1",
-        "candidate_prompt_count": prompt_count,
-        "split_seed": int(split_seed),
-        "train": train_report,
-        "guard": guard_report,
-        "train_guard_overlap_count": 0,
-        "benchmark_retain_examples_seen": 0,
-        "heldout_benchmark_probes_seen": 0,
-    }
+    return (
+        train_indices,
+        guard_indices,
+        {
+            "selection_protocol": "disjoint_top_base_probability_per_edited_row_v1",
+            "candidate_prompt_count": prompt_count,
+            "split_seed": int(split_seed),
+            "train": train_report,
+            "guard": guard_report,
+            "train_guard_overlap_count": 0,
+            "benchmark_retain_examples_seen": 0,
+            "heldout_benchmark_probes_seen": 0,
+        },
+    )
 
 
 def exact_sparse_kl_from_shifts(
@@ -796,7 +955,9 @@ def exact_sparse_kl_from_shifts(
 ) -> torch.Tensor:
     """Exact ``KL(Base || sparse-row-edited)`` for joint selected-row shifts."""
     if shifts.shape != selected_base_probabilities.shape or shifts.ndim != 2:
-        raise ValueError("shifts/probabilities must share [utility, selected-row] shape")
+        raise ValueError(
+            "shifts/probabilities must share [utility, selected-row] shape"
+        )
     probabilities = selected_base_probabilities.to(
         device=shifts.device, dtype=shifts.dtype
     ).clamp_min(0.0)
@@ -872,8 +1033,7 @@ def constraint_shortfall(
 ) -> float:
     margin = F.relu(float(args.constraint_margin) - state["logit_margin"].float())
     nll = F.relu(
-        float(args.min_sensitive_nll_increase)
-        - state["sensitive_nll_increase"].float()
+        float(args.min_sensitive_nll_increase) - state["sensitive_nll_increase"].float()
     )
     return float((margin + nll).sum().detach().cpu())
 
@@ -897,6 +1057,95 @@ def constraint_report(
     }
 
 
+def stage2_partition_report(
+    state: Mapping[str, torch.Tensor],
+    *,
+    active_indices: Sequence[int],
+    protected_indices: Sequence[int],
+    protected_targets: torch.Tensor,
+    args: argparse.Namespace,
+) -> Dict[str, Any]:
+    """Report repairs and Stage-1-success regressions separately."""
+    margins = state["logit_margin"].detach().float()
+    nll = state["sensitive_nll_increase"].detach().float()
+    combined = [int(value) for value in active_indices] + [
+        int(value) for value in protected_indices
+    ]
+    if sorted(combined) != list(range(int(margins.numel()))):
+        raise ValueError(
+            "Stage-2 repair/protected partitions must cover each direct case once"
+        )
+
+    def select(values: torch.Tensor, indices: Sequence[int]) -> torch.Tensor:
+        index = torch.tensor(
+            [int(value) for value in indices],
+            device=values.device,
+            dtype=torch.long,
+        )
+        return values.index_select(0, index)
+
+    active_margin = select(margins, active_indices)
+    active_nll = select(nll, active_indices)
+    protected_margin = select(margins, protected_indices)
+    protected_nll = select(nll, protected_indices)
+    targets = protected_targets.to(device=protected_nll.device, dtype=torch.float32)
+    if targets.shape != protected_nll.shape:
+        raise ValueError("protected report targets do not align with protected cases")
+
+    def direct_failures(m: torch.Tensor, d: torch.Tensor) -> torch.Tensor:
+        return shared.failure_mask(
+            m,
+            d,
+            required_logit_margin=args.constraint_margin,
+            required_nll_increase=args.min_sensitive_nll_increase,
+        )
+
+    def standard_shortfall(m: torch.Tensor, d: torch.Tensor) -> torch.Tensor:
+        return F.relu(float(args.constraint_margin) - m) + F.relu(
+            float(args.min_sensitive_nll_increase) - d
+        )
+
+    active_failed = direct_failures(active_margin, active_nll)
+    protected_failed = direct_failures(protected_margin, protected_nll)
+    protected_margin_shortfall = F.relu(
+        float(args.constraint_margin) - protected_margin
+    )
+    protected_nll_shortfall = F.relu(targets - protected_nll)
+    protected_barrier = protected_margin_shortfall + protected_nll_shortfall
+
+    def minimum_or_none(values: torch.Tensor) -> float | None:
+        if values.numel() == 0:
+            return None
+        return float(values.min().cpu())
+
+    active_failure_count = int(active_failed.sum().item())
+    protected_failure_count = int(protected_failed.sum().item())
+    protected_violation_count = int((protected_barrier > 0).sum().item())
+    return {
+        "active_case_count": len(active_indices),
+        "active_direct_failures": active_failure_count,
+        "active_repaired_cases": len(active_indices) - active_failure_count,
+        "active_constraint_shortfall_sum": float(
+            standard_shortfall(active_margin, active_nll).sum().cpu()
+        ),
+        "active_minimum_logit_margin": minimum_or_none(active_margin),
+        "active_minimum_sensitive_nll_increase": minimum_or_none(active_nll),
+        "protected_case_count": len(protected_indices),
+        "protected_direct_failures": protected_failure_count,
+        "protected_new_regressions": protected_failure_count,
+        "protected_constraint_shortfall_sum": float(
+            standard_shortfall(protected_margin, protected_nll).sum().cpu()
+        ),
+        "protected_floor_violations": protected_violation_count,
+        "protected_floor_shortfall_sum": float(protected_barrier.sum().cpu()),
+        "protected_minimum_logit_margin": minimum_or_none(protected_margin),
+        "protected_minimum_sensitive_nll_increase": minimum_or_none(protected_nll),
+        "protected_minimum_nll_floor_clearance": minimum_or_none(
+            protected_nll - targets
+        ),
+    }
+
+
 def add_utility_guards(report: Dict[str, Any], args: argparse.Namespace) -> None:
     checks = {
         "mean": float(report["utility_kl_mean"]) <= args.utility_kl_mean_budget,
@@ -907,7 +1156,14 @@ def add_utility_guards(report: Dict[str, Any], args: argparse.Namespace) -> None
     report["utility_guard_checks"] = checks
     report["utility_safe"] = bool(all(checks.values()))
     report["direct_success"] = int(report["direct_failures"]) == 0
-    report["feasible"] = bool(report["direct_success"] and report["utility_safe"])
+    report["stage2_protection_safe"] = (
+        int(report.get("protected_floor_violations", 0)) == 0
+    )
+    report["feasible"] = bool(
+        report["direct_success"]
+        and report["utility_safe"]
+        and report["stage2_protection_safe"]
+    )
 
 
 def choose_stage1_report(
@@ -1066,9 +1322,7 @@ def optimize_stage1(
                     required_logit_margin=args.constraint_margin,
                     required_nll_increase=args.min_sensitive_nll_increase,
                 )
-                gd = core.gd_non_sensitive_kl(
-                    logits, base_forget_logits[indices], tids
-                )
+                gd = core.gd_non_sensitive_kl(logits, base_forget_logits[indices], tids)
                 utility_indices = utility_sampler.next()
                 delta = delta_module.effective_delta()
                 utility_kl = exact_sparse_utility_kl(
@@ -1122,10 +1376,14 @@ def optimize_stage2(
     stage1_delta: torch.Tensor,
     active_ids: Sequence[int],
     row_bases: Sequence[torch.Tensor],
-    active_cases: Sequence[core.SensitivePredictionCase],
-    active_base_logits: torch.Tensor,
     all_forget_cases: Sequence[core.SensitivePredictionCase],
+    all_forget_hidden: torch.Tensor,
+    all_forget_tids: torch.Tensor,
+    stage1_forget_logits: torch.Tensor,
     base_forget_logits: torch.Tensor,
+    active_case_indices: Sequence[int],
+    protected_case_indices: Sequence[int],
+    protected_targets: torch.Tensor,
     utility_train_hidden: torch.Tensor,
     utility_train_probabilities: torch.Tensor,
     utility_guard_hidden: torch.Tensor,
@@ -1140,20 +1398,30 @@ def optimize_stage2(
     optimizer = torch.optim.AdamW(
         delta_module.parameters(), lr=args.stage2_lr, weight_decay=0.0
     )
-    active_sampler = core.IndexSampler(
-        len(active_cases),
-        min(args.stage2_batch_size, len(active_cases)),
-        args.seed + rank * 10_007,
-    )
-    protection_sampler = core.IndexSampler(
-        len(all_forget_cases),
-        min(args.stage2_protection_batch_size, len(all_forget_cases)),
-        args.seed + rank * 100_003,
-    )
     utility_sampler = core.IndexSampler(
         int(utility_train_hidden.shape[0]),
         min(args.utility_train_batch_size, int(utility_train_hidden.shape[0])),
         args.seed + rank * 1_000_003,
+    )
+    compute_device = delta_module.effective_delta().device
+    stage1_logits_device = stage1_forget_logits.to(device=compute_device)
+    base_logits_device = base_forget_logits.to(
+        device=compute_device, dtype=torch.float32
+    )
+    hidden_device = all_forget_hidden.to(device=compute_device, dtype=torch.float32)
+    tids_device = all_forget_tids.to(device=compute_device, dtype=torch.long)
+    active_index = torch.tensor(
+        [int(value) for value in active_case_indices],
+        device=compute_device,
+        dtype=torch.long,
+    )
+    protected_index = torch.tensor(
+        [int(value) for value in protected_case_indices],
+        device=compute_device,
+        dtype=torch.long,
+    )
+    protected_targets_device = protected_targets.to(
+        device=compute_device, dtype=torch.float32
     )
     hook = core.register_output_delta_hook(
         output_layer, active_ids, delta_module.effective_delta
@@ -1163,7 +1431,9 @@ def optimize_stage2(
     best_delta = delta_module.effective_delta().detach().clone()
     best_report: Dict[str, Any] = {}
 
-    def inspect(step: int, batch_values: Mapping[str, float] | None = None) -> Dict[str, Any]:
+    def inspect(
+        step: int, batch_values: Mapping[str, float] | None = None
+    ) -> Dict[str, Any]:
         nonlocal best_key, best_delta, best_report
         state = shared.evaluate_shared_constraints(
             model,
@@ -1175,9 +1445,7 @@ def optimize_stage2(
             batch_size=args.cache_batch_size,
         )
         current = delta_module.effective_delta().detach().clone()
-        total = total_delta_with_residual(
-            stage1_delta, stage1_ids, current, active_ids
-        )
+        total = total_delta_with_residual(stage1_delta, stage1_ids, current, active_ids)
         monitor_size = min(512, int(utility_guard_hidden.shape[0]))
         monitor = utility_kl_report(
             total,
@@ -1190,6 +1458,13 @@ def optimize_stage2(
             "step": int(step),
             "rank": int(rank),
             **constraint_report(state, args),
+            **stage2_partition_report(
+                state,
+                active_indices=active_case_indices,
+                protected_indices=protected_case_indices,
+                protected_targets=protected_targets,
+                args=args,
+            ),
             **monitor,
             "utility_monitor_prompt_count": monitor_size,
             "residual_delta_norm": float(current.norm().cpu()),
@@ -1201,8 +1476,11 @@ def optimize_stage2(
             row.update(batch_values)
         history.append(row)
         key = (
-            int(row["direct_failures"]),
-            float(row["constraint_shortfall_sum"]),
+            int(row["protected_floor_violations"]),
+            int(row["protected_direct_failures"]),
+            int(row["active_direct_failures"]),
+            float(row["protected_floor_shortfall_sum"]),
+            float(row["active_constraint_shortfall_sum"]),
             float(row["utility_kl_mean"]),
             float(row["total_delta_norm"]),
         )
@@ -1216,42 +1494,40 @@ def optimize_stage2(
         model.eval()
         inspect(0)
         for step in range(1, args.stage2_steps + 1):
-            active_indices = active_sampler.next()
-            active_batch = [active_cases[index] for index in active_indices]
-            protection_indices = protection_sampler.next()
-            protection_batch = [all_forget_cases[index] for index in protection_indices]
             optimizer.zero_grad(set_to_none=True)
 
-            active_logits = core.forward_last_logits(model, tok, active_batch, device)
-            active_tids = core.official_target_ids(
-                tok, active_batch, llama_like=llama_like, device=device
+            residual = delta_module.effective_delta()
+            current_logits = logits_with_sparse_residual(
+                stage1_logits_device,
+                hidden_device,
+                active_ids,
+                residual,
             )
+            active_logits = current_logits.index_select(0, active_index)
+            active_base_logits = base_logits_device.index_select(0, active_index)
+            active_tids = tids_device.index_select(0, active_index)
             active_direct, active_diagnostics = bounded_direct_constraint_loss(
                 active_logits,
-                active_base_logits[active_indices],
+                active_base_logits,
                 active_tids,
                 required_logit_margin=args.constraint_margin,
                 required_nll_increase=args.min_sensitive_nll_increase,
             )
             gd = core.gd_non_sensitive_kl(
-                active_logits, active_base_logits[active_indices], active_tids
+                active_logits, active_base_logits, active_tids
             )
 
-            protection_logits = core.forward_last_logits(
-                model, tok, protection_batch, device
-            )
-            protection_tids = core.official_target_ids(
-                tok, protection_batch, llama_like=llama_like, device=device
-            )
-            protection_direct, _ = bounded_direct_constraint_loss(
+            protection_logits = current_logits.index_select(0, protected_index)
+            protection_base_logits = base_logits_device.index_select(0, protected_index)
+            protection_tids = tids_device.index_select(0, protected_index)
+            protection_direct, protection_diagnostics = protected_stage1_barrier_loss(
                 protection_logits,
-                base_forget_logits[protection_indices],
+                protection_base_logits,
                 protection_tids,
+                protected_targets_device,
                 required_logit_margin=args.constraint_margin,
-                required_nll_increase=args.min_sensitive_nll_increase,
             )
 
-            residual = delta_module.effective_delta()
             total = total_delta_with_residual(
                 stage1_delta, stage1_ids, residual, active_ids
             )
@@ -1285,20 +1561,26 @@ def optimize_stage2(
                     step,
                     {
                         "loss_batch": float(loss.detach().cpu()),
-                        "active_direct_loss_batch": float(active_direct.detach().cpu()),
-                        "active_direct_fraction_batch": float(
+                        "active_direct_loss_full": float(active_direct.detach().cpu()),
+                        "active_direct_fraction_full": float(
                             active_diagnostics["active_fraction"].detach().cpu()
                         ),
-                        "protection_direct_loss_batch": float(
+                        "protected_worst_case_barrier_loss_full": float(
                             protection_direct.detach().cpu()
                         ),
-                        "same_prompt_non_sensitive_gd_kl_batch": float(
+                        "protected_violation_fraction_full": float(
+                            protection_diagnostics["violation_fraction"].detach().cpu()
+                        ),
+                        "same_prompt_non_sensitive_gd_kl_full_active": float(
                             gd.detach().cpu()
                         ),
                         "wikipedia_exact_kl_batch": float(utility_kl.detach().cpu()),
                     },
                 )
-                if int(row["direct_failures"]) == 0:
+                if (
+                    int(row["active_direct_failures"]) == 0
+                    and int(row["protected_floor_violations"]) == 0
+                ):
                     break
     finally:
         hook.remove()
@@ -1373,6 +1655,9 @@ def evaluate_stage2_scale(
     rank: int,
     forget_cases: Sequence[core.SensitivePredictionCase],
     base_forget_logits: torch.Tensor,
+    active_case_indices: Sequence[int],
+    protected_case_indices: Sequence[int],
+    protected_targets: torch.Tensor,
     utility_hidden: torch.Tensor,
     utility_probabilities: torch.Tensor,
     llama_like: bool,
@@ -1399,13 +1684,21 @@ def evaluate_stage2_scale(
         )
     report = {
         **constraint_report(state, args),
+        **stage2_partition_report(
+            state,
+            active_indices=active_case_indices,
+            protected_indices=protected_case_indices,
+            protected_targets=protected_targets,
+            args=args,
+        ),
         **utility,
         "rank": int(rank),
         "scale": float(scale),
         "residual_delta_norm": float(scaled.norm().detach().cpu()),
         "total_delta_norm": float(actual.norm().detach().cpu()),
         "selection_inputs": (
-            "direct_constraints_plus_heldout_token_conditioned_wikipedia_guard"
+            "active_repairs_plus_full_stage1_success_barrier_plus_heldout_"
+            "token_conditioned_wikipedia_guard"
         ),
     }
     add_utility_guards(report, args)
@@ -1463,9 +1756,7 @@ def main() -> None:
         expected_model_probe=identity["model_probe_sha256"],
         expected_tokenizer_probe=identity["tokenizer_probe_sha256"],
     )
-    actual_utility_documents = int(
-        utility_metadata["actual_document_sample_size"]
-    )
+    actual_utility_documents = int(utility_metadata["actual_document_sample_size"])
     if actual_utility_documents < args.utility_sample_size:
         print(
             "WARNING: Wikipedia utility corpus was capped to "
@@ -1483,13 +1774,9 @@ def main() -> None:
         "shared_architecture_sha256": architecture_sha256,
         "model_probe_sha256": identity["model_probe_sha256"],
         "tokenizer_probe_sha256": identity["tokenizer_probe_sha256"],
-        "utility_second_moment_sha256": utility_metadata[
-            "second_moment_sha256"
-        ],
+        "utility_second_moment_sha256": utility_metadata["second_moment_sha256"],
         "utility_hidden_sha256": utility_metadata["utility_hidden_sha256"],
-        "utility_base_logsumexp_sha256": utility_metadata[
-            "base_logsumexp_sha256"
-        ],
+        "utility_base_logsumexp_sha256": utility_metadata["base_logsumexp_sha256"],
     }
     cross_dataset_compatibility_sha256 = architecture_signature_sha256(
         compatibility_payload
@@ -1527,14 +1814,16 @@ def main() -> None:
         batch_size=args.utility_eval_batch_size,
     )
     selected_mass = utility_probabilities.sum(dim=1)
-    utility_train_indices, utility_guard_indices, utility_pool_report = (
-        build_disjoint_token_conditioned_utility_pools(
-            selected_base_probabilities=utility_probabilities,
-            selected_ids=selected_ids,
-            topk_per_row=args.utility_token_topk_per_row,
-            uniform_prompt_count=args.utility_uniform_prompt_count,
-            split_seed=args.utility_pool_seed,
-        )
+    (
+        utility_train_indices,
+        utility_guard_indices,
+        utility_pool_report,
+    ) = build_disjoint_token_conditioned_utility_pools(
+        selected_base_probabilities=utility_probabilities,
+        selected_ids=selected_ids,
+        topk_per_row=args.utility_token_topk_per_row,
+        uniform_prompt_count=args.utility_uniform_prompt_count,
+        split_seed=args.utility_pool_seed,
     )
     utility_train_hidden = utility_hidden.index_select(
         0, utility_train_indices
@@ -1569,9 +1858,7 @@ def main() -> None:
             "candidate_mean_selected_mass_per_prompt": float(
                 selected_mass.mean().item()
             ),
-            "candidate_max_selected_mass_per_prompt": float(
-                selected_mass.max().item()
-            ),
+            "candidate_max_selected_mass_per_prompt": float(selected_mass.max().item()),
             "train_mean_selected_mass_per_prompt": float(train_mass.mean().item()),
             "train_max_selected_mass_per_prompt": float(train_mass.max().item()),
             "guard_mean_selected_mass_per_prompt": float(guard_mass.mean().item()),
@@ -1595,9 +1882,13 @@ def main() -> None:
         device,
         batch_size=args.cache_batch_size,
     )
-    forget_hidden = core.forward_last_hidden(
-        model, tok, forget_cases, device, args.cache_batch_size
-    ).float().detach()
+    forget_hidden = (
+        core.forward_last_hidden(
+            model, tok, forget_cases, device, args.cache_batch_size
+        )
+        .float()
+        .detach()
+    )
     utility_cholesky, utility_geometry = regularized_utility_cholesky(
         utility_second_moment,
         relative_eps=args.contrastive_eps,
@@ -1610,7 +1901,7 @@ def main() -> None:
     core.write_json(
         output_dir / "architecture_lock.json",
         {
-            "schema_version": 3,
+            "schema_version": 4,
             "method": METHOD,
             "dataset_adapter": args.dataset,
             "dataset_adapter_contract": adapter,
@@ -1618,9 +1909,7 @@ def main() -> None:
             "shared_architecture_parameters": shared_architecture,
             "shared_architecture_sha256": architecture_sha256,
             "cross_dataset_compatibility_payload": compatibility_payload,
-            "cross_dataset_compatibility_sha256": (
-                cross_dataset_compatibility_sha256
-            ),
+            "cross_dataset_compatibility_sha256": (cross_dataset_compatibility_sha256),
             "benchmark_retain_train_examples": 0,
             "rank_ladder": list(rank_ladder),
             "stage1_objective": (
@@ -1628,8 +1917,15 @@ def main() -> None:
                 "exact joint token-conditioned Wikipedia train-pool KL"
             ),
             "stage2_objective": (
-                "same guarded objective on residual rows plus sampled protection "
-                "of every direct case; utility KL is computed on Stage1+residual"
+                "full cached-logit constraints on the exact Stage1-failure repair "
+                "set plus a worst-case Stage1-success protection barrier; utility "
+                "KL is computed on Stage1+residual"
+            ),
+            "stage2_direct_constraint_schedule": (
+                "all repair and protected direct token cases on every step"
+            ),
+            "stage2_protection_nll_tolerance": float(
+                args.stage2_protection_nll_tolerance
             ),
             "scale_selection": (
                 "minimum held-out token-conditioned Wikipedia guard KL among "
@@ -1779,14 +2075,21 @@ def main() -> None:
     stage1_checkpoint = output_dir / "stage1_checkpoint"
     save_checkpoint(model, tok, stage1_checkpoint)
 
-    stage1_state = shared.evaluate_shared_constraints(
+    stage1_forget_logits = cache_logits_preserving_dtype(
         model,
         tok,
         forget_cases,
+        device,
+        args.cache_batch_size,
+    )
+    torch.save(
+        stage1_forget_logits,
+        output_dir / "stage1_sensitive_case_logits.pt",
+    )
+    stage1_state = constraint_state_from_logits(
+        stage1_forget_logits,
         base_forget_logits,
-        llama_like=llama_like,
-        device=device,
-        batch_size=args.cache_batch_size,
+        forget_tids.detach().cpu(),
     )
     failed_mask = shared.failure_mask(
         stage1_state["logit_margin"],
@@ -1799,6 +2102,58 @@ def main() -> None:
         for index, failed in enumerate(failed_mask.detach().cpu().tolist())
         if bool(failed)
     ]
+    protected_indices = [
+        index
+        for index, failed in enumerate(failed_mask.detach().cpu().tolist())
+        if not bool(failed)
+    ]
+    protection_targets = protected_nll_targets(
+        stage1_state["sensitive_nll_increase"],
+        protected_indices,
+        required_nll_increase=args.min_sensitive_nll_increase,
+        tolerance=args.stage2_protection_nll_tolerance,
+    ).cpu()
+    stage1_partition = stage2_partition_report(
+        stage1_state,
+        active_indices=active_indices,
+        protected_indices=protected_indices,
+        protected_targets=protection_targets,
+        args=args,
+    )
+    protected_case_rows = []
+    for position, case_index in enumerate(protected_indices):
+        case = forget_cases[case_index]
+        protected_case_rows.append(
+            {
+                "case_index": int(case_index),
+                "case_id": int(case.case_id),
+                "record_position": int(case.record_position),
+                "token_index": int(case.token_index),
+                "token_id": int(forget_tids[case_index].detach().cpu()),
+                "stage1_sensitive_nll_increase": float(
+                    stage1_state["sensitive_nll_increase"][case_index].cpu()
+                ),
+                "protected_nll_floor": float(protection_targets[position]),
+            }
+        )
+    core.write_json(
+        output_dir / "stage2_case_partitions.json",
+        {
+            "schema_version": 1,
+            "partition_source": "exact_materialized_stage1_direct_constraints",
+            "active_case_indices": active_indices,
+            "protected_case_indices": protected_indices,
+            "active_case_count": len(active_indices),
+            "protected_case_count": len(protected_indices),
+            "protected_nll_floor_formula": (
+                "max(global_min_sensitive_nll_increase, "
+                "stage1_sensitive_nll_increase - tolerance)"
+            ),
+            "protected_nll_tolerance": float(args.stage2_protection_nll_tolerance),
+            "protected_cases": protected_case_rows,
+            "stage1_partition_report": stage1_partition,
+        },
+    )
 
     stage2_mode = "identity_noop"
     stage2_attempts: List[Dict[str, Any]] = []
@@ -1813,11 +2168,9 @@ def main() -> None:
     actual_stage2_residual = output_layer.weight.new_empty((0, hidden_size)).float()
 
     if active_indices:
-        stage2_mode = "guarded_residual_rank_ladder"
-        active_cases = [forget_cases[index] for index in active_indices]
+        stage2_mode = "full_cached_repair_plus_stage1_success_barrier"
         active_hidden = forget_hidden[active_indices]
         active_tids = forget_tids[active_indices]
-        active_base_logits = base_forget_logits[active_indices]
         active_ids = sorted(set(int(value) for value in active_tids.cpu().tolist()))
         active_tensor = torch.tensor(
             active_ids, dtype=torch.long, device=output_layer.weight.device
@@ -1845,10 +2198,14 @@ def main() -> None:
                 stage1_delta=stage1_delta,
                 active_ids=active_ids,
                 row_bases=stage2_bases,
-                active_cases=active_cases,
-                active_base_logits=active_base_logits,
                 all_forget_cases=forget_cases,
+                all_forget_hidden=forget_hidden,
+                all_forget_tids=forget_tids,
+                stage1_forget_logits=stage1_forget_logits,
                 base_forget_logits=base_forget_logits,
+                active_case_indices=active_indices,
+                protected_case_indices=protected_indices,
+                protected_targets=protection_targets,
                 utility_train_hidden=utility_train_hidden,
                 utility_train_probabilities=utility_train_probabilities,
                 utility_guard_hidden=utility_guard_hidden,
@@ -1875,6 +2232,9 @@ def main() -> None:
                     rank=rank,
                     forget_cases=forget_cases,
                     base_forget_logits=base_forget_logits,
+                    active_case_indices=active_indices,
+                    protected_case_indices=protected_indices,
+                    protected_targets=protection_targets,
                     utility_hidden=utility_guard_hidden,
                     utility_probabilities=utility_guard_probabilities,
                     llama_like=llama_like,
@@ -1917,10 +2277,14 @@ def main() -> None:
                     "method": METHOD,
                     "stage1_selected": dict(selected_stage1_report),
                     "active_direct_token_cases": active_indices,
+                    "protected_direct_token_cases": protected_indices,
                     "rank_ladder": list(rank_ladder),
                     "stage2_candidate_scales": stage2_scales,
                     "attempts": stage2_attempts,
-                    "reason": "no candidate passed direct and Wikipedia utility guards",
+                    "reason": (
+                        "no candidate repaired every active case, preserved every "
+                        "Stage-1 success floor, and passed Wikipedia utility guards"
+                    ),
                 },
             )
             raise RuntimeError(
@@ -1967,6 +2331,13 @@ def main() -> None:
     )
     final_report = {
         **constraint_report(final_state, args),
+        **stage2_partition_report(
+            final_state,
+            active_indices=active_indices,
+            protected_indices=protected_indices,
+            protected_targets=protection_targets,
+            args=args,
+        ),
         **utility_kl_report(
             final_delta,
             utility_guard_hidden,
@@ -1993,14 +2364,12 @@ def main() -> None:
         device=device,
         batch_size=args.cache_batch_size,
     )
-    final_utility_drift = utility_logit_drift_mse(
-        final_delta, utility_second_moment
-    )
+    final_utility_drift = utility_logit_drift_mse(final_delta, utility_second_moment)
     final_checkpoint = output_dir / "checkpoint"
     save_checkpoint(model, tok, final_checkpoint)
 
     config = {
-        "schema_version": 3,
+        "schema_version": 4,
         "method": METHOD,
         "protocol": PROTOCOL,
         "source_split_protocol": split_manifest.get("protocol"),
@@ -2047,13 +2416,24 @@ def main() -> None:
             "exact joint Wikipedia KL"
         ),
         "stage2_objective": (
-            "same objective on residual rows with sampled protection of all "
-            "direct cases and utility KL on total Stage1+residual delta"
+            "full cached-logit constraints on Stage1 failures plus a worst-case "
+            "barrier over every Stage1 success and utility KL on the total "
+            "Stage1+residual delta"
+        ),
+        "stage2_direct_constraint_schedule": (
+            "all repair and protected direct token cases on every optimization step"
+        ),
+        "stage2_transformer_forwards_per_optimization_step": 0,
+        "stage2_cached_logit_exactness": (
+            "exact for a frozen transformer with sparse LM-head residual rows; "
+            "checkpoint-dtype materialization is rechecked at inspection and scale "
+            "selection"
         ),
         "direct_constraint_weight": float(args.direct_constraint_weight),
         "gd_weight": float(args.gd_weight),
         "utility_kl_weight": float(args.utility_kl_weight),
         "stage2_protection_weight": float(args.stage2_protection_weight),
+        "stage2_protection_nll_tolerance": float(args.stage2_protection_nll_tolerance),
         "constraint_margin": float(args.constraint_margin),
         "min_sensitive_nll_increase": float(args.min_sensitive_nll_increase),
         "utility_guard_budgets": {
@@ -2067,8 +2447,9 @@ def main() -> None:
         "stage2_candidate_scales": stage2_scales,
         "scale_selection_rule": (
             "minimum exact held-out token-conditioned Wikipedia guard KL among "
-            "exact-materialized candidates passing direct and utility guards; "
-            "Stage 2 may extrapolate only the learned residual above scale one"
+            "exact-materialized candidates repairing all active cases, preserving "
+            "every Stage1-success floor, and passing utility guards; Stage 2 may "
+            "extrapolate only the learned residual above scale one"
         ),
         "stage1_attempts": stage1_attempts,
         "stage1_selected_rank": selected_stage1_rank,
@@ -2076,6 +2457,13 @@ def main() -> None:
         "stage1_selection_mode": selected_stage1_mode,
         "stage1_direct_failures_after_materialization": len(active_indices),
         "stage1_failed_direct_token_indices": active_indices,
+        "stage1_protected_direct_token_indices": protected_indices,
+        "stage2_case_partition_artifact": str(
+            (output_dir / "stage2_case_partitions.json").resolve()
+        ),
+        "stage1_sensitive_case_logits": str(
+            (output_dir / "stage1_sensitive_case_logits.pt").resolve()
+        ),
         "stage2_mode": stage2_mode,
         "stage2_attempts": stage2_attempts,
         "stage2_active_sensitive_row_ids": active_ids,
@@ -2120,6 +2508,7 @@ def main() -> None:
         selected_stage1_report["scale"],
     )
     print("Stage-1 residual direct token cases:", len(active_indices))
+    print("Stage-1 protected direct token cases:", len(protected_indices))
     print("Stage-2 mode:", stage2_mode)
     if selected_stage2_report is not None:
         print(
@@ -2128,6 +2517,12 @@ def main() -> None:
             selected_stage2_report["scale"],
         )
     print("Final direct failures:", final_report["direct_failures"])
+    print(
+        "Final active failures / protected regressions / protected-floor violations:",
+        final_report["active_direct_failures"],
+        final_report["protected_direct_failures"],
+        final_report["protected_floor_violations"],
+    )
     print(
         "Final Wikipedia exact KL mean/p95/max:",
         final_report["utility_kl_mean"],
