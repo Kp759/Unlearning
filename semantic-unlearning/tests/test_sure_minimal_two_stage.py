@@ -31,6 +31,10 @@ def load_module(name: str, filename: str):
 split = load_module("sure_minimal_split", "build_sure_minimal_split.py")
 wiki = load_module("sure_minimal_wiki", "build_sure_wikipedia_stats.py")
 learner = load_module("sure_minimal_learner", "sure_minimal_two_stage.py")
+audit = load_module(
+    "sure_token_conditioning_audit",
+    "audit_sure_token_conditioned_residuals.py",
+)
 
 
 class MinimalSureSplitTests(unittest.TestCase):
@@ -395,6 +399,48 @@ class MinimalSureWikipediaTests(unittest.TestCase):
 
 
 class MinimalSureLearnerTests(unittest.TestCase):
+    def test_residual_audit_reports_probability_coverage_by_token(self):
+        probabilities = torch.tensor(
+            [
+                [0.0, 0.02],
+                [0.001, 0.03],
+                [0.01, 0.04],
+            ]
+        )
+        rows = audit.probability_row_reports(
+            probabilities,
+            [10, 20],
+            token_texts=["a", "b"],
+            top_counts=[2],
+            thresholds=[1e-3, 1e-2],
+        )
+        self.assertEqual(rows[0]["token_id"], 10)
+        self.assertAlmostEqual(
+            rows[0]["top_mean_base_probability"]["2"], 0.0055
+        )
+        self.assertEqual(rows[0]["top_actual_context_count"]["2"], 2)
+        self.assertEqual(rows[0]["counts_above_probability"]["0.001"], 1)
+        self.assertEqual(rows[0]["counts_above_probability"]["0.01"], 0)
+        summary = audit.coverage_summary(rows, [1e-3, 1e-2])
+        self.assertEqual(summary["rows_with_zero_contexts_above"]["0.001"], 0)
+        self.assertEqual(summary["rows_with_zero_contexts_above"]["0.01"], 1)
+
+    def test_residual_audit_constraint_snapshot_preserves_failure_identities(self):
+        state = {
+            "logit_margin": torch.tensor([1.0, -0.1, 2.0]),
+            "sensitive_nll_increase": torch.tensor([4.1, 4.2, 3.8]),
+        }
+        report, margins, nll, failures = audit.constraint_snapshot(
+            state,
+            required_margin=0.05,
+            required_nll=4.0,
+        )
+        self.assertEqual(report["direct_failures"], 2)
+        self.assertEqual(report["failure_case_indices"], [1, 2])
+        self.assertTrue(torch.equal(margins, state["logit_margin"]))
+        self.assertTrue(torch.equal(nll, state["sensitive_nll_increase"]))
+        self.assertEqual(failures.tolist(), [False, True, True])
+
     def test_stage2_frontier_can_extrapolate_without_changing_stage1(self):
         stage1 = learner.core.parse_scales(learner.DEFAULT_CANDIDATE_SCALES)
         stage2 = learner.core.parse_scales(

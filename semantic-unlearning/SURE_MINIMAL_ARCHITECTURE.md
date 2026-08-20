@@ -147,6 +147,19 @@ bash scripts/run_mcf_sure_minimal.sh /path/to/model data/multi_counterfact.json
 bash scripts/run_zsre_sure_minimal.sh /path/to/model data/zsre_mend_eval.json
 ```
 
+If Stage 2 is infeasible, audit the saved residual without retraining or
+opening any held-out benchmark data:
+
+```bash
+python scripts/audit_sure_token_conditioned_residuals.py \
+  --learner-dir outputs/mcf_sure_token_conditioned_v3/seed1/learner
+```
+
+The audit reports per-edited-row Base-probability coverage, requested versus
+actual contrastive rank, exact failure identities at scales `0`, `1`, and
+`1.25`, and whether unresolved cases share an edited token row. Its default
+JSON output is written inside the learner directory.
+
 Both runners reuse the same model-specific Wikipedia cache. The requested
 utility corpus is 100,000 documents and the exact-KL candidate reservoir is
 100,000 predictor states. Each dataset run derives disjoint token-conditioned
