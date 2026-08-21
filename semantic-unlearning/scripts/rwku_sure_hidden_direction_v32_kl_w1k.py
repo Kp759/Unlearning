@@ -77,7 +77,7 @@ def load_configuration(path: Path) -> Dict[str, Any]:
         "edited_head_answer_weight": 2.0,
         "utility_hidden_weight": 2.0,
         "utility_kl_weight": 50.0,
-        "utility_kl_batch_size": 16,
+        "utility_kl_batch_size": 4,
         "utility_train_prompt_count": 1000,
         "utility_gate_prompt_count": 1000,
         "max_relative_frobenius_delta": 0.01,
@@ -159,7 +159,7 @@ def differentiable_utility_metrics(model, tokenizer, contexts, base_w, *, device
 def checkpoint_utility_report(model, tokenizer, contexts, base_w, *, device):
     values = []
     hidden_values = []
-    batch_size = 16
+    batch_size = 4
     for start in range(0, len(contexts), batch_size):
         mean_kl, vector, hidden_mean = differentiable_utility_metrics(
             model,
@@ -249,25 +249,44 @@ def train_rank(model, tokenizer, prompt_records, cases, utility, base_w, rank, c
 
         utility_indices = [(step * utility_bs + j) % len(utility) for j in range(utility_bs)]
         utility_batch = [utility[i] for i in utility_indices]
-        utility_kl, _, utility_hidden = differentiable_utility_metrics(
-            model,
-            tokenizer,
-            utility_batch,
-            base_w,
-            device=device,
-        )
         l2 = v2.adapter_l2(handles)
 
-        loss = (
+        answer_objective = (
             float(h["frozen_base_head_answer_weight"]) * base_loss
             + float(h["edited_head_answer_weight"]) * edited_loss
-            + float(h["utility_hidden_weight"]) * utility_hidden
-            + float(h["utility_kl_weight"]) * utility_kl
             + float(h["adapter_l2_weight"]) * l2
         )
-        if not torch.isfinite(loss):
-            raise FloatingPointError("v3.2 training loss became non-finite")
-        loss.backward()
+        if not torch.isfinite(answer_objective):
+            raise FloatingPointError("v3.2 answer objective became non-finite")
+        answer_objective.backward()
+
+        utility_kl_values = []
+        utility_hidden_values = []
+        for utility_context in utility_batch:
+            utility_kl_i, _, utility_hidden_i = differentiable_utility_metrics(
+                model,
+                tokenizer,
+                [utility_context],
+                base_w,
+                device=device,
+            )
+            utility_objective_i = (
+                float(h["utility_hidden_weight"]) * utility_hidden_i
+                + float(h["utility_kl_weight"]) * utility_kl_i
+            ) / float(utility_bs)
+            if not torch.isfinite(utility_objective_i):
+                raise FloatingPointError("v3.2 utility objective became non-finite")
+            utility_objective_i.backward()
+            utility_kl_values.append(utility_kl_i.detach())
+            utility_hidden_values.append(utility_hidden_i.detach())
+
+        utility_kl = torch.stack(utility_kl_values).mean()
+        utility_hidden = torch.stack(utility_hidden_values).mean()
+        loss = (
+            answer_objective.detach()
+            + float(h["utility_hidden_weight"]) * utility_hidden
+            + float(h["utility_kl_weight"]) * utility_kl
+        )
         torch.nn.utils.clip_grad_norm_(parameters, float(h["grad_clip"]))
         optimizer.step()
 
