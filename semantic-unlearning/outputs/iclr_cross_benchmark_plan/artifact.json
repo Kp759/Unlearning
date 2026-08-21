@@ -1,0 +1,431 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "SURE Cross-Benchmark ICLR Results Plan",
+    "description": "Publication-readiness audit, metric contract, architecture portability assessment, and ordered execution plan for SURE across seven unlearning benchmarks.",
+    "generatedAt": "2026-08-21T13:01:33Z",
+    "charts": [
+      {
+        "id": "zsre_base_parity",
+        "title": "ZsRE Base task metrics: local versus public ZeroUnlearn",
+        "subtitle": "Eff, Gen, and Spe are percentage-point metrics on the same evaluator family; PPL is excluded because its fixture is not yet comparable.",
+        "type": "bar",
+        "intent": "comparison",
+        "question": "Do the local ZsRE Base task metrics reproduce the public ZeroUnlearn baseline closely enough to justify an exact parity rerun?",
+        "rationale": "Grouped bars compare the two sources on the three same-unit task metrics without mixing in the unresolved PPL fixture.",
+        "comparisonContext": {
+          "baseline": "Public ZeroUnlearn Base",
+          "grain": "metric-source pair",
+          "unit": "percentage points"
+        },
+        "dataset": "zsre_base_chart",
+        "sourceId": "zsre_chart_source",
+        "valueFormat": "number",
+        "encodings": {
+          "x": {"field": "metric", "type": "nominal", "label": "Metric"},
+          "y": {"field": "value", "type": "quantitative", "label": "Score (percentage points)", "format": "number"},
+          "color": {"field": "source", "type": "nominal", "label": "Source"},
+          "tooltip": [
+            {"field": "signed_difference", "type": "quantitative", "label": "Local minus public", "format": "number"}
+          ]
+        },
+        "palette": {"kind": "categorical", "name": "blue-gold"},
+        "legend": {"position": "bottom", "sort": "spec", "title": "Source"},
+        "labels": {"values": "all"},
+        "layout": "full"
+      }
+    ],
+    "tables": [
+      {
+        "id": "zsre_validity",
+        "title": "Current ZsRE publication-readiness audit",
+        "subtitle": "Semantic parity is distinct from exact numerical/provenance parity.",
+        "dataset": "zsre_validity",
+        "sourceId": "cross_benchmark_audit",
+        "defaultSort": {
+          "field": "check",
+          "direction": "asc"
+        },
+        "columns": [
+          {"field": "check", "label": "Check", "type": "text"},
+          {"field": "status", "label": "Status", "type": "text"},
+          {"field": "evidence", "label": "Evidence", "type": "text"},
+          {"field": "required_action", "label": "Required action", "type": "text"}
+        ]
+      },
+      {
+        "id": "zsre_baseline",
+        "title": "ZsRE Base comparison",
+        "subtitle": "Current local canonical record versus the public ZeroUnlearn Llama-3.2-3B table.",
+        "dataset": "zsre_baseline",
+        "sourceId": "cross_benchmark_audit",
+        "defaultSort": {
+          "field": "metric",
+          "direction": "asc"
+        },
+        "columns": [
+          {"field": "metric", "label": "Metric", "type": "text"},
+          {"field": "local_base", "label": "Local Base", "type": "number"},
+          {"field": "public_base", "label": "Public Base", "type": "number"},
+          {"field": "difference", "label": "Difference", "type": "number", "movement": true},
+          {"field": "decision", "label": "Decision", "type": "text"}
+        ]
+      },
+      {
+        "id": "metric_contract",
+        "title": "Benchmark-native main-table metric contract",
+        "subtitle": "Metric names and directions remain native; conceptual axes are shared.",
+        "dataset": "metric_contract",
+        "sourceId": "cross_benchmark_audit",
+        "defaultSort": {
+          "field": "dataset",
+          "direction": "asc"
+        },
+        "columns": [
+          {"field": "dataset", "label": "Dataset", "type": "text"},
+          {"field": "forgetting", "label": "Forgetting", "type": "text"},
+          {"field": "generalization", "label": "Generalization / attacks", "type": "text"},
+          {"field": "utility", "label": "Locality / utility", "type": "text"},
+          {"field": "warning", "label": "Critical warning", "type": "text"}
+        ]
+      },
+      {
+        "id": "architecture_fit",
+        "title": "SURE architecture portability",
+        "subtitle": "The shared principle is portable; unchanged head-only QA code is not.",
+        "dataset": "architecture_fit",
+        "sourceId": "cross_benchmark_audit",
+        "defaultSort": {
+          "field": "dataset",
+          "direction": "asc"
+        },
+        "columns": [
+          {"field": "dataset", "label": "Dataset", "type": "text"},
+          {"field": "unchanged_reuse", "label": "Unchanged reuse", "type": "text"},
+          {"field": "required_change", "label": "Required change", "type": "text"},
+          {"field": "risk", "label": "Risk", "type": "text"}
+        ]
+      },
+      {
+        "id": "phase_plan",
+        "title": "Ordered execution plan",
+        "subtitle": "Foundation and protocol work precede expensive benchmark scaling.",
+        "dataset": "phase_plan",
+        "sourceId": "cross_benchmark_audit",
+        "defaultSort": {
+          "field": "phase",
+          "direction": "asc"
+        },
+        "columns": [
+          {"field": "phase", "label": "Phase", "type": "text"},
+          {"field": "objective", "label": "Objective", "type": "text"},
+          {"field": "exit_gate", "label": "Exit gate", "type": "text"}
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "zsre_chart_source",
+        "label": "Reviewed ZsRE Base metric comparison",
+        "path": "semantic-unlearning/config/best_runs/by_model/llama_3b_instruct_model/zsre/canonical_sure_shared_arch_seeds1_10_20260818.json",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "description": "Materializes the three same-unit ZsRE Base task metrics from the local canonical record and public ZeroUnlearn table.",
+          "executed_at": "2026-08-21T13:01:33Z",
+          "sql": "SELECT * FROM (VALUES ('Eff', 'Local Base', 33.0896, 0.2696, 'percentage points', 'Llama-3.2-3B-Instruct'), ('Eff', 'Public ZeroUnlearn Base', 32.82, 0.0, 'percentage points', 'Llama-3.2-3B-Instruct'), ('Gen', 'Local Base', 32.1979, -0.0321, 'percentage points', 'Llama-3.2-3B-Instruct'), ('Gen', 'Public ZeroUnlearn Base', 32.23, 0.0, 'percentage points', 'Llama-3.2-3B-Instruct'), ('Spe', 'Local Base', 28.121, 0.001, 'percentage points', 'Llama-3.2-3B-Instruct'), ('Spe', 'Public ZeroUnlearn Base', 28.12, 0.0, 'percentage points', 'Llama-3.2-3B-Instruct')) AS t(metric, source, value, signed_difference, unit, model)",
+          "filters": ["Llama-3.2-3B-Instruct", "ZsRE Base", "Eff/Gen/Spe only; PPL excluded"],
+          "metric_definitions": ["Eff and Gen are original-answer token accuracies in percentage points; lower is better.", "Spe is neighborhood next-token accuracy in percentage points; higher is better."]
+        }
+      },
+      {
+        "id": "cross_benchmark_audit",
+        "label": "SURE cross-benchmark audit and plan",
+        "path": "semantic-unlearning/outputs/iclr_cross_benchmark_plan/ICLR_SURE_CROSS_BENCHMARK_PLAN.md",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "description": "Reviewed synthesis of local evaluator code, checked-in result records, focused tests, and benchmark primary sources.",
+          "executed_at": "2026-08-21T13:01:33Z",
+          "sql": "SELECT * FROM (VALUES ('zsre_validity', 1, 'Eff/Gen/Spe semantics', 'PASS', '24 focused tests pass'), ('zsre_validity', 2, 'Split semantics', 'PARTIAL', 'hashes incomplete'), ('zsre_validity', 3, 'Per-seed provenance', 'FAIL', 'output roots absent'), ('zsre_validity', 4, 'PPL parity', 'FAIL', '11.0625 versus 12.88'), ('zsre_baseline', 1, 'Eff', '33.0896 versus 32.82', '+0.2696 pp'), ('zsre_baseline', 2, 'Gen', '32.1979 versus 32.23', '-0.0321 pp'), ('zsre_baseline', 3, 'Spe', '28.121 versus 28.12', '+0.001 pp'), ('zsre_baseline', 4, 'PPL', '11.0625 versus 12.88', 'not comparable'), ('metric_contract', 1, 'MCF-ZU', 'Eff/Gen/Spe/PPL', 'native ZeroUnlearn semantics'), ('metric_contract', 2, 'MCF-Original', 'FS/GFS/Spe/KL/PPL', 'separate stress test'), ('metric_contract', 3, 'ZsRE', 'Eff/Gen/Spe/PPL', 'add generation audit'), ('metric_contract', 4, 'TOFU', 'Forget Quality/Model Utility', 'report effect size'), ('metric_contract', 5, 'RWKU', 'Forget/Neighbor/MIA/Utility', 'no universal scalar'), ('metric_contract', 6, 'MUSE', 'VerbMem/KnowMem/PrivLeak', 'PrivLeak target zero'), ('metric_contract', 7, 'MQuAKE', 'Eff/PPL plus extensions', 'resolve benchmark identity'), ('metric_contract', 8, 'WMDP', 'WMDP/MMLU/MT-Bench', '25 percent chance floor'), ('architecture_fit', 1, 'MCF', 'Mostly', 'Low risk'), ('architecture_fit', 2, 'ZsRE', 'Mostly', 'Low risk'), ('architecture_fit', 3, 'MQuAKE', 'Mostly', 'Medium risk'), ('architecture_fit', 4, 'RWKU', 'Adapter', 'Medium-high risk'), ('architecture_fit', 5, 'TOFU', 'Extension', 'High risk'), ('architecture_fit', 6, 'MUSE', 'Extension', 'High risk'), ('architecture_fit', 7, 'WMDP', 'Extension', 'Very high risk'), ('phase_plan', 0, 'Contracts', 'Freeze protocols', 'validated registry'), ('phase_plan', 1, 'Factual foundation', 'Reproduce ZsRE/MCF/MQuAKE', 'complete receipts'), ('phase_plan', 2, 'Entity/profile', 'RWKU/TOFU', 'native gates'), ('phase_plan', 3, 'Passage/domain', 'MUSE/WMDP', 'native baselines'), ('phase_plan', 4, 'Confirmatory paper', 'Frozen final runs', 'reproducible release')) AS audit(table_id, row_order, label, value, detail)",
+          "filters": [
+            "Repository commit 4bdcd88122b46c7d215f9480bddf029ee09636f4",
+            "Current canonical ZsRE record and vendored ZeroUnlearn source",
+            "Primary benchmark papers and official repositories only"
+          ],
+          "metric_definitions": [
+            "ZsRE Eff and Gen are per-record macro original-answer token accuracies on direct and rephrase prompts, in percentage points; lower is better.",
+            "ZsRE Spe is per-record macro neighborhood next-token accuracy, in percentage points; higher is better.",
+            "Publication-ready requires exact source/model/evaluator identities and complete per-run artifacts, not merely matching metric names."
+          ]
+        }
+      },
+      {
+        "id": "zerounlearn_primary",
+        "label": "ZeroUnlearn official repository",
+        "query": {
+          "engine": "web",
+          "language": "text",
+          "description": "Official ZeroUnlearn definitions and public MCF/ZsRE results.",
+          "url": "https://github.com/XMUDeepLIT/ZeroUnlearn",
+          "executed_at": "2026-08-21T13:01:33Z",
+          "filters": ["Official repository", "Llama-3.2-3B-Instruct table"]
+        }
+      },
+      {
+        "id": "benchmark_primary_sources",
+        "label": "Official benchmark papers and repositories",
+        "query": {
+          "engine": "web",
+          "language": "text",
+          "description": "TOFU, RWKU, MUSE, MQuAKE, WMDP, and OpenUnlearning primary technical sources used to lock metric meanings and method support.",
+          "url": "https://github.com/locuslab/open-unlearning",
+          "executed_at": "2026-08-21T13:01:33Z",
+          "filters": ["Primary papers", "Official repositories", "Maintained benchmark framework"]
+        }
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# SURE Cross-Benchmark ICLR Results Plan"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "body": "## The defensible headline is a better forgetting–utility frontier, not one universal score\n\nUse each benchmark's native evaluator and compare every method under the same model, visible data, split, tuning budget, and seed policy. The current ZsRE `Eff/Gen/Spe` implementation is semantically aligned with ZeroUnlearn, but the stored aggregate is provisional because the exact execution commit and per-seed outputs are missing and PPL does not reproduce the public Base value."
+      },
+      {
+        "id": "key_finding_zsre",
+        "type": "markdown",
+        "sourceId": "cross_benchmark_audit",
+        "body": "## ZsRE task metrics are close enough to justify a parity rerun\n\nLocal versus public Base differs by only **+0.2696 pp Eff**, **−0.0321 pp Gen**, and **+0.0010 pp Spe**. PPL differs by **−1.8175**, which is material and proves that the fluency fixture or runtime identity is not yet shared. Focused evaluator tests pass **24/24**, but tests cannot reconstruct absent GPU artifacts."
+      },
+      {
+        "id": "zsre_baseline_table",
+        "type": "table",
+        "tableId": "zsre_baseline",
+        "layout": "full"
+      },
+      {
+        "id": "zsre_base_chart_block",
+        "type": "chart",
+        "chartId": "zsre_base_parity",
+        "layout": "full"
+      },
+      {
+        "id": "zsre_validity_table",
+        "type": "table",
+        "tableId": "zsre_validity",
+        "layout": "full"
+      },
+      {
+        "id": "metric_finding",
+        "type": "markdown",
+        "body": "## `FS/GFS` and `Eff/Gen` must remain separate\n\nThe target-true-sensitive MCF evaluator defines the original answer as sensitive and rewards `NLL(true) > NLL(new)`. ZeroUnlearn's MCF protocol evaluates persistence of the dataset's unwanted `target_new` and uses lower `Eff/Gen` as better. These are different targets, formulas, and directions. Run a main MCF-ZU comparison with native `Eff/Gen/Spe/PPL`, and retain MCF-Original `FS/GFS` as a separately named stress test."
+      },
+      {
+        "id": "metric_contract_table",
+        "type": "table",
+        "tableId": "metric_contract",
+        "layout": "full"
+      },
+      {
+        "id": "scope_definitions",
+        "type": "markdown",
+        "body": "## Scope, data, and definitions\n\nUse a common ontology—efficacy, generalization/robustness, locality/retention, general utility, privacy, and efficiency—while preserving native metric names. Never average raw values across benchmarks. A secondary summary may report win/tie/loss, average rank, Pareto-front membership, or constrained forgetting among checkpoints that pass predeclared utility gates."
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "body": "## The shared SURE core is portable through explicit adapters\n\nKeep the frozen Base identity, contextual low-rank sparse edit, bounded forgetting objective, exact external-utility guard, checkpoint-dtype materialization, residual Stage 2, and one-way evaluation firewall. Define `SURE-F` and `SURE-U100K` so the pinned 100k-document cache is the only intentional difference. Fact QA is a direct fit; entity, passage, and hazardous-domain removal require named adapters or extensions."
+      },
+      {
+        "id": "architecture_table",
+        "type": "table",
+        "tableId": "architecture_fit",
+        "layout": "full"
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "body": "## Limitations and robustness\n\nHead-only success can be decoder suppression rather than representation erasure, especially on RWKU, MUSE, and WMDP. Report frozen-head, adversarial, MIA, relearning, free-generation, and collapse diagnostics after checkpoint freeze. The local audit validates semantics and completeness only; it cannot certify missing historical outputs."
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "body": "## Execute foundation work before expensive scaling\n\nFirst freeze metric and baseline contracts, then reproduce ZsRE and the factual suite, then complete RWKU/TOFU, and only then build passage/domain extensions for MUSE and WMDP. Every main-table row needs immutable sources, complete per-run artifacts, confidence intervals, raw counts, compute accounting, and proof that held-out data never selected the checkpoint."
+      },
+      {
+        "id": "phase_table",
+        "type": "table",
+        "tableId": "phase_plan",
+        "layout": "full"
+      },
+      {
+        "id": "questions",
+        "type": "markdown",
+        "body": "## Further questions\n\n- What does `SURE-F` expand to?\n- Does `MQuAKE-R` mean MQuAKE-Remastered or the current ZeroUnlearn-style track?\n- Will the paper use benchmark-native models or one common Llama family where possible?\n- What tuning and final-run compute budget can be precommitted?"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-21T13:01:33Z",
+    "status": "partial",
+    "datasets": {
+      "zsre_base_chart": [
+        {"metric": "Eff", "source": "Local Base", "value": 33.0896, "signed_difference": 0.2696, "unit": "percentage points", "model": "Llama-3.2-3B-Instruct"},
+        {"metric": "Eff", "source": "Public ZeroUnlearn Base", "value": 32.82, "signed_difference": 0.0, "unit": "percentage points", "model": "Llama-3.2-3B-Instruct"},
+        {"metric": "Gen", "source": "Local Base", "value": 32.1979, "signed_difference": -0.0321, "unit": "percentage points", "model": "Llama-3.2-3B-Instruct"},
+        {"metric": "Gen", "source": "Public ZeroUnlearn Base", "value": 32.23, "signed_difference": 0.0, "unit": "percentage points", "model": "Llama-3.2-3B-Instruct"},
+        {"metric": "Spe", "source": "Local Base", "value": 28.121, "signed_difference": 0.001, "unit": "percentage points", "model": "Llama-3.2-3B-Instruct"},
+        {"metric": "Spe", "source": "Public ZeroUnlearn Base", "value": 28.12, "signed_difference": 0.0, "unit": "percentage points", "model": "Llama-3.2-3B-Instruct"}
+      ],
+      "zsre_validity": [
+        {
+          "order": 1,
+          "check": "Eff/Gen/Spe semantics",
+          "status": "PASS",
+          "evidence": "Adapter mirrors upstream token decisions and per-record macro averaging; 24 focused tests pass.",
+          "required_action": "Preserve evaluator parity tests in CI."
+        },
+        {
+          "order": 2,
+          "check": "Split semantics",
+          "status": "PARTIAL",
+          "evidence": "Seeds 1–10 and 50/1000 half-split policy match; exact dataset/model hashes are not attached to the aggregate.",
+          "required_action": "Rerun with source, model, tokenizer, split, and token hashes."
+        },
+        {
+          "order": 3,
+          "check": "Per-seed provenance",
+          "status": "FAIL",
+          "evidence": "Aggregate is terminal-captured; exact execution commit and referenced output roots are absent.",
+          "required_action": "Regenerate all per-seed results and receipts."
+        },
+        {
+          "order": 4,
+          "check": "PPL parity",
+          "status": "FAIL",
+          "evidence": "Local Base PPL is 11.0625; public ZeroUnlearn Base PPL is 12.88.",
+          "required_action": "Lock one fixture and reproduce identical Base token IDs and PPL."
+        },
+        {
+          "order": 5,
+          "check": "Publication readiness",
+          "status": "BLOCKED",
+          "evidence": "Metric semantics are credible, but result reconstruction is impossible from current artifacts.",
+          "required_action": "Do not cite as final until the parity rerun passes."
+        }
+      ],
+      "zsre_baseline": [
+        {"order": 1, "metric": "Eff ↓", "local_base": 33.0896, "public_base": 32.82, "difference": 0.2696, "decision": "Same meaning; exact reproduction unproven"},
+        {"order": 2, "metric": "Gen ↓", "local_base": 32.1979, "public_base": 32.23, "difference": -0.0321, "decision": "Same meaning; extremely close"},
+        {"order": 3, "metric": "Spe ↑", "local_base": 28.121, "public_base": 28.12, "difference": 0.001, "decision": "Same meaning; effectively identical"},
+        {"order": 4, "metric": "PPL ↓", "local_base": 11.0625, "public_base": 12.88, "difference": -1.8175, "decision": "Not comparable yet"}
+      ],
+      "metric_contract": [
+        {"order": 1, "dataset": "MCF-ZU", "forgetting": "Eff ↓", "generalization": "Gen ↓", "utility": "Spe ↑; Spe-success ↑; PPL ratio ↓", "warning": "target_new is the unwanted answer"},
+        {"order": 2, "dataset": "MCF-Original", "forgetting": "FS ↑", "generalization": "GFS ↑; semantic leak ↓", "utility": "Spe-success/margin ↑; retain KL ↓; PPL ratio ↓", "warning": "Separate task; never compare raw FS/GFS to ZeroUnlearn Eff/Gen"},
+        {"order": 3, "dataset": "ZsRE", "forgetting": "Eff ↓", "generalization": "Gen ↓; free-generation leak ↓", "utility": "Spe ↑; retain ↑; PPL ratio ↓", "warning": "Relock PPL and full provenance"},
+        {"order": 4, "dataset": "TOFU", "forgetting": "Forget Quality ↑ plus effect size", "generalization": "paraphrase/perturbation; MIA/extraction", "utility": "Model Utility ↑ and native components ↑", "warning": "Do not interpret a KS p-value alone"},
+        {"order": 5, "dataset": "RWKU", "forgetting": "FB/QA/AA/All ↓", "generalization": "attack breakdown ↓; FM ↑; RM ↓", "utility": "Neighbor ↑; Gen/Rea/Tru/Fac/Flu ↑", "warning": "No universal entity-removal scalar"},
+        {"order": 6, "dataset": "MUSE", "forgetting": "VerbMem-F ↓; KnowMem-F ↓", "generalization": "PrivLeak close to 0; scale/sequential curves", "utility": "KnowMem-R ↑; retrain gap ↓", "warning": "Raw PrivLeak is not lower-is-better"},
+        {"order": 7, "dataset": "MQuAKE", "forgetting": "Eff ↓", "generalization": "AtomicGen ↓; multi-hop old-answer leak ↓", "utility": "retain atomic ↑; PPL ratio ↓", "warning": "Resolve MQuAKE-R identity; extensions are not native ZeroUnlearn columns"},
+        {"order": 8, "dataset": "WMDP", "forgetting": "Bio/Cyber accuracy toward 25%", "generalization": "relearning/probe/adversarial recovery ↓", "utility": "MMLU ↑; MT-Bench ↑; retained domains ↑", "warning": "Below-chance row suppression is not automatically stronger unlearning"}
+      ],
+      "architecture_fit": [
+        {"order": 1, "dataset": "MCF", "unchanged_reuse": "Mostly", "required_change": "Lock MCF-ZU versus MCF-Original semantics", "risk": "Low"},
+        {"order": 2, "dataset": "ZsRE", "unchanged_reuse": "Mostly", "required_change": "Relock PPL/provenance; add generation audit", "risk": "Low"},
+        {"order": 3, "dataset": "MQuAKE-CF-3k-v2", "unchanged_reuse": "Mostly", "required_change": "Instance-first multi-row adapter and held-out atomic/multi-hop evaluation", "risk": "Medium"},
+        {"order": 4, "dataset": "RWKU", "unchanged_reuse": "No", "required_change": "Target-only atomic corpus, wider sensitive rows, native attack/MIA/locality suite", "risk": "Medium-high"},
+        {"order": 5, "dataset": "TOFU", "unchanged_reuse": "No", "required_change": "Author/profile multi-token adapter and native Full/retain models", "risk": "High"},
+        {"order": 6, "dataset": "MUSE", "unchanged_reuse": "No", "required_change": "Passage/span objective, privacy firewall, sequential requests", "risk": "High"},
+        {"order": 7, "dataset": "WMDP", "unchanged_reuse": "No", "required_change": "Hazardous-corpus sequence objective; likely contextual internal-layer edit", "risk": "Very high"}
+      ],
+      "phase_plan": [
+        {"order": 0, "phase": "0 — Contracts", "objective": "Freeze SURE variants, metric schema, MCF semantics, baseline provenance, and MQuAKE identity.", "exit_gate": "Machine-readable protocol registry passes validation."},
+        {"order": 1, "phase": "1 — Factual foundation", "objective": "Reproduce ZsRE and run MCF/MQuAKE under common evaluators.", "exit_gate": "Base and strong baseline parity; complete 10-seed receipts."},
+        {"order": 2, "phase": "2 — Entity/profile", "objective": "Complete RWKU official evaluation and TOFU native suite.", "exit_gate": "Native utility, robustness, and privacy gates pass."},
+        {"order": 3, "phase": "3 — Passage/domain", "objective": "Implement MUSE and WMDP extensions with head-only ablations.", "exit_gate": "End-to-end native evaluator plus strong maintained baselines."},
+        {"order": 4, "phase": "4 — Confirmatory paper", "objective": "Freeze, run final seeds/targets, aggregate statistics, and release artifacts.", "exit_gate": "Every table row is reproducible from immutable receipts."}
+      ]
+    },
+    "accessIssues": [
+      {
+        "title": "Current ZsRE per-seed artifacts are unavailable",
+        "detail": "The aggregate references output roots that are absent locally, and the exact final execution commit was not recorded."
+      },
+      {
+        "title": "ZsRE PPL is not numerically matched to the public ZeroUnlearn table",
+        "detail": "Local Base PPL is 11.0625 versus 12.88 publicly; the fixture/runtime identity must be resolved before comparison."
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "zsre_chart_source",
+      "label": "Reviewed ZsRE Base metric comparison",
+      "path": "semantic-unlearning/config/best_runs/by_model/llama_3b_instruct_model/zsre/canonical_sure_shared_arch_seeds1_10_20260818.json",
+      "query": {
+        "engine": "duckdb",
+        "language": "sql",
+        "description": "Materializes the three same-unit ZsRE Base task metrics from the local canonical record and public ZeroUnlearn table.",
+        "executed_at": "2026-08-21T13:01:33Z",
+        "sql": "SELECT * FROM (VALUES ('Eff', 'Local Base', 33.0896, 0.2696, 'percentage points', 'Llama-3.2-3B-Instruct'), ('Eff', 'Public ZeroUnlearn Base', 32.82, 0.0, 'percentage points', 'Llama-3.2-3B-Instruct'), ('Gen', 'Local Base', 32.1979, -0.0321, 'percentage points', 'Llama-3.2-3B-Instruct'), ('Gen', 'Public ZeroUnlearn Base', 32.23, 0.0, 'percentage points', 'Llama-3.2-3B-Instruct'), ('Spe', 'Local Base', 28.121, 0.001, 'percentage points', 'Llama-3.2-3B-Instruct'), ('Spe', 'Public ZeroUnlearn Base', 28.12, 0.0, 'percentage points', 'Llama-3.2-3B-Instruct')) AS t(metric, source, value, signed_difference, unit, model)",
+        "filters": ["Llama-3.2-3B-Instruct", "ZsRE Base", "Eff/Gen/Spe only; PPL excluded"],
+        "metric_definitions": ["Eff and Gen are original-answer token accuracies in percentage points; lower is better.", "Spe is neighborhood next-token accuracy in percentage points; higher is better."]
+      }
+    },
+    {
+      "id": "cross_benchmark_audit",
+      "label": "SURE cross-benchmark audit and plan",
+      "path": "semantic-unlearning/outputs/iclr_cross_benchmark_plan/ICLR_SURE_CROSS_BENCHMARK_PLAN.md",
+      "query": {
+        "engine": "duckdb",
+        "language": "sql",
+        "description": "Reviewed synthesis of local evaluator code, checked-in result records, focused tests, and benchmark primary sources.",
+        "executed_at": "2026-08-21T13:01:33Z",
+        "sql": "SELECT * FROM (VALUES ('zsre_validity', 1, 'Eff/Gen/Spe semantics', 'PASS', '24 focused tests pass'), ('zsre_validity', 2, 'Split semantics', 'PARTIAL', 'hashes incomplete'), ('zsre_validity', 3, 'Per-seed provenance', 'FAIL', 'output roots absent'), ('zsre_validity', 4, 'PPL parity', 'FAIL', '11.0625 versus 12.88'), ('zsre_baseline', 1, 'Eff', '33.0896 versus 32.82', '+0.2696 pp'), ('zsre_baseline', 2, 'Gen', '32.1979 versus 32.23', '-0.0321 pp'), ('zsre_baseline', 3, 'Spe', '28.121 versus 28.12', '+0.001 pp'), ('zsre_baseline', 4, 'PPL', '11.0625 versus 12.88', 'not comparable'), ('metric_contract', 1, 'MCF-ZU', 'Eff/Gen/Spe/PPL', 'native ZeroUnlearn semantics'), ('metric_contract', 2, 'MCF-Original', 'FS/GFS/Spe/KL/PPL', 'separate stress test'), ('metric_contract', 3, 'ZsRE', 'Eff/Gen/Spe/PPL', 'add generation audit'), ('metric_contract', 4, 'TOFU', 'Forget Quality/Model Utility', 'report effect size'), ('metric_contract', 5, 'RWKU', 'Forget/Neighbor/MIA/Utility', 'no universal scalar'), ('metric_contract', 6, 'MUSE', 'VerbMem/KnowMem/PrivLeak', 'PrivLeak target zero'), ('metric_contract', 7, 'MQuAKE', 'Eff/PPL plus extensions', 'resolve benchmark identity'), ('metric_contract', 8, 'WMDP', 'WMDP/MMLU/MT-Bench', '25 percent chance floor'), ('architecture_fit', 1, 'MCF', 'Mostly', 'Low risk'), ('architecture_fit', 2, 'ZsRE', 'Mostly', 'Low risk'), ('architecture_fit', 3, 'MQuAKE', 'Mostly', 'Medium risk'), ('architecture_fit', 4, 'RWKU', 'Adapter', 'Medium-high risk'), ('architecture_fit', 5, 'TOFU', 'Extension', 'High risk'), ('architecture_fit', 6, 'MUSE', 'Extension', 'High risk'), ('architecture_fit', 7, 'WMDP', 'Extension', 'Very high risk'), ('phase_plan', 0, 'Contracts', 'Freeze protocols', 'validated registry'), ('phase_plan', 1, 'Factual foundation', 'Reproduce ZsRE/MCF/MQuAKE', 'complete receipts'), ('phase_plan', 2, 'Entity/profile', 'RWKU/TOFU', 'native gates'), ('phase_plan', 3, 'Passage/domain', 'MUSE/WMDP', 'native baselines'), ('phase_plan', 4, 'Confirmatory paper', 'Frozen final runs', 'reproducible release')) AS audit(table_id, row_order, label, value, detail)",
+        "filters": [
+          "Repository commit 4bdcd88122b46c7d215f9480bddf029ee09636f4",
+          "Current canonical ZsRE record and vendored ZeroUnlearn source",
+          "Primary benchmark papers and official repositories only"
+        ],
+        "metric_definitions": [
+          "ZsRE Eff and Gen are per-record macro original-answer token accuracies on direct and rephrase prompts, in percentage points; lower is better.",
+          "ZsRE Spe is per-record macro neighborhood next-token accuracy, in percentage points; higher is better.",
+          "Publication-ready requires exact source/model/evaluator identities and complete per-run artifacts, not merely matching metric names."
+        ]
+      }
+    },
+    {
+      "id": "zerounlearn_primary",
+      "label": "ZeroUnlearn official repository",
+      "query": {
+        "engine": "web",
+        "language": "text",
+        "description": "Official ZeroUnlearn definitions and public MCF/ZsRE results.",
+        "url": "https://github.com/XMUDeepLIT/ZeroUnlearn",
+        "executed_at": "2026-08-21T13:01:33Z",
+        "filters": ["Official repository", "Llama-3.2-3B-Instruct table"]
+      }
+    },
+    {
+      "id": "benchmark_primary_sources",
+      "label": "Official benchmark papers and repositories",
+      "query": {
+        "engine": "web",
+        "language": "text",
+        "description": "TOFU, RWKU, MUSE, MQuAKE, WMDP, and OpenUnlearning primary technical sources used to lock metric meanings and method support.",
+        "url": "https://github.com/locuslab/open-unlearning",
+        "executed_at": "2026-08-21T13:01:33Z",
+        "filters": ["Primary papers", "Official repositories", "Maintained benchmark framework"]
+      }
+    }
+  ]
+}
