@@ -168,7 +168,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     raw = sys.argv[1:] if argv is None else list(argv)
     w1k, forwarded = _split_w1k_args(raw)
 
-    parsed = base.parse_args(forwarded)
+    # Strip the materialization wrapper's options before invoking the canonical
+    # base parser.  The same original ``forwarded`` list is passed to the
+    # materialization wrapper below so those options are still honored.
+    _materialization_options, base_forwarded = materialized._split_wrapper_args(
+        forwarded
+    )
+    parsed = base.parse_args(base_forwarded)
     # This variant intentionally fixes the medium Stage-1 LR.  Stage 2 keeps
     # its own repair LR unchanged.
     parsed.stage1_lr = LOCKED_STAGE1_LR
