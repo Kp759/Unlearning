@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 
 import pytest
 import torch
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
 
 import sure_stage2_sparse_repair_contrastive_materialized as contrastive
 
