@@ -81,6 +81,31 @@ def test_architecture_records_w1k_without_changing_stage2_lr(tmp_path):
     assert architecture["stage2"]["learning_rate"] == 0.005
 
 
+def test_materialization_options_are_removed_before_base_parse():
+    _, forwarded = runner._split_w1k_args(
+        [
+            "--utility-wikipedia-dir",
+            "/external-wikipedia",
+            "--model-path",
+            "/model",
+            "--solver-margin",
+            "0.25",
+            "--solver-retry-margin",
+            "0.5",
+            "--materialization-guard-margin",
+            "0.1",
+            "--dry-run",
+        ]
+    )
+    options, base_forwarded = runner.materialized._split_wrapper_args(forwarded)
+    parsed = base.parse_args(base_forwarded)
+    assert options.solver_margin == 0.25
+    assert options.solver_retry_margin == 0.5
+    assert options.materialization_guard_margin == 0.1
+    assert parsed.model_path == "/model"
+    assert parsed.dry_run is True
+
+
 def test_utility_kl_is_zero_for_identical_logits():
     logits = torch.tensor([[0.1, 0.2, -0.3], [0.0, 1.0, 2.0]], dtype=torch.float32)
     value = stage1.utility_kl(logits, logits.to(torch.float16))
