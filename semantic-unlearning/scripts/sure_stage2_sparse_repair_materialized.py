@@ -22,7 +22,7 @@ import gc
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence
 
 import torch
 
@@ -53,9 +53,18 @@ def solver_margin_ladder(initial: float, retry: float) -> List[float]:
 
 
 def choose_buffered_scale(
-    reports: Sequence[Dict[str, Any]], guard_margin: float
+    reports: Sequence[Dict[str, Any]],
+    guard_margin: float,
+    *,
+    fallback_choose_scale: Callable[[Sequence[Dict[str, Any]]], float] | None = None,
 ) -> float:
-    """Choose smallest zero-failure scale with a margin buffer when available."""
+    """Choose smallest zero-failure scale with a margin buffer when available.
+
+    ``fallback_choose_scale`` must be the canonical chooser captured before any
+    temporary monkey patch.  Passing it explicitly prevents recursion when no
+    zero-failure scale exists and ``shared.core.choose_scale`` is currently
+    patched to this buffered chooser.
+    """
     guarded = [
         float(report["scale"])
         for report in reports
@@ -80,7 +89,8 @@ def choose_buffered_scale(
         )
         return float(best["scale"])
 
-    return shared.core.choose_scale(reports)
+    chooser = fallback_choose_scale or shared.core.choose_scale
+    return chooser(reports)
 
 
 def _output_dir_from_args(stage_args: argparse.Namespace) -> Path:
@@ -155,7 +165,11 @@ def _run_shared_once(
 
     def choose_scale_with_buffer(reports):
         if reports and "minimum_margin" in reports[0]:
-            return choose_buffered_scale(reports, float(guard_margin))
+            return choose_buffered_scale(
+                reports,
+                float(guard_margin),
+                fallback_choose_scale=old_choose_scale,
+            )
         return old_choose_scale(reports)
 
     try:
