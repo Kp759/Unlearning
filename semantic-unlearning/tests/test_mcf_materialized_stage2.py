@@ -58,6 +58,29 @@ def test_buffered_scale_falls_back_to_strongest_zero_failure_margin():
     assert materialized.choose_buffered_scale(reports, 0.10) == 1.0
 
 
+def test_buffered_scale_uses_captured_fallback_when_no_zero_failure_scale():
+    reports = [
+        {"scale": 1.0, "direct_failures": 2, "minimum_margin": -0.20},
+        {"scale": 0.875, "direct_failures": 1, "minimum_margin": -0.10},
+        {"scale": 0.75, "direct_failures": 3, "minimum_margin": -0.30},
+    ]
+    calls = []
+
+    def canonical_fallback(received):
+        calls.append(received)
+        return 0.875
+
+    assert (
+        materialized.choose_buffered_scale(
+            reports,
+            0.10,
+            fallback_choose_scale=canonical_fallback,
+        )
+        == 0.875
+    )
+    assert calls == [reports]
+
+
 def test_top_level_plan_routes_stage2_through_materialized_gate():
     wrapper, forwarded = runner._split_wrapper_args(
         [
