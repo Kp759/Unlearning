@@ -347,7 +347,8 @@ class ExternalContextsV9Tests(unittest.TestCase):
         self.assertIn("SURE_V9_WIKIPEDIA_DOCS:-10000", augmented)
         self.assertIn("SURE_ENABLE_EXTERNAL_CONTEXTS=1", augmented)
         recovery = (SCRIPTS / "run_mcf_sure_v9_gfs_recovery.sh").read_text()
-        self.assertIn('SURE_EXTERNAL_CONTEXT_PROFILE="paired_answer_cue_v1"', recovery)
+        self.assertIn("--treatment paired_context_recovery", recovery)
+        self.assertIn("--require-corpus-protocol sure_external_wikipedia_corpus_v1", recovery)
         self.assertIn("mcf_sure_v9_gfs_recovery_w${DOCS}", recovery)
 
     def test_ladder_comparison_reads_v8_and_exact_retain_metrics(self):

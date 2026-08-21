@@ -535,7 +535,7 @@ def main() -> None:
         )
     if actual_prompts < int(args.require_min_utility_prompts):
         raise RuntimeError(
-            "utility cache has too few predictor states: required at least "
+            "utility cache has too few exact-KL prompts: required at least "
             f"{args.require_min_utility_prompts}, found {actual_prompts}"
         )
     if actual_documents < int(args.utility_sample_size):
@@ -547,7 +547,7 @@ def main() -> None:
     if actual_prompts < int(args.utility_prompt_count):
         print(
             "WARNING: Wikipedia cache contains only "
-            f"{actual_prompts} predictor states versus "
+            f"{actual_prompts} exact-KL utility prompts versus "
             f"{args.utility_prompt_count} requested"
         )
 
@@ -581,6 +581,7 @@ def main() -> None:
     )
     base_rows = output_layer.weight.index_select(0, selected_tensor).detach().float()
 
+    utility_probability_reconstruction: Dict[str, Any] = {}
     utility_probabilities = learner.selected_base_probabilities(
         output_layer,
         selected_ids,
@@ -588,6 +589,26 @@ def main() -> None:
         utility_logsumexp,
         device=device,
         batch_size=args.utility_eval_batch_size,
+        diagnostics=utility_probability_reconstruction,
+    )
+    core.write_json(
+        output_dir / "utility_probability_reconstruction_report.json",
+        utility_probability_reconstruction,
+    )
+    approximate_max_mass = utility_probability_reconstruction[
+        "approximate_max_selected_mass"
+    ]
+    approximate_max_mass_text = (
+        "nonfinite"
+        if approximate_max_mass is None
+        else f"{approximate_max_mass:.6f}"
+    )
+    print(
+        "Selected Base probability reconstruction: "
+        f"approx_max_mass={approximate_max_mass_text}, "
+        f"fallback_rows={utility_probability_reconstruction['fallback_row_count']}/"
+        f"{utility_probability_reconstruction['candidate_row_count']}, "
+        f"final_max_mass={utility_probability_reconstruction['final_max_selected_mass']:.6f}"
     )
     (
         train_indices,
@@ -617,6 +638,7 @@ def main() -> None:
     locality_guard_hidden: torch.Tensor | None = None
     locality_guard_probabilities: torch.Tensor | None = None
     locality_pool_report: Dict[str, Any] | None = None
+    locality_probability_reconstruction: Dict[str, Any] | None = None
     if augmented:
         locality_cases = [
             core.SensitivePredictionCase(
@@ -637,6 +659,7 @@ def main() -> None:
             device=device,
             batch_size=args.utility_eval_batch_size,
         )
+        locality_probability_reconstruction = {}
         locality_probabilities = learner.selected_base_probabilities(
             output_layer,
             selected_ids,
@@ -644,6 +667,11 @@ def main() -> None:
             locality_logsumexp,
             device=device,
             batch_size=args.utility_eval_batch_size,
+            diagnostics=locality_probability_reconstruction,
+        )
+        core.write_json(
+            output_dir / "locality_probability_reconstruction_report.json",
+            locality_probability_reconstruction,
         )
         (
             locality_train_indices,
@@ -1158,6 +1186,8 @@ def main() -> None:
             "final": final_report,
             "utility_cache": str(Path(args.utility_cache).resolve()),
             "utility_cache_metadata": utility_metadata,
+            "utility_probability_reconstruction": utility_probability_reconstruction,
+            "locality_probability_reconstruction": locality_probability_reconstruction,
             "external_contexts": (
                 None if not augmented else str(Path(args.external_contexts).resolve())
             ),

@@ -156,16 +156,17 @@ For a paper-facing final result:
 1. choose and record one augmentation configuration from the ladder;
 2. choose either 50K or 100K before evaluating new seeds;
 3. freeze every SURE/context environment variable and cache SHA-256;
-4. run untouched seeds (for example 2–6) without further changes;
+4. run ten untouched seeds (2–11) without further changes;
 5. report seed 1 as development/tuning evidence, not as an untouched final
    replicate;
 6. report FS/GFS/Spe/PPL and exact retain-KL together.
 
-After those choices are frozen, a 50K example final run would look like:
+After those choices are frozen, a 50K example final run would use ten
+confirmatory seeds:
 
 ```bash
 OUTPUT_ROOT=outputs/mcf_sure_v9_final_locked_w50000 \
-MCF_SEEDS="2 3 4 5 6" \
+MCF_SEEDS="2 3 4 5 6 7 8 9 10 11" \
 SURE_V9_WIKIPEDIA_DOCS=50000 \
 SURE_EXTERNAL_CONTEXTS_PER_RECORD=128 \
 bash scripts/run_mcf_sure_v9_aug.sh \

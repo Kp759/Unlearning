@@ -563,6 +563,37 @@ class MinimalSureLearnerTests(unittest.TestCase):
         expected = torch.softmax(logits, dim=-1)[:, [1, 3]]
         self.assertTrue(torch.allclose(actual, expected, atol=1e-6))
 
+    def test_selected_probability_overmass_uses_exact_full_head_for_only_bad_rows(self):
+        layer = nn.Linear(2, 4, bias=False)
+        with torch.no_grad():
+            layer.weight.copy_(
+                torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [-1.0, 0.5]])
+            )
+        hidden = torch.tensor([[0.5, -0.25], [1.0, 2.0]])
+        logits = layer(hidden)
+        exact_logsumexp = torch.logsumexp(logits, dim=-1)
+        corrupted_logsumexp = exact_logsumexp.clone()
+        corrupted_logsumexp[1] -= 3.0
+        diagnostics = {}
+
+        actual = learner.selected_base_probabilities(
+            layer,
+            [1, 3],
+            hidden,
+            corrupted_logsumexp,
+            device=torch.device("cpu"),
+            batch_size=1,
+            diagnostics=diagnostics,
+        )
+
+        expected = torch.softmax(logits, dim=-1)[:, [1, 3]]
+        self.assertTrue(torch.allclose(actual, expected, atol=1e-6))
+        self.assertEqual(diagnostics["fallback_row_count"], 1)
+        self.assertEqual(diagnostics["fallback_overmass_row_count"], 1)
+        self.assertGreater(diagnostics["approximate_max_selected_mass"], 1.0)
+        self.assertLessEqual(diagnostics["final_max_selected_mass"], 1.0 + 1e-5)
+        self.assertTrue(diagnostics["full_head_reconstruction_used"])
+
     def test_token_conditioned_pool_keeps_high_probability_context_per_row(self):
         probabilities = torch.tensor(
             [

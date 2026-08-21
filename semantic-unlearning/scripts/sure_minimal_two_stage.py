@@ -28,7 +28,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, MutableMapping, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -947,9 +947,20 @@ def selected_base_probabilities(
     *,
     device: torch.device,
     batch_size: int,
+    diagnostics: MutableMapping[str, Any] | None = None,
 ) -> torch.Tensor:
+    """Recover edited-row probabilities with a row-local exact fallback.
+
+    ``base_logsumexp`` is the cache-backed fast path. If cache/model arithmetic
+    makes the reconstructed selected mass invalid, only those rows are
+    recomputed through the complete frozen output head.
+    """
     if utility_hidden.ndim != 2 or base_logsumexp.shape != (utility_hidden.shape[0],):
         raise ValueError("utility hidden states and Base partitions do not align")
+    if batch_size <= 0:
+        raise ValueError("utility probability batch size must be positive")
+    if not selected_ids:
+        raise ValueError("selected ids must be non-empty")
     ids = torch.tensor(
         [int(value) for value in selected_ids],
         device=output_layer.weight.device,
@@ -968,17 +979,80 @@ def selected_base_probabilities(
         if selected_bias is not None:
             logits = logits + selected_bias
         log_z = base_logsumexp[start : start + len(hidden)].to(
-            device=device, dtype=torch.float32
+            device=head_device, dtype=torch.float32
         )
         chunks.append(torch.exp(logits.float() - log_z.unsqueeze(1)).cpu())
     probabilities = torch.cat(chunks, dim=0).float().contiguous()
+    approximate_mass = probabilities.sum(dim=1)
+    finite_rows = torch.isfinite(probabilities).all(dim=1)
+    nonnegative_rows = (probabilities >= 0).all(dim=1)
+    mass_tolerance = 1e-5
+    fallback_mask = (~finite_rows) | (~nonnegative_rows) | (
+        approximate_mass > 1.0 + mass_tolerance
+    )
+    fallback_indices = fallback_mask.nonzero(as_tuple=False).flatten().long()
+    if fallback_indices.numel():
+        exact_chunks: List[torch.Tensor] = []
+        for start in range(0, int(fallback_indices.numel()), batch_size):
+            local_indices = fallback_indices[start : start + batch_size]
+            hidden = utility_hidden.index_select(
+                0, local_indices.to(utility_hidden.device)
+            ).to(
+                device=head_device, dtype=rows.dtype
+            )
+            full_logits = output_layer(hidden).float()
+            exact_chunks.append(
+                torch.softmax(full_logits, dim=-1)
+                .index_select(1, ids.to(full_logits.device))
+                .detach()
+                .cpu()
+            )
+        probabilities.index_copy_(
+            0,
+            fallback_indices,
+            torch.cat(exact_chunks, dim=0).float().contiguous(),
+        )
+
+    final_mass = probabilities.sum(dim=1)
     if not torch.isfinite(probabilities).all() or (probabilities < 0).any():
         raise FloatingPointError("selected Base utility probabilities are invalid")
-    maximum_mass = float(probabilities.sum(dim=1).max().item())
-    if maximum_mass > 1.001:
+    final_maximum_mass = float(final_mass.max().item())
+    if final_maximum_mass > 1.0 + mass_tolerance:
         raise FloatingPointError(
-            f"selected Base probability mass exceeds one: {maximum_mass}"
+            "selected Base probability mass exceeds one after exact full-head "
+            f"fallback: {final_maximum_mass}"
         )
+
+    finite_approximate_mass = approximate_mass[torch.isfinite(approximate_mass)]
+    approximate_maximum_mass = (
+        float(finite_approximate_mass.max().item())
+        if finite_approximate_mass.numel()
+        else None
+    )
+    report = {
+        "protocol": "selected_base_probability_full_head_fallback_v1",
+        "candidate_row_count": int(probabilities.shape[0]),
+        "selected_token_count": int(probabilities.shape[1]),
+        "approximate_max_selected_mass": approximate_maximum_mass,
+        "fallback_row_count": int(fallback_indices.numel()),
+        "fallback_row_fraction": float(
+            fallback_indices.numel() / max(1, probabilities.shape[0])
+        ),
+        "fallback_nonfinite_row_count": int((~finite_rows).sum().item()),
+        "fallback_negative_row_count": int((~nonnegative_rows).sum().item()),
+        "fallback_overmass_row_count": int(
+            (approximate_mass > 1.0 + mass_tolerance).sum().item()
+        ),
+        "fallback_row_indices_sha256": hashlib.sha256(
+            fallback_indices.numpy().tobytes()
+        ).hexdigest(),
+        "final_max_selected_mass": final_maximum_mass,
+        "mass_tolerance": mass_tolerance,
+        "full_head_reconstruction_used": bool(fallback_indices.numel()),
+    }
+    if diagnostics is not None:
+        diagnostics.clear()
+        diagnostics.update(report)
     return probabilities
 
 
@@ -2358,6 +2432,7 @@ def main() -> None:
     selected_base_rows = (
         output_layer.weight.index_select(0, selected_tensor).detach().float().clone()
     )
+    utility_probability_reconstruction: Dict[str, Any] = {}
     utility_probabilities = selected_base_probabilities(
         output_layer,
         selected_ids,
@@ -2365,6 +2440,7 @@ def main() -> None:
         base_utility_logsumexp,
         device=device,
         batch_size=args.utility_eval_batch_size,
+        diagnostics=utility_probability_reconstruction,
     )
     selected_mass = utility_probabilities.sum(dim=1)
     (
@@ -2419,6 +2495,7 @@ def main() -> None:
             "maximum_single_selected_probability": float(
                 utility_probabilities.max().item()
             ),
+            "probability_reconstruction": utility_probability_reconstruction,
             "pool_selection": utility_pool_report,
             "benchmark_retain_examples_seen": 0,
         },

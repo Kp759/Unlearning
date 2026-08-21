@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the single canonical two-stage SURE experiment for MCF.
+"""Run a locked canonical two-stage SURE experiment for MCF.
 
 This entry point deliberately fixes the CounterFact answer roles without any
 field swapping:
@@ -7,14 +7,16 @@ field swapping:
     target_true = sensitive/original answer to forget
     target_new  = non-sensitive CounterFact replacement to learn
 
-The training objective is therefore bounded GA on ``target_true``, bounded GD
-on ``target_new``, and an external-Wikipedia KL guard.  Stage 1 is a Rank-4
-sparse LM-head edit.  Stage 2 is a conditional residual repair with the fixed
-Rank 2 -> 4 -> 8 ladder; it runs only when the materialized Stage-1 checkpoint
-does not meet every direct constraint.
+The direct-only treatment uses bounded GA on ``target_true``, bounded GD on
+``target_new``, and an external-Wikipedia KL guard. The paired-context recovery
+treatment adds four locked, answer-cued same-subject views plus syntactically
+matched external-Wikipedia locality views; it never reads an official MCF
+probe before checkpoint freeze. Stage 1 is a Rank-4 sparse LM-head edit. Stage
+2 is a conditional residual repair with the fixed Rank 2 -> 4 -> 8 ladder.
 
 Official MCF paraphrases, neighborhood prompts, retain records, and PPL text
-are opened only after the checkpoint has been selected and saved.
+are opened only after the checkpoint has been selected and saved. A separate
+prompt-only 1,000-record retain file is then used for exact sparse-row KL.
 
 Paper-facing metrics use one explicit, lower-is-better contract:
 
@@ -31,6 +33,7 @@ audits, but are not substituted for Eff/Gen.
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import hashlib
 import json
@@ -50,6 +53,12 @@ SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 METHOD = "SURE-MCF-2Stage-target_true-sensitive"
 PROTOCOL = "sure_mcf_two_stage_target_true_sensitive_v1"
 METRIC_SCHEMA = "mcf_target_true_sensitive_eff_gen_lower_v1"
+DIRECT_TREATMENT = "direct_only"
+PAIRED_RECOVERY_TREATMENT = "paired_context_recovery"
+PAIRED_RECOVERY_METHOD = "SURE-MCF-2Stage-paired-answer-cue-recovery"
+PAIRED_RECOVERY_PROTOCOL = "sure_mcf_two_stage_paired_answer_cue_recovery_v1"
+PAIRED_CONTEXT_PROFILE = "paired_answer_cue_v1"
+PAPER_CONFIRMATORY_SEED_COUNT = 10
 
 TARGET_CONTRACT: Dict[str, Any] = {
     "sensitive_answer": "requested_rewrite.target_true",
@@ -135,6 +144,50 @@ ARCHITECTURE: Dict[str, Any] = {
     },
 }
 
+PAIRED_RECOVERY: Dict[str, Any] = {
+    "utility_documents": 10_000,
+    "context_profile": PAIRED_CONTEXT_PROFILE,
+    "generated_subject_contexts_per_record": 4,
+    "external_locality_contexts_per_record": 128,
+    "external_context_lead_characters": 256,
+    "locality_token_topk_per_row": 64,
+    "locality_uniform_prompt_count": 512,
+    "locality_pool_seed": 1,
+    "stage1_locality_kl_weight": 10.0,
+    "stage2_locality_kl_weight": 1.0,
+    "locality_kl_mean_budget": 0.01,
+    "locality_kl_p95_budget": 0.05,
+    "locality_kl_max_budget": 0.5,
+    "acceptance": {
+        "FS_direct_min": 100.0,
+        "GFS_paraphrase_min": 79.0,
+        "Spe_success_min": 61.8,
+        "Spe_margin_min": 3.69,
+        "PPL_max": 11.2,
+        "partial_GFS_strictly_above": 48.0,
+    },
+}
+
+RUNTIME_SOURCE_FILES = (
+    "scripts/MCF_Scripts/run_mcf_sure_two_stage.py",
+    "scripts/run_mcf_sure_v9_gfs_recovery.sh",
+    "scripts/audit_sure_exact_retain_kl.py",
+    "scripts/build_mcf_sure_target_aware_direct_split.py",
+    "scripts/build_sure_mcf_external_contexts.py",
+    "scripts/build_sure_wikipedia_stats.py",
+    "scripts/gagd_compare.py",
+    "scripts/mcf_zero_unlearn_official_eval.py",
+    "scripts/sure_canonical_core.py",
+    "scripts/sure_context_projection.py",
+    "scripts/sure_contrastive_two_stage_v2.py",
+    "scripts/sure_mcf_direct_fs_repair.py",
+    "scripts/sure_mcf_target_aware_direct_only.py",
+    "scripts/sure_mcf_target_aware_two_stage.py",
+    "scripts/sure_minimal_two_stage.py",
+    "scripts/sure_retain_kl.py",
+    "scripts/sure_shared_suppression.py",
+)
+
 
 @dataclass(frozen=True)
 class Step:
@@ -148,10 +201,15 @@ class SeedPaths:
     protocol_dir: Path
     training_visible: Path
     split_manifest: Path
+    retain_audit: Path
+    external_contexts: Path
     learner_dir: Path
     checkpoint: Path
+    final_delta: Path
+    learner_config: Path
     base_eval: Path
     final_eval: Path
+    exact_retain_kl: Path
     metrics: Path
 
 
@@ -164,10 +222,17 @@ def seed_paths(output_root: Path, seed: int) -> SeedPaths:
         protocol_dir=protocol_dir,
         training_visible=(protocol_dir / "training_visible_target_aware_direct.json"),
         split_manifest=protocol_dir / "split_manifest.json",
+        retain_audit=(protocol_dir / "evaluation_only_retain_prompts.json"),
+        external_contexts=(
+            protocol_dir / "external_subject_locality_contexts.json"
+        ),
         learner_dir=learner_dir,
         checkpoint=learner_dir / "checkpoint",
+        final_delta=learner_dir / "final_total_delta.pt",
+        learner_config=learner_dir / "config_used.json",
         base_eval=root / "base_official_eval.json",
         final_eval=root / "final_official_eval.json",
+        exact_retain_kl=root / "posthoc_exact_retain_kl.json",
         metrics=root / "metrics_eff_gen_spe_ppl.json",
     )
 
@@ -186,6 +251,89 @@ def sha256_file(path: Path) -> str:
         while chunk := handle.read(1 << 20):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def treatment_method_protocol(treatment: str) -> tuple[str, str]:
+    if treatment == DIRECT_TREATMENT:
+        return METHOD, PROTOCOL
+    if treatment == PAIRED_RECOVERY_TREATMENT:
+        return PAIRED_RECOVERY_METHOD, PAIRED_RECOVERY_PROTOCOL
+    raise ValueError(f"unsupported treatment: {treatment}")
+
+
+def target_contract_for_treatment(treatment: str) -> Dict[str, Any]:
+    contract = copy.deepcopy(TARGET_CONTRACT)
+    if treatment == PAIRED_RECOVERY_TREATMENT:
+        contract["stage2_operation"] = (
+            "residual_direct_and_generated_pairwise_constraint_repair"
+        )
+    elif treatment != DIRECT_TREATMENT:
+        raise ValueError(f"unsupported treatment: {treatment}")
+    return contract
+
+
+def architecture_for_treatment(treatment: str) -> Dict[str, Any]:
+    architecture = copy.deepcopy(ARCHITECTURE)
+    architecture["treatment"] = treatment
+    if treatment == PAIRED_RECOVERY_TREATMENT:
+        architecture.update(
+            {
+                "training_prompt_scope": "direct_plus_generated_subject",
+                "external_context_treatment": copy.deepcopy(PAIRED_RECOVERY),
+                "official_probe_access_before_checkpoint": False,
+            }
+        )
+    elif treatment == DIRECT_TREATMENT:
+        architecture["training_prompt_scope"] = "direct_only"
+    else:
+        raise ValueError(f"unsupported treatment: {treatment}")
+    return architecture
+
+
+def _git_output(*arguments: str) -> str:
+    completed = subprocess.run(
+        ["git", *arguments],
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.rstrip()
+
+
+def source_provenance(*, require_clean: bool) -> Dict[str, Any]:
+    """Fingerprint runtime source and reject uncommitted script changes."""
+    repository_root = Path(_git_output("rev-parse", "--show-toplevel")).resolve()
+    commit = _git_output("rev-parse", "HEAD")
+    dirty_output = _git_output(
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--",
+        "scripts",
+    )
+    dirty_entries = [line for line in dirty_output.splitlines() if line.strip()]
+    if require_clean and dirty_entries:
+        formatted = "\n".join(dirty_entries[:20])
+        raise RuntimeError(
+            "canonical SURE execution requires a clean semantic-unlearning/scripts "
+            "source tree; commit or restore these entries first:\n" + formatted
+        )
+
+    source_hashes: Dict[str, str] = {}
+    for relative in RUNTIME_SOURCE_FILES:
+        path = PROJECT_ROOT / relative
+        if not path.is_file():
+            raise FileNotFoundError(f"runtime source file is missing: {path}")
+        source_hashes[relative] = sha256_file(path)
+    return {
+        "git_repository_root": str(repository_root),
+        "git_commit": commit,
+        "runtime_source_scope": "semantic-unlearning/scripts",
+        "runtime_source_clean": not dirty_entries,
+        "runtime_source_status": dirty_entries,
+        "runtime_source_sha256": source_hashes,
+    }
 
 
 def _mean(values: Sequence[float]) -> float | None:
@@ -332,6 +480,83 @@ def _target_text(rewrite: Mapping[str, Any], field: str) -> str:
     return text
 
 
+def exact_retain_kl_summary(
+    payload: Mapping[str, Any] | None,
+    *,
+    expected_retain_num: int,
+) -> Dict[str, Any] | None:
+    if payload is None:
+        return None
+    if payload.get("audit") != "exact_sparse_output_row_retain_kl":
+        raise RuntimeError("retain audit has the wrong protocol")
+    if payload.get("retain_role") != "post_training_official_retain_prompt_only":
+        raise RuntimeError("retain KL was not computed from the evaluation-only file")
+    if int(payload.get("retain_eval_seen_during_training_or_selection", -1)) != 0:
+        raise RuntimeError("retain evaluation influenced training or selection")
+    if int(payload.get("retain_prompt_count", -1)) != expected_retain_num:
+        raise RuntimeError("exact retain-KL prompt count differs from --retain-num")
+    values = payload.get("exact_kl_base_to_edited")
+    if not isinstance(values, Mapping):
+        raise RuntimeError("exact retain-KL summary is missing")
+    required = ("mean", "median", "p95", "p99", "max")
+    summary = {name: float(values[name]) for name in required}
+    if not all(math.isfinite(value) and value >= 0 for value in summary.values()):
+        raise RuntimeError("exact retain-KL summary contains invalid values")
+    summary["counts_above_threshold"] = dict(
+        values.get("counts_above_threshold", {})
+    )
+    summary["selected_row_count"] = int(payload.get("selected_row_count", 0))
+    return summary
+
+
+def recovery_acceptance_report(
+    report: Mapping[str, Any], learner_config: Mapping[str, Any]
+) -> Dict[str, Any]:
+    thresholds = PAIRED_RECOVERY["acceptance"]
+    audits = report["forget_audits"]
+    primary = report["primary_metrics"]
+    final = learner_config.get("final", {})
+    if not isinstance(final, Mapping):
+        raise RuntimeError("paired recovery learner config lacks a final report")
+    observed = {
+        "FS_direct": float(audits["FS_direct_higher_is_better"]),
+        "GFS_paraphrase": float(audits["GFS_paraphrase_higher_is_better"]),
+        "Spe_success": float(audits["Spe_success_higher_is_better"]),
+        "Spe_margin": float(primary["Spe"]["value"]),
+        "PPL": float(primary["PPL"]["value"]),
+        "utility_safe": final.get("utility_safe") is True,
+        "locality_safe": final.get("locality_safe") is True,
+    }
+    guards_pass = observed["utility_safe"] and observed["locality_safe"]
+    locality_pass = (
+        observed["Spe_success"] >= thresholds["Spe_success_min"]
+        and observed["Spe_margin"] >= thresholds["Spe_margin_min"]
+        and observed["PPL"] <= thresholds["PPL_max"]
+        and guards_pass
+    )
+    full = (
+        observed["FS_direct"] >= thresholds["FS_direct_min"]
+        and observed["GFS_paraphrase"] >= thresholds["GFS_paraphrase_min"]
+        and locality_pass
+    )
+    partial = (
+        observed["FS_direct"] >= thresholds["FS_direct_min"]
+        and thresholds["partial_GFS_strictly_above"]
+        < observed["GFS_paraphrase"]
+        < thresholds["GFS_paraphrase_min"]
+        and locality_pass
+    )
+    return {
+        "predeclared_thresholds": copy.deepcopy(thresholds),
+        "observed": observed,
+        "every_declared_utility_locality_guard_passed": guards_pass,
+        "classification": (
+            "full_recovery" if full else "partial_recovery" if partial else "reject"
+        ),
+        "official_metrics_used_for_checkpoint_selection": False,
+    }
+
+
 def validate_data_boundary(
     manifest: Mapping[str, Any],
     training_rows: Sequence[Mapping[str, Any]],
@@ -424,6 +649,12 @@ def build_seed_report(
     forget_num: int,
     retain_num: int,
     paths: SeedPaths | None = None,
+    exact_retain_kl: Mapping[str, Any] | None = None,
+    learner_config: Mapping[str, Any] | None = None,
+    method: str = METHOD,
+    protocol: str = PROTOCOL,
+    treatment: str = DIRECT_TREATMENT,
+    replicate_role: str = "confirmatory",
 ) -> Dict[str, Any]:
     for key in ("seed", "unlearn_num", "retain_num", "sample_mode"):
         if base.get(key) != post.get(key):
@@ -462,8 +693,21 @@ def build_seed_report(
     base_primary = _primary_metrics(base)
     post_primary = _primary_metrics(post)
 
-    retain_direct = pairwise_prompt_metrics(post_retain, "rewrite_prompts_probs")
-    retain_paraphrase = pairwise_prompt_metrics(post_retain, "paraphrase_prompts_probs")
+    base_retain_direct = pairwise_prompt_metrics(
+        base_retain, "rewrite_prompts_probs"
+    )
+    post_retain_direct = pairwise_prompt_metrics(
+        post_retain, "rewrite_prompts_probs"
+    )
+    base_retain_paraphrase = pairwise_prompt_metrics(
+        base_retain, "paraphrase_prompts_probs"
+    )
+    post_retain_paraphrase = pairwise_prompt_metrics(
+        post_retain, "paraphrase_prompts_probs"
+    )
+    retain_kl = exact_retain_kl_summary(
+        exact_retain_kl, expected_retain_num=retain_num
+    )
 
     provenance: Dict[str, Any] = {}
     if paths is not None:
@@ -472,17 +716,28 @@ def build_seed_report(
             "final_eval_json": str(paths.final_eval),
             "split_manifest": str(paths.split_manifest),
             "training_visible": str(paths.training_visible),
+            "evaluation_only_retain_prompts": str(paths.retain_audit),
+            "external_contexts": (
+                str(paths.external_contexts)
+                if paths.external_contexts.is_file()
+                else None
+            ),
             "checkpoint": str(paths.checkpoint),
+            "final_sparse_delta": str(paths.final_delta),
+            "learner_config": str(paths.learner_config),
+            "exact_retain_kl": str(paths.exact_retain_kl),
         }
 
-    return {
+    report = {
         "schema_version": 1,
-        "protocol": PROTOCOL,
+        "protocol": protocol,
         "metric_schema": METRIC_SCHEMA,
-        "method": METHOD,
+        "method": method,
+        "treatment": treatment,
+        "replicate_role": replicate_role,
         "dataset": "MCF",
         "seed": seed,
-        "target_contract": TARGET_CONTRACT,
+        "target_contract": target_contract_for_treatment(treatment),
         "metric_contract": METRIC_CONTRACT,
         "primary_metrics": {
             name: {
@@ -536,12 +791,27 @@ def build_seed_report(
             "Spe_success_higher_is_better": base_specificity["Spe_success"],
         },
         "retain_utility_audits": {
-            "factual_target_true_preference_direct_percent": retain_direct[
+            "factual_target_true_preference_direct_percent": post_retain_direct[
                 "target_true_preference_percent"
             ],
-            "factual_target_true_preference_paraphrase_percent": retain_paraphrase[
+            "factual_target_true_preference_paraphrase_percent": post_retain_paraphrase[
                 "target_true_preference_percent"
             ],
+            "base_factual_target_true_preference_direct_percent": base_retain_direct[
+                "target_true_preference_percent"
+            ],
+            "base_factual_target_true_preference_paraphrase_percent": base_retain_paraphrase[
+                "target_true_preference_percent"
+            ],
+            "delta_post_minus_base_direct_percent": (
+                post_retain_direct["target_true_preference_percent"]
+                - base_retain_direct["target_true_preference_percent"]
+            ),
+            "delta_post_minus_base_paraphrase_percent": (
+                post_retain_paraphrase["target_true_preference_percent"]
+                - base_retain_paraphrase["target_true_preference_percent"]
+            ),
+            "exact_sparse_output_row_KL_base_to_edited": retain_kl,
             "record_count": len(post_retain),
         },
         "counts": {
@@ -559,6 +829,13 @@ def build_seed_report(
         ),
         "provenance": provenance,
     }
+    if treatment == PAIRED_RECOVERY_TREATMENT:
+        if learner_config is None:
+            raise RuntimeError("paired recovery report requires learner config")
+        report["recovery_acceptance"] = recovery_acceptance_report(
+            report, learner_config
+        )
+    return report
 
 
 def _value(report: Mapping[str, Any], section: str, metric: str) -> float:
@@ -575,26 +852,52 @@ def aggregate_reports(
 ) -> Dict[str, Any]:
     if not reports:
         raise ValueError("cannot aggregate an empty report list")
+    methods = {str(report.get("method", METHOD)) for report in reports}
+    protocols = {str(report.get("protocol", PROTOCOL)) for report in reports}
+    if len(methods) != 1 or len(protocols) != 1:
+        raise ValueError("one aggregate cannot mix methods or protocols")
+    method = next(iter(methods))
+    protocol = next(iter(protocols))
+    development_reports = [
+        report for report in reports if report.get("replicate_role") == "development"
+    ]
+    confirmatory_reports = [
+        report
+        for report in reports
+        if report.get("replicate_role", "confirmatory") == "confirmatory"
+    ]
+    analysis_reports = confirmatory_reports or list(reports)
     metrics = ("Eff", "Gen", "Spe", "PPL")
     aggregate: Dict[str, Any] = {
         "schema_version": 1,
-        "protocol": PROTOCOL,
+        "protocol": protocol,
         "metric_schema": METRIC_SCHEMA,
-        "target_contract": TARGET_CONTRACT,
+        "target_contract": reports[0].get("target_contract", TARGET_CONTRACT),
         "metric_contract": METRIC_CONTRACT,
         "seeds": [int(report["seed"]) for report in reports],
-        "paper_ready_seed_count": len(reports) >= 10,
+        "development_seeds": [int(report["seed"]) for report in development_reports],
+        "confirmatory_seeds": [int(report["seed"]) for report in confirmatory_reports],
+        "analysis_scope": (
+            "confirmatory_only" if confirmatory_reports else "pilot_all_seeds"
+        ),
+        "required_confirmatory_seed_count": PAPER_CONFIRMATORY_SEED_COUNT,
+        "paper_ready_seed_count": (
+            len(confirmatory_reports) >= PAPER_CONFIRMATORY_SEED_COUNT
+        ),
         "methods": {},
     }
     table_rows: List[Dict[str, str]] = []
     for label, section in (
         ("Base", "base_primary_metrics"),
-        (METHOD, "primary_metrics"),
+        (method, "primary_metrics"),
     ):
         summaries: Dict[str, Any] = {}
-        row: Dict[str, str] = {"Method": label, "Seeds": str(len(reports))}
+        row: Dict[str, str] = {
+            "Method": label,
+            "Seeds": str(len(analysis_reports)),
+        }
         for metric in metrics:
-            values = [_value(report, section, metric) for report in reports]
+            values = [_value(report, section, metric) for report in analysis_reports]
             mean = statistics.mean(values)
             sd = statistics.stdev(values) if len(values) > 1 else 0.0
             summaries[metric] = {
@@ -607,6 +910,42 @@ def aggregate_reports(
             row[f"{metric}_{arrow}"] = _format_mean_sd(mean, sd, metric)
         aggregate["methods"][label] = summaries
         table_rows.append(row)
+
+    retain_metric_paths = {
+        "base_direct_percent": "base_factual_target_true_preference_direct_percent",
+        "post_direct_percent": "factual_target_true_preference_direct_percent",
+        "delta_direct_percent": "delta_post_minus_base_direct_percent",
+        "base_paraphrase_percent": "base_factual_target_true_preference_paraphrase_percent",
+        "post_paraphrase_percent": "factual_target_true_preference_paraphrase_percent",
+        "delta_paraphrase_percent": "delta_post_minus_base_paraphrase_percent",
+    }
+    aggregate["retain_utility_audits"] = {}
+    for output_name, report_name in retain_metric_paths.items():
+        values = [
+            float(report["retain_utility_audits"][report_name])
+            for report in analysis_reports
+        ]
+        aggregate["retain_utility_audits"][output_name] = {
+            "mean": float(statistics.mean(values)),
+            "sample_sd": float(statistics.stdev(values)) if len(values) > 1 else 0.0,
+            "values": values,
+        }
+    exact_kl_reports = [
+        report["retain_utility_audits"].get(
+            "exact_sparse_output_row_KL_base_to_edited"
+        )
+        for report in analysis_reports
+    ]
+    if all(isinstance(value, Mapping) for value in exact_kl_reports):
+        aggregate["retain_utility_audits"]["exact_sparse_output_row_KL"] = {
+            metric: {
+                "mean": float(
+                    statistics.mean(float(value[metric]) for value in exact_kl_reports)
+                ),
+                "values": [float(value[metric]) for value in exact_kl_reports],
+            }
+            for metric in ("mean", "p95", "max")
+        }
 
     write_json(output_root / "aggregate_metrics.json", aggregate)
     fieldnames = [
@@ -640,6 +979,12 @@ def aggregate_reports(
     markdown.extend(
         [
             "",
+            (
+                "Development seeds are excluded when confirmatory seeds are present. "
+                f"Paper-ready status requires {PAPER_CONFIRMATORY_SEED_COUNT} "
+                "confirmatory seeds."
+            ),
+            "",
             "Do not paste a baseline into this table unless its raw predictions were ",
             "scored with the same target-role and metric contract.",
         ]
@@ -667,9 +1012,10 @@ def learner_command(
     min_utility_prompts: int,
     seed: int,
 ) -> List[str]:
-    stage1 = ARCHITECTURE["stage1"]
-    stage2 = ARCHITECTURE["stage2"]
-    acceptance = ARCHITECTURE["acceptance"]
+    architecture = architecture_for_treatment(args.treatment)
+    stage1 = architecture["stage1"]
+    stage2 = architecture["stage2"]
+    acceptance = architecture["acceptance"]
     command = _python(
         "sure_mcf_target_aware_direct_only.py",
         "--model-path",
@@ -765,6 +1111,66 @@ def learner_command(
         command.extend(
             ["--require-utility-corpus-protocol", args.require_corpus_protocol]
         )
+    if args.treatment == PAIRED_RECOVERY_TREATMENT:
+        command.extend(
+            [
+                "--external-contexts",
+                str(paths.external_contexts),
+                "--locality-token-topk-per-row",
+                str(PAIRED_RECOVERY["locality_token_topk_per_row"]),
+                "--locality-uniform-prompt-count",
+                str(PAIRED_RECOVERY["locality_uniform_prompt_count"]),
+                "--locality-pool-seed",
+                str(PAIRED_RECOVERY["locality_pool_seed"]),
+                "--locality-train-batch-size",
+                "128",
+                "--locality-eval-batch-size",
+                "512",
+                "--stage1-locality-kl-weight",
+                str(PAIRED_RECOVERY["stage1_locality_kl_weight"]),
+                "--stage2-locality-kl-weight",
+                str(PAIRED_RECOVERY["stage2_locality_kl_weight"]),
+                "--locality-kl-mean-budget",
+                str(PAIRED_RECOVERY["locality_kl_mean_budget"]),
+                "--locality-kl-p95-budget",
+                str(PAIRED_RECOVERY["locality_kl_p95_budget"]),
+                "--locality-kl-max-budget",
+                str(PAIRED_RECOVERY["locality_kl_max_budget"]),
+            ]
+        )
+    return command
+
+
+def external_context_command(
+    args: argparse.Namespace,
+    paths: SeedPaths,
+    *,
+    seed: int,
+) -> List[str]:
+    utility_wikipedia_dir = args.utility_wikipedia_dir or args.wikipedia_dir
+    command = _python(
+        "build_sure_mcf_external_contexts.py",
+        "--training-visible-path",
+        paths.training_visible,
+        "--wikipedia-dir",
+        utility_wikipedia_dir,
+        "--output-path",
+        paths.external_contexts,
+        "--corpus-document-limit",
+        args.utility_docs,
+        "--exclude-first",
+        20,
+        "--contexts-per-record",
+        PAIRED_RECOVERY["external_locality_contexts_per_record"],
+        "--lead-chars",
+        PAIRED_RECOVERY["external_context_lead_characters"],
+        "--context-profile",
+        PAIRED_CONTEXT_PROFILE,
+        "--seed",
+        seed,
+    )
+    if args.require_corpus_protocol:
+        command.extend(["--require-corpus-protocol", args.require_corpus_protocol])
     return command
 
 
@@ -796,7 +1202,7 @@ def seed_command_plan(
         args.device_map,
         "--quiet",
     ]
-    return [
+    steps = [
         Step(
             "LOCKED DIRECT-ONLY SPLIT",
             _python(
@@ -813,41 +1219,75 @@ def seed_command_plan(
                 args.retain_num,
             ),
         ),
-        Step(
-            "STAGE 1 + CONDITIONAL STAGE 2",
-            learner_command(
-                args,
-                paths,
-                utility_cache,
-                utility_prompts,
-                min_utility_documents,
-                min_utility_prompts,
-                seed,
-            ),
-        ),
-        Step(
-            "BASE OFFICIAL EVALUATION",
-            _python(
-                "mcf_zero_unlearn_official_eval.py",
-                "--model-dir",
-                args.model_path,
-                "--out",
-                paths.base_eval,
-                *common_eval,
-            ),
-        ),
-        Step(
-            "FROZEN SURE OFFICIAL EVALUATION",
-            _python(
-                "mcf_zero_unlearn_official_eval.py",
-                "--model-dir",
-                paths.checkpoint,
-                "--out",
-                paths.final_eval,
-                *common_eval,
-            ),
-        ),
     ]
+    if args.treatment == PAIRED_RECOVERY_TREATMENT:
+        steps.append(
+            Step(
+                "BUILD LOCKED PAIRED EXTERNAL CONTEXTS",
+                external_context_command(args, paths, seed=seed),
+            )
+        )
+    steps.extend(
+        [
+            Step(
+                "STAGE 1 + CONDITIONAL STAGE 2",
+                learner_command(
+                    args,
+                    paths,
+                    utility_cache,
+                    utility_prompts,
+                    min_utility_documents,
+                    min_utility_prompts,
+                    seed,
+                ),
+            ),
+            Step(
+                "BASE OFFICIAL EVALUATION",
+                _python(
+                    "mcf_zero_unlearn_official_eval.py",
+                    "--model-dir",
+                    args.model_path,
+                    "--out",
+                    paths.base_eval,
+                    *common_eval,
+                ),
+            ),
+            Step(
+                "FROZEN SURE OFFICIAL EVALUATION",
+                _python(
+                    "mcf_zero_unlearn_official_eval.py",
+                    "--model-dir",
+                    paths.checkpoint,
+                    "--out",
+                    paths.final_eval,
+                    *common_eval,
+                ),
+            ),
+            Step(
+                "POST-CHECKPOINT EXACT RETAIN KL AUDIT",
+                _python(
+                    "audit_sure_exact_retain_kl.py",
+                    "--model-path",
+                    args.model_path,
+                    "--retain-prompt-path",
+                    paths.retain_audit,
+                    "--delta-path",
+                    paths.final_delta,
+                    "--scale",
+                    1,
+                    "--output-json",
+                    paths.exact_retain_kl,
+                    "--batch-size",
+                    8,
+                    "--dtype",
+                    args.dtype,
+                    "--device-map",
+                    args.device_map,
+                ),
+            ),
+        ]
+    )
+    return steps
 
 
 def utility_cache_command(
@@ -895,8 +1335,8 @@ def utility_cache_command(
 
 
 def run_step(step: Step, *, dry_run: bool) -> None:
-    print(f"\n===== {step.label} =====")
-    print(shlex.join(step.command))
+    print(f"\n===== {step.label} =====", flush=True)
+    print(shlex.join(step.command), flush=True)
     if not dry_run:
         subprocess.run(step.command, cwd=PROJECT_ROOT, check=True)
 
@@ -934,7 +1374,26 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--output-root",
         default=str(PROJECT_ROOT / "outputs" / "mcf_sure_two_stage"),
     )
+    parser.add_argument(
+        "--treatment",
+        choices=(DIRECT_TREATMENT, PAIRED_RECOVERY_TREATMENT),
+        default=DIRECT_TREATMENT,
+        help=(
+            "Locked training treatment. paired_context_recovery uses the "
+            "predeclared W10K paired-answer-cue context treatment."
+        ),
+    )
     parser.add_argument("--seeds", type=int, nargs="+", default=[1])
+    parser.add_argument(
+        "--development-seeds",
+        type=int,
+        nargs="*",
+        default=None,
+        help=(
+            "Additional seeds excluded from paper aggregates. Seed 1 is always "
+            "development evidence when present."
+        ),
+    )
     parser.add_argument("--forget-num", type=int, default=50)
     parser.add_argument("--retain-num", type=int, default=1000)
     parser.add_argument(
@@ -973,6 +1432,30 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--utility-docs and --utility-prompts must be positive")
     if not args.seeds or len(args.seeds) != len(set(args.seeds)):
         parser.error("--seeds must contain one or more unique integers")
+    if args.development_seeds is None:
+        args.development_seeds = []
+    if len(args.development_seeds) != len(set(args.development_seeds)):
+        parser.error("--development-seeds must be unique")
+    if not set(args.development_seeds).issubset(set(args.seeds)):
+        parser.error("--development-seeds must be a subset of --seeds")
+    development_seed_set = set(args.development_seeds)
+    if 1 in args.seeds:
+        development_seed_set.add(1)
+    args.development_seeds = [
+        seed for seed in args.seeds if seed in development_seed_set
+    ]
+    if args.treatment == PAIRED_RECOVERY_TREATMENT:
+        if args.utility_docs != int(PAIRED_RECOVERY["utility_documents"]):
+            parser.error(
+                "paired_context_recovery is locked to --utility-docs 10000"
+            )
+        if args.allow_capped_utility_cache:
+            parser.error("paired_context_recovery cannot use a capped utility cache")
+        if args.require_corpus_protocol != "sure_external_wikipedia_corpus_v1":
+            parser.error(
+                "paired_context_recovery requires "
+                "--require-corpus-protocol sure_external_wikipedia_corpus_v1"
+            )
     return args
 
 
@@ -994,28 +1477,41 @@ def _validate_paths(args: argparse.Namespace, utility_cache: Path) -> None:
     for helper in (
         "build_sure_wikipedia_stats.py",
         "build_mcf_sure_target_aware_direct_split.py",
+        "build_sure_mcf_external_contexts.py",
         "sure_mcf_target_aware_direct_only.py",
         "mcf_zero_unlearn_official_eval.py",
+        "audit_sure_exact_retain_kl.py",
     ):
         if not (SCRIPTS_DIR / helper).is_file():
             raise FileNotFoundError(f"required SURE component is missing: {helper}")
 
 
 def print_contract(args: argparse.Namespace, utility_cache: Path) -> None:
-    print("=" * 72)
-    print("MCF SURE TWO-STAGE — LOCKED TARGET CONTRACT")
-    print("target_true : SENSITIVE -> bounded GA -> increase NLL")
-    print("target_new  : NON-SENSITIVE REPLACEMENT -> GD -> decrease NLL")
-    print("Eff / Gen   : residual sensitive preference, LOWER is better")
-    print("Spe         : neighborhood preservation, HIGHER is better")
-    print("PPL         : fluency, LOWER/base-stable is better")
-    print("Official paraphrases/neighborhoods/retain/PPL: evaluation-only")
-    print(f"Wikipedia utility cache: {utility_cache}")
-    print("=" * 72)
+    print("=" * 72, flush=True)
+    print("MCF SURE TWO-STAGE — LOCKED TARGET CONTRACT", flush=True)
+    print(f"treatment   : {args.treatment}", flush=True)
+    if args.treatment == PAIRED_RECOVERY_TREATMENT:
+        print(
+            f"context view: {PAIRED_CONTEXT_PROFILE} (W10K locked recovery)",
+            flush=True,
+        )
+    print("target_true : SENSITIVE -> bounded GA -> increase NLL", flush=True)
+    print("target_new  : NON-SENSITIVE REPLACEMENT -> GD -> decrease NLL", flush=True)
+    print("Eff / Gen   : residual sensitive preference, LOWER is better", flush=True)
+    print("Spe         : neighborhood preservation, HIGHER is better", flush=True)
+    print("PPL         : fluency, LOWER/base-stable is better", flush=True)
+    print(
+        "Official paraphrases/neighborhoods/retain/PPL: evaluation-only",
+        flush=True,
+    )
+    print(f"Wikipedia utility cache: {utility_cache}", flush=True)
+    print("=" * 72, flush=True)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
+    method, protocol = treatment_method_protocol(args.treatment)
+    architecture = architecture_for_treatment(args.treatment)
     args.model_path = str(_path(args.model_path))
     args.mcf_path = str(_path(args.mcf_path))
     args.wikipedia_dir = str(_path(args.wikipedia_dir))
@@ -1043,6 +1539,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     print_contract(args, utility_cache)
+    execution_provenance = source_provenance(require_clean=not args.dry_run)
     if not args.dry_run:
         _validate_paths(args, utility_cache)
         if output_root.exists():
@@ -1067,7 +1564,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             dry_run=args.dry_run,
         )
     else:
-        print(f"Reusing utility cache: {utility_cache}")
+        print(f"Reusing utility cache: {utility_cache}", flush=True)
 
     reports: List[Dict[str, Any]] = []
     for seed in args.seeds:
@@ -1089,6 +1586,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         post = json.loads(paths.final_eval.read_text(encoding="utf-8"))
         manifest = json.loads(paths.split_manifest.read_text(encoding="utf-8"))
         training_rows = json.loads(paths.training_visible.read_text(encoding="utf-8"))
+        exact_retain_kl = json.loads(
+            paths.exact_retain_kl.read_text(encoding="utf-8")
+        )
+        learner_config = json.loads(
+            paths.learner_config.read_text(encoding="utf-8")
+        )
         report = build_seed_report(
             base=base,
             post=post,
@@ -1098,29 +1601,72 @@ def main(argv: Sequence[str] | None = None) -> None:
             forget_num=args.forget_num,
             retain_num=args.retain_num,
             paths=paths,
+            exact_retain_kl=exact_retain_kl,
+            learner_config=learner_config,
+            method=method,
+            protocol=protocol,
+            treatment=args.treatment,
+            replicate_role=(
+                "development" if seed in args.development_seeds else "confirmatory"
+            ),
         )
+        report["execution_provenance"] = execution_provenance
+        report["learner_selection"] = {
+            "selection_mode": learner_config.get("selected", {}).get(
+                "selection_mode"
+            ),
+            "utility_cache_metadata": learner_config.get("utility_cache_metadata"),
+            "utility_probability_reconstruction": learner_config.get(
+                "utility_probability_reconstruction"
+            ),
+        }
         write_json(paths.metrics, report)
         reports.append(report)
         primary = report["primary_metrics"]
-        print("\n===== PAPER METRICS (TARGET_TRUE SENSITIVE) =====")
+        print("\n===== PAPER METRICS (TARGET_TRUE SENSITIVE) =====", flush=True)
         for metric in ("Eff", "Gen", "Spe", "PPL"):
             print(
                 f"{metric:<4} {primary[metric]['value']:>10.4f}  "
-                f"{primary[metric]['direction']}"
+                f"{primary[metric]['direction']}",
+                flush=True,
             )
-        print(f"Wrote: {paths.metrics}")
+        print(
+            "Base: "
+            + ", ".join(
+                f"{metric}={report['base_primary_metrics'][metric]['value']:.4f}"
+                for metric in ("Eff", "Gen", "Spe", "PPL")
+            ),
+            flush=True,
+        )
+        print(
+            "Selection mode:",
+            report["learner_selection"]["selection_mode"],
+            flush=True,
+        )
+        if "recovery_acceptance" in report:
+            print(
+                "Recovery classification:",
+                report["recovery_acceptance"]["classification"],
+                flush=True,
+            )
+        print(f"Wrote: {paths.metrics}", flush=True)
 
     if args.dry_run:
-        print("\nDry run complete; no files were written and no models were loaded.")
+        print(
+            "\nDry run complete; no files were written and no models were loaded.",
+            flush=True,
+        )
         return
 
     run_config = {
         "schema_version": 1,
-        "protocol": PROTOCOL,
-        "method": METHOD,
-        "target_contract": TARGET_CONTRACT,
+        "protocol": protocol,
+        "method": method,
+        "treatment": args.treatment,
+        "target_contract": target_contract_for_treatment(args.treatment),
         "metric_contract": METRIC_CONTRACT,
-        "architecture": ARCHITECTURE,
+        "architecture": architecture,
+        "execution_provenance": execution_provenance,
         "inputs": {
             "model_path": args.model_path,
             "mcf_path": args.mcf_path,
@@ -1136,18 +1682,46 @@ def main(argv: Sequence[str] | None = None) -> None:
             "required_corpus_protocol": args.require_corpus_protocol or None,
         },
         "seeds": list(args.seeds),
+        "development_seeds": list(args.development_seeds),
+        "confirmatory_seeds": [
+            seed for seed in args.seeds if seed not in args.development_seeds
+        ],
+        "required_confirmatory_seed_count": PAPER_CONFIRMATORY_SEED_COUNT,
         "forget_num": args.forget_num,
         "retain_num": args.retain_num,
         "dtype": args.dtype,
         "device_map": args.device_map,
     }
+    first_utility_metadata = reports[0].get("learner_selection", {}).get(
+        "utility_cache_metadata"
+    )
+    if isinstance(first_utility_metadata, Mapping):
+        run_config["observed_utility_cache"] = {
+            "actual_document_sample_size": int(
+                first_utility_metadata.get("actual_document_sample_size", 0)
+            ),
+            "actual_utility_prompt_count": int(
+                first_utility_metadata.get("actual_utility_prompt_count", 0)
+            ),
+            "predictor_hidden_state_count": int(
+                first_utility_metadata.get("predictor_hidden_state_count", 0)
+            ),
+            "utility_hidden_sha256": first_utility_metadata.get(
+                "utility_hidden_sha256"
+            ),
+            "base_logsumexp_sha256": first_utility_metadata.get(
+                "base_logsumexp_sha256"
+            ),
+        }
     write_json(output_root / "run_config.json", run_config)
     aggregate = aggregate_reports(reports, output_root)
-    print(f"\nComplete: {output_root}")
-    print(f"Table rows: {output_root / 'table1_rows.md'}")
+    print(f"\nComplete: {output_root}", flush=True)
+    print(f"Table rows: {output_root / 'table1_rows.md'}", flush=True)
     if not aggregate["paper_ready_seed_count"]:
         print(
-            "NOTE: fewer than 10 seeds; treat this as a pilot, not a paper aggregate."
+            "NOTE: fewer than 10 confirmatory seeds; treat this as a pilot, "
+            "not a paper aggregate.",
+            flush=True,
         )
 
 

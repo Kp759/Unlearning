@@ -51,17 +51,28 @@ cd /home/ec2-user/workspace/Unlearning/semantic-unlearning
 
 MODEL=/home/ec2-user/models/Llama-3.2-3B-Instruct
 MCF=data/multi_counterfact.json
+PPL_WIKI=data/wikidata
 REAL_WIKI=data/wikipedia_sure_100020
 
-MCF_SEEDS=1 \
-SURE_V9_WIKIPEDIA_DOCS=10000 \
-SURE_EXTERNAL_CONTEXTS_PER_RECORD=128 \
-bash scripts/run_mcf_sure_v9_gfs_recovery.sh \
-  "$MODEL" "$MCF" "$REAL_WIKI"
+python -u scripts/MCF_Scripts/run_mcf_sure_two_stage.py \
+  --model-path "$MODEL" \
+  --mcf-path "$MCF" \
+  --wikipedia-dir "$PPL_WIKI" \
+  --utility-wikipedia-dir "$REAL_WIKI" \
+  --treatment paired_context_recovery \
+  --utility-docs 10000 \
+  --utility-prompts 100000 \
+  --require-corpus-protocol sure_external_wikipedia_corpus_v1 \
+  --output-root outputs/mcf_sure_paired_recovery_W10K_seed1_dev \
+  --seeds 1 \
+  --development-seeds 1
 ```
 
-The runner refuses to overwrite an existing output root.  It writes to
-`outputs/mcf_sure_v9_gfs_recovery_w10000/seed1` by default.
+The canonical runner refuses to overwrite an existing output root and refuses
+to execute when tracked or untracked files under `semantic-unlearning/scripts`
+are dirty. It records the Git commit and SHA-256 of every runtime source file.
+The 1,000 prompt-only retain records are opened only after checkpoint freeze
+for the exact sparse-row retain-KL audit.
 
 ## Predeclared readout
 
@@ -79,9 +90,24 @@ After the new checkpoint is frozen, classify its seed-1 result as follows:
 - **reject:** GFS <= 48, either Spe diagnostic falls below its W10K floor, or a
   materialized utility/locality/norm guard fails.
 
-If seed 1 passes, freeze the profile and every environment value before running
-untouched seeds 2--6 for the paper-facing estimate.  Report all seeds and do not
-promote seed 1 to an untouched replicate.
+If seed 1 passes, freeze the profile and every argument before running untouched
+seeds 2--11 for the paper-facing estimate. The canonical report requires ten
+confirmatory seeds. Report seed 1 separately as development evidence and do not
+promote it to an untouched replicate.
+
+```bash
+python -u scripts/MCF_Scripts/run_mcf_sure_two_stage.py \
+  --model-path "$MODEL" \
+  --mcf-path "$MCF" \
+  --wikipedia-dir "$PPL_WIKI" \
+  --utility-wikipedia-dir "$REAL_WIKI" \
+  --treatment paired_context_recovery \
+  --utility-docs 10000 \
+  --utility-prompts 100000 \
+  --require-corpus-protocol sure_external_wikipedia_corpus_v1 \
+  --output-root outputs/mcf_sure_paired_recovery_W10K_confirmatory \
+  --seeds 2 3 4 5 6 7 8 9 10 11
+```
 
 ## What the result can establish
 
