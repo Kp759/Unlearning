@@ -1,0 +1,311 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "MCF W10K GFS Recovery Decision",
+    "description": "Technical diagnosis and locked experiment design for recovering held-out GFS while retaining W10K locality.",
+    "generatedAt": "2026-08-21T04:07:43Z",
+    "charts": [
+      {
+        "id": "success_metric_comparison",
+        "title": "FS, GFS, and Spe-success by experiment",
+        "subtitle": "Seed 1; all three measures are success rates on a 0–100 percentage-point scale.",
+        "type": "bar",
+        "intent": "comparison",
+        "question": "Which success metrics improved or regressed when Wikipedia coverage increased from the v8 fixture to W10K?",
+        "rationale": "Grouped bars compare the two discrete experiments across three same-unit metrics without mixing in Spe-margin or PPL.",
+        "comparisonContext": {
+          "baseline": "v8 baseline",
+          "grain": "seed-1 experiment metric",
+          "unit": "percentage points"
+        },
+        "dataset": "success_metrics",
+        "sourceId": "stage1_readout",
+        "valueFormat": "number",
+        "encodings": {
+          "x": {
+            "field": "metric",
+            "type": "nominal",
+            "label": "Metric"
+          },
+          "y": {
+            "field": "value",
+            "type": "quantitative",
+            "label": "Success rate (%)",
+            "format": "number"
+          },
+          "color": {
+            "field": "experiment",
+            "type": "nominal",
+            "label": "Experiment"
+          },
+          "tooltip": [
+            {
+              "field": "delta_vs_baseline",
+              "type": "quantitative",
+              "label": "Change vs baseline (pp)",
+              "format": "number"
+            }
+          ]
+        },
+        "palette": {
+          "kind": "categorical",
+          "name": "blue-gold"
+        },
+        "legend": {
+          "position": "bottom",
+          "sort": "spec",
+          "title": "Experiment"
+        },
+        "labels": {
+          "values": "all"
+        },
+        "layout": "full"
+      }
+    ],
+    "tables": [
+      {
+        "id": "metric_audit",
+        "title": "Seed-1 metric audit",
+        "subtitle": "v8 baseline compared with the supplied W10K Stage-1 checkpoint; changes use W10K minus baseline.",
+        "dataset": "metric_audit",
+        "sourceId": "stage1_readout",
+        "defaultSort": {
+          "field": "metric",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "metric",
+            "label": "Metric",
+            "type": "text"
+          },
+          {
+            "field": "v8_baseline",
+            "label": "v8 baseline",
+            "type": "text"
+          },
+          {
+            "field": "w10k_stage1",
+            "label": "W10K Stage 1",
+            "type": "text"
+          },
+          {
+            "field": "change",
+            "label": "Change",
+            "type": "text",
+            "movement": true
+          },
+          {
+            "field": "interpretation",
+            "label": "Diagnostic interpretation",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "stage1_readout",
+        "label": "MCF W10K Stage-1 diagnostic and v8 baseline",
+        "path": "semantic-unlearning/MCF_SURE_GFS_RECOVERY.md",
+        "query": {
+          "engine": "duckdb",
+          "language": "sql",
+          "description": "Materializes the reviewed success-rate rows transcribed from the seed-1 evaluator readouts.",
+          "executed_at": "2026-08-21T04:07:43Z",
+          "sql": "SELECT * FROM (VALUES ('FS', 'v8 baseline', 100.0, 0.0, 1, 'final'), ('FS', 'W10K Stage 1', 96.0, -4.0, 1, 'stage1'), ('GFS', 'v8 baseline', 79.0, 0.0, 1, 'final'), ('GFS', 'W10K Stage 1', 48.0, -31.0, 1, 'stage1'), ('Spe-success', 'v8 baseline', 34.2, 0.0, 1, 'final'), ('Spe-success', 'W10K Stage 1', 61.8, 27.6, 1, 'stage1')) AS metrics(metric, experiment, value, delta_vs_baseline, seed, checkpoint_stage)",
+          "filters": [
+            "seed = 1",
+            "v8 baseline final checkpoint and W10K Stage-1 checkpoint"
+          ],
+          "metric_definitions": [
+            "FS: direct prompts where NLL(target_true) > NLL(target_new), as a percentage of 50 requests.",
+            "GFS: official paraphrase prompts satisfying the same NLL rule, as a percentage of 100 prompts.",
+            "Spe-success: official neighborhood success-rate diagnostic."
+          ]
+        }
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# MCF W10K GFS Recovery Decision"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "stage1_readout",
+        "body": "## W10K restored locality but narrowed prompt transfer\n\nW10K raised Spe-success from **34.2% to 61.8%** and Spe-margin from **-5.38 to +3.69**, while PPL stayed at **11.0625**. At the same Stage-1 checkpoint, FS was **96%** but GFS fell to **48%**. The next experiment should preserve W10K and target hidden-state coverage with paired prompt views—not increase global edit strength."
+      },
+      {
+        "id": "finding",
+        "type": "markdown",
+        "sourceId": "stage1_readout",
+        "body": "## The 48-point direct-to-paraphrase gap identifies the failure mode\n\nDirect success exceeds paraphrase success by **48 percentage points**, despite a positive mean direct NLL separation of **4.1463**. Read the chart as a tradeoff: larger Wikipedia coverage produced a major locality gain, but the edit transferred less reliably beyond the direct prompt manifold. The implication is to diversify subject-conditioned edit contexts while anchoring the same syntax on unrelated subjects."
+      },
+      {
+        "id": "success_chart",
+        "type": "chart",
+        "chartId": "success_metric_comparison",
+        "layout": "full"
+      },
+      {
+        "id": "audit_intro",
+        "type": "markdown",
+        "body": "## Locality gains are real enough to protect explicitly\n\nThe exact audit table keeps differently scaled metrics separate. Spe-margin and PPL should not share the percentage axis above. Any recovery that raises GFS by relaxing W10K KL or edit-norm controls fails the stated objective, even if forgetting improves."
+      },
+      {
+        "id": "audit_table",
+        "type": "table",
+        "tableId": "metric_audit",
+        "layout": "full"
+      },
+      {
+        "id": "definitions",
+        "type": "markdown",
+        "body": "## Scope and metric definitions\n\n**FS** is direct-prompt success where NLL(target_true) exceeds NLL(target_new), over 50 forget requests. **GFS** applies the same rule to 100 official paraphrase prompts. **Spe-success** is the official neighborhood success rate; **Spe-margin** is its separate margin diagnostic. The comparison is seed 1 only: the v8 final baseline versus a supplied W10K Stage-1 checkpoint."
+      },
+      {
+        "id": "design",
+        "type": "markdown",
+        "body": "## The paired-context ablation changes one factor\n\nKeep the 10k-document utility cache, Rank-4 Stage 1, bounded GA(true)+GD(new), sparse LM-head rows, KL budgets, norm budget, and Stage-2 ladder fixed. Replace the legacy meta-prefix augmentation with four answer-cued views—QA, short answer, cloze, and encyclopedia card—and apply each identical wrapper to unrelated Wikipedia titles under exact KL. Official paraphrases and neighborhoods remain inaccessible until checkpoint freeze."
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "body": "## The diagnosis is descriptive, and seed 1 is now development data\n\nThe supplied result is a Stage-1 audit, not the final Stage-2 checkpoint, and one seed cannot establish a stable treatment effect. Because official GFS and Spe were inspected before choosing this recovery treatment, seed 1 is no longer an untouched replicate. The paired views are a mechanism-targeted hypothesis; success must be measured after a newly frozen checkpoint."
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "body": "## Run the locked treatment, then stop tuning seed 1\n\nRun `scripts/run_mcf_sure_v9_gfs_recovery.sh` from Base. Full recovery requires FS = 100, GFS at least 79, Spe-success at least 61.8, Spe-margin at least 3.69, PPL no greater than 11.2, and every materialized guard passing. If it passes, freeze all environment values and evaluate untouched seeds 2–6."
+      },
+      {
+        "id": "questions",
+        "type": "markdown",
+        "body": "## Further questions\n\n- Does the paired profile raise GFS without activating Stage 2 on many generated views?\n- Do exact retain-KL tails remain stable, not just selected-pool means?\n- Is the seed-1 effect reproduced on untouched seeds 2–6?"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-21T04:07:43Z",
+    "status": "ready",
+    "datasets": {
+      "success_metrics": [
+        {
+          "metric": "FS",
+          "experiment": "v8 baseline",
+          "value": 100.0,
+          "delta_vs_baseline": 0.0,
+          "seed": 1,
+          "checkpoint_stage": "final"
+        },
+        {
+          "metric": "FS",
+          "experiment": "W10K Stage 1",
+          "value": 96.0,
+          "delta_vs_baseline": -4.0,
+          "seed": 1,
+          "checkpoint_stage": "stage1"
+        },
+        {
+          "metric": "GFS",
+          "experiment": "v8 baseline",
+          "value": 79.0,
+          "delta_vs_baseline": 0.0,
+          "seed": 1,
+          "checkpoint_stage": "final"
+        },
+        {
+          "metric": "GFS",
+          "experiment": "W10K Stage 1",
+          "value": 48.0,
+          "delta_vs_baseline": -31.0,
+          "seed": 1,
+          "checkpoint_stage": "stage1"
+        },
+        {
+          "metric": "Spe-success",
+          "experiment": "v8 baseline",
+          "value": 34.2,
+          "delta_vs_baseline": 0.0,
+          "seed": 1,
+          "checkpoint_stage": "final"
+        },
+        {
+          "metric": "Spe-success",
+          "experiment": "W10K Stage 1",
+          "value": 61.8,
+          "delta_vs_baseline": 27.6,
+          "seed": 1,
+          "checkpoint_stage": "stage1"
+        }
+      ],
+      "metric_audit": [
+        {
+          "metric": "FS",
+          "v8_baseline": "100.0%",
+          "w10k_stage1": "96.0%",
+          "change": "-4.0 pp",
+          "interpretation": "Two direct requests remain for residual repair."
+        },
+        {
+          "metric": "GFS",
+          "v8_baseline": "79.0%",
+          "w10k_stage1": "48.0%",
+          "change": "-31.0 pp",
+          "interpretation": "Held-out prompt transfer regressed materially."
+        },
+        {
+          "metric": "Spe-success",
+          "v8_baseline": "34.2%",
+          "w10k_stage1": "61.8%",
+          "change": "+27.6 pp",
+          "interpretation": "Neighborhood locality improved strongly."
+        },
+        {
+          "metric": "Spe-margin",
+          "v8_baseline": "-5.38",
+          "w10k_stage1": "+3.69",
+          "change": "+9.07",
+          "interpretation": "The locality margin changed sign."
+        },
+        {
+          "metric": "PPL",
+          "v8_baseline": "11.0625",
+          "w10k_stage1": "11.0625",
+          "change": "0",
+          "interpretation": "Measured fluency remained unchanged."
+        }
+      ]
+    },
+    "accessIssues": []
+  },
+  "sources": [
+    {
+      "id": "stage1_readout",
+      "label": "MCF W10K Stage-1 diagnostic and v8 baseline",
+      "path": "semantic-unlearning/MCF_SURE_GFS_RECOVERY.md",
+      "query": {
+        "engine": "duckdb",
+        "language": "sql",
+        "description": "Materializes the reviewed success-rate rows transcribed from the seed-1 evaluator readouts.",
+        "executed_at": "2026-08-21T04:07:43Z",
+        "sql": "SELECT * FROM (VALUES ('FS', 'v8 baseline', 100.0, 0.0, 1, 'final'), ('FS', 'W10K Stage 1', 96.0, -4.0, 1, 'stage1'), ('GFS', 'v8 baseline', 79.0, 0.0, 1, 'final'), ('GFS', 'W10K Stage 1', 48.0, -31.0, 1, 'stage1'), ('Spe-success', 'v8 baseline', 34.2, 0.0, 1, 'final'), ('Spe-success', 'W10K Stage 1', 61.8, 27.6, 1, 'stage1')) AS metrics(metric, experiment, value, delta_vs_baseline, seed, checkpoint_stage)",
+        "filters": [
+          "seed = 1",
+          "v8 baseline final checkpoint and W10K Stage-1 checkpoint"
+        ],
+        "metric_definitions": [
+          "FS: direct prompts where NLL(target_true) > NLL(target_new), as a percentage of 50 requests.",
+          "GFS: official paraphrase prompts satisfying the same NLL rule, as a percentage of 100 prompts.",
+          "Spe-success: official neighborhood success-rate diagnostic."
+        ]
+      }
+    }
+  ]
+}

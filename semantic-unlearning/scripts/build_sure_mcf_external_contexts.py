@@ -24,6 +24,10 @@ import build_mcf_sure_target_aware_direct_split as direct_split
 
 
 PROTOCOL = "sure_mcf_external_subject_and_locality_contexts_v1"
+LEGACY_CONTEXT_PROFILE = "legacy_meta_prefix_v1"
+GFS_RECOVERY_CONTEXT_PROFILE = "paired_answer_cue_v1"
+DEFAULT_CONTEXT_PROFILE = LEGACY_CONTEXT_PROFILE
+
 SUBJECT_CONTEXT_TEMPLATES = (
     "Complete this factual statement accurately: {direct_prompt}",
     "From an external knowledge task, finish: {direct_prompt}",
@@ -36,6 +40,48 @@ LOCALITY_CONTEXT_TEMPLATES = (
     "External article excerpt: {lead}\nSeparate factual completion: {direct_prompt}",
     "Reference context about {title}: {lead}\nComplete: {direct_prompt}",
 )
+
+# The recovery profile changes prompt geometry without changing the number of
+# generated views.  Unlike the legacy meta-prefix views, every prompt ends in a
+# distinct answer cue.  Its locality bank is exactly structure-matched after
+# substituting an unrelated Wikipedia title for the forget subject.  This makes
+# the treatment target context transfer while retaining an explicit KL anchor
+# in the same syntactic regions.
+PAIRED_ANSWER_CUE_TEMPLATES = (
+    "Subject: {subject}\nComplete the factual statement:\n{direct_prompt}\nAnswer:",
+    (
+        "Knowledge question about {subject}:\n"
+        "What correctly completes \"{direct_prompt}\"?\nShort answer:"
+    ),
+    "Fill in the blank about {subject}:\n{direct_prompt} ____\nCompletion:",
+    (
+        "Encyclopedia card\nTopic: {subject}\n"
+        "Unfinished fact: {direct_prompt}\nMissing value:"
+    ),
+)
+
+CONTEXT_PROFILES = {
+    LEGACY_CONTEXT_PROFILE: {
+        "subject_templates": SUBJECT_CONTEXT_TEMPLATES,
+        "locality_templates": LOCALITY_CONTEXT_TEMPLATES,
+        "paired_subject_locality_geometry": False,
+    },
+    GFS_RECOVERY_CONTEXT_PROFILE: {
+        "subject_templates": PAIRED_ANSWER_CUE_TEMPLATES,
+        "locality_templates": PAIRED_ANSWER_CUE_TEMPLATES,
+        "paired_subject_locality_geometry": True,
+    },
+}
+
+
+def context_profile(name: str) -> Mapping[str, Any]:
+    try:
+        return CONTEXT_PROFILES[str(name)]
+    except KeyError as error:
+        raise ValueError(
+            f"unknown external-context profile {name!r}; expected one of "
+            f"{sorted(CONTEXT_PROFILES)}"
+        ) from error
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -129,19 +175,31 @@ def load_wikipedia_records(path: Path) -> Tuple[List[Dict[str, str]], Dict[str, 
 
 def build_subject_contexts(
     training_records: Sequence[Mapping[str, Any]],
+    *,
+    profile: str = DEFAULT_CONTEXT_PROFILE,
 ) -> List[Dict[str, Any]]:
+    profile_spec = context_profile(profile)
+    templates = tuple(profile_spec["subject_templates"])
     contexts: List[Dict[str, Any]] = []
     for record_position, record in enumerate(training_records):
         rewrite = record["requested_rewrite"]
-        direct_prompt = str(rewrite["prompt"]).format(str(rewrite["subject"]))
-        for prompt_index, template in enumerate(SUBJECT_CONTEXT_TEMPLATES):
-            prompt = template.format(direct_prompt=direct_prompt)
+        subject = str(rewrite["subject"])
+        direct_prompt = str(rewrite["prompt"]).format(subject)
+        for prompt_index, template in enumerate(templates):
+            prompt = template.format(
+                direct_prompt=direct_prompt,
+                subject=subject,
+                title=subject,
+                lead="",
+            )
             contexts.append(
                 {
                     "case_id": int(record["case_id"]),
                     "source_record_position": int(record_position),
                     "prompt_kind": "generated_subject",
                     "prompt_index": int(prompt_index),
+                    "context_profile": str(profile),
+                    "paired_view_index": int(prompt_index),
                     "prompt_text": prompt,
                     "requested_rewrite": {
                         "prompt": "{}",
@@ -215,9 +273,12 @@ def build_locality_contexts(
     *,
     contexts_per_record: int,
     seed: int,
+    profile: str = DEFAULT_CONTEXT_PROFILE,
 ) -> List[Dict[str, Any]]:
     if not external_records:
         raise ValueError("no eligible external Wikipedia subjects")
+    profile_spec = context_profile(profile)
+    templates = tuple(profile_spec["locality_templates"])
     contexts: List[Dict[str, Any]] = []
     seen_prompts = set()
     count = len(external_records)
@@ -229,7 +290,7 @@ def build_locality_contexts(
         offset = int.from_bytes(offset_digest[:8], "big") % count
         cursor = 0
         for prompt_index in range(contexts_per_record):
-            template_index = prompt_index % len(LOCALITY_CONTEXT_TEMPLATES)
+            template_index = prompt_index % len(templates)
             prompt = ""
             external: Mapping[str, Any] | None = None
             while cursor < count * 2:
@@ -237,8 +298,9 @@ def build_locality_contexts(
                 cursor += 1
                 title = str(candidate["title"])
                 direct_prompt = str(rewrite["prompt"]).format(title)
-                candidate_prompt = LOCALITY_CONTEXT_TEMPLATES[template_index].format(
+                candidate_prompt = templates[template_index].format(
                     direct_prompt=direct_prompt,
+                    subject=title,
                     title=title,
                     lead=str(candidate["lead"]),
                 )
@@ -259,6 +321,8 @@ def build_locality_contexts(
                     "source_record_position": int(record_position),
                     "prompt_index": int(prompt_index),
                     "template_index": int(template_index),
+                    "context_profile": str(profile),
+                    "paired_view_index": int(template_index),
                     "external_document_index": int(external["document_index"]),
                     "external_title": title,
                     "prompt_text": prompt,
@@ -277,6 +341,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--contexts-per-record", type=int, default=128)
     parser.add_argument("--lead-chars", type=int, default=256)
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument(
+        "--context-profile",
+        choices=tuple(CONTEXT_PROFILES),
+        default=DEFAULT_CONTEXT_PROFILE,
+    )
     parser.add_argument("--require-corpus-protocol", default="")
     return parser.parse_args()
 
@@ -326,13 +395,18 @@ def main() -> None:
         seed=int(args.seed),
         lead_chars=int(args.lead_chars),
     )
-    subject_contexts = build_subject_contexts(training_records)
+    subject_contexts = build_subject_contexts(
+        training_records,
+        profile=str(args.context_profile),
+    )
     locality_contexts = build_locality_contexts(
         training_records,
         external,
         contexts_per_record=int(args.contexts_per_record),
         seed=int(args.seed),
+        profile=str(args.context_profile),
     )
+    selected_profile = context_profile(str(args.context_profile))
     payload = {
         "schema_version": 1,
         "protocol": PROTOCOL,
@@ -345,8 +419,16 @@ def main() -> None:
             "contexts_per_record": int(args.contexts_per_record),
             "lead_chars": int(args.lead_chars),
             "eligible_external_subject_count": len(external),
-            "subject_context_templates": list(SUBJECT_CONTEXT_TEMPLATES),
-            "locality_context_templates": list(LOCALITY_CONTEXT_TEMPLATES),
+            "context_profile": str(args.context_profile),
+            "paired_subject_locality_geometry": bool(
+                selected_profile["paired_subject_locality_geometry"]
+            ),
+            "subject_context_templates": list(
+                selected_profile["subject_templates"]
+            ),
+            "locality_context_templates": list(
+                selected_profile["locality_templates"]
+            ),
         },
         "generated_subject_contexts": subject_contexts,
         "external_locality_contexts": locality_contexts,

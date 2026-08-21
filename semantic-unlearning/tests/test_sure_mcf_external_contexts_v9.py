@@ -110,6 +110,51 @@ class ExternalContextsV9Tests(unittest.TestCase):
             all("External Entity" in row["external_title"] for row in locality)
         )
 
+    def test_gfs_recovery_profile_pairs_answer_cued_subject_and_locality_views(self):
+        wikipedia = [
+            {"title": f"External Entity {index}", "text": f"Lead text {index}."}
+            for index in range(40)
+        ]
+        external = contexts.eligible_external_records(
+            wikipedia,
+            self.training,
+            document_limit=40,
+            exclude_first=0,
+            seed=1,
+            lead_chars=64,
+        )
+        profile = contexts.GFS_RECOVERY_CONTEXT_PROFILE
+        generated = contexts.build_subject_contexts(self.training, profile=profile)
+        locality = contexts.build_locality_contexts(
+            self.training,
+            external,
+            contexts_per_record=len(contexts.PAIRED_ANSWER_CUE_TEMPLATES),
+            seed=1,
+            profile=profile,
+        )
+        first_generated = [
+            row for row in generated if row["source_record_position"] == 0
+        ]
+        first_locality = [
+            row for row in locality if row["source_record_position"] == 0
+        ]
+        self.assertEqual(len(first_generated), 4)
+        self.assertEqual(len(first_locality), 4)
+        self.assertEqual(
+            {row["prompt_text"].rsplit("\n", 1)[-1] for row in first_generated},
+            {"Answer:", "Short answer:", "Completion:", "Missing value:"},
+        )
+        for generated_row, locality_row in zip(first_generated, first_locality):
+            generated_shape = generated_row["prompt_text"].replace(
+                "Forget Person", "<SUBJECT>"
+            )
+            locality_shape = locality_row["prompt_text"].replace(
+                locality_row["external_title"], "<SUBJECT>"
+            )
+            self.assertEqual(generated_shape, locality_shape)
+            self.assertEqual(generated_row["context_profile"], profile)
+            self.assertEqual(locality_row["context_profile"], profile)
+
     def test_bundle_loader_binds_stripped_view_and_zero_probe_boundary(self):
         generated = contexts.build_subject_contexts(self.training)
         external = [
@@ -152,6 +197,54 @@ class ExternalContextsV9Tests(unittest.TestCase):
             payload["data_boundary"]["official_neighborhoods_read"] = 1
             bundle.write_text(json.dumps(payload), encoding="utf-8")
             with self.assertRaisesRegex(RuntimeError, "data boundary"):
+                v8.load_external_context_bundle(
+                    bundle,
+                    training_path=training_path,
+                    training_records=self.training,
+                )
+
+    def test_bundle_loader_rejects_tampered_paired_view(self):
+        profile = contexts.GFS_RECOVERY_CONTEXT_PROFILE
+        generated = contexts.build_subject_contexts(self.training, profile=profile)
+        external = [
+            {"document_index": index, "title": f"Entity {index}", "lead": "Lead"}
+            for index in range(20)
+        ]
+        locality = contexts.build_locality_contexts(
+            self.training,
+            external,
+            contexts_per_record=4,
+            seed=1,
+            profile=profile,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            training_path = root / "training.json"
+            training_path.write_text(json.dumps(self.training), encoding="utf-8")
+            payload = {
+                "schema_version": 1,
+                "protocol": contexts.PROTOCOL,
+                "training_visible_sha256": v8.joint.sha256_bytes(
+                    training_path.read_bytes()
+                ),
+                "builder": {
+                    "context_profile": profile,
+                    "paired_subject_locality_geometry": True,
+                },
+                "generated_subject_contexts": generated,
+                "external_locality_contexts": locality,
+                "data_boundary": {
+                    "source_counterfact_path_accepted": False,
+                    "official_paraphrases_read": 0,
+                    "official_neighborhoods_read": 0,
+                    "benchmark_retain_examples_read": 0,
+                    "generation_probes_read": 0,
+                },
+            }
+            payload["external_locality_contexts"][0]["prompt_text"] += " tampered"
+            bundle = root / "bundle.json"
+            bundle.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "locked profile"):
                 v8.load_external_context_bundle(
                     bundle,
                     training_path=training_path,
@@ -253,6 +346,9 @@ class ExternalContextsV9Tests(unittest.TestCase):
         augmented = (SCRIPTS / "run_mcf_sure_v9_aug.sh").read_text()
         self.assertIn("SURE_V9_WIKIPEDIA_DOCS:-10000", augmented)
         self.assertIn("SURE_ENABLE_EXTERNAL_CONTEXTS=1", augmented)
+        recovery = (SCRIPTS / "run_mcf_sure_v9_gfs_recovery.sh").read_text()
+        self.assertIn('SURE_EXTERNAL_CONTEXT_PROFILE="paired_answer_cue_v1"', recovery)
+        self.assertIn("mcf_sure_v9_gfs_recovery_w${DOCS}", recovery)
 
     def test_ladder_comparison_reads_v8_and_exact_retain_metrics(self):
         with tempfile.TemporaryDirectory() as temporary:

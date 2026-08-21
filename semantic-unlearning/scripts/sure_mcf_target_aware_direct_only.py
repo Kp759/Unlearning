@@ -31,8 +31,12 @@ METHOD = "SURE-LM-MCF-target-aware-direct-true-GA-new-GD-v8"
 METHOD_AUGMENTED = (
     "SURE-LM-MCF-target-aware-generated-subject-GAGD-external-locality-v9"
 )
+METHOD_GFS_RECOVERY = (
+    "SURE-LM-MCF-target-aware-paired-answer-cue-GAGD-external-locality-v9"
+)
 PROTOCOL = direct_split.PROTOCOL
 AUGMENTED_PROTOCOL = "sure_mcf_target_aware_external_contexts_v9"
+GFS_RECOVERY_PROTOCOL = "sure_mcf_target_aware_paired_contexts_v9"
 
 
 def parse_args() -> argparse.Namespace:
@@ -222,6 +226,22 @@ def load_external_context_bundle(
         if boundary.get(key) != expected:
             raise RuntimeError(f"invalid external-context data boundary for {key}")
 
+    builder = payload.get("builder", {})
+    if not isinstance(builder, Mapping):
+        raise RuntimeError("external-context builder metadata must be an object")
+    profile_name = str(
+        builder.get("context_profile", external_contexts.DEFAULT_CONTEXT_PROFILE)
+    )
+    try:
+        profile_spec = external_contexts.context_profile(profile_name)
+    except ValueError as error:
+        raise RuntimeError("external-context profile is not supported") from error
+    declared_pairing = builder.get("paired_subject_locality_geometry")
+    if declared_pairing is not None and bool(declared_pairing) != bool(
+        profile_spec["paired_subject_locality_geometry"]
+    ):
+        raise RuntimeError("external-context paired-geometry declaration mismatch")
+
     generated = payload.get("generated_subject_contexts")
     locality = payload.get("external_locality_contexts")
     if not isinstance(generated, list) or not generated:
@@ -230,6 +250,13 @@ def load_external_context_bundle(
         raise RuntimeError("v9 requires external locality contexts")
     direct_by_position = {
         position: record for position, record in enumerate(training_records)
+    }
+    expected_generated = {
+        (int(context["source_record_position"]), int(context["prompt_index"])): context
+        for context in external_contexts.build_subject_contexts(
+            training_records,
+            profile=profile_name,
+        )
     }
     seen_generated = set()
     normalized_generated: List[Dict[str, Any]] = []
@@ -242,9 +269,18 @@ def load_external_context_bundle(
             raise RuntimeError("generated context case identity mismatch")
         if context.get("prompt_kind") != "generated_subject":
             raise RuntimeError("generated context has the wrong prompt kind")
+        prompt_index = int(context.get("prompt_index", -1))
+        expected_context = expected_generated.get((position, prompt_index))
+        if expected_context is None:
+            raise RuntimeError("generated context has an unexpected view index")
         prompt = str(context.get("prompt_text", "")).strip()
         if not prompt or prompt in seen_generated:
             raise RuntimeError("generated contexts must be non-empty and unique")
+        if prompt != str(expected_context["prompt_text"]):
+            raise RuntimeError("generated context differs from its locked profile")
+        declared_profile = context.get("context_profile")
+        if declared_profile is not None and str(declared_profile) != profile_name:
+            raise RuntimeError("generated context profile mismatch")
         seen_generated.add(prompt)
         rewrite = context.get("requested_rewrite", {})
         source_rewrite = source["requested_rewrite"]
@@ -256,6 +292,8 @@ def load_external_context_bundle(
         ):
             raise RuntimeError("generated context changed a target answer")
         normalized_generated.append(dict(context))
+    if len(normalized_generated) != len(expected_generated):
+        raise RuntimeError("generated context bundle is incomplete")
 
     seen_locality = set()
     normalized_locality: List[Dict[str, Any]] = []
@@ -273,6 +311,28 @@ def load_external_context_bundle(
             context.get("external_title", "")
         ):
             raise RuntimeError("locality context reused a forget subject")
+        declared_profile = context.get("context_profile")
+        if declared_profile is not None and str(declared_profile) != profile_name:
+            raise RuntimeError("locality context profile mismatch")
+        template_index = int(context.get("template_index", -1))
+        locality_templates = tuple(profile_spec["locality_templates"])
+        if template_index < 0 or template_index >= len(locality_templates):
+            raise RuntimeError("locality context has an unexpected view index")
+        if bool(profile_spec["paired_subject_locality_geometry"]):
+            external_title = str(context.get("external_title", ""))
+            external_direct = str(source["requested_rewrite"]["prompt"]).format(
+                external_title
+            )
+            expected_prompt = locality_templates[template_index].format(
+                direct_prompt=external_direct,
+                subject=external_title,
+                title=external_title,
+                lead="",
+            )
+            if prompt != expected_prompt:
+                raise RuntimeError(
+                    "paired locality context differs from its locked profile"
+                )
         seen_locality.add(prompt)
         normalized_locality.append(dict(context))
     return normalized_generated, normalized_locality, payload
@@ -418,6 +478,14 @@ def main() -> None:
             training_path=training_path,
             training_records=training_records,
         )
+        context_profile_name = str(
+            external_context_metadata.get("builder", {}).get(
+                "context_profile", external_contexts.DEFAULT_CONTEXT_PROFILE
+            )
+        )
+        if context_profile_name == external_contexts.GFS_RECOVERY_CONTEXT_PROFILE:
+            method = METHOD_GFS_RECOVERY
+            experiment_protocol = GFS_RECOVERY_PROTOCOL
         prompt_records = [*prompt_records, *generated_contexts]
 
     namespace = argparse.Namespace(
@@ -1024,6 +1092,22 @@ def main() -> None:
         "target_new_used_for_bounded_GD": True,
         "generated_subject_contexts_used_for_bounded_GA_GD": augmented,
         "generated_subject_context_count": len(generated_contexts),
+        "external_context_profile": (
+            None
+            if not augmented or external_context_metadata is None
+            else external_context_metadata.get("builder", {}).get(
+                "context_profile", external_contexts.DEFAULT_CONTEXT_PROFILE
+            )
+        ),
+        "paired_subject_locality_geometry": (
+            False
+            if not augmented or external_context_metadata is None
+            else bool(
+                external_context_metadata.get("builder", {}).get(
+                    "paired_subject_locality_geometry", False
+                )
+            )
+        ),
         "external_wikipedia_locality_contexts_used": augmented,
         "external_wikipedia_locality_context_count": len(locality_context_records),
         "official_paraphrases_used_for_training": False,

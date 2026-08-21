@@ -6,8 +6,9 @@ This protocol follows the v8 seed-1 result at commit `731df21`:
 |---|---:|---:|---|
 | v8 baseline | 180 (200-row fixture minus 20 PPL rows) | 0 | observed FS 100 / GFS 79 / Spe-success 34.2 |
 | v8-W1K | 1,000 | 0 | isolate the first real-corpus locality gain |
-| v8-W10K | 10,000 | 0 | measure utility/locality scaling |
+| v8-W10K | 10,000 | 0 | Stage 1 observed FS 96 / GFS 48 / Spe-success 61.8 |
 | v9-Aug | 10,000 | 4 GA/GD templates per forget record plus external locality contexts | improve held-out GFS without sacrificing recovered Spe |
+| v9-GFS-Paired | 10,000 | 4 answer-cued GA/GD views plus structure-matched locality views | recover the direct-to-paraphrase transfer gap while holding W10K fixed |
 | final | 50,000–100,000 | augmentation locked before final seeds | paper-facing result |
 
 `Spe-success` and `Spe-margin` are different quantities and must remain separate
@@ -116,6 +117,18 @@ Defaults are intentionally explicit in the learner artifacts:
 
 If this configuration is infeasible, report it as infeasible.  Do not relax a
 guard after inspecting official GFS or Spe and call the result locked.
+
+The W10K Stage-1 diagnostic subsequently showed FS 96, GFS 48, Spe-success
+61.8, Spe-margin 3.69, and unchanged PPL 11.0625.  The locked recovery ablation
+and its predeclared acceptance rules are in
+[`MCF_SURE_GFS_RECOVERY.md`](MCF_SURE_GFS_RECOVERY.md).  Run it with:
+
+```bash
+MCF_SEEDS=1 \
+SURE_V9_WIKIPEDIA_DOCS=10000 \
+bash scripts/run_mcf_sure_v9_gfs_recovery.sh \
+  "$MODEL" "$MCF" "$REAL_WIKI"
+```
 
 ## Compare the ladder
 
