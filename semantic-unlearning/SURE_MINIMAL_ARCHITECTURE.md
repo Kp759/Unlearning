@@ -206,6 +206,13 @@ The newer MCF-only joint target-aware ablation is documented in
 FS=100 and GFS=100 are both materialized-checkpoint gates. That extra benchmark
 supervision makes it unsuitable for presentation as the neutral SURE result.
 
+The v8 target-aware direct-only experiment is documented in
+`SURE_MCF_TARGET_AWARE_DIRECT_ONLY_V8_ARCHITECTURE.md`. It still exposes the
+MCF replacement answer, so it is not benchmark-neutral, but the learner sees
+only direct prompts. It hard-gates materialized FS=100 while GFS is a genuinely
+held-out post-training audit. V7 remains the explicitly in-sample FS/GFS
+upper-bound ablation.
+
 ## Dataset adapter contract
 
 A new dataset reuses the learner by generating the same canonical files as

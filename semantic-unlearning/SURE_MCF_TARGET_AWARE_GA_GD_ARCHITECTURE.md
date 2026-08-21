@@ -1,6 +1,6 @@
 # SURE MCF target-aware true-GA/new-GD mode
 
-This mode is an explicitly benchmark-aware MCF ablation designed to enforce
+This v7 mode is an explicitly benchmark-aware MCF ablation designed to enforce
 both paper-facing forgetting metrics:
 
 ```text
@@ -12,6 +12,12 @@ It is not the benchmark-neutral, dataset-reusable SURE result. It reads the
 sampled MCF records' original `target_new` values and official paraphrases
 during training and checkpoint selection. Any comparison must disclose that
 additional supervision.
+
+For the primary target-aware experiment where official paraphrases remain
+held out, use the v8 direct-only protocol documented in
+`SURE_MCF_TARGET_AWARE_DIRECT_ONLY_V8_ARCHITECTURE.md`. V7 should be described
+as an in-sample FS/GFS upper-bound or diagnostic, not unseen paraphrase
+generalization.
 
 ## Architecture
 

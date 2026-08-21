@@ -266,16 +266,30 @@ def prompt_kind_masks(
     }
 
 
-def balanced_direct_paraphrase_mean(
+def balanced_available_prompt_mean(
     values: torch.Tensor, masks: Mapping[str, torch.Tensor]
 ) -> torch.Tensor:
+    """Macro-average the prompt kinds that are present in this data view.
+
+    V7 supplies both direct and paraphrase instances.  The direct-only v8
+    protocol deliberately supplies no paraphrases, so an absent kind is not an
+    error and must not silently contribute a zero-valued objective.
+    """
     means: List[torch.Tensor] = []
     for kind in ("direct", "paraphrase"):
         mask = masks[kind].to(device=values.device)
-        if not bool(mask.any()):
-            raise ValueError(f"no {kind} prompt instances")
-        means.append(values[mask].mean())
+        if bool(mask.any()):
+            means.append(values[mask].mean())
+    if not means:
+        raise ValueError("no direct or paraphrase prompt instances")
     return torch.stack(means).mean()
+
+
+def balanced_direct_paraphrase_mean(
+    values: torch.Tensor, masks: Mapping[str, torch.Tensor]
+) -> torch.Tensor:
+    """Backward-compatible name for the available-kind macro average."""
+    return balanced_available_prompt_mean(values, masks)
 
 
 def grouped_pairwise_report(
@@ -311,16 +325,21 @@ def grouped_pairwise_report(
         subset = [row for row in rows if row["prompt_kind"] == kind]
         failures = sum(not row["success"] for row in subset)
         margin_failures = sum(not row["margin_safe"] for row in subset)
-        report[metric] = 100.0 * (len(subset) - failures) / len(subset)
         report[f"{kind}_prompt_count"] = len(subset)
         report[f"{kind}_failures"] = failures
         report[f"{kind}_margin_failures"] = margin_failures
-        report[f"minimum_{kind}_separation"] = min(
-            float(row["separation"]) for row in subset
-        )
-        report[f"mean_{kind}_separation"] = sum(
-            float(row["separation"]) for row in subset
-        ) / len(subset)
+        if subset:
+            report[metric] = 100.0 * (len(subset) - failures) / len(subset)
+            report[f"minimum_{kind}_separation"] = min(
+                float(row["separation"]) for row in subset
+            )
+            report[f"mean_{kind}_separation"] = sum(
+                float(row["separation"]) for row in subset
+            ) / len(subset)
+        else:
+            report[metric] = None
+            report[f"minimum_{kind}_separation"] = None
+            report[f"mean_{kind}_separation"] = None
     report["required_pairwise_margin"] = float(required_margin)
     report["pairwise_margin_failure_positions"] = margin_failure_positions
     report["minimum_overall_separation"] = float(values.min().item())
