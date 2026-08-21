@@ -19,6 +19,11 @@ The LoRA implementation in `scripts/rwku_representation.py` remains a
 **separate representation-unlearning method**. It is not merged into Setting
 5e or sparse LM-head repair.
 
+The single Stephen King SURE head-only feasibility experiment is documented in
+[`RWKU_SURE_HEAD_ONLY_W1K.md`](RWKU_SURE_HEAD_ONLY_W1K.md). It reuses the
+target-only staged firewall, but it is a separate development method and does
+not change the Setting 5e defaults below.
+
 ## Preserved Setting 5e implementation
 
 The staged tracks call the existing implementation in

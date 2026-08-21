@@ -28,6 +28,7 @@ import hashlib
 import json
 import math
 import random
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
@@ -205,6 +206,49 @@ def load_wikipedia_train(path: Path) -> Tuple[Sequence[str], Dict[str, Any]]:
         metadata["corpus_receipt"] = None
         metadata["corpus_receipt_sha256"] = None
     return texts, metadata
+
+
+def normalize_casefold_substrings(values: Sequence[str]) -> Tuple[str, ...]:
+    """Normalize repeatable target-exclusion strings deterministically."""
+
+    normalized: List[str] = []
+    for value in values:
+        term = re.sub(r"\s+", " ", str(value)).strip().casefold()
+        if not term:
+            raise ValueError("Wikipedia exclusion substrings must be non-empty")
+        if term not in normalized:
+            normalized.append(term)
+    return tuple(normalized)
+
+
+def eligible_document_indices(
+    texts: Sequence[str],
+    *,
+    exclude_first: int,
+    excluded_casefold_substrings: Sequence[str],
+) -> Tuple[List[int], List[int]]:
+    """Return non-empty eligible rows and rows rejected by target text.
+
+    The matching rule intentionally normalizes whitespace before case-folded
+    substring matching.  This prevents a target name split across line breaks
+    from entering an otherwise target-independent utility cache.
+    """
+
+    if exclude_first < 0:
+        raise ValueError("exclude_first must be non-negative")
+    terms = normalize_casefold_substrings(excluded_casefold_substrings)
+    eligible: List[int] = []
+    target_rejected: List[int] = []
+    for index in range(exclude_first, len(texts)):
+        value = texts[index]
+        if not isinstance(value, str) or not value.strip():
+            continue
+        normalized_text = re.sub(r"\s+", " ", value).casefold()
+        if any(term in normalized_text for term in terms):
+            target_rejected.append(index)
+        else:
+            eligible.append(index)
+    return eligible, target_rejected
 
 
 def predictor_mask(attention_mask: torch.Tensor) -> torch.Tensor:
@@ -514,6 +558,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--utility-seed", type=int, default=1)
     parser.add_argument("--exclude-first", type=int, default=20)
+    parser.add_argument(
+        "--exclude-casefold-substring",
+        action="append",
+        default=[],
+        help=(
+            "Repeatable case-insensitive substring excluded from every utility "
+            "document; intended for target/entity names known before training"
+        ),
+    )
     parser.add_argument("--utility-max-length", type=int, default=4096)
     parser.add_argument("--utility-batch-size", type=int, default=1)
     parser.add_argument(
@@ -585,11 +638,14 @@ def main() -> None:
                 "Wikipedia corpus lacks the required prepared-corpus protocol: "
                 f"{args.require_corpus_protocol}"
             )
-    eligible = [
-        index
-        for index in range(args.exclude_first, len(texts))
-        if isinstance(texts[index], str) and texts[index].strip()
-    ]
+    exclusion_terms = normalize_casefold_substrings(
+        args.exclude_casefold_substring
+    )
+    eligible, target_rejected = eligible_document_indices(
+        texts,
+        exclude_first=args.exclude_first,
+        excluded_casefold_substrings=exclusion_terms,
+    )
     if not eligible:
         raise ValueError("No eligible non-empty Wikipedia documents remain")
     order = list(eligible)
@@ -649,6 +705,11 @@ def main() -> None:
         "excluded_prefix_reason": (
             "repository PPL evaluator consumes the first 20 Wikipedia texts"
         ),
+        "excluded_casefold_substrings": list(exclusion_terms),
+        "target_substring_excluded_document_count": len(target_rejected),
+        "target_substring_excluded_document_indices_sha256": hashlib.sha256(
+            json.dumps(target_rejected, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
         "utility_max_length": int(args.utility_max_length),
         "utility_batch_size": int(args.utility_batch_size),
         "requested_utility_prompt_count": int(args.utility_prompt_count),

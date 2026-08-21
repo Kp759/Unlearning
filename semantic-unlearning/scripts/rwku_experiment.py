@@ -137,6 +137,17 @@ TRAINING_SOURCE_PROBE = "probe_assisted_entity_fact"
 TRAINING_SOURCE_TARGET_ONLY = "target_only_generated_entity_corpus"
 
 
+def staged_candidate_method(receipt: Mapping[str, Any]) -> str:
+    """Use the frozen method label when a staged adapter supplies one."""
+
+    configuration = receipt.get("method_configuration", {})
+    if isinstance(configuration, Mapping):
+        method = str(configuration.get("method", "")).strip()
+        if method:
+            return method
+    return METHOD_REPAIRED
+
+
 def parse_candidate_scales(value: str) -> Tuple[float, ...]:
     scales = tuple(
         float(item.strip()) for item in value.split(",") if item.strip()
@@ -2430,7 +2441,7 @@ def _evaluate_staged(args: argparse.Namespace) -> None:
         str(checkpoint_path), dtype=dtype, for_training=False, gradient_checkpointing=False
     )
     candidate_result = evaluate_method(
-        method=METHOD_REPAIRED,
+        method=staged_candidate_method(receipt),
         model=candidate,
         tokenizer=candidate_tokenizer,
         target_subject=target.subject,

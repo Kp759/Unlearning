@@ -1,0 +1,93 @@
+{
+  "schema_version": "rwku_sure_head_only_w1k_configuration_v1",
+  "configuration_id": "rwku-h-w1k-stephen-king-atomic-seed0-v1",
+  "method": "SURE-RWKU-H-W1K (Stephen King atomic, head-only)",
+  "development_only": true,
+  "seed": 0,
+  "target_entity": "Stephen King",
+  "target_entity_id": "rwku:1_Stephen_King",
+  "required_generation_configuration_id": "llama32_3b_target_corpus_v3_atomic_facts",
+  "minimum_atomic_fact_count": 8,
+  "allowed_training_view_styles": [
+    "direct question",
+    "cloze",
+    "deterministic paraphrase",
+    "forced-prefix"
+  ],
+  "neutral_target": "Unknown",
+  "editable_parameters": "content_sensitive_answer_plus_neutral_lm_head_rows_only",
+  "sensitive_row_filter": {
+    "exclude_punctuation_only": true,
+    "excluded_casefold_tokens": [
+      "a",
+      "an",
+      "and",
+      "at",
+      "by",
+      "for",
+      "in",
+      "is",
+      "of",
+      "on",
+      "the",
+      "to"
+    ],
+    "require_content_row_per_atomic_answer": true
+  },
+  "utility": {
+    "document_count": 1000,
+    "requested_prompt_count": 100000,
+    "minimum_prompt_count": 90000,
+    "corpus_protocol": "sure_external_wikipedia_corpus_v1",
+    "exclude_first_documents": 20,
+    "required_casefold_exclusion": "stephen king",
+    "token_topk_per_row": 128,
+    "uniform_prompt_count": 1024,
+    "pool_seed": 1,
+    "train_batch_size": 128,
+    "eval_batch_size": 512,
+    "cache_batch_size": 8,
+    "kl_weight": 1.0,
+    "kl_mean_budget": 0.01,
+    "kl_p95_budget": 0.05,
+    "kl_max_budget": 0.5
+  },
+  "stage1": {
+    "rank": 4,
+    "steps": 600,
+    "learning_rate": 0.005,
+    "pairwise_target": 1.0,
+    "sensitive_nll_increase": 2.0,
+    "neutral_nll_decrease": 1.0,
+    "pairwise_weight": 100.0,
+    "sensitive_ga_weight": 10.0,
+    "neutral_gd_weight": 10.0,
+    "l2_weight": 0.0001,
+    "candidate_scales": "1,.875,.75,.625,.5,.375,.25,.125,0"
+  },
+  "stage2": {
+    "rank_ladder": "2,4,8",
+    "solver_margins": "0.5,1.0,2.0",
+    "max_iterations": 500,
+    "ftol": 1e-09,
+    "constraint_tolerance": 1e-05,
+    "residual_l2_weight": 0.0001,
+    "constraint_context_weight": 0.05,
+    "contrastive_epsilon": 0.001
+  },
+  "acceptance": {
+    "required_pairwise_margin": 0.01,
+    "required_direct_success": 100.0,
+    "required_other_atomic_view_success": 100.0,
+    "max_total_delta_norm": 1.5,
+    "checkpoint_dtype": "bf16",
+    "device_map": "single"
+  },
+  "data_boundary": {
+    "official_rwku_records_available_to_learner": false,
+    "official_rwku_records_used_for_checkpoint_selection": false,
+    "neighbor_prompts_used_for_training_or_selection": false,
+    "external_wikipedia_only_utility": true,
+    "official_evaluation_allowed_only_after_checkpoint_receipt": true
+  }
+}
