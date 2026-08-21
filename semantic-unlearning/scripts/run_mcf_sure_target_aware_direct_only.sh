@@ -5,14 +5,26 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL="${1:?Usage: bash scripts/run_mcf_sure_target_aware_direct_only.sh MODEL [MCF_JSON]}"
 MCF="${2:-data/multi_counterfact.json}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-data/wikidata}"
+UTILITY_WIKIPEDIA_DIR="${SURE_UTILITY_WIKIPEDIA_DIR:-${WIKIDATA_DIR}}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/mcf_sure_target_aware_direct_only_v8}"
 SEEDS_TEXT="${MCF_SEEDS:-1}"
 FORGET_NUM="${MCF_FORGET_NUM:-50}"
 RETAIN_EVAL_NUM="${MCF_RETAIN_EVAL_NUM:-1000}"
 DTYPE="${DTYPE:-bf16}"
 DEVICE_MAP="${DEVICE_MAP:-single}"
+ENABLE_EXTERNAL_CONTEXTS="${SURE_ENABLE_EXTERNAL_CONTEXTS:-0}"
 
 source scripts/sure_guarded_shared_defaults.sh
+
+# V8 utility-scaling ablations deliberately vary these values.  Keep the
+# shared defaults immutable for every other canonical dataset runner.
+UTILITY_SAMPLE_SIZE="${SURE_UTILITY_SAMPLE_SIZE:-${UTILITY_SAMPLE_SIZE}}"
+UTILITY_PROMPT_COUNT="${SURE_UTILITY_PROMPT_COUNT:-${UTILITY_PROMPT_COUNT}}"
+UTILITY_SEED="${SURE_UTILITY_SEED:-${UTILITY_SEED}}"
+UTILITY_EXCLUDE_FIRST="${SURE_UTILITY_EXCLUDE_FIRST:-${UTILITY_EXCLUDE_FIRST}}"
+if [[ -z "${SURE_UTILITY_CACHE:-}" ]]; then
+  UTILITY_CACHE="outputs/sure_wikipedia_stats/${MODEL_TAG}_token_conditioned_docs${UTILITY_SAMPLE_SIZE}_candidates${UTILITY_PROMPT_COUNT}_v3.pt"
+fi
 
 STAGE1_RANK="${SURE_MCF_TARGET_STAGE1_RANK:-4}"
 STAGE1_PAIRWISE_TARGET="${SURE_MCF_TARGET_STAGE1_PAIRWISE_TARGET:-1.0}"
@@ -24,18 +36,34 @@ STAGE1_NEW_GD_WEIGHT="${SURE_MCF_TARGET_STAGE1_NEW_GD_WEIGHT:-10.0}"
 REQUIRED_PAIRWISE_MARGIN="${SURE_MCF_REQUIRED_PAIRWISE_MARGIN:-0.01}"
 STAGE2_SOLVER_MARGINS="${SURE_MCF_STAGE2_SOLVER_MARGINS:-0.5,1.0,2.0}"
 STAGE2_RANK_LADDER="${SURE_MCF_TARGET_STAGE2_RANK_LADDER:-2,4,8}"
+EXTERNAL_CONTEXTS_PER_RECORD="${SURE_EXTERNAL_CONTEXTS_PER_RECORD:-128}"
+EXTERNAL_CONTEXT_LEAD_CHARS="${SURE_EXTERNAL_CONTEXT_LEAD_CHARS:-256}"
+LOCALITY_TOKEN_TOPK_PER_ROW="${SURE_LOCALITY_TOKEN_TOPK_PER_ROW:-64}"
+LOCALITY_UNIFORM_PROMPT_COUNT="${SURE_LOCALITY_UNIFORM_PROMPT_COUNT:-512}"
+LOCALITY_POOL_SEED="${SURE_LOCALITY_POOL_SEED:-1}"
+LOCALITY_TRAIN_BATCH_SIZE="${SURE_LOCALITY_TRAIN_BATCH_SIZE:-128}"
+LOCALITY_EVAL_BATCH_SIZE="${SURE_LOCALITY_EVAL_BATCH_SIZE:-512}"
+STAGE1_LOCALITY_KL_WEIGHT="${SURE_STAGE1_LOCALITY_KL_WEIGHT:-10.0}"
+STAGE2_LOCALITY_KL_WEIGHT="${SURE_STAGE2_LOCALITY_KL_WEIGHT:-1.0}"
+LOCALITY_KL_MEAN_BUDGET="${SURE_LOCALITY_KL_MEAN_BUDGET:-0.01}"
+LOCALITY_KL_P95_BUDGET="${SURE_LOCALITY_KL_P95_BUDGET:-0.05}"
+LOCALITY_KL_MAX_BUDGET="${SURE_LOCALITY_KL_MAX_BUDGET:-0.5}"
 
 test -d "${MODEL}"
 test -f "${MCF}"
 test -d "${WIKIDATA_DIR}"
+test -d "${UTILITY_WIKIPEDIA_DIR}"
 
 if [[ ! -f "${UTILITY_CACHE}" ]]; then
   mkdir -p "$(dirname "${UTILITY_CACHE}")"
   python scripts/build_sure_wikipedia_stats.py \
     --model-path "${MODEL}" \
-    --wikidata-dir "${WIKIDATA_DIR}" \
+    --wikidata-dir "${UTILITY_WIKIPEDIA_DIR}" \
     --output-path "${UTILITY_CACHE}" \
     --sample-size "${UTILITY_SAMPLE_SIZE}" \
+    --require-min-documents "${MIN_UTILITY_DOCUMENTS}" \
+    --require-min-prompts "${MIN_UTILITY_PROMPTS}" \
+    --require-corpus-protocol "${REQUIRED_UTILITY_CORPUS_PROTOCOL}" \
     --utility-seed "${UTILITY_SEED}" \
     --exclude-first "${UTILITY_EXCLUDE_FIRST}" \
     --utility-max-length "${UTILITY_MAX_LENGTH}" \
@@ -73,6 +101,25 @@ for SEED in "${SEEDS[@]}"; do
     --forget-num "${FORGET_NUM}" \
     --retain-eval-num "${RETAIN_EVAL_NUM}"
 
+  EXTERNAL_CONTEXT_ARGS=()
+  if [[ "${ENABLE_EXTERNAL_CONTEXTS}" == "1" ]]; then
+    EXTERNAL_CONTEXT_FILE="${PROTOCOL_DIR}/external_subject_locality_contexts.json"
+    python scripts/build_sure_mcf_external_contexts.py \
+      --training-visible-path "${TRAINING_VISIBLE}" \
+      --wikipedia-dir "${UTILITY_WIKIPEDIA_DIR}" \
+      --output-path "${EXTERNAL_CONTEXT_FILE}" \
+      --corpus-document-limit "${UTILITY_SAMPLE_SIZE}" \
+      --exclude-first "${UTILITY_EXCLUDE_FIRST}" \
+      --contexts-per-record "${EXTERNAL_CONTEXTS_PER_RECORD}" \
+      --lead-chars "${EXTERNAL_CONTEXT_LEAD_CHARS}" \
+      --require-corpus-protocol "${REQUIRED_UTILITY_CORPUS_PROTOCOL}" \
+      --seed "${SEED}"
+    EXTERNAL_CONTEXT_ARGS=(--external-contexts "${EXTERNAL_CONTEXT_FILE}")
+  elif [[ "${ENABLE_EXTERNAL_CONTEXTS}" != "0" ]]; then
+    echo "SURE_ENABLE_EXTERNAL_CONTEXTS must be 0 or 1" >&2
+    exit 2
+  fi
+
   # The learner has no MCF-source argument. Checkpoint selection hard-gates
   # direct FS and external utility only; GFS is unavailable at this point.
   python scripts/sure_mcf_target_aware_direct_only.py \
@@ -85,12 +132,20 @@ for SEED in "${SEEDS[@]}"; do
     --forget-num "${FORGET_NUM}" \
     --utility-sample-size "${UTILITY_SAMPLE_SIZE}" \
     --utility-prompt-count "${UTILITY_PROMPT_COUNT}" \
+    --require-min-utility-documents "${MIN_UTILITY_DOCUMENTS}" \
+    --require-min-utility-prompts "${MIN_UTILITY_PROMPTS}" \
+    --require-utility-corpus-protocol "${REQUIRED_UTILITY_CORPUS_PROTOCOL}" \
     --utility-token-topk-per-row "${UTILITY_TOKEN_TOPK_PER_ROW}" \
     --utility-uniform-prompt-count "${UTILITY_UNIFORM_PROMPT_COUNT}" \
     --utility-pool-seed "${UTILITY_POOL_SEED}" \
     --utility-train-batch-size "${UTILITY_TRAIN_BATCH_SIZE}" \
     --utility-eval-batch-size "${UTILITY_EVAL_BATCH_SIZE}" \
     --cache-batch-size "${CACHE_BATCH_SIZE}" \
+    --locality-token-topk-per-row "${LOCALITY_TOKEN_TOPK_PER_ROW}" \
+    --locality-uniform-prompt-count "${LOCALITY_UNIFORM_PROMPT_COUNT}" \
+    --locality-pool-seed "${LOCALITY_POOL_SEED}" \
+    --locality-train-batch-size "${LOCALITY_TRAIN_BATCH_SIZE}" \
+    --locality-eval-batch-size "${LOCALITY_EVAL_BATCH_SIZE}" \
     --stage1-rank "${STAGE1_RANK}" \
     --stage1-steps "${STAGE1_STEPS}" \
     --stage1-lr "${STAGE1_LR}" \
@@ -101,6 +156,7 @@ for SEED in "${SEEDS[@]}"; do
     --stage1-true-ga-weight "${STAGE1_TRUE_GA_WEIGHT}" \
     --stage1-new-gd-weight "${STAGE1_NEW_GD_WEIGHT}" \
     --stage1-utility-kl-weight "${UTILITY_KL_WEIGHT}" \
+    --stage1-locality-kl-weight "${STAGE1_LOCALITY_KL_WEIGHT}" \
     --stage1-l2-weight "${STAGE2_RESIDUAL_L2_WEIGHT}" \
     --stage1-candidate-scales "${STAGE1_CANDIDATE_SCALES}" \
     --required-pairwise-margin "${REQUIRED_PAIRWISE_MARGIN}" \
@@ -110,14 +166,19 @@ for SEED in "${SEEDS[@]}"; do
     --stage2-ftol "${STAGE2_FTOL}" \
     --stage2-constraint-tolerance "${STAGE2_CONSTRAINT_TOLERANCE}" \
     --stage2-residual-l2-weight "${STAGE2_RESIDUAL_L2_WEIGHT}" \
+    --stage2-locality-kl-weight "${STAGE2_LOCALITY_KL_WEIGHT}" \
     --constraint-context-weight "${STAGE2_CONSTRAINT_BASIS_WEIGHT}" \
     --contrastive-eps "${CONTRASTIVE_EPS}" \
     --utility-kl-mean-budget "${UTILITY_KL_MEAN_BUDGET}" \
     --utility-kl-p95-budget "${UTILITY_KL_P95_BUDGET}" \
     --utility-kl-max-budget "${UTILITY_KL_MAX_BUDGET}" \
+    --locality-kl-mean-budget "${LOCALITY_KL_MEAN_BUDGET}" \
+    --locality-kl-p95-budget "${LOCALITY_KL_P95_BUDGET}" \
+    --locality-kl-max-budget "${LOCALITY_KL_MAX_BUDGET}" \
     --max-total-delta-norm "${MAX_TOTAL_DELTA_NORM}" \
     --dtype "${DTYPE}" \
-    --device-map "${DEVICE_MAP}"
+    --device-map "${DEVICE_MAP}" \
+    "${EXTERNAL_CONTEXT_ARGS[@]}"
 
   FINAL_MODEL="${LEARNER}/checkpoint"
   FINAL_DELTA="${LEARNER}/final_total_delta.pt"

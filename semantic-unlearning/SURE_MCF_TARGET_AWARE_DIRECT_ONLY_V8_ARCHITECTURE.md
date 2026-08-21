@@ -12,6 +12,13 @@ The intended interpretation is:
 - Spe, PPL, and benchmark-retain KL are post-training utility audits;
 - v7 remains a separately labeled in-sample FS/GFS upper-bound ablation.
 
+The original seed-1 v8 run used the checked-in 200-row PPL fixture as its
+utility source, leaving only 180 eligible documents after the PPL exclusion.
+Real-Wikipedia W1K/W10K replications and the opt-in v9 external-context
+augmentation are specified separately in
+`SURE_MCF_UTILITY_SCALING_V9_PROTOCOL.md`; they do not retroactively change the
+locked v8 result.
+
 ## Enforced data boundary
 
 ```text

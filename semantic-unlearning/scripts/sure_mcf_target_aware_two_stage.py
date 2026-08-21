@@ -262,7 +262,7 @@ def prompt_kind_masks(
             device=device,
             dtype=torch.bool,
         )
-        for kind in ("direct", "paraphrase")
+        for kind in ("direct", "paraphrase", "generated_subject")
     }
 
 
@@ -276,12 +276,12 @@ def balanced_available_prompt_mean(
     error and must not silently contribute a zero-valued objective.
     """
     means: List[torch.Tensor] = []
-    for kind in ("direct", "paraphrase"):
+    for kind in ("direct", "paraphrase", "generated_subject"):
         mask = masks[kind].to(device=values.device)
         if bool(mask.any()):
             means.append(values[mask].mean())
     if not means:
-        raise ValueError("no direct or paraphrase prompt instances")
+        raise ValueError("no direct, paraphrase, or generated prompt instances")
     return torch.stack(means).mean()
 
 
@@ -321,7 +321,11 @@ def grouped_pairwise_report(
                 "margin_safe": margin_safe,
             }
         )
-    for kind, metric in (("direct", "FS"), ("paraphrase", "GFS")):
+    for kind, metric in (
+        ("direct", "FS"),
+        ("paraphrase", "GFS"),
+        ("generated_subject", "generated_subject_FS"),
+    ):
         subset = [row for row in rows if row["prompt_kind"] == kind]
         failures = sum(not row["success"] for row in subset)
         margin_failures = sum(not row["margin_safe"] for row in subset)
@@ -520,7 +524,11 @@ def optimize_stage1(
     output_dir: Path,
     *,
     device: torch.device,
+    locality_hidden: torch.Tensor | None = None,
+    locality_probabilities: torch.Tensor | None = None,
 ) -> torch.Tensor:
+    if (locality_hidden is None) != (locality_probabilities is None):
+        raise ValueError("locality hidden states/probabilities must be supplied together")
     module = learner.context.RowSpecificProjectedDelta(
         selected_ids, row_bases, device=device
     )
@@ -532,6 +540,16 @@ def optimize_stage1(
         min(int(args.utility_train_batch_size), int(utility_hidden.shape[0])),
         int(args.seed) + 7919,
     )
+    locality_sampler = None
+    if locality_hidden is not None:
+        locality_sampler = core.IndexSampler(
+            int(locality_hidden.shape[0]),
+            min(
+                int(getattr(args, "locality_train_batch_size", args.utility_train_batch_size)),
+                int(locality_hidden.shape[0]),
+            ),
+            int(args.seed) + 104729,
+        )
     log_path = output_dir / "stage1_training_log.jsonl"
     with log_path.open("w", encoding="utf-8") as stream:
         for step in range(1, int(args.stage1_steps) + 1):
@@ -554,6 +572,14 @@ def optimize_stage1(
                 utility_hidden[indices],
                 utility_probabilities[indices],
             ).mean()
+            locality_kl = None
+            if locality_sampler is not None:
+                locality_indices = locality_sampler.next()
+                locality_kl = learner.exact_sparse_utility_kl(
+                    delta,
+                    locality_hidden[locality_indices],
+                    locality_probabilities[locality_indices],
+                ).mean()
             loss = (
                 float(args.stage1_pairwise_weight) * components["pairwise"]
                 + float(args.stage1_true_ga_weight) * components["true_ga"]
@@ -561,6 +587,8 @@ def optimize_stage1(
                 + float(args.stage1_utility_kl_weight) * utility_kl
                 + float(args.stage1_l2_weight) * delta.square().sum()
             )
+            if locality_kl is not None:
+                loss = loss + float(args.stage1_locality_kl_weight) * locality_kl
             if not torch.isfinite(loss):
                 raise FloatingPointError(
                     f"non-finite target-aware Stage-1 loss at {step}"
@@ -578,6 +606,11 @@ def optimize_stage1(
                     ),
                     "bounded_target_new_GD": float(components["new_gd"].detach().cpu()),
                     "wikipedia_exact_kl": float(utility_kl.detach().cpu()),
+                    "external_locality_exact_kl": (
+                        None
+                        if locality_kl is None
+                        else float(locality_kl.detach().cpu())
+                    ),
                     "minimum_pairwise_separation": float(
                         components["separation"].min().detach().cpu()
                     ),
@@ -622,6 +655,41 @@ def add_utility_report(
     report["utility_safe"] = bool(all(checks.values()))
 
 
+def add_locality_report(
+    report: Dict[str, Any],
+    delta: torch.Tensor,
+    locality_hidden: torch.Tensor,
+    locality_probabilities: torch.Tensor,
+    args: argparse.Namespace,
+    *,
+    device: torch.device,
+) -> None:
+    values = learner.utility_kl_report(
+        delta,
+        locality_hidden,
+        locality_probabilities,
+        device=device,
+        batch_size=int(
+            getattr(args, "locality_eval_batch_size", args.utility_eval_batch_size)
+        ),
+    )
+    renamed = {
+        key.replace("utility_kl_", "locality_kl_"): value
+        for key, value in values.items()
+    }
+    report.update(renamed)
+    checks = {
+        "mean": renamed["locality_kl_mean"]
+        <= float(args.locality_kl_mean_budget),
+        "p95": renamed["locality_kl_p95"]
+        <= float(args.locality_kl_p95_budget),
+        "max": renamed["locality_kl_max"]
+        <= float(args.locality_kl_max_budget),
+    }
+    report["locality_guard_checks"] = checks
+    report["locality_safe"] = bool(all(checks.values()))
+
+
 def choose_stage1_delta(
     args: argparse.Namespace,
     trained_delta: torch.Tensor,
@@ -633,7 +701,11 @@ def choose_stage1_delta(
     utility_probabilities: torch.Tensor,
     *,
     device: torch.device,
+    locality_hidden: torch.Tensor | None = None,
+    locality_probabilities: torch.Tensor | None = None,
 ) -> Tuple[torch.Tensor, Dict[str, Any], List[Dict[str, Any]]]:
+    if (locality_hidden is None) != (locality_probabilities is None):
+        raise ValueError("locality hidden states/probabilities must be supplied together")
     reports: List[Dict[str, Any]] = []
     for scale in scales:
         delta = trained_delta * float(scale)
@@ -655,8 +727,21 @@ def choose_stage1_delta(
             args,
             device=device,
         )
+        if locality_hidden is not None:
+            add_locality_report(
+                report,
+                delta,
+                locality_hidden,
+                locality_probabilities,
+                args,
+                device=device,
+            )
         reports.append(report)
-    safe = [report for report in reports if report["utility_safe"]]
+    safe = [
+        report
+        for report in reports
+        if report["utility_safe"] and report.get("locality_safe", True)
+    ]
     if not safe:
         raise RuntimeError("no Stage-1 scale passed the Wikipedia/norm guards")
     complete = [
@@ -664,12 +749,14 @@ def choose_stage1_delta(
         for report in safe
         if report["direct_margin_failures"] == 0
         and report["paraphrase_margin_failures"] == 0
+        and report.get("generated_subject_margin_failures", 0) == 0
     ]
     if complete:
         selected = min(
             complete,
             key=lambda row: (
                 float(row["utility_kl_mean"]),
+                float(row.get("locality_kl_mean", 0.0)),
                 float(row["total_delta_norm"]),
             ),
         )
@@ -679,9 +766,11 @@ def choose_stage1_delta(
             safe,
             key=lambda row: (
                 int(row["direct_margin_failures"])
-                + int(row["paraphrase_margin_failures"]),
+                + int(row["paraphrase_margin_failures"])
+                + int(row.get("generated_subject_margin_failures", 0)),
                 -float(row["minimum_overall_separation"]),
                 float(row["utility_kl_mean"]),
+                float(row.get("locality_kl_mean", 0.0)),
             ),
         )
         mode = "joint_stage1_residual_handoff"
@@ -704,7 +793,11 @@ def solve_residual(
     prompt_records: Sequence[Mapping[str, Any]],
     utility_hidden: torch.Tensor,
     utility_probabilities: torch.Tensor,
+    locality_hidden: torch.Tensor | None = None,
+    locality_probabilities: torch.Tensor | None = None,
 ) -> Tuple[torch.Tensor, List[Dict[str, Any]], Dict[str, Any]]:
+    if (locality_hidden is None) != (locality_probabilities is None):
+        raise ValueError("locality hidden states/probabilities must be supplied together")
     device = stage1_delta.device
     bases = [basis.to(device=device, dtype=torch.float32) for basis in row_bases]
     coefficient_count = sum(int(basis.shape[0]) for basis in bases)
@@ -722,12 +815,23 @@ def solve_residual(
             total(coefficients), utility_hidden, utility_probabilities
         )
 
+    def locality_values(coefficients: torch.Tensor) -> torch.Tensor | None:
+        if locality_hidden is None:
+            return None
+        return learner.exact_sparse_utility_kl(
+            total(coefficients), locality_hidden, locality_probabilities
+        )
+
     def objective(coefficients: torch.Tensor) -> torch.Tensor:
-        return (
+        value = (
             utility_values(coefficients).mean()
             + float(args.stage2_residual_l2_weight)
             * residual(coefficients).square().sum()
         )
+        locality = locality_values(coefficients)
+        if locality is not None:
+            value = value + float(args.stage2_locality_kl_weight) * locality.mean()
+        return value
 
     def behavioral_slacks(coefficients: torch.Tensor) -> torch.Tensor:
         separation = exact.exact_pairwise_separation(
@@ -738,15 +842,26 @@ def solve_residual(
     def utility_slacks(coefficients: torch.Tensor) -> torch.Tensor:
         values = utility_values(coefficients)
         combined = total(coefficients)
-        return torch.stack(
-            (
+        slacks = [
                 values.new_tensor(float(args.utility_kl_mean_budget)) - values.mean(),
                 values.new_tensor(float(args.utility_kl_p95_budget))
                 - torch.quantile(values, 0.95),
                 values.new_tensor(float(args.utility_kl_max_budget)) - values.max(),
                 values.new_tensor(float(args.max_total_delta_norm)) - combined.norm(),
+        ]
+        locality = locality_values(coefficients)
+        if locality is not None:
+            slacks.extend(
+                (
+                    locality.new_tensor(float(args.locality_kl_mean_budget))
+                    - locality.mean(),
+                    locality.new_tensor(float(args.locality_kl_p95_budget))
+                    - torch.quantile(locality, 0.95),
+                    locality.new_tensor(float(args.locality_kl_max_budget))
+                    - locality.max(),
+                )
             )
-        )
+        return torch.stack(slacks)
 
     scalar = learner._TorchScalarAdapter(objective, device=device)
     behavioral = learner._TorchVectorAdapter(behavioral_slacks, device=device)
@@ -776,6 +891,9 @@ def solve_residual(
         ).detach()
         behavior = behavioral_slacks(coefficients).detach()
         utility_now = utility_values(coefficients).detach().double().cpu()
+        locality_now = locality_values(coefficients)
+        if locality_now is not None:
+            locality_now = locality_now.detach().double().cpu()
         utility_constraints = utility_slacks(coefficients).detach()
         row = {
             "phase": phase,
@@ -793,6 +911,17 @@ def solve_residual(
             "utility_kl_mean": float(utility_now.mean()),
             "utility_kl_p95": float(torch.quantile(utility_now, 0.95)),
             "utility_kl_max": float(utility_now.max()),
+            "locality_kl_mean": (
+                None if locality_now is None else float(locality_now.mean())
+            ),
+            "locality_kl_p95": (
+                None
+                if locality_now is None
+                else float(torch.quantile(locality_now, 0.95))
+            ),
+            "locality_kl_max": (
+                None if locality_now is None else float(locality_now.max())
+            ),
             "residual_delta_norm": float(residual(coefficients).detach().norm().cpu()),
             "total_delta_norm": float(combined.norm().cpu()),
             "objective": float(objective(coefficients).detach().cpu()),
@@ -859,7 +988,8 @@ def solve_residual(
             observed,
             key=lambda item: (
                 int(item[1]["direct_margin_failures"])
-                + int(item[1]["paraphrase_margin_failures"]),
+                + int(item[1]["paraphrase_margin_failures"])
+                + int(item[1].get("generated_subject_margin_failures", 0)),
                 -float(item[1]["minimum_overall_separation"]),
                 float(item[1]["objective"]),
             ),

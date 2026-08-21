@@ -190,6 +190,20 @@ def load_wikipedia_train(path: Path) -> Tuple[Sequence[str], Dict[str, Any]]:
         "dataset_loader": loader,
         "datasets_loader_fallback_reason": fallback_error,
     }
+    receipt_path = path / "sure_wikipedia_corpus_receipt.json"
+    if receipt_path.is_file():
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if not isinstance(receipt, dict):
+            raise ValueError("Wikipedia corpus receipt must be a JSON object")
+        if int(receipt.get("actual_article_count", -1)) != row_count:
+            raise ValueError("Wikipedia corpus receipt row count mismatch")
+        metadata["corpus_receipt"] = receipt
+        metadata["corpus_receipt_sha256"] = hashlib.sha256(
+            receipt_path.read_bytes()
+        ).hexdigest()
+    else:
+        metadata["corpus_receipt"] = None
+        metadata["corpus_receipt_sha256"] = None
     return texts, metadata
 
 
@@ -478,6 +492,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--wikidata-dir", default="data/wikidata")
     parser.add_argument("--output-path", required=True)
     parser.add_argument("--sample-size", type=int, default=DEFAULT_SAMPLE_SIZE)
+    parser.add_argument(
+        "--require-min-documents",
+        type=int,
+        default=0,
+        help=(
+            "Fail instead of silently building a pilot cache when fewer than "
+            "this many eligible documents are available"
+        ),
+    )
+    parser.add_argument(
+        "--require-min-prompts",
+        type=int,
+        default=0,
+        help="Fail when the resulting predictor-state reservoir is smaller",
+    )
+    parser.add_argument(
+        "--require-corpus-protocol",
+        default="",
+        help="Require a prepared-corpus receipt with this exact protocol",
+    )
     parser.add_argument("--utility-seed", type=int, default=1)
     parser.add_argument("--exclude-first", type=int, default=20)
     parser.add_argument("--utility-max-length", type=int, default=4096)
@@ -505,6 +539,12 @@ def main() -> None:
         raise ValueError("sample-size must be positive")
     if args.exclude_first < 0:
         raise ValueError("exclude-first must be non-negative")
+    if args.require_min_documents < 0 or args.require_min_prompts < 0:
+        raise ValueError("minimum document/prompt requirements must be non-negative")
+    if args.require_min_documents > args.sample_size:
+        raise ValueError("require-min-documents cannot exceed sample-size")
+    if args.require_min_prompts > args.utility_prompt_count:
+        raise ValueError("require-min-prompts cannot exceed utility-prompt-count")
     if (
         args.utility_max_length < 2
         or args.utility_batch_size <= 0
@@ -536,6 +576,15 @@ def main() -> None:
     device = gagd.first_device(model)
 
     texts, dataset_metadata = load_wikipedia_train(Path(args.wikidata_dir).resolve())
+    if args.require_corpus_protocol:
+        receipt = dataset_metadata.get("corpus_receipt")
+        if not isinstance(receipt, Mapping) or receipt.get("protocol") != str(
+            args.require_corpus_protocol
+        ):
+            raise RuntimeError(
+                "Wikipedia corpus lacks the required prepared-corpus protocol: "
+                f"{args.require_corpus_protocol}"
+            )
     eligible = [
         index
         for index in range(args.exclude_first, len(texts))
@@ -546,6 +595,12 @@ def main() -> None:
     order = list(eligible)
     random.Random(args.utility_seed).shuffle(order)
     selected_order = order[: min(args.sample_size, len(order))]
+    if len(selected_order) < int(args.require_min_documents):
+        raise RuntimeError(
+            "Wikipedia corpus is too small for the requested non-pilot cache: "
+            f"required at least {args.require_min_documents} eligible documents, "
+            f"found {len(selected_order)} after excluding {args.exclude_first}"
+        )
     if args.sample_size > len(eligible):
         print(
             "Wikipedia sample request exceeds eligible local corpus; "
@@ -568,6 +623,11 @@ def main() -> None:
         max_length=args.utility_max_length,
         batch_size=args.utility_batch_size,
     )
+    if int(utility_hidden.shape[0]) < int(args.require_min_prompts):
+        raise RuntimeError(
+            "Wikipedia predictor reservoir is too small: required at least "
+            f"{args.require_min_prompts}, built {int(utility_hidden.shape[0])}"
+        )
     base_logsumexp = base_logsumexp_for_hidden(
         model,
         utility_hidden,
@@ -583,6 +643,7 @@ def main() -> None:
         "utility_seed": int(args.utility_seed),
         "requested_document_sample_size": int(args.sample_size),
         "actual_document_sample_size": len(selected_order),
+        "required_minimum_document_sample_size": int(args.require_min_documents),
         "sample_size_cap_policy": "min(requested, eligible_local_documents)",
         "excluded_prefix_document_count": int(args.exclude_first),
         "excluded_prefix_reason": (
@@ -592,6 +653,7 @@ def main() -> None:
         "utility_batch_size": int(args.utility_batch_size),
         "requested_utility_prompt_count": int(args.utility_prompt_count),
         "actual_utility_prompt_count": int(utility_hidden.shape[0]),
+        "required_minimum_utility_prompt_count": int(args.require_min_prompts),
         "utility_logit_batch_size": int(args.utility_logit_batch_size),
         "base_logsumexp_sha256": sha256_tensor(base_logsumexp),
         "benchmark_examples_seen": 0,

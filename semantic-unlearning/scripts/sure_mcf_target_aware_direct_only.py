@@ -18,6 +18,7 @@ import torch
 
 import build_mcf_sure_target_aware_direct_split as direct_split
 import build_sure_wikipedia_stats as wikipedia
+import build_sure_mcf_external_contexts as external_contexts
 import gagd_compare as gagd
 import mcf_zero_unlearn_official_eval as mcf_official
 import sure_canonical_core as core
@@ -27,7 +28,11 @@ import sure_minimal_two_stage as learner
 
 
 METHOD = "SURE-LM-MCF-target-aware-direct-true-GA-new-GD-v8"
+METHOD_AUGMENTED = (
+    "SURE-LM-MCF-target-aware-generated-subject-GAGD-external-locality-v9"
+)
 PROTOCOL = direct_split.PROTOCOL
+AUGMENTED_PROTOCOL = "sure_mcf_target_aware_external_contexts_v9"
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,12 +46,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--forget-num", type=int, default=50)
     parser.add_argument("--utility-sample-size", type=int, default=100_000)
     parser.add_argument("--utility-prompt-count", type=int, default=100_000)
+    parser.add_argument("--require-min-utility-documents", type=int, default=0)
+    parser.add_argument("--require-min-utility-prompts", type=int, default=0)
+    parser.add_argument("--require-utility-corpus-protocol", default="")
     parser.add_argument("--utility-token-topk-per-row", type=int, default=128)
     parser.add_argument("--utility-uniform-prompt-count", type=int, default=1_024)
     parser.add_argument("--utility-pool-seed", type=int, default=1)
     parser.add_argument("--utility-train-batch-size", type=int, default=128)
     parser.add_argument("--utility-eval-batch-size", type=int, default=512)
     parser.add_argument("--cache-batch-size", type=int, default=8)
+    parser.add_argument(
+        "--external-contexts",
+        help=(
+            "Opt in to v9 generated same-subject GA/GD contexts and external "
+            "Wikipedia locality preservation contexts"
+        ),
+    )
+    parser.add_argument("--locality-token-topk-per-row", type=int, default=64)
+    parser.add_argument("--locality-uniform-prompt-count", type=int, default=512)
+    parser.add_argument("--locality-pool-seed", type=int, default=1)
+    parser.add_argument("--locality-train-batch-size", type=int, default=128)
+    parser.add_argument("--locality-eval-batch-size", type=int, default=512)
 
     parser.add_argument("--stage1-rank", type=int, default=4)
     parser.add_argument("--stage1-steps", type=int, default=600)
@@ -58,6 +78,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage1-true-ga-weight", type=float, default=10.0)
     parser.add_argument("--stage1-new-gd-weight", type=float, default=10.0)
     parser.add_argument("--stage1-utility-kl-weight", type=float, default=1.0)
+    parser.add_argument("--stage1-locality-kl-weight", type=float, default=10.0)
     parser.add_argument("--stage1-l2-weight", type=float, default=1e-4)
     parser.add_argument(
         "--stage1-candidate-scales",
@@ -78,12 +99,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage2-ftol", type=float, default=1e-9)
     parser.add_argument("--stage2-constraint-tolerance", type=float, default=1e-5)
     parser.add_argument("--stage2-residual-l2-weight", type=float, default=1e-4)
+    parser.add_argument("--stage2-locality-kl-weight", type=float, default=1.0)
     parser.add_argument("--constraint-context-weight", type=float, default=0.05)
     parser.add_argument("--contrastive-eps", type=float, default=1e-3)
 
     parser.add_argument("--utility-kl-mean-budget", type=float, default=0.01)
     parser.add_argument("--utility-kl-p95-budget", type=float, default=0.05)
     parser.add_argument("--utility-kl-max-budget", type=float, default=0.5)
+    parser.add_argument("--locality-kl-mean-budget", type=float, default=0.01)
+    parser.add_argument("--locality-kl-p95-budget", type=float, default=0.05)
+    parser.add_argument("--locality-kl-max-budget", type=float, default=0.5)
     parser.add_argument("--max-total-delta-norm", type=float, default=1.5)
     parser.add_argument("--dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
     parser.add_argument("--device-map", choices=("single", "auto"), default="single")
@@ -168,6 +193,150 @@ def load_locked_direct_records(
     return records, prompts, manifest
 
 
+def load_external_context_bundle(
+    path: Path,
+    *,
+    training_path: Path,
+    training_records: Sequence[Mapping[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("external context bundle must be a JSON object")
+    if payload.get("protocol") != external_contexts.PROTOCOL:
+        raise RuntimeError("external context protocol mismatch")
+    if int(payload.get("schema_version", -1)) != 1:
+        raise RuntimeError("external context schema mismatch")
+    if payload.get("training_visible_sha256") != joint.sha256_bytes(
+        training_path.read_bytes()
+    ):
+        raise RuntimeError("external contexts do not match the stripped training view")
+    boundary = payload.get("data_boundary", {})
+    required_boundary = {
+        "source_counterfact_path_accepted": False,
+        "official_paraphrases_read": 0,
+        "official_neighborhoods_read": 0,
+        "benchmark_retain_examples_read": 0,
+        "generation_probes_read": 0,
+    }
+    for key, expected in required_boundary.items():
+        if boundary.get(key) != expected:
+            raise RuntimeError(f"invalid external-context data boundary for {key}")
+
+    generated = payload.get("generated_subject_contexts")
+    locality = payload.get("external_locality_contexts")
+    if not isinstance(generated, list) or not generated:
+        raise RuntimeError("v9 requires generated same-subject contexts")
+    if not isinstance(locality, list) or not locality:
+        raise RuntimeError("v9 requires external locality contexts")
+    direct_by_position = {
+        position: record for position, record in enumerate(training_records)
+    }
+    seen_generated = set()
+    normalized_generated: List[Dict[str, Any]] = []
+    for context in generated:
+        if not isinstance(context, dict):
+            raise RuntimeError("generated context must be an object")
+        position = int(context.get("source_record_position", -1))
+        source = direct_by_position.get(position)
+        if source is None or int(context.get("case_id", -1)) != int(source["case_id"]):
+            raise RuntimeError("generated context case identity mismatch")
+        if context.get("prompt_kind") != "generated_subject":
+            raise RuntimeError("generated context has the wrong prompt kind")
+        prompt = str(context.get("prompt_text", "")).strip()
+        if not prompt or prompt in seen_generated:
+            raise RuntimeError("generated contexts must be non-empty and unique")
+        seen_generated.add(prompt)
+        rewrite = context.get("requested_rewrite", {})
+        source_rewrite = source["requested_rewrite"]
+        if (
+            rewrite.get("target_sensitive", {}).get("str")
+            != source_rewrite["target_true"]["str"]
+            or rewrite.get("target_reference", {}).get("str")
+            != source_rewrite["target_new"]["str"]
+        ):
+            raise RuntimeError("generated context changed a target answer")
+        normalized_generated.append(dict(context))
+
+    seen_locality = set()
+    normalized_locality: List[Dict[str, Any]] = []
+    for context in locality:
+        if not isinstance(context, dict):
+            raise RuntimeError("locality context must be an object")
+        position = int(context.get("source_record_position", -1))
+        source = direct_by_position.get(position)
+        if source is None or int(context.get("case_id", -1)) != int(source["case_id"]):
+            raise RuntimeError("locality context case identity mismatch")
+        prompt = str(context.get("prompt_text", "")).strip()
+        if not prompt or prompt in seen_locality:
+            raise RuntimeError("locality contexts must be non-empty and unique")
+        if str(source["requested_rewrite"]["subject"]) == str(
+            context.get("external_title", "")
+        ):
+            raise RuntimeError("locality context reused a forget subject")
+        seen_locality.add(prompt)
+        normalized_locality.append(dict(context))
+    return normalized_generated, normalized_locality, payload
+
+
+@torch.no_grad()
+def materialized_training_prompt_report(
+    model: torch.nn.Module,
+    tok: Any,
+    prompt_records: Sequence[Mapping[str, Any]],
+    device: torch.device,
+    *,
+    llama_like: bool,
+    required_margin: float,
+) -> Dict[str, Any]:
+    groups: Dict[int, List[Tuple[int, Mapping[str, Any]]]] = {}
+    for prompt_position, record in enumerate(prompt_records):
+        groups.setdefault(int(record["source_record_position"]), []).append(
+            (prompt_position, record)
+        )
+    separations: List[float | None] = [None] * len(prompt_records)
+    for entries in groups.values():
+        first = entries[0][1]["requested_rewrite"]
+        target_new = str(first["target_reference"]["str"])
+        target_true = str(first["target_sensitive"]["str"])
+        prefixes = [str(record["prompt_text"]) for _, record in entries]
+        scores = mcf_official.official_test_batch_prediction(
+            model,
+            tok,
+            prefixes,
+            target_new,
+            target_true,
+            device,
+            llama_like=llama_like,
+        )
+        if len(scores) != len(entries):
+            raise RuntimeError("official scorer omitted a training prompt")
+        for (prompt_position, _), score in zip(entries, scores):
+            separations[prompt_position] = float(
+                score["target_true"] - score["target_new"]
+            )
+    if any(value is None for value in separations):
+        raise RuntimeError("materialized prompt report is incomplete")
+    report = joint.grouped_pairwise_report(
+        torch.tensor(separations, dtype=torch.float32),
+        prompt_records,
+        required_margin=required_margin,
+    )
+    report.update(
+        {
+            "scorer": "mcf_zero_unlearn_official_eval.official_test_batch_prediction",
+            "checkpoint_dtype_forward": True,
+            "training_prompt_scope": (
+                "direct_plus_generated_subject"
+                if report.get("generated_subject_prompt_count", 0)
+                else "direct_only"
+            ),
+            "GFS_evaluated": False,
+            "GFS_checkpoint_selection": False,
+        }
+    )
+    return report
+
+
 @torch.no_grad()
 def direct_materialized_report(
     model: torch.nn.Module,
@@ -181,61 +350,75 @@ def direct_materialized_report(
 ) -> Dict[str, Any]:
     if len(training_records) != len(prompt_records):
         raise ValueError("training records and direct prompt records do not align")
-    separations: List[float] = []
-    for record in training_records:
-        rewrite = record["requested_rewrite"]
-        prefix = str(rewrite["prompt"]).format(str(rewrite["subject"]))
-        scores = mcf_official.official_test_batch_prediction(
-            model,
-            tok,
-            [prefix],
-            str(rewrite["target_new"]["str"]),
-            str(rewrite["target_true"]["str"]),
-            device,
-            llama_like=llama_like,
-        )
-        if len(scores) != 1:
-            raise RuntimeError("official scorer omitted a direct prompt")
-        separations.append(float(scores[0]["target_true"] - scores[0]["target_new"]))
-    report = joint.grouped_pairwise_report(
-        torch.tensor(separations, dtype=torch.float32),
+    return materialized_training_prompt_report(
+        model,
+        tok,
         prompt_records,
+        device,
+        llama_like=llama_like,
         required_margin=required_margin,
     )
-    report.update(
-        {
-            "scorer": ("mcf_zero_unlearn_official_eval.official_test_batch_prediction"),
-            "checkpoint_dtype_forward": True,
-            "training_prompt_scope": "direct_only",
-            "GFS_evaluated": False,
-            "GFS_checkpoint_selection": False,
-        }
-    )
-    return report
 
 
 def direct_candidate_feasible(report: Mapping[str, Any]) -> bool:
     return bool(
         report.get("FS") == 100.0
         and int(report.get("direct_margin_failures", -1)) == 0
+        and int(report.get("generated_subject_margin_failures", 0)) == 0
         and report.get("utility_safe") is True
+        and report.get("locality_safe", True) is True
     )
 
 
 def main() -> None:
     args = parse_args()
     stage1_scales, solver_margins, rank_ladder = joint.validate_args(args)
+    if args.require_min_utility_documents < 0 or args.require_min_utility_prompts < 0:
+        raise ValueError("minimum utility cache sizes must be non-negative")
+    if args.external_contexts and (
+        args.locality_token_topk_per_row <= 0
+        or args.locality_uniform_prompt_count < 0
+        or args.locality_train_batch_size <= 0
+        or args.locality_eval_batch_size <= 0
+        or args.stage1_locality_kl_weight < 0
+        or args.stage2_locality_kl_weight < 0
+        or min(
+            args.locality_kl_mean_budget,
+            args.locality_kl_p95_budget,
+            args.locality_kl_max_budget,
+        )
+        < 0
+    ):
+        raise ValueError("v9 locality settings must be finite and non-negative")
     gagd.set_seed(args.seed)
     if args.device_map == "single":
         gagd.require_cuda_if_needed(args.device_map)
     output_dir = gagd.resolve_output_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    training_path = Path(args.training_visible_path).resolve()
     training_records, prompt_records, manifest = load_locked_direct_records(
-        Path(args.training_visible_path).resolve(),
+        training_path,
         Path(args.split_manifest).resolve(),
         expected_seed=args.seed,
         expected_forget_num=args.forget_num,
     )
+    augmented = bool(args.external_contexts)
+    method = METHOD_AUGMENTED if augmented else METHOD
+    experiment_protocol = AUGMENTED_PROTOCOL if augmented else PROTOCOL
+    generated_contexts: List[Dict[str, Any]] = []
+    locality_context_records: List[Dict[str, Any]] = []
+    external_context_metadata: Dict[str, Any] | None = None
+    if augmented:
+        (
+            generated_contexts,
+            locality_context_records,
+            external_context_metadata,
+        ) = load_external_context_bundle(
+            Path(args.external_contexts).resolve(),
+            training_path=training_path,
+            training_records=training_records,
+        )
+        prompt_records = [*prompt_records, *generated_contexts]
 
     namespace = argparse.Namespace(
         model_path=args.model_path,
@@ -267,6 +450,26 @@ def main() -> None:
     )
     actual_documents = int(utility_metadata["actual_document_sample_size"])
     actual_prompts = int(utility_metadata["actual_utility_prompt_count"])
+    if args.require_utility_corpus_protocol:
+        receipt = utility_metadata.get("corpus_receipt")
+        if not isinstance(receipt, Mapping) or receipt.get("protocol") != str(
+            args.require_utility_corpus_protocol
+        ):
+            raise RuntimeError(
+                "utility cache was not built from the required corpus protocol: "
+                f"{args.require_utility_corpus_protocol}"
+            )
+    if actual_documents < int(args.require_min_utility_documents):
+        raise RuntimeError(
+            "utility cache is a capped pilot: required at least "
+            f"{args.require_min_utility_documents} documents, found "
+            f"{actual_documents}"
+        )
+    if actual_prompts < int(args.require_min_utility_prompts):
+        raise RuntimeError(
+            "utility cache has too few predictor states: required at least "
+            f"{args.require_min_utility_prompts}, found {actual_prompts}"
+        )
     if actual_documents < int(args.utility_sample_size):
         print(
             "WARNING: Wikipedia corpus contains only "
@@ -341,6 +544,75 @@ def main() -> None:
     ).contiguous()
     core.write_json(output_dir / "utility_pool_report.json", utility_pool_report)
 
+    locality_train_hidden: torch.Tensor | None = None
+    locality_train_probabilities: torch.Tensor | None = None
+    locality_guard_hidden: torch.Tensor | None = None
+    locality_guard_probabilities: torch.Tensor | None = None
+    locality_pool_report: Dict[str, Any] | None = None
+    if augmented:
+        locality_cases = [
+            core.SensitivePredictionCase(
+                case_id=int(context["case_id"]),
+                record_position=int(context["source_record_position"]),
+                token_index=int(context["prompt_index"]),
+                prompt=str(context["prompt_text"]),
+                target_text="",
+            )
+            for context in locality_context_records
+        ]
+        locality_hidden = core.forward_last_hidden(
+            model, tok, locality_cases, device, args.cache_batch_size
+        ).float()
+        locality_logsumexp = wikipedia.base_logsumexp_for_hidden(
+            model,
+            locality_hidden,
+            device=device,
+            batch_size=args.utility_eval_batch_size,
+        )
+        locality_probabilities = learner.selected_base_probabilities(
+            output_layer,
+            selected_ids,
+            locality_hidden,
+            locality_logsumexp,
+            device=device,
+            batch_size=args.utility_eval_batch_size,
+        )
+        (
+            locality_train_indices,
+            locality_guard_indices,
+            locality_pool_report,
+        ) = learner.build_disjoint_token_conditioned_utility_pools(
+            selected_base_probabilities=locality_probabilities,
+            selected_ids=selected_ids,
+            topk_per_row=args.locality_token_topk_per_row,
+            uniform_prompt_count=args.locality_uniform_prompt_count,
+            split_seed=args.locality_pool_seed,
+        )
+        locality_train_hidden = locality_hidden.index_select(
+            0, locality_train_indices.to(locality_hidden.device)
+        ).contiguous()
+        locality_train_probabilities = locality_probabilities.index_select(
+            0, locality_train_indices
+        ).contiguous().to(device)
+        locality_guard_hidden = locality_hidden.index_select(
+            0, locality_guard_indices.to(locality_hidden.device)
+        ).contiguous().cpu()
+        locality_guard_probabilities = locality_probabilities.index_select(
+            0, locality_guard_indices
+        ).contiguous()
+        locality_pool_report.update(
+            {
+                "role": "external_wikipedia_subject_locality",
+                "candidate_context_count": len(locality_context_records),
+                "generated_subject_GAGD_prompt_count": len(generated_contexts),
+                "official_paraphrases_seen": 0,
+                "official_neighborhoods_seen": 0,
+            }
+        )
+        core.write_json(
+            output_dir / "external_context_pool_report.json", locality_pool_report
+        )
+
     base_true_logits = learner.cache_logits_preserving_dtype(
         model, tok, true_cases, device, args.cache_batch_size
     )
@@ -380,10 +652,9 @@ def main() -> None:
     base_true_nll = exact.exact_sequence_record_nll(true_cache, zero).detach()
     base_reference_nll = exact.exact_sequence_record_nll(reference_cache, zero).detach()
     masks = joint.prompt_kind_masks(prompt_records, device=device)
-    base_report = direct_materialized_report(
+    base_report = materialized_training_prompt_report(
         model,
         tok,
-        training_records,
         prompt_records,
         device,
         llama_like=llama_like,
@@ -416,6 +687,8 @@ def main() -> None:
         utility_train_probabilities,
         output_dir,
         device=device,
+        locality_hidden=locality_train_hidden,
+        locality_probabilities=locality_train_probabilities,
     )
     stage1_delta, stage1_selected, stage1_reports = joint.choose_stage1_delta(
         args,
@@ -427,11 +700,22 @@ def main() -> None:
         utility_guard_hidden,
         utility_guard_probabilities,
         device=device,
+        locality_hidden=locality_guard_hidden,
+        locality_probabilities=locality_guard_probabilities,
     )
     stage1_selected["selection_mode"] = (
-        "direct_only_stage1_complete"
+        (
+            "generated_subject_stage1_complete"
+            if augmented
+            else "direct_only_stage1_complete"
+        )
         if int(stage1_selected["direct_margin_failures"]) == 0
-        else "direct_only_stage1_residual_handoff"
+        and int(stage1_selected.get("generated_subject_margin_failures", 0)) == 0
+        else (
+            "generated_subject_stage1_residual_handoff"
+            if augmented
+            else "direct_only_stage1_residual_handoff"
+        )
     )
     torch.save(
         {"row_ids": selected_ids, "delta": stage1_delta.detach().cpu()},
@@ -446,10 +730,9 @@ def main() -> None:
         actual_stage1_delta = learner.actual_selected_delta(
             output_layer, selected_ids, base_rows
         )
-        stage1_materialized = direct_materialized_report(
+        stage1_materialized = materialized_training_prompt_report(
             model,
             tok,
-            training_records,
             prompt_records,
             device,
             llama_like=llama_like,
@@ -463,6 +746,15 @@ def main() -> None:
         args,
         device=device,
     )
+    if locality_guard_hidden is not None:
+        joint.add_locality_report(
+            stage1_materialized,
+            actual_stage1_delta,
+            locality_guard_hidden,
+            locality_guard_probabilities,
+            args,
+            device=device,
+        )
     core.write_json(output_dir / "stage1_materialized_report.json", stage1_materialized)
 
     final_delta: torch.Tensor | None = None
@@ -470,7 +762,11 @@ def main() -> None:
     if direct_candidate_feasible(stage1_materialized):
         final_delta = actual_stage1_delta
         selected_metadata = {
-            "selection_mode": "direct_only_stage1_materialized_FS100",
+            "selection_mode": (
+                "generated_subject_stage1_materialized_FS100"
+                if augmented
+                else "direct_only_stage1_materialized_FS100"
+            ),
             "stage1": stage1_materialized,
         }
     else:
@@ -479,8 +775,8 @@ def main() -> None:
             core.write_json(
                 output_dir / "infeasible.json",
                 {
-                    "method": METHOD,
-                    "protocol": PROTOCOL,
+                    "method": method,
+                    "protocol": experiment_protocol,
                     "stage1": stage1_materialized,
                     "reason": (
                         "Stage 1 met every direct FS margin but failed a utility "
@@ -539,6 +835,8 @@ def main() -> None:
                     prompt_records=prompt_records,
                     utility_hidden=utility_train_hidden,
                     utility_probabilities=utility_train_probabilities,
+                    locality_hidden=locality_train_hidden,
+                    locality_probabilities=locality_train_probabilities,
                 )
                 solver_report["selection_mode"] = (
                     "minimum_utility_exact_direct_FS_feasible"
@@ -561,8 +859,8 @@ def main() -> None:
                         "feasible": False,
                         "materialization_skipped": True,
                         "skip_reason": (
-                            "continuous candidate failed a direct, Wikipedia, "
-                            "or sparse-norm hard constraint"
+                            "continuous candidate failed a behavioral, Wikipedia, "
+                            "external-locality, or sparse-norm hard constraint"
                         ),
                         "continuous_FS": solver_report["FS"],
                         "continuous_minimum_direct_separation": solver_report[
@@ -579,10 +877,9 @@ def main() -> None:
                         actual_combined = learner.actual_selected_delta(
                             output_layer, selected_ids, base_rows
                         )
-                        materialized = direct_materialized_report(
+                        materialized = materialized_training_prompt_report(
                             model,
                             tok,
-                            training_records,
                             prompt_records,
                             device,
                             llama_like=llama_like,
@@ -596,6 +893,15 @@ def main() -> None:
                         args,
                         device=device,
                     )
+                    if locality_guard_hidden is not None:
+                        joint.add_locality_report(
+                            materialized,
+                            actual_combined,
+                            locality_guard_hidden,
+                            locality_guard_probabilities,
+                            args,
+                            device=device,
+                        )
                     materialized.update(
                         {
                             "rank": rank,
@@ -639,8 +945,8 @@ def main() -> None:
             core.write_json(
                 output_dir / "infeasible.json",
                 {
-                    "method": METHOD,
-                    "protocol": PROTOCOL,
+                    "method": method,
+                    "protocol": experiment_protocol,
                     "stage1": stage1_materialized,
                     "active_row_ids": active_ids,
                     "stage2_attempts": attempts,
@@ -651,7 +957,7 @@ def main() -> None:
                 },
             )
             raise RuntimeError(
-                "target-aware direct-only v8 found no BF16-safe FS=100 checkpoint"
+                f"{experiment_protocol} found no BF16-safe FS=100 checkpoint"
             )
         final_delta = chosen["delta"]
         selected_metadata = {
@@ -668,10 +974,9 @@ def main() -> None:
     actual_final_delta = learner.actual_selected_delta(
         output_layer, selected_ids, base_rows
     )
-    final_report = direct_materialized_report(
+    final_report = materialized_training_prompt_report(
         model,
         tok,
-        training_records,
         prompt_records,
         device,
         llama_like=llama_like,
@@ -685,6 +990,15 @@ def main() -> None:
         args,
         device=device,
     )
+    if locality_guard_hidden is not None:
+        joint.add_locality_report(
+            final_report,
+            actual_final_delta,
+            locality_guard_hidden,
+            locality_guard_probabilities,
+            args,
+            device=device,
+        )
     if not direct_candidate_feasible(final_report):
         raise RuntimeError(
             "final materialized checkpoint failed the direct FS guarantee"
@@ -697,14 +1011,21 @@ def main() -> None:
     )
     core.write_json(output_dir / "final_direct_FS_report.json", final_report)
     architecture = {
-        "method": METHOD,
-        "protocol": PROTOCOL,
+        "method": method,
+        "protocol": experiment_protocol,
+        "split_protocol": PROTOCOL,
         "target_aware": True,
         "benchmark_neutral": False,
-        "training_prompt_scope": "direct_only",
+        "training_prompt_scope": (
+            "direct_plus_generated_subject" if augmented else "direct_only"
+        ),
         "editable_parameters": "union_target_true_target_new_lm_head_rows_only",
         "target_true_used_for_bounded_GA": True,
         "target_new_used_for_bounded_GD": True,
+        "generated_subject_contexts_used_for_bounded_GA_GD": augmented,
+        "generated_subject_context_count": len(generated_contexts),
+        "external_wikipedia_locality_contexts_used": augmented,
+        "external_wikipedia_locality_context_count": len(locality_context_records),
         "official_paraphrases_used_for_training": False,
         "official_paraphrases_used_for_checkpoint_selection": False,
         "GFS_checkpoint_selection": False,
@@ -714,6 +1035,7 @@ def main() -> None:
         "ppl_text_used": False,
         "required_materialized_FS": 100.0,
         "required_materialized_GFS": None,
+        "required_generated_subject_FS": 100.0 if augmented else None,
         "required_pairwise_margin": float(args.required_pairwise_margin),
         "stage2_solver_margins": list(solver_margins),
         "stage2_rank_ladder": list(rank_ladder),
@@ -723,6 +1045,15 @@ def main() -> None:
             "max": float(args.utility_kl_max_budget),
             "total_delta_norm": float(args.max_total_delta_norm),
         },
+        "external_locality_guard_budgets": (
+            {
+                "mean": float(args.locality_kl_mean_budget),
+                "p95": float(args.locality_kl_p95_budget),
+                "max": float(args.locality_kl_max_budget),
+            }
+            if augmented
+            else None
+        ),
     }
     core.write_json(
         output_dir / "config_used.json",
@@ -743,9 +1074,28 @@ def main() -> None:
             "final": final_report,
             "utility_cache": str(Path(args.utility_cache).resolve()),
             "utility_cache_metadata": utility_metadata,
+            "external_contexts": (
+                None if not augmented else str(Path(args.external_contexts).resolve())
+            ),
+            "external_contexts_sha256": (
+                None
+                if not augmented
+                else joint.sha256_bytes(Path(args.external_contexts).read_bytes())
+            ),
+            "external_context_metadata": (
+                None
+                if external_context_metadata is None
+                else {
+                    "protocol": external_context_metadata.get("protocol"),
+                    "builder": external_context_metadata.get("builder"),
+                    "wikipedia": external_context_metadata.get("wikipedia"),
+                    "data_boundary": external_context_metadata.get("data_boundary"),
+                }
+            ),
+            "external_context_pool_report": locality_pool_report,
         },
     )
-    print("Target-aware direct-only SURE v8 complete:", output_dir)
+    print(f"{experiment_protocol} complete:", output_dir)
     print("Materialized direct FS:", final_report["FS"])
     print("Minimum direct separation:", final_report["minimum_direct_separation"])
     print("GFS: not evaluated or used before checkpoint save")
