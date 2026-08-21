@@ -13,8 +13,12 @@ Common mechanics:
   * materialize only selected output rows and freeze the checkpoint.
 
 Only the benchmark direct constraint differs:
-  * MCF: NLL(target_new)-NLL(target_true) >= constraint_margin.
+  * MCF: NLL(sensitive)-NLL(reference) >= constraint_margin.
   * ZsRE: sensitive token must lose top-1 by constraint_margin.
+
+Historical MCF runs default to ``target_new`` sensitive and ``target_true``
+reference. Explicit field arguments allow target-true-sensitive MCF runs to use
+the original unswapped benchmark records.
 """
 from __future__ import annotations
 
@@ -41,6 +45,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", required=True)
     p.add_argument("--seed", type=int, required=True)
     p.add_argument("--forget-num", type=int, default=50)
+    p.add_argument(
+        "--mcf-sensitive-field",
+        choices=("target_true", "target_new"),
+        default="target_new",
+        help="MCF answer field whose NLL must be increased",
+    )
+    p.add_argument(
+        "--mcf-reference-field",
+        choices=("target_true", "target_new"),
+        default="target_true",
+        help="MCF non-sensitive answer field that must outrank the sensitive field",
+    )
     p.add_argument("--candidate-ranks", default="2,8,0", help="0 means unrestricted full selected-row delta")
     p.add_argument("--repair-steps", type=int, default=800)
     p.add_argument("--repair-lr", type=float, default=5e-3)
@@ -109,6 +125,15 @@ def _candidate_key(report: Dict[str, Any], order: int) -> Tuple[int, int, float]
     return (int(report["direct_failures"]), int(order), float(report["delta_norm"]))
 
 
+def resolve_mcf_fields(sensitive_field: str, reference_field: str) -> Tuple[str, str]:
+    allowed = {"target_true", "target_new"}
+    if sensitive_field not in allowed or reference_field not in allowed:
+        raise ValueError("MCF fields must be target_true or target_new")
+    if sensitive_field == reference_field:
+        raise ValueError("MCF sensitive and reference fields must differ")
+    return sensitive_field, reference_field
+
+
 def mcf_instances(records: Sequence[Mapping[str, Any]]) -> List[mcf_repair.MCFPromptInstance]:
     instances: List[mcf_repair.MCFPromptInstance] = []
     for position, record in enumerate(records):
@@ -136,7 +161,12 @@ def mcf_direct_margins(
     device,
     llama_like,
     batch_size,
+    sensitive_field: str = "target_new",
+    reference_field: str = "target_true",
 ) -> torch.Tensor:
+    sensitive_field, reference_field = resolve_mcf_fields(
+        sensitive_field, reference_field
+    )
     values: List[torch.Tensor] = []
     for start in range(0, len(instances), batch_size):
         new_nll, true_nll = mcf_repair.official_prompt_instance_nll_tensors(
@@ -146,14 +176,22 @@ def mcf_direct_margins(
             device,
             llama_like,
         )
-        values.append((new_nll - true_nll).float())
+        nll = {"target_new": new_nll, "target_true": true_nll}
+        values.append((nll[sensitive_field] - nll[reference_field]).float())
     return torch.cat(values, dim=0) if values else torch.empty(0, device=device)
 
 
-def mcf_sensitive_rows(tok, instances, active_positions) -> List[int]:
+def mcf_sensitive_rows(
+    tok,
+    instances,
+    active_positions,
+    sensitive_field: str = "target_new",
+) -> List[int]:
+    if sensitive_field not in {"target_true", "target_new"}:
+        raise ValueError("MCF sensitive field must be target_true or target_new")
     selected: set[int] = set()
     for position in active_positions:
-        text = gagd.normalize_answer(instances[position].target_new)
+        text = gagd.normalize_answer(getattr(instances[position], sensitive_field))
         selected.update(gagd.token_ids_for_text(tok, text))
     selected -= gagd.special_token_ids(tok)
     return sorted(int(x) for x in selected)
@@ -172,6 +210,8 @@ def optimize_mcf_candidate(
     repair_l2: float,
     check_every: int,
     order: int,
+    sensitive_field: str = "target_new",
+    reference_field: str = "target_true",
 ):
     basis, actual_rank = _rank_basis(active_hidden, rank)
     delta_module = core.SelectedRowDelta(
@@ -189,7 +229,12 @@ def optimize_mcf_candidate(
     for step in range(1, repair_steps + 1):
         opt.zero_grad(set_to_none=True)
         delta = delta_module.effective_delta()
-        margins = mcf_repair.margins_from_delta_caches(caches, delta)
+        margins = mcf_margins_from_delta_caches(
+            caches,
+            delta,
+            sensitive_field=sensitive_field,
+            reference_field=reference_field,
+        )
         hinge = F.relu(float(required_margin) - margins).square().mean()
         l2 = delta.square().mean()
         loss = hinge + repair_l2 * l2
@@ -202,7 +247,12 @@ def optimize_mcf_candidate(
         if step == 1 or step % check_every == 0 or step == repair_steps:
             with torch.no_grad():
                 current = delta_module.effective_delta()
-                current_margins = mcf_repair.margins_from_delta_caches(caches, current)
+                current_margins = mcf_margins_from_delta_caches(
+                    caches,
+                    current,
+                    sensitive_field=sensitive_field,
+                    reference_field=reference_field,
+                )
                 failures = int((current_margins < required_margin).sum().item())
                 row = {
                     "step": step,
@@ -223,7 +273,12 @@ def optimize_mcf_candidate(
                     break
     del opt
     with torch.no_grad():
-        final_margins = mcf_repair.margins_from_delta_caches(caches, best_delta)
+        final_margins = mcf_margins_from_delta_caches(
+            caches,
+            best_delta,
+            sensitive_field=sensitive_field,
+            reference_field=reference_field,
+        )
     report = {
         "requested_rank": int(rank),
         "actual_rank": int(actual_rank) if rank > 0 else None,
@@ -237,6 +292,31 @@ def optimize_mcf_candidate(
         "logs": logs,
     }
     return report, best_delta
+
+
+def mcf_margins_from_delta_caches(
+    caches,
+    delta_rows: torch.Tensor,
+    *,
+    sensitive_field: str = "target_new",
+    reference_field: str = "target_true",
+) -> torch.Tensor:
+    """Return positive margins when the MCF sensitive answer is disfavored."""
+
+    sensitive_field, reference_field = resolve_mcf_fields(
+        sensitive_field, reference_field
+    )
+    return torch.stack(
+        [
+            mcf_repair.answer_nll_from_delta_cache(
+                getattr(cache, sensitive_field), delta_rows
+            )
+            - mcf_repair.answer_nll_from_delta_cache(
+                getattr(cache, reference_field), delta_rows
+            )
+            for cache in caches
+        ]
+    )
 
 
 def zsre_flags(model, tok, cases, llama_like, device, batch_size) -> List[bool]:
@@ -356,6 +436,12 @@ def main() -> None:
         raise ValueError("batch-size and check-every must be positive")
     if a.constraint_margin < 0 or a.repair_l2 < 0:
         raise ValueError("constraint margin and repair L2 must be non-negative")
+    if a.dataset == "mcf":
+        mcf_sensitive_field, mcf_reference_field = resolve_mcf_fields(
+            a.mcf_sensitive_field, a.mcf_reference_field
+        )
+    else:
+        mcf_sensitive_field, mcf_reference_field = "target_true", "target_new"
 
     gagd.set_seed(a.seed)
     if a.device_map == "single":
@@ -398,14 +484,23 @@ def main() -> None:
         instances = mcf_instances(records)
         direct_total = len(instances)
         original_margins = mcf_direct_margins(
-            model, tok, instances, device, llama_like, a.batch_size
+            model,
+            tok,
+            instances,
+            device,
+            llama_like,
+            a.batch_size,
+            mcf_sensitive_field,
+            mcf_reference_field,
         )
         active_positions = [
             i for i, value in enumerate(original_margins.detach().cpu().tolist())
             if float(value) < a.constraint_margin
         ]
         active_before = len(active_positions)
-        selected_ids = mcf_sensitive_rows(tok, instances, active_positions)
+        selected_ids = mcf_sensitive_rows(
+            tok, instances, active_positions, mcf_sensitive_field
+        )
 
         if selected_ids:
             caches = mcf_repair.build_prompt_instance_delta_caches(
@@ -432,6 +527,8 @@ def main() -> None:
                     repair_l2=a.repair_l2,
                     check_every=a.check_every,
                     order=order,
+                    sensitive_field=mcf_sensitive_field,
+                    reference_field=mcf_reference_field,
                 )
                 candidate_reports.append(report)
                 candidate_deltas.append(delta)
@@ -444,8 +541,11 @@ def main() -> None:
                 key=lambda i: _candidate_key(candidate_reports[i], i),
             )
             chosen_delta = candidate_deltas[chosen_index]
-            margin_fn = lambda scale: mcf_repair.margins_from_delta_caches(
-                caches, chosen_delta * float(scale)
+            margin_fn = lambda scale: mcf_margins_from_delta_caches(
+                caches,
+                chosen_delta * float(scale),
+                sensitive_field=mcf_sensitive_field,
+                reference_field=mcf_reference_field,
             )
             scale_reports: List[Dict[str, Any]] = []
             for scale in scales:
@@ -462,7 +562,14 @@ def main() -> None:
             final_delta = chosen_delta * selected_scale
             core.materialize_output_delta(output_layer, selected_ids, final_delta)
             final_margins = mcf_direct_margins(
-                model, tok, instances, device, llama_like, a.batch_size
+                model,
+                tok,
+                instances,
+                device,
+                llama_like,
+                a.batch_size,
+                mcf_sensitive_field,
+                mcf_reference_field,
             )
             final_failures = int((final_margins < a.constraint_margin).sum().item())
         else:
@@ -578,7 +685,14 @@ def main() -> None:
         "active_after": int(final_failures),
         "constraint_margin": float(a.constraint_margin),
         "selected_rows_semantics": "sensitive_answer_rows_only",
-        "sensitive_answer_field": core.sensitive_answer_field(a.dataset),
+        "sensitive_answer_field": (
+            mcf_sensitive_field
+            if a.dataset == "mcf"
+            else core.sensitive_answer_field(a.dataset)
+        ),
+        "reference_answer_field": (
+            mcf_reference_field if a.dataset == "mcf" else None
+        ),
         "selected_lm_head_rows": len(selected_ids),
         "selected_token_ids": selected_ids,
         "transformer_trainable": 0,

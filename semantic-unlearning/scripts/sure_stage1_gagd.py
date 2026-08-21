@@ -9,9 +9,10 @@ Both benchmarks use exactly the same mechanics:
   * tied input/output vocabulary matrix trainable;
   * full base restoration followed by reapplication of sensitive rows only.
 
-The benchmark adapter only defines which answer is sensitive:
-  * MCF  -> target_new
-  * ZsRE -> target_true
+The benchmark adapter only defines which answer is sensitive. Historical
+defaults remain MCF ``target_new`` and ZsRE ``target_true``; callers may pass
+``--sensitive-field`` to make the target contract explicit without rewriting
+the input data.
 """
 from __future__ import annotations
 
@@ -38,6 +39,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", required=True)
     p.add_argument("--seed", type=int, required=True)
     p.add_argument("--forget-num", type=int, default=50)
+    p.add_argument(
+        "--sensitive-field",
+        choices=("target_true", "target_new"),
+        default=None,
+        help=(
+            "Explicit sensitive answer field. By default the historical "
+            "dataset adapter is used (MCF target_new, ZsRE target_true)."
+        ),
+    )
     p.add_argument("--steps", type=int, default=600)
     p.add_argument("--batch-size", type=int, default=1)
     p.add_argument("--cache-batch-size", type=int, default=8)
@@ -57,6 +67,7 @@ def _validate_locked_records(
     manifest_path: Path,
     seed: int,
     forget_num: int,
+    sensitive_field: str | None = None,
 ):
     records = json.loads(visible_path.read_text(encoding="utf-8"))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -72,7 +83,9 @@ def _validate_locked_records(
     if expected_ids and actual_ids != expected_ids:
         raise RuntimeError("Training-visible IDs do not match split manifest")
 
-    sensitive_field = core.sensitive_answer_field(dataset)
+    sensitive_field = sensitive_field or core.sensitive_answer_field(dataset)
+    if dataset == "zsre" and sensitive_field != "target_true":
+        raise RuntimeError("Canonical ZsRE Stage 1 requires target_true sensitive")
     for index, record in enumerate(records):
         if record.get("paraphrase_prompts") or record.get("neighborhood_prompts"):
             raise RuntimeError(f"Record {index} exposes held-out probes")
@@ -100,8 +113,14 @@ def main() -> None:
 
     visible_path = Path(a.training_visible_path).resolve()
     manifest_path = Path(a.split_manifest).resolve()
+    sensitive_field = a.sensitive_field or core.sensitive_answer_field(a.dataset)
     records, manifest = _validate_locked_records(
-        a.dataset, visible_path, manifest_path, a.seed, a.forget_num
+        a.dataset,
+        visible_path,
+        manifest_path,
+        a.seed,
+        a.forget_num,
+        sensitive_field,
     )
 
     ns = argparse.Namespace(
@@ -116,7 +135,10 @@ def main() -> None:
     device = gagd.first_device(model)
     llama_like = is_llama_like(model, tok)
     cases = core.expand_sensitive_cases(
-        records, tok, dataset=a.dataset, llama_like=llama_like
+        records,
+        tok,
+        sensitive_field=sensitive_field,
+        llama_like=llama_like,
     )
     if not cases:
         raise RuntimeError("No sensitive PredictionCases were created")
@@ -216,7 +238,7 @@ def main() -> None:
         "split_manifest": str(manifest_path),
         "seed": int(a.seed),
         "forget_num": int(a.forget_num),
-        "sensitive_answer_field": core.sensitive_answer_field(a.dataset),
+        "sensitive_answer_field": sensitive_field,
         "prediction_case_count": len(cases),
         "teacher_forcing": True,
         "benchmark_retain_seen": 0,
