@@ -637,6 +637,11 @@ def main():
     ap.add_argument("--dtype", default="bfloat16")
     ap.add_argument("--device-map", default="auto")
     ap.add_argument("--skip-ppl", action="store_true")
+    ap.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Write the result JSON without printing the full payload to stdout",
+    )
     ap.add_argument("--max-forget-eff", type=float, default=None)
     ap.add_argument("--max-forget-gen", type=float, default=None)
     ap.add_argument("--min-forget-margin", type=float, default=None)
@@ -696,7 +701,8 @@ def main():
         )
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
-    print(json.dumps(result, indent=2))
+    if not args.quiet:
+        print(json.dumps(result, indent=2))
     if (
         args.fail_if_gate_missed
         and not result["post_reload_acceptance"]["passed"]
