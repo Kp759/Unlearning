@@ -22,7 +22,6 @@ generator_receipt="${corpus_dir}/generator_receipt.json"
 output_root="${RWKU_HR_W1K_OUTPUT_ROOT:-outputs/rwku_hr_w1k}"
 cache_root="${RWKU_H_W1K_CACHE_ROOT:-outputs/sure_wikipedia_stats/real_wikipedia}"
 rwku_data_root="${RWKU_DATA_ROOT:-data/rwku}"
-wikidata_dir="${WIKIDATA_DIR:-${real_wikipedia_dir}}"
 model_tag="$(basename "${model}")"
 utility_cache="${RWKU_H_W1K_UTILITY_CACHE:-${cache_root}/${model_tag}_rwku_stephen_king_excluded_docs1000_candidates100000_v1.pt}"
 run_dir="${output_root}/${experiment_id}"
@@ -52,6 +51,8 @@ elif [[ "${RWKU_NO_DOWNLOAD:-0}" != "0" ]]; then
   exit 2
 fi
 
+# Prepare a fresh v2 experiment identity. This records only immutable target-only
+# bundle identities; official RWKU rows remain locked.
 "${python_bin}" scripts/rwku_experiment.py \
   --seed 0 \
   --stage prepare \
@@ -64,6 +65,8 @@ fi
   --generator-receipt "${generator_receipt}" \
   "${download_args[@]}"
 
+# Development-only continuation from the failed v1 Stage-1 sparse-head delta.
+# The learner has no official RWKU data-root/probe argument.
 "${python_bin}" scripts/rwku_sure_repr_rescue_w1k.py \
   --model-path "${model}" \
   --training-bundle "${training_bundle}" \
@@ -75,17 +78,8 @@ fi
   --experiment-id "${experiment_id}" \
   --configuration "${configuration}"
 
-"${python_bin}" scripts/rwku_experiment.py \
-  --seed 0 \
-  --stage evaluate \
-  --training-source target_only_generated_entity_corpus \
-  --experiment-id "${experiment_id}" \
-  --model-path "${model}" \
-  --output-root "${output_root}" \
-  --data-root "${rwku_data_root}" \
-  --wikidata-dir "${wikidata_dir}" \
-  --dtype bf16 \
-  --eval-batch-size "${RWKU_EVAL_BATCH_SIZE:-4}" \
-  "${download_args[@]}"
-
-echo "RWKU-H+R-W1K Stephen King representation-rescue run complete: ${run_dir}"
+# Deliberately STOP after CHECKPOINT_FROZEN. Official RWKU evaluation is a
+# one-way transition and must be invoked separately after inspecting the v2
+# training/utility reports.
+echo "RWKU-H+R-W1K representation-rescue checkpoint frozen: ${run_dir}"
+echo "Official RWKU evaluation remains CLOSED. Inspect the reports before evaluating."
