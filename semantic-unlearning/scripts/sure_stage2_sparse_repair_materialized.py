@@ -20,9 +20,10 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import shutil
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence
 
 import torch
 
@@ -53,18 +54,11 @@ def solver_margin_ladder(initial: float, retry: float) -> List[float]:
 
 
 def choose_buffered_scale(
-    reports: Sequence[Dict[str, Any]],
-    guard_margin: float,
+    reports: Sequence[Dict[str, Any]], guard_margin: float,
     *,
-    fallback_choose_scale: Callable[[Sequence[Dict[str, Any]]], float] | None = None,
+    fallback_chooser=None,
 ) -> float:
-    """Choose smallest zero-failure scale with a margin buffer when available.
-
-    ``fallback_choose_scale`` must be the canonical chooser captured before any
-    temporary monkey patch.  Passing it explicitly prevents recursion when no
-    zero-failure scale exists and ``shared.core.choose_scale`` is currently
-    patched to this buffered chooser.
-    """
+    """Choose smallest zero-failure scale with a margin buffer when available."""
     guarded = [
         float(report["scale"])
         for report in reports
@@ -89,8 +83,19 @@ def choose_buffered_scale(
         )
         return float(best["scale"])
 
-    chooser = fallback_choose_scale or shared.core.choose_scale
-    return chooser(reports)
+    if fallback_chooser is not None:
+        return float(fallback_chooser(reports))
+    # This public helper may also be used outside the monkey-patched run path.
+    # Implement the canonical fallback directly to avoid accidental recursion if
+    # shared.core.choose_scale has already been patched by a caller.
+    best = min(
+        reports,
+        key=lambda report: (
+            int(report.get("direct_failures", 1)),
+            float(report["scale"]),
+        ),
+    )
+    return float(best["scale"])
 
 
 def _output_dir_from_args(stage_args: argparse.Namespace) -> Path:
@@ -168,7 +173,7 @@ def _run_shared_once(
             return choose_buffered_scale(
                 reports,
                 float(guard_margin),
-                fallback_choose_scale=old_choose_scale,
+                fallback_chooser=old_choose_scale,
             )
         return old_choose_scale(reports)
 
@@ -272,6 +277,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     if not accepted:
+        # A rejected checkpoint must never remain discoverable as though it were
+        # a valid final model.  Keep all JSON diagnostics but delete model bytes.
+        rejected_checkpoint = output_dir / "checkpoint"
+        if rejected_checkpoint.exists():
+            shutil.rmtree(rejected_checkpoint)
         raise RuntimeError(
             "No materialized BF16 checkpoint achieved zero direct failures at "
             f"the final margin {final_stage_args.constraint_margin}. "
