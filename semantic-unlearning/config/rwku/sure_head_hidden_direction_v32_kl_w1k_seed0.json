@@ -13,9 +13,15 @@
   "hidden_direction": {
     "objective": "answer_level_frozen_base_head_sensitive_vs_neutral_plus_exact_utility_kl",
     "sensitive_view_scope": "all_generated_atomic_views",
-    "rank_ladder": [1, 2, 4],
+    "rank_ladder": [
+      1,
+      2,
+      4
+    ],
     "last_n_layers": 1,
-    "target_modules": ["down_proj"],
+    "target_modules": [
+      "down_proj"
+    ],
     "steps": 300,
     "learning_rate": 0.0005,
     "weight_decay": 0.0,
@@ -31,9 +37,15 @@
     "edited_head_answer_weight": 2.0,
     "utility_hidden_weight": 2.0,
     "utility_kl_weight": 50.0,
-    "utility_kl_batch_size": 16,
+    "utility_kl_batch_size": 4,
     "adapter_l2_weight": 0.0001,
-    "candidate_scales": [0.125, 0.25, 0.5, 0.75, 1.0],
+    "candidate_scales": [
+      0.125,
+      0.25,
+      0.5,
+      0.75,
+      1.0
+    ],
     "utility_train_prompt_count": 1000,
     "utility_gate_prompt_count": 1000,
     "utility_context_batch_size": 4,
