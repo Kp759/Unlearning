@@ -11,7 +11,8 @@ DTYPE="${DTYPE:-bf16}"; DEVICE_MAP="${DEVICE_MAP:-single}"
 STAGE1_STEPS="${SURE_STAGE1_STEPS:-600}"; STAGE1_LR="${SURE_STAGE1_LR:-0.0001}"
 STAGE1_BATCH="${SURE_STAGE1_BATCH_SIZE:-1}"; CACHE_BATCH="${SURE_CACHE_BATCH_SIZE:-8}"
 STAGE2_STEPS="${SURE_STAGE2_STEPS:-800}"; STAGE2_LR="${SURE_STAGE2_LR:-0.0005}"
-STAGE2_BATCH="${SURE_STAGE2_BATCH_SIZE:-8}"; CHECK_EVERY="${SURE_CHECK_EVERY:-25}"
+STAGE2_BATCH="${SURE_STAGE2_BATCH_SIZE:-8}"; PROTECTION_BATCH="${SURE_STAGE2_PROTECTION_BATCH_SIZE:-16}"
+CHECK_EVERY="${SURE_CHECK_EVERY:-25}"
 LAMBDA_F="${SURE_LAMBDA_F:-2.0}"; LAMBDA_P="${SURE_LAMBDA_P:-1.0}"
 MARGIN="${MQUAKE_SURE_CONSTRAINT_MARGIN:-0.05}"; MAX_PKL="${SURE_MAX_PROTECTED_KL:-0.05}"
 EVAL_BATCH="${MQUAKE_EVAL_BATCH_SIZE:-8}"; RUN_ATOMIC_GEN="${MQUAKE_RUN_ATOMIC_GEN:-0}"
@@ -33,7 +34,7 @@ for SEED in "${SEEDS[@]}"; do
   DIRECT_COUNT="$(python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["sampling"]["forget_atomic_fact_count"])' "${MANIFEST}")"
 
   echo "===== LEVEL 1: DIRECTIONAL SURE (Delta E_A / Delta W_A; transformer frozen) ====="
-  python scripts/sure_stage1_gagd.py --dataset zsre --model-path "${MODEL}" \
+  python scripts/sure_stage1_gagd.py --dataset mquake --model-path "${MODEL}" \
     --training-visible-path "${VISIBLE}" --split-manifest "${MANIFEST}" --output-dir "${LEVEL1}" \
     --seed "${SEED}" --forget-num "${DIRECT_COUNT}" --steps "${STAGE1_STEPS}" \
     --batch-size "${STAGE1_BATCH}" --cache-batch-size "${CACHE_BATCH}" --emb-lm-lr "${STAGE1_LR}" \
@@ -44,8 +45,9 @@ for SEED in "${SEEDS[@]}"; do
   python scripts/mquake_sure_stage2_residual_gagd.py --model-path "${LEVEL1}/checkpoint" \
     --training-visible-path "${VISIBLE}" --split-manifest "${MANIFEST}" --output-dir "${LEVEL2}" \
     --seed "${SEED}" --forget-num "${DIRECT_COUNT}" --repair-steps "${STAGE2_STEPS}" \
-    --repair-lr "${STAGE2_LR}" --batch-size "${STAGE2_BATCH}" --cache-batch-size "${CACHE_BATCH}" \
-    --check-every "${CHECK_EVERY}" --lambda-f "${LAMBDA_F}" --lambda-p "${LAMBDA_P}" \
+    --repair-lr "${STAGE2_LR}" --batch-size "${STAGE2_BATCH}" --protection-batch-size "${PROTECTION_BATCH}" \
+    --cache-batch-size "${CACHE_BATCH}" --check-every "${CHECK_EVERY}" \
+    --lambda-f "${LAMBDA_F}" --lambda-p "${LAMBDA_P}" \
     --constraint-margin "${MARGIN}" --max-protected-kl "${MAX_PKL}" --dtype "${DTYPE}" --device-map "${DEVICE_MAP}"
 
   echo "===== FINAL OFFICIAL MQUAKE EVAL (POST-TRAINING ONLY) ====="
