@@ -1,0 +1,1 @@
+Run `python scripts/test_fp32_master_adamw.py` before launching the GPU experiment. Then use `bash scripts/run_rwku_sure_v35_fp32master.sh MODEL CORPUS WIKI SOURCE_RUN` with a fresh RWKU_V35_FP32_OUTPUT_ROOT.
