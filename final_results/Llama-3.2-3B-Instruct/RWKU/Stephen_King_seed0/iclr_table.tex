@@ -1,0 +1,26 @@
+% ICLR-style table for Llama-3.2-3B-Instruct / RWKU / Stephen King seed 0.
+% Requires: \usepackage{booktabs}, \usepackage{graphicx}
+\begin{table*}[t]
+\centering
+\caption{Stephen King post-hoc RWKU development result on Llama-3.2-3B-Instruct. Frozen-$W_0$ recovery measures whether the untouched base vocabulary readout still prefers the sensitive answer over the neutral answer. Lower recovery and KL are better; higher minimum margin is better. v3.2 held-out KL is measured on a disjoint 1K Wikipedia set that was opened only after candidate selection. The v3.2 candidate passes forgetting and held-out utility gates but exceeds the predeclared 1\% representation-intervention budget.}
+\label{tab:rwku-stephen-king-v32}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrrrl}
+\toprule
+Method & Recovery $\downarrow$ & Min. margin $\uparrow$ & Direct $\uparrow$ & Other $\uparrow$ & $\|\Delta W_{\mathrm{down}}\|_F/\|W_{\mathrm{down}}\|_F$ $\downarrow$ & KL mean $\downarrow$ & KL p95 $\downarrow$ & KL max $\downarrow$ & Status \\
+\midrule
+Base & 100.00\% & -18.8125 & -- & -- & 0.0000\% & 0 & 0 & 0 & Sensitive knowledge recoverable \\
+v3 token-direction & 26.04\% & -6.2500 & 100.0\% & 100.0\% & 1.6654\% & -- & -- & -- & Forgetting/norm fail \\
+v3.1 answer-level & \textbf{0.00\%} & \textbf{+0.6592} & \textbf{100.0\%} & \textbf{100.0\%} & \textbf{0.8502\%} & 0.058317 & 0.078253 & 5.236673 & Utility fail \\
+v3.2 + 1K KL & \textbf{0.00\%} & \textbf{+0.6961} & \textbf{100.0\%} & \textbf{100.0\%} & 1.4117\% & \textbf{0.000386} & \textbf{0.001657} & \textbf{0.036320} & Norm only fails \\
+\midrule
+Acceptance target & 0.00\% & $\geq +0.05$ & 100.0\% & 100.0\% & $\leq 1.00\%$ & $\leq 0.010$ & $\leq 0.050$ & $\leq 0.500$ & Fully feasible \\
+\bottomrule
+\end{tabular}%
+}
+\vspace{1mm}
+\begin{minipage}{0.99\textwidth}
+\footnotesize
+\textbf{Protocol note.} The v3.2 held-out 1K utility set was disjoint from the 1K optimization utility pool and was not used for training or candidate selection. It is now considered opened. The reported v3.2 candidate is therefore a diagnostic success for operational forgetting and held-out utility preservation, but is not labeled fully feasible because its physical final-layer \texttt{down\_proj} relative Frobenius change is 1.4117\%, above the predeclared 1\% budget. This setting is post-hoc development: official RWKU metrics had already been observed before v3.2 design.
+\end{minipage}
+\end{table*}
