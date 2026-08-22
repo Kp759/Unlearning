@@ -51,6 +51,18 @@ python scripts/rwku_directional_sure_v2.py \
   --output-root "$OUTPUT_ROOT" \
   --experiment-id "$EXPERIMENT_ID" \
   --configuration "$CONFIG" \
-  ${RWKU_DIRECTIONAL_SAVE_CHECKPOINT:+--save-checkpoint}
+  --save-checkpoint
 
-echo "RWKU Directional SURE v2 development run complete: $RUN"
+RESULT="$RUN/directional_sure_v2/result.json"
+[[ -f "$RESULT" ]] || { echo "Directional SURE v2 result missing: $RESULT" >&2; exit 1; }
+python - "$RESULT" <<'PY'
+import json, sys
+path=sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    result=json.load(f)
+print("Directional SURE v2 feasible:", result.get("feasible"))
+if result.get("feasible") is not True:
+    raise SystemExit(1)
+PY
+
+echo "RWKU Directional SURE v2 feasible development run complete: $RUN"
