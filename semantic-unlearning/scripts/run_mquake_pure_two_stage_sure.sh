@@ -16,7 +16,9 @@ LAMBDA_F="${SURE_LAMBDA_F:-2.0}"; LAMBDA_P="${SURE_LAMBDA_P:-1.0}"
 MARGIN="${MQUAKE_SURE_CONSTRAINT_MARGIN:-0.05}"; MAX_PKL="${SURE_MAX_PROTECTED_KL:-0.05}"
 EVAL_BATCH="${MQUAKE_EVAL_BATCH_SIZE:-8}"; RUN_ATOMIC_GEN="${MQUAKE_RUN_ATOMIC_GEN:-0}"
 read -r -a SEEDS <<< "${SEEDS_TEXT}"
-test -f "${MQUAKE}"; test -d "${WIKIDATA_DIR}"
+# Do not require the MQuAKE JSON to exist up front: the canonical split builder
+# uses the repository's pinned downloader when this path is missing.
+test -d "${WIKIDATA_DIR}"
 
 for SEED in "${SEEDS[@]}"; do
   ROOT="${OUTPUT_ROOT}/seed${SEED}"; PROTOCOL="${ROOT}/protocol"
