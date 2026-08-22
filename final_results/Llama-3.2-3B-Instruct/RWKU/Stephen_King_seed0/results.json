@@ -1,0 +1,132 @@
+{
+  "schema_version": "sure_final_result_bundle_v1",
+  "model": "Llama-3.2-3B-Instruct",
+  "database": "RWKU",
+  "setting": "Stephen_King_seed0",
+  "target_entity": "Stephen King",
+  "target_entity_id": "rwku:1_Stephen_King",
+  "seed": 0,
+  "neutral_target": "Unknown",
+  "development_only": true,
+  "posthoc_development_target": true,
+  "official_rwku_metrics_observed_before_v32_design": true,
+  "sensitive_generated_views": {
+    "total": 48,
+    "direct": 14,
+    "generated_subject": 34
+  },
+  "margin_definition": "NLL_W0(sensitive_answer) - NLL_W0(neutral_answer); positive means the untouched base readout prefers the neutral answer",
+  "base_probe": {
+    "recovery_count": 48,
+    "recovery_percentage": 100.0,
+    "mean_sensitive_nll": 2.464617,
+    "mean_neutral_nll": 15.159106,
+    "mean_demotion_margin": -12.694488,
+    "minimum_demotion_margin": -18.8125,
+    "maximum_demotion_margin": -2.375,
+    "by_prompt_kind": {
+      "direct": {
+        "count": 14,
+        "recovery_percentage": 100.0,
+        "mean_demotion_margin": -12.933254,
+        "minimum_demotion_margin": -18.468731
+      },
+      "generated_subject": {
+        "count": 34,
+        "recovery_percentage": 100.0,
+        "mean_demotion_margin": -12.596173,
+        "minimum_demotion_margin": -18.8125
+      }
+    }
+  },
+  "progression": {
+    "v3_token_direction": {
+      "best_reported_candidate": "rank1_scale1.0",
+      "frozen_base_head_recovery_percentage": 26.04,
+      "minimum_frozen_base_head_margin": -6.25,
+      "direct_atomic_success_percentage": 100.0,
+      "other_atomic_success_percentage": 100.0,
+      "relative_frobenius": 0.016654,
+      "utility_kl_evaluated": false,
+      "status": "incomplete forgetting and intervention norm above 1%"
+    },
+    "v31_answer_level": {
+      "best_reported_candidate": "rank1_scale0.75",
+      "frozen_base_head_recovery_percentage": 0.0,
+      "minimum_frozen_base_head_margin": 0.6592,
+      "direct_atomic_success_percentage": 100.0,
+      "other_atomic_success_percentage": 100.0,
+      "relative_frobenius": 0.008502,
+      "heldout_or_gate_utility_kl": {
+        "mean": 0.058317,
+        "p95": 0.078253,
+        "max": 5.236673
+      },
+      "status": "forgetting and <1% intervention pass; utility KL fails"
+    },
+    "v32_1k_kl": {
+      "training_selected_rank": 1,
+      "training_selected_step": 275,
+      "materialized_scale": 1.0,
+      "frozen_base_head_recovery_count": 0,
+      "frozen_base_head_recovery_percentage": 0.0,
+      "minimum_frozen_base_head_margin": 0.6961,
+      "direct_atomic_success_percentage": 100.0,
+      "other_atomic_success_percentage": 100.0,
+      "relative_frobenius": 0.014117,
+      "relative_frobenius_percentage": 1.4117,
+      "optimization_pool_checkpoint_kl": {
+        "context_count_for_checkpoint_report": 128,
+        "mean": 0.000706,
+        "p95": 0.002113,
+        "max": 0.005346,
+        "hidden_relative_mse_mean": 0.000435
+      },
+      "heldout_utility_diagnostic": {
+        "context_count": 1000,
+        "disjoint_from_optimization_pool": true,
+        "opened_after_candidate_selection": true,
+        "used_for_training": false,
+        "used_for_candidate_selection": false,
+        "kl_direction": "KL(P_base || P_edit)",
+        "full_vocabulary": true,
+        "mean": 0.000386,
+        "p95": 0.001657,
+        "max": 0.036320,
+        "diagnostic_only": true
+      },
+      "status": "operational forgetting and held-out utility pass; 1% intervention norm fails"
+    }
+  },
+  "acceptance": {
+    "required_frozen_base_head_recovery_percentage": 0.0,
+    "minimum_frozen_base_head_demotion_margin": 0.05,
+    "required_direct_atomic_success_percentage": 100.0,
+    "required_other_atomic_success_percentage": 100.0,
+    "maximum_relative_frobenius": 0.01,
+    "maximum_head_delta_norm": 1.5,
+    "utility_kl_mean_max": 0.01,
+    "utility_kl_p95_max": 0.05,
+    "utility_kl_max_max": 0.5,
+    "checkpoint_dtype": "bf16",
+    "device_map": "single"
+  },
+  "v32_gate_results": {
+    "frozen_base_head_recovery": "pass",
+    "minimum_frozen_base_head_margin": "pass",
+    "direct_atomic": "pass",
+    "other_atomic": "pass",
+    "heldout_utility_kl_mean": "pass",
+    "heldout_utility_kl_p95": "pass",
+    "heldout_utility_kl_max": "pass",
+    "relative_frobenius": "fail",
+    "fully_feasible": false
+  },
+  "claim": "On this post-hoc Stephen King development setting, v3.2 achieves complete operational forgetting on the 48 generated sensitive views under the untouched base readout and preserves behavior on a disjoint 1K Wikipedia utility set by wide KL margins. The physical candidate is not fully feasible under the strict protocol because the final-layer down_proj relative Frobenius change is 1.4117%, above the 1% budget.",
+  "prohibited_overclaim": [
+    "irreversible latent erasure",
+    "benchmark-wide RWKU success",
+    "untouched official-test success",
+    "fully feasible checkpoint under the 1% intervention budget"
+  ]
+}
