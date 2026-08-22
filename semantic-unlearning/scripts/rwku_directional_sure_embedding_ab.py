@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """Embedding-policy adapter for pure two-stage Directional SURE variants A/B.
 
-Variant A freezes input embeddings completely while retaining all-non-special
-sensitive LM-head rows and the existing directional GA->B_S / GD->B_P rule.
+Variant A keeps input embeddings exactly Base by forcing every sparse input-row
+update to zero, while retaining all-non-special sensitive LM-head rows and the
+existing directional GA->B_S / GD->B_P rule.
 
-Variant B trains only the existing locked content-sensitive answer-token input
-rows, while the LM head still trains every non-special sensitive answer row.
-Embedding gradients are ordinary weighted GA+GD; no hidden-space basis is
-applied directly to embedding gradients.
+Variant B permits input updates only on the existing locked content-sensitive
+answer-token rows, while the LM head still trains every non-special sensitive
+answer row. Embedding gradients are ordinary weighted GA+GD; no final-hidden
+basis is applied directly to embedding gradients.
+
+The sparse input master keeps the full sensitive-row shape required by the
+underlying two-stage learner, but an exact per-row gradient mask makes Variant A
+functionally frozen and makes Variant B update only its declared content-safe
+subset. With zero weight decay, masked rows remain exactly zero and therefore
+materialize back to exact Base.
 
 The underlying two-stage learner, utility budgets, data boundary, ranks, step
 counts, and Level-2 residual-repair logic are otherwise unchanged.
@@ -16,6 +23,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
+
+import torch
 
 import rwku_directional_sure_two_stage as two_stage
 import rwku_directional_sure_v2 as v2
@@ -46,7 +55,7 @@ def resolve_input_rows(
     output_rows: Sequence[int],
     content_rows: Sequence[int],
 ) -> List[int]:
-    """Return the controlled input-row policy for an A/B ablation."""
+    """Return the effective input rows allowed to move in an A/B ablation."""
     variant = str(variant).upper()
     output = sorted({int(x) for x in output_rows})
     content = sorted({int(x) for x in content_rows})
@@ -87,17 +96,19 @@ def _capturing_sensitive_row_selector(
     _CAPTURED_INPUT_AUDIT = {
         "variant": _ACTIVE_VARIANT,
         "policy": (
-            "input_embeddings_frozen"
+            "input_embeddings_exact_base_via_zero_update_mask"
             if _ACTIVE_VARIANT == VARIANT_A
             else "locked_content_sensitive_answer_rows_only"
         ),
-        "selected_input_row_count": len(input_rows),
-        "selected_input_row_ids": list(input_rows),
+        "effective_selected_input_row_count": len(input_rows),
+        "effective_selected_input_row_ids": list(input_rows),
+        "sparse_master_input_row_count": len(output_rows),
         "all_non_special_output_row_count": len(output_rows),
         "content_filter_candidate_row_count": len(content_rows),
         "content_filter_audit": content_audit,
         "embedding_gradient_directional_projection": False,
         "lm_head_all_non_special_sensitive_rows": True,
+        "masked_input_rows_must_remain_zero": True,
     }
     augmented = dict(output_audit)
     augmented["embedding_ablation"] = dict(_CAPTURED_INPUT_AUDIT)
@@ -105,7 +116,7 @@ def _capturing_sensitive_row_selector(
 
 
 class PolicySparseFP32RowDeltas(_ORIGINAL_SPARSE_CLASS):
-    """Use the A/B input policy while preserving all-sensitive output rows."""
+    """Full-shape sparse masters with an exact A/B input-gradient mask."""
 
     def __init__(
         self,
@@ -113,18 +124,37 @@ class PolicySparseFP32RowDeltas(_ORIGINAL_SPARSE_CLASS):
         selected_input_rows: Sequence[int],
         selected_output_rows: Sequence[int],
     ) -> None:
-        del selected_input_rows
         if _ACTIVE_VARIANT not in VALID_VARIANTS:
             raise RuntimeError("A/B embedding policy was not installed")
         if _CAPTURED_OUTPUT_ROWS is None or _CAPTURED_INPUT_ROWS is None:
             raise RuntimeError("Sensitive rows were not captured before sparse setup")
+
+        actual_input = tuple(sorted({int(x) for x in selected_input_rows}))
         actual_output = tuple(sorted({int(x) for x in selected_output_rows}))
-        if actual_output != tuple(sorted(_CAPTURED_OUTPUT_ROWS)):
-            raise RuntimeError("LM-head row set changed after A/B policy capture")
+        expected_output = tuple(sorted(_CAPTURED_OUTPUT_ROWS))
+        if actual_input != expected_output or actual_output != expected_output:
+            raise RuntimeError(
+                "Underlying two-stage learner changed its symmetric sparse-row setup"
+            )
+
+        # Keep full sensitive input-row shape so all existing Stage-2 residual
+        # row invariants remain valid. The effective A/B policy is enforced by
+        # an exact gradient mask below.
         super().__init__(
             model,
-            selected_input_rows=list(_CAPTURED_INPUT_ROWS),
-            selected_output_rows=list(_CAPTURED_OUTPUT_ROWS),
+            selected_input_rows=list(expected_output),
+            selected_output_rows=list(expected_output),
+        )
+        allowed = set(int(x) for x in _CAPTURED_INPUT_ROWS)
+        mask = torch.tensor(
+            [1.0 if int(row) in allowed else 0.0 for row in self.selected_input_rows],
+            dtype=self.input_delta.dtype,
+            device=self.input_delta.device,
+        ).unsqueeze(1)
+        self.register_buffer("embedding_policy_gradient_mask", mask)
+        self.effective_selected_input_rows = tuple(sorted(allowed))
+        self.input_delta.register_hook(
+            lambda grad: grad * self.embedding_policy_gradient_mask
         )
 
 
@@ -193,7 +223,12 @@ def load_variant_configuration(
         raise ValueError("A/B input embedding policy changed")
     if cfg.get("lm_head_row_policy") != "all_non_special_sensitive_answer_rows":
         raise ValueError("A/B LM-head row policy changed")
-    if cfg.get("embedding_gradient_policy") != "ordinary_weighted_GA_plus_GD_no_hidden_basis_projection":
+    expected_embedding_gradient_policy = (
+        "not_applicable_embeddings_frozen"
+        if variant == VARIANT_A
+        else "ordinary_weighted_GA_plus_GD_no_hidden_basis_projection"
+    )
+    if cfg.get("embedding_gradient_policy") != expected_embedding_gradient_policy:
         raise ValueError("A/B embedding gradient policy changed")
     if cfg.get("lm_head_gradient_policy") != "GA_to_sensitive_exclusive_basis_and_GD_to_protected_basis":
         raise ValueError("A/B LM-head gradient policy changed")
@@ -230,10 +265,9 @@ def install_variant(
         expected_experiment_id=str(experiment_id),
     )
 
-    # The base learner asks v2.1 for the LM-head row set. Capture both the full
-    # output set and the controlled input subset at exactly that point.
+    # Capture the full all-sensitive LM-head set plus the controlled effective
+    # input subset at the existing row-selection point.
     v21.all_non_special_sensitive_rows = _capturing_sensitive_row_selector
-    # The base learner still passes the full sensitive set to both arguments;
-    # this adapter substitutes the controlled input rows while preserving the
-    # all-sensitive LM-head rows.
+    # Preserve the learner's symmetric sparse-master shape, then enforce A/B
+    # through an exact rowwise gradient mask on the input delta only.
     sparse_rows.SparseFP32RowDeltas = PolicySparseFP32RowDeltas
