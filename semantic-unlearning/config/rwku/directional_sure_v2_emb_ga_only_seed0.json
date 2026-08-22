@@ -65,6 +65,6 @@
     "wikipedia_target_casefold_exclusion": "stephen king",
     "wikipedia_exclude_first_documents": 20,
     "basis_selection_fresh_gate_overlap_allowed": false,
-    "note": "One-factor post-hoc development ablation from Directional SURE v2. Content-sensitive row policy, LM-head GA/GD routing, ranks, learning rates, step count, utility gates, and data boundary are unchanged. Only embedding-side GD is removed. Official RWKU evaluation artifacts remain unavailable to this learner."
+    "note": "Stephen King seed0 remains post-hoc development. Basis refresh and checkpoint selection use only target-only generated atomic views and target-excluded external Wikipedia. Official RWKU evaluation artifacts are unavailable to this learner."
   }
 }
