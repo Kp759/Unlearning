@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Canonical SURE-LM Stage 1 for MCF and ZsRE.
+"""Canonical SURE-LM Stage 1 for MCF, ZsRE, and MQuAKE.
 
-Both benchmarks use exactly the same mechanics:
+All benchmarks use exactly the same mechanics:
   * direct forget prompts only;
   * teacher-forced sensitive-token GA;
   * same-prompt non-sensitive KL preservation to the frozen base distribution;
@@ -10,8 +10,9 @@ Both benchmarks use exactly the same mechanics:
   * full base restoration followed by reapplication of sensitive rows only.
 
 The benchmark adapter only defines which answer is sensitive:
-  * MCF  -> target_new
-  * ZsRE -> target_true
+  * MCF    -> target_new
+  * ZsRE   -> target_true
+  * MQuAKE -> target_true
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ import sure_canonical_core as core
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--dataset", choices=("mcf", "zsre"), required=True)
+    p.add_argument("--dataset", choices=("mcf", "zsre", "mquake"), required=True)
     p.add_argument("--model-path", required=True)
     p.add_argument("--training-visible-path", required=True)
     p.add_argument("--split-manifest", required=True)
@@ -49,6 +50,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
     p.add_argument("--device-map", choices=("single", "auto"), default="single")
     return p.parse_args()
+
+
+def _sensitive_answer_field(dataset: str) -> str:
+    return "target_true" if dataset == "mquake" else core.sensitive_answer_field(dataset)
 
 
 def _validate_locked_records(
@@ -72,7 +77,7 @@ def _validate_locked_records(
     if expected_ids and actual_ids != expected_ids:
         raise RuntimeError("Training-visible IDs do not match split manifest")
 
-    sensitive_field = core.sensitive_answer_field(dataset)
+    sensitive_field = _sensitive_answer_field(dataset)
     for index, record in enumerate(records):
         if record.get("paraphrase_prompts") or record.get("neighborhood_prompts"):
             raise RuntimeError(f"Record {index} exposes held-out probes")
@@ -82,8 +87,10 @@ def _validate_locked_records(
         block = rr.get(sensitive_field)
         if not isinstance(block, dict) or not block.get("str"):
             raise RuntimeError(f"Record {index} lacks sensitive {sensitive_field}")
-        if dataset == "zsre" and "target_new" in rr:
-            raise RuntimeError("Canonical ZsRE Stage 1 forbids target_new/neutral targets")
+        if dataset in ("zsre", "mquake") and "target_new" in rr:
+            raise RuntimeError(
+                f"Canonical {dataset} Stage 1 forbids target_new/neutral targets"
+            )
     return records, manifest
 
 
@@ -115,8 +122,9 @@ def main() -> None:
         tok.pad_token = tok.eos_token
     device = gagd.first_device(model)
     llama_like = is_llama_like(model, tok)
+    sensitive_field = _sensitive_answer_field(a.dataset)
     cases = core.expand_sensitive_cases(
-        records, tok, dataset=a.dataset, llama_like=llama_like
+        records, tok, sensitive_field=sensitive_field, llama_like=llama_like
     )
     if not cases:
         raise RuntimeError("No sensitive PredictionCases were created")
@@ -216,7 +224,7 @@ def main() -> None:
         "split_manifest": str(manifest_path),
         "seed": int(a.seed),
         "forget_num": int(a.forget_num),
-        "sensitive_answer_field": core.sensitive_answer_field(a.dataset),
+        "sensitive_answer_field": sensitive_field,
         "prediction_case_count": len(cases),
         "teacher_forcing": True,
         "benchmark_retain_seen": 0,
