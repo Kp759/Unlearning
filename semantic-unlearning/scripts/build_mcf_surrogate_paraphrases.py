@@ -6,7 +6,11 @@ probes. It reads only the locked training-visible records and split manifest. Th
 text-generation prompt receives only requested_rewrite.subject and the formatted
 requested_rewrite.prompt. Neither target_true nor target_new is supplied to the
 generator. After generation, the known training-visible answers are used only as
-rejection filters so a surrogate cannot accidentally contain either answer.
+rejection filters so a surrogate cannot accidentally introduce either answer.
+
+Important: if an answer string already occurs in the locked direct prompt, that
+baseline occurrence is not treated as leakage. A surrogate is rejected only if it
+introduces additional whole-token answer occurrences beyond the direct prompt.
 
 Modes:
   * local_llm (recommended): local instruction-tuned causal LM semantic rewrites.
@@ -25,6 +29,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 import mcf_frozen_head_representation_repair as contract_helpers
+import mcf_surrogate_answer_guard as answer_guard
 import sure_stage2_sparse_repair as stage2
 
 
@@ -66,12 +71,8 @@ def _clean_candidate(text: str) -> str:
 
 
 def _contains_answer(candidate: str, answers: Sequence[str]) -> bool:
-    c = _normalize_cmp(candidate)
-    for answer in answers:
-        a = _normalize_cmp(answer)
-        if a and re.search(rf"(?<!\w){re.escape(a)}(?!\w)", c):
-            return True
-    return False
+    """Backward-compatible helper used by tests and diagnostics."""
+    return answer_guard.contains_answer(candidate, answers)
 
 
 def deterministic_surrogates(subject: str, direct_prompt: str) -> List[str]:
@@ -190,7 +191,12 @@ def _validated_unique(
             continue
         if len(candidate) < max(8, len(subject) + 2) or len(candidate) > 320:
             continue
-        if _contains_answer(candidate, answers):
+        # Baseline-aware leakage guard. If an answer string already appears in
+        # the direct prompt, preserving that occurrence is allowed; introducing
+        # extra whole-token answer mentions is not.
+        if answer_guard.introduced_answer_occurrences(
+            candidate, direct_prompt, answers
+        ):
             continue
         seen.add(key)
         out.append(candidate)
@@ -288,9 +294,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             limit=int(a.surrogates_per_record),
         )
         if len(accepted) < int(a.surrogates_per_record):
+            baseline_counts = {
+                answer: answer_guard.answer_occurrence_count(direct_prompt, answer)
+                for answer in answers
+            }
             raise RuntimeError(
                 f"Record {position} produced only {len(accepted)} valid surrogates; "
-                f"requested {a.surrogates_per_record}"
+                f"requested {a.surrogates_per_record}; "
+                f"baseline_answer_occurrences={baseline_counts}"
             )
 
         artifact_records.append({
@@ -323,6 +334,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "generator_received_target_true": False,
             "generator_received_target_new": False,
             "post_generation_answer_rejection_filter": True,
+            "answer_rejection_policy": "reject_new_occurrences_beyond_direct_prompt_baseline",
         },
         "data_access": {
             "official_paraphrase_seen": 0,
