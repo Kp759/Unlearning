@@ -16,16 +16,22 @@ OUTPUT_ROOT=${RWKU_EMB_HEAD_ABLATION_OUTPUT_ROOT:-/home/ec2-user/workspace/Unlea
 UTILITY_CACHE=${RWKU_H_W1K_UTILITY_CACHE:?RWKU_H_W1K_UTILITY_CACHE must point to the frozen RWKU Wikipedia utility cache}
 CONFIG=${RWKU_EMB_HEAD_ABLATION_CONFIG:-$PROJECT_ROOT/config/rwku/sure_emb_head_ablation_v1_seed0.json}
 
-TRAINING_BUNDLE="$CORPUS_DIR/training_bundle.json"
+TRAINING_BUNDLE="$CORPUS_DIR/generated_training_bundle.json"
 GENERATOR_RECEIPT="$CORPUS_DIR/generator_receipt.json"
 if [[ ! -f "$TRAINING_BUNDLE" ]]; then
-  TRAINING_BUNDLE=$(find "$CORPUS_DIR" -maxdepth 2 -type f -name 'training_bundle.json' | head -1 || true)
+  TRAINING_BUNDLE=$(find "$CORPUS_DIR" -maxdepth 2 -type f \( -name 'generated_training_bundle.json' -o -name 'training_bundle.json' \) | head -1 || true)
 fi
 if [[ ! -f "$GENERATOR_RECEIPT" ]]; then
   GENERATOR_RECEIPT=$(find "$CORPUS_DIR" -maxdepth 2 -type f -name 'generator_receipt.json' | head -1 || true)
 fi
-[[ -f "$TRAINING_BUNDLE" ]] || { echo "Missing training_bundle.json under $CORPUS_DIR" >&2; exit 2; }
+[[ -f "$TRAINING_BUNDLE" ]] || { echo "Missing generated_training_bundle.json under $CORPUS_DIR" >&2; exit 2; }
 [[ -f "$GENERATOR_RECEIPT" ]] || { echo "Missing generator_receipt.json under $CORPUS_DIR" >&2; exit 2; }
+[[ -d "$MODEL_PATH" ]] || { echo "Missing model directory: $MODEL_PATH" >&2; exit 2; }
+[[ -d "$WIKIPEDIA_DIR" ]] || { echo "Missing Wikipedia directory: $WIKIPEDIA_DIR" >&2; exit 2; }
+[[ -d "$SOURCE_HEAD_ONLY_RUN" ]] || { echo "Missing source run: $SOURCE_HEAD_ONLY_RUN" >&2; exit 2; }
+[[ -f "$SOURCE_HEAD_ONLY_RUN/sure_head_only_w1k/stage1_delta.pt" ]] || { echo "Missing source Stage-1 delta" >&2; exit 2; }
+[[ -f "$UTILITY_CACHE" ]] || { echo "Missing utility cache: $UTILITY_CACHE" >&2; exit 2; }
+[[ -f "$CONFIG" ]] || { echo "Missing configuration: $CONFIG" >&2; exit 2; }
 
 mkdir -p "$OUTPUT_ROOT"
 
