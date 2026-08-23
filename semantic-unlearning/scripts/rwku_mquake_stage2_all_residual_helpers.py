@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Helpers for RWKU MQuAKE-style Stage 2 with all residual target rows."""
+"""Helpers for RWKU MQuAKE-style Stage 2 with all residual target rows, rank 8."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,10 +12,10 @@ import rwku_mquake_stage2_helpers as base
 
 SCRIPT_PATH = Path(__file__).resolve()
 PROJECT_ROOT = SCRIPT_PATH.parents[1]
-DEFAULT_CONFIGURATION = PROJECT_ROOT / "config" / "rwku" / "directional_sure_mquake_stage2_all_residual_rows_seed0.json"
-SCHEMA = "rwku_directional_sure_mquake_stage2_all_residual_rows_configuration_v1"
-EXPERIMENT_ID = "rwku-directional-sure-mquake-stage2-all-residual-rows-stephen-king-seed0"
-LEARNER_DIR = "directional_sure_mquake_stage2_all_residual_rows"
+DEFAULT_CONFIGURATION = PROJECT_ROOT / "config" / "rwku" / "directional_sure_mquake_stage2_all_residual_rows_rank8_seed0.json"
+SCHEMA = "rwku_directional_sure_mquake_stage2_all_residual_rows_rank8_configuration_v1"
+EXPERIMENT_ID = "rwku-directional-sure-mquake-stage2-all-residual-rows-rank8-stephen-king-seed0"
+LEARNER_DIR = "directional_sure_mquake_stage2_all_residual_rows_rank8"
 LEVEL1_CAPTURE_DIR = "level1_locked_emb_ga_only_capture"
 
 
@@ -50,7 +50,7 @@ def load_configuration(path: Path) -> Dict[str, Any]:
     }
     for key, expected in required.items():
         if cfg.get(key) != expected:
-            raise ValueError(f"All-residual-row Stage2 configuration changed {key}")
+            raise ValueError(f"All-residual-row rank-8 Stage2 configuration changed {key}")
 
     baseline = previous.read_json(previous.DEFAULT_CONFIGURATION)
     if cfg.get("trainable_components") != baseline.get("trainable_components"):
@@ -83,7 +83,7 @@ def load_configuration(path: Path) -> Dict[str, Any]:
         "optimizer": "AdamW",
         "weight_decay": 0.0,
         "protected_success_basis_rank": 32,
-        "residual_sensitive_exclusive_basis_rank": 4,
+        "residual_sensitive_exclusive_basis_rank": 8,
         "basis_refresh": False,
         "hard_success_regression_limit": 0,
         "hard_success_kl_budget": 0.05,
