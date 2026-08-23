@@ -20,6 +20,7 @@ BACKTRACK="${SURE_STAGE2_BACKTRACK_SCALES:-0.5,0.25,0.125,0.0625,0.03125,0.01562
 WIKIDATA_DIR="${WIKIDATA_DIR:-data/wikidata}"
 WIKI_DOCS="${SURE_WIKI_COV_DOCUMENTS:-1000}"
 WIKI_STATES="${SURE_WIKI_COV_STATES:-100000}"
+WIKI_EXCLUDE_FIRST="${SURE_WIKI_COV_EXCLUDE_FIRST:-20}"
 WIKI_MAXLEN="${SURE_WIKI_COV_MAX_LENGTH:-1024}"
 WIKI_BATCH="${SURE_WIKI_COV_BATCH_SIZE:-4}"
 WIKI_SEED="${SURE_WIKI_COV_SEED:-1729}"
@@ -31,17 +32,21 @@ if (( WIKI_STATES % WIKI_DOCS != 0 )); then
   echo "WIKI_STATES must be divisible by WIKI_DOCS" >&2
   exit 2
 fi
+if (( WIKI_EXCLUDE_FIRST < 20 )); then
+  echo "SURE_WIKI_COV_EXCLUDE_FIRST must be >=20 to remain disjoint from the repository PPL probe" >&2
+  exit 2
+fi
 STATES_PER_DOC=$((WIKI_STATES / WIKI_DOCS))
 
 STATS_DIR="${V3_ROOT}/external_stats"
-COV="${STATS_DIR}/wiki_lmhead_cov_${WIKI_DOCS}docs_${WIKI_STATES}states.pt"
+COV="${STATS_DIR}/wiki_lmhead_cov_${WIKI_DOCS}docs_${WIKI_STATES}states_pplx${WIKI_EXCLUDE_FIRST}.pt"
 mkdir -p "${STATS_DIR}"
 test -d "${WIKIDATA_DIR}"
 test -d "${BASE_MODEL}"
 
 if [[ ! -f "${COV}" ]]; then
-  echo "===== BUILD EXTERNAL WIKIPEDIA LM-HEAD COVARIANCE ====="
-  echo "documents=${WIKI_DOCS} states=${WIKI_STATES} states/doc=${STATES_PER_DOC} corpus_seed=${WIKI_SEED}"
+  echo "===== BUILD PPL-DISJOINT EXTERNAL WIKIPEDIA LM-HEAD COVARIANCE ====="
+  echo "documents=${WIKI_DOCS} states=${WIKI_STATES} states/doc=${STATES_PER_DOC} exclude_first=${WIKI_EXCLUDE_FIRST} corpus_seed=${WIKI_SEED}"
   echo "NO MQUAKE RETAIN / ATOMICGEN / TARGET_NEW / NEIGHBORHOOD DATA USED"
   python scripts/mquake_sure_build_wiki_lmhead_covariance.py \
     --model-path "${BASE_MODEL}" \
@@ -49,13 +54,14 @@ if [[ ! -f "${COV}" ]]; then
     --output "${COV}" \
     --documents "${WIKI_DOCS}" \
     --states-per-document "${STATES_PER_DOC}" \
+    --exclude-first "${WIKI_EXCLUDE_FIRST}" \
     --max-length "${WIKI_MAXLEN}" \
     --batch-size "${WIKI_BATCH}" \
     --corpus-seed "${WIKI_SEED}" \
     --dtype "${DTYPE}" \
     --device-map "${DEVICE_MAP}"
 else
-  echo "===== REUSE CACHED WIKIPEDIA LM-HEAD COVARIANCE ====="
+  echo "===== REUSE CACHED PPL-DISJOINT WIKIPEDIA LM-HEAD COVARIANCE ====="
   echo "${COV}"
 fi
 
@@ -79,7 +85,7 @@ for SEED in "${SEEDS[@]}"; do
 
   echo "===== SURE v3 WIKIPEDIA-COVARIANCE + RELATION-LOCALITY STAGE2: seed ${SEED} ====="
   echo "Repair margin: max(${PROTECT_MARGIN}, median Stage1-success direct margin)"
-  echo "Utility metric: ${WIKI_DOCS} Wikipedia docs / ${WIKI_STATES} LM-head states"
+  echo "Utility metric: ${WIKI_DOCS} PPL-disjoint Wikipedia docs / ${WIKI_STATES} LM-head states"
   echo "Relation locality: ${LOCALITY_PROMPTS} external Wikipedia-title controls; preserve Stage1 top1 exactly"
   echo "NO MQUAKE RETAIN / ATOMICGEN / TARGET_NEW / PARAPHRASE / NEIGHBORHOOD / MULTIHOP USED"
 
