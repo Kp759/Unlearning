@@ -80,6 +80,26 @@ for SEED in "${SEEDS[@]}"; do
     --dtype "${DTYPE}" \
     --device-map "${DEVICE_MAP}"
 
+  python - "${SUMMARY}" "${MAX_PKL}" <<'PY'
+import json, sys
+path, budget = sys.argv[1], float(sys.argv[2])
+p = json.load(open(path))
+p["method"] = "MQuAKE SURE v3 Wikipedia-Covariance + KL-Relation-Locality Stage2"
+p["protocol"] = "training-visible direct repair plus external PPL-disjoint Wikipedia covariance and KL-locality controls"
+loc = p.setdefault("relation_locality", {})
+loc["construction"] = (
+    "training-visible relation templates x external Wikipedia titles; "
+    "hard gate on exact sparse-head full-vocabulary mean KL from Stage1"
+)
+loc["hard_gate"] = "mean_full_vocabulary_KL <= max_protected_kl"
+loc["kl_budget"] = budget
+loc["top1_role"] = "diagnostic only; not a feasibility gate"
+p["relation_locality_labels"] = "Stage1 distributions on external relation prompts; no benchmark retain labels"
+with open(path, "w") as f:
+    json.dump(p, f, indent=2)
+    f.write("\n")
+PY
+
   python - "${SUMMARY}" <<'PY'
 import json, sys
 p = json.load(open(sys.argv[1]))
@@ -96,6 +116,8 @@ print("covariance_whitening_error:", wc.get("whitening_identity_max_abs_error"))
 print("relation_count:", loc.get("relation_count"))
 print("relation_locality_prompts:", loc.get("prompt_count"))
 print("baseline_top1_in_edited_rows:", loc.get("baseline_top1_in_edited_rows"))
+print("relation_locality_hard_gate:", loc.get("hard_gate"))
+print("relation_locality_kl_budget:", loc.get("kl_budget"))
 print("relation_locality_final_exact:", loc.get("final_exact_report"))
 print("pre_contraction_covariance_cost:", l2.get("pre_contraction_covariance_cost"))
 print("contraction_scale:", l2.get("contraction_scale"))
