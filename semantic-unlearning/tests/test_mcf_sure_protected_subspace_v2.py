@@ -1,7 +1,16 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
 import torch
 
-from scripts import mcf_sure_protected_subspace_stage1 as stage1
-from scripts import mcf_sure_protected_subspace_stage2 as stage2
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import mcf_sure_protected_subspace_stage1 as stage1
+import mcf_sure_protected_subspace_stage2 as stage2
 
 
 def test_project_away_removes_protected_components():
