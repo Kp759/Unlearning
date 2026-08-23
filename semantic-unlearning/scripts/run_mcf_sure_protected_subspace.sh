@@ -84,7 +84,7 @@ python -u scripts/mcf_sure_protected_subspace_stage1.py \
   2>&1 | tee "$OUT_ROOT/stage1.log"
 
 STAGE1_CKPT="$STAGE1_DIR/checkpoint"
-STAGE1_CONFIG="$STAGE1_DIR/config_used.json"
+STAGE1_CONFIG="$STAGE1_DIR/stage1_config.json"
 
 test -d "$STAGE1_CKPT"
 test -f "$STAGE1_CONFIG"
