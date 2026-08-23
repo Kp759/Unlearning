@@ -36,24 +36,25 @@ if (( WIKI_EXCLUDE_FIRST < 20 )); then
   echo "SURE_WIKI_COV_EXCLUDE_FIRST must be >=20 to remain disjoint from the repository PPL probe" >&2
   exit 2
 fi
-STATES_PER_DOC=$((WIKI_STATES / WIKI_DOCS))
+NOMINAL_STATES_PER_DOC=$((WIKI_STATES / WIKI_DOCS))
 
 STATS_DIR="${V3_ROOT}/external_stats"
-COV="${STATS_DIR}/wiki_lmhead_cov_${WIKI_DOCS}docs_${WIKI_STATES}states_pplx${WIKI_EXCLUDE_FIRST}.pt"
+COV="${STATS_DIR}/wiki_lmhead_cov_req${WIKI_DOCS}docs_${WIKI_STATES}states_pplx${WIKI_EXCLUDE_FIRST}.pt"
 mkdir -p "${STATS_DIR}"
 test -d "${WIKIDATA_DIR}"
 test -d "${BASE_MODEL}"
 
 if [[ ! -f "${COV}" ]]; then
   echo "===== BUILD PPL-DISJOINT EXTERNAL WIKIPEDIA LM-HEAD COVARIANCE ====="
-  echo "documents=${WIKI_DOCS} states=${WIKI_STATES} states/doc=${STATES_PER_DOC} exclude_first=${WIKI_EXCLUDE_FIRST} corpus_seed=${WIKI_SEED}"
+  echo "requested_documents=${WIKI_DOCS} target_states=${WIKI_STATES} nominal_states/requested_doc=${NOMINAL_STATES_PER_DOC} exclude_first=${WIKI_EXCLUDE_FIRST} corpus_seed=${WIKI_SEED}"
+  echo "If the local corpus has fewer usable documents, all usable documents are used and the same ${WIKI_STATES}-state target is redistributed evenly."
   echo "NO MQUAKE RETAIN / ATOMICGEN / TARGET_NEW / NEIGHBORHOOD DATA USED"
   python scripts/mquake_sure_build_wiki_lmhead_covariance.py \
     --model-path "${BASE_MODEL}" \
     --wikidata-dir "${WIKIDATA_DIR}" \
     --output "${COV}" \
     --documents "${WIKI_DOCS}" \
-    --states-per-document "${STATES_PER_DOC}" \
+    --states-per-document "${NOMINAL_STATES_PER_DOC}" \
     --exclude-first "${WIKI_EXCLUDE_FIRST}" \
     --max-length "${WIKI_MAXLEN}" \
     --batch-size "${WIKI_BATCH}" \
@@ -85,8 +86,8 @@ for SEED in "${SEEDS[@]}"; do
 
   echo "===== SURE v3 WIKIPEDIA-COVARIANCE + RELATION-LOCALITY STAGE2: seed ${SEED} ====="
   echo "Repair margin: max(${PROTECT_MARGIN}, median Stage1-success direct margin)"
-  echo "Utility metric: ${WIKI_DOCS} PPL-disjoint Wikipedia docs / ${WIKI_STATES} LM-head states"
-  echo "Relation locality: ${LOCALITY_PROMPTS} external Wikipedia-title controls; preserve Stage1 top1 exactly"
+  echo "Utility metric target: ${WIKI_STATES} LM-head states from up to ${WIKI_DOCS} requested PPL-disjoint Wikipedia source documents; actual document count is read from cache metadata"
+  echo "Relation locality request: up to ${LOCALITY_PROMPTS} external Wikipedia-title controls; preserve Stage1 top1 exactly"
   echo "NO MQUAKE RETAIN / ATOMICGEN / TARGET_NEW / PARAPHRASE / NEIGHBORHOOD / MULTIHOP USED"
 
   python scripts/mquake_sure_stage2_cov_locality_v3.py \
@@ -120,7 +121,7 @@ wc = p.get("wiki_covariance", {})
 loc = p.get("relation_locality", {})
 print("===== COV-LOCALITY FINAL TRAINING DIGEST =====")
 print("repair_margin:", p.get("repair_margin"))
-print("wiki_documents:", wc.get("document_count"))
+print("wiki_actual_documents:", wc.get("document_count"))
 print("wiki_states:", wc.get("state_count"))
 print("repair_basis_rank:", l2.get("repair_basis_rank"))
 print("P_nullspace_leak64:", l2.get("P_nullspace_leak64"))
