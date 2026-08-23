@@ -13,9 +13,9 @@ fi
 MODEL="$1"
 CORPUS="$2"
 WIKI="$3"
-EXPERIMENT_ID="rwku-directional-sure-mquake-stage2-all-residual-rows-stephen-king-seed0"
-CONFIG="config/rwku/directional_sure_mquake_stage2_all_residual_rows_seed0.json"
-OUTPUT_ROOT="${RWKU_DIRECTIONAL_SURE_MQUAKE_ALL_RESIDUAL_ROWS_OUTPUT_ROOT:-outputs/rwku_directional_sure_mquake_stage2_all_residual_rows}"
+EXPERIMENT_ID="rwku-directional-sure-mquake-stage2-all-residual-rows-rank8-stephen-king-seed0"
+CONFIG="config/rwku/directional_sure_mquake_stage2_all_residual_rows_rank8_seed0.json"
+OUTPUT_ROOT="${RWKU_DIRECTIONAL_SURE_MQUAKE_ALL_RESIDUAL_ROWS_RANK8_OUTPUT_ROOT:-outputs/rwku_directional_sure_mquake_stage2_all_residual_rows_rank8}"
 TRAINING_BUNDLE="$CORPUS/generated_training_bundle.json"
 GENERATOR_RECEIPT="$CORPUS/generator_receipt.json"
 
@@ -27,7 +27,7 @@ GENERATOR_RECEIPT="$CORPUS/generator_receipt.json"
 
 RUN="$OUTPUT_ROOT/$EXPERIMENT_ID"
 if [[ -e "$RUN" ]]; then
-  echo "Refusing to overwrite all-residual-row Stage2 run: $RUN" >&2
+  echo "Refusing to overwrite all-residual-row rank-8 Stage2 run: $RUN" >&2
   exit 2
 fi
 
@@ -53,4 +53,4 @@ python scripts/rwku_directional_sure_mquake_stage2_all_residual_rows.py \
   --configuration "$CONFIG" \
   --save-checkpoint
 
-echo "RWKU all-residual-row MQuAKE-style Stage2 development run complete: $RUN"
+echo "RWKU all-residual-row rank-8 MQuAKE-style Stage2 development run complete: $RUN"
