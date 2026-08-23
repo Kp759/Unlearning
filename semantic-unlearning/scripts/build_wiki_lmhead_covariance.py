@@ -2,21 +2,32 @@
 """Build final-hidden-state Wikipedia covariance for LM-head utility preservation.
 
 The cache is designed for SURE MCF Stage 2, where only sparse LM-head rows are
-edited.  For each of 1,000 Wikipedia documents we sample 100 causal prediction
-positions from a single forward pass and accumulate the second moment
+edited.  The requested protocol is expressed as ``--num-docs`` times
+``--prompts-per-doc`` predictor states (1000 x 100 = 100000 by default).
+
+Local Wikipedia artifacts can contain fewer physical documents than requested.
+Match the recent MQuAKE/SURE utility-cache policy instead of failing: cap the
+document sample to the eligible local corpus, then spread the requested
+predictor-state reservoir across multiple DISTINCT causal token positions in
+those documents.  This preserves the requested state count when the capped
+corpus has enough causal positions, while metadata explicitly marks reduced
+document diversity as a pilot.
 
     C = E[h h^T]
 
-of the final transformer hidden state h presented to the LM head.
+uses final transformer hidden states h presented to the LM head.  States are
+streamed into the second moment; the 100k states are never retained in memory.
 
 Important leakage rule: by default the first 20 Wikipedia train documents are
 reserved because mcf_zero_unlearn_official_eval.py uses exactly those texts for
-its PPL evaluation.  They are never included in this covariance cache.
+its PPL evaluation. They are never included in this covariance cache.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import random
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
@@ -25,6 +36,10 @@ import torch
 from datasets import Dataset, DatasetDict, load_from_disk
 
 import gagd_compare as gagd
+
+
+CACHE_SCHEMA_VERSION = 2
+SAMPLING_POLICY = "mquake_style_capped_documents_adaptive_distinct_predictor_positions_v1"
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -48,8 +63,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("document/prompt/token/batch counts must be positive")
     if a.skip_first_docs < 0:
         p.error("skip-first-docs must be non-negative")
-    if a.min_context_tokens > a.max_doc_tokens:
-        p.error("min-context-tokens cannot exceed max-doc-tokens")
+    if a.min_context_tokens >= a.max_doc_tokens:
+        p.error("min-context-tokens must be smaller than max-doc-tokens")
     return a
 
 
@@ -82,16 +97,43 @@ def final_hidden(model, encoded: Dict[str, torch.Tensor]) -> torch.Tensor:
     return out.hidden_states[-1]
 
 
-def sample_positions(length: int, count: int, minimum: int, device: torch.device) -> torch.Tensor:
-    if length < minimum:
+def deterministic_predictor_positions(
+    *,
+    document_index: int,
+    attended_length: int,
+    seed: int,
+    count: int,
+    minimum_context_tokens: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Choose distinct reproducible causal predictor positions in one document.
+
+    A predictor state must have a following token in the same document.  With
+    ``minimum_context_tokens=8``, eligible hidden-state positions are therefore
+    [7, attended_length-2].  This mirrors the MQuAKE utility-cache fix, while
+    preserving the minimum-context convention used by this MCF builder.
+    """
+    lo = int(minimum_context_tokens) - 1
+    hi = int(attended_length) - 2
+    available = hi - lo + 1
+    if available <= 0 or int(count) <= 0:
         return torch.empty((0,), dtype=torch.long, device=device)
-    lo = minimum - 1
-    hi = length - 1
-    if count == 1:
-        return torch.tensor([hi], dtype=torch.long, device=device)
-    # Exactly count positions.  Very short documents may repeat a position;
-    # duplicates are reported in metadata instead of silently reducing count.
-    return torch.linspace(lo, hi, steps=count, device=device).round().long()
+    take = min(int(count), int(available))
+    if take == available:
+        values = list(range(lo, hi + 1))
+    elif take == 1:
+        digest = hashlib.sha256(
+            f"wiki-cov:{int(seed)}:{int(document_index)}".encode("ascii")
+        ).digest()
+        offset = int.from_bytes(digest[:8], "big") % available
+        values = [lo + offset]
+    else:
+        digest = hashlib.sha256(
+            f"wiki-cov-positions:{int(seed)}:{int(document_index)}".encode("ascii")
+        ).digest()
+        local_seed = int.from_bytes(digest[:8], "big")
+        values = sorted(random.Random(local_seed).sample(range(lo, hi + 1), take))
+    return torch.tensor(values, dtype=torch.long, device=device)
 
 
 @torch.no_grad()
@@ -109,15 +151,36 @@ def main(argv: Sequence[str] | None = None) -> None:
     if "text" not in getattr(ds, "column_names", []):
         raise ValueError("Wikipedia dataset must contain a text column")
 
-    eligible = list(range(int(a.skip_first_docs), len(ds)))
-    if len(eligible) < int(a.num_docs):
+    eligible = [
+        int(i)
+        for i in range(int(a.skip_first_docs), len(ds))
+        if str(ds[int(i)]["text"]).strip()
+    ]
+    if not eligible:
         raise ValueError(
-            f"Need {a.num_docs} docs after reserving first {a.skip_first_docs}; "
-            f"only {len(eligible)} available"
+            f"No eligible Wikipedia documents remain after reserving first {a.skip_first_docs}"
         )
     rng = random.Random(int(a.seed))
     rng.shuffle(eligible)
-    chosen = eligible[: int(a.num_docs)]
+    chosen = eligible[: min(int(a.num_docs), len(eligible))]
+    document_cap_applied = len(chosen) < int(a.num_docs)
+    if document_cap_applied:
+        print(json.dumps({
+            "warning": "requested Wikipedia document count exceeds eligible local corpus",
+            "requested_documents": int(a.num_docs),
+            "eligible_documents": len(eligible),
+            "documents_selected": len(chosen),
+            "policy": "cap documents to local corpus and spread requested predictor states across distinct token positions",
+            "document_diversity_status": "pilot_capped_local_corpus",
+        }))
+
+    # Preserve the requested 1000 x 100 = 100000 state budget even when the
+    # physical-document sample is capped.  This is the same core resolution as
+    # the recent MQuAKE utility-cache fix: document diversity is capped, state
+    # diversity is recovered from distinct causal predictor positions.
+    requested_state_count = int(a.num_docs) * int(a.prompts_per_doc)
+    state_slots_remaining = requested_state_count
+    documents_remaining = len(chosen)
 
     ns = argparse.Namespace(
         model_path=a.model_path,
@@ -136,75 +199,133 @@ def main(argv: Sequence[str] | None = None) -> None:
     mean_sum = torch.zeros((hidden_size,), dtype=torch.float32, device=device)
     state_count = 0
     docs_used = 0
-    duplicate_positions = 0
     skipped_short = 0
+    available_predictor_positions = 0
+    per_document_state_counts: List[int] = []
 
-    for start in range(0, len(chosen), int(a.batch_size)):
-        indices = chosen[start : start + int(a.batch_size)]
-        texts = [str(ds[int(i)]["text"]) for i in indices]
-        encoded = tok(
-            texts,
-            padding=True,
-            truncation=True,
-            max_length=int(a.max_doc_tokens),
-            return_tensors="pt",
-        ).to(device)
-        h = final_hidden(model, encoded).float()
-        lengths = encoded["attention_mask"].sum(dim=1).tolist()
-        blocks: List[torch.Tensor] = []
-        for row, length_value in enumerate(lengths):
-            length = int(length_value)
-            positions = sample_positions(
-                length,
-                int(a.prompts_per_doc),
-                int(a.min_context_tokens),
-                device,
-            )
-            if positions.numel() == 0:
-                skipped_short += 1
-                continue
-            duplicate_positions += int(positions.numel() - torch.unique(positions).numel())
-            blocks.append(h[row].index_select(0, positions))
-            docs_used += 1
-        if not blocks:
-            continue
-        states = torch.cat(blocks, dim=0).float()
-        cov_sum.add_(states.transpose(0, 1) @ states)
-        mean_sum.add_(states.sum(dim=0))
-        state_count += int(states.shape[0])
-        if start == 0 or (start // int(a.batch_size) + 1) % 25 == 0:
-            print(json.dumps({
-                "docs_processed": min(start + int(a.batch_size), len(chosen)),
-                "docs_used": docs_used,
-                "hidden_states": state_count,
-            }))
+    old_padding_side = getattr(tok, "padding_side", "right")
+    tok.padding_side = "right"
+    try:
+        for start in range(0, len(chosen), int(a.batch_size)):
+            indices = chosen[start : start + int(a.batch_size)]
+            texts = [str(ds[int(i)]["text"]) for i in indices]
+            encoded = tok(
+                texts,
+                padding=True,
+                truncation=True,
+                max_length=int(a.max_doc_tokens),
+                return_tensors="pt",
+            ).to(device)
+            h = final_hidden(model, encoded).float()
+            lengths = encoded["attention_mask"].sum(dim=1).tolist()
+            blocks: List[torch.Tensor] = []
+
+            for row, (document_index, length_value) in enumerate(zip(indices, lengths)):
+                length = int(length_value)
+                available = max(0, length - int(a.min_context_tokens))
+                available_predictor_positions += int(available)
+
+                if state_slots_remaining <= 0:
+                    quota = 0
+                else:
+                    quota = int(math.ceil(
+                        state_slots_remaining / max(1, documents_remaining)
+                    ))
+
+                positions = deterministic_predictor_positions(
+                    document_index=int(document_index),
+                    attended_length=length,
+                    seed=int(a.seed),
+                    count=min(quota, state_slots_remaining),
+                    minimum_context_tokens=int(a.min_context_tokens),
+                    device=device,
+                )
+                documents_remaining -= 1
+
+                count = int(positions.numel())
+                per_document_state_counts.append(count)
+                if count == 0:
+                    if length <= int(a.min_context_tokens):
+                        skipped_short += 1
+                    continue
+
+                blocks.append(h[row].index_select(0, positions))
+                docs_used += 1
+                state_slots_remaining -= count
+
+            if blocks:
+                states = torch.cat(blocks, dim=0).float()
+                cov_sum.add_(states.transpose(0, 1) @ states)
+                mean_sum.add_(states.sum(dim=0))
+                state_count += int(states.shape[0])
+
+            if start == 0 or (start // int(a.batch_size) + 1) % 25 == 0 or state_slots_remaining == 0:
+                print(json.dumps({
+                    "docs_processed": min(start + int(a.batch_size), len(chosen)),
+                    "docs_selected": len(chosen),
+                    "docs_used": docs_used,
+                    "hidden_states": state_count,
+                    "requested_hidden_states": requested_state_count,
+                    "hidden_states_remaining": max(0, state_slots_remaining),
+                }))
+    finally:
+        tok.padding_side = old_padding_side
 
     if state_count == 0:
         raise RuntimeError("No Wikipedia hidden states collected")
+
+    state_target_filled = state_count >= requested_state_count
+    if not state_target_filled:
+        print(json.dumps({
+            "warning": "local capped corpus lacks enough eligible causal positions to fill requested state reservoir",
+            "requested_hidden_states": requested_state_count,
+            "actual_hidden_states": state_count,
+            "available_predictor_positions_after_truncation": available_predictor_positions,
+            "status": "pilot_state_count_shortfall",
+        }))
+
     covariance = (cov_sum / float(state_count)).detach().cpu()
     mean = (mean_sum / float(state_count)).detach().cpu()
+    covariance = 0.5 * (covariance + covariance.transpose(0, 1))
     average_variance = float(torch.trace(covariance).item() / hidden_size)
     if not torch.isfinite(covariance).all() or average_variance <= 0:
         raise RuntimeError("Invalid Wikipedia covariance")
 
     out = Path(a.output).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
+    diversity_status = (
+        "pilot_capped_local_corpus" if document_cap_applied else "requested_document_count_met"
+    )
     payload = {
-        "schema_version": 1,
+        "schema_version": CACHE_SCHEMA_VERSION,
         "kind": "lm_head_final_hidden_second_moment",
+        "sampling_policy": SAMPLING_POLICY,
         "covariance": covariance,
         "mean": mean,
         "hidden_size": hidden_size,
         "hidden_state_count": int(state_count),
+        "requested_hidden_state_count": int(requested_state_count),
+        "hidden_state_target_filled": bool(state_target_filled),
         "documents_requested": int(a.num_docs),
+        "eligible_documents": int(len(eligible)),
+        "documents_selected": int(len(chosen)),
         "documents_used": int(docs_used),
-        "prompts_per_document": int(a.prompts_per_doc),
+        "document_sample_cap_applied": bool(document_cap_applied),
+        "document_diversity_status": diversity_status,
+        "sample_size_cap_policy": "min(requested_documents, eligible_local_documents)",
+        "prompts_per_document_nominal": int(a.prompts_per_doc),
+        "actual_mean_states_per_used_document": (
+            float(state_count / docs_used) if docs_used else 0.0
+        ),
+        "per_document_state_count_min": int(min(per_document_state_counts)) if per_document_state_counts else 0,
+        "per_document_state_count_max": int(max(per_document_state_counts)) if per_document_state_counts else 0,
+        "available_predictor_positions_after_truncation": int(available_predictor_positions),
         "document_indices": [int(x) for x in chosen],
         "skip_first_docs": int(a.skip_first_docs),
         "official_ppl_first_20_reserved": bool(int(a.skip_first_docs) >= 20),
         "max_doc_tokens": int(a.max_doc_tokens),
         "min_context_tokens": int(a.min_context_tokens),
-        "duplicate_sample_positions": int(duplicate_positions),
+        "duplicate_sample_positions": 0,
         "short_documents_skipped": int(skipped_short),
         "average_second_moment_eigenvalue": average_variance,
         "model_path": str(Path(a.model_path).resolve()),
@@ -214,11 +335,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     torch.save(payload, out)
     print(json.dumps({
         "covariance_cache": str(out),
+        "documents_requested": int(a.num_docs),
+        "documents_selected": len(chosen),
         "documents_used": docs_used,
+        "document_diversity_status": diversity_status,
         "hidden_state_count": state_count,
+        "requested_hidden_state_count": requested_state_count,
+        "hidden_state_target_filled": bool(state_target_filled),
         "hidden_size": hidden_size,
         "average_second_moment_eigenvalue": average_variance,
         "reserved_official_ppl_docs": int(a.skip_first_docs),
+        "sampling_policy": SAMPLING_POLICY,
     }, indent=2))
 
 
