@@ -55,6 +55,7 @@ def train_stage2(
         int(cfg["seed"]) + 300007,
     )
     backtrack_scales = [float(x) for x in stage2["backtrack_scales"]]
+    proposal_scales = [1.0] + backtrack_scales
     step_history: list[Dict[str, Any]] = []
     checkpoint_history: list[Dict[str, Any]] = []
     final_candidate: Optional[Dict[str, Any]] = None
@@ -108,7 +109,7 @@ def train_stage2(
                 terminal_utility: Optional[Dict[str, Any]] = None
                 attempts: list[Dict[str, Any]] = []
 
-                for scale in backtrack_scales:
+                for scale in proposal_scales:
                     interpolate(repair_params, before, proposed, scale)
                     p_report = protection_report(
                         model,
@@ -208,8 +209,13 @@ def train_stage2(
                 rejected = accepted_scale is None
                 if rejected:
                     restore(repair_params, before)
-                del optimizer
-                optimizer = make_optimizer(repair, stage2)
+                # Adam state corresponds to the full scale=1 proposal. Preserve it
+                # only when that exact proposal is accepted. A backtracked or
+                # rolled-back step gets a fresh optimizer so forbidden momentum
+                # cannot leak into later proposals.
+                if rejected or accepted_scale != 1.0:
+                    del optimizer
+                    optimizer = make_optimizer(repair, stage2)
 
                 if not torch.equal(sparse.input_delta.detach(), l1_input_anchor):
                     raise RuntimeError("Stage 2 changed frozen Level-1 embeddings")
