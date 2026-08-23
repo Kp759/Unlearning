@@ -3,10 +3,19 @@
 
 The statistic is aligned with the object edited by Stage 2: the final transformer
 hidden state fed to ``lm_head``.  By default we deterministically select 1,000
-Wikipedia documents and exactly 100 valid next-token states from each, yielding
-100,000 LM-head input states:
+Wikipedia documents and draw exactly 100 balanced causal predictor-state samples
+from each, yielding 100,000 LM-head input-state samples:
 
     C_wiki = (1/N) sum_n h_n h_n^T.
+
+A document does *not* need 100 unique predictor positions.  If it has at least
+100 valid positions, 100 distinct evenly spaced positions are used.  If it is
+shorter, all valid predictor positions are traversed as evenly as possible and
+reused deterministically until the document contributes 100 samples.  This
+keeps every document equally weighted while supporting the short rows in this
+repository's local Wikipedia corpus.  Metadata reports both sampled-state count
+and unique predictor-position count so 100,000 samples are never presented as
+100,000 unique contexts.
 
 The corpus loader is shared with ``build_sure_wikipedia_stats.py`` and the first
 20 Wikipedia documents are excluded by default because this repository's PPL
@@ -63,15 +72,16 @@ def choose_documents(
     tok,
     *,
     count: int,
-    states_per_document: int,
     exclude_first: int,
     max_length: int,
     seed: int,
 ) -> List[Dict[str, Any]]:
-    if count <= 0 or states_per_document <= 0 or max_length <= states_per_document:
-        raise ValueError("documents/states/max-length settings are inconsistent")
+    """Choose deterministic PPL-disjoint documents with >=1 predictor state."""
+    if count <= 0 or max_length < 2:
+        raise ValueError("documents/max-length settings are inconsistent")
     if exclude_first < 0 or exclude_first >= len(texts):
         raise ValueError("exclude-first is outside the Wikipedia corpus")
+
     order = list(range(exclude_first, len(texts)))
     random.Random(seed).shuffle(order)
     chosen: List[Dict[str, Any]] = []
@@ -85,7 +95,8 @@ def choose_documents(
             truncation=True,
             max_length=max_length,
         )["input_ids"]
-        if len(ids) - 1 < states_per_document:
+        available = int(len(ids) - 1)
+        if available <= 0:
             continue
         chosen.append(
             {
@@ -93,23 +104,69 @@ def choose_documents(
                 "text": text,
                 "title": title_from_text(text, int(index)),
                 "token_count_truncated": int(len(ids)),
+                "available_predictor_positions": available,
                 "text_sha256": sha256_text(text),
             }
         )
         if len(chosen) == count:
             break
+
     if len(chosen) != count:
         raise RuntimeError(
-            f"Could select only {len(chosen)}/{count} PPL-disjoint documents with at least "
-            f"{states_per_document + 1} tokens after truncation"
+            f"Could select only {len(chosen)}/{count} PPL-disjoint non-empty "
+            "documents with at least one causal predictor state"
         )
     return chosen
 
 
-def evenly_spaced_positions(length: int, count: int, device: torch.device) -> torch.Tensor:
-    pos = torch.linspace(0, length - 2, steps=count, device=device).round().long()
-    if int(torch.unique(pos).numel()) != count:
-        raise RuntimeError("evenly spaced state positions unexpectedly contain duplicates")
+def balanced_predictor_positions(
+    length: int,
+    count: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Return exactly ``count`` balanced positions in [0, length-2].
+
+    When enough predictor positions exist, positions are unique and evenly
+    spaced.  For a shorter document, every available position is used before
+    positions are repeated; repeat counts differ by at most one.
+    """
+    available = int(length) - 1
+    if available <= 0 or count <= 0:
+        raise ValueError("balanced predictor sampling requires positive sizes")
+
+    if count <= available:
+        pos = torch.linspace(
+            0,
+            available - 1,
+            steps=count,
+            device=device,
+            dtype=torch.float64,
+        ).round().long()
+        if int(torch.unique(pos).numel()) != count:
+            # This should not occur for count<=available, but fail loudly rather
+            # than silently changing the weighting rule.
+            raise RuntimeError("evenly spaced predictor positions contain duplicates")
+        return pos
+
+    base = torch.arange(available, device=device, dtype=torch.long)
+    full_repeats, remainder = divmod(int(count), available)
+    pieces: List[torch.Tensor] = []
+    if full_repeats:
+        pieces.append(base.repeat(full_repeats))
+    if remainder:
+        # Spread the extra samples over the document rather than favoring only
+        # the earliest positions.
+        extra = torch.linspace(
+            0,
+            available - 1,
+            steps=remainder,
+            device=device,
+            dtype=torch.float64,
+        ).round().long()
+        pieces.append(extra)
+    pos = torch.cat(pieces, dim=0)
+    if int(pos.numel()) != int(count):
+        raise RuntimeError("balanced predictor sampling produced wrong count")
     return pos
 
 
@@ -121,10 +178,14 @@ def accumulate_second_moment(model, tok, docs: Sequence[Dict[str, Any]], a: argp
         backbone = getattr(model, "model", None)
     if backbone is None:
         raise RuntimeError("Expected a causal LM exposing a final-hidden backbone")
+
     device = gagd.first_device(model)
     hidden_size = int(model.get_output_embeddings().weight.shape[1])
     moment = torch.zeros((hidden_size, hidden_size), dtype=torch.float32, device=device)
-    state_count = 0
+    sampled_state_count = 0
+    unique_position_count = 0
+    replacement_sample_count = 0
+    document_sampling: List[Dict[str, Any]] = []
 
     model.eval()
     for start in range(0, len(docs), a.batch_size):
@@ -145,30 +206,72 @@ def accumulate_second_moment(model, tok, docs: Sequence[Dict[str, Any]], a: argp
         hidden = out.last_hidden_state
         lengths = encoded["attention_mask"].sum(dim=1)
         selected: List[torch.Tensor] = []
+
         for i, length_tensor in enumerate(lengths):
             length = int(length_tensor.item())
-            pos = evenly_spaced_positions(length, a.states_per_document, hidden.device)
+            available = length - 1
+            if available <= 0:
+                raise RuntimeError("chosen Wikipedia document lost all predictor states")
+            pos = balanced_predictor_positions(
+                length,
+                a.states_per_document,
+                hidden.device,
+            )
+            unique_used = int(torch.unique(pos).numel())
             selected.append(hidden[i].index_select(0, pos).float())
+            unique_position_count += unique_used
+            replacement = int(a.states_per_document) - unique_used
+            replacement_sample_count += replacement
+            document_sampling.append(
+                {
+                    "index": int(batch_docs[i]["index"]),
+                    "available_predictor_positions": int(available),
+                    "sampled_states": int(a.states_per_document),
+                    "unique_predictor_positions_used": int(unique_used),
+                    "replacement_samples": int(replacement),
+                }
+            )
+
         x = torch.cat(selected, dim=0)
         moment.addmm_(x.transpose(0, 1), x)
-        state_count += int(x.shape[0])
+        sampled_state_count += int(x.shape[0])
         done = min(start + len(batch_docs), len(docs))
         if done == len(docs) or done % 100 == 0:
-            print(f"Wikipedia LM-head covariance: {done}/{len(docs)} docs, {state_count} states")
+            print(
+                f"Wikipedia LM-head covariance: {done}/{len(docs)} docs, "
+                f"{sampled_state_count} sampled states, "
+                f"{unique_position_count} unique positions"
+            )
         del out, hidden, x, selected
 
     expected = int(a.documents) * int(a.states_per_document)
-    if state_count != expected:
-        raise RuntimeError(f"state-count mismatch: got {state_count}, expected {expected}")
-    covariance = (moment / float(state_count)).detach().cpu()
+    if sampled_state_count != expected:
+        raise RuntimeError(
+            f"sampled-state-count mismatch: got {sampled_state_count}, expected {expected}"
+        )
+    covariance = (moment / float(sampled_state_count)).detach().cpu()
     covariance = 0.5 * (covariance + covariance.transpose(0, 1))
-    return covariance, state_count
+    audit = {
+        "sampled_state_count": int(sampled_state_count),
+        "unique_predictor_position_count": int(unique_position_count),
+        "replacement_sample_count": int(replacement_sample_count),
+        "replacement_fraction": float(replacement_sample_count / sampled_state_count),
+        "sampling_rule": (
+            "equal samples per document; distinct evenly spaced positions when "
+            "available, otherwise balanced deterministic reuse"
+        ),
+        "documents": document_sampling,
+    }
+    return covariance, audit
 
 
 def main() -> None:
     a = parse_args()
     if min(a.documents, a.states_per_document, a.max_length, a.batch_size) <= 0:
         raise ValueError("all size settings must be positive")
+    if a.max_length < 2:
+        raise ValueError("max-length must be at least 2")
+
     corpus = Path(a.wikidata_dir).resolve()
     if not corpus.exists():
         raise FileNotFoundError(f"Wikipedia corpus not found: {corpus}")
@@ -192,31 +295,38 @@ def main() -> None:
         texts,
         tok,
         count=a.documents,
-        states_per_document=a.states_per_document,
         exclude_first=a.exclude_first,
         max_length=a.max_length,
         seed=a.corpus_seed,
     )
     print(
-        f"Selected {len(docs)} deterministic PPL-disjoint Wikipedia documents from {len(texts)} rows; "
-        f"collecting {a.states_per_document} LM-head states/document"
+        f"Selected {len(docs)} deterministic PPL-disjoint Wikipedia documents "
+        f"from {len(texts)} rows; drawing {a.states_per_document} balanced "
+        "LM-head samples/document"
     )
-    covariance, state_count = accumulate_second_moment(model, tok, docs, a)
+    covariance, sampling_audit = accumulate_second_moment(model, tok, docs, a)
+    sampled_state_count = int(sampling_audit["sampled_state_count"])
     hidden_size = int(covariance.shape[0])
     symmetry_error = float((covariance - covariance.T).abs().max().item())
     diag = covariance.diag()
 
     metadata = {
-        "schema_version": 2,
-        "kind": "uncentered second moment of final hidden states feeding lm_head",
-        "formula": "C=(1/N) sum h h^T",
+        "schema_version": 3,
+        "kind": "uncentered second moment of balanced sampled final hidden states feeding lm_head",
+        "formula": "C=(1/N) sum h h^T over balanced document-level samples",
         "model_path": str(a.model_path),
         "wikidata_dir": str(corpus),
         **dataset_metadata,
         "corpus_seed": int(a.corpus_seed),
         "document_count": int(len(docs)),
         "states_per_document": int(a.states_per_document),
-        "state_count": int(state_count),
+        "state_count": sampled_state_count,
+        "sampled_state_count": sampled_state_count,
+        "unique_predictor_position_count": int(sampling_audit["unique_predictor_position_count"]),
+        "replacement_sample_count": int(sampling_audit["replacement_sample_count"]),
+        "replacement_fraction": float(sampling_audit["replacement_fraction"]),
+        "sampling_rule": sampling_audit["sampling_rule"],
+        "all_samples_unique": bool(sampling_audit["replacement_sample_count"] == 0),
         "excluded_prefix_document_count": int(a.exclude_first),
         "excluded_prefix_reason": "repository PPL evaluator consumes the first 20 Wikipedia texts",
         "ppl_probe_disjoint": bool(a.exclude_first >= 20),
@@ -236,19 +346,26 @@ def main() -> None:
                 "index": d["index"],
                 "title": d["title"],
                 "token_count_truncated": d["token_count_truncated"],
+                "available_predictor_positions": d["available_predictor_positions"],
                 "text_sha256": d["text_sha256"],
             }
             for d in docs
         ],
+        "document_sampling": sampling_audit["documents"],
     }
     torch.save({"covariance": covariance, "metadata": metadata}, output)
     output.with_suffix(output.suffix + ".json").write_text(
-        json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(metadata, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
+
     print("===== WIKIPEDIA LM-HEAD COVARIANCE COMPLETE =====")
     print("output:", output)
     print("documents:", len(docs))
-    print("states:", state_count)
+    print("sampled_states:", sampled_state_count)
+    print("unique_predictor_positions:", sampling_audit["unique_predictor_position_count"])
+    print("replacement_samples:", sampling_audit["replacement_sample_count"])
+    print("replacement_fraction:", sampling_audit["replacement_fraction"])
     print("excluded_first_for_ppl:", a.exclude_first)
     print("hidden_size:", hidden_size)
     print("symmetry_error_max_abs:", symmetry_error)
