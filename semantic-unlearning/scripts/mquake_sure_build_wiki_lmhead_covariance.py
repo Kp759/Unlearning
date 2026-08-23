@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
-"""Build a reusable Wikipedia second moment for SURE-v3 LM-head repair.
+"""Build a PPL-disjoint Wikipedia second moment for SURE-v3 LM-head repair.
 
-The statistic is intentionally aligned with the object edited by Stage 2: the
-final transformer hidden state that is fed to ``lm_head``.  We deterministically
-select ``--documents`` Wikipedia documents from the local ``data/wikidata``
-corpus and take exactly ``--states-per-document`` valid next-token hidden states
-from each selected document.  The default is therefore 1,000 documents x 100
-states = 100,000 LM-head input states.
+The statistic is aligned with the object edited by Stage 2: the final transformer
+hidden state fed to ``lm_head``.  By default we deterministically select 1,000
+Wikipedia documents and exactly 100 valid next-token states from each, yielding
+100,000 LM-head input states:
 
-The saved matrix is the uncentered second moment
+    C_wiki = (1/N) sum_n h_n h_n^T.
 
-    C_wiki = (1/N) sum_n h_n h_n^T,
+The corpus loader is shared with ``build_sure_wikipedia_stats.py`` and the first
+20 Wikipedia documents are excluded by default because this repository's PPL
+probe consumes those texts.  Thus the external utility geometry is disjoint from
+the current PPL evaluation probe.
 
-matching the covariance/second-moment spirit used by ROME/MEMIT while operating
-in the exact representation space touched by SURE's output-head edits.
-
-This is an external unlabeled utility statistic.  It never reads MQuAKE retain,
-AtomicGen, target_new, paraphrase, neighborhood, or multihop fields.
+No MQuAKE retain, AtomicGen, target_new, paraphrase, neighborhood, or multihop
+field is read.
 """
 from __future__ import annotations
 
@@ -25,12 +23,12 @@ import hashlib
 import json
 import random
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence
 
 import torch
-from datasets import Dataset, DatasetDict, load_from_disk
 
 import gagd_compare as gagd
+from build_sure_wikipedia_stats import load_wikipedia_train
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output", required=True)
     p.add_argument("--documents", type=int, default=1000)
     p.add_argument("--states-per-document", type=int, default=100)
+    p.add_argument("--exclude-first", type=int, default=20)
     p.add_argument("--max-length", type=int, default=1024)
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--corpus-seed", type=int, default=1729)
@@ -48,38 +47,10 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def dataset_train(path: Path) -> Dataset:
-    obj = load_from_disk(str(path))
-    if isinstance(obj, DatasetDict):
-        if "train" not in obj:
-            raise RuntimeError(f"DatasetDict at {path} has no train split")
-        ds = obj["train"]
-    else:
-        ds = obj
-    if not isinstance(ds, Dataset):
-        raise RuntimeError(f"Unsupported dataset object at {path}: {type(ds)!r}")
-    return ds
-
-
-def text_from_row(row: Dict[str, Any]) -> str:
-    for key in ("text", "content", "article", "document", "body"):
-        value = row.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    for value in row.values():
-        if isinstance(value, str) and len(value.split()) >= 20:
-            return value.strip()
-    return ""
-
-
-def title_from_row(row: Dict[str, Any], text: str, index: int) -> str:
-    for key in ("title", "name", "page_title"):
-        value = row.get(key)
-        if isinstance(value, str) and value.strip():
-            return " ".join(value.split())[:200]
-    first = next((line.strip() for line in text.splitlines() if line.strip()), "")
+def title_from_text(text: str, index: int) -> str:
+    first = next((line.strip() for line in str(text).splitlines() if line.strip()), "")
     if not first:
-        first = " ".join(text.split()[:12])
+        first = " ".join(str(text).split()[:12])
     return first[:200] if first else f"Wikipedia document {index}"
 
 
@@ -88,22 +59,24 @@ def sha256_text(text: str) -> str:
 
 
 def choose_documents(
-    ds: Dataset,
+    texts: Sequence[str],
     tok,
     *,
     count: int,
     states_per_document: int,
+    exclude_first: int,
     max_length: int,
     seed: int,
 ) -> List[Dict[str, Any]]:
     if count <= 0 or states_per_document <= 0 or max_length <= states_per_document:
         raise ValueError("documents/states/max-length settings are inconsistent")
-    order = list(range(len(ds)))
+    if exclude_first < 0 or exclude_first >= len(texts):
+        raise ValueError("exclude-first is outside the Wikipedia corpus")
+    order = list(range(exclude_first, len(texts)))
     random.Random(seed).shuffle(order)
     chosen: List[Dict[str, Any]] = []
     for index in order:
-        row = dict(ds[int(index)])
-        text = text_from_row(row)
+        text = str(texts[int(index)]).strip()
         if not text:
             continue
         ids = tok(
@@ -118,7 +91,7 @@ def choose_documents(
             {
                 "index": int(index),
                 "text": text,
-                "title": title_from_row(row, text, int(index)),
+                "title": title_from_text(text, int(index)),
                 "token_count_truncated": int(len(ids)),
                 "text_sha256": sha256_text(text),
             }
@@ -127,16 +100,13 @@ def choose_documents(
             break
     if len(chosen) != count:
         raise RuntimeError(
-            f"Could select only {len(chosen)}/{count} documents with at least "
+            f"Could select only {len(chosen)}/{count} PPL-disjoint documents with at least "
             f"{states_per_document + 1} tokens after truncation"
         )
     return chosen
 
 
 def evenly_spaced_positions(length: int, count: int, device: torch.device) -> torch.Tensor:
-    # Positions 0..length-2 predict an observed next token.  Qualifying documents
-    # guarantee at least count such positions, so rounded linspace is unique in
-    # practice; assert this rather than silently duplicating states.
     pos = torch.linspace(0, length - 2, steps=count, device=device).round().long()
     if int(torch.unique(pos).numel()) != count:
         raise RuntimeError("evenly spaced state positions unexpectedly contain duplicates")
@@ -145,9 +115,12 @@ def evenly_spaced_positions(length: int, count: int, device: torch.device) -> to
 
 @torch.no_grad()
 def accumulate_second_moment(model, tok, docs: Sequence[Dict[str, Any]], a: argparse.Namespace):
-    backbone = getattr(model, "model", None)
+    prefix = str(getattr(model, "base_model_prefix", ""))
+    backbone = getattr(model, prefix, None) if prefix else None
+    if backbone is None or backbone is model:
+        backbone = getattr(model, "model", None)
     if backbone is None:
-        raise RuntimeError("Expected a causal LM exposing .model final hidden states")
+        raise RuntimeError("Expected a causal LM exposing a final-hidden backbone")
     device = gagd.first_device(model)
     hidden_size = int(model.get_output_embeddings().weight.shape[1])
     moment = torch.zeros((hidden_size, hidden_size), dtype=torch.float32, device=device)
@@ -188,6 +161,7 @@ def accumulate_second_moment(model, tok, docs: Sequence[Dict[str, Any]], a: argp
     if state_count != expected:
         raise RuntimeError(f"state-count mismatch: got {state_count}, expected {expected}")
     covariance = (moment / float(state_count)).detach().cpu()
+    covariance = 0.5 * (covariance + covariance.transpose(0, 1))
     return covariance, state_count
 
 
@@ -213,17 +187,18 @@ def main() -> None:
         tok.pad_token = tok.eos_token
     tok.padding_side = "right"
 
-    ds = dataset_train(corpus)
+    texts, dataset_metadata = load_wikipedia_train(corpus)
     docs = choose_documents(
-        ds,
+        texts,
         tok,
         count=a.documents,
         states_per_document=a.states_per_document,
+        exclude_first=a.exclude_first,
         max_length=a.max_length,
         seed=a.corpus_seed,
     )
     print(
-        f"Selected {len(docs)} deterministic Wikipedia documents from {len(ds)} rows; "
+        f"Selected {len(docs)} deterministic PPL-disjoint Wikipedia documents from {len(texts)} rows; "
         f"collecting {a.states_per_document} LM-head states/document"
     )
     covariance, state_count = accumulate_second_moment(model, tok, docs, a)
@@ -232,15 +207,19 @@ def main() -> None:
     diag = covariance.diag()
 
     metadata = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "uncentered second moment of final hidden states feeding lm_head",
         "formula": "C=(1/N) sum h h^T",
         "model_path": str(a.model_path),
         "wikidata_dir": str(corpus),
+        **dataset_metadata,
         "corpus_seed": int(a.corpus_seed),
         "document_count": int(len(docs)),
         "states_per_document": int(a.states_per_document),
         "state_count": int(state_count),
+        "excluded_prefix_document_count": int(a.exclude_first),
+        "excluded_prefix_reason": "repository PPL evaluator consumes the first 20 Wikipedia texts",
+        "ppl_probe_disjoint": bool(a.exclude_first >= 20),
         "max_length": int(a.max_length),
         "hidden_size": hidden_size,
         "storage_dtype": "float32",
@@ -270,6 +249,7 @@ def main() -> None:
     print("output:", output)
     print("documents:", len(docs))
     print("states:", state_count)
+    print("excluded_first_for_ppl:", a.exclude_first)
     print("hidden_size:", hidden_size)
     print("symmetry_error_max_abs:", symmetry_error)
 
