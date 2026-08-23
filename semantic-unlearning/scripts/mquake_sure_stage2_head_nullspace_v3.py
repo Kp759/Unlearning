@@ -19,6 +19,13 @@ Therefore, in exact arithmetic, H_P Delta W_A_F^T = 0: Stage-1-success logits
 are unchanged by construction. A hard all-P margin and exact full-vocabulary KL
 check remains as a numerical safety guard. Embeddings and transformer stay
 bit-exact. Repair uses a bounded margin hinge and best-feasible checkpointing.
+
+By default the repair margin equals the original direct constraint margin.  An
+optional training-calibrated mode sets the F repair margin to the median direct
+margin already achieved by Stage-1-success cases P, while P protection remains
+at the original constraint margin.  This calibration reads only locked direct
+training-visible cases; it never reads AtomicGen, retain, target_new, paraphrase,
+or multihop data.
 """
 from __future__ import annotations
 
@@ -51,6 +58,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--cache-batch-size", type=int, default=8)
     p.add_argument("--constraint-margin", type=float, default=0.05)
+    p.add_argument(
+        "--repair-margin-mode",
+        choices=("constraint", "p-median"),
+        default="constraint",
+        help=(
+            "constraint: original v3 behavior; p-median: set F repair margin to "
+            "max(constraint margin, median Stage1-success direct margin)."
+        ),
+    )
     p.add_argument("--max-protected-kl", type=float, default=0.05)
     p.add_argument("--l2-weight", type=float, default=1e-6)
     p.add_argument("--grad-clip", type=float, default=1.0)
@@ -62,12 +78,26 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def margins_from_logits(logits: torch.Tensor, target_ids: torch.Tensor) -> torch.Tensor:
+    x = logits.float()
+    tids = target_ids.to(device=x.device, dtype=torch.long)
+    rows = torch.arange(x.shape[0], device=x.device)
+    target = x[rows, tids]
+    other = x.clone()
+    other[rows, tids] = -torch.inf
+    return other.max(dim=-1).values - target
+
+
 def main() -> None:
     a = parse_args()
     if min(a.repair_steps, a.batch_size, a.cache_batch_size, a.check_every) <= 0:
         raise ValueError("steps/batches/check interval must be positive")
+    if a.learning_rate if False else False:  # pragma: no cover - keeps no hidden alias
+        pass
     if a.repair_lr <= 0 or a.max_protected_kl < 0 or a.l2_weight < 0:
         raise ValueError("invalid optimization settings")
+    if a.constraint_margin < 0:
+        raise ValueError("constraint margin must be nonnegative")
     backtrack_scales = v2.parse_scales(a.backtrack_scales)
 
     gagd.set_seed(a.seed)
@@ -91,8 +121,6 @@ def main() -> None:
     if not cases:
         raise RuntimeError("no generated MQuAKE PredictionCases")
 
-    # Stage1 v3 is already untied. Calling this helper is identity for an untied
-    # head and freezes every model parameter before coefficient optimization.
     output_layer = core.untie_and_freeze_output_head(model)
     input_layer = model.get_input_embeddings()
     if input_layer.weight.data_ptr() == output_layer.weight.data_ptr():
@@ -107,15 +135,34 @@ def main() -> None:
     failed_set = set(F_indices)
     P_indices = [i for i in range(len(cases)) if i not in failed_set]
 
+    all_stage1_margins = margins_from_logits(base_logits, target_ids)
+    if a.repair_margin_mode == "p-median" and P_indices:
+        p_idx = torch.tensor(P_indices, dtype=torch.long, device=all_stage1_margins.device)
+        p_margins = all_stage1_margins.index_select(0, p_idx)
+        p_median = float(torch.median(p_margins).detach().cpu())
+        repair_margin = max(float(a.constraint_margin), p_median)
+    else:
+        p_median = None
+        repair_margin = float(a.constraint_margin)
+
     out = gagd.resolve_output_path(a.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     ckpt = out / "checkpoint"
 
     report: Dict[str, Any] = {
-        "schema_version": 4,
+        "schema_version": 5,
         "method": "MQuAKE Stage2 LM-Head Exact-P-Nullspace Residual Repair",
         "source_protocol": manifest.get("protocol"),
         "level1_gate": level1_gate,
+        "constraint_margin": float(a.constraint_margin),
+        "repair_margin_mode": str(a.repair_margin_mode),
+        "stage1_P_median_margin": p_median,
+        "repair_margin": float(repair_margin),
+        "repair_margin_selection": (
+            "training-visible direct Stage1-success median; no held-out data"
+            if a.repair_margin_mode == "p-median"
+            else "same as original direct constraint margin"
+        ),
         "embedding_frozen_in_stage2": True,
         "transformer_frozen_in_stage2": True,
         "output_head_only_stage2": True,
@@ -148,8 +195,6 @@ def main() -> None:
     H_F = hidden[F_indices]
     H_P = hidden[P_indices] if P_indices else hidden.new_empty((0, hidden.shape[1]))
 
-    # Full protected row-space: not rank-32, not a sweep. Any Delta W in the
-    # residual span is orthogonal to every observed Stage1-success hidden vector.
     protected_basis = (
         core.orthonormal_row_basis(H_P, max_rank=None).to(device=device, dtype=torch.float32)
         if H_P.numel() else hidden.new_empty((0, hidden.shape[1]), dtype=torch.float32)
@@ -159,7 +204,6 @@ def main() -> None:
     if repair_basis.ndim != 2 or repair_basis.shape[0] == 0:
         raise RuntimeError("No repair direction remains after exact P-subspace removal")
 
-    # Numerical orthogonality diagnostic.
     protected_leak = 0.0
     if H_P.numel():
         protected_leak = float((H_P @ repair_basis.transpose(0, 1)).abs().max().detach().cpu())
@@ -183,7 +227,7 @@ def main() -> None:
     optimizer = torch.optim.AdamW(parameters, lr=a.repair_lr, weight_decay=0.0)
     sampler = core.IndexSampler(len(F_indices), a.batch_size, a.seed + 100003)
 
-    initial_f = geometry.report(F_indices, delta.effective_delta(), a.constraint_margin)
+    initial_f = geometry.report(F_indices, delta.effective_delta(), repair_margin)
     initial_p = geometry.report(P_indices, delta.effective_delta(), a.constraint_margin)
     best_state = v2.capture_state(delta)
     best_key = (
@@ -198,6 +242,15 @@ def main() -> None:
     rolled_back_steps = 0
     logs = []
 
+    print(
+        "Stage2-v3 margins: protection={:.6g}, repair={:.6g}, mode={}, P_median={}".format(
+            float(a.constraint_margin),
+            float(repair_margin),
+            a.repair_margin_mode,
+            "n/a" if p_median is None else f"{p_median:.6g}",
+        )
+    )
+
     log_path = out / "repair_log.jsonl"
     with log_path.open("w", encoding="utf-8") as log_f:
         for step in range(1, a.repair_steps + 1):
@@ -206,7 +259,7 @@ def main() -> None:
             optimizer.zero_grad(set_to_none=True)
             delta_rows = delta.effective_delta()
             margins, _ = geometry.metrics(ids, delta_rows)
-            hinge = F.relu(float(a.constraint_margin) - margins).square().mean()
+            hinge = F.relu(float(repair_margin) - margins).square().mean()
             l2 = delta_rows.square().mean()
             loss = hinge + float(a.l2_weight) * l2
             if not torch.isfinite(loss):
@@ -224,8 +277,6 @@ def main() -> None:
             optimizer.step()
             proposed_state = v2.capture_state(delta)
 
-            # Hard all-P guard remains, although nullspace geometry should make
-            # every scale feasible up to floating-point noise.
             accepted_scale = 1.0
             p_report = geometry.report(P_indices, delta.effective_delta(), a.constraint_margin)
             feasible = int(p_report["failed"]) == 0 and float(p_report["kl_mean"]) <= float(a.max_protected_kl)
@@ -248,7 +299,7 @@ def main() -> None:
             else:
                 accepted_steps += 1
 
-            f_report = geometry.report(F_indices, delta.effective_delta(), a.constraint_margin)
+            f_report = geometry.report(F_indices, delta.effective_delta(), repair_margin)
             norm = float(delta.effective_delta().detach().float().norm().cpu())
             key = (int(f_report["failed"]), -float(f_report["minimum_margin"]), norm)
             if key < best_key:
@@ -264,9 +315,10 @@ def main() -> None:
                 "l2": float(l2.detach().cpu()),
                 "gradient_norm_before_clip": None if grad_norm is None else float(grad_norm.detach().cpu()),
                 "accepted_scale": float(accepted_scale),
-                "F_failed": int(f_report["failed"]),
+                "repair_margin": float(repair_margin),
+                "F_failed_at_repair_margin": int(f_report["failed"]),
                 "F_minimum_margin": float(f_report["minimum_margin"]),
-                "P_regressions": int(p_report["failed"]),
+                "P_regressions_at_constraint_margin": int(p_report["failed"]),
                 "P_exact_kl_mean": float(p_report["kl_mean"]),
                 "P_exact_kl_max": float(p_report["kl_max"]),
                 "delta_norm": norm,
@@ -275,8 +327,15 @@ def main() -> None:
             logs.append(row)
             if step == 1 or step % a.check_every == 0 or step == a.repair_steps or int(f_report["failed"]) == 0:
                 print(
-                    "Stage2-v3 step {s}: F_fail={ff} P_reg={pr} KL={kl:.6g} scale={sc:g} ||dW||={n:.6g}".format(
-                        s=step, ff=f_report["failed"], pr=p_report["failed"], kl=p_report["kl_mean"], sc=accepted_scale, n=norm
+                    "Stage2-v3 step {s}: F_fail@{rm:.4g}={ff} P_reg@{pm:.4g}={pr} KL={kl:.6g} scale={sc:g} ||dW||={n:.6g}".format(
+                        s=step,
+                        rm=repair_margin,
+                        ff=f_report["failed"],
+                        pm=a.constraint_margin,
+                        pr=p_report["failed"],
+                        kl=p_report["kl_mean"],
+                        sc=accepted_scale,
+                        n=norm,
                     )
                 )
                 log_f.write(json.dumps(row) + "\n")
@@ -286,7 +345,7 @@ def main() -> None:
 
     v2.restore_state(delta, best_state)
     best_delta = delta.effective_delta().detach()
-    best_f = geometry.report(F_indices, best_delta, a.constraint_margin)
+    best_f = geometry.report(F_indices, best_delta, repair_margin)
     best_p = geometry.report(P_indices, best_delta, a.constraint_margin)
 
     core.materialize_output_delta(output_layer, A_F, best_delta)
@@ -297,6 +356,21 @@ def main() -> None:
 
     final_logits = core.cache_base_logits(model, tok, cases, device, batch_size=a.cache_batch_size)
     final_gate = v2.gate_from_logits(final_logits, target_ids.cpu(), a.constraint_margin)
+    final_margins = margins_from_logits(final_logits, target_ids)
+    final_f_margins = final_margins.index_select(
+        0, torch.tensor(F_indices, dtype=torch.long, device=final_margins.device)
+    )
+    final_f_failed_repair = torch.nonzero(
+        final_f_margins < float(repair_margin), as_tuple=False
+    ).flatten()
+    final_repair_gate = {
+        "total": len(F_indices),
+        "passed": len(F_indices) - int(final_f_failed_repair.numel()),
+        "failed": int(final_f_failed_repair.numel()),
+        "minimum_margin": float(final_f_margins.min().detach().cpu()) if final_f_margins.numel() else None,
+        "mean_margin": float(final_f_margins.mean().detach().cpu()) if final_f_margins.numel() else None,
+        "required_margin": float(repair_margin),
+    }
     final_failed = set(final_gate["residual_indices"])
     p_regressions = sum(1 for i in P_indices if i in final_failed)
     protected_kl = v2.actual_full_kl_mean(base_logits, final_logits, P_indices, a.cache_batch_size)
@@ -304,6 +378,7 @@ def main() -> None:
     frozen_exact = frozen_before == frozen_after
     final_pass = bool(
         int(final_gate["failed"]) == 0
+        and int(final_repair_gate["failed"]) == 0
         and int(p_regressions) == 0
         and float(protected_kl) <= float(a.max_protected_kl)
         and frozen_exact
@@ -323,8 +398,10 @@ def main() -> None:
         "protected_nullspace_max_abs_inner_product": float(protected_leak),
         "residual_hidden_energy_fraction": residual_energy,
         "parameterization": "Delta W_A_F=C_F B_F; B_F in orthogonal complement of full H_P rowspace",
-        "repair_objective": "bounded squared hinge on required forget margin",
-        "hard_protection": "all P must remain passed; exact full-vocabulary Stage1||Stage2 KL budget",
+        "repair_objective": "bounded squared hinge on training-calibrated forget margin",
+        "hard_protection": "all P must remain passed at base constraint margin; exact full-vocabulary Stage1||Stage2 KL budget",
+        "repair_margin": float(repair_margin),
+        "repair_margin_mode": str(a.repair_margin_mode),
         "repair_lr": float(a.repair_lr),
         "repair_steps_requested": int(a.repair_steps),
         "accepted_steps": int(accepted_steps),
@@ -337,6 +414,7 @@ def main() -> None:
         "logs": logs,
     }
     report["final_gate"] = final_gate
+    report["final_F_repair_margin_gate"] = final_repair_gate
     report["stage1_successes_regressed"] = int(p_regressions)
     report["protected_kl"] = float(protected_kl)
     report["max_protected_kl"] = float(a.max_protected_kl)
@@ -350,6 +428,9 @@ def main() -> None:
             "repair_basis": repair_basis.detach().cpu(),
             "A_F": A_F,
             "best_delta": best_delta.float().cpu(),
+            "constraint_margin": float(a.constraint_margin),
+            "repair_margin": float(repair_margin),
+            "repair_margin_mode": str(a.repair_margin_mode),
         },
         out / "stage2_nullspace_state.pt",
     )
@@ -358,9 +439,19 @@ def main() -> None:
     print("Stage2-v3: A_F={}, P-basis-rank={}, repair-rank={}, nullspace-leak={:.6g}, best_step={}".format(
         len(A_F), protected_basis.shape[0], repair_basis.shape[0], protected_leak, best_step
     ))
-    print("Final gate: {}/{} pass; protected_KL={:.6g}; Stage1 regressions={}; frozen_non_head_exact={}".format(
-        final_gate["passed"], final_gate["total"], protected_kl, p_regressions, frozen_exact
-    ))
+    print(
+        "Final direct gate@{:.4g}: {}/{}; F repair gate@{:.4g}: {}/{}; protected_KL={:.6g}; P regressions={}; frozen_non_head_exact={}".format(
+            a.constraint_margin,
+            final_gate["passed"],
+            final_gate["total"],
+            repair_margin,
+            final_repair_gate["passed"],
+            final_repair_gate["total"],
+            protected_kl,
+            p_regressions,
+            frozen_exact,
+        )
+    )
     print("Final gates pass:", final_pass)
     print("Checkpoint:", ckpt)
 
