@@ -6,11 +6,12 @@ Leak-free target contract:
   requested_rewrite.target_new  = non-sensitive CounterFact reference
   fields are never swapped
 
-Stage 1 geometry (all bases are built only from training-visible direct target_true
-teacher-forced cases):
+Stage 1 geometry (all bases are built only from training-visible direct data):
 
-    H_S  = final hidden states at sensitive prediction positions
-    H_NS = preceding-context hidden states from the same direct cases
+    H_S  = final hidden states at sensitive target_true prediction positions
+    H_NS = preceding hidden states from PRE-ANSWER direct-prompt context only
+           (collected from token_index == 0 cases, so no teacher-forced
+           target_true answer-prefix states enter the protected context basis)
     B_NS = rowspace(H_NS), capped by --protected-rank (default 32)
     R_S  = H_S - Proj_BNS(H_S)
     B_S  = rowspace(R_S), capped by --sensitive-rank (default 4)
@@ -109,7 +110,13 @@ def collect_prediction_and_context_hidden(
     device: torch.device,
     batch_size: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Return prediction-position states and all preceding non-padding states."""
+    """Return prediction states and pre-answer direct-prompt context states.
+
+    H_S is collected for every target_true atomic prediction case. H_NS is
+    deliberately collected only from token_index==0 cases, before any
+    teacher-forced target_true answer prefix has been appended. This keeps the
+    protected context basis non-sensitive by construction.
+    """
     prediction: List[torch.Tensor] = []
     context_rows: List[torch.Tensor] = []
     model.eval()
@@ -123,15 +130,18 @@ def collect_prediction_and_context_hidden(
         )
         hidden = output.hidden_states[-1].float()
         mask = encoded["attention_mask"].bool()
-        for row in range(len(batch)):
+        for row, case in enumerate(batch):
             valid = torch.nonzero(mask[row], as_tuple=False).flatten()
             if valid.numel() == 0:
                 raise RuntimeError("tokenized direct case has no valid positions")
             pred_pos = int(valid[-1].item())
             prediction.append(hidden[row, pred_pos].detach())
-            preceding = valid[:-1]
-            if preceding.numel() > 0:
-                context_rows.append(hidden[row].index_select(0, preceding).detach())
+            if int(case.token_index) == 0:
+                preceding = valid[:-1]
+                if preceding.numel() > 0:
+                    context_rows.append(
+                        hidden[row].index_select(0, preceding).detach()
+                    )
     if not prediction:
         raise RuntimeError("no sensitive prediction hidden states collected")
     h_s = torch.stack(prediction, dim=0)
@@ -442,7 +452,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "selected_token_ids": selected_ids,
         "selected_row_count": len(selected_ids),
         "stage1_basis_definition": "B_S=rowspace(H_S-Proj_BNS(H_S))",
-        "protected_context_definition": "all preceding non-padding final hidden states from the same direct target_true cases",
+        "protected_context_definition": "preceding non-padding hidden states from token_index==0 direct prompts only; no teacher-forced target_true prefix states",
         "embedding_parameterization": "Delta E_A = C_E B_S",
         "lm_head_parameterization": "Delta W_A = C_W B_S",
         "embedding_trainable_parameters": int(emb_delta.trainable_parameter_count),
