@@ -2,20 +2,23 @@
 """Build a PPL-disjoint Wikipedia second moment for SURE-v3 LM-head repair.
 
 The statistic is aligned with the object edited by Stage 2: the final transformer
-hidden state fed to ``lm_head``.  By default we deterministically select 1,000
-Wikipedia documents and draw exactly 100 balanced causal predictor-state samples
-from each, yielding 100,000 LM-head input-state samples:
+hidden state fed to ``lm_head``.  ``--documents`` is a requested source-document
+count and ``--states-per-document`` defines the nominal target sample count:
 
-    C_wiki = (1/N) sum_n h_n h_n^T.
+    N_target = requested_documents * states_per_document.
 
-A document does *not* need 100 unique predictor positions.  If it has at least
-100 valid positions, 100 distinct evenly spaced positions are used.  If it is
-shorter, all valid predictor positions are traversed as evenly as possible and
-reused deterministically until the document contributes 100 samples.  This
-keeps every document equally weighted while supporting the short rows in this
-repository's local Wikipedia corpus.  Metadata reports both sampled-state count
-and unique predictor-position count so 100,000 samples are never presented as
-100,000 unique contexts.
+If the local PPL-disjoint Wikipedia corpus contains fewer usable source documents
+than requested, the builder uses every available document and redistributes the
+same ``N_target`` predictor-state samples as evenly as possible across those
+actual documents.  Thus a request for 1,000 documents x 100 states still produces
+exactly 100,000 LM-head samples on the repository's current small local corpus,
+but metadata truthfully records the smaller number of unique source documents.
+
+Within each document, samples are balanced over all valid causal predictor
+positions.  When the per-document quota exceeds the number of unique positions,
+positions are reused deterministically and as evenly as possible.  Metadata
+reports sampled-state count, unique-position count, replacement count, requested
+and actual source-document counts, and the exact quota per source document.
 
 The corpus loader is shared with ``build_sure_wikipedia_stats.py`` and the first
 20 Wikipedia documents are excluded by default because this repository's PPL
@@ -76,7 +79,7 @@ def choose_documents(
     max_length: int,
     seed: int,
 ) -> List[Dict[str, Any]]:
-    """Choose deterministic PPL-disjoint documents with >=1 predictor state."""
+    """Choose up to ``count`` deterministic PPL-disjoint usable documents."""
     if count <= 0 or max_length < 2:
         raise ValueError("documents/max-length settings are inconsistent")
     if exclude_first < 0 or exclude_first >= len(texts):
@@ -111,10 +114,15 @@ def choose_documents(
         if len(chosen) == count:
             break
 
-    if len(chosen) != count:
+    if not chosen:
         raise RuntimeError(
-            f"Could select only {len(chosen)}/{count} PPL-disjoint non-empty "
-            "documents with at least one causal predictor state"
+            "No PPL-disjoint non-empty Wikipedia documents with a causal predictor state"
+        )
+    if len(chosen) < count:
+        print(
+            "Wikipedia document request exceeds the usable PPL-disjoint local corpus; "
+            f"requested {count}, using all {len(chosen)} usable documents. "
+            "The total predictor-state target is preserved exactly."
         )
     return chosen
 
@@ -124,12 +132,7 @@ def balanced_predictor_positions(
     count: int,
     device: torch.device,
 ) -> torch.Tensor:
-    """Return exactly ``count`` balanced positions in [0, length-2].
-
-    When enough predictor positions exist, positions are unique and evenly
-    spaced.  For a shorter document, every available position is used before
-    positions are repeated; repeat counts differ by at most one.
-    """
+    """Return exactly ``count`` balanced positions in [0, length-2]."""
     available = int(length) - 1
     if available <= 0 or count <= 0:
         raise ValueError("balanced predictor sampling requires positive sizes")
@@ -143,8 +146,6 @@ def balanced_predictor_positions(
             dtype=torch.float64,
         ).round().long()
         if int(torch.unique(pos).numel()) != count:
-            # This should not occur for count<=available, but fail loudly rather
-            # than silently changing the weighting rule.
             raise RuntimeError("evenly spaced predictor positions contain duplicates")
         return pos
 
@@ -154,8 +155,6 @@ def balanced_predictor_positions(
     if full_repeats:
         pieces.append(base.repeat(full_repeats))
     if remainder:
-        # Spread the extra samples over the document rather than favoring only
-        # the earliest positions.
         extra = torch.linspace(
             0,
             available - 1,
@@ -168,6 +167,19 @@ def balanced_predictor_positions(
     if int(pos.numel()) != int(count):
         raise RuntimeError("balanced predictor sampling produced wrong count")
     return pos
+
+
+def balanced_document_quotas(total_samples: int, document_count: int) -> List[int]:
+    """Split ``total_samples`` across documents with quotas differing by <=1."""
+    if total_samples <= 0 or document_count <= 0:
+        raise ValueError("sample/document counts must be positive")
+    base, remainder = divmod(int(total_samples), int(document_count))
+    if base <= 0:
+        raise ValueError("target state count must be at least the actual document count")
+    quotas = [base + (1 if i < remainder else 0) for i in range(document_count)]
+    if sum(quotas) != int(total_samples):
+        raise RuntimeError("document quota construction lost samples")
+    return quotas
 
 
 @torch.no_grad()
@@ -187,9 +199,13 @@ def accumulate_second_moment(model, tok, docs: Sequence[Dict[str, Any]], a: argp
     replacement_sample_count = 0
     document_sampling: List[Dict[str, Any]] = []
 
+    target_state_count = int(a.documents) * int(a.states_per_document)
+    quotas = balanced_document_quotas(target_state_count, len(docs))
+
     model.eval()
     for start in range(0, len(docs), a.batch_size):
         batch_docs = docs[start : start + a.batch_size]
+        batch_quotas = quotas[start : start + len(batch_docs)]
         encoded = tok(
             [d["text"] for d in batch_docs],
             padding=True,
@@ -212,21 +228,18 @@ def accumulate_second_moment(model, tok, docs: Sequence[Dict[str, Any]], a: argp
             available = length - 1
             if available <= 0:
                 raise RuntimeError("chosen Wikipedia document lost all predictor states")
-            pos = balanced_predictor_positions(
-                length,
-                a.states_per_document,
-                hidden.device,
-            )
+            quota = int(batch_quotas[i])
+            pos = balanced_predictor_positions(length, quota, hidden.device)
             unique_used = int(torch.unique(pos).numel())
             selected.append(hidden[i].index_select(0, pos).float())
             unique_position_count += unique_used
-            replacement = int(a.states_per_document) - unique_used
+            replacement = quota - unique_used
             replacement_sample_count += replacement
             document_sampling.append(
                 {
                     "index": int(batch_docs[i]["index"]),
                     "available_predictor_positions": int(available),
-                    "sampled_states": int(a.states_per_document),
+                    "sampled_states": quota,
                     "unique_predictor_positions_used": int(unique_used),
                     "replacement_samples": int(replacement),
                 }
@@ -236,29 +249,37 @@ def accumulate_second_moment(model, tok, docs: Sequence[Dict[str, Any]], a: argp
         moment.addmm_(x.transpose(0, 1), x)
         sampled_state_count += int(x.shape[0])
         done = min(start + len(batch_docs), len(docs))
-        if done == len(docs) or done % 100 == 0:
+        if done == len(docs) or done % 50 == 0:
             print(
-                f"Wikipedia LM-head covariance: {done}/{len(docs)} docs, "
-                f"{sampled_state_count} sampled states, "
+                f"Wikipedia LM-head covariance: {done}/{len(docs)} actual docs, "
+                f"{sampled_state_count}/{target_state_count} sampled states, "
                 f"{unique_position_count} unique positions"
             )
         del out, hidden, x, selected
 
-    expected = int(a.documents) * int(a.states_per_document)
-    if sampled_state_count != expected:
+    if sampled_state_count != target_state_count:
         raise RuntimeError(
-            f"sampled-state-count mismatch: got {sampled_state_count}, expected {expected}"
+            f"sampled-state-count mismatch: got {sampled_state_count}, "
+            f"expected {target_state_count}"
         )
     covariance = (moment / float(sampled_state_count)).detach().cpu()
     covariance = 0.5 * (covariance + covariance.transpose(0, 1))
     audit = {
+        "requested_document_count": int(a.documents),
+        "actual_document_count": int(len(docs)),
+        "document_cap_applied": bool(len(docs) < int(a.documents)),
+        "nominal_requested_states_per_document": int(a.states_per_document),
+        "target_state_count": int(target_state_count),
         "sampled_state_count": int(sampled_state_count),
+        "minimum_actual_document_quota": int(min(quotas)),
+        "maximum_actual_document_quota": int(max(quotas)),
         "unique_predictor_position_count": int(unique_position_count),
         "replacement_sample_count": int(replacement_sample_count),
         "replacement_fraction": float(replacement_sample_count / sampled_state_count),
         "sampling_rule": (
-            "equal samples per document; distinct evenly spaced positions when "
-            "available, otherwise balanced deterministic reuse"
+            "requested total state count preserved exactly; samples distributed "
+            "as evenly as possible across all usable PPL-disjoint source documents; "
+            "within each source document positions are balanced with deterministic reuse"
         ),
         "documents": document_sampling,
     }
@@ -299,10 +320,11 @@ def main() -> None:
         max_length=a.max_length,
         seed=a.corpus_seed,
     )
+    target_state_count = int(a.documents) * int(a.states_per_document)
     print(
-        f"Selected {len(docs)} deterministic PPL-disjoint Wikipedia documents "
-        f"from {len(texts)} rows; drawing {a.states_per_document} balanced "
-        "LM-head samples/document"
+        f"Selected {len(docs)} actual deterministic PPL-disjoint Wikipedia documents "
+        f"from {len(texts)} rows (requested {a.documents}); drawing exactly "
+        f"{target_state_count} balanced LM-head samples in total"
     )
     covariance, sampling_audit = accumulate_second_moment(model, tok, docs, a)
     sampled_state_count = int(sampling_audit["sampled_state_count"])
@@ -311,17 +333,24 @@ def main() -> None:
     diag = covariance.diag()
 
     metadata = {
-        "schema_version": 3,
+        "schema_version": 4,
         "kind": "uncentered second moment of balanced sampled final hidden states feeding lm_head",
-        "formula": "C=(1/N) sum h h^T over balanced document-level samples",
+        "formula": "C=(1/N) sum h h^T over balanced source-document samples",
         "model_path": str(a.model_path),
         "wikidata_dir": str(corpus),
         **dataset_metadata,
         "corpus_seed": int(a.corpus_seed),
+        "requested_document_count": int(a.documents),
         "document_count": int(len(docs)),
+        "actual_document_count": int(len(docs)),
+        "document_cap_applied": bool(len(docs) < int(a.documents)),
         "states_per_document": int(a.states_per_document),
+        "nominal_requested_states_per_document": int(a.states_per_document),
+        "target_state_count": int(target_state_count),
         "state_count": sampled_state_count,
         "sampled_state_count": sampled_state_count,
+        "minimum_actual_document_quota": int(sampling_audit["minimum_actual_document_quota"]),
+        "maximum_actual_document_quota": int(sampling_audit["maximum_actual_document_quota"]),
         "unique_predictor_position_count": int(sampling_audit["unique_predictor_position_count"]),
         "replacement_sample_count": int(sampling_audit["replacement_sample_count"]),
         "replacement_fraction": float(sampling_audit["replacement_fraction"]),
@@ -361,8 +390,13 @@ def main() -> None:
 
     print("===== WIKIPEDIA LM-HEAD COVARIANCE COMPLETE =====")
     print("output:", output)
-    print("documents:", len(docs))
+    print("requested_documents:", a.documents)
+    print("actual_documents:", len(docs))
+    print("document_cap_applied:", len(docs) < int(a.documents))
+    print("target_states:", target_state_count)
     print("sampled_states:", sampled_state_count)
+    print("actual_document_quota_min:", sampling_audit["minimum_actual_document_quota"])
+    print("actual_document_quota_max:", sampling_audit["maximum_actual_document_quota"])
     print("unique_predictor_positions:", sampling_audit["unique_predictor_position_count"])
     print("replacement_samples:", sampling_audit["replacement_sample_count"])
     print("replacement_fraction:", sampling_audit["replacement_fraction"])
