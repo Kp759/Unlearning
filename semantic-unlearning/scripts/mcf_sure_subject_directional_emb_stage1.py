@@ -138,7 +138,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--train-margin",
         type=float,
-        default=1.0,
+        default=3.0,
         help=(
             "Training hinge target on logp(target_new) - logp(target_true). "
             "Deliberately larger than --stage1-constraint-margin so BF16 "
@@ -149,7 +149,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--surgical-weight",
         type=float,
-        default=1.0,
+        default=0.0,
         help=(
             "Weight on || dh orthogonal to u_s ||^2. Keeps the hidden-state "
             "change confined to the closed-form sensitive readout direction. "
@@ -164,7 +164,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--max-subject-token-frequency",
         type=int,
-        default=100,
+        default=10**9,
         help=(
             "Keep a subject token row only if it occurs at most this many times "
             "in the frequency corpus. Bounds Spe/PPL collateral: a subject token "

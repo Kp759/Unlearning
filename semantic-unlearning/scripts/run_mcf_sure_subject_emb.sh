@@ -42,8 +42,12 @@ STAGE1_BATCH_SIZE=${STAGE1_BATCH_SIZE:-4}
 STAGE1_CACHE_BATCH_SIZE=${STAGE1_CACHE_BATCH_SIZE:-8}
 STAGE1_LR=${STAGE1_LR:-5e-4}
 MARGIN_WEIGHT=${MARGIN_WEIGHT:-100.0}
-TRAIN_MARGIN=${TRAIN_MARGIN:-1.0}
-SURGICAL_WEIGHT=${SURGICAL_WEIGHT:-1.0}
+TRAIN_MARGIN=${TRAIN_MARGIN:-3.0}
+# 0 after the ablation: surgical=0 with train-margin 3.0 gave Eff 0.0,
+# Gen 39 (from 46) and the best Spe seen, 10.35. The direction constraint
+# was throttling the edit without buying locality (locality is combinatorial
+# here, not geometric).
+SURGICAL_WEIGHT=${SURGICAL_WEIGHT:-0.0}
 DELTA_L2=${DELTA_L2:-1e-4}
 CONSTRAINT_MARGIN=${CONSTRAINT_MARGIN:-0.05}
 SYNTHETIC_PARAPHRASES_PER_RECORD=${SYNTHETIC_PARAPHRASES_PER_RECORD:-3}
@@ -64,11 +68,19 @@ SUBJECT_FIRST_TEMPLATES=${SUBJECT_FIRST_TEMPLATES:-0}
 # Gen=46 looks like. This penalizes how much the induced shift in the
 # SUBJECT's hidden state varies across contexts; a constant shift costs
 # nothing, so it never fights the margin term.
+# Stays 0: at weight 1.0 it made Gen much WORSE (46 -> 68) and cost Eff
+# (0 -> 6). Forcing a context-invariant representation shift conflicts with
+# achieving the margin. Kept as an ablation axis, not a recommended setting.
 INVARIANCE_WEIGHT=${INVARIANCE_WEIGHT:-0.0}
 INVARIANCE_CONTEXTS=${INVARIANCE_CONTEXTS:-8}
 INVARIANCE_BATCH=${INVARIANCE_BATCH:-4}
 
-MAX_SUBJECT_TOKEN_FREQUENCY=${MAX_SUBJECT_TOKEN_FREQUENCY:-100}
+# Effectively OFF. Real run 28f27b1_fullcover raised this from 100 and every
+# metric improved at once: rows 76 -> 223, Gen 46 -> 29, Spe 9.85 -> 10.21,
+# direct failures 3 -> 0 with NO Stage 2, and threshold-override records
+# 17 -> 0. The filter was starving the edit -- at ~1.5 of 3-5 subject tokens
+# edited, the model re-identified the entity from the untouched remainder.
+MAX_SUBJECT_TOKEN_FREQUENCY=${MAX_SUBJECT_TOKEN_FREQUENCY:-1000000000}
 WIKIDATA_DIR=${WIKIDATA_DIR:-data/wikidata}
 FREQUENCY_DOCS=${FREQUENCY_DOCS:-5000}
 # Must stay >= 20; official PPL is hardcoded to documents [:20].

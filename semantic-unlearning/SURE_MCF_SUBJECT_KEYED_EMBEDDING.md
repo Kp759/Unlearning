@@ -266,6 +266,55 @@ edited tokens per subject, while most subjects tokenize to 3-5 pieces, so
 the unedited remainder may be enough for the model to re-identify the
 entity in an unfamiliar phrasing.
 
+## Three-way experiment (`28f27b1`)
+
+| Config | Eff | Gen | Spe | PPL | rows |
+|---|---|---|---|---|---|
+| `6dcb11f` + Stage 2 | 0.0 | 46 | 9.74 | 11.06 | 76 |
+| **(a) full subject-token coverage** | **0.0** | **29** | **10.21** | **11.06** | **223** |
+| (b) surgical 0, train-margin 3 | 0.0 | 39 | **10.35** | -- | 76 |
+| (c) invariance weight 1.0 | 6.0 | **68** | 9.78 | -- | 76 |
+| Base | -- | -- | ~11.46 | ~10.94 | -- |
+
+**(a) coverage was the Gen lever.** Raising `--max-subject-token-frequency`
+took rows 76 -> 223 and improved every metric at once: Gen 46 -> 29, Spe
+9.85 -> 10.21, `stage1_direct_failures` 3 -> 0 *without Stage 2*, and
+`records_with_direct_row_above_threshold` 17 -> 0.
+`stage1_synthetic_failures` reached 0 and `stage1_minimum_margin` went
+positive (+0.125), so the training objective is now fully satisfied.
+
+The frequency filter was starving the edit. At ~1.5 edited tokens per
+subject against 3-5 tokens per subject, the model re-identified the entity
+from the untouched remainder, which is why the edit held on trained
+phrasings but not on new ones. Spe *improved* despite editing more common
+tokens, because the filter's cost (17 records forced to override the
+threshold) exceeded what it saved.
+
+**(b) the surgical constraint was throttling, not protecting.** Locality
+here is combinatorial, so `L_surgical` was never buying locality; removing
+it and raising the margin gave Eff 0.0, Gen 39 and the best Spe recorded.
+
+**(c) the invariance penalty failed** -- Gen 46 -> 68 and Eff 0 -> 6.
+Forcing a context-invariant representation shift conflicts with achieving
+the margin. It remains available as an ablation axis, defaulted to 0.
+
+Defaults now follow (a)+(b): `--max-subject-token-frequency` effectively
+off, `--surgical-weight 0.0`, `--train-margin 3.0`.
+
+### Gen hypotheses, scoreboard
+
+| # | Hypothesis | Result |
+|---|---|---|
+| 1 | prefix distribution too formulaic | 56 -> 53, negligible |
+| 2 | pooled prompt liveness | fixed **Eff**, not Gen |
+| 3 | syntactic register mismatch | 46 -> **52, worse** |
+| 4 | Stage 2 would generalize | 46 -> 46, unchanged |
+| 5 | context-invariance penalty | 46 -> **68, much worse** |
+| 6 | **subject-token coverage** | **46 -> 29** |
+
+Five of six failed. The one that worked was the only one about *how much of
+the subject is edited* rather than *what the training prompts look like*.
+
 ## Forgetting evidence beyond NLL
 
 The config records `base_mean_sensitive_readout`,
