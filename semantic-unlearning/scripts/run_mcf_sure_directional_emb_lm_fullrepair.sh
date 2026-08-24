@@ -50,11 +50,14 @@ REPAIR_LR=${REPAIR_LR:-0.005}
 # help text: at the old value this term was negligible next to the failure
 # hinge once the wider direct+synthetic objective needed a much larger delta.
 REPAIR_L2=${REPAIR_L2:-1e-3}
-REPAIR_PASS_GUARD_WEIGHT=${REPAIR_PASS_GUARD_WEIGHT:-1.0}
-# See --distribution-kl-weight help text: weight 1.0 left Spe collapsed
-# (0.16); weight 10.0 overshot and broke Eff (0.0 -> 12.0). 3.0 is an
-# interim value paired with direct-only-first best-checkpoint selection.
-REPAIR_KL_WEIGHT=${REPAIR_KL_WEIGHT:-3.0}
+# Soft pass-guard-weight/distribution-kl-weight loss terms were replaced by
+# a hard gate (see --protected-kl-max help text): weight 1.0 left Spe
+# collapsed (0.16); weight 10.0 overshot and broke Eff (0.0 -> 12.0). The
+# gate backtracks/rolls back any step that would regress an already-passing
+# direct record or push protected-set KL above this value, instead of
+# requiring a hand-tuned weight.
+REPAIR_PROTECTED_KL_MAX=${REPAIR_PROTECTED_KL_MAX:-0.05}
+REPAIR_BACKTRACK_SCALES=${REPAIR_BACKTRACK_SCALES:-1.0,0.5,0.25,0.125,0.0625,0.03125,0.015625,0.0078125,0.00390625,0.001953125,0.0009765625,0.00048828125,0.0}
 REPAIR_BATCH_SIZE=${REPAIR_BATCH_SIZE:-8}
 REPAIR_CHECK_EVERY=${REPAIR_CHECK_EVERY:-25}
 
@@ -100,8 +103,8 @@ python -u scripts/mcf_sure_fullrow_failure_repair.py \
   --repair-lr "$REPAIR_LR" \
   --constraint-margin "$CONSTRAINT_MARGIN" \
   --repair-l2 "$REPAIR_L2" \
-  --pass-guard-weight "$REPAIR_PASS_GUARD_WEIGHT" \
-  --distribution-kl-weight "$REPAIR_KL_WEIGHT" \
+  --protected-kl-max "$REPAIR_PROTECTED_KL_MAX" \
+  --backtrack-scales "$REPAIR_BACKTRACK_SCALES" \
   --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \
   --batch-size "$REPAIR_BATCH_SIZE" \
   --check-every "$REPAIR_CHECK_EVERY" \

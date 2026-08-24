@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence
 
@@ -66,30 +67,36 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
-        "--pass-guard-weight",
+        "--protected-kl-max",
         type=float,
-        default=1.0,
-        help="Hinge guard on records that already passed Stage 1; set 0 to disable.",
+        default=0.05,
+        help=(
+            "Hard gate (not a loss weight): every optimizer step is "
+            "backtracked/rolled back unless it keeps (a) every currently-"
+            "passing direct-only record's margin >= constraint-margin, "
+            "unconditionally, and (b) same-prompt non-target KL on all "
+            "currently-passing records <= this value. Replaces the earlier "
+            "soft pass-guard-weight/distribution-kl-weight loss terms: those "
+            "were a competing pressure that could still be outweighed by the "
+            "failure hinge (weight 1.0 left Spe collapsed at 0.16) or, when "
+            "raised enough to matter, could itself outweigh the hinge and "
+            "regress already-passing direct records (weight 10.0 dropped "
+            "Eff from 0.0 to 12.0). A hard gate makes 'never regress a "
+            "passing record' a guarantee instead of a trial-and-error "
+            "weight search. Mirrors mcf_sure_protected_subspace_stage2.py's "
+            "--protected-kl-max (same default). Set 0 to disable the KL half "
+            "of the gate and keep only the margin-regression guard."
+        ),
     )
     p.add_argument(
-        "--distribution-kl-weight",
-        type=float,
-        default=3.0,
+        "--backtrack-scales",
+        default="1.0,0.5,0.25,0.125,0.0625,0.03125,0.015625,0.0078125,0.00390625,0.001953125,0.0009765625,0.00048828125,0.0",
         help=(
-            "Weight 1.0 left final_distribution_kl=0.815 essentially "
-            "unconstrained (Spe collapsed to 0.16). Weight 10.0 overshot: "
-            "as cases approach passing their hinge contribution shrinks "
-            "toward zero, so a large KL weight increasingly dominates late "
-            "in training and pulls the optimizer away from already-satisfied "
-            "margin cases -- final_direct_failures regressed from 0 to 7 "
-            "(Eff 0.0 -> 12.0), even though Spe improved (0.16 -> 2.03). "
-            "3.0 is an interim value between the two, paired with the "
-            "direct-only-first best-checkpoint selection below so training "
-            "can no longer silently drift away from a perfect direct-only "
-            "result. This constrains drift only at the 200 training-visible "
-            "positions, not at held-out neighborhood prompts directly; if "
-            "Spe still does not recover, the KL sampling scope itself needs "
-            "widening to generic text, not just this weight. Set 0 to disable."
+            "Fractions of each raw optimizer step tried, largest first, "
+            "until the hard gate is satisfied. The list always ends in 0.0 "
+            "(full rollback to the pre-step delta), which trivially "
+            "satisfies the gate -- so a step can never be silently dropped "
+            "without a fallback, unlike a plain rollback-only implementation."
         ),
     )
     p.add_argument("--batch-size", type=int, default=8)
@@ -120,13 +127,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("counts, repair steps, batch size and check interval must be positive")
     if a.repair_lr <= 0:
         p.error("repair-lr must be positive")
-    if min(
-        a.constraint_margin, a.repair_l2, a.pass_guard_weight, a.distribution_kl_weight
-    ) < 0:
-        p.error("margin, L2, pass guard and KL weight must be non-negative")
+    if min(a.constraint_margin, a.repair_l2, a.protected_kl_max) < 0:
+        p.error("margin, L2 and protected-kl-max must be non-negative")
     if a.synthetic_paraphrases_per_record < 0:
         p.error("synthetic-paraphrases-per-record must be non-negative")
+    backtrack_scales = parse_backtrack_scales(a.backtrack_scales)
+    if backtrack_scales[-1] != 0.0:
+        p.error("backtrack-scales must end in 0.0 (guaranteed-safe full rollback)")
     return a
+
+
+def parse_backtrack_scales(text: str) -> List[float]:
+    scales = [float(item.strip()) for item in str(text).split(",") if item.strip()]
+    if not scales:
+        raise ValueError("No backtrack scales provided")
+    for value in scales:
+        if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+            raise ValueError("Backtrack scales must be finite and within [0, 1]")
+    return scales
 
 
 def select_repair_scale(reports: List[Dict[str, Any]]) -> float:
@@ -263,6 +281,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     best_step = 0
     best_failures = len(active_positions)
     selected_scale = 0.0
+    gate_rejected_steps = 0
+    gate_backtracked_steps = 0
+    backtrack_scales = parse_backtrack_scales(a.backtrack_scales)
     final_delta = torch.empty(
         (0, int(output_layer.weight.shape[1])),
         dtype=torch.float32,
@@ -280,7 +301,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             llama_like,
         )
         active_caches = [caches[i] for i in active_positions]
-        passing_caches = [caches[i] for i in passing_positions]
 
         delta_module = core.SelectedRowDelta(
             len(selected_ids),
@@ -295,38 +315,76 @@ def main(argv: Sequence[str] | None = None) -> None:
         best_key = (10**9, 10**9, float("inf"))
 
         for step in range(1, int(a.repair_steps) + 1):
+            # Hard gate, computed fresh each step from the model's current
+            # state: a record becomes "protected" the moment it passes, and
+            # can never be allowed to regress afterwards. This replaces the
+            # earlier soft pass-guard/KL-weight loss terms, which were a
+            # competing pressure a large-enough failure hinge could still
+            # outweigh (weight 1.0: Spe collapsed) or that, once raised
+            # enough to matter, could itself outweigh the hinge and regress
+            # already-passing direct records (weight 10.0: Eff 0.0 -> 12.0).
+            with torch.no_grad():
+                pre_delta = delta_module.raw_delta.detach().clone()
+                pre_all_margins = margins_from_caches(caches, pre_delta)
+                protected_direct_positions = [
+                    i
+                    for i in range(direct_count)
+                    if float(pre_all_margins[i]) >= float(a.constraint_margin)
+                ]
+                protected_positions = [
+                    i
+                    for i, value in enumerate(pre_all_margins.tolist())
+                    if float(value) >= float(a.constraint_margin)
+                ]
+                protected_direct_caches = [caches[i] for i in protected_direct_positions]
+                protected_caches = [caches[i] for i in protected_positions]
+
             opt.zero_grad(set_to_none=True)
             delta = delta_module.effective_delta()
             active_margins = margins_from_caches(active_caches, delta)
             failure_hinge = F.relu(
                 float(a.constraint_margin) - active_margins
             ).square().mean()
-
-            if passing_caches and float(a.pass_guard_weight) > 0:
-                pass_margins = margins_from_caches(passing_caches, delta)
-                pass_guard = F.relu(
-                    float(a.constraint_margin) - pass_margins
-                ).square().mean()
-            else:
-                pass_guard = delta.sum() * 0.0
-
-            if float(a.distribution_kl_weight) > 0:
-                dist_kl = mcf_repair.mcf_same_prompt_non_target_kl(caches, delta)
-            else:
-                dist_kl = delta.sum() * 0.0
-
             l2 = delta.square().mean()
-            loss = (
-                failure_hinge
-                + float(a.pass_guard_weight) * pass_guard
-                + float(a.distribution_kl_weight) * dist_kl
-                + float(a.repair_l2) * l2
-            )
+            loss = failure_hinge + float(a.repair_l2) * l2
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite Stage-2 loss at step {step}")
             loss.backward()
             torch.nn.utils.clip_grad_norm_(list(delta_module.parameters()), 1.0)
             opt.step()
+
+            with torch.no_grad():
+                raw_update = delta_module.raw_delta.detach() - pre_delta
+                accepted_scale = 0.0
+                accepted_delta = pre_delta
+                for bscale in backtrack_scales:
+                    candidate = pre_delta + raw_update * float(bscale)
+                    ok = True
+                    if protected_direct_caches:
+                        candidate_direct_margins = margins_from_caches(
+                            protected_direct_caches, candidate
+                        )
+                        if bool(
+                            (candidate_direct_margins < float(a.constraint_margin)).any()
+                        ):
+                            ok = False
+                    if ok and protected_caches and float(a.protected_kl_max) > 0:
+                        candidate_kl = float(
+                            mcf_repair.mcf_same_prompt_non_target_kl(
+                                protected_caches, candidate
+                            )
+                        )
+                        if candidate_kl > float(a.protected_kl_max):
+                            ok = False
+                    if ok:
+                        accepted_scale = float(bscale)
+                        accepted_delta = candidate
+                        break
+                if accepted_scale == 0.0:
+                    gate_rejected_steps += 1
+                elif accepted_scale < 1.0:
+                    gate_backtracked_steps += 1
+                delta_module.raw_delta.data.copy_(accepted_delta)
 
             if step == 1 or step % int(a.check_every) == 0 or step == int(a.repair_steps):
                 with torch.no_grad():
@@ -345,20 +403,23 @@ def main(argv: Sequence[str] | None = None) -> None:
                         "all_direct_failures": failures,
                         "direct_only_failures": direct_only_failures,
                         "active_failure_hinge": float(failure_hinge.detach().cpu()),
-                        "passing_record_guard": float(pass_guard.detach().cpu()),
-                        "same_prompt_non_target_kl": float(dist_kl.detach().cpu()),
+                        "accepted_backtrack_scale": accepted_scale,
+                        "gate_rejected_steps_so_far": gate_rejected_steps,
+                        "gate_backtracked_steps_so_far": gate_backtracked_steps,
                         "minimum_margin": float(all_margins.min().detach().cpu()),
                         "delta_norm": norm,
                         "lora_used": False,
                         "rank_constraint": False,
                     }
                     logs.append(row)
-                    # direct_only_failures first: the strengthened KL/L2
-                    # regularizers must never be allowed to trade away an
-                    # already-achieved perfect direct-only result (what Eff
-                    # measures) for a lower combined-failure count or smaller
-                    # norm elsewhere in training -- same principle as
-                    # select_repair_scale's scale-sweep priority.
+                    # direct_only_failures first: never let a lower combined
+                    # failure count or smaller norm elsewhere in training be
+                    # preferred over an already-achieved perfect direct-only
+                    # result -- same principle as select_repair_scale's
+                    # scale-sweep priority. The hard gate above should make
+                    # this ordering redundant in practice (protected direct
+                    # records cannot regress), but it costs nothing to keep
+                    # as a second line of defense.
                     key = (direct_only_failures, failures, norm)
                     if key < best_key:
                         best_key = key
@@ -464,18 +525,24 @@ def main(argv: Sequence[str] | None = None) -> None:
             "Stage-1 failed direct records + synthetic-paraphrase templates"
         ),
         "passing_records_role": (
-            "regression hinge guard + exact same-prompt non-target KL guard"
+            "hard gate only: any record whose margin is >= constraint-margin "
+            "at the start of a step is protected for that step -- its margin "
+            "may not drop below constraint-margin, and same-prompt "
+            "non-target KL over all protected records may not exceed "
+            "protected-kl-max. A step violating either is backtracked "
+            "(geometric scale-down of the raw update) or fully rolled back."
         ),
-        "pass_guard_weight": float(a.pass_guard_weight),
-        "distribution_kl_weight": float(a.distribution_kl_weight),
-        "distribution_kl_definition": (
-            "exact KL(input-checkpoint non-target || current non-target) at "
-            "every visible direct target_new/target_true teacher-forced "
-            "position across all 50 records; protects specificity/PPL against "
-            "the unrestricted delta's collateral effect on other uses of the "
-            "same LM-head rows"
-        ),
+        "protected_kl_max": float(a.protected_kl_max),
+        "backtrack_scales": backtrack_scales,
+        "gate_rejected_steps": gate_rejected_steps,
+        "gate_backtracked_steps": gate_backtracked_steps,
         "final_distribution_kl": final_distribution_kl,
+        "final_distribution_kl_definition": (
+            "post-hoc diagnostic only (not a gate input): exact KL(input-"
+            "checkpoint non-target || current non-target) at every visible "
+            "direct+synthetic teacher-forced position for the final "
+            "materialized delta"
+        ),
         "constraint_margin": float(a.constraint_margin),
         "repair_steps": int(a.repair_steps),
         "repair_lr": float(a.repair_lr),

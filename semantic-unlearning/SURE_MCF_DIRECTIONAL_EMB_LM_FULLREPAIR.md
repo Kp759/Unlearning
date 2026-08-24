@@ -195,6 +195,42 @@ magnitude), not held-out neighborhood prompts directly -- if this does not
 recover Spe, the KL sampling scope itself needs widening to a generic text
 sample, not just its weight.
 
+### Soft weight tuning replaced by a hard gate
+
+Weight `10.0` overshot in the other direction: `final_direct_failures`
+regressed from `0` to `7` (Eff `0.0 -> 12.0`), even though Spe improved
+(`0.16 -> 2.03`). As active cases approach passing, their hinge
+contribution shrinks toward zero, so a large-enough KL weight increasingly
+dominates late in training and can pull the optimizer away from
+already-satisfied margin cases -- a fundamental limitation of a *soft*
+competing loss term, not a tuning mistake. A follow-up interim weight
+(`3.0`) plus a direct-only-first best-checkpoint-selection fix recovered
+most but not all of Eff (`2.0`, `final_direct_failures=1`).
+
+`--pass-guard-weight` and `--distribution-kl-weight` were removed and
+replaced with a **hard gate**, mirroring `mcf_sure_protected_subspace_stage2.py`'s
+proven backtrack-or-rollback design (same default `--protected-kl-max 0.05`):
+every optimizer step is evaluated after `opt.step()` against the
+*currently*-passing record set (recomputed fresh each step -- a record
+becomes protected the moment its margin first reaches `constraint-margin`,
+and can never regress afterwards). If the raw step would drop any
+protected **direct-only** record's margin below `constraint-margin`, or
+push same-prompt non-target KL over the full protected set above
+`--protected-kl-max`, the step is backtracked (`--backtrack-scales`, a
+geometric schedule from `1.0` down to `0.0`) until it satisfies both, or
+rolled back to a full no-op if nothing does. The schedule always includes
+`0.0` explicitly (enforced by an argparse check), so a step can never be
+silently dropped without a safe fallback -- unlike a plain rollback-only
+implementation, which is exactly the "rollback deadlock" bug class already
+found and fixed in the `mcf_sure_protected_subspace_stage2.py` lineage
+(`mcf_sure_rowspecific_minimal_stage2.py`'s v4 direct entry point).
+
+This makes "never regress an already-passing direct record" a guarantee
+instead of a probabilistic outcome of a hand-tuned weight -- removing the
+weight-guessing loop entirely, at the cost of a training run that may
+plateau (visible via `gate_rejected_steps`/`gate_backtracked_steps` in
+`repair_summary.json`) rather than trade Eff for Spe silently.
+
 ## Stage-1 embedding caveat
 
 After untying, an input-embedding row receives ordinary GA gradient only when that token actually occurs in the teacher-forced input prefix. Consequently, some single-token answer embedding rows may remain unchanged even though their LM-head rows receive GA gradient. The implementation logs `embedding_rows_with_nonzero_current_grad` rather than hiding this causal fact.
@@ -246,9 +282,11 @@ Stage 2:
 - 800 steps
 - unrestricted sparse LM-head rows
 - LR `5e-3`
-- delta L2 `1e-6`
-- pass regression guard weight 1
+- delta L2 `1e-3` (raised from `1e-6`, see below)
 - direct constraint margin `0.05`
+- synthetic paraphrase templates per record `3` (shared bank with Stage 1)
+- hard gate replacing the soft pass-guard/KL-weight terms: protected-KL-max
+  `0.05`, geometric backtrack schedule `1.0` down to `0.0` (see below)
 
 These are one declared configuration, not a rank sweep.
 

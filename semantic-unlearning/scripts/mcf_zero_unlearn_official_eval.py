@@ -322,14 +322,16 @@ def official_summarize(split_name, metric_data):
     out["Spe_success"] = out["post_neighborhood_success"][0]
     for prompt_type in ("rewrite", "paraphrase"):
         margins = prompt_margins[prompt_type]
-        # margin = target_new_NLL - target_true_NLL; success (target_true
-        # disfavored) is margin > 0. A genuine failure (forget did not take,
-        # including exact ties) is therefore margin <= 0, NOT margin < 0 --
-        # margin < 0 is the success condition and was being double-counted
-        # here as a "failure".
+        # margin = target_new_NLL - target_true_NLL. Success (line 249-251:
+        # target_true_NLL > target_new_NLL, target_new preferred) means
+        # target_new_NLL < target_true_NLL, i.e. margin < 0. A genuine
+        # failure (forget did not take, including exact ties, matching the
+        # strict `>` used by success) is therefore margin >= 0 -- NOT
+        # margin <= 0, which is still (almost entirely) the success range
+        # and was left mislabeling successes as failures.
         out[f"post_{prompt_type}_prompt_instances"] = len(margins)
         out[f"post_{prompt_type}_failure_prompt_instances"] = sum(
-            margin <= 0.0 for margin in margins
+            margin >= 0.0 for margin in margins
         )
         out[f"post_{prompt_type}_min_margin"] = (
             float(min(margins)) if margins else None
