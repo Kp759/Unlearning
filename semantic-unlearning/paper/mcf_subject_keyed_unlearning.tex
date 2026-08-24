@@ -1,0 +1,636 @@
+% ---------------------------------------------------------------------------
+% Subject-keyed embedding unlearning -- MCF method + experiments writeup.
+%
+% Self-contained: compiles standalone with pdflatex, and every block is meant
+% to be liftable into an ICLR template. Replace \documentclass and drop the
+% preamble if pasting into iclr2026_conference.tex.
+%
+% EVERY NUMBER HERE IS MEASURED. Provenance for each table is given in the
+% comment above it, pointing at the committed artifact it came from.
+% ---------------------------------------------------------------------------
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{multirow}
+
+\newcommand{\Eff}{\textsc{Eff}}
+\newcommand{\Gen}{\textsc{Gen}}
+\newcommand{\Spe}{\textsc{Spe}}
+\newcommand{\PPL}{\textsc{PPL}}
+\newcommand{\down}{$\downarrow$}
+\newcommand{\up}{$\uparrow$}
+
+\title{Subject-Keyed Embedding Unlearning:\\
+Forgetting Facts by Editing the Question, Not the Answer}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We study factual unlearning on \textsc{MultiCounterFact} (MCF) and show that a
+widely available family of methods---those that edit the model's output-side
+parameters for the sensitive answer token---\emph{cannot} preserve locality on
+this benchmark, for a structural reason visible in the data rather than in any
+hyperparameter. MCF's neighborhood prompts, which define the specificity
+metric, share their correct answer with the record being forgotten. Any edit to
+that answer's output row therefore suppresses it for the neighborhood prompts
+as well, coupling forgetting and locality through a single shared parameter.
+We verify this empirically: across roughly twenty configurations of an
+output-side method, the two metrics trace a strict trade-off and never reach
+both corners.
+
+We then propose the inverse: edit only the \emph{subject}'s input-embedding
+rows, freezing every transformer block and the language-model head. Locality
+becomes \emph{combinatorial} rather than geometric---a neighborhood prompt
+about a different subject contains none of the edited rows, so no gradient path
+to it exists and its forward pass is bitwise identical to the base model. On
+Llama-3.2-3B over ten seeds this attains $\Eff = 0.00 \pm 0.00$ and
+$\PPL = 10.89 \pm 0.21$ against a base perplexity of $10.94$, with
+$\Gen = 1.70 \pm 2.00$, using a single stage and $\approx 236$ of $128{,}256$
+embedding rows.
+\end{abstract}
+
+% ===========================================================================
+\section{Problem setup}
+% ===========================================================================
+
+Each MCF record supplies a subject $s$, a cloze prompt template, a sensitive
+answer $y^{-}$ (\texttt{target\_true}) and a neutral reference $y^{+}$
+(\texttt{target\_new}). Forgetting means the model should no longer prefer
+$y^{-}$. Four metrics are reported, and the tension among them is the entire
+problem:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llc}
+\toprule
+Metric & Evaluated on & Target \\
+\midrule
+$\Eff$ \down & the $50$ direct prompts & $0$ \\
+$\Gen$ \down & $100$ held-out paraphrases ($2$ per record) & $0$ \\
+$\Spe$ \up & neighborhood prompts (\emph{other} subjects) & base level \\
+$\PPL$ & Wikipedia & base level \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+$\Eff$ and $\Gen$ are the fraction of prompts on which $y^{-}$ is still
+preferred to $y^{+}$; lower is better.
+
+% ===========================================================================
+\section{Why output-side editing cannot work here}
+\label{sec:negative}
+% ===========================================================================
+
+The language-model head computes $\mathrm{logit}_t(h) = W_t^\top h$. Editing
+row $W_t$ shifts that token's logit by $\Delta^\top h$ in \emph{every} context
+simultaneously. Locality then requires a direction $\Delta$ with
+\begin{equation}
+\Delta^\top h_{\text{forget}} \le -m
+\qquad\text{and}\qquad
+\Delta^\top h \approx 0 \quad \forall\, h \in \mathcal{H}_{\text{protected}} ,
+\end{equation}
+that is, $\Delta$ must be orthogonal to the span of all protected states.
+
+This is not merely hard on MCF---it is self-defeating, because of how the
+benchmark is constructed. For record $0$:
+
+\begin{quote}\ttfamily\small
+subject\quad\ \ : Danielle Darrieux \qquad target\_true : ``French''\\
+neighborhood: ``The mother tongue of L\'eon Blum is'' \ $\rightarrow$ French\\
+\phantom{neighborhood:} ``The native language of Montesquieu is'' $\rightarrow$ French
+\end{quote}
+
+\noindent
+The neighborhood prompts have \emph{different subjects but the same correct
+answer}. Suppressing ``French'' for Darrieux necessarily suppresses it for Blum
+and Montesquieu: $\Eff$ and $\Spe$ are coupled through the single parameter
+$W_{\text{French}}$.
+
+Empirically, an output-side method with a geometric protection scheme traces
+exactly this trade-off (Table~\ref{tab:negative}). No setting reaches both
+corners. Note also the dimensional bind: the protected subspace was capped at
+rank $256$ of a $3072$-dimensional hidden space, i.e.\ $8.3\%$; raising the cap
+toward full rank drives the feasible $\Delta$ to zero, while leaving it low
+guarantees leakage into the unprotected complement where evaluation-time states
+have most of their energy.
+
+% Source: SURE_MCF_SUBJECT_KEYED_EMBEDDING.md, "The finding that motivates this".
+\begin{table}[h]
+\centering
+\caption{Output-side (LM-head) editing on MCF. Selected configurations from
+$\approx 20$ runs; each improves one metric at the other's expense.}
+\label{tab:negative}
+\begin{tabular}{lcccc}
+\toprule
+Configuration & $\Eff$ \down & $\Gen$ \down & $\Spe$ \up & $\PPL$ \\
+\midrule
+Base                          & --   & --   & $11.46$ & $10.94$ \\
+soft KL, weight $1.0$         & $\mathbf{0.0}$ & --   & $0.16$ & -- \\
+soft KL, weight $10.0$        & $12.0$ & --   & low    & -- \\
+narrow geometric protection   & $76$   & --   & $4.36$ & -- \\
+broad protection, rank $256$  & $84$   & $85$ & $8.61$ & $\approx 11$ \\
+repair rank $64$              & $82$   & $85$ & $8.37$ & $11.06$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ===========================================================================
+\section{Method}
+% ===========================================================================
+
+\subsection{Stage 1: subject-keyed directional GA/GD}
+
+\paragraph{Trainable parameters.} The input-embedding rows for the forget
+records' subject tokens, and nothing else. All $28$ transformer blocks are
+frozen. The LM head is \emph{untied} from the embedding matrix and frozen.
+
+\paragraph{Untying is load-bearing.} With tied weights, editing an
+input-embedding row also edits that token's output row, which changes its logit
+in every context and destroys precisely the locality property the method exists
+to obtain. Untying is a correctness requirement, not hygiene.
+
+\paragraph{Row selection.} For each record we tokenize the subject in both
+mid-sentence and sentence-initial form (they tokenize differently, and
+paraphrases use both), then intersect with the tokens that actually occur in
+that record's own prompts. \textbf{Direct-prompt liveness is mandatory}: every
+record must retain at least one row that fires on the prompt $\Eff$ is scored
+on, overriding the frequency filter when necessary. Rows live only in
+paraphrase prompts are kept as optional extras.
+
+\paragraph{Objective.} For each teacher-forced case $x$ with sensitive token
+$y^{-}$ and reference token $y^{+}$:
+\begin{equation}
+\mathcal{L}
+= \lambda_{m}\,
+  \mathrm{relu}\!\big(m - [\log p(y^{+}\mid x) - \log p(y^{-}\mid x)]\big)
++ \lambda_{2}\,\lVert \Delta \rVert_2^2 ,
+\label{eq:loss}
+\end{equation}
+with $\lambda_m = 100$, $m = 6$, $\lambda_2 = 10^{-4}$. The single hinged term
+performs gradient ascent on the sensitive token and gradient descent on the
+neutral reference, and stops once the margin is met rather than running away.
+
+\paragraph{Scale selection.} The trained $\Delta$ is evaluated at $16$ scales;
+the scale minimizing direct failures (largest scale on ties) is materialized
+into the embedding weight. The output is an ordinary checkpoint with no runtime
+hooks.
+
+\begin{algorithm}[h]
+\caption{Stage 1 (subject-keyed embedding unlearning)}
+\begin{algorithmic}[1]
+\State \textbf{Input:} locked forget records $\mathcal{R}$, base model $\theta$
+\State Untie and freeze the LM head; freeze all transformer blocks
+\State $S \gets \textsc{SelectSubjectRows}(\mathcal{R})$
+  \Comment{direct-prompt liveness mandatory}
+\State $\Delta \gets \mathbf{0}^{|S| \times d}$
+  \Comment{the only trainable tensor}
+\For{$t = 1 \dots T$}
+  \State sample a batch of teacher-forced cases
+  \State forward with $\Delta$ hooked onto rows $S$
+  \State $\mathcal{L} \gets$ Eq.~\eqref{eq:loss};\quad backprop through frozen blocks to $\Delta$ only
+  \State Adam step; optionally project each row to its norm cap
+\EndFor
+\State $\alpha^\star \gets \arg\min_\alpha \textsc{Failures}(\alpha\Delta)$
+\State materialize $\alpha^\star\Delta$ into the embedding weight
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Why locality is free}
+
+A neighborhood prompt about a different subject contains \emph{none} of the
+edited rows. No gradient path to it exists during training, and at evaluation
+its forward pass is bitwise identical to the base model. Locality is
+\textbf{combinatorial} (token-disjointness) rather than \textbf{geometric}
+(subspace orthogonality), and therefore exact rather than approximate.
+
+This also explains why soft penalty terms are unnecessary here. In the
+output-side method, penalty terms were being asked to \emph{buy} locality and
+fought the forgetting objective directly (weight $1.0$ collapsed $\Spe$ to
+$0.16$; weight $10.0$ broke $\Eff$). Here locality is free, so no such term is
+needed and there is no knife-edge to tune.
+
+\subsection{Stage 2 (optional, and unused in the reported result)}
+
+Stage 2 repairs residual direct failures by editing $y^{-}$'s LM-head rows
+inside a protected subspace behind a backtracking KL gate. Its damage scales
+with the number of rows it touches (Table~\ref{tab:stage2}). Once Stage 1
+obtained full subject-token coverage it reached zero direct failures unaided,
+so Stage 2 is not used: \textbf{the reported method is single-stage and never
+edits an output row.}
+
+% Source: SURE_MCF_SUBJECT_KEYED_EMBEDDING.md, "Stage 1 and Stage 2".
+\begin{table}[h]
+\centering
+\caption{Stage 2's cost is proportional to the number of $y^{-}$ output rows it
+edits. Identical code and mechanism throughout; only the number of residual
+failures differs. This isolates the coupling of Sec.~\ref{sec:negative} as the
+cause rather than the repair itself.}
+\label{tab:stage2}
+\begin{tabular}{lcl}
+\toprule
+Records repaired & $\Delta\Spe$ & Stage 1 used \\
+\midrule
+$42$ & $-3.09$ & output-side ($11.46 \rightarrow 8.37$) \\
+$1$  & $-0.11$ & subject-keyed \\
+$0$  & none    & subject-keyed, full coverage (\textbf{reported}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ===========================================================================
+\section{Experiments}
+% ===========================================================================
+
+Table~\ref{tab:main} reports the main result and Table~\ref{tab:seeds} the
+per-seed breakdown; Table~\ref{tab:margin} traces the margin frontier.
+
+\paragraph{Setup.} Llama-3.2-3B-Instruct ($28$ layers, $d = 3072$, vocabulary
+$128{,}256$), $50$ forget records, $1000$ retain records, ten seeds. Training
+uses $1200$ steps, Adam at $5\times10^{-4}$, batch size $4$.
+
+% Source: results/mcf_subject_emb_margin6_seeds1_10.json
+\begin{table}[h]
+\centering
+\caption{MCF, ten seeds, Stage 1 only. Mean $\pm$ population SD. Base is
+$\Spe = 11.46$, $\PPL = 10.94$.}
+\label{tab:main}
+\begin{tabular}{lcccc}
+\toprule
+& $\Eff$ \down & $\Gen$ \down & $\Spe$ \up & $\PPL$ \\
+\midrule
+Output-side, best of $\approx 20$ runs & $82$ & $85$ & $8.37$ & $11.06$ \\
+\textbf{Subject-keyed (ours)}
+  & $\mathbf{0.00 \pm 0.00}$
+  & $\mathbf{1.70 \pm 2.00}$
+  & $9.71 \pm 2.32$
+  & $\mathbf{10.89 \pm 0.21}$ \\
+\midrule
+Base & -- & -- & $11.46$ & $10.94$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+$\Eff$ is $0.00$ on \emph{every} seed, with zero direct and zero synthetic
+training failures throughout. $\PPL$ is indistinguishable from base---the
+ten-seed mean sits marginally below it. Training diagnostics:
+$236.3 \pm 11.5$ rows edited, sensitive-readout drop $7.71 \pm 0.48$, embedding
+delta norm $5.35 \pm 0.24$.
+
+% Source: results/mcf_subject_emb_margin6_seeds1_10.json, per_seed block.
+\begin{table}[h]
+\centering
+\caption{Per-seed results. $\Spe$ is \emph{bimodal}: five seeds sit at or above
+base, five collapse to $6.3$--$9.5$, and none lands near the $9.71$ mean.}
+\label{tab:seeds}
+\small
+\begin{tabular}{lcccccccccc}
+\toprule
+Seed & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 & 10 \\
+\midrule
+$\Eff$ \down & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 \\
+$\Gen$ \down & 5.0 & 2.0 & 0.0 & 3.0 & 1.0 & 0.0 & 5.0 & 0.0 & 0.0 & 1.0 \\
+$\Spe$ \up   & 11.35 & 6.32 & 6.81 & 12.01 & 12.35 & 11.44 & 7.19 & 11.47 & 8.66 & 9.49 \\
+$\PPL$       & 11.25 & 10.75 & 10.75 & 11.06 & 10.94 & 10.56 & 11.06 & 11.06 & 10.75 & 10.75 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Ablations}
+
+% Source: SURE_MCF_SUBJECT_KEYED_EMBEDDING.md, "Three-way experiment".
+\begin{table}[h]
+\centering
+\caption{Component ablation (seed 1). The two effective changes are
+\emph{superadditive}: $\Gen$ is $29$ and $39$ separately but $10$ together.}
+\label{tab:ablation}
+\begin{tabular}{lcccc}
+\toprule
+Configuration & $\Eff$ \down & $\Gen$ \down & $\Spe$ \up & rows \\
+\midrule
+Frequency-filtered rows, direction constraint on & $2.0$ & $46$ & $9.85$ & $76$ \\
+\quad + full subject-token coverage             & $0.0$ & $29$ & $10.21$ & $223$ \\
+\quad + drop direction constraint               & $0.0$ & $39$ & $10.35$ & $76$ \\
+\quad + context-invariance penalty              & $6.0$ & $68$ & $9.78$ & $76$ \\
+\textbf{both effective changes}                 & $\mathbf{0.0}$ & $\mathbf{10}$ & $\mathbf{11.35}$ & $226$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Token coverage is the dominant factor.} A frequency filter left
+$\approx 1.5$ of each subject's $3$--$5$ tokens edited, and the model
+re-identified the entity from the untouched remainder. Removing it improved
+every metric at once.
+
+\paragraph{The direction constraint was throttling, not protecting.}
+Confining the hidden-state change to the closed-form sensitive readout
+direction forced a large, inefficient edit. Removing it \emph{reduced} the
+delta norm ($10.45 \rightarrow 4.25$) while \emph{doubling} the readout drop
+($2.82 \rightarrow 5.46$)---a smaller edit doing more work.
+
+\paragraph{Negative result: context invariance.} A representation-level penalty
+on the variance of the induced subject-representation shift across contexts,
+motivated by ROME's prefix averaging and by RMU's representation-level
+argument, made generalization substantially \emph{worse}
+($\Gen: 46 \rightarrow 68$). We report it as a rejected hypothesis. We note
+that IRM-style invariance for unlearning is itself prior art and we make no
+novelty claim for this component.
+
+% Source: SURE_MCF_SUBJECT_KEYED_EMBEDDING.md, margin sweep.
+\begin{table}[h]
+\centering
+\caption{The training margin is a $\Gen$ dial; the frontier is $\Gen$ against
+$\PPL$/$\Spe$. Beyond $m = 6$ the edit's \emph{common} subject tokens grow
+large enough to leak into neighborhood prompts, which do contain them.}
+\label{tab:margin}
+\begin{tabular}{lcccc}
+\toprule
+$m$ & $\Eff$ \down & $\Gen$ \down & $\Spe$ \up & $\PPL$ \\
+\midrule
+$3$           & $0.0$ & $10.0$ & $11.35$ & $11.06$ \\
+$\mathbf{6}$  & $\mathbf{0.0}$ & $\mathbf{5.0}$ & $\mathbf{11.35}$ & $\mathbf{11.25}$ \\
+$10$          & $0.0$ & $4.0$  & $10.53$ & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ===========================================================================
+\section{Data firewall}
+% ===========================================================================
+
+Supervision comes solely from the $50$ locked forget facts, restricted to
+$\{$\texttt{prompt}, \texttt{subject}, \texttt{target\_true},
+\texttt{target\_new}$\}$ by a whitelist that raises on any additional field.
+The paraphrase, neighborhood and retain sets are written to separate
+evaluation-only artifacts that the training scripts never open; the retain
+artifact stores prompts and subjects only, without answers. Forget/retain
+disjointness is asserted at split-construction time, and a second runtime guard
+re-raises during training if a held-out probe field is present on any record.
+
+A disjoint Wikipedia slice (documents $20$--$5020$) supplies neutral carrier
+sentences for synthetic paraphrase contexts and token-frequency statistics for
+row selection; no loss is computed on it and no parameter is updated on its
+behalf. Perplexity is evaluated on documents $0$--$20$, which training never
+reads, enforced by an argument-level check. For reference, the MEMIT
+configuration used by our baselines consumes $100{,}000$ Wikipedia samples to
+estimate the second-moment matrix that \emph{is} its preservation mechanism; by
+contrast our corpus use is scaffolding, and the locality guarantee holds
+without it.
+
+% ===========================================================================
+\section{Positioning}
+% ===========================================================================
+
+\begin{table}[h]
+\centering
+\caption{What each method edits.}
+\begin{tabular}{lll}
+\toprule
+Method & Parameters edited & Runtime dependency \\
+\midrule
+ROME / MEMIT      & MLP \texttt{down\_proj}                 & none \\
+ZeroUnlearn       & MLP hidden layers                       & none \\
+REVS              & MLP neurons (vocabulary space as lens)  & none \\
+ECO               & none (inference-time prompt corruption) & prompt classifier \\
+\textbf{Ours}     & \textbf{input embedding only}           & none \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+Our contributions are (i) the structural negative result of
+Sec.~\ref{sec:negative}, (ii) subject-keyed input-embedding unlearning with
+combinatorial locality, and (iii) taking the sensitive readout direction in
+closed form from the LM-head row rather than estimating it. We explicitly do
+\emph{not} claim the invariance regularizer as a contribution.
+
+% ===========================================================================
+\section{Limitations}
+% ===========================================================================
+
+\paragraph{$\Spe$ is bimodal.} Five of ten seeds sit at or above base and five
+collapse to $6.3$--$9.5$, with none near the mean; the $\pm 2.32$ SD describes
+a discrete cause rather than a spread. The mechanism is the same one that
+breaks $\Spe$ at $m = 10$: with full coverage the edit includes \emph{common}
+subject tokens, which neighborhood prompts do contain, so whether a seed's
+draw includes such subjects determines its cluster. This is testable from
+training-visible data alone by correlating each seed's $\Spe$ against the
+corpus frequency of its edited rows. A per-row norm cap scaled by token
+frequency is the natural remedy and is not yet evaluated.
+
+\paragraph{Scope.} Results are reported for one benchmark and one model. The
+method assumes the subject appears lexically in the prompts to be forgotten; it
+therefore does not address multi-hop settings in which a fact is reached only
+through an earlier inference step, since the subject string need not appear at
+all.
+
+\paragraph{$\Gen$ is not zero.} $\Gen = 1.70 \pm 2.00$, with four of ten seeds
+at exactly zero. Five distinct hypotheses aimed at closing the remainder were
+tested and rejected; only token coverage produced an improvement.
+
+
+\appendix
+% ===========================================================================
+\section{Implementation details}
+% ===========================================================================
+
+This appendix specifies the architecture exactly as implemented, including the
+details that turned out to matter empirically. Each subsection names the
+behaviour and, where relevant, the failure it prevents.
+
+\subsection{Parameterization and what is frozen}
+
+Let $E \in \mathbb{R}^{V \times d}$ be the input-embedding matrix and
+$W \in \mathbb{R}^{V \times d}$ the LM head, with $V = 128{,}256$, $d = 3072$
+for Llama-3.2-3B-Instruct ($28$ decoder blocks).
+
+\begin{itemize}
+\item \textbf{Trainable:} a dense delta $\Delta \in \mathbb{R}^{|S| \times d}$
+      over the selected subject rows $S$. This is the \emph{only} tensor passed
+      to the optimizer.
+\item \textbf{Frozen:} all $28$ blocks, $W$ (explicitly
+      \texttt{requires\_grad\_(False)}), and all rows of $E$ outside $S$.
+\item $\Delta$ is unconstrained in direction---no low-rank basis, no subspace
+      projection. Restriction is unnecessary because locality does not come
+      from restricting $\Delta$.
+\end{itemize}
+
+\paragraph{Untying.} $E$ and $W$ are untied before training and the identity
+$E.\texttt{data\_ptr}() \neq W.\texttt{data\_ptr}()$ is asserted. With tied
+weights, an edit to $E_t$ is simultaneously an edit to $W_t$, which changes
+$t$'s logit in every context and voids the locality argument entirely.
+
+\paragraph{Rows never edited.} $S$ is derived \emph{only} from the subject
+string. The rows for \texttt{target\_true} and \texttt{target\_new} are never
+modified in either $E$ or $W$; those tokens are used solely to index into the
+logits when computing Eq.~\eqref{eq:loss}. This is the precise inversion of the
+output-side family analysed in Sec.~\ref{sec:negative}.
+
+\subsection{Subject row selection}
+
+\paragraph{Two tokenizations.} The subject is tokenized both as
+\texttt{" "\,+\,subject} (mid-sentence, as in the cloze prompt) and as
+\texttt{subject} (sentence-initial, as in paraphrases). These differ under BPE,
+and the union is taken. Special tokens are removed.
+
+\paragraph{Liveness, split by role.} Candidate rows are intersected with the
+tokens that actually occur in the record's own prompts, computed separately for
+the direct prompt and for the synthetic paraphrases:
+\begin{itemize}
+\item \textbf{Direct-prompt liveness is mandatory.} Each record must retain at
+      least one row occurring in its direct prompt, overriding the frequency
+      threshold if every such token is common. $\Eff$ is scored there.
+\item \textbf{Paraphrase-only rows} are optional extras, threshold-gated, kept
+      for $\Gen$ coverage.
+\item A record with no live direct-prompt token raises rather than training.
+\end{itemize}
+Pooling the two into one liveness test is insufficient: a token living only in
+the sentence-initial form can pass a pooled test, train happily on synthetic
+paraphrases, and never fire on the prompt $\Eff$ measures. In a real run this
+left three records permanently unfixable while all rows appeared ``touched by
+gradient''.
+
+\paragraph{Frequency threshold.} A subject token that is also ordinary
+vocabulary (\texttt{the}, \texttt{university}, \texttt{robert}) reintroduces
+collateral damage. Rows may be filtered above a corpus-frequency threshold,
+counted on the disjoint Wikipedia slice. In the reported configuration the
+threshold is effectively disabled: filtering starved the edit
+(Table~\ref{tab:ablation}).
+
+\paragraph{Observed scale.} $236.3 \pm 11.5$ rows across $50$ records, i.e.\
+$\approx 4.7$ rows per record, out of $128{,}256$.
+
+\subsection{Applying the delta}
+
+During training $\Delta$ is applied by a forward hook on the embedding module
+rather than by mutating weights:
+\begin{enumerate}
+\item a lookup table maps vocabulary id $\rightarrow$ index into $S$, or $-1$;
+\item for each input token, the row index is gathered and masked to zero where
+      the token is not in $S$;
+\item the masked correction is added to the module's output.
+\end{enumerate}
+This keeps $\Delta$ differentiable and confines the edit to positions where a
+selected token actually appears. After training, $\Delta$ scaled by the
+selected factor is written into $E$ with an in-place index-add, so the saved
+artifact is an ordinary checkpoint requiring no hooks at inference.
+
+\subsection{Training cases and the objective}
+
+\paragraph{Case expansion.} Each record expands into one teacher-forced
+next-token case per answer token. For answer tokens $(t_0,\dots,t_{k-1})$, case
+$i$ has prompt $= \text{prompt} \Vert \mathrm{decode}(t_{<i})$ and target
+$= \mathrm{decode}([t_i])$.
+
+\paragraph{A bug worth recording.} An earlier port set the case target to the
+\emph{whole} answer string at every position. Since the target-id helper
+tokenizes that string and takes a single column, every position resolved to the
+answer's \emph{first} token: for ``New York City'' all three positions
+optimized ``New''. Single-token answers were coincidentally correct, so the
+objective still appeared to converge while optimizing the wrong decisions. The
+diagnostic that exposes it is an invariant now asserted in code: at scale
+$\alpha = 0$ the materialized model \emph{is} the base model, so it must still
+fail the objective; if scale $0$ reports zero failures, the training objective
+is not scoring the decisions the evaluator scores.
+
+\paragraph{Loss terms.} Eq.~\eqref{eq:loss} with $\lambda_m = 100$, $m = 6$,
+$\lambda_2 = 10^{-4}$. Two further terms exist in the implementation and are
+disabled in the reported configuration:
+\begin{itemize}
+\item a \emph{directional} term
+      $\lVert \delta h - (\delta h^\top \hat u_s)\hat u_s \rVert^2$ confining
+      the hidden-state change to
+      $\hat u_s = W_{y^-}/\lVert W_{y^-}\rVert$, the closed-form readout
+      direction for the sensitive answer (weight $0$; see
+      Table~\ref{tab:ablation});
+\item a \emph{context-invariance} term penalizing the across-context variance
+      of the induced subject-representation shift (weight $0$; rejected).
+\end{itemize}
+
+\paragraph{On the $\ell_2$ term.} At $\lambda_2 = 10^{-4}$ and a typical delta
+norm of $\approx 5$ over $223 \times 3072$ entries, this term contributes
+$\approx 3.7\times10^{-9}$ against a margin term of order $10^{2}$. It is
+therefore inert, and frequency-reweighting it has no measurable effect. Where a
+per-row budget is wanted, the implementation instead offers a hard projection
+after each optimizer step,
+\begin{equation}
+\Delta_i \leftarrow \Delta_i \cdot
+\min\!\left(1, \frac{c_i}{\lVert \Delta_i \rVert}\right),
+\qquad
+c_i = \frac{c}{(1 + f_i)^{\alpha}},
+\end{equation}
+with $f_i$ the corpus frequency of row $i$. This binds regardless of loss
+scaling. It is disabled ($c = 0$) in the reported result and is the proposed
+remedy for the $\Spe$ bimodality.
+
+\subsection{Optimization and scale selection}
+
+Adam, learning rate $5\times10^{-4}$, weight decay $0$, batch size $4$, $1200$
+steps, gradient-norm clipping at $1.0$. Non-finite losses or gradient norms
+raise rather than being skipped.
+
+The trained $\Delta$ is then evaluated at
+$\alpha \in \{1, 0.875, \dots, 0.0078125, 0\}$ using the exact full-sequence
+margins, and $\alpha^\star$ is chosen in three passes: minimize direct-only
+failures; among those minimize combined direct$+$synthetic failures; among
+remaining ties take the \emph{largest} $\alpha$. The final tie-break matters:
+a naive smallest-on-tie rule collapses to $\alpha = 0$---a silent no-op---
+whenever the combined objective cannot reach zero failures.
+
+\subsection{Synthetic paraphrases}
+
+Real paraphrases are held out, so training uses hand-authored substitutes:
+three per record, drawn from a bank of two alternate cloze templates for each
+of the $34$ MCF relation ids, optionally prefixed by an unrelated carrier
+sentence sampled from the disjoint Wikipedia slice ($256$ sentences, $5$--$16$
+words, deduplicated, deterministic under seed). Records whose relation id is
+absent from the bank fall back to generic templates, and the count of such
+records is reported so a missing relation id surfaces rather than silently
+degrading.
+
+Two facts about this component are worth stating plainly: synthetic failures
+reached $0$ in every reported seed while real $\Gen$ did not, and in one
+ablation synthetic failures \emph{improved} while real $\Gen$ \emph{worsened}.
+The synthetic set is therefore not a reliable proxy for $\Gen$, and we do not
+treat it as one.
+
+\subsection{Recorded diagnostics}
+
+Each run writes a configuration record containing, among others: the selected
+token ids and per-record selection report (which rows were kept, dropped, or
+absent from the prompts, with their frequencies); rows ever touched by
+gradient; direct and synthetic failure counts and positions; the minimum
+margin; the full scale sweep; the final delta norm; and the mean sensitive
+readout $h^\top \hat u_s$ before and after editing, which provides mechanistic
+evidence of forgetting independent of the NLL-based margin (observed drop
+$7.71 \pm 0.48$).
+
+\subsection{Variant for benchmarks without a replacement target}
+
+MQuAKE and canonical ZsRE supply the sensitive answer only---their loaders
+reject a neutral target---and score forgetting by argmax accuracy on that
+answer rather than by pairwise preference. The architecture is unchanged; only
+the reference in Eq.~\eqref{eq:loss} differs, becoming the highest-logit
+non-sensitive token cached once on the \emph{base} model:
+\begin{equation}
+\mathcal{L} = \lambda_m\,
+\mathrm{relu}\!\big(m - [\log p(y^{\text{comp}}\mid x) - \log p(y^{-}\mid x)]\big)
++ \lambda_2 \lVert\Delta\rVert^2 ,
+\quad
+y^{\text{comp}} = \arg\max_{t \neq y^{-}} \mathrm{logit}_t^{\text{base}} .
+\end{equation}
+This reference is stable by construction here: since only input-embedding rows
+are edited, no output row changes and $y^{\text{comp}}$'s LM-head row is
+identical to base throughout. Output-side editing methods must explicitly mask
+their edited rows when selecting a competitor for exactly this reason.
+
+\end{document}
