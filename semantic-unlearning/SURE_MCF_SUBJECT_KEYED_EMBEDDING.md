@@ -315,6 +315,44 @@ off, `--surgical-weight 0.0`, `--train-margin 3.0`.
 Five of six failed. The one that worked was the only one about *how much of
 the subject is edited* rather than *what the training prompts look like*.
 
+## Headline result (`b9fe60f`, Stage 1 only, no Stage 2)
+
+| | Eff | Gen | Spe | PPL |
+|---|---|---|---|---|
+| LM-head architecture, best of ~20 runs | 82 | 85 | 8.37 | 11.06 |
+| subject-emb, coverage only | 0.0 | 29 | 10.21 | 11.06 |
+| subject-emb, surgical 0 only | 0.0 | 39 | 10.35 | -- |
+| **subject-emb, combined** | **0.0** | **10.0** | **11.35** | **11.06** |
+| Base | -- | -- | 11.46 | 10.94 |
+
+`Spe_success` 88.8. Spe sits 0.11 below Base, PPL is unchanged, Eff is 0,
+and Gen fell 85 -> 10. **Stage 2 is not used at all** -- this is a
+single-stage, embedding-only method, so nothing in the final pipeline ever
+touches a `target_true` LM-head row.
+
+```text
+selected_row_count             : 226
+rows_ever_touched_by_gradient  : 217
+stage1_direct_failures         : 0
+stage1_synthetic_failures      : 0
+stage1_minimum_margin          : 3.0625     (train-margin is 3.0)
+sensitive_readout_drop         : 5.463      (was 1.918)
+final_embedding_delta_norm     : 4.251      (was 10.445 coverage-only)
+```
+
+The combination is **superadditive**: Gen 29 and 39 separately, 10 together.
+The diagnostics show why. The delta norm *fell* 10.45 -> 4.25 while the
+sensitive-readout drop *rose* 2.82 -> 5.46 -- a smaller edit doing roughly
+twice the work. `L_surgical` had been forcing a large, inefficient update by
+confining the hidden-state change to `u_s`; removing that constraint let the
+optimizer find a far more efficient direction, and full token coverage gave
+it enough rows to express it.
+
+Note this retires `L_surgical` from the recommended configuration. It was
+introduced as representation hygiene against catastrophic embedding GA, but
+with combinatorial locality doing the protective work it was pure
+throttling. It remains available (`--surgical-weight`) as an ablation.
+
 ## Forgetting evidence beyond NLL
 
 The config records `base_mean_sensitive_readout`,
