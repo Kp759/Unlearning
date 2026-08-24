@@ -22,14 +22,20 @@ SEED=${SEED:-1}
 FORGET_NUM=${FORGET_NUM:-50}
 OUT_ROOT=${OUT_ROOT:-outputs/mcf_directional_emb_lm_fullrepair_seed${SEED}}
 
-STAGE1_STEPS=${STAGE1_STEPS:-600}
-STAGE1_BATCH_SIZE=${STAGE1_BATCH_SIZE:-2}
+# Defaults kept in sync with mcf_sure_directional_emb_lm_stage1.py's own
+# argparse defaults (raised from 600/2/1 once the case pool grew ~4x with
+# synthetic-paraphrase augmentation -- see SURE_MCF_DIRECTIONAL_EMB_LM_FULLREPAIR.md).
+# NOTE: these env vars, if set in the calling shell, always override the
+# fallback below -- unset them (or pass the new values) to pick up fixes to
+# the Python script's own defaults.
+STAGE1_STEPS=${STAGE1_STEPS:-1200}
+STAGE1_BATCH_SIZE=${STAGE1_BATCH_SIZE:-4}
 STAGE1_CACHE_BATCH_SIZE=${STAGE1_CACHE_BATCH_SIZE:-8}
 STAGE1_LR=${STAGE1_LR:-1e-4}
 STAGE1_GA_WEIGHT=${STAGE1_GA_WEIGHT:-2.0}
 STAGE1_KL_WEIGHT=${STAGE1_KL_WEIGHT:-1.0}
 STAGE1_DELTA_L2=${STAGE1_DELTA_L2:-1e-6}
-DIRECTION_RANK=${DIRECTION_RANK:-1}
+DIRECTION_RANK=${DIRECTION_RANK:-8}
 CONSTRAINT_MARGIN=${CONSTRAINT_MARGIN:-0.05}
 
 REPAIR_STEPS=${REPAIR_STEPS:-800}
