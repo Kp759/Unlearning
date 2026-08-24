@@ -123,6 +123,54 @@ Note the audit was word-level (regex `[A-Za-z]+`) and **dropped digits**, so
 it understates available discrimination: `Apple A5`, `Ferrari F40`, and
 `Porsche 911` all have rare numeric pieces that subword tokenization keeps.
 
+## First real run (`98e34f4`, Stage 1 only)
+
+| | Eff | Gen | Spe | PPL |
+|---|---|---|---|---|
+| best LM-head run (`8d044d3`) | 82 | 85 | 8.37 | 11.06 |
+| **subject-emb (`98e34f4`)** | **12.0** | **56.0** | **10.02** | 11.06 |
+| Base | -- | -- | ~11.46 | ~10.94 |
+
+```text
+selected_row_count                  : 74
+records_using_rarest_token_fallback : 13
+stage1_direct_failures              : 6      -> Eff 12.0 = 6/50
+stage1_synthetic_failures           : 45     (of 150)
+stage1_minimum_margin               : -10.67
+sensitive_readout h.u_s             : 9.387 -> 7.689  (drop 1.698)
+```
+
+All four metrics moved the right way simultaneously for the first time in
+the project, which is the signature of the Eff/Spe decoupling: Eff fell 82
+-> 12 while Spe moved *toward* Base rather than away from it.
+
+### The remaining Gen gap is a prefix distribution mismatch
+
+Synthetic failure was 45/150 (30%) but real paraphrase failure was 59/100
+(59%). The synthetic set was too easy, and the reason is the prefix shape:
+
+```text
+GENERIC_CONTEXT_PREFIXES (4 formulaic meta lead-ins):
+    "According to publicly available records, ..."
+    "As has been noted elsewhere, ..."
+
+real paraphrase_prompts (arbitrary unrelated sentence):
+    "Shayna does this and Yossel goes still and dies. Danielle Darrieux, a native"
+    "The population density was . Toko Yasuda plays the instrument"
+```
+
+The edit had learned to fire after a short lead-in that *announces a
+factual statement*, not after arbitrary noise -- and with only four unique
+prefixes it could memorize them outright.
+
+Fix: `corpus_context_prefixes()` samples arbitrary unrelated sentences from
+the same disjoint Wikipedia slice already used for frequency counting
+(`--corpus-context-prefixes`, default 256), and
+`build_synthetic_records(..., context_prefixes=...)` uses them. This is the
+same robustness trick MEMIT uses when averaging its key over randomly
+sampled prefixes. Both parameters are optional and default to the previous
+behaviour, so the LM-head stage and the repair script are unaffected.
+
 ## Forgetting evidence beyond NLL
 
 The config records `base_mean_sensitive_readout`,

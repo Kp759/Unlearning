@@ -22,6 +22,7 @@ pipeline degrades gracefully instead of failing closed.
 """
 from __future__ import annotations
 
+import random
 from typing import Any, Dict, List, Mapping, Sequence
 
 RELATION_ALTERNATE_TEMPLATES: Dict[str, List[str]] = {
@@ -110,6 +111,7 @@ def synthetic_prompt_templates(
     canonical_prompt: str,
     case_id: int,
     count: int,
+    context_prefixes: Sequence[str] | None = None,
 ) -> List[str]:
     """Deterministically build ``count`` alternate cloze templates (each still
     containing one ``{}`` subject placeholder) for one record.
@@ -117,31 +119,98 @@ def synthetic_prompt_templates(
     Candidates interleave a bare grammatical variant with a context-prefixed
     variant of the same template, covering both real paraphrase-variation
     axes before ever repeating a template.
+
+    ``context_prefixes`` defaults to the four formulaic
+    ``GENERIC_CONTEXT_PREFIXES``; pass :func:`corpus_context_prefixes` output
+    to match the arbitrary-unrelated-sentence prefixes real CounterFact
+    paraphrases actually use.
     """
     if count <= 0:
         return []
+    prefixes = list(context_prefixes) if context_prefixes else GENERIC_CONTEXT_PREFIXES
+    if not prefixes:
+        prefixes = GENERIC_CONTEXT_PREFIXES
     templates = _relation_templates(relation_id, canonical_prompt)
     candidates: List[str] = []
     prefix_cycle = 0
     for template in templates:
         candidates.append(template)
-        prefix = GENERIC_CONTEXT_PREFIXES[(case_id + prefix_cycle) % len(GENERIC_CONTEXT_PREFIXES)]
+        prefix = prefixes[(case_id + prefix_cycle) % len(prefixes)]
         candidates.append(f"{prefix} {template}")
         prefix_cycle += 1
     # If more variants are requested than authored, keep cycling context
     # prefixes over the same templates rather than repeating an identical string.
     while len(candidates) < count:
         template = templates[prefix_cycle % len(templates)]
-        prefix = GENERIC_CONTEXT_PREFIXES[(case_id + prefix_cycle) % len(GENERIC_CONTEXT_PREFIXES)]
+        prefix = prefixes[(case_id + prefix_cycle) % len(prefixes)]
         candidates.append(f"{prefix} {template}")
         prefix_cycle += 1
     return candidates[:count]
+
+
+def corpus_context_prefixes(
+    documents: Sequence[str],
+    *,
+    count: int,
+    seed: int,
+    min_words: int = 5,
+    max_words: int = 16,
+) -> List[str]:
+    """Sample arbitrary unrelated sentences to use as paraphrase prefixes.
+
+    ``GENERIC_CONTEXT_PREFIXES`` are four short, formulaic meta lead-ins
+    ("According to publicly available records,").  Real CounterFact
+    ``paraphrase_prompts`` instead prepend an arbitrary *unrelated sentence*
+    lifted from some other document::
+
+        "Shayna does this and Yossel goes still and dies. Danielle Darrieux, a native"
+        "The population density was . Toko Yasuda plays the instrument"
+
+    A run trained only on the four formulaic prefixes reached 30% synthetic
+    failure but 59% real paraphrase failure -- the edit had learned to fire
+    after a meta lead-in that announces a factual statement, not after
+    arbitrary noise.  Sampling many real sentences closes that distribution
+    gap, and is the same robustness trick MEMIT uses when it averages its key
+    over randomly sampled prefixes.
+
+    ``documents`` must come from a corpus disjoint from the official PPL
+    slice, and never from any record's real ``paraphrase_prompts``.
+    """
+    if count <= 0 or not documents:
+        return []
+    seen: set[str] = set()
+    pool: List[str] = []
+    for document in documents:
+        for raw in str(document).replace("\n", " ").split("."):
+            sentence = " ".join(raw.split())
+            if not sentence:
+                continue
+            words = sentence.split()
+            if not (min_words <= len(words) <= max_words):
+                continue
+            # A prefix that itself contains a cloze placeholder would corrupt
+            # the template's single {} subject slot.
+            if "{" in sentence or "}" in sentence:
+                continue
+            candidate = sentence + "."
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            pool.append(candidate)
+    if not pool:
+        return []
+    pool.sort()  # deterministic ordering before the seeded draw
+    rng = random.Random(int(seed))
+    if len(pool) <= count:
+        return pool
+    return rng.sample(pool, count)
 
 
 def build_synthetic_records(
     records: Sequence[Mapping[str, Any]],
     *,
     count: int,
+    context_prefixes: Sequence[str] | None = None,
 ) -> List[Dict[str, Any]]:
     """Return a flat list of synthetic MCF records for direction fitting/GA.
 
@@ -149,6 +218,11 @@ def build_synthetic_records(
     as its source record, with ``requested_rewrite.prompt`` replaced by a
     hand-authored alternate template. Never reads or derives from the source
     record's real ``paraphrase_prompts``.
+
+    ``context_prefixes`` overrides ``GENERIC_CONTEXT_PREFIXES`` -- pass the
+    output of :func:`corpus_context_prefixes` to match the real
+    arbitrary-unrelated-sentence prefix distribution.  Omitting it preserves
+    the original four formulaic lead-ins.
     """
     if count <= 0:
         return []
@@ -165,6 +239,7 @@ def build_synthetic_records(
             canonical_prompt=canonical_prompt,
             case_id=case_id,
             count=count,
+            context_prefixes=context_prefixes,
         )
         for template in templates:
             synthetic_rr = dict(rr)

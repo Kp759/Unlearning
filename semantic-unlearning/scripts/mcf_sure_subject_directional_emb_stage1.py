@@ -192,6 +192,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
 
     p.add_argument(
+        "--corpus-context-prefixes",
+        type=int,
+        default=256,
+        help=(
+            "Number of arbitrary unrelated sentences sampled from the frequency "
+            "corpus to use as synthetic-paraphrase prefixes. The first "
+            "subject-keyed run reached 30%% synthetic failure but 59%% real "
+            "paraphrase failure: its four hand-authored prefixes ('According to "
+            "publicly available records,') are short formulaic meta lead-ins, "
+            "while real CounterFact paraphrases prepend an arbitrary unrelated "
+            "sentence ('Shayna does this and Yossel goes still and dies.'). The "
+            "edit had learned to fire after a lead-in announcing a fact, not "
+            "after noise. Set 0 to fall back to the four formulaic prefixes."
+        ),
+    )
+    p.add_argument(
         "--candidate-scales",
         default="1,.875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,.046875,.03125,.015625,.0078125,0",
     )
@@ -384,12 +400,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         int(a.forget_num),
     )
 
-    synthetic_records = synth.build_synthetic_records(
-        records, count=int(a.synthetic_paraphrases_per_record)
-    )
-    all_records = list(records) + synthetic_records
-    synthetic_coverage = synth.coverage_report(records)
-
     ns = argparse.Namespace(
         model_path=a.model_path,
         dtype=a.dtype,
@@ -424,6 +434,29 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"WARNING: no frequency documents loaded from {a.wikidata_dir!r}; "
             "every subject token row will be trained unfiltered."
         )
+
+    # Prefixes are drawn from the same disjoint corpus, so synthetic prompts
+    # match the arbitrary-unrelated-sentence shape of real CounterFact
+    # paraphrases rather than the four formulaic lead-ins.
+    context_prefixes = synth.corpus_context_prefixes(
+        frequency_documents, count=int(a.corpus_context_prefixes), seed=int(a.seed)
+    )
+    if int(a.corpus_context_prefixes) > 0 and not context_prefixes:
+        print(
+            "WARNING: no corpus context prefixes were sampled; falling back to "
+            "the four hand-authored formulaic prefixes."
+        )
+    synthetic_records = synth.build_synthetic_records(
+        records,
+        count=int(a.synthetic_paraphrases_per_record),
+        context_prefixes=context_prefixes or None,
+    )
+    all_records = list(records) + synthetic_records
+    synthetic_coverage = synth.coverage_report(records)
+    print(
+        f"Synthetic paraphrases: {len(synthetic_records)} records built from "
+        f"{len(context_prefixes)} corpus-sampled context prefixes."
+    )
 
     selected_ids, subject_reports = select_subject_rows(
         records,
@@ -693,6 +726,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         "synthetic_paraphrases_per_record": int(a.synthetic_paraphrases_per_record),
         "synthetic_record_count": len(synthetic_records),
         "synthetic_paraphrase_coverage": synthetic_coverage,
+        "corpus_context_prefixes_requested": int(a.corpus_context_prefixes),
+        "corpus_context_prefixes_used": len(context_prefixes),
+        "context_prefix_source": (
+            "arbitrary unrelated sentences sampled from the frequency corpus "
+            f"[{int(a.frequency_doc_start)}:"
+            f"{int(a.frequency_doc_start) + int(a.frequency_docs)}], matching the "
+            "prefix shape of real CounterFact paraphrase_prompts; never derived "
+            "from any record's real paraphrase_prompts"
+            if context_prefixes
+            else "hand-authored formulaic GENERIC_CONTEXT_PREFIXES fallback"
+        ),
         "embedding_trainable_parameters": int(
             sum(p.numel() for p in delta_module.parameters())
         ),

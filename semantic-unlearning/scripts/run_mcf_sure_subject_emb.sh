@@ -48,6 +48,11 @@ DELTA_L2=${DELTA_L2:-1e-4}
 CONSTRAINT_MARGIN=${CONSTRAINT_MARGIN:-0.05}
 SYNTHETIC_PARAPHRASES_PER_RECORD=${SYNTHETIC_PARAPHRASES_PER_RECORD:-3}
 
+# Real CounterFact paraphrases prepend an arbitrary unrelated sentence, not a
+# formulaic lead-in. The first run (98e34f4) trained on four hand-authored
+# prefixes and got 30% synthetic failure but 59% real paraphrase failure.
+CORPUS_CONTEXT_PREFIXES=${CORPUS_CONTEXT_PREFIXES:-256}
+
 MAX_SUBJECT_TOKEN_FREQUENCY=${MAX_SUBJECT_TOKEN_FREQUENCY:-100}
 WIKIDATA_DIR=${WIKIDATA_DIR:-data/wikidata}
 FREQUENCY_DOCS=${FREQUENCY_DOCS:-5000}
@@ -82,6 +87,7 @@ python -u scripts/mcf_sure_subject_directional_emb_stage1.py \
   --delta-l2 "$DELTA_L2" \
   --stage1-constraint-margin "$CONSTRAINT_MARGIN" \
   --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \
+  --corpus-context-prefixes "$CORPUS_CONTEXT_PREFIXES" \
   --max-subject-token-frequency "$MAX_SUBJECT_TOKEN_FREQUENCY" \
   --wikidata-dir "$WIKIDATA_DIR" \
   --frequency-docs "$FREQUENCY_DOCS" \
