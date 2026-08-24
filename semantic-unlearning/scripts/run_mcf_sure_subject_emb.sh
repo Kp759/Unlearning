@@ -53,6 +53,11 @@ SYNTHETIC_PARAPHRASES_PER_RECORD=${SYNTHETIC_PARAPHRASES_PER_RECORD:-3}
 # prefixes and got 30% synthetic failure but 59% real paraphrase failure.
 CORPUS_CONTEXT_PREFIXES=${CORPUS_CONTEXT_PREFIXES:-256}
 
+# 0 = 6dcb11f behaviour (best Eff/Gen so far). 1 orders subject-first
+# templates first; that made Gen WORSE (46 -> 52) even though synthetic
+# failures improved (41 -> 37), so it is off by default.
+SUBJECT_FIRST_TEMPLATES=${SUBJECT_FIRST_TEMPLATES:-0}
+
 MAX_SUBJECT_TOKEN_FREQUENCY=${MAX_SUBJECT_TOKEN_FREQUENCY:-100}
 WIKIDATA_DIR=${WIKIDATA_DIR:-data/wikidata}
 FREQUENCY_DOCS=${FREQUENCY_DOCS:-5000}
@@ -88,6 +93,7 @@ python -u scripts/mcf_sure_subject_directional_emb_stage1.py \
   --stage1-constraint-margin "$CONSTRAINT_MARGIN" \
   --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \
   --corpus-context-prefixes "$CORPUS_CONTEXT_PREFIXES" \
+  --subject-first-templates "$SUBJECT_FIRST_TEMPLATES" \
   --max-subject-token-frequency "$MAX_SUBJECT_TOKEN_FREQUENCY" \
   --wikidata-dir "$WIKIDATA_DIR" \
   --frequency-docs "$FREQUENCY_DOCS" \

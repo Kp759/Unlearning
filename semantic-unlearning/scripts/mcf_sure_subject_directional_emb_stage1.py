@@ -208,6 +208,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--subject-first-templates",
+        type=int,
+        default=0,
+        help=(
+            "1 = order mechanically-derived subject-first templates ahead of the "
+            "relation bank. Real paraphrases are 100%% subject-first and this "
+            "raises generated coverage 33%% -> 64%%, but the real run (53f8762) "
+            "made Gen WORSE (46 -> 52) while synthetic failures IMPROVED "
+            "(41 -> 37): reshaping the synthetic distribution moves synthetic and "
+            "real in opposite directions. Defaults to 0 (the better 6dcb11f "
+            "behaviour) until that is understood."
+        ),
+    )
+    p.add_argument(
         "--candidate-scales",
         default="1,.875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,.046875,.03125,.015625,.0078125,0",
     )
@@ -507,6 +521,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         records,
         count=int(a.synthetic_paraphrases_per_record),
         context_prefixes=context_prefixes or None,
+        prefer_subject_first=bool(int(a.subject_first_templates)),
     )
     all_records = list(records) + synthetic_records
     synthetic_coverage = synth.coverage_report(records)
@@ -834,6 +849,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "synthetic_paraphrases_per_record": int(a.synthetic_paraphrases_per_record),
         "synthetic_record_count": len(synthetic_records),
         "synthetic_paraphrase_coverage": synthetic_coverage,
+        "subject_first_templates": bool(int(a.subject_first_templates)),
         "corpus_context_prefixes_requested": int(a.corpus_context_prefixes),
         "corpus_context_prefixes_used": len(context_prefixes),
         "context_prefix_source": (
