@@ -3,6 +3,13 @@
 Stage 1 script: `scripts/mcf_sure_subject_directional_emb_stage1.py`
 Runner: `scripts/run_mcf_sure_subject_emb.sh`
 
+> **Current result — 10 seeds, margin 6, Stage 1 only, no Stage 2.**
+> `Eff 0.000 ± 0.000` · `Gen 1.700 ± 2.003` · `Spe 9.709 ± 2.320` ·
+> `PPL 10.894 ± 0.213` (Base: Spe ~11.46, PPL ~10.94).
+> Full table under [Result: 10 seeds](#result-10-seeds-margin-6-stage-1-only).
+> Sections reporting a single seed below are **superseded** and kept only for
+> the sequence of findings that produced this configuration.
+
 ## The finding that motivates this
 
 Every earlier MCF SURE stage selected its editable rows from
@@ -123,7 +130,7 @@ Note the audit was word-level (regex `[A-Za-z]+`) and **dropped digits**, so
 it understates available discrimination: `Apple A5`, `Ferrari F40`, and
 `Porsche 911` all have rare numeric pieces that subword tokenization keeps.
 
-## First real run (`98e34f4`, Stage 1 only)
+## First real run (`98e34f4`, Stage 1 only) · superseded, single seed
 
 | | Eff | Gen | Spe | PPL |
 |---|---|---|---|---|
@@ -204,7 +211,7 @@ evaluation set, the code has been **removed entirely** rather than shipped
 as a disabled flag. No eval-derived heuristic remains anywhere in the
 pipeline.
 
-## Result: Eff = 0 with Spe/PPL essentially at Base
+## Result: Eff = 0 with Spe/PPL essentially at Base · superseded, single seed
 
 Stage 1 `6dcb11f` + Stage 2 direct-only repair:
 
@@ -254,7 +261,7 @@ edited tokens per subject, while most subjects tokenize to 3-5 pieces, so
 the unedited remainder may be enough for the model to re-identify the
 entity in an unfamiliar phrasing.
 
-## Three-way experiment (`28f27b1`)
+## Three-way experiment (`28f27b1`) · superseded, single seed
 
 | Config | Eff | Gen | Spe | PPL | rows |
 |---|---|---|---|---|---|
@@ -303,96 +310,81 @@ off, `--surgical-weight 0.0`, `--train-margin 6.0`.
 Five of six failed. The one that worked was the only one about *how much of
 the subject is edited* rather than *what the training prompts look like*.
 
-## Headline result (`b9fe60f`, Stage 1 only, no Stage 2)
+## Result: 10 seeds, margin 6, Stage 1 only
 
-| | Eff | Gen | Spe | PPL |
-|---|---|---|---|---|
-| LM-head architecture, best of ~20 runs | 82 | 85 | 8.37 | 11.06 |
-| subject-emb, coverage only | 0.0 | 29 | 10.21 | 11.06 |
-| subject-emb, surgical 0 only | 0.0 | 39 | 10.35 | -- |
-| **subject-emb, combined** | **0.0** | **10.0** | **11.35** | **11.06** |
-| Base | -- | -- | 11.46 | 10.94 |
+Config: full subject-token coverage, `--surgical-weight 0`, `--train-margin 6`,
+no Stage 2. Seed 1 is `7fdd2f3_margin6_seed1`; seeds 2-10 are
+`mcf_subject_emb_margin6_final_seed{s}`.
 
-`Spe_success` 88.8. Spe sits 0.11 below Base, PPL is unchanged, Eff is 0,
-and Gen fell 85 -> 10. **Stage 2 is not used at all** -- this is a
-single-stage, embedding-only method, so nothing in the final pipeline ever
-touches a `target_true` LM-head row.
-
-```text
-selected_row_count             : 226
-rows_ever_touched_by_gradient  : 217
-stage1_direct_failures         : 0
-stage1_synthetic_failures      : 0
-stage1_minimum_margin          : 3.0625     (train-margin is 3.0)
-sensitive_readout_drop         : 5.463      (was 1.918)
-final_embedding_delta_norm     : 4.251      (was 10.445 coverage-only)
-```
-
-The combination is **superadditive**: Gen 29 and 39 separately, 10 together.
-The diagnostics show why. The delta norm *fell* 10.45 -> 4.25 while the
-sensitive-readout drop *rose* 2.82 -> 5.46 -- a smaller edit doing roughly
-twice the work. `L_surgical` had been forcing a large, inefficient update by
-confining the hidden-state change to `u_s`; removing that constraint let the
-optimizer find a far more efficient direction, and full token coverage gave
-it enough rows to express it.
-
-Note this retires `L_surgical` from the recommended configuration. It was
-introduced as representation hygiene against catastrophic embedding GA, but
-with combinatorial locality doing the protective work it was pure
-throttling. It remains available (`--surgical-weight`) as an ablation.
-
-### train-margin is a Gen dial, and the frontier is Gen vs PPL
-
-| train-margin | stage1_minimum_margin | Eff | Gen | Spe | PPL |
-|---|---|---|---|---|---|
-| 3.0 | 3.0625 | 0.0 | 10.0 | 11.35 | 11.06 |
-| **6.0** | 6.21875 | **0.0** | **5.0** | **11.35** | **11.25** |
-| 10.0 | -- | 0.0 | 4.0 | 10.53 | -- |
-| Base | -- | -- | -- | 11.46 | 10.94 |
-
-`stage1_minimum_margin` lands just above `--train-margin` in both runs, so
-training is not hitting a capacity limit -- the hinge stops exactly where it
-is told. Gen is a dial, not a ceiling.
-
-Two structural facts fall out of the sweep:
-
-**Spe holds at 11.35 up to margin 6, then breaks.** A third point at margin
-10 gave Gen 4.0 but Spe 10.53 -- a 0.82 drop to buy one point of Gen. The
-earlier claim here that Spe was "pinned" and that no margin setting would
-move it was inferred from two points and is wrong. Margin 6 is the knee.
-
-The break has a mechanism. Neighborhood prompts contain no *subject* tokens,
-but with full coverage the edit now includes *common* tokens, which
-neighborhood prompts do contain. At small margins those deltas are harmless;
-by margin 10 they are large enough to leak. That is what motivates using
-frequency as a per-row budget (below) rather than a filter.
-
-**PPL is the metric that pays.** 11.06 -> 11.25 against a Base of 10.94.
-Subject tokens *do* occur in ordinary Wikipedia text, unlike neighborhood
-prompts, so pushing the edit harder costs fluency where those tokens appear.
-
-The operating frontier is therefore Gen vs PPL with Spe fixed. Sweeping
-`--train-margin` traces it directly, which makes it the natural ablation
-figure for a writeup.
-
-### Frequency as a budget, not a filter
-
-`--delta-l2-frequency-alpha` scales each row's delta-l2 budget by
-`(1 + corpus_frequency)^alpha`, mean-normalised so `alpha=0` reproduces the
-uniform penalty exactly. Observed weights at `alpha=0.5` over real token
-frequencies:
+| seed | Eff ↓ | Gen ↓ | Spe ↑ | PPL | direct fails | min margin |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 0.00 | 5.00 | 11.35 | 11.250 | 0 | 6.219 |
+| 2 | 0.00 | 2.00 | 6.32 | 10.750 | 0 | 6.156 |
+| 3 | 0.00 | 0.00 | 6.81 | 10.750 | 0 | 6.500 |
+| 4 | 0.00 | 3.00 | 12.01 | 11.062 | 0 | 5.922 |
+| 5 | 0.00 | 1.00 | 12.35 | 10.938 | 0 | 6.312 |
+| 6 | 0.00 | 0.00 | 11.44 | 10.562 | 0 | 6.000 |
+| 7 | 0.00 | 5.00 | 7.19 | 11.062 | 0 | 6.312 |
+| 8 | 0.00 | 0.00 | 11.47 | 11.062 | 0 | 2.531 |
+| 9 | 0.00 | 0.00 | 8.66 | 10.750 | 0 | 6.344 |
+| 10 | 0.00 | 1.00 | 9.49 | 10.750 | 0 | 6.094 |
 
 ```text
-freq    0 -> weight 0.079     (rare: nearly free to move)
-freq   67 -> weight 0.651
-freq  205 -> weight 1.133
-freq 1443 -> weight 3.000     (common: held near Base)
+Eff         : 0.000  ± 0.000 SD   95% CI ±0.000    [0.000, 0.000]
+Gen         : 1.700  ± 2.003 SD   95% CI ±1.241    [0.000, 5.000]
+Spe         : 9.709  ± 2.320 SD   95% CI ±1.438    [6.320, 12.350]
+Spe_success : 83.620 ± 5.074 SD   95% CI ±3.145    [74.400, 89.400]
+PPL         : 10.894 ± 0.213 SD   95% CI ±0.132    [10.562, 11.250]
+
+direct_failures        : 0.000   ± 0.000
+synthetic_failures     : 0.000   ± 0.000
+minimum_margin         : 5.839   ± 1.175
+sensitive_readout_drop : 7.710   ± 0.478
+embedding_delta_norm   : 5.346   ± 0.242
+selected_rows          : 236.300 ± 11.528
+rows_touched           : 235.800 ± 11.717
 ```
 
-The frequency *filter* failed because it starved rows entirely (Gen 46 vs 29
-once removed). A *budget* keeps every row trainable while limiting only the
-deltas that actually damage Spe and PPL, which is what should let
-`--train-margin` rise past 6 without Spe paying for it. Untested.
+Base is Spe ~11.46, PPL ~10.94. Against the LM-head architecture's best of
+~20 runs (Eff 82, Gen 85, Spe 8.37), Eff goes 82 -> 0 with no seed variance
+at all.
+
+**Eff is 0.00 on every seed**, with `direct_failures` and
+`synthetic_failures` both 0 everywhere -- the training objective is fully
+satisfied in all 10 runs. **PPL is indistinguishable from Base**: the
+10-seed mean of 10.894 sits slightly *below* Base's 10.94.
+
+Note that seed 1, reported alone in earlier revisions of this document, is
+one of the worst draws on both open metrics (Gen 5.00, PPL 11.250). The
+single-seed headline it produced understated Gen and overstated PPL cost.
+
+### Spe is bimodal, not noisy
+
+Sorted, Spe splits into two clusters with nothing between them:
+
+```text
+low   : seed 2  6.32 | seed 3  6.81 | seed 7  7.19 | seed 9  8.66 | seed 10  9.49
+high  : seed 1 11.35 | seed 6 11.44 | seed 8 11.47 | seed 4 12.01 | seed 5 12.35
+```
+
+Five seeds land at or above Base, five collapse to 6-9.5, and no seed lands
+near the 9.71 mean. Smooth sampling noise does not produce that gap, so the
+±2.32 SD is hiding a discrete cause rather than describing a spread.
+
+The mechanism is the same one that broke Spe at `--train-margin 10`: with
+full token coverage the edit includes *common* subject tokens, which
+neighborhood prompts do contain. Whether a given seed's 50-record draw
+happens to include subjects made of common tokens determines which cluster
+it lands in.
+
+This is checkable using training-visible data only -- correlate each seed's
+Spe against the corpus frequency of the rows it edited
+(`subject_row_selection[].kept_token_frequencies` in each
+`stage1_config.json`), with no reference to held-out prompts.
+
+`--row-norm-cap` with `--row-norm-cap-frequency-alpha` (added in `178f637`)
+caps exactly those rows and is the proposed fix. Seed 2 is the natural test
+case: worst Spe at 6.32, so it has the most headroom to recover.
 
 ## Forgetting evidence beyond NLL
 

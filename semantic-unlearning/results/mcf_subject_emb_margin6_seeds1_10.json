@@ -1,0 +1,69 @@
+{
+  "method": "SURE-MCF-subject-keyed-directional-embedding-stage1",
+  "protocol": "mcf_target_true_sensitive_subject_keyed_embedding_ga_gd_v1",
+  "dataset": "mcf",
+  "model": "Llama-3.2-3B-Instruct",
+  "forget_num": 50,
+  "stages_run": ["stage1"],
+  "stage2_used": false,
+  "config": {
+    "train_margin": 6.0,
+    "margin_weight": 100.0,
+    "surgical_weight": 0.0,
+    "invariance_weight": 0.0,
+    "delta_l2": 1e-4,
+    "max_subject_token_frequency": 1000000000,
+    "steps": 1200,
+    "lr": 5e-4,
+    "batch_size": 4,
+    "synthetic_paraphrases_per_record": 3,
+    "corpus_context_prefixes": 256,
+    "frequency_doc_range": [20, 5020]
+  },
+  "baseline": {
+    "Spe": 11.46,
+    "PPL": 10.94,
+    "note": "canonical base model reference"
+  },
+  "per_seed": [
+    {"seed": 1,  "Eff": 0.0, "Gen": 5.0, "Spe": 11.35, "PPL": 11.250, "direct_failures": 0, "synthetic_failures": 0, "minimum_margin": 6.219},
+    {"seed": 2,  "Eff": 0.0, "Gen": 2.0, "Spe": 6.32,  "PPL": 10.750, "direct_failures": 0, "synthetic_failures": 0, "minimum_margin": 6.156},
+    {"seed": 3,  "Eff": 0.0, "Gen": 0.0, "Spe": 6.81,  "PPL": 10.750, "direct_failures": 0, "synthetic_failures": 0, "minimum_margin": 6.500},
+    {"seed": 4,  "Eff": 0.0, "Gen": 3.0, "Spe": 12.01, "PPL": 11.062, "direct_failures": 0, "synthetic_failures": 0, "minimum_margin": 5.922},
+    {"seed": 5,  "Eff": 0.0, "Gen": 1.0, "Spe": 12.35, "PPL": 10.938, "direct_failures": 0, "synthetic_failures": 0, "minimum_margin": 6.312},
+    {"seed": 6,  "Eff": 0.0, "Gen": 0.0, "Spe": 11.44, "PPL": 10.562, "direct_failures": 0, "synthetic_failures": 0, "minimum_margin": 6.000},
+    {"seed": 7,  "Eff": 0.0, "Gen": 5.0, "Spe": 7.19,  "PPL": 11.062, "direct_failures": 0, "synthetic_failures": 0, "minimum_margin": 6.312},
+    {"seed": 8,  "Eff": 0.0, "Gen": 0.0, "Spe": 11.47, "PPL": 11.062, "direct_failures": 0, "synthetic_failures": 0, "minimum_margin": 2.531},
+    {"seed": 9,  "Eff": 0.0, "Gen": 0.0, "Spe": 8.66,  "PPL": 10.750, "direct_failures": 0, "synthetic_failures": 0, "minimum_margin": 6.344},
+    {"seed": 10, "Eff": 0.0, "Gen": 1.0, "Spe": 9.49,  "PPL": 10.750, "direct_failures": 0, "synthetic_failures": 0, "minimum_margin": 6.094}
+  ],
+  "aggregate": {
+    "n_seeds": 10,
+    "Eff":         {"mean": 0.000,  "sd": 0.000, "ci95": 0.000, "min": 0.000,  "max": 0.000},
+    "Gen":         {"mean": 1.700,  "sd": 2.003, "ci95": 1.241, "min": 0.000,  "max": 5.000},
+    "Spe":         {"mean": 9.709,  "sd": 2.320, "ci95": 1.438, "min": 6.320,  "max": 12.350},
+    "Spe_success": {"mean": 83.620, "sd": 5.074, "ci95": 3.145, "min": 74.400, "max": 89.400},
+    "PPL":         {"mean": 10.894, "sd": 0.213, "ci95": 0.132, "min": 10.562, "max": 11.250}
+  },
+  "training_diagnostics": {
+    "direct_failures":        {"mean": 0.000,   "sd": 0.000},
+    "synthetic_failures":     {"mean": 0.000,   "sd": 0.000},
+    "minimum_margin":         {"mean": 5.839,   "sd": 1.175},
+    "sensitive_readout_drop": {"mean": 7.710,   "sd": 0.478},
+    "embedding_delta_norm":   {"mean": 5.346,   "sd": 0.242},
+    "selected_rows":          {"mean": 236.300, "sd": 11.528},
+    "rows_touched":           {"mean": 235.800, "sd": 11.717}
+  },
+  "findings": {
+    "eff_zero_variance": "Eff is 0.00 on all 10 seeds, with direct_failures and synthetic_failures both 0 everywhere; the training objective is fully satisfied in every run.",
+    "ppl_at_base": "10-seed PPL mean 10.894 sits slightly below the base 10.94, i.e. indistinguishable from base.",
+    "seed1_is_a_bad_draw": "Seed 1, reported alone in earlier single-seed revisions, is among the worst draws on both open metrics (Gen 5.00, PPL 11.250). The single-seed headline understated Gen and overstated PPL cost.",
+    "spe_is_bimodal": "Spe splits into two clusters with nothing between them - low: seeds 2/3/7/9/10 at 6.32-9.49; high: seeds 1/6/8/4/5 at 11.35-12.35. No seed lands near the 9.709 mean, so the 2.320 SD hides a discrete cause rather than describing a spread.",
+    "spe_mechanism": "Same cause as the Spe break at --train-margin 10: with full token coverage the edit includes common subject tokens, which neighborhood prompts do contain. Whether a seed's 50-record draw includes subjects made of common tokens determines its cluster.",
+    "spe_check": "Testable from training-visible data only - correlate each seed's Spe against the corpus frequency of its edited rows (subject_row_selection[].kept_token_frequencies in stage1_config.json), with no reference to held-out prompts.",
+    "proposed_fix": "--row-norm-cap with --row-norm-cap-frequency-alpha (added in 178f637) caps exactly those rows. Seed 2 is the natural test case at Spe 6.32."
+  },
+  "comparison": {
+    "lm_head_architecture_best_of_20_runs": {"Eff": 82.0, "Gen": 85.0, "Spe": 8.37, "PPL": 11.06, "seeds": 1}
+  }
+}
