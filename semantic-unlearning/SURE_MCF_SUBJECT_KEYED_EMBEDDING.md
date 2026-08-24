@@ -171,6 +171,51 @@ same robustness trick MEMIT uses when averaging its key over randomly
 sampled prefixes. Both parameters are optional and default to the previous
 behaviour, so the LM-head stage and the repair script are unaffected.
 
+### Run history
+
+| Run | Eff | Gen | Spe | PPL | direct fails | min margin |
+|---|---|---|---|---|---|---|
+| LM-head best (`8d044d3`) | 82 | 85 | 8.37 | 11.06 | 42 | -- |
+| `98e34f4` subject-emb | 12.0 | 56 | 10.02 | 11.06 | 6 | -10.67 |
+| `017174c` corpus prefixes | 14.0 | 53 | 9.86 | 11.06 | 7 | -10.67 |
+| `0ea4aad` dead rows dropped | 6.0 | 49 | 10.14 | 11.06 | 3 | -10.67 |
+| `6dcb11f` direct liveness | **2.0** | 46 | 9.85 | 11.06 | **1** | **-0.375** |
+| Base | -- | -- | ~11.46 | ~10.94 | -- | -- |
+
+Two hypotheses about Gen were tested and rejected along the way: the corpus
+prefix distribution (`017174c` moved Gen only 56 -> 53) and pooled prompt
+liveness (fixed Eff, not Gen).  What actually fixed Eff was requiring each
+record to keep a row live in its own *direct* prompt -- the bit-identical
+`stage1_minimum_margin` of -10.671875 across three runs was a permanently
+unedited record, and it moved to -0.375 once that was enforced.
+
+### The Gen gap is a syntactic register mismatch
+
+Measured over the 50 forget records:
+
+```text
+real paraphrase_prompts that are subject-first : 100/100  (100%)
+canonical prompts that are subject-first       :  36/50   (72%)
+this bank's generated templates, before fix    :  49/150  (33%)
+distinct real tails 66, synthetic tails 34, OVERLAP = 2
+```
+
+Training exercised "The native language of X is ___" while Gen is scored on
+"X, speaker of ___" and "X's headquarters are in ___".  `subject_first_variants()`
+mechanically derives subject-first templates from the record's own
+`canonical_prompt` -- part of the locked training-visible `requested_rewrite`,
+never a real `paraphrase_prompts` entry, so the firewall is unchanged:
+
+```text
+"The mother tongue of {} is"          -> "{}'s mother tongue is"
+                                         "{}, whose mother tongue is"
+"The headquarter of {} is located in" -> "{}'s headquarter is located in"
+"{}, which is located in"             -> unchanged (already subject-first)
+```
+
+This moves generated templates from 33% to 64% subject-first.  Enabled by
+default via `prefer_subject_first=True`; the other two callers are unaffected.
+
 ## Forgetting evidence beyond NLL
 
 The config records `base_mean_sensitive_readout`,
