@@ -277,6 +277,29 @@ backstop and loosened to `0.5` accordingly (the natural KL scale observed
 when a soft weight-3.0 penalty found a reasonable Eff/Spe balance), since
 the primary protection no longer depends on it being tight.
 
+### The gate's protected set still didn't match what the basis protects
+
+A real run with the geometric restriction in place still showed
+`gate_rejected_steps=711/800` and `final_direct_failures=32/50`
+(`Eff=62.0`) -- much better than the fully unrestricted delta's collapse,
+but still far from the near-perfect results the earlier soft-weight runs
+achieved on Eff alone. Cause: the runtime gate recomputed "currently
+passing" fresh every step, so the instant an *active* case's margin
+crossed the threshold mid-training, it joined the protected set -- even
+though its hidden state was part of `H_active`, which the repair basis is
+built, by construction, to move. Every subsequent step that legitimately
+kept refining coefficients for other still-failing cases risked a small
+wobble in that recently-fixed one (they share the same basis), and the
+dynamic gate rejected it as a violation instead of recognizing it as
+in-scope movement.
+
+Fixed by scoping the gate's protected set to the same *fixed*,
+pre-Stage-2-training set `H_protected` was built from (`passing_positions`,
+computed once, not recomputed as training progresses). Since the repair
+basis is already orthogonal to that exact set's hidden-state span, the
+gate should now rarely bind at all -- it becomes a pure numerical-safety
+backstop rather than a competing objective.
+
 ## Stage-1 embedding caveat
 
 After untying, an input-embedding row receives ordinary GA gradient only when that token actually occurs in the teacher-forced input prefix. Consequently, some single-token answer embedding rows may remain unchanged even though their LM-head rows receive GA gradient. The implementation logs `embedding_rows_with_nonzero_current_grad` rather than hiding this causal fact.

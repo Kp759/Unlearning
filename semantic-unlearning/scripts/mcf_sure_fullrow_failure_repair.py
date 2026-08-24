@@ -415,31 +415,27 @@ def main(argv: Sequence[str] | None = None) -> None:
         best_delta = delta_module.effective_delta().detach().clone()
         best_key = (10**9, 10**9, float("inf"))
 
+        # Hard-gate protected set is fixed to the *initially* passing cases
+        # -- the same set B_protected was built from -- not recomputed each
+        # step. A dynamically growing set (protect a record the instant it
+        # first passes) would treat every active case's own progress as an
+        # immediate new protection requirement, even though its hidden
+        # state was deliberately part of H_active (the basis is expected,
+        # by construction, to move it). That mismatch is why a first
+        # attempt at this rejected 711/800 steps: continuing to refine
+        # coefficients for still-failing cases naturally wobbles
+        # recently-fixed ones sharing the same basis, which a dynamic gate
+        # then punished as a violation instead of expected, in-scope
+        # movement of the very directions the basis was built to touch.
+        protected_direct_positions = [i for i in passing_positions if i < direct_count]
+        protected_positions = list(passing_positions)
+        protected_direct_caches = [caches[i] for i in protected_direct_positions]
+        protected_caches = [caches[i] for i in protected_positions]
+
         for step in range(1, int(a.repair_steps) + 1):
-            # Hard gate, computed fresh each step from the model's current
-            # state: a record becomes "protected" the moment it passes, and
-            # can never be allowed to regress afterwards. This replaces the
-            # earlier soft pass-guard/KL-weight loss terms, which were a
-            # competing pressure a large-enough failure hinge could still
-            # outweigh (weight 1.0: Spe collapsed) or that, once raised
-            # enough to matter, could itself outweigh the hinge and regress
-            # already-passing direct records (weight 10.0: Eff 0.0 -> 12.0).
             with torch.no_grad():
                 pre_raw = repair_delta_raw_param(delta_module).detach().clone()
                 pre_delta = repair_effective_delta_from_raw(delta_module, pre_raw)
-                pre_all_margins = margins_from_caches(caches, pre_delta)
-                protected_direct_positions = [
-                    i
-                    for i in range(direct_count)
-                    if float(pre_all_margins[i]) >= float(a.constraint_margin)
-                ]
-                protected_positions = [
-                    i
-                    for i, value in enumerate(pre_all_margins.tolist())
-                    if float(value) >= float(a.constraint_margin)
-                ]
-                protected_direct_caches = [caches[i] for i in protected_direct_positions]
-                protected_caches = [caches[i] for i in protected_positions]
 
             opt.zero_grad(set_to_none=True)
             delta = delta_module.effective_delta()
@@ -640,12 +636,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         ),
         "passing_records_role": (
             "protected-subspace projection (primary) + hard gate backstop "
-            "(secondary): any record whose margin is >= constraint-margin "
-            "at the start of a step is protected for that step -- its margin "
-            "may not drop below constraint-margin, and same-prompt "
-            "non-target KL over all protected records may not exceed "
-            "protected-kl-max. A step violating either is backtracked "
-            "(geometric scale-down of the raw update) or fully rolled back."
+            "(secondary), both scoped to the same fixed set: records "
+            "passing before Stage 2 started (the same set H_protected was "
+            "built from). Their margins may not drop below "
+            "constraint-margin, and same-prompt non-target KL over the set "
+            "may not exceed protected-kl-max; a step violating either is "
+            "backtracked (geometric scale-down of the raw update) or fully "
+            "rolled back. Deliberately NOT recomputed as records become "
+            "newly passing during training -- a record's own hidden state "
+            "was part of H_active precisely so the basis could move it, so "
+            "treating it as newly off-limits the instant it first passes "
+            "would punish the repair basis for doing its job (this is what "
+            "drove an earlier attempt's gate_rejected_steps=711/800)."
         ),
         "protected_kl_max": float(a.protected_kl_max),
         "backtrack_scales": backtrack_scales,
