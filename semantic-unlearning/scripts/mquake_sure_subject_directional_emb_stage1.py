@@ -61,6 +61,7 @@ import gagd_compare as gagd
 import mcf_sure_directional_emb_lm_stage1 as base1
 import mcf_sure_subject_directional_emb_stage1 as subj
 import sure_canonical_core as core
+import sure_context_projection as context
 import sure_stage2_sparse_repair as stage2
 
 METHOD = "SURE-MQuAKE-subject-keyed-directional-embedding-stage1"
@@ -159,35 +160,6 @@ def validate_locked_mquake(
         if record.get("atomic_gen_prompt") or record.get("questions"):
             raise RuntimeError(f"record {index} exposes held-out MQuAKE probes")
     return records, manifest
-
-
-def sensitive_cases(
-    records: Sequence[Mapping[str, Any]], tok: Any, *, llama_like: bool
-) -> List[core.SensitivePredictionCase]:
-    """Teacher-forced next-token cases over target_true, mirroring MCF."""
-    cases: List[core.SensitivePredictionCase] = []
-    for position, record in enumerate(records):
-        rewrite = record["requested_rewrite"]
-        subject = str(rewrite["subject"])
-        prompt = str(rewrite["prompt"]).format(subject)
-        answer = str(rewrite["target_true"]["str"])
-        tids = core.answer_token_ids(tok, answer, llama_like=llama_like)
-        case_id = int(record.get("case_id", position))
-        for token_index in range(len(tids)):
-            decoded_prefix = tok.decode(tids[:token_index])
-            evaluated = prompt + (
-                " " + decoded_prefix if llama_like and token_index > 0 else decoded_prefix
-            )
-            cases.append(
-                core.SensitivePredictionCase(
-                    case_id=case_id,
-                    record_position=position,
-                    token_index=token_index,
-                    prompt=evaluated,
-                    target_text=answer,
-                )
-            )
-    return cases
 
 
 @torch.no_grad()
@@ -314,7 +286,17 @@ def run_competitor_stage1(
         "direct-prompt row above the frequency threshold."
     )
 
-    cases = sensitive_cases(records, tok, llama_like=llama_like)
+    # Use the shared expansion rather than a local copy. A local version here
+    # set target_text to the WHOLE answer at every token position, while
+    # core.official_target_ids takes one token column from it -- so every case
+    # resolved to the answer's FIRST token. Single-token answers were
+    # coincidentally right; multi-token answers optimized positions 1..n
+    # against token 0, and Stage 1 was not scoring the decisions official Eff
+    # scores. expand_answer_field_cases sets target_text=tok.decode([token_id])
+    # per position, matching the evaluator.
+    cases = context.expand_answer_field_cases(
+        records, tok, field="target_true", llama_like=llama_like
+    )
     competitors = cache_base_competitors(
         model, tok, cases, device, int(a.cache_batch_size), llama_like
     )
@@ -454,6 +436,20 @@ def run_competitor_stage1(
                 "minimum_margin": float(margins.min()),
                 "embedding_delta_norm": float(trained_delta.norm().cpu() * scale),
             }
+        )
+
+    # Invariant that would have caught the target-token bug immediately: at
+    # scale 0 the materialized model is exactly Base, so the sensitive answers
+    # must still win. If Base already satisfies the objective, Stage 1 is not
+    # measuring the decisions the official evaluator measures.
+    zero = next((r for r in scale_reports if float(r["scale"]) == 0.0), None)
+    if zero is not None and int(zero["direct_failures"]) == 0:
+        raise RuntimeError(
+            "scale=0 (the Base model) reports 0 competitor-margin failures with "
+            f"minimum_margin={zero['minimum_margin']}. Base cannot already be "
+            "forgetting, so Stage 1's (prompt, target token) pairs do not match "
+            "the official evaluator's. Check the case expansion before trusting "
+            "any number from this run."
         )
 
     selected_scale = base1.select_stage1_scale(scale_reports)
