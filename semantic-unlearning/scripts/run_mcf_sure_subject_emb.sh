@@ -65,11 +65,6 @@ SYNTHETIC_PARAPHRASES_PER_RECORD=${SYNTHETIC_PARAPHRASES_PER_RECORD:-3}
 # prefixes and got 30% synthetic failure but 59% real paraphrase failure.
 CORPUS_CONTEXT_PREFIXES=${CORPUS_CONTEXT_PREFIXES:-256}
 
-# 0 = 6dcb11f behaviour (best Eff/Gen so far). 1 orders subject-first
-# templates first; that made Gen WORSE (46 -> 52) even though synthetic
-# failures improved (41 -> 37), so it is off by default.
-SUBJECT_FIRST_TEMPLATES=${SUBJECT_FIRST_TEMPLATES:-0}
-
 # Representation-level context-invariance penalty. 0 = off (previous
 # behaviour, clean ablation baseline). L_margin is output-level and the
 # optimizer can satisfy it per trained prompt -- that is what Eff=0 with
@@ -124,7 +119,6 @@ python -u scripts/mcf_sure_subject_directional_emb_stage1.py \
   --stage1-constraint-margin "$CONSTRAINT_MARGIN" \
   --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \
   --corpus-context-prefixes "$CORPUS_CONTEXT_PREFIXES" \
-  --subject-first-templates "$SUBJECT_FIRST_TEMPLATES" \
   --invariance-weight "$INVARIANCE_WEIGHT" \
   --invariance-contexts "$INVARIANCE_CONTEXTS" \
   --invariance-batch "$INVARIANCE_BATCH" \

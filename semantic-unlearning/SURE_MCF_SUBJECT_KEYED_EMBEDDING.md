@@ -189,32 +189,20 @@ record to keep a row live in its own *direct* prompt -- the bit-identical
 `stage1_minimum_margin` of -10.671875 across three runs was a permanently
 unedited record, and it moved to -0.375 once that was enforced.
 
-### The Gen gap is a syntactic register mismatch
+### Rejected: subject-first template ordering (code removed)
 
-Measured over the 50 forget records:
+An attempt to reorder synthetic templates into a subject-first register was
+run and **rejected on results** -- Gen got worse (46 -> 52) while synthetic
+failures improved (41 -> 37), one of several signals that the synthetic
+paraphrase set does not proxy real Gen.
 
-```text
-real paraphrase_prompts that are subject-first : 100/100  (100%)
-canonical prompts that are subject-first       :  36/50   (72%)
-this bank's generated templates, before fix    :  49/150  (33%)
-distinct real tails 66, synthetic tails 34, OVERLAP = 2
-```
-
-Training exercised "The native language of X is ___" while Gen is scored on
-"X, speaker of ___" and "X's headquarters are in ___".  `subject_first_variants()`
-mechanically derives subject-first templates from the record's own
-`canonical_prompt` -- part of the locked training-visible `requested_rewrite`,
-never a real `paraphrase_prompts` entry, so the firewall is unchanged:
-
-```text
-"The mother tongue of {} is"          -> "{}'s mother tongue is"
-                                         "{}, whose mother tongue is"
-"The headquarter of {} is located in" -> "{}'s headquarter is located in"
-"{}, which is located in"             -> unchanged (already subject-first)
-```
-
-This moves generated templates from 33% to 64% subject-first.  Enabled by
-default via `prefer_subject_first=True`; the other two callers are unaffected.
+The approach was motivated by inspecting the aggregate structure of the
+held-out `paraphrase_prompts`. It never read them at training time and
+derived its templates only from each record's own training-visible
+`canonical_prompt`, but because the *idea* came from looking at the
+evaluation set, the code has been **removed entirely** rather than shipped
+as a disabled flag. No eval-derived heuristic remains anywhere in the
+pipeline.
 
 ## Result: Eff = 0 with Spe/PPL essentially at Base
 
@@ -299,7 +287,7 @@ Forcing a context-invariant representation shift conflicts with achieving
 the margin. It remains available as an ablation axis, defaulted to 0.
 
 Defaults now follow (a)+(b): `--max-subject-token-frequency` effectively
-off, `--surgical-weight 0.0`, `--train-margin 3.0`.
+off, `--surgical-weight 0.0`, `--train-margin 6.0`.
 
 ### Gen hypotheses, scoreboard
 
@@ -307,7 +295,7 @@ off, `--surgical-weight 0.0`, `--train-margin 3.0`.
 |---|---|---|
 | 1 | prefix distribution too formulaic | 56 -> 53, negligible |
 | 2 | pooled prompt liveness | fixed **Eff**, not Gen |
-| 3 | syntactic register mismatch | 46 -> **52, worse** |
+| 3 | syntactic register mismatch | 46 -> **52, worse** (code since removed) |
 | 4 | Stage 2 would generalize | 46 -> 46, unchanged |
 | 5 | context-invariance penalty | 46 -> **68, much worse** |
 | 6 | **subject-token coverage** | **46 -> 29** |
