@@ -325,6 +325,17 @@ contributing to the failure hinge or any margin computation. Default
 warning) to in-sample-only protection if the directory is missing, so this
 is additive rather than a hard requirement.
 
+**Correction:** the first version of this pointed at
+`load_official_ppl_text`, which is hardcoded to `raw_ds['train']['text'][:20]`
+-- the exact documents `official_perplexity` later scores. Protecting
+against that text during training would contaminate the PPL result: an
+improvement would reflect having seen the exact evaluation bytes, not
+genuine specificity preservation. `load_wikidata_protection_text(wikidata_dir,
+doc_start, doc_stop)` now reads a disjoint slice instead (default
+`--generic-protection-doc-start 20` / `--generic-protection-doc-stop 40`,
+immediately after official PPL's `[:20]`), and argparse hard-rejects any
+`doc-start < 20` so this can't silently regress.
+
 ## Stage-1 embedding caveat
 
 After untying, an input-embedding row receives ordinary GA gradient only when that token actually occurs in the teacher-forced input prefix. Consequently, some single-token answer embedding rows may remain unchanged even though their LM-head rows receive GA gradient. The implementation logs `embedding_rows_with_nonzero_current_grad` rather than hiding this causal fact.

@@ -37,11 +37,11 @@ from typing import Any, Dict, List, Mapping, Sequence
 
 import torch
 import torch.nn.functional as F
+from datasets import load_from_disk
 
 import gagd_compare as gagd
 import gagd_active_case_repair as mcf_repair
 import mcf_synthetic_paraphrase_templates as synth
-import mcf_zero_unlearn_official_eval as official_eval
 import sure_canonical_core as core
 import sure_stage2_sparse_repair as shared
 
@@ -137,6 +137,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--generic-protection-doc-start",
+        type=int,
+        default=20,
+        help=(
+            "Start index into --wikidata-dir's document list for the "
+            "protection text sample. mcf_zero_unlearn_official_eval's "
+            "official PPL is hardcoded to documents [:20] -- this must "
+            "stay disjoint from that range, or training would protect "
+            "against the exact text the eval score is measured on. Default "
+            "20 (immediately after the official eval's [:20])."
+        ),
+    )
+    p.add_argument(
+        "--generic-protection-doc-stop",
+        type=int,
+        default=40,
+        help="End index (exclusive) into --wikidata-dir's document list for the protection text sample.",
+    )
+    p.add_argument(
         "--protected-kl-max",
         type=float,
         default=0.5,
@@ -203,6 +222,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("protected-rank must be non-negative and repair-rank must be positive")
     if a.generic_protection_tokens < 0:
         p.error("generic-protection-tokens must be non-negative")
+    if a.generic_protection_tokens > 0:
+        if a.generic_protection_doc_start < 20:
+            p.error(
+                "generic-protection-doc-start must be >= 20: "
+                "mcf_zero_unlearn_official_eval's official PPL is hardcoded "
+                "to documents [:20], and training-time protection must "
+                "never read those same documents (it would contaminate the "
+                "PPL score with text the model was directly protected "
+                "against)"
+            )
+        if a.generic_protection_doc_stop <= a.generic_protection_doc_start:
+            p.error("generic-protection-doc-stop must be greater than generic-protection-doc-start")
     backtrack_scales = parse_backtrack_scales(a.backtrack_scales)
     if backtrack_scales[-1] != 0.0:
         p.error("backtrack-scales must end in 0.0 (guaranteed-safe full rollback)")
@@ -289,11 +320,34 @@ def flatten_answer_hidden_states(
     return torch.cat(parts, dim=0).float()
 
 
+def load_wikidata_protection_text(
+    wikidata_dir: str, doc_start: int, doc_stop: int
+) -> str | None:
+    """A slice of the same Wikidata release official PPL is scored against,
+    but a *disjoint* one: mcf_zero_unlearn_official_eval.load_official_ppl_text
+    is hardcoded to raw_ds['train']['text'][:20], the exact documents
+    official_perplexity later evaluates. Training-time protection must never
+    read those same documents -- doing so would make any PPL improvement
+    reflect having seen the exact evaluation bytes, not genuine specificity
+    preservation. Default doc_start=20/doc_stop=40 picks the next 20
+    documents, immediately after the official eval's [:20]."""
+    path = Path(wikidata_dir)
+    if not path.exists():
+        return None
+    raw_ds = load_from_disk(str(path))
+    texts = raw_ds["train"]["text"][doc_start:doc_stop]
+    if not texts:
+        return None
+    return " ".join(texts)
+
+
 @torch.no_grad()
 def generic_protection_hidden_states(
     model: torch.nn.Module,
     tok: Any,
     wikidata_dir: str,
+    doc_start: int,
+    doc_stop: int,
     max_tokens: int,
     hidden_size: int,
     device: torch.device,
@@ -301,16 +355,19 @@ def generic_protection_hidden_states(
     """Hidden states from ordinary text, so the protected subspace reflects
     what general language use actually looks like, not just the handful of
     in-sample MCF records that happened to already pass Stage 1. Read-only:
-    never contributes to the failure hinge or any margin computation."""
+    never contributes to the failure hinge or any margin computation. Uses
+    a slice of Wikidata disjoint from what official PPL evaluation reads
+    (see load_wikidata_protection_text) -- otherwise this would be training
+    against the exact text the eval score is measured on."""
     if max_tokens <= 0:
         return torch.empty((0, hidden_size))
-    text = official_eval.load_official_ppl_text(wikidata_dir)
+    text = load_wikidata_protection_text(wikidata_dir, doc_start, doc_stop)
     if text is None:
         print(
-            f"WARNING: --wikidata-dir {wikidata_dir!r} not found; the "
-            "protected subspace will only reflect the in-sample MCF "
-            "records, which a real run showed is not enough to protect "
-            "PPL/specificity."
+            f"WARNING: --wikidata-dir {wikidata_dir!r} has no documents in "
+            f"[{doc_start}:{doc_stop}]; the protected subspace will only "
+            "reflect the in-sample MCF records, which a real run showed is "
+            "not enough to protect PPL/specificity."
         )
         return torch.empty((0, hidden_size))
     encoded = tok(
@@ -465,6 +522,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             model,
             tok,
             a.wikidata_dir,
+            int(a.generic_protection_doc_start),
+            int(a.generic_protection_doc_stop),
             int(a.generic_protection_tokens),
             hidden_size,
             device,
@@ -726,6 +785,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         "generic_protection_tokens_requested": int(a.generic_protection_tokens),
         "generic_protection_hidden_states_used": int(generic_hidden.shape[0]),
         "wikidata_dir": str(a.wikidata_dir),
+        "generic_protection_doc_range": [
+            int(a.generic_protection_doc_start),
+            int(a.generic_protection_doc_stop),
+        ],
+        "generic_protection_disjoint_from_official_ppl_docs": (
+            "official PPL is hardcoded to documents [:20]; this run used "
+            f"[{int(a.generic_protection_doc_start)}:"
+            f"{int(a.generic_protection_doc_stop)}], enforced disjoint by "
+            "argparse validation (doc-start >= 20)"
+        ),
         "repair_primary_training_records": (
             "Stage-1 failed direct records + synthetic-paraphrase templates"
         ),
