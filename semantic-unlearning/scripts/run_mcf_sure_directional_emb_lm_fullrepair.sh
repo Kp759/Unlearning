@@ -67,7 +67,12 @@ REPAIR_L2=${REPAIR_L2:-1e-3}
 # it picked inconsistent specific directions rather than genuinely general
 # ones. Now paired with many independent documents instead of one passage.
 REPAIR_PROTECTED_RANK=${REPAIR_PROTECTED_RANK:-256}
-REPAIR_RANK=${REPAIR_RANK:-4}
+# Raised 4 -> 64 -- see --repair-rank help text. --diagnose-only at
+# protected-rank=256/5000 generic docs showed active_residual_rank_uncapped
+# = 174 == active_basis_rank_uncapped (the projection removed zero rank),
+# while repair_rank was still capped at 4: the near-total freeze in that
+# run was this cap starving the optimizer, not a structural ceiling.
+REPAIR_RANK=${REPAIR_RANK:-64}
 # The ~26 in-sample passing records alone were not enough: a real run left
 # PPL at 18.875 (every other run: ~10.9-11.1) and Spe collapsed at 0.68.
 # Widen the protected subspace with hidden states from ordinary text so it

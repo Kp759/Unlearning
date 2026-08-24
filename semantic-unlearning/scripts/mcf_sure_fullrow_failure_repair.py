@@ -104,11 +104,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--repair-rank",
         type=int,
-        default=4,
+        default=64,
         help=(
             "Rank cap on the protected-subspace-orthogonal repair basis. "
-            "Mirrors mcf_sure_protected_subspace_stage2.py's --repair-rank "
-            "(same default)."
+            "Was 4 (inherited from mcf_sure_protected_subspace_stage2.py's "
+            "own default and never revisited after this script's "
+            "architecture changed around it). --diagnose-only on a real "
+            "run (protected-rank=256, 5000 generic docs) showed "
+            "active_residual_rank_uncapped=174 while repair_basis_rank_"
+            "actual was capped at 4 -- the protected-subspace projection "
+            "removed zero rank from the active basis (174 == 174), so the "
+            "near-total training freeze at rank 4 was not a structural "
+            "ceiling, it was this cap leaving ~97%% of the available safe "
+            "capacity unused. Raised to 64: a >10x increase that still "
+            "leaves headroom under the demonstrated 174-dim ceiling."
         ),
     )
     p.add_argument(

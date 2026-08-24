@@ -429,6 +429,47 @@ training loop and the final official eval, to check cheaply whether
 raising `--repair-rank` could possibly help before spending a full run on
 it.
 
+### The "protection eats into active variance" theory was wrong -- the real bottleneck was `--repair-rank` itself
+
+`--diagnose-only` on the same configuration (`--protected-rank 256`,
+`--generic-protection-samples 5000`, reusing the Stage-1 checkpoint from
+the run above) reported:
+
+```text
+protected_rank_requested              : 256
+protected_basis_rank_actual           : 256
+protected_hidden_vectors              : 5052
+active_hidden_vectors                 : 348
+active_basis_rank_uncapped            : 174
+active_residual_rank_uncapped         : 174
+repair_rank_requested                 : 4
+repair_basis_rank_actual              : 4
+```
+
+`active_residual_rank_uncapped` (174) is **identical** to
+`active_basis_rank_uncapped` (174) -- `project_rows_away(active_basis,
+protected_basis)` removed zero rank. The prior "broad protection eats
+into active variance" mechanism (previous section) is disproven: at the
+basis-rank level, the active cases' own 174-dimensional space survives
+projection against the 256-dim protected subspace completely intact.
+
+The actual bottleneck was mundane: `--repair-rank` was still `4`,
+inherited unchanged from `mcf_sure_protected_subspace_stage2.py`'s own
+default from before this script's architecture was redesigned around it,
+and never revisited across any of the 6 tuning configurations above. The
+training loop was only ever allowed to use 4 of the 174 available
+dimensions -- roughly 2% of demonstrated capacity. That alone is
+sufficient to explain `effective_delta_norm` crashing to `1.20` and
+`gate_rejected_steps=774/800`: 4 dimensions is very little room to
+satisfy 174 active-case margin constraints simultaneously while also
+passing the gate.
+
+Fix: raised `--repair-rank` default `4 -> 64` (and synced
+`REPAIR_RANK` in `run_mcf_sure_directional_emb_lm_fullrepair.sh`) -- a
+>10x increase that still leaves headroom under the demonstrated 174-dim
+ceiling (`--repair-rank` values above the true residual rank are capped
+automatically, so this does not need to be exact). Not yet run.
+
 ## Stage-1 embedding caveat
 
 After untying, an input-embedding row receives ordinary GA gradient only when that token actually occurs in the teacher-forced input prefix. Consequently, some single-token answer embedding rows may remain unchanged even though their LM-head rows receive GA gradient. The implementation logs `embedding_rows_with_nonzero_current_grad` rather than hiding this causal fact.
@@ -478,8 +519,8 @@ Stage 1:
 Stage 2:
 
 - 800 steps
-- protected-subspace sparse LM-head rows: protected rank `32`, repair rank
-  `4` (see below; not an unrestricted row edit)
+- protected-subspace sparse LM-head rows: protected rank `256`, repair
+  rank `64` (see below; not an unrestricted row edit)
 - LR `5e-3`
 - delta L2 `1e-3` (raised from `1e-6`, see below)
 - direct constraint margin `0.05`
