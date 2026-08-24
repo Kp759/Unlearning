@@ -115,8 +115,38 @@ before (direct-prompt-only, for backward compatibility), and adds
 direct-only behavior.
 
 Stage 2 (`mcf_sure_fullrow_failure_repair.py`) is unchanged by this and
-still gates only on the literal direct prompt; it was not the source of the
-Gen gap here since Stage 1 alone already reaches FS = 100%.
+still gates only on the literal direct prompt.
+
+### Fixes found after the first synthetic-augmented run
+
+A live run at the original defaults (rank 1, 600 steps, batch 2) surfaced
+three compounding problems, diagnosed from `stage1_config.json` and
+`train_log.jsonl`:
+
+1. **Scale-selection collapsed to a no-op.** `core.choose_scale` tie-breaks
+   toward the *smallest* scale when candidates tie on failure count. Once
+   `direct_failures` in `scale_reports` meant the *combined* (direct +
+   synthetic) count, and combined zero-failure was unreachable, every scale
+   tied and the tie-break picked `scale=0.0` -- discarding a Stage-1 edit
+   entirely, even though a larger scale had a strictly better margin.
+   `select_stage1_scale()` now selects in three passes: minimize
+   direct-only failures first (never regress what direct-only training
+   already achieves), then combined failures, then prefer the *largest*
+   scale among remaining ties.
+2. **Rank-1 could not fit the wider case set.** `stage1_combined_failures`
+   was 174/200 (87%) at rank 1 with 3 synthetic templates per record.
+   `--direction-rank` default raised from `1` to `8`.
+3. **The case pool grew ~4x but the step budget did not.** `train_log.jsonl`
+   showed `lm_head_delta_norm` reaching only ~0.07 after 600 steps -- too
+   small to move the margin at any scale (`post_rewrite_min_margin` was
+   flat across the entire scale sweep). `--steps` raised `600 -> 1200` and
+   `--batch-size` raised `2 -> 4` to restore roughly the original per-case
+   training coverage.
+
+It was not the source of the Gen gap in that run since Stage 1's
+contribution had been silently zeroed out by (1) above -- Stage 2 alone
+had produced the entire edit, so the synthetic-paraphrase augmentation had
+not actually been exercised yet.
 
 ## Stage-1 embedding caveat
 
@@ -154,13 +184,13 @@ outputs/mcf_directional_emb_lm_fullrepair_seed1/
 
 Stage 1:
 
-- 600 steps
-- batch size 2
+- 1200 steps (raised from 600, see below)
+- batch size 4 (raised from 2, see below)
 - LR `1e-4`
 - GA weight 2
 - non-sensitive-distribution KL weight 1
 - delta L2 `1e-6`
-- per-row direction rank 1
+- per-row direction rank 8 (raised from 1, see below)
 - direct constraint margin `0.05`
 - synthetic paraphrase templates per record `3` (hand-authored, see below)
 

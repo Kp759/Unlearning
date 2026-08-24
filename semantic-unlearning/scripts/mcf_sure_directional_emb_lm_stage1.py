@@ -57,8 +57,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--output-dir", required=True)
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--forget-num", type=int, default=50)
-    p.add_argument("--steps", type=int, default=600)
-    p.add_argument("--batch-size", type=int, default=2)
+    p.add_argument(
+        "--steps",
+        type=int,
+        default=1200,
+        help=(
+            "Raised from 600: the case pool now includes synthetic-paraphrase "
+            "cases (~4x more teacher-forced positions than direct-only), so "
+            "the original step budget under-trained each case (empirically, "
+            "final lm_head_delta_norm stayed near 0.07 -- too small to move "
+            "the margin at any scale)."
+        ),
+    )
+    p.add_argument(
+        "--batch-size",
+        type=int,
+        default=4,
+        help="Raised from 2 alongside --steps to restore per-case training coverage on the larger case pool.",
+    )
     p.add_argument("--cache-batch-size", type=int, default=8)
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--ga-weight", type=float, default=2.0)
@@ -67,8 +83,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--direction-rank",
         type=int,
-        default=1,
-        help="Per-sensitive-row contrast basis rank cap; 0 uses full numerical rank.",
+        default=8,
+        help=(
+            "Per-sensitive-row contrast basis rank cap; 0 uses full numerical "
+            "rank. Default raised from 1 to 8 because rank-1 cannot satisfy "
+            "the wider direct+synthetic-paraphrase case set (empirically "
+            "~87%% combined failures at rank-1 with 3 synthetic templates "
+            "per record); still a small fraction of the hidden size, far "
+            "from unrestricted."
+        ),
     )
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--stage1-constraint-margin", type=float, default=0.05)
@@ -307,6 +330,28 @@ def materialize_input_delta(
         ids,
         current + delta.to(device=current.device, dtype=current.dtype),
     )
+
+
+def select_stage1_scale(reports: List[Dict[str, Any]]) -> float:
+    """Never let the (harder, synthetic-inclusive) combined objective discard
+    a scale that already achieves the best available direct-only result.
+
+    core.choose_scale's tie-break prefers the smallest scale when failure
+    counts tie; when combined direct+synthetic failures cannot reach zero
+    (e.g. direction-rank is too low to satisfy every synthetic template),
+    every scale ties on combined failure count and that tie-break collapses
+    to scale=0.0 -- a complete no-op that throws away a direct-only edit
+    that was working fine. Select in three passes instead: (1) minimize
+    direct-only failures first, matching what direct-only training already
+    achieves; (2) among those, minimize combined (direct+synthetic)
+    failures; (3) among remaining ties, prefer the largest scale (strongest
+    effect) rather than collapsing toward a no-op.
+    """
+    best_direct_only = min(int(r["direct_only_failures"]) for r in reports)
+    candidates = [r for r in reports if int(r["direct_only_failures"]) == best_direct_only]
+    best_combined = min(int(r["direct_failures"]) for r in candidates)
+    candidates = [r for r in candidates if int(r["direct_failures"]) == best_combined]
+    return float(max(float(r["scale"]) for r in candidates))
 
 
 def _direct_margins(model, tok, records, device, llama_like, batch_size):
@@ -568,7 +613,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             }
         )
 
-    selected_scale = core.choose_scale(scale_reports)
+    selected_scale = select_stage1_scale(scale_reports)
     final_emb = trained_emb * float(selected_scale)
     final_head = trained_head * float(selected_scale)
     materialize_input_delta(input_layer, selected_ids, final_emb)
