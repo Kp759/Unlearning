@@ -274,6 +274,27 @@ def token_frequency_counts(
     return counts
 
 
+def live_prompt_token_ids(
+    records: Sequence[Mapping[str, Any]], tok: Any
+) -> Dict[int, set]:
+    """Token ids that actually occur in each case's training prompts.
+
+    Keyed by ``case_id`` and pooled over the record's direct prompt and all of
+    its synthetic paraphrase prompts, so both the mid-sentence and the
+    sentence-initial subject forms are covered.
+    """
+    live: Dict[int, set] = {}
+    for record in records:
+        rewrite = record.get("requested_rewrite")
+        if not isinstance(rewrite, Mapping):
+            continue
+        case_id = int(record.get("case_id", -1))
+        prompt = str(rewrite.get("prompt", "")).format(str(rewrite.get("subject", "")))
+        ids = tok(prompt, add_special_tokens=False)["input_ids"]
+        live.setdefault(case_id, set()).update(int(x) for x in ids)
+    return live
+
+
 def select_subject_rows(
     records: Sequence[Mapping[str, Any]],
     tok: Any,
@@ -281,8 +302,19 @@ def select_subject_rows(
     llama_like: bool,
     counts: torch.Tensor,
     max_frequency: int,
+    live_ids: Mapping[int, set] | None = None,
 ) -> Tuple[List[int], List[Dict[str, Any]]]:
-    """Frequency-filtered subject embedding rows, with a per-record report."""
+    """Frequency-filtered subject embedding rows, with a per-record report.
+
+    Candidates are intersected with ``live_ids`` -- the tokens that actually
+    occur in the record's own training prompts -- before frequency filtering.
+    Without that intersection the union of the " subject" and "subject"
+    tokenizations can keep a row belonging only to the standalone variant,
+    which never appears in a real prompt; the embedding hook would then never
+    fire for it and the record would receive literally zero gradient. Two real
+    runs showed a bit-identical stage1_minimum_margin of -10.671875 across
+    different training data, which is exactly that signature.
+    """
     selected: set[int] = set()
     reports: List[Dict[str, Any]] = []
     have_counts = bool(counts.numel())
@@ -291,11 +323,26 @@ def select_subject_rows(
         if not isinstance(rewrite, Mapping):
             raise ValueError(f"record {position} lacks requested_rewrite")
         subject = str(rewrite.get("subject", ""))
-        ids = subject_token_ids(tok, subject, llama_like=llama_like)
-        if not ids:
+        all_ids = subject_token_ids(tok, subject, llama_like=llama_like)
+        if not all_ids:
             raise RuntimeError(
                 f"record {position} subject {subject!r} produced no embedding rows"
             )
+        case_id = int(record.get("case_id", position))
+        dead_ids: List[int] = []
+        ids = list(all_ids)
+        if live_ids is not None:
+            live = live_ids.get(case_id, set())
+            alive = [i for i in all_ids if i in live]
+            dead_ids = [i for i in all_ids if i not in live]
+            if alive:
+                ids = alive
+            else:
+                raise RuntimeError(
+                    f"record {position} subject {subject!r}: none of its subject "
+                    f"tokens {all_ids} occur in its own training prompts, so no "
+                    "gradient could ever reach it"
+                )
         if have_counts:
             freqs = {i: int(counts[i].item()) for i in ids}
             kept = [i for i in ids if freqs[i] <= int(max_frequency)]
@@ -314,9 +361,11 @@ def select_subject_rows(
         reports.append(
             {
                 "record_position": int(position),
-                "case_id": int(record.get("case_id", position)),
+                "case_id": int(case_id),
                 "subject": subject,
                 "subject_token_ids": ids,
+                "all_subject_token_ids": all_ids,
+                "dead_token_ids_not_in_prompts": sorted(int(x) for x in dead_ids),
                 "kept_token_ids": sorted(int(x) for x in kept),
                 "kept_token_frequencies": [freqs[i] for i in sorted(kept)],
                 "dropped_token_ids": sorted(int(x) for x in set(ids) - set(kept)),
@@ -458,13 +507,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"{len(context_prefixes)} corpus-sampled context prefixes."
     )
 
+    # Pooled over direct + synthetic prompts so a row is kept only if it
+    # actually fires somewhere in training.
+    live_ids = live_prompt_token_ids(all_records, tok)
     selected_ids, subject_reports = select_subject_rows(
         records,
         tok,
         llama_like=llama_like,
         counts=counts,
         max_frequency=int(a.max_subject_token_frequency),
+        live_ids=live_ids,
     )
+    dead_row_records = [
+        r for r in subject_reports if r["dead_token_ids_not_in_prompts"]
+    ]
     if not selected_ids:
         raise RuntimeError("no subject embedding rows selected")
     fallback_records = [r for r in subject_reports if r["rarest_token_fallback"]]
@@ -473,6 +529,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"{len(records)} records; {len(fallback_records)} record(s) had no token "
         f"under the frequency threshold and fell back to their rarest token."
     )
+    if dead_row_records:
+        print(
+            f"Dropped dead rows from {len(dead_row_records)} record(s): subject "
+            "tokens that exist in the standalone tokenization but never occur in "
+            "the record's own prompts, so the embedding hook would never fire "
+            "for them."
+        )
 
     sensitive_cases = context.expand_answer_field_cases(
         all_records, tok, field="target_true", llama_like=llama_like
@@ -509,6 +572,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     emb_hook = base1.register_input_embedding_delta_hook(
         input_layer, selected_ids, delta_module.effective_delta
     )
+    rows_touched_ever = torch.zeros(len(selected_ids), dtype=torch.bool)
     try:
         model.eval()
         with (out_dir / "train_log.jsonl").open("w", encoding="utf-8") as log_f:
@@ -573,8 +637,23 @@ def main(argv: Sequence[str] | None = None) -> None:
                 opt.step()
 
                 if step == 1 or step % 25 == 0 or step == int(a.steps):
+                    # Rows whose gradient is exactly zero never fire for the
+                    # sampled batch; a row that is *never* nonzero across
+                    # training is dead weight and its record cannot be fixed.
+                    raw = delta_module.raw_delta
+                    live_rows = 0
+                    if raw is not None and raw.grad is not None:
+                        live_rows = int(
+                            (raw.grad.detach().abs().sum(dim=-1) > 0).sum().item()
+                        )
+                        rows_touched_ever |= (
+                            raw.grad.detach().abs().sum(dim=-1) > 0
+                        ).cpu()
                     row = {
                         "step": int(step),
+                        "rows_with_nonzero_grad_this_step": live_rows,
+                        "rows_touched_so_far": int(rows_touched_ever.sum().item()),
+                        "selected_row_count": len(selected_ids),
                         "total_loss": float(total.detach().cpu()),
                         "margin_hinge": float(margin_hinge.detach().cpu()),
                         "batch_mean_margin": float(margin.mean().detach().cpu()),
@@ -710,8 +789,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         ),
         "selected_token_ids": selected_ids,
         "selected_row_count": len(selected_ids),
+        "rows_ever_touched_by_gradient": int(rows_touched_ever.sum().item()),
         "subject_row_selection": subject_reports,
         "records_using_rarest_token_fallback": len(fallback_records),
+        "records_with_dead_rows_dropped": len(dead_row_records),
         "max_subject_token_frequency": int(a.max_subject_token_frequency),
         "frequency_documents_used": len(frequency_documents),
         "frequency_doc_range": [
