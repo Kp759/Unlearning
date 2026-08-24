@@ -69,13 +69,25 @@ fi
 test -f "$VISIBLE" || { echo "split builder produced no $VISIBLE"; exit 1; }
 test -f "$MANIFEST" || { echo "split builder produced no $MANIFEST"; exit 1; }
 
+# THREE DIFFERENT UNITS -- do not collapse them.
+#   builder --forget-num  : official MQuAKE source INSTANCES (50)
+#   eval    --unlearn-num : official MQuAKE source INSTANCES (50)
+#   stage1  --forget-num  : FLATTENED atomic facts, which is what the
+#                           training-visible file actually contains and what
+#                           load_locked checks against sampling.forget_num.
+# Each sampled instance carries several requested_rewrite facts, so the
+# flattened count is larger than the instance count.
+FLAT_FACTS=$(python -c "import json;print(json.load(open('$MANIFEST'))['sampling']['forget_num'])")
+INSTANCES=$(python -c "import json;print(json.load(open('$MANIFEST'))['sampling'].get('forget_num_instances','?'))")
+echo "MQuAKE split: $INSTANCES source instances -> $FLAT_FACTS flattened atomic facts"
+
 python -u scripts/mquake_sure_subject_directional_emb_stage1.py \
   --model-path "$MODEL_PATH" \
   --training-visible-path "$VISIBLE" \
   --split-manifest "$MANIFEST" \
   --output-dir "$STAGE1_OUT" \
   --seed "$SEED" \
-  --forget-num "$FORGET_NUM" \
+  --forget-num "$FLAT_FACTS" \
   --steps "$STAGE1_STEPS" \
   --batch-size "$STAGE1_BATCH_SIZE" \
   --cache-batch-size "$STAGE1_CACHE_BATCH_SIZE" \

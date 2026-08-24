@@ -74,7 +74,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--split-manifest", required=True)
     p.add_argument("--output-dir", required=True)
     p.add_argument("--seed", type=int, default=1)
-    p.add_argument("--forget-num", type=int, default=50)
+    p.add_argument(
+        "--forget-num",
+        type=int,
+        default=50,
+        help=(
+            "FLATTENED atomic-fact count, not the official instance count. "
+            "MQuAKE is sampled at the instance level and requested_rewrite "
+            "facts are flattened only afterwards, so the training-visible file "
+            "holds more records than instances sampled. load_locked checks this "
+            "against sampling.forget_num in the manifest, which is the flattened "
+            "count; sampling.forget_num_instances is the instance count that the "
+            "split builder and the official eval both take."
+        ),
+    )
 
     p.add_argument("--steps", type=int, default=1200)
     p.add_argument("--batch-size", type=int, default=4)
