@@ -1260,7 +1260,10 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(summary["Eff"], 0.0)
+        # target_true(2.0) < target_new(3.0) on the single rewrite prompt means
+        # the model still prefers the sensitive target_true (forget did not
+        # take), so Eff (lower-is-better, 0 = forgotten) should read 100, not 0.
+        self.assertEqual(summary["Eff"], 100.0)
         self.assertEqual(summary["Gen"], 50.0)
         self.assertEqual(summary["post_rewrite_prompt_instances"], 1)
         self.assertEqual(summary["post_rewrite_failure_prompt_instances"], 0)

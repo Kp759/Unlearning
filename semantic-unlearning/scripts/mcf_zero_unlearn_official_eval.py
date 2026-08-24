@@ -212,8 +212,10 @@ def official_summarize(split_name, metric_data):
     vals = {
         "post_rewrite_success": [],
         "post_rewrite_diff": [],
+        "post_rewrite_sensitive_pref": [],
         "post_paraphrase_success": [],
         "post_paraphrase_diff": [],
+        "post_paraphrase_sensitive_pref": [],
         "post_neighborhood_success": [],
         "post_neighborhood_diff": [],
         "post_rewrite_target_new_nll": [],
@@ -239,13 +241,26 @@ def official_summarize(split_name, metric_data):
             if len(xs) == 0:
                 continue
 
-            # Official: success if target_true NLL > target_new NLL
-            # i.e., model prefers target_new. Lower is better for unlearning.
+            # "success" (ROME/MEMIT edit-quality convention): target_new is
+            # preferred over target_true. Kept for parity with
+            # ZeroUnlearn/experiments/summarize_list.py and for computing FS/GFS
+            # in evaluate_mcf_target_true_sensitive.py. This is NOT Eff/Gen and
+            # is HIGHER-is-better (equivalent to FS/GFS, scaled the same way).
             vals[f"post_{out_prefix}_success"].append(
                 np.mean([x["target_true"] > x["target_new"] for x in xs])
             )
             vals[f"post_{out_prefix}_diff"].append(
                 np.mean([np.exp(-x["target_new"]) - np.exp(-x["target_true"]) for x in xs])
+            )
+            # Eff/Gen source: fraction of prompts where the model STILL prefers
+            # the sensitive target_true over the reference target_new, i.e. the
+            # forget has NOT taken effect yet. LOWER is better (0 = fully
+            # forgotten). Exact NLL ties count toward neither side, matching
+            # evaluate_mcf_target_true_sensitive.py::_record_stats. This is the
+            # complement of post_{prefix}_success (up to ties):
+            # sensitive_pref ≈ 100 - success.
+            vals[f"post_{out_prefix}_sensitive_pref"].append(
+                np.mean([x["target_true"] < x["target_new"] for x in xs])
             )
             vals[f"post_{out_prefix}_target_new_nll"].append(
                 np.mean([x["target_new"] for x in xs])
@@ -291,11 +306,18 @@ def official_summarize(split_name, metric_data):
             ]
 
     # Paper-style table:
-    # Eff/Gen use success rates: lower is better.
+    # Eff/Gen = fraction of forget prompts still favoring the sensitive
+    #           target_true over target_new. LOWER is better (0 = forgotten).
+    #           This matches build_post_reload_acceptance_gate's
+    #           `max_forget_eff`/`max_forget_gen` thresholds (default 0.0) and
+    #           every other consumer of result["forget"]["Eff"/"Gen"] in this
+    #           repo. It is the complement of FS/GFS in
+    #           evaluate_mcf_target_true_sensitive.py (which are higher-is-
+    #           better): Eff ≈ 100 - FS, Gen ≈ 100 - GFS, up to exact-NLL ties.
     # Spe uses neighborhood probability-difference score: higher is better.
     # Keep Spe_success separately for debugging.
-    out["Eff"] = out["post_rewrite_success"][0]
-    out["Gen"] = out["post_paraphrase_success"][0]
+    out["Eff"] = out["post_rewrite_sensitive_pref"][0]
+    out["Gen"] = out["post_paraphrase_sensitive_pref"][0]
     out["Spe"] = out["post_neighborhood_diff"][0]
     out["Spe_success"] = out["post_neighborhood_success"][0]
     for prompt_type in ("rewrite", "paraphrase"):
