@@ -51,9 +51,10 @@ REPAIR_LR=${REPAIR_LR:-0.005}
 # hinge once the wider direct+synthetic objective needed a much larger delta.
 REPAIR_L2=${REPAIR_L2:-1e-3}
 REPAIR_PASS_GUARD_WEIGHT=${REPAIR_PASS_GUARD_WEIGHT:-1.0}
-# Raised from 1.0 -- see --distribution-kl-weight help text: a real run left
-# final_distribution_kl=0.815 essentially unconstrained at weight 1.0.
-REPAIR_KL_WEIGHT=${REPAIR_KL_WEIGHT:-10.0}
+# See --distribution-kl-weight help text: weight 1.0 left Spe collapsed
+# (0.16); weight 10.0 overshot and broke Eff (0.0 -> 12.0). 3.0 is an
+# interim value paired with direct-only-first best-checkpoint selection.
+REPAIR_KL_WEIGHT=${REPAIR_KL_WEIGHT:-3.0}
 REPAIR_BATCH_SIZE=${REPAIR_BATCH_SIZE:-8}
 REPAIR_CHECK_EVERY=${REPAIR_CHECK_EVERY:-25}
 

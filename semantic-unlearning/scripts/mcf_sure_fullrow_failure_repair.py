@@ -74,17 +74,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--distribution-kl-weight",
         type=float,
-        default=10.0,
+        default=3.0,
         help=(
-            "Raised from 1.0: a real run reached final_distribution_kl=0.815 "
-            "(non-trivial residual drift at the same-prompt training "
-            "positions) with weight 1.0, i.e. contributing ~0.8 to the loss "
-            "next to a failure hinge in the hundreds early in training -- not "
-            "a meaningfully competing pressure. This constrains drift only "
-            "at the 200 training-visible positions, not at held-out "
-            "neighborhood prompts; if raising this weight does not recover "
-            "Spe, the KL sampling scope itself needs widening to generic "
-            "text, not just this weight. Set 0 to disable."
+            "Weight 1.0 left final_distribution_kl=0.815 essentially "
+            "unconstrained (Spe collapsed to 0.16). Weight 10.0 overshot: "
+            "as cases approach passing their hinge contribution shrinks "
+            "toward zero, so a large KL weight increasingly dominates late "
+            "in training and pulls the optimizer away from already-satisfied "
+            "margin cases -- final_direct_failures regressed from 0 to 7 "
+            "(Eff 0.0 -> 12.0), even though Spe improved (0.16 -> 2.03). "
+            "3.0 is an interim value between the two, paired with the "
+            "direct-only-first best-checkpoint selection below so training "
+            "can no longer silently drift away from a perfect direct-only "
+            "result. This constrains drift only at the 200 training-visible "
+            "positions, not at held-out neighborhood prompts directly; if "
+            "Spe still does not recover, the KL sampling scope itself needs "
+            "widening to generic text, not just this weight. Set 0 to disable."
         ),
     )
     p.add_argument("--batch-size", type=int, default=8)
@@ -287,7 +292,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             delta_module.parameters(), lr=float(a.repair_lr), weight_decay=0.0
         )
         best_delta = delta_module.effective_delta().detach().clone()
-        best_key = (10**9, float("inf"))
+        best_key = (10**9, 10**9, float("inf"))
 
         for step in range(1, int(a.repair_steps) + 1):
             opt.zero_grad(set_to_none=True)
@@ -327,13 +332,18 @@ def main(argv: Sequence[str] | None = None) -> None:
                 with torch.no_grad():
                     current = delta_module.effective_delta()
                     all_margins = margins_from_caches(caches, current)
+                    direct_only_margins = all_margins[:direct_count]
                     failures = int(
                         (all_margins < float(a.constraint_margin)).sum().item()
+                    )
+                    direct_only_failures = int(
+                        (direct_only_margins < float(a.constraint_margin)).sum().item()
                     )
                     norm = float(current.norm().detach().cpu())
                     row = {
                         "step": int(step),
                         "all_direct_failures": failures,
+                        "direct_only_failures": direct_only_failures,
                         "active_failure_hinge": float(failure_hinge.detach().cpu()),
                         "passing_record_guard": float(pass_guard.detach().cpu()),
                         "same_prompt_non_target_kl": float(dist_kl.detach().cpu()),
@@ -343,7 +353,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                         "rank_constraint": False,
                     }
                     logs.append(row)
-                    key = (failures, norm)
+                    # direct_only_failures first: the strengthened KL/L2
+                    # regularizers must never be allowed to trade away an
+                    # already-achieved perfect direct-only result (what Eff
+                    # measures) for a lower combined-failure count or smaller
+                    # norm elsewhere in training -- same principle as
+                    # select_repair_scale's scale-sweep priority.
+                    key = (direct_only_failures, failures, norm)
                     if key < best_key:
                         best_key = key
                         best_step = int(step)
