@@ -14,13 +14,17 @@ Here original ``target_true`` is the sensitive fact and original ``target_new``
 is the CounterFact reference. Higher FS/GFS means the sensitive answer loses to
 the reference more often. Exact NLL ties are not successes.
 
-IMPORTANT: FS/GFS are pairwise behavioral success rates. They are NOT the same
-quantity as ZeroUnlearn's probability-based Eff/Gen. This evaluator therefore
-does not label FS/GFS as Eff/Gen in its paper-facing output.
-
-For backward compatibility with older SURE artifacts, legacy ``Eff``/``Gen``
-and ``Eff_Pref``/``Gen_Pref`` aliases are retained in the JSON, but are marked
-deprecated. New code should use FS/GFS and SensitivePref_* keys.
+``metrics.Eff``/``metrics.Gen`` are the paper-facing, LOWER-is-better
+counterparts of FS/GFS: the fraction of forget prompts where the sensitive
+target_true is STILL preferred over target_new (0 = fully forgotten). They are
+numerically identical to ``SensitivePref_direct``/``SensitivePref_paraphrase``
+(equivalently, ``100 - FS`` / ``100 - GFS`` up to exact-NLL ties, which count
+toward neither side) and match the convention every other consumer of
+``result["forget"]["Eff"/"Gen"]`` in this repo already assumes (see
+``mcf_zero_unlearn_official_eval.py::build_post_reload_acceptance_gate``,
+default ``max_forget_eff=max_forget_gen=0.0``). ``Eff_Pref``/``Gen_Pref`` are
+kept as explicit aliases of the same quantity for readability; they are not
+deprecated.
 """
 from __future__ import annotations
 
@@ -284,10 +288,13 @@ def main() -> None:
             "forget_success_rule": "NLL(target_true) > NLL(target_new)",
             "strict_nll_ties_are_not_success": True,
             "macro_averaged_over_records": True,
-            "zero_unlearn_probability_eff_gen_computed": False,
+            "zero_unlearn_probability_eff_gen_computed": True,
             "zero_unlearn_note": (
-                "ZeroUnlearn Eff/Gen are probability-based residual-sensitive metrics; "
-                "this evaluator computes pairwise FS/GFS instead."
+                "This evaluator computes pairwise FS/GFS (higher-is-better) and "
+                "reports metrics.Eff/Gen as their lower-is-better complement "
+                "(fraction of prompts still favoring the sensitive target_true), "
+                "matching the polarity every other Eff/Gen consumer in this repo "
+                "assumes."
             ),
         },
         "metrics": {
@@ -317,8 +324,8 @@ def main() -> None:
             },
             "PPL": None if post_ppl is None else float(post_ppl),
             "Delta_PPL": None if base_ppl is None or post_ppl is None else float(post_ppl) - float(base_ppl),
-            "Eff": fs,
-            "Gen": gfs,
+            "Eff": pref_direct,
+            "Gen": pref_para,
             "Eff_Pref": pref_direct,
             "Gen_Pref": pref_para,
         },
@@ -336,22 +343,28 @@ def main() -> None:
             "Spe_margin": _scalar_pair(base_forget_summary.get("post_neighborhood_diff"))[0],
             "Spe_success": _scalar_pair(base_forget_summary.get("post_neighborhood_success"))[0],
             "PPL": None if base_ppl is None else float(base_ppl),
-            "Eff": base_fs,
-            "Gen": base_gfs,
+            "Eff": base_pref_direct,
+            "Gen": base_pref_para,
             "Eff_Pref": base_pref_direct,
             "Gen_Pref": base_pref_para,
         },
         "legacy_aliases": {
-            "metrics.Eff": "metrics.FS",
-            "metrics.Gen": "metrics.GFS",
+            "metrics.Eff": "metrics.SensitivePref_direct",
+            "metrics.Gen": "metrics.SensitivePref_paraphrase",
             "metrics.Eff_Pref": "metrics.SensitivePref_direct",
             "metrics.Gen_Pref": "metrics.SensitivePref_paraphrase",
-            "status": "deprecated_do_not_use_in_paper_tables",
+            "status": "canonical_lower_is_better_use_in_paper_tables",
+            "note": (
+                "FS/GFS remain available as the higher-is-better complement "
+                "used by the strict FS=100 training/checkpoint gate."
+            ),
         },
         "diagnostics": {"direct": direct, "paraphrase": paraphrase},
         "directions": {
             "FS": "higher_is_better",
             "GFS": "higher_is_better",
+            "Eff": "lower_is_better",
+            "Gen": "lower_is_better",
             "SensitivePref_direct": "lower_is_better_diagnostic",
             "SensitivePref_paraphrase": "lower_is_better_diagnostic",
             "Sensitive_NLL_direct": "higher_is_stronger_suppression",
@@ -384,12 +397,14 @@ def main() -> None:
     print("\n================================================================")
     print("MCF SURE — ORIGINAL target_true IS SENSITIVE")
     print("FS/GFS: NLL(target_true) > NLL(target_new); higher is better")
-    print("NOTE: FS/GFS are NOT ZeroUnlearn probability-based Eff/Gen.")
+    print("Eff/Gen = 100 - FS/GFS (up to ties); lower is better, 0 = forgotten")
     print("================================================================")
     print(f"{'Metric':<34}{'Value':>12}{'Direction':>14}")
     print("-" * 60)
     print(f"{'FS (Forget Success)':<34}{m['FS']['mean']:>12.2f}{'↑':>14}")
     print(f"{'GFS (Generalized Forget Success)':<34}{m['GFS']['mean']:>12.2f}{'↑':>14}")
+    print(f"{'Eff (still recalls sensitive)':<34}{m['Eff']['mean']:>12.2f}{'↓':>14}")
+    print(f"{'Gen (still recalls, paraphrase)':<34}{m['Gen']['mean']:>12.2f}{'↓':>14}")
     print(f"{'Sensitive preference (direct)':<34}{m['SensitivePref_direct']['mean']:>12.2f}{'↓':>14}")
     print(f"{'Sensitive preference (para)':<34}{m['SensitivePref_paraphrase']['mean']:>12.2f}{'↓':>14}")
     print(f"{'Delta Sensitive NLL direct':<34}{m['Delta_Sensitive_NLL_direct']['mean']:>12.4f}{'↑':>14}")
@@ -415,7 +430,6 @@ def main() -> None:
         f"{direct['post_counts']['exact_nll_ties']}/"
         f"{paraphrase['post_counts']['exact_nll_ties']} (not counted as success)"
     )
-    print("ZeroUnlearn Eff/Gen probability metrics: NOT COMPUTED by this evaluator")
     print("Wrote:", out)
     if (
         a.require_min_fs is not None
