@@ -1151,6 +1151,87 @@ def margins_from_delta_caches(
     )
 
 
+def _stack_answer_delta_caches(
+    caches: Sequence[AnswerDeltaCache],
+) -> Dict[str, torch.Tensor]:
+    return {
+        "hidden": torch.cat([c.hidden for c in caches], dim=0),
+        "selected_probs": torch.cat([c.selected_probs for c in caches], dim=0),
+        "base_nll": torch.cat([c.base_token_nll for c in caches], dim=0),
+        "target_columns": torch.cat([c.target_selected_columns for c in caches], dim=0),
+    }
+
+
+def same_prompt_non_target_kl_from_answer_caches(
+    caches: Sequence[AnswerDeltaCache],
+    delta_rows: torch.Tensor,
+) -> torch.Tensor:
+    """Exact KL(Base_non-target || Current_non-target) for sparse row edits.
+
+    Only the selected/editable rows move, so the shift in every other
+    vocabulary row's probability at each teacher-forced position is fully
+    determined by the softmax renormalization. Mirrors the closed-form
+    derivation used by SURE-MQuAKE V7
+    (``mquake_sure_sparse_lm_gagd_v7.same_prompt_non_target_kl``).
+    """
+    if not caches:
+        return delta_rows.new_zeros(())
+    stacked = _stack_answer_delta_caches(caches)
+    hidden = stacked["hidden"]
+    if delta_rows.shape[0] == 0 or hidden.shape[0] == 0:
+        return delta_rows.new_zeros(())
+    corrections = hidden @ delta_rows.transpose(0, 1)
+
+    q_selected = stacked["selected_probs"].float()
+    q_target = torch.exp(-stacked["base_nll"].float()).clamp(max=1.0 - 1e-7)
+    target_columns = stacked["target_columns"]
+    selected_mask = target_columns.ge(0)
+    tiny = torch.finfo(torch.float32).tiny
+
+    unchanged_mass = (1.0 - q_selected.sum(dim=-1)).clamp_min(0.0)
+    unchanged_mass = torch.where(
+        selected_mask,
+        unchanged_mass,
+        (unchanged_mass - q_target).clamp_min(0.0),
+    )
+    unchanged_log = unchanged_mass.clamp_min(tiny).log().unsqueeze(-1)
+    selected_log_terms = q_selected.clamp_min(tiny).log() + corrections
+    expected_c_num = (q_selected * corrections).sum(dim=-1)
+
+    if selected_mask.any():
+        selected_log_terms = selected_log_terms.clone()
+        row_idx = selected_mask.nonzero(as_tuple=False).flatten()
+        col_idx = target_columns[selected_mask]
+        target_c = corrections[row_idx, col_idx]
+        selected_log_terms[row_idx, col_idx] = float("-inf")
+        expected_c_num[selected_mask] -= q_target[selected_mask] * target_c
+
+    log_current_partition = torch.logsumexp(
+        torch.cat([unchanged_log, selected_log_terms], dim=-1),
+        dim=-1,
+    )
+    base_non_target_mass = (1.0 - q_target).clamp_min(tiny)
+    kl = (
+        log_current_partition
+        - base_non_target_mass.log()
+        - expected_c_num / base_non_target_mass
+    )
+    return kl.clamp_min(0.0).mean()
+
+
+def mcf_same_prompt_non_target_kl(
+    caches: Sequence[RewriteDeltaCache],
+    delta_rows: torch.Tensor,
+) -> torch.Tensor:
+    """Same-prompt non-target KL over both the target_new and target_true
+    teacher-forced positions of the given MCF rewrite caches."""
+    flattened: List[AnswerDeltaCache] = []
+    for cache in caches:
+        flattened.append(cache.target_new)
+        flattened.append(cache.target_true)
+    return same_prompt_non_target_kl_from_answer_caches(flattened, delta_rows)
+
+
 @torch.no_grad()
 def _prompt_hidden_and_log_probs(
     model: nn.Module,

@@ -7,7 +7,11 @@ This stage is deliberately simpler than the canonical rank-candidate repair:
   * select LM-head rows only from target_true tokens of those failed records;
   * optimize one unrestricted full-row delta (no LoRA, no low-rank basis);
   * the primary hinge loss is computed only on the failed records;
-  * previously passing direct records may contribute only a regression guard;
+  * previously passing direct records contribute a regression guard AND an
+    exact same-prompt non-target KL penalty, so the unrestricted delta cannot
+    freely drift in directions that only happen not to flip the 50 in-sample
+    margins while still damaging the row's behavior everywhere else it is
+    used (this is what specificity/PPL evaluation actually probes);
   * select the smallest direct-only scale yielding zero failures when possible;
   * materialize only the selected LM-head rows.
 
@@ -53,6 +57,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=1.0,
         help="Hinge guard on records that already passed Stage 1; set 0 to disable.",
     )
+    p.add_argument(
+        "--distribution-kl-weight",
+        type=float,
+        default=1.0,
+        help=(
+            "Exact same-prompt non-target KL(input-checkpoint || current) weight "
+            "on all 50 visible direct records; set 0 to disable."
+        ),
+    )
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--check-every", type=int, default=25)
     p.add_argument(
@@ -66,8 +79,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("counts, repair steps, batch size and check interval must be positive")
     if a.repair_lr <= 0:
         p.error("repair-lr must be positive")
-    if min(a.constraint_margin, a.repair_l2, a.pass_guard_weight) < 0:
-        p.error("margin, L2 and pass guard weight must be non-negative")
+    if min(
+        a.constraint_margin, a.repair_l2, a.pass_guard_weight, a.distribution_kl_weight
+    ) < 0:
+        p.error("margin, L2, pass guard and KL weight must be non-negative")
     return a
 
 
@@ -221,10 +236,16 @@ def main(argv: Sequence[str] | None = None) -> None:
             else:
                 pass_guard = delta.sum() * 0.0
 
+            if float(a.distribution_kl_weight) > 0:
+                dist_kl = mcf_repair.mcf_same_prompt_non_target_kl(caches, delta)
+            else:
+                dist_kl = delta.sum() * 0.0
+
             l2 = delta.square().mean()
             loss = (
                 failure_hinge
                 + float(a.pass_guard_weight) * pass_guard
+                + float(a.distribution_kl_weight) * dist_kl
                 + float(a.repair_l2) * l2
             )
             if not torch.isfinite(loss):
@@ -246,6 +267,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         "all_direct_failures": failures,
                         "active_failure_hinge": float(failure_hinge.detach().cpu()),
                         "passing_record_guard": float(pass_guard.detach().cpu()),
+                        "same_prompt_non_target_kl": float(dist_kl.detach().cpu()),
                         "minimum_margin": float(all_margins.min().detach().cpu()),
                         "delta_norm": norm,
                         "lora_used": False,
@@ -279,7 +301,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         selected_scale = core.choose_scale(scale_reports)
         final_delta = best_delta * float(selected_scale)
+        final_distribution_kl = float(
+            mcf_repair.mcf_same_prompt_non_target_kl(caches, final_delta)
+            .detach()
+            .cpu()
+        )
         core.materialize_output_delta(output_layer, selected_ids, final_delta)
+    else:
+        final_distribution_kl = 0.0
 
     final_margins = shared.mcf_direct_margins(
         model,
@@ -323,8 +352,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         "lora_used": False,
         "rank_constraint": False,
         "repair_primary_training_records": "Stage-1 failed direct records only",
-        "passing_records_role": "regression hinge guard only",
+        "passing_records_role": (
+            "regression hinge guard + exact same-prompt non-target KL guard"
+        ),
         "pass_guard_weight": float(a.pass_guard_weight),
+        "distribution_kl_weight": float(a.distribution_kl_weight),
+        "distribution_kl_definition": (
+            "exact KL(input-checkpoint non-target || current non-target) at "
+            "every visible direct target_new/target_true teacher-forced "
+            "position across all 50 records; protects specificity/PPL against "
+            "the unrestricted delta's collateral effect on other uses of the "
+            "same LM-head rows"
+        ),
+        "final_distribution_kl": final_distribution_kl,
         "constraint_margin": float(a.constraint_margin),
         "repair_steps": int(a.repair_steps),
         "repair_lr": float(a.repair_lr),
