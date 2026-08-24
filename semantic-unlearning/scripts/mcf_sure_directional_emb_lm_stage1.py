@@ -39,6 +39,7 @@ import torch
 from torch import nn
 
 import gagd_compare as gagd
+import mcf_synthetic_paraphrase_templates as synth
 import sure_canonical_core as core
 import sure_context_projection as context
 import sure_stage2_sparse_repair as stage2
@@ -72,6 +73,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--stage1-constraint-margin", type=float, default=0.05)
     p.add_argument(
+        "--synthetic-paraphrases-per-record",
+        type=int,
+        default=3,
+        help=(
+            "Hand-authored synthetic paraphrase templates per record used to "
+            "fit the sensitive direction, GA-train, and gate scale selection. "
+            "Never derived from the record's real (held-out) paraphrase_prompts. "
+            "Set 0 to disable and match the original direct-only behavior."
+        ),
+    )
+    p.add_argument(
         "--candidate-scales",
         default="1,.875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,.046875,.03125,.015625,.0078125,0",
     )
@@ -84,6 +96,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("lr and ga-weight must be positive")
     if min(a.distribution_kl_weight, a.delta_l2, a.direction_rank, a.grad_clip, a.stage1_constraint_margin) < 0:
         p.error("KL/L2/rank/clip/margin must be non-negative")
+    if a.synthetic_paraphrases_per_record < 0:
+        p.error("synthetic-paraphrases-per-record must be non-negative")
     return a
 
 
@@ -321,6 +335,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         visible_path, manifest_path, int(a.seed), int(a.forget_num)
     )
 
+    synthetic_records = synth.build_synthetic_records(
+        records, count=int(a.synthetic_paraphrases_per_record)
+    )
+    all_records = list(records) + synthetic_records
+
     ns = argparse.Namespace(
         model_path=a.model_path,
         dtype=a.dtype,
@@ -340,11 +359,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     device = gagd.first_device(model)
     llama_like = core.is_llama_like(model, tok)
 
+    # Direction fitting, GA training, and base-logit caching all use
+    # all_records (locked direct prompts + hand-authored synthetic
+    # paraphrase templates), so the fitted per-row direction is not tied to
+    # one single prompt template.
     sensitive_cases = context.expand_answer_field_cases(
-        records, tok, field="target_true", llama_like=llama_like
+        all_records, tok, field="target_true", llama_like=llama_like
     )
     reference_cases = context.expand_answer_field_cases(
-        records, tok, field="target_new", llama_like=llama_like
+        all_records, tok, field="target_new", llama_like=llama_like
     )
     sensitive_tids_all = core.official_target_ids(
         tok, sensitive_cases, llama_like=llama_like, device=device
@@ -476,6 +499,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     trained_emb = emb_delta.effective_delta().detach().clone()
     trained_head = head_delta.effective_delta().detach().clone()
 
+    direct_count = len(records)
     scales = core.parse_scales(a.candidate_scales)
     scale_reports: List[Dict[str, Any]] = []
     for scale in scales:
@@ -490,10 +514,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             lambda scale=scale: trained_head * float(scale),
         )
         try:
+            # Combined direct+synthetic margins drive scale selection so the
+            # chosen scale is required to work on both, not only the single
+            # literal direct prompt.
             margins = _direct_margins(
                 model,
                 tok,
-                records,
+                all_records,
                 device,
                 llama_like,
                 int(a.cache_batch_size),
@@ -501,6 +528,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         finally:
             head_handle.remove()
             emb_handle.remove()
+        direct_margins = margins[:direct_count]
+        synthetic_margins = margins[direct_count:]
         scale_reports.append(
             {
                 "scale": float(scale),
@@ -508,6 +537,22 @@ def main(argv: Sequence[str] | None = None) -> None:
                     (margins < float(a.stage1_constraint_margin)).sum().item()
                 ),
                 "minimum_margin": float(margins.min().detach().cpu()),
+                "direct_only_failures": int(
+                    (direct_margins < float(a.stage1_constraint_margin)).sum().item()
+                ),
+                "direct_only_minimum_margin": float(
+                    direct_margins.min().detach().cpu()
+                ),
+                "synthetic_failures": (
+                    int((synthetic_margins < float(a.stage1_constraint_margin)).sum().item())
+                    if synthetic_margins.numel()
+                    else 0
+                ),
+                "synthetic_minimum_margin": (
+                    float(synthetic_margins.min().detach().cpu())
+                    if synthetic_margins.numel()
+                    else None
+                ),
                 "embedding_delta_norm": float(trained_emb.norm().cpu() * scale),
                 "lm_head_delta_norm": float(trained_head.norm().cpu() * scale),
             }
@@ -519,17 +564,24 @@ def main(argv: Sequence[str] | None = None) -> None:
     materialize_input_delta(input_layer, selected_ids, final_emb)
     core.materialize_output_delta(output_layer, selected_ids, final_head)
 
-    final_margins = _direct_margins(
+    final_all_margins = _direct_margins(
         model,
         tok,
-        records,
+        all_records,
         device,
         llama_like,
         int(a.cache_batch_size),
     )
+    final_margins = final_all_margins[:direct_count]
+    final_synthetic_margins = final_all_margins[direct_count:]
     final_failures = [
         int(i)
         for i, value in enumerate(final_margins.detach().cpu().tolist())
+        if float(value) < float(a.stage1_constraint_margin)
+    ]
+    final_synthetic_failures = [
+        int(i)
+        for i, value in enumerate(final_synthetic_margins.detach().cpu().tolist())
         if float(value) < float(a.stage1_constraint_margin)
     ]
 
@@ -563,6 +615,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         ),
         "direction_rank_cap": int(a.direction_rank),
         "direction_reports": direction_reports,
+        "synthetic_paraphrases_per_record": int(a.synthetic_paraphrases_per_record),
+        "synthetic_record_count": len(synthetic_records),
+        "synthetic_paraphrase_source": (
+            "hand-authored per-relation-id alternate templates + generic "
+            "context prefixes; never derived from real paraphrase_prompts"
+        ),
         "embedding_trainable_parameters": int(emb_delta.trainable_parameter_count),
         "lm_head_trainable_parameters": int(head_delta.trainable_parameter_count),
         "ga_loss": "mean(log p(target_true sensitive token)); minimized",
@@ -582,6 +640,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         "stage1_direct_failures": len(final_failures),
         "stage1_failing_positions": final_failures,
         "stage1_minimum_margin": float(final_margins.min().detach().cpu()),
+        "stage1_synthetic_failures": len(final_synthetic_failures),
+        "stage1_synthetic_failing_positions": final_synthetic_failures,
+        "stage1_synthetic_minimum_margin": (
+            float(final_synthetic_margins.min().detach().cpu())
+            if final_synthetic_margins.numel()
+            else None
+        ),
+        "stage1_combined_failures": len(final_failures) + len(final_synthetic_failures),
+        "stage1_combined_minimum_margin": float(
+            final_all_margins.min().detach().cpu()
+        ),
         "final_embedding_delta_norm": float(final_emb.norm().cpu()),
         "final_lm_head_delta_norm": float(final_head.norm().cpu()),
         "lora_used": False,
@@ -594,8 +663,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(json.dumps(config, indent=2))
     print(f"Stage-1 checkpoint: {ckpt}")
     print(
-        f"Stage-1 failures: {len(final_failures)}/{len(records)}; "
+        f"Stage-1 direct failures: {len(final_failures)}/{len(records)}; "
         f"min margin={config['stage1_minimum_margin']:.6f}"
+    )
+    print(
+        f"Stage-1 synthetic-paraphrase failures: {len(final_synthetic_failures)}/"
+        f"{len(synthetic_records)}; "
+        f"min margin={config['stage1_synthetic_minimum_margin']}"
     )
 
 
