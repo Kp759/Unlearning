@@ -392,6 +392,43 @@ problem and the artificial cross-document correlation a single joined
 string would introduce. Paired with `--protected-rank 256` (up from `96`)
 now that the protected population is genuinely large and diverse.
 
+### Broad, diverse protection caused a near-total freeze
+
+A real run at `--protected-rank 256` / `--generic-protection-samples 5000`
+confirmed `Spe=8.61` -- the best result of the whole tuning phase, closest
+to the canonical base (`~11.46`). But `effective_delta_norm` crashed to
+`1.20` (every prior run: `4.97-16.9`), `gate_rejected_steps=774/800`, and
+`final_direct_failures=42` -- **identical to `stage1_direct_failure_count`.
+Stage 2 fixed zero records.** `Eff=84.0`/`Gen=85.0` are among the worst of
+the entire tuning phase.
+
+Mechanism: `active_hidden` (the failing MCF records' hidden states) is
+ordinary English text, sharing substantial structure with any broad,
+diverse sample of English text -- there's no property that structurally
+separates "this specific fact's hidden states" from "generic hidden
+states" at this level. Once `H_protected` is built from `5000` diverse
+documents at `rank=256`, it likely already captures most of
+`active_hidden`'s own natural variance too, so
+`project_rows_away(active_basis, protected_basis)` leaves almost nothing
+residual for a rank-4 repair basis to use -- consistent with the
+near-zero `effective_delta_norm` and total freeze observed.
+
+This is the same underlying tension the whole Stage-2 redesign started
+from (a shared-row edit cannot distinguish "this fact" from "this token
+used elsewhere"), now visible from the opposite direction: making
+protection genuinely broad enough to matter necessarily eats into the
+space available to forget anything at all. Across 6 distinct
+configurations (soft weights x3, hard-gate-only, narrow geometric
+protection, broad geometric protection) no middle ground was found.
+
+`--diagnose-only` (added to `mcf_sure_fullrow_failure_repair.py`) builds
+the protected/active/repair subspaces and reports
+`active_residual_rank_uncapped` -- the TRUE available rank before
+`--repair-rank` truncates it -- then exits before the `--repair-steps`
+training loop and the final official eval, to check cheaply whether
+raising `--repair-rank` could possibly help before spending a full run on
+it.
+
 ## Stage-1 embedding caveat
 
 After untying, an input-embedding row receives ordinary GA gradient only when that token actually occurs in the teacher-forced input prefix. Consequently, some single-token answer embedding rows may remain unchanged even though their LM-head rows receive GA gradient. The implementation logs `embedding_rows_with_nonzero_current_grad` rather than hiding this causal fact.

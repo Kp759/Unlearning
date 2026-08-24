@@ -230,6 +230,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "Set 0 to disable and match the original direct-only behavior."
         ),
     )
+    p.add_argument(
+        "--diagnose-only",
+        action="store_true",
+        help=(
+            "Build the protected/active/repair subspaces and report their "
+            "actual ranks, then exit before the training loop. Cheaper "
+            "than a full run (skips repair-steps of training and the final "
+            "official eval) for answering: is the active-residual space "
+            "genuinely large enough that raising --repair-rank could help, "
+            "or has --protected-rank already consumed nearly all of it? "
+            "Still requires loading the model onto a GPU and one forward "
+            "pass over the protection/active/passing caches."
+        ),
+    )
     p.add_argument("--dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
     p.add_argument("--device-map", choices=("single", "auto"), default="single")
     a = p.parse_args(list(argv) if argv is not None else None)
@@ -583,6 +597,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         active_residual = mcf_repair.project_rows_away(
             active_basis, protected_basis if protected_basis.numel() else None
         )
+        # Uncapped: the TRUE available rank of the residual, before
+        # --repair-rank truncates it. If this is already tiny, raising
+        # --repair-rank cannot help -- the protected subspace has consumed
+        # nearly all of active_hidden's own natural variance, not just
+        # capped what a larger repair-rank could otherwise use.
+        active_residual_rank_uncapped = int(
+            core.orthonormal_row_basis(active_residual, max_rank=None).shape[0]
+        )
         repair_basis = core.orthonormal_row_basis(
             active_residual, max_rank=int(a.repair_rank)
         )
@@ -592,6 +614,32 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "lower --protected-rank or raise --repair-rank"
             )
         repair_basis_rank = int(repair_basis.shape[0])
+
+        if a.diagnose_only:
+            diagnostics = {
+                "protected_rank_requested": int(a.protected_rank),
+                "protected_basis_rank_actual": int(protected_basis.shape[0]),
+                "protected_hidden_vectors": int(protected_hidden.shape[0]),
+                "active_hidden_vectors": int(active_hidden.shape[0]),
+                "active_basis_rank_uncapped": int(active_basis.shape[0]),
+                "active_residual_rank_uncapped": active_residual_rank_uncapped,
+                "repair_rank_requested": int(a.repair_rank),
+                "repair_basis_rank_actual": repair_basis_rank,
+                "interpretation": (
+                    "active_residual_rank_uncapped is the TRUE ceiling on "
+                    "what any --repair-rank value could use. If it is only "
+                    "slightly above repair_basis_rank_actual, raising "
+                    "--repair-rank will not meaningfully help -- the "
+                    "protected subspace has already consumed nearly all of "
+                    "the active cases' own natural hidden-state variance, "
+                    "not merely been capped by a small requested rank."
+                ),
+            }
+            diag_path = out_dir / "protected_subspace_diagnostics.json"
+            core.write_json(diag_path, diagnostics)
+            print(json.dumps(diagnostics, indent=2))
+            print(f"--diagnose-only: wrote {diag_path}; exiting before training.")
+            return
 
         delta_module = core.SelectedRowDelta(
             len(selected_ids),
