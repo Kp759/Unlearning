@@ -138,12 +138,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--train-margin",
         type=float,
-        default=3.0,
+        default=6.0,
         help=(
             "Training hinge target on logp(target_new) - logp(target_true). "
             "Deliberately larger than --stage1-constraint-margin so BF16 "
             "materialization has headroom; it does not redefine the reported "
-            "failure rule."
+            "failure rule. 6.0 is the knee of the Gen/PPL frontier: margin 3 "
+            "gave Gen 10.0 / Spe 11.35 / PPL 11.06, margin 6 gave Gen 5.0 / Spe "
+            "11.35 / PPL 11.25, and margin 10 gave Gen 4.0 but Spe collapsed to "
+            "10.53 for that single point. stage1_minimum_margin lands just above "
+            "this value in every run, so it sets where training stops rather "
+            "than reporting a capacity limit."
         ),
     )
     p.add_argument(
@@ -157,6 +162,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     p.add_argument("--delta-l2", type=float, default=1e-4)
+    p.add_argument(
+        "--delta-l2-frequency-alpha",
+        type=float,
+        default=0.0,
+        help=(
+            "Scale each row's delta-l2 budget by (1 + corpus_frequency)^alpha, so "
+            "common subject tokens are held near Base while rare ones move "
+            "freely. 0 = uniform (previous behaviour, exact backward compat).\n"
+            "Motivation: with full token coverage the edit now includes common "
+            "tokens. Neighborhood prompts contain no subject tokens, but they do "
+            "contain common ones, and at --train-margin 10 those deltas grew "
+            "large enough to leak: Spe fell 11.35 -> 10.53 to buy one point of "
+            "Gen (5.0 -> 4.0). Using frequency as a per-row BUDGET rather than a "
+            "hard FILTER keeps every row trainable -- filtering starved rows and "
+            "cost Gen 46 vs 29 -- while limiting the deltas that actually damage "
+            "Spe and PPL."
+        ),
+    )
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--stage1-constraint-margin", type=float, default=0.05)
     p.add_argument("--synthetic-paraphrases-per-record", type=int, default=3)
@@ -737,6 +760,18 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "corpus sentences."
             )
 
+    # Per-row delta-l2 budget. alpha=0 gives a vector of ones, i.e. exactly the
+    # previous uniform penalty.
+    alpha = float(a.delta_l2_frequency_alpha)
+    if alpha != 0.0 and counts.numel():
+        row_freq = torch.tensor(
+            [float(counts[i].item()) for i in selected_ids], dtype=torch.float32
+        )
+    else:
+        row_freq = torch.zeros(len(selected_ids), dtype=torch.float32)
+    row_l2_weight = (1.0 + row_freq).pow(alpha)
+    row_l2_weight = row_l2_weight / row_l2_weight.mean().clamp_min(1e-8)
+
     hidden_size = int(input_layer.weight.shape[1])
     delta_module = core.SelectedRowDelta(
         len(selected_ids),
@@ -796,7 +831,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                     hidden, base_hidden[idx], directions
                 )
                 delta_now = delta_module.effective_delta()
-                l2 = delta_now.square().mean()
+                l2 = (
+                    row_l2_weight.to(delta_now.device).unsqueeze(-1)
+                    * delta_now.square()
+                ).mean()
 
                 # Representation-level term: sample one record and several of
                 # its contexts, and penalize how much the induced shift in the
@@ -1020,6 +1058,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         "synthetic_paraphrases_per_record": int(a.synthetic_paraphrases_per_record),
         "synthetic_record_count": len(synthetic_records),
         "synthetic_paraphrase_coverage": synthetic_coverage,
+        "delta_l2_frequency_alpha": alpha,
+        "delta_l2_row_weight_min": float(row_l2_weight.min()),
+        "delta_l2_row_weight_max": float(row_l2_weight.max()),
+        "delta_l2_budget_definition": (
+            "per-row delta-l2 scaled by (1 + corpus_frequency)^alpha, mean-"
+            "normalised so alpha=0 reproduces the uniform penalty exactly; "
+            "frequency used as a BUDGET rather than a row FILTER"
+        ),
         "invariance_weight": float(a.invariance_weight),
         "invariance_contexts_per_record": int(a.invariance_contexts),
         "invariance_batch": int(a.invariance_batch),

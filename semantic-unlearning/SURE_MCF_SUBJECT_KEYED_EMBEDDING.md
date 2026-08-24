@@ -358,7 +358,8 @@ throttling. It remains available (`--surgical-weight`) as an ablation.
 | train-margin | stage1_minimum_margin | Eff | Gen | Spe | PPL |
 |---|---|---|---|---|---|
 | 3.0 | 3.0625 | 0.0 | 10.0 | 11.35 | 11.06 |
-| 6.0 | 6.21875 | 0.0 | **5.0** | 11.35 | 11.25 |
+| **6.0** | 6.21875 | **0.0** | **5.0** | **11.35** | **11.25** |
+| 10.0 | -- | 0.0 | 4.0 | 10.53 | -- |
 | Base | -- | -- | -- | 11.46 | 10.94 |
 
 `stage1_minimum_margin` lands just above `--train-margin` in both runs, so
@@ -367,11 +368,16 @@ is told. Gen is a dial, not a ceiling.
 
 Two structural facts fall out of the sweep:
 
-**Spe is pinned at 11.35** (`Spe_success` 88.8) at both settings. That is the
-floor for this method: neighborhood prompts contain none of the edited rows,
-so combinatorial locality holds regardless of how hard the edit pushes. The
-residual 0.11 gap to Base comes from the few records whose subjects share
-tokens with neighborhood subjects, and no margin setting will move it.
+**Spe holds at 11.35 up to margin 6, then breaks.** A third point at margin
+10 gave Gen 4.0 but Spe 10.53 -- a 0.82 drop to buy one point of Gen. The
+earlier claim here that Spe was "pinned" and that no margin setting would
+move it was inferred from two points and is wrong. Margin 6 is the knee.
+
+The break has a mechanism. Neighborhood prompts contain no *subject* tokens,
+but with full coverage the edit now includes *common* tokens, which
+neighborhood prompts do contain. At small margins those deltas are harmless;
+by margin 10 they are large enough to leak. That is what motivates using
+frequency as a per-row budget (below) rather than a filter.
 
 **PPL is the metric that pays.** 11.06 -> 11.25 against a Base of 10.94.
 Subject tokens *do* occur in ordinary Wikipedia text, unlike neighborhood
@@ -381,11 +387,24 @@ The operating frontier is therefore Gen vs PPL with Spe fixed. Sweeping
 `--train-margin` traces it directly, which makes it the natural ablation
 figure for a writeup.
 
-A refinement worth trying if the PPL cost becomes binding: keep full token
-coverage but scale the `--delta-l2` budget per row by that token's corpus
-frequency, so common tokens receive small deltas and rare ones large. That
-targets the PPL cost specifically without reintroducing the row-starvation
-that the frequency *filter* caused.
+### Frequency as a budget, not a filter
+
+`--delta-l2-frequency-alpha` scales each row's delta-l2 budget by
+`(1 + corpus_frequency)^alpha`, mean-normalised so `alpha=0` reproduces the
+uniform penalty exactly. Observed weights at `alpha=0.5` over real token
+frequencies:
+
+```text
+freq    0 -> weight 0.079     (rare: nearly free to move)
+freq   67 -> weight 0.651
+freq  205 -> weight 1.133
+freq 1443 -> weight 3.000     (common: held near Base)
+```
+
+The frequency *filter* failed because it starved rows entirely (Gen 46 vs 29
+once removed). A *budget* keeps every row trainable while limiting only the
+deltas that actually damage Spe and PPL, which is what should let
+`--train-margin` rise past 6 without Spe paying for it. Untested.
 
 ## Forgetting evidence beyond NLL
 

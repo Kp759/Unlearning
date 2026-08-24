@@ -42,13 +42,21 @@ STAGE1_BATCH_SIZE=${STAGE1_BATCH_SIZE:-4}
 STAGE1_CACHE_BATCH_SIZE=${STAGE1_CACHE_BATCH_SIZE:-8}
 STAGE1_LR=${STAGE1_LR:-5e-4}
 MARGIN_WEIGHT=${MARGIN_WEIGHT:-100.0}
-TRAIN_MARGIN=${TRAIN_MARGIN:-3.0}
+# 6.0 is the knee of the Gen/PPL frontier: margin 3 -> Gen 10.0 / Spe 11.35 /
+# PPL 11.06; margin 6 -> Gen 5.0 / Spe 11.35 / PPL 11.25; margin 10 -> Gen 4.0
+# but Spe collapses to 10.53 for that single point.
+TRAIN_MARGIN=${TRAIN_MARGIN:-6.0}
 # 0 after the ablation: surgical=0 with train-margin 3.0 gave Eff 0.0,
 # Gen 39 (from 46) and the best Spe seen, 10.35. The direction constraint
 # was throttling the edit without buying locality (locality is combinatorial
 # here, not geometric).
 SURGICAL_WEIGHT=${SURGICAL_WEIGHT:-0.0}
 DELTA_L2=${DELTA_L2:-1e-4}
+# Per-row delta-l2 budget scaled by (1 + corpus_frequency)^alpha. 0 = uniform
+# (previous behaviour). Try 0.25-0.5 with a higher TRAIN_MARGIN: it holds
+# common tokens near Base while letting rare ones move, which is what should
+# let the margin rise past 6 without Spe paying for it.
+DELTA_L2_FREQUENCY_ALPHA=${DELTA_L2_FREQUENCY_ALPHA:-0.0}
 CONSTRAINT_MARGIN=${CONSTRAINT_MARGIN:-0.05}
 SYNTHETIC_PARAPHRASES_PER_RECORD=${SYNTHETIC_PARAPHRASES_PER_RECORD:-3}
 
@@ -112,6 +120,7 @@ python -u scripts/mcf_sure_subject_directional_emb_stage1.py \
   --train-margin "$TRAIN_MARGIN" \
   --surgical-weight "$SURGICAL_WEIGHT" \
   --delta-l2 "$DELTA_L2" \
+  --delta-l2-frequency-alpha "$DELTA_L2_FREQUENCY_ALPHA" \
   --stage1-constraint-margin "$CONSTRAINT_MARGIN" \
   --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \
   --corpus-context-prefixes "$CORPUS_CONTEXT_PREFIXES" \
