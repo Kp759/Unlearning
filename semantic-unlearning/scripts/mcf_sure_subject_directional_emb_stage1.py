@@ -277,12 +277,7 @@ def token_frequency_counts(
 def live_prompt_token_ids(
     records: Sequence[Mapping[str, Any]], tok: Any
 ) -> Dict[int, set]:
-    """Token ids that actually occur in each case's training prompts.
-
-    Keyed by ``case_id`` and pooled over the record's direct prompt and all of
-    its synthetic paraphrase prompts, so both the mid-sentence and the
-    sentence-initial subject forms are covered.
-    """
+    """Token ids that actually occur in each case's prompts, keyed by case_id."""
     live: Dict[int, set] = {}
     for record in records:
         rewrite = record.get("requested_rewrite")
@@ -302,22 +297,33 @@ def select_subject_rows(
     llama_like: bool,
     counts: torch.Tensor,
     max_frequency: int,
-    live_ids: Mapping[int, set] | None = None,
+    direct_live_ids: Mapping[int, set],
+    paraphrase_live_ids: Mapping[int, set] | None = None,
 ) -> Tuple[List[int], List[Dict[str, Any]]]:
     """Frequency-filtered subject embedding rows, with a per-record report.
 
-    Candidates are intersected with ``live_ids`` -- the tokens that actually
-    occur in the record's own training prompts -- before frequency filtering.
-    Without that intersection the union of the " subject" and "subject"
-    tokenizations can keep a row belonging only to the standalone variant,
-    which never appears in a real prompt; the embedding hook would then never
-    fire for it and the record would receive literally zero gradient. Two real
-    runs showed a bit-identical stage1_minimum_margin of -10.671875 across
-    different training data, which is exactly that signature.
+    Direct-prompt liveness is *mandatory*. Eff is scored on the direct prompt,
+    so every record must keep at least one row that occurs in its own direct
+    prompt -- even if that row is above the frequency threshold. Pooling direct
+    and paraphrase prompts into one liveness test is not enough: run 0ea4aad
+    left three records (Brahms Inlet, Marion Davies, DPR Korea Football
+    Association) whose only kept row came from the sentence-initial tokenization
+    ("Marion", freq 67) while the direct-prompt form (" Marion", above the
+    threshold) had been filtered out. Those rows trained happily on synthetic
+    paraphrases -- rows_ever_touched_by_gradient was 71/71 -- yet never fired on
+    the prompt Eff measures, and all three stayed Eff failures.
+
+    Rows that are live only in paraphrase prompts are kept as *extras* when they
+    pass the frequency filter, since they help Gen without affecting the direct
+    guarantee.
     """
     selected: set[int] = set()
     reports: List[Dict[str, Any]] = []
     have_counts = bool(counts.numel())
+
+    def frequency_of(token_id: int) -> int:
+        return int(counts[token_id].item()) if have_counts else -1
+
     for position, record in enumerate(records):
         rewrite = record.get("requested_rewrite")
         if not isinstance(rewrite, Mapping):
@@ -329,46 +335,48 @@ def select_subject_rows(
                 f"record {position} subject {subject!r} produced no embedding rows"
             )
         case_id = int(record.get("case_id", position))
-        dead_ids: List[int] = []
-        ids = list(all_ids)
-        if live_ids is not None:
-            live = live_ids.get(case_id, set())
-            alive = [i for i in all_ids if i in live]
-            dead_ids = [i for i in all_ids if i not in live]
-            if alive:
-                ids = alive
-            else:
-                raise RuntimeError(
-                    f"record {position} subject {subject!r}: none of its subject "
-                    f"tokens {all_ids} occur in its own training prompts, so no "
-                    "gradient could ever reach it"
-                )
-        if have_counts:
-            freqs = {i: int(counts[i].item()) for i in ids}
-            kept = [i for i in ids if freqs[i] <= int(max_frequency)]
-            fallback = False
-            if not kept:
-                # Never leave a record with nothing trainable; take its rarest
-                # token and record that this record is expected to carry more
-                # collateral than the clean-anchor majority.
-                kept = [min(ids, key=lambda i: freqs[i])]
-                fallback = True
-        else:
-            freqs = {i: -1 for i in ids}
-            kept = list(ids)
-            fallback = False
+
+        direct_live = direct_live_ids.get(case_id, set())
+        para_live = (paraphrase_live_ids or {}).get(case_id, set())
+        direct_ids = [i for i in all_ids if i in direct_live]
+        para_only_ids = [i for i in all_ids if i not in direct_live and i in para_live]
+        dead_ids = [
+            i for i in all_ids if i not in direct_live and i not in para_live
+        ]
+        if not direct_ids:
+            raise RuntimeError(
+                f"record {position} subject {subject!r}: none of its subject "
+                f"tokens {all_ids} occur in its own direct prompt, so the edit "
+                "could never affect the prompt Eff is scored on"
+            )
+
+        # Mandatory: at least one direct-prompt row survives, threshold or not.
+        direct_kept = [i for i in direct_ids if frequency_of(i) <= int(max_frequency)]
+        fallback = False
+        if not direct_kept:
+            direct_kept = [min(direct_ids, key=frequency_of)]
+            fallback = True
+        # Optional: paraphrase-only rows, threshold-gated, for Gen coverage.
+        para_kept = [
+            i for i in para_only_ids if frequency_of(i) <= int(max_frequency)
+        ]
+
+        kept = sorted(set(direct_kept) | set(para_kept))
         selected.update(kept)
         reports.append(
             {
                 "record_position": int(position),
                 "case_id": int(case_id),
                 "subject": subject,
-                "subject_token_ids": ids,
                 "all_subject_token_ids": all_ids,
-                "dead_token_ids_not_in_prompts": sorted(int(x) for x in dead_ids),
-                "kept_token_ids": sorted(int(x) for x in kept),
-                "kept_token_frequencies": [freqs[i] for i in sorted(kept)],
-                "dropped_token_ids": sorted(int(x) for x in set(ids) - set(kept)),
+                "direct_prompt_token_ids": sorted(int(x) for x in direct_ids),
+                "paraphrase_only_token_ids": sorted(int(x) for x in para_only_ids),
+                "dead_token_ids_not_in_any_prompt": sorted(int(x) for x in dead_ids),
+                "kept_token_ids": kept,
+                "kept_direct_token_ids": sorted(int(x) for x in direct_kept),
+                "kept_paraphrase_only_token_ids": sorted(int(x) for x in para_kept),
+                "kept_token_frequencies": [frequency_of(i) for i in kept],
+                "direct_row_above_frequency_threshold": bool(fallback),
                 "rarest_token_fallback": bool(fallback),
             }
         )
@@ -507,19 +515,25 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"{len(context_prefixes)} corpus-sampled context prefixes."
     )
 
-    # Pooled over direct + synthetic prompts so a row is kept only if it
-    # actually fires somewhere in training.
-    live_ids = live_prompt_token_ids(all_records, tok)
+    # Kept separate on purpose: direct-prompt liveness is the mandatory
+    # guarantee (Eff is scored there), paraphrase liveness only adds optional
+    # Gen coverage. Pooling them hid three unfixable Eff failures in 0ea4aad.
+    direct_live_ids = live_prompt_token_ids(records, tok)
+    paraphrase_live_ids = live_prompt_token_ids(synthetic_records, tok)
     selected_ids, subject_reports = select_subject_rows(
         records,
         tok,
         llama_like=llama_like,
         counts=counts,
         max_frequency=int(a.max_subject_token_frequency),
-        live_ids=live_ids,
+        direct_live_ids=direct_live_ids,
+        paraphrase_live_ids=paraphrase_live_ids,
     )
     dead_row_records = [
-        r for r in subject_reports if r["dead_token_ids_not_in_prompts"]
+        r for r in subject_reports if r["dead_token_ids_not_in_any_prompt"]
+    ]
+    threshold_override_records = [
+        r for r in subject_reports if r["direct_row_above_frequency_threshold"]
     ]
     if not selected_ids:
         raise RuntimeError("no subject embedding rows selected")
@@ -533,8 +547,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(
             f"Dropped dead rows from {len(dead_row_records)} record(s): subject "
             "tokens that exist in the standalone tokenization but never occur in "
-            "the record's own prompts, so the embedding hook would never fire "
-            "for them."
+            "any of the record's prompts."
+        )
+    if threshold_override_records:
+        print(
+            f"{len(threshold_override_records)} record(s) kept a direct-prompt row "
+            "above the frequency threshold, because Eff is scored on the direct "
+            "prompt and every record must retain at least one row that fires "
+            "there. These carry more Spe/PPL collateral than the rest."
         )
 
     sensitive_cases = context.expand_answer_field_cases(
@@ -793,6 +813,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         "subject_row_selection": subject_reports,
         "records_using_rarest_token_fallback": len(fallback_records),
         "records_with_dead_rows_dropped": len(dead_row_records),
+        "records_with_direct_row_above_threshold": len(threshold_override_records),
+        "direct_prompt_liveness_guarantee": (
+            "every record keeps at least one embedding row that occurs in its "
+            "own direct prompt, overriding --max-subject-token-frequency if "
+            "necessary; paraphrase-only rows are optional extras gated by the "
+            "threshold"
+        ),
         "max_subject_token_frequency": int(a.max_subject_token_frequency),
         "frequency_documents_used": len(frequency_documents),
         "frequency_doc_range": [

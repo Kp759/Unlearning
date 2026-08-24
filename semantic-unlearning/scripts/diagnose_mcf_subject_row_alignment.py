@@ -59,7 +59,12 @@ def main() -> None:
 
     for entry in selection:
         case_id = int(entry["case_id"])
-        kept = set(int(x) for x in entry["kept_token_ids"])
+        # Prefer the direct-prompt subset when present (newer configs); older
+        # configs only recorded the pooled kept set.
+        kept = set(
+            int(x)
+            for x in (entry.get("kept_direct_token_ids") or entry["kept_token_ids"])
+        )
         record = by_case.get(case_id)
         if record is None:
             continue
