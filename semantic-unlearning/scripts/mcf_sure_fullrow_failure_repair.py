@@ -31,6 +31,7 @@ import torch.nn.functional as F
 
 import gagd_compare as gagd
 import gagd_active_case_repair as mcf_repair
+import mcf_synthetic_paraphrase_templates as synth
 import sure_canonical_core as core
 import sure_stage2_sparse_repair as shared
 
@@ -72,6 +73,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--candidate-scales",
         default="1,.875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,.046875,.03125,.015625,.0078125,0",
     )
+    p.add_argument(
+        "--synthetic-paraphrases-per-record",
+        type=int,
+        default=3,
+        help=(
+            "Hand-authored synthetic paraphrase templates per record used to "
+            "detect active/failing cases, train the repair delta, and gate "
+            "scale selection. Unlike Stage 1's direction-constrained delta, "
+            "Stage 2's unrestricted delta is fit directly against hidden "
+            "states (no sensitive-minus-reference contrast direction), so it "
+            "is not subject to the decoder-row fallback that made Stage 1's "
+            "synthetic-prompt augmentation a no-op for single-token answers. "
+            "Set 0 to disable and match the original direct-only behavior."
+        ),
+    )
     p.add_argument("--dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
     p.add_argument("--device-map", choices=("single", "auto"), default="single")
     a = p.parse_args(list(argv) if argv is not None else None)
@@ -83,7 +99,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         a.constraint_margin, a.repair_l2, a.pass_guard_weight, a.distribution_kl_weight
     ) < 0:
         p.error("margin, L2, pass guard and KL weight must be non-negative")
+    if a.synthetic_paraphrases_per_record < 0:
+        p.error("synthetic-paraphrases-per-record must be non-negative")
     return a
+
+
+def select_repair_scale(reports: List[Dict[str, Any]]) -> float:
+    """Same three-pass selection as Stage 1's select_stage1_scale: never let
+    the harder combined (direct+synthetic) objective discard a scale that
+    already achieves the best available direct-only result."""
+    best_direct_only = min(int(r["direct_only_failures"]) for r in reports)
+    candidates = [r for r in reports if int(r["direct_only_failures"]) == best_direct_only]
+    best_combined = min(int(r["direct_failures"]) for r in candidates)
+    candidates = [r for r in candidates if int(r["direct_failures"]) == best_combined]
+    return float(max(float(r["scale"]) for r in candidates))
 
 
 def validate_locked(
@@ -142,6 +171,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         visible_path, manifest_path, int(a.seed), int(a.forget_num)
     )
 
+    synthetic_records = synth.build_synthetic_records(
+        records, count=int(a.synthetic_paraphrases_per_record)
+    )
+    all_records = list(records) + synthetic_records
+    synthetic_coverage = synth.coverage_report(records)
+    if int(a.synthetic_paraphrases_per_record) > 0 and synthetic_coverage["generic_fallback_records"]:
+        print(
+            "WARNING: "
+            f"{synthetic_coverage['generic_fallback_records']}/{len(records)} records "
+            "fell back to the generic synthetic-paraphrase templates (relation_id "
+            "missing or unrecognized): "
+            f"{synthetic_coverage['generic_fallback_relation_ids']}."
+        )
+
     ns = argparse.Namespace(
         model_path=a.model_path,
         dtype=a.dtype,
@@ -158,11 +201,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     device = gagd.first_device(model)
     llama_like = core.is_llama_like(model, tok)
 
-    instances = shared.mcf_instances(records)
+    direct_count = len(records)
+    all_instances = shared.mcf_instances(all_records)
     original_margins = shared.mcf_direct_margins(
         model,
         tok,
-        instances,
+        all_instances,
         device,
         llama_like,
         int(a.batch_size),
@@ -170,15 +214,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         reference_field="target_new",
     )
     original_cpu = original_margins.detach().float().cpu()
+    # Active/failing now spans direct + synthetic-paraphrase instances, so
+    # Stage 2 repairs paraphrase-margin residuals too, not only the literal
+    # direct prompt.
     active_positions = [
         i
         for i, value in enumerate(original_cpu.tolist())
         if float(value) < float(a.constraint_margin)
     ]
     passing_positions = [
-        i for i in range(len(instances)) if i not in set(active_positions)
+        i for i in range(len(all_instances)) if i not in set(active_positions)
     ]
-    selected_ids = failure_sensitive_rows(tok, instances, active_positions)
+    direct_active_positions = [i for i in active_positions if i < direct_count]
+    synthetic_active_positions = [i for i in active_positions if i >= direct_count]
+    selected_ids = failure_sensitive_rows(tok, all_instances, active_positions)
 
     out_dir = gagd.resolve_output_path(a.output_dir)
     ckpt = out_dir / "checkpoint"
@@ -199,7 +248,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         caches = mcf_repair.build_prompt_instance_delta_caches(
             model,
             tok,
-            instances,
+            all_instances,
             selected_ids,
             device,
             int(a.batch_size),
@@ -287,19 +336,31 @@ def main(argv: Sequence[str] | None = None) -> None:
         scales = core.parse_scales(a.candidate_scales)
         for scale in scales:
             margins = margins_from_caches(caches, best_delta * float(scale))
+            direct_margins = margins[:direct_count]
             scale_reports.append(
                 {
                     "scale": float(scale),
                     "direct_failures": int(
                         (margins < float(a.constraint_margin)).sum().item()
                     ),
+                    "direct_only_failures": int(
+                        (direct_margins < float(a.constraint_margin)).sum().item()
+                    ),
                     "minimum_margin": float(margins.min().detach().cpu()),
+                    "direct_only_minimum_margin": float(
+                        direct_margins.min().detach().cpu()
+                    ),
                     "effective_delta_norm": float(
                         best_delta.norm().detach().cpu() * float(scale)
                     ),
                 }
             )
-        selected_scale = core.choose_scale(scale_reports)
+        # select_repair_scale (not core.choose_scale): never let the harder
+        # combined direct+synthetic objective collapse to scale=0.0 when it
+        # cannot reach zero failures -- that would silently discard an edit
+        # that already achieves the best available direct-only result (see
+        # mcf_sure_directional_emb_lm_stage1.py's identical fix).
+        selected_scale = select_repair_scale(scale_reports)
         final_delta = best_delta * float(selected_scale)
         final_distribution_kl = float(
             mcf_repair.mcf_same_prompt_non_target_kl(caches, final_delta)
@@ -310,20 +371,27 @@ def main(argv: Sequence[str] | None = None) -> None:
     else:
         final_distribution_kl = 0.0
 
-    final_margins = shared.mcf_direct_margins(
+    final_all_margins = shared.mcf_direct_margins(
         model,
         tok,
-        instances,
+        all_instances,
         device,
         llama_like,
         int(a.batch_size),
         sensitive_field="target_true",
         reference_field="target_new",
     )
+    final_margins = final_all_margins[:direct_count]
+    final_synthetic_margins = final_all_margins[direct_count:]
     final_cpu = final_margins.detach().float().cpu()
     final_failure_positions = [
         i
         for i, value in enumerate(final_cpu.tolist())
+        if float(value) < float(a.constraint_margin)
+    ]
+    final_synthetic_failure_positions = [
+        i
+        for i, value in enumerate(final_synthetic_margins.detach().cpu().tolist())
         if float(value) < float(a.constraint_margin)
     ]
 
@@ -346,12 +414,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         "stage1_failure_count": len(active_positions),
         "stage1_failure_positions": active_positions,
         "stage1_passing_positions": passing_positions,
+        "stage1_direct_failure_count": len(direct_active_positions),
+        "stage1_synthetic_failure_count": len(synthetic_active_positions),
+        "synthetic_paraphrases_per_record": int(a.synthetic_paraphrases_per_record),
+        "synthetic_record_count": len(synthetic_records),
+        "synthetic_paraphrase_coverage": synthetic_coverage,
         "selected_lm_head_rows": len(selected_ids),
         "selected_token_ids": selected_ids,
         "parameterization": "unrestricted_sparse_full_lm_head_rows",
         "lora_used": False,
         "rank_constraint": False,
-        "repair_primary_training_records": "Stage-1 failed direct records only",
+        "repair_primary_training_records": (
+            "Stage-1 failed direct records + synthetic-paraphrase templates"
+        ),
         "passing_records_role": (
             "regression hinge guard + exact same-prompt non-target KL guard"
         ),
@@ -380,6 +455,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         "final_direct_failures": len(final_failure_positions),
         "final_failing_positions": final_failure_positions,
         "final_minimum_margin": float(final_cpu.min().item()),
+        "final_synthetic_failures": len(final_synthetic_failure_positions),
+        "final_synthetic_failing_positions": final_synthetic_failure_positions,
+        "final_synthetic_minimum_margin": (
+            float(final_synthetic_margins.min().detach().cpu())
+            if final_synthetic_margins.numel()
+            else None
+        ),
+        "final_combined_failures": (
+            len(final_failure_positions) + len(final_synthetic_failure_positions)
+        ),
         "input_embeddings_modified_in_stage2": False,
         "transformer_trainable_parameters": 0,
         "lm_head_untied": True,
@@ -393,9 +478,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     core.write_json(out_dir / "scale_sweep_direct_only.json", scale_reports)
     print(json.dumps(summary, indent=2))
     print(
-        f"Full-row Stage 2: direct failures {len(active_positions)} -> "
-        f"{len(final_failure_positions)}; selected rows={len(selected_ids)}; "
-        f"scale={selected_scale:g}"
+        f"Full-row Stage 2: direct failures {len(direct_active_positions)} -> "
+        f"{len(final_failure_positions)}; synthetic failures "
+        f"{len(synthetic_active_positions)} -> {len(final_synthetic_failure_positions)}; "
+        f"selected rows={len(selected_ids)}; scale={selected_scale:g}"
     )
 
 
