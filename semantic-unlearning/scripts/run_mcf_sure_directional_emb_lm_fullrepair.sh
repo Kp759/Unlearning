@@ -63,6 +63,12 @@ REPAIR_L2=${REPAIR_L2:-1e-3}
 # secondary backstop, so it can afford to be looser than 0.05.
 REPAIR_PROTECTED_RANK=${REPAIR_PROTECTED_RANK:-32}
 REPAIR_RANK=${REPAIR_RANK:-4}
+# The ~26 in-sample passing records alone were not enough: a real run left
+# PPL at 18.875 (every other run: ~10.9-11.1) and Spe collapsed at 0.68.
+# Widen the protected subspace with hidden states from ordinary text so it
+# reflects what general language use actually looks like.
+REPAIR_WIKIDATA_DIR=${REPAIR_WIKIDATA_DIR:-data/wikidata}
+REPAIR_GENERIC_PROTECTION_TOKENS=${REPAIR_GENERIC_PROTECTION_TOKENS:-300}
 REPAIR_PROTECTED_KL_MAX=${REPAIR_PROTECTED_KL_MAX:-0.5}
 REPAIR_BACKTRACK_SCALES=${REPAIR_BACKTRACK_SCALES:-1.0,0.5,0.25,0.125,0.0625,0.03125,0.015625,0.0078125,0.00390625,0.001953125,0.0009765625,0.00048828125,0.0}
 REPAIR_BATCH_SIZE=${REPAIR_BATCH_SIZE:-8}
@@ -112,6 +118,8 @@ python -u scripts/mcf_sure_fullrow_failure_repair.py \
   --repair-l2 "$REPAIR_L2" \
   --protected-rank "$REPAIR_PROTECTED_RANK" \
   --repair-rank "$REPAIR_RANK" \
+  --wikidata-dir "$REPAIR_WIKIDATA_DIR" \
+  --generic-protection-tokens "$REPAIR_GENERIC_PROTECTION_TOKENS" \
   --protected-kl-max "$REPAIR_PROTECTED_KL_MAX" \
   --backtrack-scales "$REPAIR_BACKTRACK_SCALES" \
   --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \

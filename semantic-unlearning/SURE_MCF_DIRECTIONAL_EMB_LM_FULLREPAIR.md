@@ -300,6 +300,31 @@ basis is already orthogonal to that exact set's hidden-state span, the
 gate should now rarely bind at all -- it becomes a pure numerical-safety
 backstop rather than a competing objective.
 
+### The protected subspace itself was too narrow -- widened with generic text
+
+A real run confirmed the gate fix worked exactly as intended
+(`gate_rejected_steps=0`, `gate_backtracked_steps=0`) and Eff/Gen kept
+improving (`final_direct_failures` 42 -> 13, `Eff` 62.0). But `Spe`
+remained collapsed (`0.68`) and, for the first time across every run so
+far, `PPL` broke too (`18.875`, vs a stable `~10.9-11.1` in every prior
+run). `effective_delta_norm` was also the largest yet (`16.9`).
+
+Cause: `H_protected` was built from only the ~26 in-sample MCF records
+that happened to already pass Stage 1 (at most ~52 hidden-state vectors,
+capped further by `--protected-rank 32`). Being geometrically orthogonal
+to that tiny, MCF-specific span does nothing for the vast majority of
+directions real neighborhood prompts and general PPL text actually
+occupy -- the geometric guarantee was real, but scoped to a population far
+too narrow to matter for what Spe/PPL measure.
+
+`generic_protection_hidden_states()` widens `H_protected` with hidden
+states sampled from `--wikidata-dir`'s ordinary text (the same corpus PPL
+is evaluated against) before the SVD basis is built -- read-only, never
+contributing to the failure hinge or any margin computation. Default
+`--generic-protection-tokens 300`. Falls back gracefully (with a printed
+warning) to in-sample-only protection if the directory is missing, so this
+is additive rather than a hard requirement.
+
 ## Stage-1 embedding caveat
 
 After untying, an input-embedding row receives ordinary GA gradient only when that token actually occurs in the teacher-forced input prefix. Consequently, some single-token answer embedding rows may remain unchanged even though their LM-head rows receive GA gradient. The implementation logs `embedding_rows_with_nonzero_current_grad` rather than hiding this causal fact.

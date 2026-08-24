@@ -41,6 +41,7 @@ import torch.nn.functional as F
 import gagd_compare as gagd
 import gagd_active_case_repair as mcf_repair
 import mcf_synthetic_paraphrase_templates as synth
+import mcf_zero_unlearn_official_eval as official_eval
 import sure_canonical_core as core
 import sure_stage2_sparse_repair as shared
 
@@ -104,6 +105,35 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "Rank cap on the protected-subspace-orthogonal repair basis. "
             "Mirrors mcf_sure_protected_subspace_stage2.py's --repair-rank "
             "(same default)."
+        ),
+    )
+    p.add_argument(
+        "--wikidata-dir",
+        default="data/wikidata",
+        help=(
+            "Generic-text sample used to widen the protected subspace "
+            "beyond the ~26 in-sample MCF records that happened to already "
+            "pass Stage 1. A real run confirmed the narrow in-sample-only "
+            "protected subspace was insufficient: PPL jumped from its "
+            "stable ~10.9-11.1 across every prior run to 18.875, and Spe "
+            "stayed collapsed (0.68) -- being orthogonal to ~26 records' "
+            "hidden-state span (at most ~52 vectors) does nothing for the "
+            "vast majority of directions real neighborhood prompts and "
+            "general text actually occupy. Hidden states from this text "
+            "are concatenated into H_protected before the SVD basis is "
+            "built (evaluation-only in every other sense -- never used for "
+            "the failure hinge or margin computation). Set to a "
+            "nonexistent path (or leave --generic-protection-tokens 0) to "
+            "disable and fall back to in-sample-only protection."
+        ),
+    )
+    p.add_argument(
+        "--generic-protection-tokens",
+        type=int,
+        default=300,
+        help=(
+            "Token positions sampled from --wikidata-dir's text to widen "
+            "the protected subspace (see --wikidata-dir). Set 0 to disable."
         ),
     )
     p.add_argument(
@@ -171,6 +201,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("synthetic-paraphrases-per-record must be non-negative")
     if a.protected_rank < 0 or a.repair_rank <= 0:
         p.error("protected-rank must be non-negative and repair-rank must be positive")
+    if a.generic_protection_tokens < 0:
+        p.error("generic-protection-tokens must be non-negative")
     backtrack_scales = parse_backtrack_scales(a.backtrack_scales)
     if backtrack_scales[-1] != 0.0:
         p.error("backtrack-scales must end in 0.0 (guaranteed-safe full rollback)")
@@ -242,7 +274,9 @@ def failure_sensitive_rows(tok, instances, active_positions: Sequence[int]) -> L
     )
 
 
-def flatten_answer_hidden_states(caches: Sequence[Any]) -> torch.Tensor:
+def flatten_answer_hidden_states(
+    caches: Sequence[Any], hidden_size: int
+) -> torch.Tensor:
     """Stack every teacher-forced hidden state (both target_new and
     target_true sides) across the given RewriteDeltaCache records into one
     [N, hidden_size] matrix, for SVD-based subspace construction."""
@@ -251,8 +285,42 @@ def flatten_answer_hidden_states(caches: Sequence[Any]) -> torch.Tensor:
         parts.append(cache.target_new.hidden)
         parts.append(cache.target_true.hidden)
     if not parts:
-        return torch.empty((0, 0))
+        return torch.empty((0, hidden_size))
     return torch.cat(parts, dim=0).float()
+
+
+@torch.no_grad()
+def generic_protection_hidden_states(
+    model: torch.nn.Module,
+    tok: Any,
+    wikidata_dir: str,
+    max_tokens: int,
+    hidden_size: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Hidden states from ordinary text, so the protected subspace reflects
+    what general language use actually looks like, not just the handful of
+    in-sample MCF records that happened to already pass Stage 1. Read-only:
+    never contributes to the failure hinge or any margin computation."""
+    if max_tokens <= 0:
+        return torch.empty((0, hidden_size))
+    text = official_eval.load_official_ppl_text(wikidata_dir)
+    if text is None:
+        print(
+            f"WARNING: --wikidata-dir {wikidata_dir!r} not found; the "
+            "protected subspace will only reflect the in-sample MCF "
+            "records, which a real run showed is not enough to protect "
+            "PPL/specificity."
+        )
+        return torch.empty((0, hidden_size))
+    encoded = tok(
+        text,
+        return_tensors="pt",
+        max_length=int(max_tokens),
+        truncation=True,
+    ).to(device)
+    output = model(**encoded, output_hidden_states=True, use_cache=False)
+    return output.hidden_states[-1][0].float()
 
 
 def repair_delta_raw_param(delta_module: "core.SelectedRowDelta") -> torch.nn.Parameter:
@@ -356,6 +424,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     gate_rejected_steps = 0
     gate_backtracked_steps = 0
     repair_basis_rank = 0
+    generic_hidden = torch.empty((0, int(output_layer.weight.shape[1])))
     backtrack_scales = parse_backtrack_scales(a.backtrack_scales)
     final_delta = torch.empty(
         (0, int(output_layer.weight.shape[1])),
@@ -378,14 +447,36 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         # Structural protection: restrict the repair delta to a basis built
         # from the active (failing) cases' hidden states, after projecting
-        # away any component lying in the *initially passing* cases' own
-        # hidden-state subspace. A fully unrestricted delta over shared
-        # LM-head rows has no way to distinguish "suppress this token for
-        # the forget prompts" from "suppress this token everywhere" -- this
-        # makes "does not disturb passing cases" geometric by construction,
+        # away any component lying in the protected cases' own hidden-state
+        # subspace. A fully unrestricted delta over shared LM-head rows has
+        # no way to distinguish "suppress this token for the forget
+        # prompts" from "suppress this token everywhere" -- this makes
+        # "does not disturb protected cases" geometric by construction,
         # matching mcf_sure_protected_subspace_stage2.py's proven design.
-        protected_hidden = flatten_answer_hidden_states(passing_caches)
-        active_hidden = flatten_answer_hidden_states(active_caches)
+        # The protected set is the *initially passing* in-sample records
+        # PLUS a sample of ordinary text (see generic_protection_hidden_states):
+        # a real run using only the ~26 in-sample records left PPL at 18.875
+        # (every other run: ~10.9-11.1) and Spe collapsed at 0.68 --
+        # orthogonality to ~52 vectors' span does nothing for the vast
+        # majority of directions real neighborhood prompts and general text
+        # actually occupy.
+        hidden_size = int(output_layer.weight.shape[1])
+        generic_hidden = generic_protection_hidden_states(
+            model,
+            tok,
+            a.wikidata_dir,
+            int(a.generic_protection_tokens),
+            hidden_size,
+            device,
+        )
+        protected_hidden = torch.cat(
+            [
+                flatten_answer_hidden_states(passing_caches, hidden_size),
+                generic_hidden,
+            ],
+            dim=0,
+        )
+        active_hidden = flatten_answer_hidden_states(active_caches, hidden_size)
         protected_basis = core.orthonormal_row_basis(
             protected_hidden, max_rank=int(a.protected_rank)
         )
@@ -626,11 +717,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         "protected_subspace_definition": (
             "repair delta restricted to rowspace(H_active) minus its "
             "projection onto rowspace(H_protected) (re-orthonormalized), "
-            "where H_active/H_protected are teacher-forced hidden states "
-            "from the initially active/passing (direct+synthetic) cases -- "
-            "makes 'does not disturb passing cases' geometric by "
-            "construction rather than statistical"
+            "where H_active is teacher-forced hidden states from the "
+            "initially active (direct+synthetic) cases and H_protected is "
+            "the initially passing cases' hidden states plus a sample of "
+            "generic text -- makes 'does not disturb protected cases' "
+            "geometric by construction rather than statistical"
         ),
+        "generic_protection_tokens_requested": int(a.generic_protection_tokens),
+        "generic_protection_hidden_states_used": int(generic_hidden.shape[0]),
+        "wikidata_dir": str(a.wikidata_dir),
         "repair_primary_training_records": (
             "Stage-1 failed direct records + synthetic-paraphrase templates"
         ),
