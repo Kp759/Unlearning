@@ -61,7 +61,12 @@ REPAIR_L2=${REPAIR_L2:-1e-3}
 # The repair delta is now geometrically restricted to a subspace orthogonal
 # to the passing cases' hidden states; the KL/margin gate below is only a
 # secondary backstop, so it can afford to be looser than 0.05.
-REPAIR_PROTECTED_RANK=${REPAIR_PROTECTED_RANK:-32}
+# Raised from 32 -- see --protected-rank help text: once generic-text
+# protection widened the protected population ~7x (52 in-sample -> ~352
+# in-sample+generic), a fixed rank-32 budget represented it less
+# completely, leaking into the gate's checks (gate_rejected_steps back up
+# to 574/800, Eff/Gen regressed) even though Spe/PPL genuinely improved.
+REPAIR_PROTECTED_RANK=${REPAIR_PROTECTED_RANK:-96}
 REPAIR_RANK=${REPAIR_RANK:-4}
 # The ~26 in-sample passing records alone were not enough: a real run left
 # PPL at 18.875 (every other run: ~10.9-11.1) and Spe collapsed at 0.68.

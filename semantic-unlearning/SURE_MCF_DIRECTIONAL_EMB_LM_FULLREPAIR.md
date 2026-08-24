@@ -336,6 +336,32 @@ doc_start, doc_stop)` now reads a disjoint slice instead (default
 immediately after official PPL's `[:20]`), and argparse hard-rejects any
 `doc-start < 20` so this can't silently regress.
 
+### Widening the protected population diluted a fixed rank budget
+
+A real run with the disjoint slice confirmed the fix: `PPL=11.25`, back in
+the stable `~10.9-11.1` band every earlier (uncontaminated) run showed,
+and `Spe=4.36` -- genuinely improved from the `0.68-2.03` range of prior
+attempts. But `Eff`/`Gen` regressed (`52.0`/`69.0`, worse than the
+previous run's `22.0`/`41.0`) and `gate_rejected_steps` jumped back to
+`574/800`.
+
+Mechanism: `--protected-rank` stayed at `32` while the protected
+population `H_protected` grew from `~52` in-sample vectors to `~352`
+(`~52` in-sample + `300` generic-text positions). A fixed rank-32 budget
+representing a population `~7x` larger -- and where the `300` generic-text
+positions (adjacent tokens in one coherent passage) are likely numerically
+dominant in the SVD -- captures each individual in-sample record's own
+direction less completely than when rank-32 was dedicated to the
+in-sample set alone. The static gate still only checks the original
+`~26` in-sample records, so weaker representation of them in `B_protected`
+shows up directly as more residual leakage into exactly what the gate
+checks.
+
+Raised `--protected-rank` `32 -> 96`: still `<=3%` of the `3072`-dim
+hidden size (ample headroom left for `--repair-rank`'s search space), but
+large enough to give the `~7x`-larger protected population room to be
+represented without crowding out the in-sample records specifically.
+
 ## Stage-1 embedding caveat
 
 After untying, an input-embedding row receives ordinary GA gradient only when that token actually occurs in the teacher-forced input prefix. Consequently, some single-token answer embedding rows may remain unchanged even though their LM-head rows receive GA gradient. The implementation logs `embedding_rows_with_nonzero_current_grad` rather than hiding this causal fact.

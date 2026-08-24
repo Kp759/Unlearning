@@ -78,23 +78,29 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--protected-rank",
         type=int,
-        default=32,
+        default=96,
         help=(
             "Structural protection, not a penalty: the repair delta is "
             "restricted to a basis built from the active (failing) cases' "
             "hidden states, after removing any component lying in this "
-            "protected-rank subspace of the *initially passing* cases' "
-            "hidden states (rowspace(H_active) minus its projection onto "
-            "rowspace(H_protected), then re-orthonormalized). A fully "
-            "unrestricted delta over shared LM-head rows cannot avoid "
-            "leaking into every other use of those rows -- fixing ~40 "
-            "deeply negative margins (post_rewrite_min_margin ~ -13) forced "
-            "a large enough edit that no penalty weight (1.0, 3.0, 10.0) or "
-            "hard KL/margin gate (protected-kl-max 0.05, which rejected "
-            "796/800 steps and left Eff at 76.0) found a workable middle "
-            "ground. This makes 'does not disturb passing cases' geometric "
-            "by construction. Mirrors mcf_sure_protected_subspace_stage2.py's "
-            "--protected-rank (same default)."
+            "protected-rank subspace of the protected cases' hidden states "
+            "(rowspace(H_active) minus its projection onto "
+            "rowspace(H_protected), then re-orthonormalized). Raised from "
+            "32 (mcf_sure_protected_subspace_stage2.py's own default, "
+            "calibrated for its much smaller in-sample-only protected set): "
+            "once --generic-protection-tokens widened H_protected from "
+            "~52 in-sample vectors to ~352 (in-sample + generic text), a "
+            "real run showed gate_rejected_steps jump back up to 574/800 "
+            "and Eff/Gen regress (52.0/69.0, worse than the prior run's "
+            "22.0/41.0) even though Spe/PPL genuinely improved -- a fixed "
+            "rank-32 budget representing a ~7x larger, more numerically "
+            "dominant (300 generic-text positions vs. 52 in-sample) "
+            "population captures the in-sample records' own directions "
+            "less completely than before, leaking into exactly what the "
+            "gate checks. 96 is a reasoned, not blind, next value: large "
+            "enough headroom for the grown population, still <=3% of the "
+            "3072-dim hidden size, so --repair-rank's search space stays "
+            "ample regardless."
         ),
     )
     p.add_argument(
