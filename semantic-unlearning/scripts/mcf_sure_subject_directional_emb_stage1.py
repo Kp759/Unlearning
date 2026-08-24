@@ -163,21 +163,32 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--delta-l2", type=float, default=1e-4)
     p.add_argument(
-        "--delta-l2-frequency-alpha",
+        "--row-norm-cap",
         type=float,
         default=0.0,
         help=(
-            "Scale each row's delta-l2 budget by (1 + corpus_frequency)^alpha, so "
-            "common subject tokens are held near Base while rare ones move "
-            "freely. 0 = uniform (previous behaviour, exact backward compat).\n"
-            "Motivation: with full token coverage the edit now includes common "
-            "tokens. Neighborhood prompts contain no subject tokens, but they do "
-            "contain common ones, and at --train-margin 10 those deltas grew "
-            "large enough to leak: Spe fell 11.35 -> 10.53 to buy one point of "
-            "Gen (5.0 -> 4.0). Using frequency as a per-row BUDGET rather than a "
-            "hard FILTER keeps every row trainable -- filtering starved rows and "
-            "cost Gen 46 vs 29 -- while limiting the deltas that actually damage "
-            "Spe and PPL."
+            "Hard cap on each row's delta L2 norm, applied as a projection after "
+            "every optimizer step. 0 disables it.\n"
+            "This replaces an earlier --delta-l2-frequency-alpha that reweighted "
+            "the delta-l2 PENALTY. That penalty is inert: at --delta-l2 1e-4 and "
+            "a typical delta norm of ~5 over 223x3072 elements it contributes "
+            "~3.7e-9 against a margin term of ~1e2, so it is ~2.7e10 times too "
+            "small to influence the optimizer and reweighting it changed nothing. "
+            "A projection binds by construction, independent of loss scale."
+        ),
+    )
+    p.add_argument(
+        "--row-norm-cap-frequency-alpha",
+        type=float,
+        default=0.0,
+        help=(
+            "Scale each row's norm cap by 1/(1 + corpus_frequency)^alpha, so "
+            "common subject tokens are held close to Base while rare ones keep "
+            "the full cap. 0 = uniform cap. Only active when --row-norm-cap > 0.\n"
+            "Motivation: past --train-margin 6 the edit's COMMON subject tokens "
+            "grow large enough to leak into neighborhood prompts, which do "
+            "contain them -- Spe fell 11.35 -> 10.53 at margin 10. Capping those "
+            "rows specifically should let the margin rise without Spe paying."
         ),
     )
     p.add_argument("--grad-clip", type=float, default=1.0)
@@ -745,17 +756,20 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "corpus sentences."
             )
 
-    # Per-row delta-l2 budget. alpha=0 gives a vector of ones, i.e. exactly the
-    # previous uniform penalty.
-    alpha = float(a.delta_l2_frequency_alpha)
-    if alpha != 0.0 and counts.numel():
-        row_freq = torch.tensor(
+    # Per-row norm caps. A cap of 0 means "no cap" for that row.
+    cap_alpha = float(a.row_norm_cap_frequency_alpha)
+    base_cap = float(a.row_norm_cap)
+    if base_cap > 0 and counts.numel():
+        cap_freq = torch.tensor(
             [float(counts[i].item()) for i in selected_ids], dtype=torch.float32
         )
     else:
-        row_freq = torch.zeros(len(selected_ids), dtype=torch.float32)
-    row_l2_weight = (1.0 + row_freq).pow(alpha)
-    row_l2_weight = row_l2_weight / row_l2_weight.mean().clamp_min(1e-8)
+        cap_freq = torch.zeros(len(selected_ids), dtype=torch.float32)
+    row_norm_caps = (
+        base_cap / (1.0 + cap_freq).pow(cap_alpha)
+        if base_cap > 0
+        else torch.zeros(len(selected_ids), dtype=torch.float32)
+    )
 
     hidden_size = int(input_layer.weight.shape[1])
     delta_module = core.SelectedRowDelta(
@@ -816,10 +830,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     hidden, base_hidden[idx], directions
                 )
                 delta_now = delta_module.effective_delta()
-                l2 = (
-                    row_l2_weight.to(delta_now.device).unsqueeze(-1)
-                    * delta_now.square()
-                ).mean()
+                l2 = delta_now.square().mean()
 
                 # Representation-level term: sample one record and several of
                 # its contexts, and penalize how much the induced shift in the
@@ -863,6 +874,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                             f"Non-finite gradient norm at step {step}"
                         )
                 opt.step()
+
+                # Hard per-row projection. Unlike the delta-l2 penalty this
+                # binds regardless of how the loss terms are scaled.
+                if base_cap > 0:
+                    with torch.no_grad():
+                        raw_p = delta_module.raw_delta
+                        if raw_p is not None:
+                            caps = row_norm_caps.to(raw_p.device)
+                            norms = raw_p.data.norm(dim=-1)
+                            scale = (caps / norms.clamp_min(1e-12)).clamp(max=1.0)
+                            raw_p.data.mul_(scale.unsqueeze(-1))
 
                 if step == 1 or step % 25 == 0 or step == int(a.steps):
                     # Rows whose gradient is exactly zero never fire for the
@@ -1043,13 +1065,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         "synthetic_paraphrases_per_record": int(a.synthetic_paraphrases_per_record),
         "synthetic_record_count": len(synthetic_records),
         "synthetic_paraphrase_coverage": synthetic_coverage,
-        "delta_l2_frequency_alpha": alpha,
-        "delta_l2_row_weight_min": float(row_l2_weight.min()),
-        "delta_l2_row_weight_max": float(row_l2_weight.max()),
-        "delta_l2_budget_definition": (
-            "per-row delta-l2 scaled by (1 + corpus_frequency)^alpha, mean-"
-            "normalised so alpha=0 reproduces the uniform penalty exactly; "
-            "frequency used as a BUDGET rather than a row FILTER"
+        "row_norm_cap": base_cap,
+        "row_norm_cap_frequency_alpha": cap_alpha,
+        "row_norm_cap_min": float(row_norm_caps.min()) if base_cap > 0 else None,
+        "row_norm_cap_max": float(row_norm_caps.max()) if base_cap > 0 else None,
+        "row_norm_cap_definition": (
+            "per-row delta norm projected to row_norm_cap/(1+corpus_frequency)"
+            "^alpha after every optimizer step. Replaces a frequency-weighted "
+            "delta-l2 penalty that was ~2.7e10 times smaller than the margin "
+            "term and therefore had no effect on the optimizer"
         ),
         "invariance_weight": float(a.invariance_weight),
         "invariance_contexts_per_record": int(a.invariance_contexts),

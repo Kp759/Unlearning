@@ -52,11 +52,13 @@ TRAIN_MARGIN=${TRAIN_MARGIN:-6.0}
 # here, not geometric).
 SURGICAL_WEIGHT=${SURGICAL_WEIGHT:-0.0}
 DELTA_L2=${DELTA_L2:-1e-4}
-# Per-row delta-l2 budget scaled by (1 + corpus_frequency)^alpha. 0 = uniform
-# (previous behaviour). Try 0.25-0.5 with a higher TRAIN_MARGIN: it holds
-# common tokens near Base while letting rare ones move, which is what should
-# let the margin rise past 6 without Spe paying for it.
-DELTA_L2_FREQUENCY_ALPHA=${DELTA_L2_FREQUENCY_ALPHA:-0.0}
+# Hard per-row cap on the delta norm, projected after every optimizer step.
+# 0 = off. Replaces a frequency-weighted delta-l2 PENALTY that was inert:
+# at --delta-l2 1e-4 that term is ~2.7e10 times smaller than the margin term,
+# so reweighting it produced bit-identical runs. Per-row norm is ~0.34 at the
+# margin-6 operating point, so caps in the 0.2-1.0 range are meaningful.
+ROW_NORM_CAP=${ROW_NORM_CAP:-0.0}
+ROW_NORM_CAP_FREQUENCY_ALPHA=${ROW_NORM_CAP_FREQUENCY_ALPHA:-0.0}
 CONSTRAINT_MARGIN=${CONSTRAINT_MARGIN:-0.05}
 SYNTHETIC_PARAPHRASES_PER_RECORD=${SYNTHETIC_PARAPHRASES_PER_RECORD:-3}
 
@@ -115,7 +117,8 @@ python -u scripts/mcf_sure_subject_directional_emb_stage1.py \
   --train-margin "$TRAIN_MARGIN" \
   --surgical-weight "$SURGICAL_WEIGHT" \
   --delta-l2 "$DELTA_L2" \
-  --delta-l2-frequency-alpha "$DELTA_L2_FREQUENCY_ALPHA" \
+  --row-norm-cap "$ROW_NORM_CAP" \
+  --row-norm-cap-frequency-alpha "$ROW_NORM_CAP_FREQUENCY_ALPHA" \
   --stage1-constraint-margin "$CONSTRAINT_MARGIN" \
   --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \
   --corpus-context-prefixes "$CORPUS_CONTEXT_PREFIXES" \
