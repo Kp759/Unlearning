@@ -353,6 +353,40 @@ introduced as representation hygiene against catastrophic embedding GA, but
 with combinatorial locality doing the protective work it was pure
 throttling. It remains available (`--surgical-weight`) as an ablation.
 
+### train-margin is a Gen dial, and the frontier is Gen vs PPL
+
+| train-margin | stage1_minimum_margin | Eff | Gen | Spe | PPL |
+|---|---|---|---|---|---|
+| 3.0 | 3.0625 | 0.0 | 10.0 | 11.35 | 11.06 |
+| 6.0 | 6.21875 | 0.0 | **5.0** | 11.35 | 11.25 |
+| Base | -- | -- | -- | 11.46 | 10.94 |
+
+`stage1_minimum_margin` lands just above `--train-margin` in both runs, so
+training is not hitting a capacity limit -- the hinge stops exactly where it
+is told. Gen is a dial, not a ceiling.
+
+Two structural facts fall out of the sweep:
+
+**Spe is pinned at 11.35** (`Spe_success` 88.8) at both settings. That is the
+floor for this method: neighborhood prompts contain none of the edited rows,
+so combinatorial locality holds regardless of how hard the edit pushes. The
+residual 0.11 gap to Base comes from the few records whose subjects share
+tokens with neighborhood subjects, and no margin setting will move it.
+
+**PPL is the metric that pays.** 11.06 -> 11.25 against a Base of 10.94.
+Subject tokens *do* occur in ordinary Wikipedia text, unlike neighborhood
+prompts, so pushing the edit harder costs fluency where those tokens appear.
+
+The operating frontier is therefore Gen vs PPL with Spe fixed. Sweeping
+`--train-margin` traces it directly, which makes it the natural ablation
+figure for a writeup.
+
+A refinement worth trying if the PPL cost becomes binding: keep full token
+coverage but scale the `--delta-l2` budget per row by that token's corpus
+frequency, so common tokens receive small deltas and rare ones large. That
+targets the PPL cost specifically without reintroducing the row-starvation
+that the frequency *filter* caused.
+
 ## Forgetting evidence beyond NLL
 
 The config records `base_mean_sensitive_readout`,
