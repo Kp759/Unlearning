@@ -15,7 +15,12 @@ REPAIR_LR="${SURE_STAGE2_LR:-0.0005}"
 REPAIR_BATCH="${SURE_STAGE2_BATCH_SIZE:-8}"
 REPAIR_CHECK="${SURE_STAGE2_CHECK_EVERY:-25}"
 REPAIR_L2="${SURE_STAGE2_L2_WEIGHT:-0.000001}"
-BACKTRACK="${SURE_STAGE2_BACKTRACK_SCALES:-0.5,0.25,0.125,0.0625,0.03125,0.015625}"
+# Deterministic dyadic feasibility line search.  The older ladder stopped at
+# 2^-6, which can falsely freeze an otherwise feasible constrained trajectory
+# when the current iterate lies close to the locality-KL boundary.  Extending
+# to 2^-16 changes no model/utility hyperparameter; it only resolves the
+# numerical step length more finely before declaring a proposal infeasible.
+BACKTRACK="${SURE_STAGE2_BACKTRACK_SCALES:-0.5,0.25,0.125,0.0625,0.03125,0.015625,0.0078125,0.00390625,0.001953125,0.0009765625,0.00048828125,0.000244140625,0.0001220703125,0.00006103515625,0.000030517578125,0.0000152587890625}"
 LOCALITY_PROMPTS="${SURE_RELATION_LOCALITY_PROMPTS:-1000}"
 COV_FLOOR_RTOL="${SURE_WIKI_COV_EIGEN_FLOOR_RTOL:-1e-8}"
 CONTRACTION_STEPS="${SURE_COV_CONTRACTION_STEPS:-40}"
@@ -55,6 +60,7 @@ for SEED in "${SEEDS[@]}"; do
   echo "Repair margin: max(${PROTECT_MARGIN}, median Stage1-success direct margin)"
   echo "Relation locality hard gate: exact sparse-head mean KL <= existing protected-KL budget ${MAX_PKL}"
   echo "Top1 locality changes are diagnostic only; they do not hard-freeze near-ties"
+  echo "Feasibility line search: deterministic dyadic backtracking through 2^-16"
   echo "NO MQUAKE RETAIN / ATOMICGEN / TARGET_NEW / PARAPHRASE / NEIGHBORHOOD / MULTIHOP USED"
 
   python scripts/mquake_sure_stage2_cov_locality_kl_v3.py \
