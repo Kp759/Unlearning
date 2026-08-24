@@ -216,6 +216,56 @@ never a real `paraphrase_prompts` entry, so the firewall is unchanged:
 This moves generated templates from 33% to 64% subject-first.  Enabled by
 default via `prefer_subject_first=True`; the other two callers are unaffected.
 
+## Result: Eff = 0 with Spe/PPL essentially at Base
+
+Stage 1 `6dcb11f` + Stage 2 direct-only repair:
+
+| | Eff | Gen | Spe | PPL |
+|---|---|---|---|---|
+| LM-head architecture, best of ~20 runs | 82 | 85 | 8.37 | 11.06 |
+| subject-emb Stage 1 (`6dcb11f`) | 2.0 | 46 | 9.85 | 11.06 |
+| **+ Stage 2 direct-only repair** | **0.0** | **46.0** | **9.74** | **11.06** |
+| Base | -- | -- | ~11.46 | ~10.94 |
+
+`post_rewrite_failure_prompt_instances` is 0 of 50.
+
+Stage 2 cost only 0.11 Spe, against the 3.09 it cost under the old
+architecture (11.46 -> 8.37). That is the direct consequence of blast
+radius: the old Stage 2 repaired 42 records' `target_true` LM-head rows,
+this one repaired 1. Stage 2 left Gen exactly unchanged, as expected --
+it repairs direct failures and has no mechanism for real paraphrases.
+
+Eff and PPL are solved. Spe sits at 85% of Base. Gen is the open problem.
+
+### Gen: four hypotheses tested, all rejected
+
+| Hypothesis | Change | Result |
+|---|---|---|
+| prefix distribution too formulaic | corpus-sampled prefixes (`017174c`) | Gen 56 -> 53, negligible |
+| pooled prompt liveness | direct-liveness required (`6dcb11f`) | fixed **Eff**, not Gen |
+| syntactic register mismatch | subject-first templates (`53f8762`) | Gen 46 -> **52, worse** |
+| Stage 2 would generalize | direct-only repair | Gen 46 -> 46, **unchanged** |
+
+The third is the informative one: synthetic failures *improved* 41 -> 37
+while real Gen *worsened* 46 -> 52. They move in opposite directions, so
+the synthetic paraphrase set is not a usable proxy for real Gen and
+reshaping the training distribution is not the lever. `--subject-first-templates`
+therefore defaults to 0.
+
+Untested, both zero-code:
+
+```bash
+# is the edit too weak / over-constrained?
+SURGICAL_WEIGHT=0 TRAIN_MARGIN=3.0 bash scripts/run_mcf_sure_subject_emb.sh ...
+# is the model re-identifying the entity from unedited subject tokens?
+MAX_SUBJECT_TOKEN_FREQUENCY=100000 bash scripts/run_mcf_sure_subject_emb.sh ...
+```
+
+The second is motivated by coverage: 76 rows across 50 records is ~1.5
+edited tokens per subject, while most subjects tokenize to 3-5 pieces, so
+the unedited remainder may be enough for the model to re-identify the
+entity in an unfamiliar phrasing.
+
 ## Forgetting evidence beyond NLL
 
 The config records `base_mean_sensitive_readout`,
