@@ -339,6 +339,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         records, count=int(a.synthetic_paraphrases_per_record)
     )
     all_records = list(records) + synthetic_records
+    synthetic_coverage = synth.coverage_report(records)
+    if int(a.synthetic_paraphrases_per_record) > 0 and synthetic_coverage["generic_fallback_records"]:
+        print(
+            "WARNING: "
+            f"{synthetic_coverage['generic_fallback_records']}/{len(records)} records "
+            "fell back to the generic synthetic-paraphrase templates (relation_id "
+            "missing or unrecognized): "
+            f"{synthetic_coverage['generic_fallback_relation_ids']}. The 34-relation "
+            "hand-authored bank is not being exercised for these records."
+        )
 
     ns = argparse.Namespace(
         model_path=a.model_path,
@@ -621,6 +631,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "hand-authored per-relation-id alternate templates + generic "
             "context prefixes; never derived from real paraphrase_prompts"
         ),
+        "synthetic_paraphrase_coverage": synthetic_coverage,
         "embedding_trainable_parameters": int(emb_delta.trainable_parameter_count),
         "lm_head_trainable_parameters": int(head_delta.trainable_parameter_count),
         "ga_loss": "mean(log p(target_true sensitive token)); minimized",

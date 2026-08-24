@@ -81,6 +81,29 @@ def _relation_templates(relation_id: str, canonical_prompt: str) -> List[str]:
     return [tmpl.format(canonical_prompt) for tmpl in GENERIC_FALLBACK_TEMPLATES]
 
 
+def coverage_report(records: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """Report how many records hit the hand-authored relation bank vs. the
+    generic fallback, so a missing/unrecognized ``relation_id`` upstream
+    (e.g. a split builder that strips it) shows up immediately instead of
+    silently degrading every record to the 2 generic templates."""
+    hit = 0
+    fallback = 0
+    missing_relation_ids: List[str] = []
+    for record in records:
+        rr = record.get("requested_rewrite")
+        relation_id = str((rr or {}).get("relation_id") or "")
+        if relation_id in RELATION_ALTERNATE_TEMPLATES:
+            hit += 1
+        else:
+            fallback += 1
+            missing_relation_ids.append(relation_id or "<missing>")
+    return {
+        "relation_bank_hit_records": hit,
+        "generic_fallback_records": fallback,
+        "generic_fallback_relation_ids": sorted(set(missing_relation_ids)),
+    }
+
+
 def synthetic_prompt_templates(
     *,
     relation_id: str,

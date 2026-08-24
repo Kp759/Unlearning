@@ -38,6 +38,14 @@ def target_aware_direct_record(raw: Mapping[str, Any], case_id: int) -> Dict[str
         "requested_rewrite": {
             "prompt": str(rewrite["prompt"]),
             "subject": str(rewrite["subject"]),
+            # Wikidata property id, e.g. "P103". Non-sensitive provenance
+            # metadata, not a held-out evaluation prompt -- keeping it visible
+            # lets Stage 1's synthetic-paraphrase template bank
+            # (mcf_synthetic_paraphrase_templates.py) select genuinely
+            # relation-specific alternate phrasings instead of silently
+            # degrading to the generic fallback for every record. Same
+            # treatment as relation_id in build_mquake_zerounlearn_locked_split.py.
+            "relation_id": rewrite.get("relation_id"),
             "target_true": {"str": target_true},
             "target_new": {"str": target_new},
         },
@@ -75,7 +83,13 @@ def assert_direct_only_training_view(records: Sequence[Mapping[str, Any]]) -> No
             raise AssertionError(
                 f"training-visible record {position} rewrite is not a mapping"
             )
-        allowed_rewrite_keys = {"prompt", "subject", "target_true", "target_new"}
+        allowed_rewrite_keys = {
+            "prompt",
+            "subject",
+            "relation_id",
+            "target_true",
+            "target_new",
+        }
         extra_rewrite_keys = sorted(set(rewrite) - allowed_rewrite_keys)
         if extra_rewrite_keys:
             raise AssertionError(
