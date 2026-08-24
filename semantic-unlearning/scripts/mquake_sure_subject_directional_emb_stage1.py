@@ -245,19 +245,25 @@ def competitor_margins(
     return torch.cat(out) if out else torch.empty(0)
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    a = parse_args(argv)
-    gagd.set_seed(a.seed)
-    if a.device_map == "single":
-        gagd.require_cuda_if_needed(a.device_map)
+def run_competitor_stage1(
+    a: argparse.Namespace,
+    records: Sequence[Mapping[str, Any]],
+    manifest: Mapping[str, Any],
+    *,
+    dataset: str,
+    method: str,
+    protocol: str,
+    extra_config: Mapping[str, Any] | None = None,
+) -> None:
+    """Shared Stage 1 for the datasets whose locked view has no target_new.
 
-    records, manifest = validate_locked_mquake(
-        Path(a.training_visible_path).resolve(),
-        Path(a.split_manifest).resolve(),
-        int(a.seed),
-        int(a.forget_num),
-    )
-
+    MQuAKE and canonical ZsRE both supply target_true only -- ZsRE's loader
+    even raises if target_new is present ("Canonical ZsRE Stage 2 forbids
+    target_new/neutral targets") -- and both score forgetting by accuracy on
+    the sensitive answer rather than by a pairwise preference. The objective is
+    therefore identical for the two, so it lives here once rather than being
+    copied per dataset.
+    """
     ns = argparse.Namespace(
         model_path=a.model_path,
         dtype=a.dtype,
@@ -469,9 +475,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     config: Dict[str, Any] = {
         "schema_version": 1,
-        "method": METHOD,
-        "protocol": PROTOCOL,
-        "dataset": "mquake",
+        "method": method,
+        "protocol": protocol,
+        "dataset": dataset,
         "source_protocol": manifest.get("protocol"),
         "seed": int(a.seed),
         "forget_num": int(a.forget_num),
@@ -524,24 +530,45 @@ def main(argv: Sequence[str] | None = None) -> None:
         "final_embedding_delta_norm": float(final_delta.norm().cpu()),
         "final_lm_head_delta_norm": 0.0,
         "lora_used": False,
-        "atomic_gen_seen": 0,
-        "multihop_questions_seen": 0,
         "benchmark_retain_seen": 0,
         "ppl_eval_text_seen": 0,
-        "multihop_scope_note": (
-            "edits the atomic fact's subject, so it fires on any prompt naming "
-            "that subject (atomic rewrite prompt = Eff, single-hop question = "
-            "AtomicGen). Multi-hop questions that reach the subject only through "
-            "an earlier hop contain none of the edited rows and are out of scope "
-            "by construction"
-        ),
     }
+    if extra_config:
+        config.update(dict(extra_config))
     core.write_json(out_dir / "stage1_config.json", config)
     print(json.dumps(config, indent=2))
     print(f"Stage-1 checkpoint: {ckpt}")
     print(
         f"Stage-1 competitor-margin failures: {len(failures)}/{len(cases)}; "
         f"min margin={config['stage1_minimum_margin']:.6f}"
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    a = parse_args(argv)
+    gagd.set_seed(a.seed)
+    if a.device_map == "single":
+        gagd.require_cuda_if_needed(a.device_map)
+    records, manifest = validate_locked_mquake(
+        Path(a.training_visible_path).resolve(),
+        Path(a.split_manifest).resolve(),
+        int(a.seed),
+        int(a.forget_num),
+    )
+    run_competitor_stage1(
+        a, records, manifest,
+        dataset="mquake", method=METHOD, protocol=PROTOCOL,
+        extra_config={
+            "multihop_scope_note": (
+                "edits the atomic fact's subject, so it fires on any prompt "
+                "naming that subject (atomic rewrite prompt = Eff, single-hop "
+                "question = AtomicGen). Multi-hop questions that reach the "
+                "subject only through an earlier hop contain none of the edited "
+                "rows and are out of scope by construction"
+            ),
+            "atomic_gen_seen": 0,
+            "multihop_questions_seen": 0,
+        },
     )
 
 
