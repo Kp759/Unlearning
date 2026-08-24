@@ -468,7 +468,67 @@ Fix: raised `--repair-rank` default `4 -> 64` (and synced
 `REPAIR_RANK` in `run_mcf_sure_directional_emb_lm_fullrepair.sh`) -- a
 >10x increase that still leaves headroom under the demonstrated 174-dim
 ceiling (`--repair-rank` values above the true residual rank are capped
-automatically, so this does not need to be exact). Not yet run.
+automatically, so this does not need to be exact).
+
+### `--repair-rank 64` changed nothing -- the real bug was a diluted protected basis
+
+Real run, commit `8d044d3`, otherwise identical config to the `4`-rank
+run above:
+
+```text
+repair_rank_requested        : 64
+repair_basis_rank_actual     : 64      (not capped -- 64 <= 174 ceiling)
+effective_delta_norm         : 0.399   (was 1.20 at rank 4 -- SMALLER, not larger)
+best_step                    : 25      (out of 800)
+gate_rejected_steps          : 793/800 (was 774/800 at rank 4 -- WORSE)
+final_direct_failures        : 41/42 fixed        (was 42/42, i.e. 0 fixed)
+final_synthetic_failures     : 129/132 fixed
+Eff / Gen / Spe / PPL        : 82.0 / 85.0 / 8.37 / 11.06
+```
+
+Rank was not the bottleneck: with 16x more repair capacity available and
+actually used (`repair_basis_rank_actual` hit `64`, not capped down),
+the optimizer barely moved (`effective_delta_norm` *shrank*) and the
+gate rejected an even larger fraction of steps. `best_step=25` means
+essentially all of the eventual state came from the first ~25 steps;
+the remaining ~775 steps were rejected outright regardless of how much
+unused repair-basis capacity was sitting there. This only makes sense if
+the geometric "delta cannot disturb protected cases" guarantee was never
+actually exact for the specific ~26 in-sample records the hard gate
+checks (`protected_direct_caches` / `protected_caches`, built from
+`passing_positions`) -- raising `--repair-rank` cannot fix a guarantee
+that was never holding in the first place.
+
+Root cause, found by re-reading `orthonormal_row_basis` (`sure_canonical_
+core.py`): it is a single SVD over its input rows, keeping the top
+`max_rank` right singular vectors by aggregate variance explained.
+`protected_hidden` was built as `cat([in_sample_hidden (52 rows: 26
+records x 2 sides), generic_hidden (5000 rows)])`, then one SVD at
+`max_rank=256`. With the generic sample outnumbering the in-sample rows
+~96:1, the top-256 directions kept by that SVD are chosen almost
+entirely by the generic population's variance -- the 52 specific rows
+the gate checks are only *approximately* reconstructed by that basis,
+not exactly. So `repair_basis` (built orthogonal to this diluted
+`protected_basis`) still has real overlap with the individual in-sample
+rows' own residual (outside-top-256) components, and moving along it
+keeps tripping the gate -- independent of `--repair-rank`, which only
+controls how much of an already-imperfect protected direction gets used.
+
+Fix: build `protected_basis` in two priority tiers instead of one
+combined SVD. `in_sample_basis = orthonormal_row_basis(in_sample_hidden,
+max_rank=None)` captures the ~52 in-sample rows' own true rank exactly
+and unconditionally (uncapped -- it is tiny relative to `--protected-
+rank`). The generic sample is then projected away from *that* basis
+(`project_rows_away`, the same utility already used for `active_
+residual`) and only its residual gets an SVD, capped at whatever rank
+budget remains (`--protected-rank` minus the in-sample rank). `protected_
+basis = cat([in_sample_basis, generic_basis])`. This guarantees the
+specific rows the gate checks are captured exactly, not diluted by the
+generic sample's much larger row count, while the generic sample still
+gets to use nearly its full requested budget (only shrunk by the in-
+sample basis's own small rank). `--diagnose-only` now also reports
+`in_sample_basis_rank_exact` and `generic_basis_rank_actual` so this can
+be checked directly without a full run. Not yet run.
 
 ## Stage-1 embedding caveat
 

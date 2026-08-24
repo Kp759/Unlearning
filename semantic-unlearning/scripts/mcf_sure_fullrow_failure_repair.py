@@ -543,6 +543,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     gate_rejected_steps = 0
     gate_backtracked_steps = 0
     repair_basis_rank = 0
+    in_sample_basis_rank = 0
+    generic_basis_rank = 0
     generic_hidden = torch.empty((0, int(output_layer.weight.shape[1])))
     backtrack_scales = parse_backtrack_scales(a.backtrack_scales)
     final_delta = torch.empty(
@@ -591,17 +593,40 @@ def main(argv: Sequence[str] | None = None) -> None:
             hidden_size,
             device,
         )
-        protected_hidden = torch.cat(
-            [
-                flatten_answer_hidden_states(passing_caches, hidden_size),
-                generic_hidden,
-            ],
-            dim=0,
+        # protected_basis is built in two priority tiers rather than one
+        # combined SVD over [in_sample; generic]. The hard gate below only
+        # ever checks the ~26 in-sample records (protected_direct_caches /
+        # protected_caches, the same set in_sample_hidden is built from) --
+        # a single SVD over ~52 in-sample rows mixed with 5000 generic rows
+        # picks its top --protected-rank directions by aggregate variance,
+        # which the generic rows dominate purely by count, leaving the
+        # specific rows the gate checks only approximately (not exactly)
+        # captured. A real run at repair-rank 4 and again at repair-rank 64
+        # both saw gate_rejected_steps ~774-793/800 with best_step landing
+        # in the first ~25 steps either way -- raising repair-rank changed
+        # nothing, which only makes sense if the geometric "no effect on
+        # protected cases" guarantee was never exact for the specific rows
+        # being gate-checked. Fix: capture in_sample_hidden's own exact rank
+        # first (uncapped -- it is tiny, well under --protected-rank), then
+        # spend the remaining rank budget on generic-text directions
+        # orthogonal to that, so the in-sample rows are never diluted by
+        # generic count.
+        in_sample_hidden = flatten_answer_hidden_states(passing_caches, hidden_size)
+        in_sample_basis = core.orthonormal_row_basis(in_sample_hidden, max_rank=None)
+        remaining_protected_rank = max(
+            0, int(a.protected_rank) - int(in_sample_basis.shape[0])
         )
+        generic_residual = mcf_repair.project_rows_away(
+            generic_hidden, in_sample_basis if in_sample_basis.numel() else None
+        )
+        generic_basis = core.orthonormal_row_basis(
+            generic_residual, max_rank=remaining_protected_rank
+        )
+        protected_hidden = torch.cat([in_sample_hidden, generic_hidden], dim=0)
+        protected_basis = torch.cat([in_sample_basis, generic_basis], dim=0)
+        in_sample_basis_rank = int(in_sample_basis.shape[0])
+        generic_basis_rank = int(generic_basis.shape[0])
         active_hidden = flatten_answer_hidden_states(active_caches, hidden_size)
-        protected_basis = core.orthonormal_row_basis(
-            protected_hidden, max_rank=int(a.protected_rank)
-        )
         active_basis = core.orthonormal_row_basis(active_hidden, max_rank=None)
         active_residual = mcf_repair.project_rows_away(
             active_basis, protected_basis if protected_basis.numel() else None
@@ -628,6 +653,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             diagnostics = {
                 "protected_rank_requested": int(a.protected_rank),
                 "protected_basis_rank_actual": int(protected_basis.shape[0]),
+                "in_sample_basis_rank_exact": int(in_sample_basis.shape[0]),
+                "generic_basis_rank_actual": int(generic_basis.shape[0]),
                 "protected_hidden_vectors": int(protected_hidden.shape[0]),
                 "active_hidden_vectors": int(active_hidden.shape[0]),
                 "active_basis_rank_uncapped": int(active_basis.shape[0]),
@@ -641,7 +668,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                     "--repair-rank will not meaningfully help -- the "
                     "protected subspace has already consumed nearly all of "
                     "the active cases' own natural hidden-state variance, "
-                    "not merely been capped by a small requested rank."
+                    "not merely been capped by a small requested rank. "
+                    "Separately, in_sample_basis_rank_exact should be small "
+                    "(tens, not hundreds) and generic_basis_rank_actual "
+                    "should be close to protected_rank_requested minus "
+                    "that -- if generic_basis_rank_actual is far below the "
+                    "remaining budget, the generic sample itself has less "
+                    "true rank than requested, not a dilution problem."
                 ),
             }
             diag_path = out_dir / "protected_subspace_diagnostics.json"
@@ -870,6 +903,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         "protected_rank": int(a.protected_rank),
         "repair_rank_requested": int(a.repair_rank),
         "repair_basis_rank_actual": repair_basis_rank,
+        "in_sample_basis_rank_exact": in_sample_basis_rank,
+        "generic_basis_rank_actual": generic_basis_rank,
         "protected_subspace_definition": (
             "repair delta restricted to rowspace(H_active) minus its "
             "projection onto rowspace(H_protected) (re-orthonormalized), "
@@ -877,7 +912,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             "initially active (direct+synthetic) cases and H_protected is "
             "the initially passing cases' hidden states plus a sample of "
             "generic text -- makes 'does not disturb protected cases' "
-            "geometric by construction rather than statistical"
+            "geometric by construction rather than statistical. "
+            "H_protected's basis is built in two priority tiers: the "
+            "in-sample rows get an exact, uncapped basis first (in_sample_"
+            "basis_rank_exact), then generic-text rows fill the remaining "
+            "protected_rank budget orthogonal to that (generic_basis_rank_"
+            "actual) -- prevents the numerically much larger generic "
+            "sample from diluting protection of the specific rows the "
+            "hard gate checks."
         ),
         "generic_protection_samples_requested": int(a.generic_protection_samples),
         "generic_protection_tokens_per_sample": int(a.generic_protection_tokens_per_sample),
