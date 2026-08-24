@@ -87,6 +87,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
@@ -206,6 +207,36 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "edit had learned to fire after a lead-in announcing a fact, not "
             "after noise. Set 0 to fall back to the four formulaic prefixes."
         ),
+    )
+    p.add_argument(
+        "--invariance-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Weight on the context-invariance penalty (0 disables it, so this is "
+            "a clean ablation axis). L_margin is an OUTPUT-level objective and "
+            "the optimizer can satisfy it per trained prompt, which is what Eff=0 "
+            "with Gen=46 looks like. This penalty is REPRESENTATION-level: it "
+            "penalizes the variance, across many contexts containing the subject, "
+            "of the shift the edit induces in the subject's own hidden state. If "
+            "that shift is context-invariant, whatever it achieves on trained "
+            "contexts transfers to unseen phrasings. Same motivation ROME cites "
+            "for averaging its key over random prefixes, and the same "
+            "representation-level argument RMU makes against output-level "
+            "unlearning; related to IRM/ILU-style invariance regularization."
+        ),
+    )
+    p.add_argument(
+        "--invariance-contexts",
+        type=int,
+        default=8,
+        help="Contexts built per record for the invariance penalty.",
+    )
+    p.add_argument(
+        "--invariance-batch",
+        type=int,
+        default=4,
+        help="Contexts sampled per step when the invariance penalty is active.",
     )
     p.add_argument(
         "--subject-first-templates",
@@ -395,6 +426,94 @@ def select_subject_rows(
             }
         )
     return sorted(int(x) for x in selected), reports
+
+
+def build_invariance_contexts(
+    records: Sequence[Mapping[str, Any]],
+    sentences: Sequence[str],
+    *,
+    count: int,
+    seed: int,
+) -> Dict[int, List[str]]:
+    """Contexts for the invariance penalty, keyed by record position.
+
+    Each context is ``<arbitrary sentence> <subject>`` -- the subject is placed
+    LAST on purpose, so the final token position is the subject's own last
+    token and no position-hunting (which is fragile across tokenizer
+    boundaries) is needed. This mirrors ROME, which reads the subject's last
+    token under randomly sampled prefixes.
+
+    Sentences come from the Wikipedia slice already loaded for frequency
+    counting, which is disjoint from official PPL's ``[:20]`` documents, and
+    are never any record's real ``paraphrase_prompts``.
+    """
+    if count <= 0 or not sentences:
+        return {}
+    contexts: Dict[int, List[str]] = {}
+    for position, record in enumerate(records):
+        rewrite = record.get("requested_rewrite")
+        if not isinstance(rewrite, Mapping):
+            continue
+        subject = str(rewrite.get("subject", "")).strip()
+        if not subject:
+            continue
+        rng = random.Random(f"{int(seed)}:{position}:{subject}")
+        picks = [rng.choice(list(sentences)) for _ in range(int(count))]
+        contexts[position] = [f"{p.rstrip()} {subject}" for p in picks]
+    return contexts
+
+
+def forward_last_hidden_texts(
+    model: torch.nn.Module,
+    tok: Any,
+    texts: Sequence[str],
+    device: torch.device,
+) -> torch.Tensor:
+    """Differentiable last-position hidden states for raw text."""
+    encoded = tok(list(texts), padding=True, return_tensors="pt").to(device)
+    output = model(**encoded, output_hidden_states=True, use_cache=False)
+    positions = encoded["attention_mask"].sum(dim=1) - 1
+    rows = torch.arange(len(texts), device=device)
+    return output.hidden_states[-1][rows, positions, :]
+
+
+@torch.no_grad()
+def cache_invariance_base_hidden(
+    model: torch.nn.Module,
+    tok: Any,
+    contexts: Mapping[int, Sequence[str]],
+    device: torch.device,
+    batch_size: int,
+) -> Dict[int, torch.Tensor]:
+    """Base subject representations, cached before any delta is active."""
+    cached: Dict[int, torch.Tensor] = {}
+    for position, texts in contexts.items():
+        chunks: List[torch.Tensor] = []
+        for start in range(0, len(texts), batch_size):
+            batch = list(texts[start : start + batch_size])
+            chunks.append(
+                forward_last_hidden_texts(model, tok, batch, device).float().detach()
+            )
+        if chunks:
+            cached[position] = torch.cat(chunks, dim=0)
+    return cached
+
+
+def context_invariance_penalty(
+    shifted: torch.Tensor, base: torch.Tensor
+) -> torch.Tensor:
+    """Variance, across contexts, of the edit-induced subject-representation shift.
+
+    ``shift_i = r(C_i) - r_base(C_i)``; the penalty is
+    ``mean_i || shift_i - mean_j shift_j ||^2``. Zero exactly when the edit
+    moves the subject's representation the same way in every context, which is
+    the property that makes the effect transfer to unseen phrasings.
+    """
+    shift = shifted.float() - base.to(device=shifted.device, dtype=torch.float32)
+    if shift.shape[0] < 2:
+        return shift.sum() * 0.0
+    centred = shift - shift.mean(dim=0, keepdim=True)
+    return centred.square().sum(dim=-1).mean()
 
 
 def forward_last_logits_and_hidden(
@@ -589,6 +708,35 @@ def main(argv: Sequence[str] | None = None) -> None:
         model, tok, output_layer, sensitive_cases, device, int(a.cache_batch_size), llama_like
     )
 
+    # Context-invariance setup. Sentences are reused from the frequency corpus
+    # (already disjoint from official PPL's [:20]); base representations are
+    # cached here, before the embedding hook is registered.
+    invariance_contexts: Dict[int, List[str]] = {}
+    invariance_base: Dict[int, torch.Tensor] = {}
+    if float(a.invariance_weight) > 0:
+        sentences = synth.corpus_context_prefixes(
+            frequency_documents,
+            count=max(256, int(a.invariance_contexts) * 8),
+            seed=int(a.seed) + 1,
+        )
+        invariance_contexts = build_invariance_contexts(
+            records, sentences, count=int(a.invariance_contexts), seed=int(a.seed)
+        )
+        invariance_base = cache_invariance_base_hidden(
+            model, tok, invariance_contexts, device, int(a.cache_batch_size)
+        )
+        if not invariance_contexts:
+            print(
+                "WARNING: invariance weight is set but no contexts could be "
+                "built; the penalty will be inactive."
+            )
+        else:
+            print(
+                f"Context invariance: {len(invariance_contexts)} records x "
+                f"{int(a.invariance_contexts)} contexts from {len(sentences)} "
+                "corpus sentences."
+            )
+
     hidden_size = int(input_layer.weight.shape[1])
     delta_module = core.SelectedRowDelta(
         len(selected_ids),
@@ -650,9 +798,31 @@ def main(argv: Sequence[str] | None = None) -> None:
                 delta_now = delta_module.effective_delta()
                 l2 = delta_now.square().mean()
 
+                # Representation-level term: sample one record and several of
+                # its contexts, and penalize how much the induced shift in the
+                # subject's own hidden state varies between them.
+                invariance = logits.sum() * 0.0
+                if invariance_contexts and float(a.invariance_weight) > 0:
+                    positions = sorted(invariance_contexts)
+                    pick = positions[step % len(positions)]
+                    texts = invariance_contexts[pick]
+                    take = min(int(a.invariance_batch), len(texts))
+                    if take >= 2:
+                        offset = (step * take) % len(texts)
+                        order = [(offset + k) % len(texts) for k in range(take)]
+                        chosen = [texts[k] for k in order]
+                        base_rows = invariance_base[pick][
+                            torch.tensor(order, dtype=torch.long)
+                        ]
+                        shifted = forward_last_hidden_texts(
+                            model, tok, chosen, device
+                        )
+                        invariance = context_invariance_penalty(shifted, base_rows)
+
                 total = (
                     float(a.margin_weight) * margin_hinge
                     + float(a.surgical_weight) * surgical
+                    + float(a.invariance_weight) * invariance
                     + float(a.delta_l2) * l2
                 )
                 if not torch.isfinite(total):
@@ -694,6 +864,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         "batch_mean_margin": float(margin.mean().detach().cpu()),
                         "batch_min_margin": float(margin.min().detach().cpu()),
                         "surgical_off_direction": float(surgical.detach().cpu()),
+                        "context_invariance": float(invariance.detach().cpu()),
                         "delta_l2": float(l2.detach().cpu()),
                         "embedding_delta_norm": float(
                             delta_now.detach().norm().cpu()
@@ -849,6 +1020,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         "synthetic_paraphrases_per_record": int(a.synthetic_paraphrases_per_record),
         "synthetic_record_count": len(synthetic_records),
         "synthetic_paraphrase_coverage": synthetic_coverage,
+        "invariance_weight": float(a.invariance_weight),
+        "invariance_contexts_per_record": int(a.invariance_contexts),
+        "invariance_batch": int(a.invariance_batch),
+        "invariance_records_covered": len(invariance_contexts),
+        "invariance_definition": (
+            "mean_i || (r(C_i) - r_base(C_i)) - mean_j (r(C_j) - r_base(C_j)) ||^2, "
+            "where r is the hidden state at the subject's last token in context "
+            "C = '<arbitrary corpus sentence> <subject>'. Representation-level, "
+            "unlike the output-level margin loss; zero exactly when the edit "
+            "shifts the subject representation identically in every context"
+        ),
         "subject_first_templates": bool(int(a.subject_first_templates)),
         "corpus_context_prefixes_requested": int(a.corpus_context_prefixes),
         "corpus_context_prefixes_used": len(context_prefixes),

@@ -58,6 +58,16 @@ CORPUS_CONTEXT_PREFIXES=${CORPUS_CONTEXT_PREFIXES:-256}
 # failures improved (41 -> 37), so it is off by default.
 SUBJECT_FIRST_TEMPLATES=${SUBJECT_FIRST_TEMPLATES:-0}
 
+# Representation-level context-invariance penalty. 0 = off (previous
+# behaviour, clean ablation baseline). L_margin is output-level and the
+# optimizer can satisfy it per trained prompt -- that is what Eff=0 with
+# Gen=46 looks like. This penalizes how much the induced shift in the
+# SUBJECT's hidden state varies across contexts; a constant shift costs
+# nothing, so it never fights the margin term.
+INVARIANCE_WEIGHT=${INVARIANCE_WEIGHT:-0.0}
+INVARIANCE_CONTEXTS=${INVARIANCE_CONTEXTS:-8}
+INVARIANCE_BATCH=${INVARIANCE_BATCH:-4}
+
 MAX_SUBJECT_TOKEN_FREQUENCY=${MAX_SUBJECT_TOKEN_FREQUENCY:-100}
 WIKIDATA_DIR=${WIKIDATA_DIR:-data/wikidata}
 FREQUENCY_DOCS=${FREQUENCY_DOCS:-5000}
@@ -94,6 +104,9 @@ python -u scripts/mcf_sure_subject_directional_emb_stage1.py \
   --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \
   --corpus-context-prefixes "$CORPUS_CONTEXT_PREFIXES" \
   --subject-first-templates "$SUBJECT_FIRST_TEMPLATES" \
+  --invariance-weight "$INVARIANCE_WEIGHT" \
+  --invariance-contexts "$INVARIANCE_CONTEXTS" \
+  --invariance-batch "$INVARIANCE_BATCH" \
   --max-subject-token-frequency "$MAX_SUBJECT_TOKEN_FREQUENCY" \
   --wikidata-dir "$WIKIDATA_DIR" \
   --frequency-docs "$FREQUENCY_DOCS" \
