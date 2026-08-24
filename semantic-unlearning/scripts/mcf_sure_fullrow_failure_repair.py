@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
-"""MCF SURE Stage 2: unrestricted sparse LM-head repair for Stage-1 failures.
+"""MCF SURE Stage 2: protected-subspace sparse LM-head repair for Stage-1 failures.
 
-This stage is deliberately simpler than the canonical rank-candidate repair:
   * target_true is sensitive; target_new is the non-sensitive reference;
-  * detect failed direct records at the input checkpoint;
+  * detect failed direct+synthetic-paraphrase records at the input checkpoint;
   * select LM-head rows only from target_true tokens of those failed records;
-  * optimize one unrestricted full-row delta (no LoRA, no low-rank basis);
+  * restrict the repair delta to rowspace(H_active) minus its projection
+    onto rowspace(H_protected) (re-orthonormalized, rank-capped by
+    --repair-rank), where H_active/H_protected are teacher-forced hidden
+    states from the initially active/passing cases -- a fully unrestricted
+    delta over shared LM-head rows has no way to distinguish "suppress this
+    token for the forget prompts" from "suppress this token everywhere",
+    and no penalty weight or hard gate on such a delta found a workable
+    middle ground between Eff and Spe in practice (see
+    SURE_MCF_DIRECTIONAL_EMB_LM_FULLREPAIR.md). This makes "does not
+    disturb passing cases" geometric by construction, matching
+    mcf_sure_protected_subspace_stage2.py's proven design;
   * the primary hinge loss is computed only on the failed records;
-  * previously passing direct records contribute a regression guard AND an
-    exact same-prompt non-target KL penalty, so the unrestricted delta cannot
-    freely drift in directions that only happen not to flip the 50 in-sample
-    margins while still damaging the row's behavior everywhere else it is
-    used (this is what specificity/PPL evaluation actually probes);
+  * a same-prompt-margin + same-prompt-non-target-KL hard gate is kept as a
+    secondary backstop, backtracking or rolling back any step that would
+    still regress an already-passing direct record or exceed
+    --protected-kl-max, despite the geometric restriction;
   * select the smallest direct-only scale yielding zero failures when possible;
   * materialize only the selected LM-head rows.
 
@@ -37,8 +45,8 @@ import sure_canonical_core as core
 import sure_stage2_sparse_repair as shared
 
 
-METHOD = "SURE-MCF-failure-only-unrestricted-LM-head-repair"
-PROTOCOL = "mcf_target_true_sensitive_failure_fullrow_repair_v1"
+METHOD = "SURE-MCF-failure-only-protected-subspace-LM-head-repair"
+PROTOCOL = "mcf_target_true_sensitive_failure_fullrow_repair_v2"
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -67,24 +75,54 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--protected-rank",
+        type=int,
+        default=32,
+        help=(
+            "Structural protection, not a penalty: the repair delta is "
+            "restricted to a basis built from the active (failing) cases' "
+            "hidden states, after removing any component lying in this "
+            "protected-rank subspace of the *initially passing* cases' "
+            "hidden states (rowspace(H_active) minus its projection onto "
+            "rowspace(H_protected), then re-orthonormalized). A fully "
+            "unrestricted delta over shared LM-head rows cannot avoid "
+            "leaking into every other use of those rows -- fixing ~40 "
+            "deeply negative margins (post_rewrite_min_margin ~ -13) forced "
+            "a large enough edit that no penalty weight (1.0, 3.0, 10.0) or "
+            "hard KL/margin gate (protected-kl-max 0.05, which rejected "
+            "796/800 steps and left Eff at 76.0) found a workable middle "
+            "ground. This makes 'does not disturb passing cases' geometric "
+            "by construction. Mirrors mcf_sure_protected_subspace_stage2.py's "
+            "--protected-rank (same default)."
+        ),
+    )
+    p.add_argument(
+        "--repair-rank",
+        type=int,
+        default=4,
+        help=(
+            "Rank cap on the protected-subspace-orthogonal repair basis. "
+            "Mirrors mcf_sure_protected_subspace_stage2.py's --repair-rank "
+            "(same default)."
+        ),
+    )
+    p.add_argument(
         "--protected-kl-max",
         type=float,
-        default=0.05,
+        default=0.5,
         help=(
-            "Hard gate (not a loss weight): every optimizer step is "
-            "backtracked/rolled back unless it keeps (a) every currently-"
-            "passing direct-only record's margin >= constraint-margin, "
-            "unconditionally, and (b) same-prompt non-target KL on all "
-            "currently-passing records <= this value. Replaces the earlier "
-            "soft pass-guard-weight/distribution-kl-weight loss terms: those "
-            "were a competing pressure that could still be outweighed by the "
-            "failure hinge (weight 1.0 left Spe collapsed at 0.16) or, when "
-            "raised enough to matter, could itself outweigh the hinge and "
-            "regress already-passing direct records (weight 10.0 dropped "
-            "Eff from 0.0 to 12.0). A hard gate makes 'never regress a "
-            "passing record' a guarantee instead of a trial-and-error "
-            "weight search. Mirrors mcf_sure_protected_subspace_stage2.py's "
-            "--protected-kl-max (same default). Set 0 to disable the KL half "
+            "Secondary hard-gate backstop (the primary protection is now "
+            "--protected-rank's geometric projection): every optimizer step "
+            "is backtracked/rolled back unless it keeps (a) every "
+            "currently-passing direct-only record's margin >= "
+            "constraint-margin, unconditionally, and (b) same-prompt "
+            "non-target KL on all currently-passing records <= this value. "
+            "Raised from 0.05 (borrowed from protected_subspace's own "
+            "already-rank-limited delta, which needs far less headroom than "
+            "a repair basis built from ~172 combined active cases) to 0.5, "
+            "matching the natural KL scale observed when a soft weight-3.0 "
+            "penalty achieved a reasonable Eff/Spe balance "
+            "(final_distribution_kl ~ 0.46). Set 0 to disable the KL half "
             "of the gate and keep only the margin-regression guard."
         ),
     )
@@ -131,6 +169,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("margin, L2 and protected-kl-max must be non-negative")
     if a.synthetic_paraphrases_per_record < 0:
         p.error("synthetic-paraphrases-per-record must be non-negative")
+    if a.protected_rank < 0 or a.repair_rank <= 0:
+        p.error("protected-rank must be non-negative and repair-rank must be positive")
     backtrack_scales = parse_backtrack_scales(a.backtrack_scales)
     if backtrack_scales[-1] != 0.0:
         p.error("backtrack-scales must end in 0.0 (guaranteed-safe full rollback)")
@@ -200,6 +240,38 @@ def failure_sensitive_rows(tok, instances, active_positions: Sequence[int]) -> L
         active_positions,
         sensitive_field="target_true",
     )
+
+
+def flatten_answer_hidden_states(caches: Sequence[Any]) -> torch.Tensor:
+    """Stack every teacher-forced hidden state (both target_new and
+    target_true sides) across the given RewriteDeltaCache records into one
+    [N, hidden_size] matrix, for SVD-based subspace construction."""
+    parts: List[torch.Tensor] = []
+    for cache in caches:
+        parts.append(cache.target_new.hidden)
+        parts.append(cache.target_true.hidden)
+    if not parts:
+        return torch.empty((0, 0))
+    return torch.cat(parts, dim=0).float()
+
+
+def repair_delta_raw_param(delta_module: "core.SelectedRowDelta") -> torch.nn.Parameter:
+    """The single trainable tensor backing effective_delta(), whichever
+    parameterization is active (basis coefficients or an unrestricted raw
+    delta) -- lets the hard-gate backtracking below manipulate it generically."""
+    return (
+        delta_module.coefficients
+        if delta_module.coefficients is not None
+        else delta_module.raw_delta
+    )
+
+
+def repair_effective_delta_from_raw(
+    delta_module: "core.SelectedRowDelta", raw: torch.Tensor
+) -> torch.Tensor:
+    if delta_module.coefficients is not None:
+        return raw @ delta_module.direction_basis
+    return raw
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -283,6 +355,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     selected_scale = 0.0
     gate_rejected_steps = 0
     gate_backtracked_steps = 0
+    repair_basis_rank = 0
     backtrack_scales = parse_backtrack_scales(a.backtrack_scales)
     final_delta = torch.empty(
         (0, int(output_layer.weight.shape[1])),
@@ -301,11 +374,39 @@ def main(argv: Sequence[str] | None = None) -> None:
             llama_like,
         )
         active_caches = [caches[i] for i in active_positions]
+        passing_caches = [caches[i] for i in passing_positions]
+
+        # Structural protection: restrict the repair delta to a basis built
+        # from the active (failing) cases' hidden states, after projecting
+        # away any component lying in the *initially passing* cases' own
+        # hidden-state subspace. A fully unrestricted delta over shared
+        # LM-head rows has no way to distinguish "suppress this token for
+        # the forget prompts" from "suppress this token everywhere" -- this
+        # makes "does not disturb passing cases" geometric by construction,
+        # matching mcf_sure_protected_subspace_stage2.py's proven design.
+        protected_hidden = flatten_answer_hidden_states(passing_caches)
+        active_hidden = flatten_answer_hidden_states(active_caches)
+        protected_basis = core.orthonormal_row_basis(
+            protected_hidden, max_rank=int(a.protected_rank)
+        )
+        active_basis = core.orthonormal_row_basis(active_hidden, max_rank=None)
+        active_residual = mcf_repair.project_rows_away(
+            active_basis, protected_basis if protected_basis.numel() else None
+        )
+        repair_basis = core.orthonormal_row_basis(
+            active_residual, max_rank=int(a.repair_rank)
+        )
+        if repair_basis.shape[0] == 0:
+            raise RuntimeError(
+                "protected-subspace projection left zero repair directions; "
+                "lower --protected-rank or raise --repair-rank"
+            )
+        repair_basis_rank = int(repair_basis.shape[0])
 
         delta_module = core.SelectedRowDelta(
             len(selected_ids),
             int(output_layer.weight.shape[1]),
-            direction_basis=None,
+            direction_basis=repair_basis,
             device=output_layer.weight.device,
         )
         opt = torch.optim.AdamW(
@@ -324,7 +425,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             # enough to matter, could itself outweigh the hinge and regress
             # already-passing direct records (weight 10.0: Eff 0.0 -> 12.0).
             with torch.no_grad():
-                pre_delta = delta_module.raw_delta.detach().clone()
+                pre_raw = repair_delta_raw_param(delta_module).detach().clone()
+                pre_delta = repair_effective_delta_from_raw(delta_module, pre_raw)
                 pre_all_margins = margins_from_caches(caches, pre_delta)
                 protected_direct_positions = [
                     i
@@ -354,11 +456,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             opt.step()
 
             with torch.no_grad():
-                raw_update = delta_module.raw_delta.detach() - pre_delta
+                raw_update = repair_delta_raw_param(delta_module).detach() - pre_raw
                 accepted_scale = 0.0
-                accepted_delta = pre_delta
+                accepted_raw = pre_raw
                 for bscale in backtrack_scales:
-                    candidate = pre_delta + raw_update * float(bscale)
+                    candidate_raw = pre_raw + raw_update * float(bscale)
+                    candidate = repair_effective_delta_from_raw(delta_module, candidate_raw)
                     ok = True
                     if protected_direct_caches:
                         candidate_direct_margins = margins_from_caches(
@@ -378,13 +481,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                             ok = False
                     if ok:
                         accepted_scale = float(bscale)
-                        accepted_delta = candidate
+                        accepted_raw = candidate_raw
                         break
                 if accepted_scale == 0.0:
                     gate_rejected_steps += 1
                 elif accepted_scale < 1.0:
                     gate_backtracked_steps += 1
-                delta_module.raw_delta.data.copy_(accepted_delta)
+                repair_delta_raw_param(delta_module).data.copy_(accepted_raw)
 
             if step == 1 or step % int(a.check_every) == 0 or step == int(a.repair_steps):
                 with torch.no_grad():
@@ -518,14 +621,26 @@ def main(argv: Sequence[str] | None = None) -> None:
         "synthetic_paraphrase_coverage": synthetic_coverage,
         "selected_lm_head_rows": len(selected_ids),
         "selected_token_ids": selected_ids,
-        "parameterization": "unrestricted_sparse_full_lm_head_rows",
+        "parameterization": "protected_subspace_orthogonal_lm_head_rows",
         "lora_used": False,
-        "rank_constraint": False,
+        "rank_constraint": True,
+        "protected_rank": int(a.protected_rank),
+        "repair_rank_requested": int(a.repair_rank),
+        "repair_basis_rank_actual": repair_basis_rank,
+        "protected_subspace_definition": (
+            "repair delta restricted to rowspace(H_active) minus its "
+            "projection onto rowspace(H_protected) (re-orthonormalized), "
+            "where H_active/H_protected are teacher-forced hidden states "
+            "from the initially active/passing (direct+synthetic) cases -- "
+            "makes 'does not disturb passing cases' geometric by "
+            "construction rather than statistical"
+        ),
         "repair_primary_training_records": (
             "Stage-1 failed direct records + synthetic-paraphrase templates"
         ),
         "passing_records_role": (
-            "hard gate only: any record whose margin is >= constraint-margin "
+            "protected-subspace projection (primary) + hard gate backstop "
+            "(secondary): any record whose margin is >= constraint-margin "
             "at the start of a step is protected for that step -- its margin "
             "may not drop below constraint-margin, and same-prompt "
             "non-target KL over all protected records may not exceed "

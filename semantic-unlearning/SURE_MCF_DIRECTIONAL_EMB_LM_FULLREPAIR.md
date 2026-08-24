@@ -231,6 +231,52 @@ weight-guessing loop entirely, at the cost of a training run that may
 plateau (visible via `gate_rejected_steps`/`gate_backtracked_steps` in
 `repair_summary.json`) rather than trade Eff for Spe silently.
 
+### The hard gate alone was too tight -- fixed with a geometric architecture change
+
+A real run at `--protected-kl-max 0.05` (borrowed directly from
+`mcf_sure_protected_subspace_stage2.py`'s own default) confirmed the
+opposite failure mode: `gate_rejected_steps=796/800`, `best_step=25`,
+`effective_delta_norm=0.16` -- training essentially froze after the first
+few steps. `final_direct_failures` regressed from single digits to `39/50`
+(`Eff=76.0`), while `Spe=7.54` recovered close to the canonical base
+(`~11.46`) precisely because almost no edit was ever applied.
+
+The mismatch: `protected_subspace_stage2.py`'s own delta is *already*
+rank-limited and projected away from a protected subspace by construction,
+so a tight KL bound on top of that is redundant, cheap insurance. This
+script's delta was fully unrestricted (`direction_basis=None`) -- a global
+edit to 37 shared LM-head rows has no way to distinguish "suppress this
+token for the forget prompts" from "suppress this token everywhere else it
+appears", so fixing ~40 deeply negative margins (`post_rewrite_min_margin
+~ -13`) required a large-magnitude edit that the same numeric KL bound,
+calibrated for a geometrically-constrained delta, could not accommodate at
+all.
+
+Root architecture fix (mirroring `mcf_sure_protected_subspace_stage2.py`'s
+own `rowspace(H_P)` / `R_F = H_F - Proj(H_F)` / `rowspace(R_F)`
+construction): before training, gather teacher-forced hidden states for the
+*initially* active/failing cases (`H_active`) and the *initially* passing
+cases (`H_protected`, direct+synthetic). Build
+
+```text
+B_protected = orthonormal_row_basis(H_protected, max_rank=--protected-rank)
+B_active    = orthonormal_row_basis(H_active, max_rank=None)
+B_residual  = project_rows_away(B_active, B_protected)
+B_repair    = orthonormal_row_basis(B_residual, max_rank=--repair-rank)
+```
+
+and parameterize the delta as `coefficients @ B_repair` instead of a raw
+`[rows, hidden]` tensor -- reusing `sure_canonical_core.orthonormal_row_basis`
+and `gagd_active_case_repair.project_rows_away`, both already proven
+utilities in this repo. This makes "does not disturb the passing cases'
+directions" geometric by construction, not something a penalty weight or
+KL threshold has to enforce after the fact. Defaults (`--protected-rank
+32`, `--repair-rank 4`) match `mcf_sure_protected_subspace_stage2.py`'s own
+already-validated values. `--protected-kl-max` is kept only as a secondary
+backstop and loosened to `0.5` accordingly (the natural KL scale observed
+when a soft weight-3.0 penalty found a reasonable Eff/Spe balance), since
+the primary protection no longer depends on it being tight.
+
 ## Stage-1 embedding caveat
 
 After untying, an input-embedding row receives ordinary GA gradient only when that token actually occurs in the teacher-forced input prefix. Consequently, some single-token answer embedding rows may remain unchanged even though their LM-head rows receive GA gradient. The implementation logs `embedding_rows_with_nonzero_current_grad` rather than hiding this causal fact.
@@ -280,13 +326,14 @@ Stage 1:
 Stage 2:
 
 - 800 steps
-- unrestricted sparse LM-head rows
+- protected-subspace sparse LM-head rows: protected rank `32`, repair rank
+  `4` (see below; not an unrestricted row edit)
 - LR `5e-3`
 - delta L2 `1e-3` (raised from `1e-6`, see below)
 - direct constraint margin `0.05`
 - synthetic paraphrase templates per record `3` (shared bank with Stage 1)
-- hard gate replacing the soft pass-guard/KL-weight terms: protected-KL-max
-  `0.05`, geometric backtrack schedule `1.0` down to `0.0` (see below)
+- secondary hard-gate backstop: protected-KL-max `0.5`, geometric backtrack
+  schedule `1.0` down to `0.0` (see below)
 
 These are one declared configuration, not a rank sweep.
 

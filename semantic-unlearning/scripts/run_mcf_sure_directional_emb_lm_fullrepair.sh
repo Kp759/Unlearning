@@ -3,7 +3,9 @@ set -euo pipefail
 
 # Two-stage MCF SURE experiment:
 #   Stage 1: untie Emb/LM, directional GA on target_true-sensitive rows.
-#   Stage 2: direct-failure-only unrestricted sparse LM-head row repair.
+#   Stage 2: direct+synthetic-failure protected-subspace sparse LM-head row
+#            repair (delta restricted to a basis orthogonal to passing
+#            cases' hidden states, not an unrestricted row edit).
 #
 # No LoRA. No rank sweep. No generated paraphrases.
 # No official paraphrase/neighborhood/retain/PPL training visibility.
@@ -50,13 +52,18 @@ REPAIR_LR=${REPAIR_LR:-0.005}
 # help text: at the old value this term was negligible next to the failure
 # hinge once the wider direct+synthetic objective needed a much larger delta.
 REPAIR_L2=${REPAIR_L2:-1e-3}
-# Soft pass-guard-weight/distribution-kl-weight loss terms were replaced by
-# a hard gate (see --protected-kl-max help text): weight 1.0 left Spe
-# collapsed (0.16); weight 10.0 overshot and broke Eff (0.0 -> 12.0). The
-# gate backtracks/rolls back any step that would regress an already-passing
-# direct record or push protected-set KL above this value, instead of
-# requiring a hand-tuned weight.
-REPAIR_PROTECTED_KL_MAX=${REPAIR_PROTECTED_KL_MAX:-0.05}
+# Soft pass-guard-weight/distribution-kl-weight loss terms, and later a
+# hard-gate-only design, were both replaced by protected-subspace projection
+# (see --protected-rank help text): weight 1.0 left Spe collapsed (0.16);
+# weight 10.0 overshot and broke Eff (0.0 -> 12.0); a hard gate alone at
+# protected-kl-max 0.05 (tuned for protected_subspace's own already-rank-
+# limited delta, not this one) rejected 796/800 steps and left Eff at 76.0.
+# The repair delta is now geometrically restricted to a subspace orthogonal
+# to the passing cases' hidden states; the KL/margin gate below is only a
+# secondary backstop, so it can afford to be looser than 0.05.
+REPAIR_PROTECTED_RANK=${REPAIR_PROTECTED_RANK:-32}
+REPAIR_RANK=${REPAIR_RANK:-4}
+REPAIR_PROTECTED_KL_MAX=${REPAIR_PROTECTED_KL_MAX:-0.5}
 REPAIR_BACKTRACK_SCALES=${REPAIR_BACKTRACK_SCALES:-1.0,0.5,0.25,0.125,0.0625,0.03125,0.015625,0.0078125,0.00390625,0.001953125,0.0009765625,0.00048828125,0.0}
 REPAIR_BATCH_SIZE=${REPAIR_BATCH_SIZE:-8}
 REPAIR_CHECK_EVERY=${REPAIR_CHECK_EVERY:-25}
@@ -103,6 +110,8 @@ python -u scripts/mcf_sure_fullrow_failure_repair.py \
   --repair-lr "$REPAIR_LR" \
   --constraint-margin "$CONSTRAINT_MARGIN" \
   --repair-l2 "$REPAIR_L2" \
+  --protected-rank "$REPAIR_PROTECTED_RANK" \
+  --repair-rank "$REPAIR_RANK" \
   --protected-kl-max "$REPAIR_PROTECTED_KL_MAX" \
   --backtrack-scales "$REPAIR_BACKTRACK_SCALES" \
   --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \
@@ -113,7 +122,7 @@ python -u scripts/mcf_sure_fullrow_failure_repair.py \
   --device-map "$DEVICE_MAP" \
   2>&1 | tee "$OUT_ROOT/stage2_fullrow_repair.log"
 
-printf '\nFinished directional Emb+LM -> unrestricted full-row LM-head repair.\n'
+printf '\nFinished directional Emb+LM -> protected-subspace full-row LM-head repair.\n'
 printf 'Stage 1: %s\n' "$STAGE1_OUT/checkpoint"
 printf 'Final  : %s\n' "$STAGE2_OUT/checkpoint"
 printf 'Summary: %s\n' "$STAGE2_OUT/repair_summary.json"
