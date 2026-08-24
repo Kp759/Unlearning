@@ -61,25 +61,28 @@ REPAIR_L2=${REPAIR_L2:-1e-3}
 # The repair delta is now geometrically restricted to a subspace orthogonal
 # to the passing cases' hidden states; the KL/margin gate below is only a
 # secondary backstop, so it can afford to be looser than 0.05.
-# Raised from 32 -- see --protected-rank help text: once generic-text
-# protection widened the protected population ~7x (52 in-sample -> ~352
-# in-sample+generic), a fixed rank-32 budget represented it less
-# completely, leaking into the gate's checks (gate_rejected_steps back up
-# to 574/800, Eff/Gen regressed) even though Spe/PPL genuinely improved.
-REPAIR_PROTECTED_RANK=${REPAIR_PROTECTED_RANK:-96}
+# Raised 32 -> 96 -> 256 -- see --protected-rank help text. 96 improved
+# Eff/Gen but made Spe *worse* (4.36 -> 2.09): the generic-text sample was
+# one narrow, internally-correlated ~300-token passage, so tuning rank on
+# it picked inconsistent specific directions rather than genuinely general
+# ones. Now paired with many independent documents instead of one passage.
+REPAIR_PROTECTED_RANK=${REPAIR_PROTECTED_RANK:-256}
 REPAIR_RANK=${REPAIR_RANK:-4}
 # The ~26 in-sample passing records alone were not enough: a real run left
 # PPL at 18.875 (every other run: ~10.9-11.1) and Spe collapsed at 0.68.
 # Widen the protected subspace with hidden states from ordinary text so it
-# reflects what general language use actually looks like. Doc range MUST
-# stay disjoint from official PPL's hardcoded [:20] slice (enforced by the
-# Python script's own argparse validation, doc-start >= 20) -- otherwise
-# training would protect against the exact text the eval score is later
-# measured on, contaminating the result.
+# reflects what general language use actually looks like -- many
+# independent short documents (one hidden state each), not tokens from one
+# concatenated passage, so the SVD basis sees genuine topic diversity.
+# Doc range MUST stay disjoint from official PPL's hardcoded [:20] slice
+# (enforced by the Python script's own argparse validation, doc-start >=
+# 20) -- otherwise training would protect against the exact text the eval
+# score is later measured on, contaminating the result.
 REPAIR_WIKIDATA_DIR=${REPAIR_WIKIDATA_DIR:-data/wikidata}
-REPAIR_GENERIC_PROTECTION_TOKENS=${REPAIR_GENERIC_PROTECTION_TOKENS:-300}
+REPAIR_GENERIC_PROTECTION_SAMPLES=${REPAIR_GENERIC_PROTECTION_SAMPLES:-5000}
+REPAIR_GENERIC_PROTECTION_TOKENS_PER_SAMPLE=${REPAIR_GENERIC_PROTECTION_TOKENS_PER_SAMPLE:-32}
+REPAIR_GENERIC_PROTECTION_BATCH_SIZE=${REPAIR_GENERIC_PROTECTION_BATCH_SIZE:-64}
 REPAIR_GENERIC_PROTECTION_DOC_START=${REPAIR_GENERIC_PROTECTION_DOC_START:-20}
-REPAIR_GENERIC_PROTECTION_DOC_STOP=${REPAIR_GENERIC_PROTECTION_DOC_STOP:-40}
 REPAIR_PROTECTED_KL_MAX=${REPAIR_PROTECTED_KL_MAX:-0.5}
 REPAIR_BACKTRACK_SCALES=${REPAIR_BACKTRACK_SCALES:-1.0,0.5,0.25,0.125,0.0625,0.03125,0.015625,0.0078125,0.00390625,0.001953125,0.0009765625,0.00048828125,0.0}
 REPAIR_BATCH_SIZE=${REPAIR_BATCH_SIZE:-8}
@@ -130,9 +133,10 @@ python -u scripts/mcf_sure_fullrow_failure_repair.py \
   --protected-rank "$REPAIR_PROTECTED_RANK" \
   --repair-rank "$REPAIR_RANK" \
   --wikidata-dir "$REPAIR_WIKIDATA_DIR" \
-  --generic-protection-tokens "$REPAIR_GENERIC_PROTECTION_TOKENS" \
+  --generic-protection-samples "$REPAIR_GENERIC_PROTECTION_SAMPLES" \
+  --generic-protection-tokens-per-sample "$REPAIR_GENERIC_PROTECTION_TOKENS_PER_SAMPLE" \
+  --generic-protection-batch-size "$REPAIR_GENERIC_PROTECTION_BATCH_SIZE" \
   --generic-protection-doc-start "$REPAIR_GENERIC_PROTECTION_DOC_START" \
-  --generic-protection-doc-stop "$REPAIR_GENERIC_PROTECTION_DOC_STOP" \
   --protected-kl-max "$REPAIR_PROTECTED_KL_MAX" \
   --backtrack-scales "$REPAIR_BACKTRACK_SCALES" \
   --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \

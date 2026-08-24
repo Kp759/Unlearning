@@ -362,6 +362,36 @@ hidden size (ample headroom left for `--repair-rank`'s search space), but
 large enough to give the `~7x`-larger protected population room to be
 represented without crowding out the in-sample records specifically.
 
+### Rank alone wasn't the fix -- the sample itself was too narrow
+
+A real run with `--protected-rank 96` improved Eff/Gen as predicted
+(`final_direct_failures` `29 -> 13`), but `Spe` got *worse*, not better
+(`4.36 -> 2.09`) -- the opposite of what more protected-rank should do if
+the underlying sample were genuinely representative.
+`effective_delta_norm` was nearly identical between the two runs
+(`10.34` vs. `10.37`), so this wasn't a magnitude effect; the edit was
+landing in a different specific direction.
+
+Cause: `--generic-protection-tokens 300` produced hidden states from one
+truncated, internally-correlated ~300-token passage (in practice, roughly
+the first document of the fetched range), not a spread across the fetched
+documents, let alone genuinely diverse text. Tuning `--protected-rank`
+against a narrow, non-representative sample can pick a *different specific*
+residual direction rather than a more *general* one -- explaining the
+non-monotonic Spe result rather than the smooth trend a wider sample should
+give.
+
+Replaced token-truncation-of-one-passage with independent-document
+sampling: `load_wikidata_protection_documents()` reads `--generic-protection-samples`
+(default `5000`) separate documents starting at `--generic-protection-doc-start`
+(still `>=20`, disjoint from official PPL), and `generic_protection_hidden_states()`
+takes one representative hidden state (the last real token, batched via
+`--generic-protection-batch-size`) per document instead of every token
+position of one concatenated passage -- avoiding both the narrow-sample
+problem and the artificial cross-document correlation a single joined
+string would introduce. Paired with `--protected-rank 256` (up from `96`)
+now that the protected population is genuinely large and diverse.
+
 ## Stage-1 embedding caveat
 
 After untying, an input-embedding row receives ordinary GA gradient only when that token actually occurs in the teacher-forced input prefix. Consequently, some single-token answer embedding rows may remain unchanged even though their LM-head rows receive GA gradient. The implementation logs `embedding_rows_with_nonzero_current_grad` rather than hiding this causal fact.

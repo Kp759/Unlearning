@@ -78,29 +78,27 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--protected-rank",
         type=int,
-        default=96,
+        default=256,
         help=(
             "Structural protection, not a penalty: the repair delta is "
             "restricted to a basis built from the active (failing) cases' "
             "hidden states, after removing any component lying in this "
             "protected-rank subspace of the protected cases' hidden states "
             "(rowspace(H_active) minus its projection onto "
-            "rowspace(H_protected), then re-orthonormalized). Raised from "
-            "32 (mcf_sure_protected_subspace_stage2.py's own default, "
-            "calibrated for its much smaller in-sample-only protected set): "
-            "once --generic-protection-tokens widened H_protected from "
-            "~52 in-sample vectors to ~352 (in-sample + generic text), a "
-            "real run showed gate_rejected_steps jump back up to 574/800 "
-            "and Eff/Gen regress (52.0/69.0, worse than the prior run's "
-            "22.0/41.0) even though Spe/PPL genuinely improved -- a fixed "
-            "rank-32 budget representing a ~7x larger, more numerically "
-            "dominant (300 generic-text positions vs. 52 in-sample) "
-            "population captures the in-sample records' own directions "
-            "less completely than before, leaking into exactly what the "
-            "gate checks. 96 is a reasoned, not blind, next value: large "
-            "enough headroom for the grown population, still <=3% of the "
-            "3072-dim hidden size, so --repair-rank's search space stays "
-            "ample regardless."
+            "rowspace(H_protected), then re-orthonormalized). History: "
+            "rank 32 (mcf_sure_protected_subspace_stage2.py's own default, "
+            "sized for its much smaller in-sample-only protected set) left "
+            "PPL/Spe under-protected once ~300 generic-text tokens were "
+            "added (~352-vector population); raising to 96 improved Eff/Gen "
+            "but Spe got *worse* (4.36 -> 2.09), most likely because the "
+            "generic-text sample was one narrow, internally-correlated "
+            "passage rather than diverse text, so tuning rank on it picked "
+            "inconsistent specific directions instead of genuinely general "
+            "ones. Now paired with --generic-protection-samples switching "
+            "to many independent documents (~5000, one hidden state each) "
+            "instead of one truncated passage: 256 gives that much larger, "
+            "genuinely diverse population real room to be represented, "
+            "still <=8%% of the 3072-dim hidden size."
         ),
     )
     p.add_argument(
@@ -134,32 +132,51 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
-        "--generic-protection-tokens",
+        "--generic-protection-samples",
         type=int,
-        default=300,
+        default=5000,
         help=(
-            "Token positions sampled from --wikidata-dir's text to widen "
-            "the protected subspace (see --wikidata-dir). Set 0 to disable."
+            "Number of independent Wikidata documents sampled to widen the "
+            "protected subspace (see --wikidata-dir), one representative "
+            "hidden state per document -- not tokens from one concatenated "
+            "passage. A run using --generic-protection-tokens 300 (a single "
+            "truncated ~300-token passage from one document) recovered PPL "
+            "but left the protected population too narrow/internally "
+            "correlated to reliably improve Spe as --protected-rank was "
+            "raised (Spe got *worse* going from rank 32->96 despite more "
+            "geometric protection, most likely because the small, "
+            "non-diverse sample let rank tuning pick inconsistent specific "
+            "directions rather than genuinely general ones). Many "
+            "independent short documents, each contributing one hidden "
+            "state, give the SVD basis actual topic diversity to work "
+            "with. Set 0 to disable."
         ),
+    )
+    p.add_argument(
+        "--generic-protection-tokens-per-sample",
+        type=int,
+        default=32,
+        help="Max tokens read per sampled document before taking its last-token hidden state.",
+    )
+    p.add_argument(
+        "--generic-protection-batch-size",
+        type=int,
+        default=64,
+        help="Documents per forward pass while gathering generic-protection hidden states.",
     )
     p.add_argument(
         "--generic-protection-doc-start",
         type=int,
         default=20,
         help=(
-            "Start index into --wikidata-dir's document list for the "
-            "protection text sample. mcf_zero_unlearn_official_eval's "
-            "official PPL is hardcoded to documents [:20] -- this must "
-            "stay disjoint from that range, or training would protect "
-            "against the exact text the eval score is measured on. Default "
-            "20 (immediately after the official eval's [:20])."
+            "Start index into --wikidata-dir's document list; documents "
+            "[doc-start : doc-start + generic-protection-samples] are read. "
+            "mcf_zero_unlearn_official_eval's official PPL is hardcoded to "
+            "documents [:20] -- this must stay disjoint from that range, or "
+            "training would protect against the exact text the eval score "
+            "is measured on. Default 20 (immediately after the official "
+            "eval's [:20])."
         ),
-    )
-    p.add_argument(
-        "--generic-protection-doc-stop",
-        type=int,
-        default=40,
-        help="End index (exclusive) into --wikidata-dir's document list for the protection text sample.",
     )
     p.add_argument(
         "--protected-kl-max",
@@ -226,20 +243,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("synthetic-paraphrases-per-record must be non-negative")
     if a.protected_rank < 0 or a.repair_rank <= 0:
         p.error("protected-rank must be non-negative and repair-rank must be positive")
-    if a.generic_protection_tokens < 0:
-        p.error("generic-protection-tokens must be non-negative")
-    if a.generic_protection_tokens > 0:
-        if a.generic_protection_doc_start < 20:
-            p.error(
-                "generic-protection-doc-start must be >= 20: "
-                "mcf_zero_unlearn_official_eval's official PPL is hardcoded "
-                "to documents [:20], and training-time protection must "
-                "never read those same documents (it would contaminate the "
-                "PPL score with text the model was directly protected "
-                "against)"
-            )
-        if a.generic_protection_doc_stop <= a.generic_protection_doc_start:
-            p.error("generic-protection-doc-stop must be greater than generic-protection-doc-start")
+    if a.generic_protection_samples < 0:
+        p.error("generic-protection-samples must be non-negative")
+    if a.generic_protection_tokens_per_sample <= 0:
+        p.error("generic-protection-tokens-per-sample must be positive")
+    if a.generic_protection_batch_size <= 0:
+        p.error("generic-protection-batch-size must be positive")
+    if a.generic_protection_samples > 0 and a.generic_protection_doc_start < 20:
+        p.error(
+            "generic-protection-doc-start must be >= 20: "
+            "mcf_zero_unlearn_official_eval's official PPL is hardcoded "
+            "to documents [:20], and training-time protection must "
+            "never read those same documents (it would contaminate the "
+            "PPL score with text the model was directly protected "
+            "against)"
+        )
     backtrack_scales = parse_backtrack_scales(a.backtrack_scales)
     if backtrack_scales[-1] != 0.0:
         p.error("backtrack-scales must end in 0.0 (guaranteed-safe full rollback)")
@@ -326,25 +344,28 @@ def flatten_answer_hidden_states(
     return torch.cat(parts, dim=0).float()
 
 
-def load_wikidata_protection_text(
-    wikidata_dir: str, doc_start: int, doc_stop: int
-) -> str | None:
-    """A slice of the same Wikidata release official PPL is scored against,
-    but a *disjoint* one: mcf_zero_unlearn_official_eval.load_official_ppl_text
-    is hardcoded to raw_ds['train']['text'][:20], the exact documents
-    official_perplexity later evaluates. Training-time protection must never
-    read those same documents -- doing so would make any PPL improvement
-    reflect having seen the exact evaluation bytes, not genuine specificity
-    preservation. Default doc_start=20/doc_stop=40 picks the next 20
-    documents, immediately after the official eval's [:20]."""
+def load_wikidata_protection_documents(
+    wikidata_dir: str, doc_start: int, num_samples: int
+) -> List[str]:
+    """Independent documents from the same Wikidata release official PPL is
+    scored against, but *disjoint* from it:
+    mcf_zero_unlearn_official_eval.load_official_ppl_text is hardcoded to
+    raw_ds['train']['text'][:20], the exact documents official_perplexity
+    later evaluates. Training-time protection must never read those same
+    documents -- doing so would make any PPL improvement reflect having
+    seen the exact evaluation bytes, not genuine specificity preservation.
+    Default doc_start=20 starts immediately after the official eval's [:20].
+
+    Returns a list of up to num_samples separate document strings (not one
+    concatenated passage) -- a single long passage's token positions are
+    all conditioned on the same narrow context, giving the SVD basis one
+    internally-correlated sample rather than genuine topic diversity."""
     path = Path(wikidata_dir)
     if not path.exists():
-        return None
+        return []
     raw_ds = load_from_disk(str(path))
-    texts = raw_ds["train"]["text"][doc_start:doc_stop]
-    if not texts:
-        return None
-    return " ".join(texts)
+    texts = raw_ds["train"]["text"][doc_start : doc_start + num_samples]
+    return [t for t in texts if t and t.strip()]
 
 
 @torch.no_grad()
@@ -353,37 +374,49 @@ def generic_protection_hidden_states(
     tok: Any,
     wikidata_dir: str,
     doc_start: int,
-    doc_stop: int,
-    max_tokens: int,
+    num_samples: int,
+    tokens_per_sample: int,
+    batch_size: int,
     hidden_size: int,
     device: torch.device,
 ) -> torch.Tensor:
-    """Hidden states from ordinary text, so the protected subspace reflects
-    what general language use actually looks like, not just the handful of
-    in-sample MCF records that happened to already pass Stage 1. Read-only:
-    never contributes to the failure hinge or any margin computation. Uses
-    a slice of Wikidata disjoint from what official PPL evaluation reads
-    (see load_wikidata_protection_text) -- otherwise this would be training
-    against the exact text the eval score is measured on."""
-    if max_tokens <= 0:
+    """One representative hidden state (the last real token) per sampled
+    document, so the protected subspace reflects genuinely diverse general
+    text, not just the handful of in-sample MCF records that happened to
+    already pass Stage 1, or one narrow, internally-correlated passage.
+    Read-only: never contributes to the failure hinge or any margin
+    computation. Uses documents disjoint from what official PPL evaluation
+    reads (see load_wikidata_protection_documents)."""
+    if num_samples <= 0:
         return torch.empty((0, hidden_size))
-    text = load_wikidata_protection_text(wikidata_dir, doc_start, doc_stop)
-    if text is None:
+    docs = load_wikidata_protection_documents(wikidata_dir, doc_start, num_samples)
+    if not docs:
         print(
-            f"WARNING: --wikidata-dir {wikidata_dir!r} has no documents in "
-            f"[{doc_start}:{doc_stop}]; the protected subspace will only "
-            "reflect the in-sample MCF records, which a real run showed is "
+            f"WARNING: --wikidata-dir {wikidata_dir!r} has no documents "
+            f"at/after index {doc_start}; the protected subspace will only "
+            "reflect the in-sample MCF records, which real runs showed is "
             "not enough to protect PPL/specificity."
         )
         return torch.empty((0, hidden_size))
-    encoded = tok(
-        text,
-        return_tensors="pt",
-        max_length=int(max_tokens),
-        truncation=True,
-    ).to(device)
-    output = model(**encoded, output_hidden_states=True, use_cache=False)
-    return output.hidden_states[-1][0].float()
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+    vectors: List[torch.Tensor] = []
+    for start in range(0, len(docs), int(batch_size)):
+        chunk = docs[start : start + int(batch_size)]
+        encoded = tok(
+            chunk,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=int(tokens_per_sample),
+        ).to(device)
+        output = model(**encoded, output_hidden_states=True, use_cache=False)
+        last_non_masked = encoded["attention_mask"].sum(dim=1) - 1
+        batch_indices = torch.arange(len(chunk), device=device)
+        vectors.append(
+            output.hidden_states[-1][batch_indices, last_non_masked, :].float()
+        )
+    return torch.cat(vectors, dim=0)
 
 
 def repair_delta_raw_param(delta_module: "core.SelectedRowDelta") -> torch.nn.Parameter:
@@ -529,8 +562,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             tok,
             a.wikidata_dir,
             int(a.generic_protection_doc_start),
-            int(a.generic_protection_doc_stop),
-            int(a.generic_protection_tokens),
+            int(a.generic_protection_samples),
+            int(a.generic_protection_tokens_per_sample),
+            int(a.generic_protection_batch_size),
             hidden_size,
             device,
         )
@@ -788,18 +822,18 @@ def main(argv: Sequence[str] | None = None) -> None:
             "generic text -- makes 'does not disturb protected cases' "
             "geometric by construction rather than statistical"
         ),
-        "generic_protection_tokens_requested": int(a.generic_protection_tokens),
+        "generic_protection_samples_requested": int(a.generic_protection_samples),
+        "generic_protection_tokens_per_sample": int(a.generic_protection_tokens_per_sample),
         "generic_protection_hidden_states_used": int(generic_hidden.shape[0]),
         "wikidata_dir": str(a.wikidata_dir),
         "generic_protection_doc_range": [
             int(a.generic_protection_doc_start),
-            int(a.generic_protection_doc_stop),
+            int(a.generic_protection_doc_start) + int(a.generic_protection_samples),
         ],
         "generic_protection_disjoint_from_official_ppl_docs": (
-            "official PPL is hardcoded to documents [:20]; this run used "
-            f"[{int(a.generic_protection_doc_start)}:"
-            f"{int(a.generic_protection_doc_stop)}], enforced disjoint by "
-            "argparse validation (doc-start >= 20)"
+            "official PPL is hardcoded to documents [:20]; this run read "
+            f"documents starting at {int(a.generic_protection_doc_start)}, "
+            "enforced disjoint by argparse validation (doc-start >= 20)"
         ),
         "repair_primary_training_records": (
             "Stage-1 failed direct records + synthetic-paraphrase templates"
