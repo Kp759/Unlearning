@@ -37,11 +37,23 @@ STAGE1_KL_WEIGHT=${STAGE1_KL_WEIGHT:-1.0}
 STAGE1_DELTA_L2=${STAGE1_DELTA_L2:-1e-6}
 DIRECTION_RANK=${DIRECTION_RANK:-8}
 CONSTRAINT_MARGIN=${CONSTRAINT_MARGIN:-0.05}
+# Shared by both stages: Stage 1's fit is a no-op for single/first-token
+# answers (decoder-row fallback is prompt-independent -- see
+# mcf_sure_directional_emb_lm_stage1.py), but Stage 2's hidden-state-based
+# repair is not, and is where synthetic-paraphrase generalization actually
+# comes from.
+SYNTHETIC_PARAPHRASES_PER_RECORD=${SYNTHETIC_PARAPHRASES_PER_RECORD:-3}
 
 REPAIR_STEPS=${REPAIR_STEPS:-800}
 REPAIR_LR=${REPAIR_LR:-0.005}
-REPAIR_L2=${REPAIR_L2:-1e-6}
+# Raised from 1e-6 -- see mcf_sure_fullrow_failure_repair.py's --repair-l2
+# help text: at the old value this term was negligible next to the failure
+# hinge once the wider direct+synthetic objective needed a much larger delta.
+REPAIR_L2=${REPAIR_L2:-1e-3}
 REPAIR_PASS_GUARD_WEIGHT=${REPAIR_PASS_GUARD_WEIGHT:-1.0}
+# Raised from 1.0 -- see --distribution-kl-weight help text: a real run left
+# final_distribution_kl=0.815 essentially unconstrained at weight 1.0.
+REPAIR_KL_WEIGHT=${REPAIR_KL_WEIGHT:-10.0}
 REPAIR_BATCH_SIZE=${REPAIR_BATCH_SIZE:-8}
 REPAIR_CHECK_EVERY=${REPAIR_CHECK_EVERY:-25}
 
@@ -70,6 +82,7 @@ python -u scripts/mcf_sure_directional_emb_lm_stage1.py \
   --delta-l2 "$STAGE1_DELTA_L2" \
   --direction-rank "$DIRECTION_RANK" \
   --stage1-constraint-margin "$CONSTRAINT_MARGIN" \
+  --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \
   --candidate-scales "$CANDIDATE_SCALES" \
   --dtype "$DTYPE" \
   --device-map "$DEVICE_MAP" \
@@ -87,6 +100,8 @@ python -u scripts/mcf_sure_fullrow_failure_repair.py \
   --constraint-margin "$CONSTRAINT_MARGIN" \
   --repair-l2 "$REPAIR_L2" \
   --pass-guard-weight "$REPAIR_PASS_GUARD_WEIGHT" \
+  --distribution-kl-weight "$REPAIR_KL_WEIGHT" \
+  --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \
   --batch-size "$REPAIR_BATCH_SIZE" \
   --check-every "$REPAIR_CHECK_EVERY" \
   --candidate-scales "$CANDIDATE_SCALES" \

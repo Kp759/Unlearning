@@ -51,7 +51,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--repair-steps", type=int, default=800)
     p.add_argument("--repair-lr", type=float, default=5e-3)
     p.add_argument("--constraint-margin", type=float, default=0.05)
-    p.add_argument("--repair-l2", type=float, default=1e-6)
+    p.add_argument(
+        "--repair-l2",
+        type=float,
+        default=1e-3,
+        help=(
+            "Raised from 1e-6: with the wider direct+synthetic objective, "
+            "effective_delta_norm reached ~10.6 (||delta||^2 ~ 112), making "
+            "the old 1e-6 * ||delta||^2 ~ 0.0001 term negligible next to a "
+            "failure hinge that starts around 100+ per case (margins near "
+            "-13, squared). At 1e-3 the L2 term is ~0.1 -- still small "
+            "relative to an unsatisfied hinge, but large enough to actually "
+            "discourage unnecessary delta magnitude once cases are passing."
+        ),
+    )
     p.add_argument(
         "--pass-guard-weight",
         type=float,
@@ -61,10 +74,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--distribution-kl-weight",
         type=float,
-        default=1.0,
+        default=10.0,
         help=(
-            "Exact same-prompt non-target KL(input-checkpoint || current) weight "
-            "on all 50 visible direct records; set 0 to disable."
+            "Raised from 1.0: a real run reached final_distribution_kl=0.815 "
+            "(non-trivial residual drift at the same-prompt training "
+            "positions) with weight 1.0, i.e. contributing ~0.8 to the loss "
+            "next to a failure hinge in the hundreds early in training -- not "
+            "a meaningfully competing pressure. This constrains drift only "
+            "at the 200 training-visible positions, not at held-out "
+            "neighborhood prompts; if raising this weight does not recover "
+            "Spe, the KL sampling scope itself needs widening to generic "
+            "text, not just this weight. Set 0 to disable."
         ),
     )
     p.add_argument("--batch-size", type=int, default=8)

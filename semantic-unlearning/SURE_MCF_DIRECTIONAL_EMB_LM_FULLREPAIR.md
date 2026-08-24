@@ -148,6 +148,53 @@ contribution had been silently zeroed out by (1) above -- Stage 2 alone
 had produced the entire edit, so the synthetic-paraphrase augmentation had
 not actually been exercised yet.
 
+### Stage 1's synthetic augmentation is structurally inert for single/first-token answers
+
+A run at rank 8 / 1200 steps / batch 4 (i.e. all three of the above fixes
+actually applied) still produced `stage1_combined_failures=174/200`,
+bit-identical to a run at the original rank 1 / 600 steps / batch 2. Root
+cause: `contrast_direction()`'s primary path is
+`hidden(sensitive) - hidden(reference)`, but within any one record the
+sensitive and reference prompts are identical up to the first answer token,
+so this is exactly zero there and it falls back to
+`w_sensitive - w_reference` -- the raw decoder-row difference, a function of
+the `(target_true, target_new)` token pair only, **not the prompt**. Every
+synthetic template of a given record therefore contributes an identical
+fallback vector to that row's direction pool; the basis's actual numerical
+rank is capped by this degeneracy regardless of `--direction-rank`, so more
+rank/steps/batch cannot help wherever the fallback triggers (in particular,
+any single-token answer).
+
+Stage 2's unrestricted delta has no such degeneracy: it is optimized
+directly against `hidden @ delta.T` corrections, never a
+sensitive-minus-reference contrast direction, so it is genuinely
+prompt-dependent. `mcf_sure_fullrow_failure_repair.py` now builds
+`all_records = records + synthetic_records` itself, detects
+active/failing positions and selects LM-head rows across the combined set
+(not direct-only), and applies the identical `select_repair_scale()` fix.
+On the same checkpoint this took Stage 2's own residual synthetic-template
+failures from 132/150 to 1/150, and dropped the official (held-out)
+`Gen` metric from 13 to 11.
+
+### The generalization fix increased collateral damage to Spe
+
+Widening Stage 2's scope meant selecting more LM-head rows (37, vs fewer
+under the direct-only objective) with a much larger `effective_delta_norm`
+(~10.6, vs ~0.2 before). `Spe` on the official evaluator dropped further as
+a direct result (to `0.16`, against a canonical base of `~11.46` on the
+same scale -- still a near-total collapse). The likely cause is a magnitude
+mismatch in Stage 2's loss, not a missing mechanism: `final_distribution_kl`
+was `0.815` (non-trivial drift at the 200 training-visible positions) at
+`--distribution-kl-weight 1.0`, and `--repair-l2 1e-6` contributed
+`~1e-6 * ||delta||^2 ~ 0.0001` -- both negligible next to a failure hinge
+that starts in the hundreds (margins near -13, squared) early in training.
+Raised `--distribution-kl-weight` to `10.0` and `--repair-l2` to `1e-3` so
+both regularizers are actually load-bearing. Both the KL and L2 terms only
+constrain the 200 training-visible positions (or the delta's raw
+magnitude), not held-out neighborhood prompts directly -- if this does not
+recover Spe, the KL sampling scope itself needs widening to a generic text
+sample, not just its weight.
+
 ## Stage-1 embedding caveat
 
 After untying, an input-embedding row receives ordinary GA gradient only when that token actually occurs in the teacher-forced input prefix. Consequently, some single-token answer embedding rows may remain unchanged even though their LM-head rows receive GA gradient. The implementation logs `embedding_rows_with_nonzero_current_grad` rather than hiding this causal fact.
