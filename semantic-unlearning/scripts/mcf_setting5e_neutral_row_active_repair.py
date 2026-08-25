@@ -370,21 +370,35 @@ def margins_from_caches(caches, delta: torch.Tensor) -> torch.Tensor:
     )
 
 
-def failure_sensitive_rows(tok, instances, active_positions: Sequence[int]) -> List[int]:
-    # The one functional difference from the target_true sibling: select rows
-    # from target_new (the neutral answer) instead. margins_from_caches is
-    # UNCHANGED (still NLL(target_true) - NLL(target_new)) -- see
-    # gagd_active_case_repair.answer_nll_from_delta_cache: a cache's NLL only
-    # picks up a correction from delta_rows if that answer's OWN tokens are in
-    # the selected set, so selecting target_new's tokens here means the
-    # trained delta affects only the target_new NLL term. Boosting target_new
-    # (decreasing its NLL) still increases the same margin the hinge below
-    # pushes upward, so no sign flip is needed anywhere else in this file.
+def failure_neutral_repair_rows(tok, instances, active_positions: Sequence[int]) -> List[int]:
+    """Rows to EDIT for each failing case -- NOT the sensitive fact's rows.
+
+    Renamed from the target_true sibling's failure_sensitive_rows() precisely
+    to avoid this confusion: target_true ("French") is still the sensitive
+    fact and target_new ("English") is still the neutral replacement -- that
+    contract is UNCHANGED and is exactly what validate_locked() below still
+    enforces. What differs from the sibling script is only WHICH ROW GETS
+    EDITED to enforce it: this variant boosts target_new's row instead of
+    suppressing target_true's row. shared.mcf_sensitive_rows()'s own
+    `sensitive_field` KEYWORD is a generic "which field's tokens to select as
+    editable rows" argument reused across both variants; passing
+    "target_new" here selects the NEUTRAL answer's rows for editing, it does
+    not redefine target_new as the sensitive fact.
+
+    margins_from_caches is UNCHANGED (still NLL(target_true) -
+    NLL(target_new)) -- see gagd_active_case_repair.answer_nll_from_delta_
+    cache: a cache's NLL only picks up a correction from delta_rows if that
+    answer's OWN tokens are in the selected set, so selecting target_new's
+    tokens here means the trained delta affects only the target_new NLL
+    term. Boosting target_new (decreasing its NLL) still increases the same
+    margin the hinge below pushes upward, so no sign flip is needed anywhere
+    else in this file.
+    """
     return shared.mcf_sensitive_rows(
         tok,
         instances,
         active_positions,
-        sensitive_field="target_new",
+        sensitive_field="target_new",  # which rows to EDIT, not which fact is sensitive
     )
 
 
@@ -565,7 +579,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     ]
     direct_active_positions = [i for i in active_positions if i < direct_count]
     synthetic_active_positions = [i for i in active_positions if i >= direct_count]
-    selected_ids = failure_sensitive_rows(tok, all_instances, active_positions)
+    selected_ids = failure_neutral_repair_rows(tok, all_instances, active_positions)
 
     out_dir = gagd.resolve_output_path(a.output_dir)
     ckpt = out_dir / "checkpoint"
