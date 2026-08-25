@@ -164,8 +164,18 @@ class GAGDTrainingControlTests(unittest.TestCase):
 
         self.assertTrue(torch.equal(input_weight[1], trained_input[1]))
         self.assertTrue(torch.equal(output_weight[1], trained_output[1]))
-        self.assertTrue(torch.equal(input_weight[2], input_base[2] * 1.25))
-        self.assertTrue(torch.equal(output_weight[2], output_base[2] * 1.25))
+        self.assertTrue(
+            torch.equal(
+                input_weight[2],
+                input_base[2] + 0.75 * (trained_input[2] - input_base[2]),
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                output_weight[2],
+                output_base[2] + 0.75 * (trained_output[2] - output_base[2]),
+            )
+        )
         self.assertTrue(
             torch.equal(
                 input_weight[3],

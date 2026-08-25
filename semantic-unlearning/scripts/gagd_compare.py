@@ -46,7 +46,7 @@ BASE_MODES = [
     "emb_lm_selective_tokens",
 ]
 POST_TRAINING_RESTORE_MODE = "emb_lm_all_restore_post_training_true"
-POST_TRAINING_TRUE_SCALE = 1.25
+POST_TRAINING_TRUE_ALPHA = 0.75
 POST_TRAINING_NEW_TRUE_ALPHA = 0.75
 POST_TRAINING_NEW_RETAIN_ALPHA = 0.50
 POST_TRAINING_NEW_TRUE_RETAIN_ALPHA = 0.25
@@ -605,7 +605,14 @@ def mcf_margin_objective(
     target_new_nll: torch.Tensor,
     forget_margin: float,
 ) -> torch.Tensor:
-    return F.softplus(target_true_nll - target_new_nll + forget_margin)
+    # Minimizing this must push target_true_nll UP (suppress the sensitive
+    # fact) and target_new_nll DOWN (raise the non-sensitive alternative), and
+    # concentrate gradient on examples not yet forgotten (target_new_nll
+    # still below target_true_nll). That requires the gap in this order --
+    # new minus true, not true minus new -- since softplus is smallest for a
+    # very negative argument and only that ordering makes "not yet forgotten"
+    # (true_nll low, new_nll high) the large-loss region.
+    return F.softplus(target_new_nll - target_true_nll + forget_margin)
 
 
 def zerounlearn_ga_logprob_loss(
@@ -830,15 +837,14 @@ def apply_post_training_row_restore(
     tied_info: Dict[str, Any],
     originals: Dict[str, torch.Tensor],
     groups: PostTrainingTokenGroups,
-    true_scale: float = POST_TRAINING_TRUE_SCALE,
+    true_alpha: float = POST_TRAINING_TRUE_ALPHA,
     new_true_alpha: float = POST_TRAINING_NEW_TRUE_ALPHA,
     new_retain_alpha: float = POST_TRAINING_NEW_RETAIN_ALPHA,
     new_true_retain_alpha: float = POST_TRAINING_NEW_TRUE_RETAIN_ALPHA,
 ) -> Dict[str, int]:
-    """Restore base rows while retaining group-scaled target-new updates."""
-    if true_scale <= 0:
-        raise ValueError("Post-training target-true scale must be positive.")
+    """Restore base rows while retaining group-scaled target-new/target-true updates."""
     overlap_alphas = {
+        "target_true": true_alpha,
         "target_new_true": new_true_alpha,
         "target_new_retain": new_retain_alpha,
         "target_new_true_retain": new_true_retain_alpha,
@@ -859,6 +865,15 @@ def apply_post_training_row_restore(
         trained_new_rows = (
             weight.index_select(0, new_ids).detach().clone()
             if new_ids.numel()
+            else None
+        )
+        # Captured before weight.copy_(base) below so the trained delta on the
+        # rows most responsible for the sensitive fact is not lost -- unlike
+        # unique_target_new, these are blended (true_alpha) rather than kept
+        # outright, since only a handful of forget records inform each row.
+        trained_true_rows = (
+            weight.index_select(0, true_ids).detach().clone()
+            if true_ids.numel()
             else None
         )
         interpolated_rows: List[Tuple[str, torch.Tensor, torch.Tensor]] = []
@@ -894,23 +909,25 @@ def apply_post_training_row_restore(
             interpolated_rows.append((group_name, row_ids, final_rows))
 
         # Base restoration handles retain-only, true/retain-only overlap, and
-        # unrelated rows. Target-new overlap groups are then interpolated.
+        # unrelated rows. Target-new/target-true groups are then interpolated.
         weight.copy_(base)
         if trained_new_rows is not None:
             weight.index_copy_(0, new_ids, trained_new_rows)
+        if trained_true_rows is not None:
+            base_true_rows = base.index_select(0, true_ids.to(base.device)).to(
+                device=weight.device,
+                dtype=weight.dtype,
+            )
+            final_true_rows = base_true_rows + true_alpha * (
+                trained_true_rows - base_true_rows
+            )
+            weight.index_copy_(0, true_ids, final_true_rows)
         for _, row_ids, final_rows in interpolated_rows:
             if row_ids.numel():
                 weight.index_copy_(0, row_ids, final_rows)
-        if true_ids.numel():
-            base_true_rows = (
-                base.index_select(0, true_ids.to(base.device))
-                .to(device=weight.device, dtype=weight.dtype)
-                .mul(true_scale)
-            )
-            weight.index_copy_(0, true_ids, base_true_rows)
         return {
             "unique_target_new_rows_kept": int(new_ids.numel()),
-            "unique_target_true_rows_scaled": int(true_ids.numel()),
+            "unique_target_true_rows_interpolated": int(true_ids.numel()),
             **{
                 f"{group_name}_rows_interpolated": int(row_ids.numel())
                 for group_name, row_ids, _ in interpolated_rows
@@ -933,9 +950,10 @@ def post_training_policy_report(
     tok: AutoTokenizer,
     groups: PostTrainingTokenGroups,
     applied_counts: Dict[str, int],
-    new_true_alpha: float,
-    new_retain_alpha: float,
-    new_true_retain_alpha: float,
+    true_alpha: float = POST_TRAINING_TRUE_ALPHA,
+    new_true_alpha: float = POST_TRAINING_NEW_TRUE_ALPHA,
+    new_retain_alpha: float = POST_TRAINING_NEW_RETAIN_ALPHA,
+    new_true_retain_alpha: float = POST_TRAINING_NEW_TRUE_RETAIN_ALPHA,
 ) -> Dict[str, Any]:
     def decoded(token_ids: Sequence[int]) -> Dict[str, str]:
         return {
@@ -945,7 +963,7 @@ def post_training_policy_report(
 
     return {
         "mode": POST_TRAINING_RESTORE_MODE,
-        "target_true_base_scale": POST_TRAINING_TRUE_SCALE,
+        "true_alpha": true_alpha,
         "overlap_alphas": {
             "target_new_true": new_true_alpha,
             "target_new_retain": new_retain_alpha,
@@ -956,7 +974,7 @@ def post_training_policy_report(
         ),
         "rules": {
             "unique_target_new": "keep_ga_gd_update",
-            "unique_target_true": f"{POST_TRAINING_TRUE_SCALE:g}_times_base_row",
+            "unique_target_true": "base_plus_true_alpha_times_trained_delta",
             "target_new_true_overlap": "base_plus_alpha_times_trained_delta",
             "target_new_retain_overlap": "base_plus_alpha_times_trained_delta",
             "target_new_true_retain_overlap": "base_plus_alpha_times_trained_delta",
@@ -1060,8 +1078,8 @@ def train_mode(
             f"{args.post_training_new_true_alpha:g}/"
             f"{args.post_training_new_retain_alpha:g}/"
             f"{args.post_training_new_true_retain_alpha:g}; "
-            f"set {len(post_training_groups.unique_target_true)} unique target-true rows "
-            f"to {POST_TRAINING_TRUE_SCALE:g}x base"
+            f"blend {len(post_training_groups.unique_target_true)} unique target-true rows "
+            f"at true_alpha={args.post_training_true_alpha:g}"
         )
     ref_model = None
     if args.kl_retain_weight > 0:
@@ -1217,6 +1235,7 @@ def train_mode(
             tied_info,
             post_training_originals,
             post_training_groups,
+            true_alpha=args.post_training_true_alpha,
             new_true_alpha=args.post_training_new_true_alpha,
             new_retain_alpha=args.post_training_new_retain_alpha,
             new_true_retain_alpha=args.post_training_new_true_retain_alpha,
@@ -1227,6 +1246,7 @@ def train_mode(
                 tok,
                 post_training_groups,
                 applied_counts,
+                true_alpha=args.post_training_true_alpha,
                 new_true_alpha=args.post_training_new_true_alpha,
                 new_retain_alpha=args.post_training_new_retain_alpha,
                 new_true_retain_alpha=args.post_training_new_true_retain_alpha,
@@ -1505,6 +1525,11 @@ def make_comparison_row(
         "forget_loss_type": args.forget_loss_type,
         "forget_margin": args.forget_margin,
         "sampling_strategy": args.sampling_strategy,
+        "post_training_true_alpha": (
+            args.post_training_true_alpha
+            if mode == POST_TRAINING_RESTORE_MODE
+            else None
+        ),
         "post_training_new_true_alpha": (
             args.post_training_new_true_alpha
             if mode == POST_TRAINING_RESTORE_MODE
@@ -1604,6 +1629,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--semantic-token-json", default=None)
     p.add_argument("--selective-top-k", type=int, default=1000)
     p.add_argument(
+        "--post-training-true-alpha",
+        type=float,
+        default=POST_TRAINING_TRUE_ALPHA,
+        help=(
+            "For the fifth MCF setting, retain this fraction of the learned "
+            "update on unique target-true rows instead of a flat base scale."
+        ),
+    )
+    p.add_argument(
         "--post-training-new-true-alpha",
         type=float,
         default=POST_TRAINING_NEW_TRUE_ALPHA,
@@ -1646,6 +1680,7 @@ def main() -> None:
     if args.forget_weight <= 0 or args.retain_weight < 0 or args.kl_retain_weight < 0:
         raise ValueError("--forget-weight must be positive; retain weights must be non-negative")
     for option_name in (
+        "post_training_true_alpha",
         "post_training_new_true_alpha",
         "post_training_new_retain_alpha",
         "post_training_new_true_retain_alpha",
@@ -1722,6 +1757,7 @@ def main() -> None:
         metrics["learning_rate"] = args.effective_lr
         metrics["optimizer"] = args.effective_optimizer
         if mode == POST_TRAINING_RESTORE_MODE:
+            metrics["post_training_true_alpha"] = args.post_training_true_alpha
             metrics["post_training_overlap_alphas"] = {
                 "target_new_true": args.post_training_new_true_alpha,
                 "target_new_retain": args.post_training_new_retain_alpha,

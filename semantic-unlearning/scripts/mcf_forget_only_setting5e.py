@@ -43,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--optimizer", choices=["sgd", "adam", "adamw"], default="adamw")
     p.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default="bf16")
     p.add_argument("--device-map", choices=["single", "auto"], default="single")
+    p.add_argument("--post-training-true-alpha", type=float, default=0.75)
     p.add_argument("--post-training-new-true-alpha", type=float, default=0.75)
     p.add_argument("--post-training-new-retain-alpha", type=float, default=0.50)
     p.add_argument("--post-training-new-true-retain-alpha", type=float, default=0.25)
@@ -64,6 +65,7 @@ def main() -> None:
     if args.forget_margin < 0:
         raise ValueError("forget margin must be non-negative")
     for name in (
+        "post_training_true_alpha",
         "post_training_new_true_alpha",
         "post_training_new_retain_alpha",
         "post_training_new_true_retain_alpha",
@@ -178,6 +180,7 @@ def main() -> None:
         tied_info,
         base_rows,
         row_groups,
+        true_alpha=args.post_training_true_alpha,
         new_true_alpha=args.post_training_new_true_alpha,
         new_retain_alpha=args.post_training_new_retain_alpha,
         new_true_retain_alpha=args.post_training_new_true_retain_alpha,
@@ -186,6 +189,7 @@ def main() -> None:
         tok,
         row_groups,
         applied_counts,
+        true_alpha=args.post_training_true_alpha,
         new_true_alpha=args.post_training_new_true_alpha,
         new_retain_alpha=args.post_training_new_retain_alpha,
         new_true_retain_alpha=args.post_training_new_true_retain_alpha,
@@ -225,6 +229,7 @@ def main() -> None:
         "sampling_strategy": "epoch",
         "dtype": args.dtype,
         "device_map": args.device_map,
+        "post_training_true_alpha": args.post_training_true_alpha,
         "post_training_new_true_alpha": args.post_training_new_true_alpha,
         "post_training_new_retain_alpha": args.post_training_new_retain_alpha,
         "post_training_new_true_retain_alpha": args.post_training_new_true_retain_alpha,

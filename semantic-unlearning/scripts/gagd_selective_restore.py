@@ -161,7 +161,7 @@ def write_config(path: Path, args: argparse.Namespace) -> None:
         {
             "mode": MODE,
             "training_mode": TRAINING_MODE,
-            "target_true_base_scale": gagd.POST_TRAINING_TRUE_SCALE,
+            "post_training_true_alpha": gagd.POST_TRAINING_TRUE_ALPHA,
         }
     )
     gagd.write_json(path, config)
@@ -227,7 +227,6 @@ def main() -> None:
         tied_info,
         originals,
         groups,
-        true_scale=gagd.POST_TRAINING_TRUE_SCALE,
         new_true_alpha=args.post_training_new_true_alpha,
         new_retain_alpha=args.post_training_new_retain_alpha,
         new_true_retain_alpha=args.post_training_new_true_retain_alpha,
