@@ -64,6 +64,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--target-k", type=float, default=50.0,
                    help="marker strength target, in base standard deviations")
+    p.add_argument(
+        "--confine-weight", type=float, default=0.0,
+        help=(
+            "Penalty on the component of (h - h_base) that is NOT along v. 0 "
+            "reproduces the unconstrained write. The first valid run showed "
+            "2 of 3 records losing every same-subject top-1 prediction even "
+            "though a PURE marker write of that size shifts any logit by at "
+            "most alpha*max_t|W_t.v| ~ 0.07 -- far too little to flip a "
+            "prediction. That implicates off-axis movement in dh rather than "
+            "the marker, which this term suppresses and "
+            "dh_parallel_fraction measures."
+        ),
+    )
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--dtype", default="bf16")
     p.add_argument("--device-map", default="single")
@@ -202,7 +215,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             out = model(**enc, use_cache=False, output_hidden_states=True)
             pos = enc["attention_mask"].sum(dim=1) - 1
             r = torch.arange(len(probes), device=device)
-            h_base = out.hidden_states[-1][r, pos, :].float()
+            h_base = out.hidden_states[-1][r, pos, :].float().detach()
             base_top = out.logits[r, pos, :].argmax(dim=-1).cpu()
             base_alpha = float((h_base @ v).mean())
 
@@ -222,6 +235,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 h = out.hidden_states[-1][r, pos, :].float()
                 alpha = (h @ v).mean()
                 loss = F.relu(target_alpha - alpha) + 1e-4 * delta.effective_delta().square().mean()
+                if float(a.confine_weight) > 0:
+                    dh = h - h_base
+                    off = dh - (dh @ v).unsqueeze(-1) * v.unsqueeze(0)
+                    loss = loss + float(a.confine_weight) * off.square().sum(dim=-1).mean()
                 if not torch.isfinite(loss):
                     break
                 loss.backward()
@@ -236,6 +253,18 @@ def main(argv: Sequence[str] | None = None) -> None:
                 achieved = float((h_new @ v).mean())
                 new_top = out.logits[r, pos, :].argmax(dim=-1).cpu()
                 delta_norm = float(delta.effective_delta().detach().norm())
+                # THE decisive diagnostic: how much of the hidden-state change
+                # actually lies along the marker? If this is near 1 and top-1
+                # still collapses, a pure write is itself destructive and the
+                # architecture fails. If it is small, the write is merely
+                # sloppy and confining it should recover agreement.
+                dh_f = h_new - h_base
+                par = (dh_f @ v).unsqueeze(-1) * v.unsqueeze(0)
+                dh_norm = float(dh_f.norm())
+                par_frac = float(par.norm() / dh_norm) if dh_norm > 0 else 0.0
+                max_pure_logit_shift = float(
+                    abs((h_new @ v).mean() - (h_base @ v).mean()) * coupling
+                )
         finally:
             hook.remove()
 
@@ -252,11 +281,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             "achieved_k": k, "target_k": float(a.target_k),
             "embedding_delta_norm": delta_norm,
             "same_subject_top1_agreement_after_write": agree,
+            "dh_parallel_fraction": par_frac,
+            "dh_norm": dh_norm,
+            "max_pure_marker_logit_shift": max_pure_logit_shift,
+            "confine_weight": float(a.confine_weight),
             "leak_at_delta_10": 10.0 / k if k > 0 else None,
         })
-        print(f"[{subject[:28]:30s}] k={k:8.1f} (target {a.target_k})  "
-              f"leak@delta10={10.0/k if k>0 else float('nan'):.3f}  "
-              f"top1 agreement after write={agree:.2f}  coupling={coupling:.4f}")
+        print(f"[{subject[:28]:30s}] k={k:7.1f}  leak@d10="
+              f"{10.0/k if k>0 else float('nan'):.3f}  top1_agree={agree:.2f}  "
+              f"dh_along_v={par_frac:.3f}  pure_shift={max_pure_logit_shift:.3f}")
 
     import math
     ks = [r["achieved_k"] for r in results
