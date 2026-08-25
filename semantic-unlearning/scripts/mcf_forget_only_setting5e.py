@@ -58,6 +58,18 @@ def parse_args() -> argparse.Namespace:
             "prompts. No-op if the model is already untied."
         ),
     )
+    p.add_argument(
+        "--train-scope",
+        choices=("lm_head", "emb", "emb_lm"),
+        default="lm_head",
+        help=(
+            "Which vocabulary role Stage 1 may update. lm_head (default) "
+            "freezes input embeddings and trains only the LM head, matching "
+            "the answer-token forget loss and Stage 2's own LM-head-only "
+            "design. emb does the reverse. emb_lm trains both (previous "
+            "behavior). Anything but emb_lm requires --untie-embeddings."
+        ),
+    )
     p.add_argument("--wikidata-dir", default="data/wikidata")
     p.add_argument(
         "--frequency-docs",
@@ -183,7 +195,30 @@ def main() -> None:
     summary, tied_info = gagd.configure_trainable(
         model, gagd.POST_TRAINING_RESTORE_MODE
     )
+    # The forget loss is computed purely on answer tokens, so the LM head --
+    # "how confident to be in this token as an answer" -- is the role it
+    # actually needs. The input embedding's gradient path to that loss is
+    # indirect, and moving it also shifts what the token means as
+    # subject/context in unrelated neighborhood prompts. Freezing it is a
+    # stronger guarantee than training it and restoring rows afterward.
+    if args.train_scope != "emb_lm":
+        if not untied_now and was_tied:
+            raise ValueError(
+                f"--train-scope {args.train_scope} requires untied embeddings; "
+                "pass --untie-embeddings (a tied model shares one weight, so "
+                "freezing one role would freeze both)"
+            )
+        frozen = (
+            model.get_input_embeddings()
+            if args.train_scope == "lm_head"
+            else model.get_output_embeddings()
+        )
+        frozen.weight.requires_grad_(False)
     params = gagd.unique_trainable_params(model)
+    print(
+        f"Stage 1 train scope: {args.train_scope} "
+        f"({len(params)} trainable tensor(s))"
+    )
     if args.optimizer == "sgd":
         optimizer = torch.optim.SGD(params, lr=args.emb_lm_lr)
     elif args.optimizer == "adam":
@@ -305,6 +340,7 @@ def main() -> None:
         "post_training_new_true_retain_alpha": args.post_training_new_true_retain_alpha,
         "embeddings_tied_before_run": was_tied,
         "embeddings_untied_this_run": untied_now,
+        "train_scope": args.train_scope,
         "wikidata_dir": args.wikidata_dir,
         "frequency_docs_requested": args.frequency_docs,
         "frequency_docs_used": len(frequency_docs),
