@@ -74,17 +74,30 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 @torch.no_grad()
-def base_hidden_matrix(model, tok, texts, device, batch_size) -> torch.Tensor:
-    """Last-position hidden states over ordinary text."""
+def base_hidden_matrix(model, tok, texts, device, batch_size, min_states) -> torch.Tensor:
+    """Hidden states over ordinary text, from MANY positions per document.
+
+    One state per document cannot estimate a covariance in d=3072 dimensions:
+    with n < d the matrix is rank-deficient and its bottom eigenvectors span
+    directions the sample never explored, not low-variance ones. Collecting
+    every causal position per document, as build_wiki_lmhead_covariance.py
+    does, is what makes the estimate meaningful.
+    """
     chunks: List[torch.Tensor] = []
+    total = 0
     for start in range(0, len(texts), batch_size):
-        batch = [t[:600] for t in texts[start : start + batch_size]]
-        enc = tok(batch, padding=True, truncation=True, max_length=128,
+        if total >= min_states:
+            break
+        batch = [t[:2000] for t in texts[start : start + batch_size]]
+        enc = tok(batch, padding=True, truncation=True, max_length=256,
                   return_tensors="pt").to(device)
         out = model(**enc, output_hidden_states=True, use_cache=False)
-        pos = enc["attention_mask"].sum(dim=1) - 1
-        rows = torch.arange(len(batch), device=out.logits.device)
-        chunks.append(out.hidden_states[-1][rows, pos, :].float().cpu())
+        hs = out.hidden_states[-1].float()
+        mask = enc["attention_mask"].bool()
+        # every real token position, not just the last
+        sel = hs[mask].cpu()
+        chunks.append(sel)
+        total += int(sel.shape[0])
     return torch.cat(chunks, dim=0) if chunks else torch.empty(0)
 
 
@@ -95,15 +108,33 @@ def pick_markers(H: torch.Tensor, W: torch.Tensor, n: int) -> Dict[str, Any]:
     scales with sigma). Low coupling to the LM-head rows keeps the WRITE end
     clean, since the write shifts every token's logit by alpha*(W_t . v).
     """
+    n_states, d = H.shape
+    if n_states < 2 * d:
+        raise SystemExit(
+            f"only {n_states} hidden states for d={d}. A covariance in d "
+            "dimensions needs n >> d; below that the bottom eigenvectors are "
+            "UNSAMPLED directions, not low-variance ones, and every sigma comes "
+            "back ~0. Raise --hidden-samples."
+        )
     Hc = H - H.mean(dim=0, keepdim=True)
     cov = (Hc.T @ Hc) / max(1, Hc.shape[0] - 1)
     evals, evecs = torch.linalg.eigh(cov.double())
-    evals = evals.float()
+    evals = evals.float().clamp_min(0)
     evecs = evecs.float()
-    # eigh returns ascending; the lowest-variance directions come first
-    pool = min(4 * n + 32, evecs.shape[1])
-    cand = evecs[:, :pool].T.contiguous()          # [pool, d]
-    sigmas = evals[:pool].clamp_min(0).sqrt()
+    # eigh returns ascending. Discard anything at the numerical floor: those are
+    # rank-deficiency artifacts, and dividing by their sigma manufactures an
+    # arbitrarily large k.
+    floor = float(evals.max()) * 1e-8
+    valid = int((evals <= floor).sum())
+    if valid:
+        print(f"discarding {valid} eigen-directions at the numerical floor "
+              f"(sigma^2 <= {floor:.3e})")
+    lo = valid
+    pool = min(4 * n + 32, evecs.shape[1] - lo)
+    if pool < n:
+        raise SystemExit("not enough well-conditioned directions for the markers")
+    cand = evecs[:, lo : lo + pool].T.contiguous()   # [pool, d]
+    sigmas = evals[lo : lo + pool].sqrt()
     coupling = (cand @ W.T).abs().max(dim=1).values  # max_t |W_t . v|
     # prefer small sigma AND small coupling; rank by their product
     score = sigmas * coupling
@@ -112,7 +143,9 @@ def pick_markers(H: torch.Tensor, W: torch.Tensor, n: int) -> Dict[str, Any]:
         "vectors": cand[order],
         "sigmas": sigmas[order],
         "couplings": coupling[order],
-        "median_sigma_all": float(evals.clamp_min(0).sqrt().median()),
+        "median_sigma_all": float(evals.sqrt().median()),
+        "discarded_floor_directions": valid,
+        "n_states": int(n_states),
     }
 
 
@@ -134,11 +167,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     docs = subj.load_frequency_documents(a.wikidata_dir, a.doc_start, a.hidden_samples)
     if len(docs) < 32:
         raise SystemExit(f"only {len(docs)} documents loaded; need a real sample")
-    H = base_hidden_matrix(model, tok, docs, device, a.batch_size)
+    hidden_dim = int(input_layer.weight.shape[1])
+    H = base_hidden_matrix(model, tok, docs, device, a.batch_size, 4 * hidden_dim)
     W = output_layer.weight.detach().float().cpu()
     markers = pick_markers(H, W, a.records)
-    print(f"hidden states {tuple(H.shape)}; median sigma over all directions "
-          f"{markers['median_sigma_all']:.4f}")
+    print(f"hidden states {tuple(H.shape)} (need n >> d={hidden_dim}); "
+          f"median sigma {markers['median_sigma_all']:.5f}; "
+          f"discarded {markers['discarded_floor_directions']} floor directions")
 
     mcf = json.loads(Path(a.multi_counterfact).read_text(encoding="utf-8"))
     results: List[Dict[str, Any]] = []
@@ -204,7 +239,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         finally:
             hook.remove()
 
-        k = (achieved - base_alpha) / max(sigma, 1e-6)
+        # sigma is now guaranteed above the numerical floor by pick_markers,
+        # but keep the guard so a degenerate marker reports None rather than a
+        # spuriously enormous k.
+        k = (achieved - base_alpha) / sigma if sigma > 0 else float("nan")
         agree = float((base_top == new_top).float().mean())
         results.append({
             "case_id": int(record["case_id"]), "subject": subject,
@@ -220,7 +258,10 @@ def main(argv: Sequence[str] | None = None) -> None:
               f"leak@delta10={10.0/k if k>0 else float('nan'):.3f}  "
               f"top1 agreement after write={agree:.2f}  coupling={coupling:.4f}")
 
-    ks = [r["achieved_k"] for r in results if r["achieved_k"] > 0]
+    import math
+    ks = [r["achieved_k"] for r in results
+          if r["achieved_k"] is not None and math.isfinite(r["achieved_k"])
+          and r["achieved_k"] > 0]
     payload = {
         "target_k": float(a.target_k),
         "median_sigma_all_directions": markers["median_sigma_all"],
