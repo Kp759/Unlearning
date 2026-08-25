@@ -56,6 +56,11 @@ WIKIDATA_DIR=${WIKIDATA_DIR:-data/wikidata}
 GENERIC_PROTECTION_SAMPLES=${GENERIC_PROTECTION_SAMPLES:-5000}
 GENERIC_PROTECTION_DOC_START=${GENERIC_PROTECTION_DOC_START:-20}
 
+STAGE1_UNTIE_EMBEDDINGS=${STAGE1_UNTIE_EMBEDDINGS:-1}
+STAGE1_FREQUENCY_DOCS=${STAGE1_FREQUENCY_DOCS:-5000}
+STAGE1_FREQUENCY_DOC_START=${STAGE1_FREQUENCY_DOC_START:-20}
+STAGE1_FREQUENCY_CAP_ALPHA=${STAGE1_FREQUENCY_CAP_ALPHA:-0.5}
+
 DTYPE=${DTYPE:-bf16}
 DEVICE_MAP=${DEVICE_MAP:-single}
 CANDIDATE_SCALES=${CANDIDATE_SCALES:-1,.875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,.046875,.03125,.015625,.0078125,0}
@@ -108,6 +113,10 @@ fi
 test -f "$REPAIR_VISIBLE_MCF" || { echo "repair-visible builder produced no $REPAIR_VISIBLE_MCF"; exit 1; }
 
 echo "Stage 1: Setting 5e tied emb+LM-head GA/GD (forget-only)..."
+STAGE1_UNTIE_FLAG=--untie-embeddings
+if [ "$STAGE1_UNTIE_EMBEDDINGS" = "0" ]; then
+  STAGE1_UNTIE_FLAG=--no-untie-embeddings
+fi
 python -u scripts/mcf_forget_only_setting5e.py \
   --model-path "$MODEL_PATH" \
   --mcf-cache-path "$REPAIR_VISIBLE_MCF" \
@@ -119,6 +128,11 @@ python -u scripts/mcf_forget_only_setting5e.py \
   --emb-lm-lr "$STAGE1_EMB_LM_LR" \
   --forget-weight "$STAGE1_FORGET_WEIGHT" \
   --forget-margin "$STAGE1_FORGET_MARGIN" \
+  "$STAGE1_UNTIE_FLAG" \
+  --wikidata-dir "$WIKIDATA_DIR" \
+  --frequency-docs "$STAGE1_FREQUENCY_DOCS" \
+  --frequency-doc-start "$STAGE1_FREQUENCY_DOC_START" \
+  --frequency-cap-alpha "$STAGE1_FREQUENCY_CAP_ALPHA" \
   --dtype "$DTYPE" \
   --device-map "$DEVICE_MAP" \
   2>&1 | tee "$OUT_ROOT/stage1_setting5e.log"
