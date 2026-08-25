@@ -939,13 +939,20 @@ def apply_post_training_row_restore(
     out_w: torch.nn.Parameter = tied_info["output_weight"]
     tied = bool(tied_info.get("tied"))
 
-    def frequency_scale(row_ids: torch.Tensor, device: torch.device) -> Optional[torch.Tensor]:
+    def frequency_scale(
+        row_ids: torch.Tensor, device: torch.device, dtype: torch.dtype
+    ) -> Optional[torch.Tensor]:
         if token_frequencies is None or frequency_cap_alpha <= 0 or not row_ids.numel():
             return None
         freqs = token_frequencies.index_select(0, row_ids.to(token_frequencies.device)).to(
             device=device, dtype=torch.float32,
         )
-        return (1.0 + freqs).pow(-frequency_cap_alpha).unsqueeze(1)
+        # Computed in fp32 for pow() stability, then cast down to the weight's
+        # dtype (e.g. bf16) -- otherwise multiplying an fp32 scale against a
+        # bf16 trained/base delta promotes the whole blend to fp32, and the
+        # later index_copy_ into the bf16 weight fails on a dtype mismatch.
+        scale = (1.0 + freqs).pow(-frequency_cap_alpha).unsqueeze(1)
+        return scale.to(dtype=dtype)
 
     def restore_weight(weight: torch.nn.Parameter, base: torch.Tensor) -> Dict[str, int]:
         new_ids = valid_row_ids(weight, groups.unique_target_new)
@@ -1000,7 +1007,7 @@ def apply_post_training_row_restore(
         # unrelated rows. Target-new/target-true groups are then interpolated.
         weight.copy_(base)
         if trained_new_rows is not None:
-            new_scale = frequency_scale(new_ids, weight.device)
+            new_scale = frequency_scale(new_ids, weight.device, weight.dtype)
             if new_scale is None:
                 weight.index_copy_(0, new_ids, trained_new_rows)
             else:
@@ -1017,7 +1024,7 @@ def apply_post_training_row_restore(
                 device=weight.device,
                 dtype=weight.dtype,
             )
-            true_scale = frequency_scale(true_ids, weight.device)
+            true_scale = frequency_scale(true_ids, weight.device, weight.dtype)
             effective_true_alpha = (
                 true_alpha if true_scale is None else true_alpha * true_scale
             )
