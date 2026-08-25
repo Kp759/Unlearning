@@ -1,0 +1,39 @@
+{
+  "finding": "Input-embedding edits cannot write selective markers into low-variance hidden directions.",
+  "verdict": "paired write-read conjunctive editing is NOT viable",
+  "model": "Llama-3.2-3B-Instruct",
+  "covariance_estimate": {
+    "hidden_states": 13723,
+    "hidden_dim": 3072,
+    "median_sigma_all_directions": 0.79373,
+    "floor_directions_discarded": 0,
+    "note": "n >> d, so the low-variance directions are genuinely low-variance and not rank-deficiency artifacts"
+  },
+  "runs": {
+    "unconfined": {
+      "confine_weight": 0.0,
+      "achieved_k": [54.50, 49.18, 57.13],
+      "leak_at_delta_10": [0.183, 0.203, 0.175],
+      "dh_norm": [325.35, 296.83, 316.74],
+      "dh_parallel_fraction": [0.0054, 0.0241, 0.0222],
+      "same_subject_top1_agreement": [0.00, 1.00, 0.00],
+      "max_pure_marker_logit_shift": [0.065, 0.338, 0.731]
+    },
+    "confined": {
+      "confine_weight": 1.0,
+      "achieved_k": [-0.018, 0.032, -0.066],
+      "dh_norm": [4.78, 3.27, 5.22],
+      "dh_parallel_fraction": [0.0002, 0.0033, 0.0017],
+      "same_subject_top1_agreement": [1.00, 1.00, 1.00]
+    }
+  },
+  "why_it_fails": [
+    "Unconfined, k=50 IS reached -- but by moving h with total norm ~300, roughly 4x a typical hidden-state norm, with only 0.5-2.4% of that change lying along the marker. The marker was not written; the representation was destroyed and v caught a fraction of it. Top-1 collapsed on 2 of 3 records.",
+    "Confined, the optimizer stops writing entirely (k~0) and predictions are perfectly preserved. It cannot satisfy alignment and effectiveness together.",
+    "The two runs bracket the space, so this is not a --confine-weight tuning problem.",
+    "Mechanism: low-variance directions are low-variance BECAUSE the network never places output there. The forward map's image concentrates on high-variance directions, so the reachable set of dh from an input perturbation does not contain near-pure v.",
+    "The design equation leak = delta/k assumed alpha and write-collateral were independent knobs. Both are governed by the reachable set of dh, so they are not."
+  ],
+  "what_this_explains": "Subject-keyed embedding editing is inherently ENTITY-level, not FACT-level. An embedding edit can only move the subject's representation wholesale; it cannot flag that representation conditionally. If same-subject collateral is observed, this is the mechanism, and it also answers the reviewer question 'why not condition the edit on the answer as well?' with a measurement rather than an argument.",
+  "probe": "scripts/probe_marker_reachability.py"
+}
