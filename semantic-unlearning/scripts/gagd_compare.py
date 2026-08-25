@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -50,6 +50,7 @@ POST_TRAINING_TRUE_ALPHA = 0.75
 POST_TRAINING_NEW_TRUE_ALPHA = 0.75
 POST_TRAINING_NEW_RETAIN_ALPHA = 0.50
 POST_TRAINING_NEW_TRUE_RETAIN_ALPHA = 0.25
+POST_TRAINING_FREQUENCY_CAP_ALPHA = 0.5
 MODES = BASE_MODES + [POST_TRAINING_RESTORE_MODE]
 MCF_URL = "https://memit.baulab.info/data/dsets/multi_counterfact.json"
 DEFAULT_MODEL_PATH = "/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95"
@@ -804,6 +805,71 @@ def restore_non_selected_rows(tied_info: Dict[str, Any], selected_ids: Sequence[
             out_w[~out_mask].copy_(originals["output"].to(out_w.device)[~out_mask])
 
 
+def untie_embeddings(model: torch.nn.Module) -> bool:
+    """Break weight sharing between input embeddings and the LM head.
+
+    A tied model has one shared weight matrix serving two roles: "what this
+    token means as input" and "how confident to be in this token as an
+    answer". Editing that shared matrix to suppress a sensitive answer also
+    perturbs the token's input representation everywhere else it occurs
+    (e.g. as a subject/context word in an unrelated neighborhood prompt),
+    which is a plausible source of specificity collateral damage that has
+    nothing to do with the forget objective. Untying first lets Stage 1
+    edit the output (LM-head) role without touching the input-embedding role.
+
+    Returns True if the model was tied and is now untied; False if it was
+    already untied (no-op).
+    """
+    inp = model.get_input_embeddings()
+    out = model.get_output_embeddings()
+    if inp is None or out is None:
+        raise ValueError("Model must expose input embeddings and output embeddings.")
+    if inp.weight.data_ptr() != out.weight.data_ptr():
+        return False
+    out.weight = torch.nn.Parameter(out.weight.detach().clone())
+    if hasattr(model, "config"):
+        model.config.tie_word_embeddings = False
+    if hasattr(model, "tie_word_embeddings"):
+        model.tie_word_embeddings = False
+    return True
+
+
+def load_wiki_frequency_documents(
+    wikidata_dir: str, doc_start: int, num_docs: int
+) -> List[str]:
+    """Documents used only to count token corpus frequency, disjoint from the
+    documents mcf_zero_unlearn_official_eval's official PPL is scored
+    against (raw_ds['train']['text'][:20]); default doc_start=20 keeps that
+    disjoint. Mirrors run_mcf_setting5e_neutral_row_active_repair's own
+    Wikidata protection-document loader for consistency."""
+    if num_docs <= 0:
+        return []
+    path = Path(wikidata_dir)
+    if not path.exists():
+        return []
+    raw_ds = load_from_disk(str(path))
+    texts = raw_ds["train"]["text"][doc_start : doc_start + num_docs]
+    return [t for t in texts if t and t.strip()]
+
+
+def token_frequency_counts(
+    tok: AutoTokenizer, documents: Sequence[str], vocab_size: int
+) -> torch.Tensor:
+    """Vocab-sized document-frequency count used to shrink post-training row
+    edits on common tokens (likely the correct answer elsewhere in ordinary
+    text) more than on rare, record-specific ones."""
+    counts = torch.zeros(vocab_size, dtype=torch.long)
+    for doc in documents:
+        ids = tok(str(doc), add_special_tokens=False)["input_ids"]
+        if not ids:
+            continue
+        flat = torch.tensor([int(x) for x in ids], dtype=torch.long)
+        flat = flat[flat < vocab_size]
+        if flat.numel():
+            counts += torch.bincount(flat, minlength=vocab_size)
+    return counts
+
+
 def snapshot_embedding_output_weights(
     tied_info: Dict[str, Any],
     *,
@@ -841,8 +907,20 @@ def apply_post_training_row_restore(
     new_true_alpha: float = POST_TRAINING_NEW_TRUE_ALPHA,
     new_retain_alpha: float = POST_TRAINING_NEW_RETAIN_ALPHA,
     new_true_retain_alpha: float = POST_TRAINING_NEW_TRUE_RETAIN_ALPHA,
+    token_frequencies: Optional[torch.Tensor] = None,
+    frequency_cap_alpha: float = POST_TRAINING_FREQUENCY_CAP_ALPHA,
 ) -> Dict[str, int]:
-    """Restore base rows while retaining group-scaled target-new/target-true updates."""
+    """Restore base rows while retaining group-scaled target-new/target-true updates.
+
+    When token_frequencies is given (a vocab-sized corpus document-frequency
+    count, see token_frequency_counts), the fraction of the trained delta
+    kept on unique_target_new and unique_target_true rows is additionally
+    shrunk per-row by 1/(1+freq)^frequency_cap_alpha. A common token is
+    likely the correct answer to some other, unrelated prompt, so editing it
+    as confidently as a rare, record-specific token risks specificity
+    collateral damage unrelated to the forget objective. With
+    token_frequencies=None this is a no-op and behavior is unchanged.
+    """
     overlap_alphas = {
         "target_true": true_alpha,
         "target_new_true": new_true_alpha,
@@ -854,10 +932,20 @@ def apply_post_training_row_restore(
             raise ValueError(
                 f"Post-training alpha for {group_name} must be between 0 and 1."
             )
+    if frequency_cap_alpha < 0:
+        raise ValueError("Post-training frequency-cap alpha must be non-negative.")
 
     in_w: torch.nn.Parameter = tied_info["input_weight"]
     out_w: torch.nn.Parameter = tied_info["output_weight"]
     tied = bool(tied_info.get("tied"))
+
+    def frequency_scale(row_ids: torch.Tensor, device: torch.device) -> Optional[torch.Tensor]:
+        if token_frequencies is None or frequency_cap_alpha <= 0 or not row_ids.numel():
+            return None
+        freqs = token_frequencies.index_select(0, row_ids.to(token_frequencies.device)).to(
+            device=device, dtype=torch.float32,
+        )
+        return (1.0 + freqs).pow(-frequency_cap_alpha).unsqueeze(1)
 
     def restore_weight(weight: torch.nn.Parameter, base: torch.Tensor) -> Dict[str, int]:
         new_ids = valid_row_ids(weight, groups.unique_target_new)
@@ -912,13 +1000,28 @@ def apply_post_training_row_restore(
         # unrelated rows. Target-new/target-true groups are then interpolated.
         weight.copy_(base)
         if trained_new_rows is not None:
-            weight.index_copy_(0, new_ids, trained_new_rows)
+            new_scale = frequency_scale(new_ids, weight.device)
+            if new_scale is None:
+                weight.index_copy_(0, new_ids, trained_new_rows)
+            else:
+                base_new_rows = base.index_select(0, new_ids.to(base.device)).to(
+                    device=weight.device,
+                    dtype=weight.dtype,
+                )
+                final_new_rows = base_new_rows + new_scale * (
+                    trained_new_rows - base_new_rows
+                )
+                weight.index_copy_(0, new_ids, final_new_rows)
         if trained_true_rows is not None:
             base_true_rows = base.index_select(0, true_ids.to(base.device)).to(
                 device=weight.device,
                 dtype=weight.dtype,
             )
-            final_true_rows = base_true_rows + true_alpha * (
+            true_scale = frequency_scale(true_ids, weight.device)
+            effective_true_alpha = (
+                true_alpha if true_scale is None else true_alpha * true_scale
+            )
+            final_true_rows = base_true_rows + effective_true_alpha * (
                 trained_true_rows - base_true_rows
             )
             weight.index_copy_(0, true_ids, final_true_rows)

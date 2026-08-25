@@ -47,6 +47,41 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--post-training-new-true-alpha", type=float, default=0.75)
     p.add_argument("--post-training-new-retain-alpha", type=float, default=0.50)
     p.add_argument("--post-training-new-true-retain-alpha", type=float, default=0.25)
+    p.add_argument(
+        "--untie-embeddings",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Break weight sharing between input embeddings and the LM head "
+            "before training, so editing a token's answer-confidence role "
+            "does not also perturb its input-embedding role in unrelated "
+            "prompts. No-op if the model is already untied."
+        ),
+    )
+    p.add_argument("--wikidata-dir", default="data/wikidata")
+    p.add_argument(
+        "--frequency-docs",
+        type=int,
+        default=5000,
+        help=(
+            "Wikipedia documents used to count subject/answer-token corpus "
+            "frequency. Common tokens have their unique_target_new/"
+            "unique_target_true post-training edit shrunk toward base, since "
+            "they are more likely to be the correct answer elsewhere in "
+            "ordinary text. Set 0 to disable."
+        ),
+    )
+    p.add_argument(
+        "--frequency-doc-start",
+        type=int,
+        default=20,
+        help=(
+            "Must stay >= 20: mcf_zero_unlearn_official_eval's official PPL "
+            "is hardcoded to documents [:20]; counting frequencies on that "
+            "same text would contaminate the frequency-cap protection."
+        ),
+    )
+    p.add_argument("--frequency-cap-alpha", type=float, default=0.5)
     p.add_argument("--mcf-url", default=gagd.MCF_URL)
     return p.parse_args()
 
@@ -73,6 +108,15 @@ def main() -> None:
         value = float(getattr(args, name))
         if not 0.0 <= value <= 1.0:
             raise ValueError(f"{name} must be in [0, 1]")
+    if args.frequency_docs < 0:
+        raise ValueError("frequency-docs must be non-negative")
+    if args.frequency_doc_start < 20:
+        raise ValueError(
+            "frequency-doc-start must be >= 20 to stay disjoint from the "
+            "official PPL evaluation's first 20 documents"
+        )
+    if args.frequency_cap_alpha < 0:
+        raise ValueError("frequency-cap-alpha must be non-negative")
 
     gagd.set_seed(args.seed)
     if args.device_map == "single":
@@ -112,6 +156,30 @@ def main() -> None:
         gradient_checkpointing=False,
     )
     model, tok = gagd.load_model_and_tokenizer(model_args, for_training=True)
+    was_tied = model.get_input_embeddings().weight.data_ptr() == model.get_output_embeddings().weight.data_ptr()
+    untied_now = gagd.untie_embeddings(model) if args.untie_embeddings else False
+    print(
+        f"Embedding/lm_head tied before this run: {was_tied}; "
+        f"untied now: {untied_now}"
+    )
+
+    vocab_size = model.get_input_embeddings().weight.shape[0]
+    frequency_docs = gagd.load_wiki_frequency_documents(
+        args.wikidata_dir, args.frequency_doc_start, args.frequency_docs
+    )
+    if args.frequency_docs > 0 and not frequency_docs:
+        print(
+            f"WARNING: --wikidata-dir {args.wikidata_dir!r} has no documents "
+            f"at/after index {args.frequency_doc_start}; post-training edits "
+            "will not be frequency-capped."
+        )
+    token_frequencies = (
+        gagd.token_frequency_counts(tok, frequency_docs, vocab_size)
+        if frequency_docs
+        else None
+    )
+    print(f"Frequency-cap corpus: {len(frequency_docs)} documents")
+
     summary, tied_info = gagd.configure_trainable(
         model, gagd.POST_TRAINING_RESTORE_MODE
     )
@@ -184,6 +252,8 @@ def main() -> None:
         new_true_alpha=args.post_training_new_true_alpha,
         new_retain_alpha=args.post_training_new_retain_alpha,
         new_true_retain_alpha=args.post_training_new_true_retain_alpha,
+        token_frequencies=token_frequencies,
+        frequency_cap_alpha=args.frequency_cap_alpha,
     )
     row_policy = gagd.post_training_policy_report(
         tok,
@@ -233,6 +303,13 @@ def main() -> None:
         "post_training_new_true_alpha": args.post_training_new_true_alpha,
         "post_training_new_retain_alpha": args.post_training_new_retain_alpha,
         "post_training_new_true_retain_alpha": args.post_training_new_true_retain_alpha,
+        "embeddings_tied_before_run": was_tied,
+        "embeddings_untied_this_run": untied_now,
+        "wikidata_dir": args.wikidata_dir,
+        "frequency_docs_requested": args.frequency_docs,
+        "frequency_docs_used": len(frequency_docs),
+        "frequency_doc_start": args.frequency_doc_start,
+        "frequency_cap_alpha": args.frequency_cap_alpha,
         "trainable_parameter_summary": asdict(summary),
         "checkpoint": str(checkpoint_dir),
     }
