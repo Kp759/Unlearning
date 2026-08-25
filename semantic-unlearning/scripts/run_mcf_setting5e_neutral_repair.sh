@@ -81,10 +81,36 @@ fi
 test -f "$VISIBLE" || { echo "split builder produced no $VISIBLE"; exit 1; }
 test -f "$MANIFEST" || { echo "split builder produced no $MANIFEST"; exit 1; }
 
+# mcf_forget_only_setting5e.py refuses to run on the raw MCF file -- it
+# explicitly requires a "repair-visible" copy with paraphrase_prompts and
+# other evaluation-only fields stripped from every record ("Repair-visible
+# MCF still exposes paraphrases during Stage 1"), so an accidental run can
+# never train on data it should not see. build_mcf_zerounlearn_locked_split.py
+# produces exactly that: a 1:1, order-preserving strip-only copy of the FULL
+# dataset, written once regardless of --seeds. That script's own main()
+# additionally asserts, for every seed, that sampling the raw data and the
+# sanitized copy select the SAME forget/retain indices -- an independent,
+# stronger confirmation of the same fact this wrapper already relies on for
+# Stage 2 (mcf_sampling.py: forget is drawn before retain from a freshly
+# seeded RNG, so stripping fields never changes which 50 records are drawn).
+REPAIR_VISIBLE_ROOT="$OUT_ROOT/repair_visible"
+REPAIR_VISIBLE_MCF="$REPAIR_VISIBLE_ROOT/repair_visible_mcf.json"
+if [ ! -f "$REPAIR_VISIBLE_MCF" ]; then
+  echo "Building repair-visible MCF copy (Stage-1 input)..."
+  python -u scripts/build_mcf_zerounlearn_locked_split.py \
+    --mcf-path "$MCF_PATH" \
+    --output-dir "$REPAIR_VISIBLE_ROOT" \
+    --seeds "$SEED" \
+    --forget-num "$FORGET_NUM" \
+    --retain-num "$RETAIN_NUM" \
+    2>&1 | tee "$OUT_ROOT/repair_visible_build.log"
+fi
+test -f "$REPAIR_VISIBLE_MCF" || { echo "repair-visible builder produced no $REPAIR_VISIBLE_MCF"; exit 1; }
+
 echo "Stage 1: Setting 5e tied emb+LM-head GA/GD (forget-only)..."
 python -u scripts/mcf_forget_only_setting5e.py \
   --model-path "$MODEL_PATH" \
-  --mcf-cache-path "$MCF_PATH" \
+  --mcf-cache-path "$REPAIR_VISIBLE_MCF" \
   --output-dir "$STAGE1_OUT" \
   --seed "$SEED" \
   --forget-num "$FORGET_NUM" \
