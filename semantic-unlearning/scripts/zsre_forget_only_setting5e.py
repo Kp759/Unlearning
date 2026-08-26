@@ -148,6 +148,9 @@ def main() -> None:
                 selected_token_ids=None,
                 device=device,
                 forget_margin=args.forget_margin,
+                # ZsRE's adapter puts the sensitive answer in target_new and
+                # the neutral "Unknown" in target_true (canonical_examples).
+                sensitive_field="target_new",
             )
             total = args.forget_weight * margin_res.loss
             if not torch.isfinite(total):

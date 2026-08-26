@@ -559,7 +559,19 @@ def mcf_margin_forget_loss(
     selected_token_ids: Optional[set[int]],
     device: torch.device,
     forget_margin: float = 0.0,
+    sensitive_field: str = "target_true",
 ) -> MarginLossResult:
+    """sensitive_field names the Example field holding the answer to FORGET.
+
+    MCF stores the sensitive real-world fact in target_true (the default).
+    The ZsRE and MQuAKE adapters swap the roles and must pass "target_new";
+    see mcf_margin_objective for why this is explicit rather than positional.
+    """
+    if sensitive_field not in ("target_true", "target_new"):
+        raise ValueError(
+            "sensitive_field must be 'target_true' (MCF) or 'target_new' "
+            f"(ZsRE/MQuAKE adapters); got {sensitive_field!r}"
+        )
     margins: List[torch.Tensor] = []
     new_losses: List[torch.Tensor] = []
     true_losses: List[torch.Tensor] = []
@@ -581,7 +593,11 @@ def mcf_margin_forget_loss(
         # A positive target margin avoids stopping at the fragile decision
         # boundary and concentrates gradient on examples that are not yet
         # forgotten according to the official target-new-vs-target-true test.
-        margins.append(mcf_margin_objective(true_res.loss, new_res.loss, forget_margin))
+        if sensitive_field == "target_true":
+            sensitive_nll, neutral_nll = true_res.loss, new_res.loss
+        else:
+            sensitive_nll, neutral_nll = new_res.loss, true_res.loss
+        margins.append(mcf_margin_objective(sensitive_nll, neutral_nll, forget_margin))
         new_losses.append(new_res.loss)
         true_losses.append(true_res.loss)
         new_fallbacks += new_res.fallback_examples
@@ -602,18 +618,26 @@ def mcf_margin_forget_loss(
 
 
 def mcf_margin_objective(
-    target_true_nll: torch.Tensor,
-    target_new_nll: torch.Tensor,
+    sensitive_nll: torch.Tensor,
+    neutral_nll: torch.Tensor,
     forget_margin: float,
 ) -> torch.Tensor:
-    # Minimizing this must push target_true_nll UP (suppress the sensitive
-    # fact) and target_new_nll DOWN (raise the non-sensitive alternative), and
-    # concentrate gradient on examples not yet forgotten (target_new_nll
-    # still below target_true_nll). That requires the gap in this order --
-    # new minus true, not true minus new -- since softplus is smallest for a
-    # very negative argument and only that ordering makes "not yet forgotten"
-    # (true_nll low, new_nll high) the large-loss region.
-    return F.softplus(target_new_nll - target_true_nll + forget_margin)
+    """Hinge that suppresses the sensitive answer and raises the neutral one.
+
+    Arguments are named by ROLE, not by dataset field, because the datasets
+    disagree about which field holds which role: MCF keeps the sensitive fact
+    in target_true and the counterfactual in target_new, while the ZsRE and
+    MQuAKE adapters deliberately swap them (sensitive -> target_new, neutral
+    "Unknown" -> target_true; see zsre_gagd_setting5e_active_repair.
+    canonical_examples). Passing raw fields positionally is what silently
+    inverted one dataset or the other. Callers must map their own fields onto
+    these roles -- mcf_margin_forget_loss does that via sensitive_field.
+
+    Minimizing pushes sensitive_nll UP (forget) and neutral_nll DOWN, and
+    concentrates gradient on examples not yet forgotten (sensitive still
+    cheaper than neutral), which is the large-loss region of this ordering.
+    """
+    return F.softplus(neutral_nll - sensitive_nll + forget_margin)
 
 
 def zerounlearn_ga_logprob_loss(

@@ -181,6 +181,9 @@ def main() -> None:
                 selected_token_ids=None,
                 device=device,
                 forget_margin=args.forget_margin,
+                # MQuAKE's adapter puts the sensitive answer in target_new and
+                # the neutral "Unknown" in target_true, same as ZsRE.
+                sensitive_field="target_new",
             )
             total = args.forget_weight * margin_res.loss
             if not torch.isfinite(total):

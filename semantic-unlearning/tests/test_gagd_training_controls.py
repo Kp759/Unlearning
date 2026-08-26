@@ -76,13 +76,48 @@ class GAGDTrainingControlTests(unittest.TestCase):
         self.assertEqual(MODULE.optimizer_name_for_mode("emb_lm_all_tokens", args), "adam")
 
     def test_positive_margin_demands_a_larger_nll_gap(self):
-        target_true_nll = torch.tensor(8.0)
-        target_new_nll = torch.tensor(9.0)
+        sensitive_nll = torch.tensor(8.0)
+        neutral_nll = torch.tensor(9.0)
 
-        boundary_loss = MODULE.mcf_margin_objective(target_true_nll, target_new_nll, 0.0)
-        robust_loss = MODULE.mcf_margin_objective(target_true_nll, target_new_nll, 2.0)
+        boundary_loss = MODULE.mcf_margin_objective(sensitive_nll, neutral_nll, 0.0)
+        robust_loss = MODULE.mcf_margin_objective(sensitive_nll, neutral_nll, 2.0)
 
         self.assertGreater(robust_loss.item(), boundary_loss.item())
+
+    def test_margin_objective_suppresses_sensitive_and_raises_neutral(self):
+        """Gradient descent must forget the sensitive answer, not reinforce it."""
+        sensitive_nll = torch.tensor(2.0, requires_grad=True)
+        neutral_nll = torch.tensor(8.0, requires_grad=True)
+
+        MODULE.mcf_margin_objective(sensitive_nll, neutral_nll, 1.0).backward()
+
+        # Descent moves opposite the gradient: negative grad on sensitive means
+        # its NLL rises (forgotten); positive grad on neutral means its NLL
+        # falls (preferred).
+        self.assertLess(sensitive_nll.grad.item(), 0.0)
+        self.assertGreater(neutral_nll.grad.item(), 0.0)
+
+    def test_margin_objective_concentrates_on_unforgotten_examples(self):
+        not_yet_forgotten = MODULE.mcf_margin_objective(
+            torch.tensor(2.0), torch.tensor(8.0), 1.0
+        )
+        already_forgotten = MODULE.mcf_margin_objective(
+            torch.tensor(9.0), torch.tensor(3.0), 1.0
+        )
+
+        self.assertGreater(not_yet_forgotten.item(), already_forgotten.item())
+
+    def test_forget_loss_rejects_an_unknown_sensitive_field(self):
+        """The datasets disagree on which field is sensitive; typos must fail loudly."""
+        with self.assertRaises(ValueError):
+            MODULE.mcf_margin_forget_loss(
+                None,
+                None,
+                [MODULE.Example(prompt="P", answer="A", target_new="N", target_true="T")],
+                None,
+                torch.device("cpu"),
+                sensitive_field="target_sensitive",
+            )
 
     def test_official_aligned_batch_excludes_eos(self):
         example = MODULE.Example(prompt="P", answer="A")
