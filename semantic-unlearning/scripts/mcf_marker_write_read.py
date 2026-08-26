@@ -362,26 +362,27 @@ def project_out(rows: torch.Tensor, basis: torch.Tensor) -> torch.Tensor:
 
 def select_marker(
     reach: torch.Tensor, protected_basis: torch.Tensor, prior_markers: torch.Tensor
-) -> Tuple[torch.Tensor, float]:
+) -> Tuple[torch.Tensor, float, float, float]:
     """Most reachable direction that is orthogonal to protection and to peers.
 
-    Returns the unit marker and rho = sigma1(D_perp) / sigma1(D), the share of
-    reachable energy surviving the protection constraint. Small rho warns that
-    the writer is unlikely to succeed for this subject before any training.
+    Returns the unit marker, rho = sigma1(D_perp) / sigma1(D), and BOTH
+    absolute singular values. The ratio alone is misleading: it can be high
+    while the absolute reachable movement is small, so a subject can look
+    controllable and still be unable to move the hidden state appreciably.
     """
     if reach.numel() == 0:
-        return torch.empty(0), 0.0
+        return torch.empty(0), 0.0, 0.0, 0.0
     sigma_full = float(torch.linalg.svdvals(reach.float())[0])
     residual = project_out(reach.float(), protected_basis)
     if prior_markers.numel():
         residual = project_out(residual, prior_markers)
     if residual.numel() == 0 or float(residual.norm()) == 0.0:
-        return torch.empty(0), 0.0
+        return torch.empty(0), 0.0, sigma_full, 0.0
     u, s, vh = torch.linalg.svd(residual, full_matrices=False)
     marker = vh[0]
     marker = marker / marker.norm().clamp_min(1e-12)
     rho = float(s[0]) / (sigma_full + 1e-9)
-    return marker, rho
+    return marker, rho, sigma_full, float(s[0])
 
 
 def head_coupling(output_weight: torch.Tensor, marker: torch.Tensor) -> Dict[str, float]:
@@ -559,7 +560,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             torch.stack(markers_by_answer[key])
             if markers_by_answer[key] else torch.empty((0, hidden_size))
         )
-        marker, rho = select_marker(reach, protected_fit_basis[key], prior)
+        marker, rho, sigma_full, sigma_perp = select_marker(
+            reach, protected_fit_basis[key], prior
+        )
         if marker.numel() == 0:
             raise RuntimeError(
                 f"record {record['case_id']}: no reachable direction survives protection"
@@ -572,12 +575,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         markers_by_answer[key].append(marker)
         record["marker"] = marker
         record["reachability_rho"] = rho
+        record["reach_sigma1"] = sigma_full
+        record["reach_sigma1_perp"] = sigma_perp
         record["head_coupling"] = head_coupling(output_layer.weight, marker)
 
     rhos = sorted(r["reachability_rho"] for r in records)
+    sig = sorted(r["reach_sigma1_perp"] for r in records)
     print(
-        f"  reachable-after-protection rho: min {rhos[0]:.3f} "
-        f"p10 {rhos[max(0, len(rhos)//10)]:.3f} median {rhos[len(rhos)//2]:.3f} max {rhos[-1]:.3f}"
+        f"  rho (ratio):        min {rhos[0]:.3f} p10 {rhos[max(0,len(rhos)//10)]:.3f} "
+        f"median {rhos[len(rhos)//2]:.3f} max {rhos[-1]:.3f}"
+    )
+    print(
+        f"  sigma1(D_perp) abs: min {sig[0]:.4f} p10 {sig[max(0,len(sig)//10)]:.4f} "
+        f"median {sig[len(sig)//2]:.4f} max {sig[-1]:.4f}   (ratio alone can mislead)"
     )
     weak = [r for r in records if r["reachability_rho"] < 0.05]
     if weak:
@@ -769,6 +779,87 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"  p10 {gate_summary['p10']:+.4f}  min {gate_summary['min']:+.4f}"
         f"  pass {pass_frac:.0%}"
     )
+    # --- reader selectivity: what Stage 2 ACTUALLY depends on -------------
+    # G = R_f - R_n compares total nullspace ENERGY, but the reader uses a
+    # single direction. Those can disagree completely: if (I-P)h_f = 10 q1 and
+    # (I-P)h_n = 10 q2 with q1 orthogonal to q2, then R_f = R_n so G = 0, yet
+    # q1.h_f = 10 while q1.h_n = 0 -- perfectly editable. So G is not the
+    # feasibility statistic; kappa is.
+    #
+    # With S = |q.h_f| and L = max_p |q.h_p|, choosing beta = d/S to drop the
+    # forget logit by d bounds the worst protected shift at d * kappa, where
+    # kappa = L/S. kappa = 0.02 means a 10-logit suppression moves protected
+    # logits by at most 0.2; kappa near 1 means the reader cannot tell the
+    # contexts apart.
+    for record in records:
+        basis = protected_post_basis[answer_key(record)]
+        h_new = record["h_writer"]
+        q = h_new - basis.T @ (basis @ h_new) if basis.numel() else h_new.clone()
+        norm = float(q.norm())
+        record["q"] = q / max(norm, 1e-12)
+        record["q_norm"] = norm
+        record["cos_marker_q"] = float(torch.dot(record["marker"], record["q"]))
+        record["amplitude_relative"] = record["write_amplitude"] / (
+            float(h_new.norm()) + 1e-9
+        )
+
+    def leakage(direction: torch.Tensor, signal_state: torch.Tensor,
+                others: torch.Tensor) -> Tuple[float, float, float]:
+        signal = abs(float(torch.dot(direction, signal_state)))
+        if others.numel() == 0:
+            return signal, float("nan"), float("nan")
+        worst = float((others @ direction).abs().max())
+        return signal, worst, worst / (signal + 1e-9)
+
+    for record in records:
+        held = answer_states(record["answer_rows"], post_gate)
+        s_q, l_q, k_q = leakage(record["q"], record["h_writer"], held)
+        s_v, l_v, k_v = leakage(record["marker"], record["h_writer"], held)
+        record.update({
+            "S_q": s_q, "L_wiki_q": l_q, "kappa_wiki_q": k_q,
+            "S_v": s_v, "L_wiki_v": l_v, "kappa_wiki_v": k_v,
+        })
+
+    def dist(values: Sequence[float]) -> Dict[str, float]:
+        vals = sorted(v for v in values if isinstance(v, float) and math.isfinite(v))
+        if not vals:
+            return {"n": 0}
+        return {
+            "n": len(vals), "min": vals[0], "p10": vals[max(0, len(vals) // 10)],
+            "median": vals[len(vals) // 2],
+            "p90": vals[min(len(vals) - 1, (9 * len(vals)) // 10)], "max": vals[-1],
+        }
+
+    def show(label: str, d: Dict[str, float]) -> None:
+        if not d.get("n"):
+            print(f"  {label:<26} (no data)")
+            return
+        print(
+            f"  {label:<26} min {d['min']:+.4f}  p10 {d['p10']:+.4f}  "
+            f"median {d['median']:+.4f}  p90 {d['p90']:+.4f}  max {d['max']:+.4f}"
+        )
+
+    reader_summary = {
+        "definition": (
+            "S = |q.h_forget|; L = max over protected states of |q.h_p|; "
+            "kappa = L/S bounds the worst protected logit shift at d*kappa "
+            "when suppressing the forget logit by d. This, not G, is what "
+            "Stage 2 feasibility depends on."
+        ),
+        "amplitude_relative": dist([r["amplitude_relative"] for r in records]),
+        "cos_marker_q": dist([r["cos_marker_q"] for r in records]),
+        "S_q": dist([r["S_q"] for r in records]),
+        "kappa_wiki_q": dist([r["kappa_wiki_q"] for r in records]),
+        "kappa_wiki_v": dist([r["kappa_wiki_v"] for r in records]),
+    }
+    print("\n  reader selectivity (what Stage 2 actually uses):")
+    show("A/||h|| (relative)", reader_summary["amplitude_relative"])
+    show("cos(v, q)", reader_summary["cos_marker_q"])
+    show("S = |q.h_forget|", reader_summary["S_q"])
+    show("kappa_wiki (realized q)", reader_summary["kappa_wiki_q"])
+    show("kappa_wiki (intended v)", reader_summary["kappa_wiki_v"])
+    gate_summary["reader_selectivity"] = reader_summary
+
     # --- diagnostic only: G against REAL neighborhood prompts -------------
     # The gate above uses held-out Wikipedia, so its G is Wiki-vs-Wiki and is
     # NOT comparable to the -0.003 that killed the LM-head-only design, which
@@ -788,11 +879,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                 sum(residual_frac(h, basis) for h in neigh) / neigh.shape[0]
             )
             r_f = residual_frac(record["h_writer"], basis)
+            s_q, l_q, k_q = leakage(record["q"], record["h_writer"], neigh)
+            s_v, l_v, k_v = leakage(record["marker"], record["h_writer"], neigh)
+            record["kappa_cross_q"] = k_q
+            record["kappa_cross_v"] = k_v
             cross_rows.append({
                 "case_id": record["case_id"],
                 "R_f": r_f,
                 "R_n_neighborhood": r_n_cross,
                 "G_cross": r_f - r_n_cross,
+                "S_q": s_q, "L_cross_q": l_q, "kappa_cross_q": k_q,
+                "S_v": s_v, "L_cross_v": l_v, "kappa_cross_v": k_v,
             })
     cross_summary: Dict[str, Any] = {"ran": bool(cross_rows), "label": "diagnostic_only_G_cross"}
     if cross_rows:
@@ -810,11 +907,22 @@ def main(argv: Sequence[str] | None = None) -> None:
             "p10": vals[max(0, len(vals) // 10)],
             "per_record": cross_rows,
         })
+        cross_summary["kappa_cross_q"] = dist([r["kappa_cross_q"] for r in cross_rows])
+        cross_summary["kappa_cross_v"] = dist([r["kappa_cross_v"] for r in cross_rows])
         print(
             f"  [diagnostic] G_cross vs real neighborhoods: mean {cross_summary['mean']:+.4f}"
             f"  median {cross_summary['median']:+.4f}  p10 {cross_summary['p10']:+.4f}"
             f"  min {cross_summary['min']:+.4f}"
         )
+        print("\n  DECISION NUMBER -- reader selectivity vs REAL neighborhoods:")
+        show("kappa_cross (realized q)", cross_summary["kappa_cross_q"])
+        show("kappa_cross (intended v)", cross_summary["kappa_cross_v"])
+        med = cross_summary["kappa_cross_q"].get("median")
+        if med is not None and math.isfinite(med):
+            print(
+                f"    -> suppressing a forget logit by d moves the worst tested "
+                f"neighborhood logit by <= {med:.4f}*d at the median record."
+            )
     gate_summary["diagnostic_only_G_cross"] = cross_summary
 
     # --- does shared-row contention explain the failures? -----------------
@@ -864,6 +972,21 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"  corr(shared, G) {corr_gap:+.3f} (n={n_gap})"
     )
 
+    # Saved before the gate exit: a failed gate is exactly when these are most
+    # needed, and Stage 1 is the expensive part to reproduce.
+    torch.save(
+        {
+            "writer_row_ids": writer.row_ids,
+            "writer_delta": writer.delta.detach().cpu(),
+            "markers": {r["case_id"]: r["marker"] for r in records},
+            "realized_readers": {r["case_id"]: r["q"] for r in records},
+            "h_writer": {r["case_id"]: r["h_writer"] for r in records},
+            "h_base": {r["case_id"]: base_hidden[r["index"]] for r in records},
+        },
+        out_dir / "stage1_writer.pt",
+    )
+    print(f"\n  writer state saved: {out_dir / 'stage1_writer.pt'}")
+
     gagd.write_json(out_dir / "gate_report.json", gate_summary)
     if pass_frac < float(a.gate_pass_frac):
         print(
@@ -875,22 +998,6 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     # ---- Stage 2: certified reader ----------------------------------------
     print("\nStage 2: closed-form orthogonal reader")
-    # q_i is the realized certified direction: the writer's actual output
-    # projected into the post-Stage-1 protected null space. Orthogonality to
-    # every protected state in the basis then holds by construction, whether
-    # or not the writer reproduced the intended marker exactly.
-    for record in records:
-        basis = protected_post_basis[answer_key(record)]
-        h_new = record["h_writer"]
-        q = h_new - basis.T @ (basis @ h_new) if basis.numel() else h_new.clone()
-        norm = float(q.norm())
-        record["q"] = q / max(norm, 1e-12)
-        record["q_norm"] = norm
-        marker = record["marker"]
-        record["cos_marker_q"] = float(
-            torch.dot(marker, record["q"]) / marker.norm().clamp_min(1e-12)
-        )
-
     # constraints per (record, answer position) grouped by the row they edit
     per_row: Dict[int, Dict[str, List[Any]]] = defaultdict(
         lambda: {"states": [], "drops": [], "owners": []}
