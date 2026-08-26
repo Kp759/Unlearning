@@ -58,8 +58,22 @@ GENERIC_PROTECTION_DOC_START=${GENERIC_PROTECTION_DOC_START:-20}
 
 STAGE1_UNTIE_EMBEDDINGS=${STAGE1_UNTIE_EMBEDDINGS:-1}
 STAGE1_TRAIN_SCOPE=${STAGE1_TRAIN_SCOPE:-lm_head}
-# Shared by both stages: they must agree on which row is raised.
-NEUTRAL_TARGET=${NEUTRAL_TARGET:-Unknown}
+# Each stage raises its own row, so these are set independently.
+#
+# Stage 1's raise is discarded regardless (the row is excluded from the
+# post-training groups and restored to base), so its only effect is shaping
+# the suppression optimization. "Unknown" keeps Stage 1 from boosting
+# target_new rows, which are the CORRECT answer for ~29% of retain records.
+#
+# Stage 2 does both halves of its hinge, per STAGE2_REPAIR_SCOPE=both:
+# suppress target_true and raise the neutral answer. Only the target_true
+# half moves official Eff -- NLL(a)-NLL(b) = logit_b - logit_a, so a neutral
+# third row cancels out of Eff/Gen/Spe exactly. Set the scope to "reference"
+# with an empty neutral target to restore the original target_new-boosting
+# behavior.
+STAGE1_NEUTRAL_TARGET=${STAGE1_NEUTRAL_TARGET:-Unknown}
+STAGE2_NEUTRAL_TARGET=${STAGE2_NEUTRAL_TARGET:-Unknown}
+STAGE2_REPAIR_SCOPE=${STAGE2_REPAIR_SCOPE:-both}
 STAGE1_FREQUENCY_DOCS=${STAGE1_FREQUENCY_DOCS:-50000}
 STAGE1_FREQUENCY_DOC_START=${STAGE1_FREQUENCY_DOC_START:-20}
 STAGE1_FREQUENCY_CAP_ALPHA=${STAGE1_FREQUENCY_CAP_ALPHA:-0.5}
@@ -133,7 +147,7 @@ python -u scripts/mcf_forget_only_setting5e.py \
   --forget-margin "$STAGE1_FORGET_MARGIN" \
   "$STAGE1_UNTIE_FLAG" \
   --train-scope "$STAGE1_TRAIN_SCOPE" \
-  --neutral-target "$NEUTRAL_TARGET" \
+  --neutral-target "$STAGE1_NEUTRAL_TARGET" \
   --wikidata-dir "$WIKIDATA_DIR" \
   --frequency-docs "$STAGE1_FREQUENCY_DOCS" \
   --frequency-doc-start "$STAGE1_FREQUENCY_DOC_START" \
@@ -162,7 +176,8 @@ python -u scripts/mcf_setting5e_neutral_row_active_repair.py \
   --wikidata-dir "$WIKIDATA_DIR" \
   --generic-protection-samples "$GENERIC_PROTECTION_SAMPLES" \
   --generic-protection-doc-start "$GENERIC_PROTECTION_DOC_START" \
-  --neutral-target "$NEUTRAL_TARGET" \
+  --neutral-target "$STAGE2_NEUTRAL_TARGET" \
+  --repair-scope "$STAGE2_REPAIR_SCOPE" \
   --protected-kl-max "$PROTECTED_KL_MAX" \
   --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \
   --candidate-scales "$CANDIDATE_SCALES" \

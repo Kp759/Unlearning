@@ -104,6 +104,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "to restore the previous target_new-boosting behavior."
         ),
     )
+    p.add_argument(
+        "--repair-scope",
+        choices=("reference", "sensitive", "both"),
+        default="both",
+        help=(
+            "Which rows this stage may edit. 'reference' boosts only the "
+            "reference answer's rows (previous behavior); against a neutral "
+            "--neutral-target that is Spe-safe but cannot move Eff, since a "
+            "third row cancels out of every pairwise NLL comparison. "
+            "'sensitive' suppresses only target_true's rows, which is what "
+            "actually moves Eff. 'both' (default) does each: suppress "
+            "target_true and raise the reference, both of which increase the "
+            "same hinge margin."
+        ),
+    )
     p.add_argument("--constraint-margin", type=float, default=0.05)
     p.add_argument(
         "--repair-l2",
@@ -443,6 +458,45 @@ def failure_neutral_repair_rows(tok, instances, active_positions: Sequence[int])
     )
 
 
+def failure_repair_rows(
+    tok, instances, active_positions: Sequence[int], scope: str
+) -> List[int]:
+    """Rows this stage may edit, per --repair-scope.
+
+    The hinge raises margin = NLL(target_true) - NLL(reference), and BOTH
+    directions raise it: suppressing target_true (its NLL up) and boosting the
+    reference (its NLL down). Which of the two the delta can actually use is
+    decided here, by which rows it is allowed to touch.
+
+    Only the target_true side moves official Eff. Eff compares
+    NLL(target_true) against NLL(the DATASET's target_new), and
+    NLL(a) - NLL(b) = logit_b - logit_a, so editing any third row -- including
+    a neutral "Unknown" -- cancels out of that comparison exactly. A
+    reference-only edit against a neutral target is therefore Spe-safe but
+    metric-inert; suppressing target_true is what forgets, at the Spe cost the
+    separability diagnostic quantifies.
+    """
+    if scope not in {"reference", "sensitive", "both"}:
+        raise ValueError(
+            "repair scope must be 'reference', 'sensitive' or 'both'; "
+            f"got {scope!r}"
+        )
+    rows: set[int] = set()
+    if scope in {"reference", "both"}:
+        rows.update(
+            shared.mcf_sensitive_rows(
+                tok, instances, active_positions, sensitive_field="target_new"
+            )
+        )
+    if scope in {"sensitive", "both"}:
+        rows.update(
+            shared.mcf_sensitive_rows(
+                tok, instances, active_positions, sensitive_field="target_true"
+            )
+        )
+    return sorted(int(x) for x in rows)
+
+
 def flatten_answer_hidden_states(
     caches: Sequence[Any], hidden_size: int
 ) -> torch.Tensor:
@@ -629,7 +683,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     ]
     direct_active_positions = [i for i in active_positions if i < direct_count]
     synthetic_active_positions = [i for i in active_positions if i >= direct_count]
-    selected_ids = failure_neutral_repair_rows(tok, all_instances, active_positions)
+    selected_ids = failure_repair_rows(
+        tok, all_instances, active_positions, str(a.repair_scope)
+    )
 
     out_dir = gagd.resolve_output_path(a.output_dir)
     ckpt = out_dir / "checkpoint"
@@ -987,7 +1043,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             "non_sensitive_reference": "requested_rewrite.target_new",
             "field_swapping": False,
         },
-        "repaired_row_field": "target_new",
+        "repaired_row_field": (
+            "target_true+reference" if a.repair_scope == "both"
+            else ("target_true" if a.repair_scope == "sensitive" else "target_new")
+        ),
+        "repair_scope": str(a.repair_scope),
         "repair_direction": "boost_neutral_answer_not_suppress_sensitive_answer",
         "neutral_target": {
             "text": neutral_target or None,
