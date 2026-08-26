@@ -102,6 +102,32 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         "training-visible forget facts. Calibrated from training data only.")
     p.add_argument("--max-controls-per-answer", type=int, default=64)
     p.add_argument("--min-fit-controls", type=int, default=16)
+    p.add_argument(
+        "--stop-after-protection", action="store_true",
+        help=(
+            "Preflight: mine candidates, filter Base-positive controls, split "
+            "fit/gate, report coverage, exit. Whether random proper nouns can "
+            "supply enough Base-positive controls is genuinely unknown, and "
+            "there is no reason to spend writer training to find out."
+        ),
+    )
+    p.add_argument(
+        "--gate-criterion", choices=("auto", "g", "kappa"), default="auto",
+        help=(
+            "auto: kappa for relation protection, G for answer protection, so "
+            "--protection-source answer reproduces the historical runs exactly "
+            "while the new method uses the statistic Stage 2 actually depends on."
+        ),
+    )
+    p.add_argument(
+        "--kappa-rel-max", type=float, default=0.10,
+        help=(
+            "Max kappa_rel_gate to pass. Interpretable: suppressing a forget "
+            "logit by d moves held-out relation-control logits by at most "
+            "kappa*d, so 0.10 means a d=5 suppression costs <=0.5 there. "
+            "<0.05 strong, 0.05-0.10 promising, 0.10-0.25 partial, >0.30 poor."
+        ),
+    )
     p.add_argument("--min-gate-controls", type=int, default=4)
     p.add_argument(
         "--gate-holdout-frac", type=float, default=0.25,
@@ -881,10 +907,26 @@ def main(argv: Sequence[str] | None = None) -> None:
         ]
         return torch.cat(parts, dim=0) if parts else torch.empty((0, hidden_size))
 
+    # Count unique control PROMPTS, not hidden-state rows. A multi-token
+    # answer expands one prompt into several teacher-forced states, so
+    # counting states lets 15 real controls report as 30 and clear a
+    # min_fit of 16 that a single-token answer would correctly fail.
+    fit_prompt_counts: Dict[Tuple[str, str], int] = defaultdict(int)
+    gate_prompt_counts: Dict[Tuple[str, str], int] = defaultdict(int)
+    for control in fit_prompts:
+        fit_prompt_counts[(control["relation_key"], control["answer"])] += 1
+    for control in gate_prompts:
+        gate_prompt_counts[(control["relation_key"], control["answer"])] += 1
+
     coverage_rows = []
     for record in records:
-        n_fit = int(answer_states(record, fit_contexts).shape[0])
-        n_gate = int(answer_states(record, gate_contexts).shape[0])
+        if a.protection_source == "relation":
+            group = (relation_key_of(record), record["answer"])
+            n_fit = fit_prompt_counts[group]
+            n_gate = gate_prompt_counts[group]
+        else:
+            n_fit = int(answer_states(record, fit_contexts).shape[0])
+            n_gate = int(answer_states(record, gate_contexts).shape[0])
         record["n_fit_controls"] = n_fit
         record["n_gate_controls"] = n_gate
         record["protection_sufficient"] = (
@@ -908,7 +950,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "per_record": coverage_rows,
     }
     print(
-        f"  control coverage (fit): min {fits[0]}  p10 {fits[max(0,len(fits)//10)]}  "
+        f"  control coverage (unique PROMPTS, fit): min {fits[0]}  p10 {fits[max(0,len(fits)//10)]}  "
         f"median {fits[len(fits)//2]}  p90 {fits[min(len(fits)-1,(9*len(fits))//10)]}  max {fits[-1]}"
     )
     gagd.write_json(out_dir / "protection_report.json", protection_report)
@@ -925,6 +967,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"Insufficient case_ids: {insufficient}"
         )
         raise SystemExit(2)
+    if a.stop_after_protection:
+        print(
+            f"\n--stop-after-protection: coverage is healthy "
+            f"({len(records) - len(insufficient)}/{len(records)} records). "
+            f"Report: {out_dir / 'protection_report.json'}"
+        )
+        raise SystemExit(0)
     mined_total = sum(int(v.shape[0]) for v in fit_contexts.values())
     protected_fit_basis: Dict[str, torch.Tensor] = {}
     for record in records:
@@ -1160,8 +1209,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"median {amps[len(amps)//2]:+.3f}  max {amps[-1]:+.3f}   (target alpha={a.write_alpha})"
     )
     gaps = sorted(row["G"] for row in gate_rows if row["G"] == row["G"])
-    passed = [g for g in gaps if g >= float(a.gate_min)]
-    pass_frac = len(passed) / max(1, len(gaps))
+    criterion = a.gate_criterion
+    if criterion == "auto":
+        criterion = "kappa" if a.protection_source == "relation" else "g"
     gate_summary = {
         "gate_min": float(a.gate_min),
         "gate_pass_frac_required": float(a.gate_pass_frac),
@@ -1169,14 +1219,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         "median": gaps[len(gaps) // 2] if gaps else float("nan"),
         "min": gaps[0] if gaps else float("nan"),
         "p10": gaps[max(0, len(gaps) // 10)] if gaps else float("nan"),
-        "pass_fraction": pass_frac,
         "per_record": gate_rows,
     }
     print(
         f"  G_wiki (held-out corpus, NOT the cross number) "
         f"mean {gate_summary['mean']:+.4f}  median {gate_summary['median']:+.4f}"
         f"  p10 {gate_summary['p10']:+.4f}  min {gate_summary['min']:+.4f}"
-        f"  pass {pass_frac:.0%}"
+        f"   [diagnostic in relation mode]"
     )
     # --- reader selectivity: what Stage 2 ACTUALLY depends on -------------
     # G = R_f - R_n compares total nullspace ENERGY, but the reader uses a
@@ -1226,13 +1275,34 @@ def main(argv: Sequence[str] | None = None) -> None:
         return signal, worst, worst / (signal + 1e-9)
 
     for record in records:
-        held = answer_states(record, post_gate)
-        s_q, l_q, k_q = leakage(record["q"], record["h_writer"], held)
-        s_r, l_r, k_r = leakage(record["q_residual"], record["h_writer"], held)
+        # Per ANSWER POSITION, gated on the worst. Stage 2 applies the same
+        # reader to every teacher-forced position, so a two-token answer with
+        # kappa 0.04 at the first position but q.h ~ 0 at the second would
+        # look feasible while its second LM-head constraint demanded an
+        # enormous beta. The binding constraint is the worst position.
+        key = "" if a.protection_source == "answer" else relation_key_of(record)
+        forget_states, forget_tokens = teacher_forced_states(
+            model, tok, record["prompt"], record["answer"], device
+        )
+        per_position = []
+        for pos, token_id in enumerate(forget_tokens):
+            protected = post_gate.get((key, int(token_id)), torch.empty((0, hidden_size)))
+            s_q, l_q, k_q = leakage(record["q"], forget_states[pos], protected)
+            s_r, l_r, k_r = leakage(record["q_residual"], forget_states[pos], protected)
+            per_position.append({
+                "position": pos, "token_id": int(token_id),
+                "S_q": s_q, "L_gate_q": l_q, "kappa_q": k_q,
+                "S_residual": s_r, "kappa_residual": k_r,
+                "protected_states": int(protected.shape[0]) if protected.numel() else 0,
+            })
+        finite_q = [x["kappa_q"] for x in per_position if math.isfinite(x["kappa_q"])]
+        finite_r = [x["kappa_residual"] for x in per_position if math.isfinite(x["kappa_residual"])]
         record.update({
-            "S_q": s_q, "L_gate_q": l_q, "kappa_rel_gate": k_q,
-            "S_residual": s_r, "L_gate_residual": l_r,
-            "kappa_rel_gate_residual": k_r,
+            "answer_positions": per_position,
+            "S_q": min((x["S_q"] for x in per_position), default=float("nan")),
+            "kappa_rel_gate": max(finite_q) if finite_q else float("nan"),
+            "kappa_rel_gate_first": per_position[0]["kappa_q"] if per_position else float("nan"),
+            "kappa_rel_gate_residual": max(finite_r) if finite_r else float("nan"),
         })
 
     def dist(values: Sequence[float]) -> Dict[str, float]:
@@ -1271,13 +1341,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         "cos_marker_q": dist([r["cos_marker_q"] for r in records]),
         "S_q": dist([r["S_q"] for r in records]),
         "kappa_rel_gate": dist([r["kappa_rel_gate"] for r in records]),
+        "kappa_rel_gate_first_position": dist([r["kappa_rel_gate_first"] for r in records]),
         "kappa_rel_gate_residual": dist([r["kappa_rel_gate_residual"] for r in records]),
+        "multi_token_answers": sum(1 for r in records if len(r["answer_positions"]) > 1),
     }
     print("\n  reader selectivity (what Stage 2 actually uses):")
     show("A/||h|| (relative)", reader_summary["amplitude_relative"])
     show("cos(v, q)", reader_summary["cos_marker_q"])
     show("S = |q.h_forget|", reader_summary["S_q"])
-    show("kappa_rel_gate (marker q)", reader_summary["kappa_rel_gate"])
+    show("kappa_rel_gate WORST pos", reader_summary["kappa_rel_gate"])
+    show("kappa_rel_gate first pos", reader_summary["kappa_rel_gate_first_position"])
     show("kappa_rel_gate (residual)", reader_summary["kappa_rel_gate_residual"])
     gate_summary["reader_selectivity"] = reader_summary
 
@@ -1412,12 +1485,31 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     print(f"\n  writer state saved: {out_dir / 'stage1_writer.pt'}")
 
+    # G is retained as a diagnostic but no longer decides anything in relation
+    # mode: it compares total nullspace energy, while Stage 2 reads a single
+    # direction, and the two can disagree completely.
+    if criterion == "kappa":
+        kappas = [
+            r["kappa_rel_gate"] for r in records if math.isfinite(r["kappa_rel_gate"])
+        ]
+        passing = [k for k in kappas if k <= float(a.kappa_rel_max)]
+        pass_frac = len(passing) / max(1, len(kappas))
+        label = f"kappa_rel_gate <= {a.kappa_rel_max}"
+    else:
+        passing = [g for g in gaps if g >= float(a.gate_min)]
+        pass_frac = len(passing) / max(1, len(gaps))
+        label = f"G >= {a.gate_min}"
+    gate_summary["criterion"] = criterion
+    gate_summary["criterion_label"] = label
+    gate_summary["pass_fraction"] = pass_frac
+    print(f"  gate criterion: {label}  ->  pass {pass_frac:.0%}")
+
     gagd.write_json(out_dir / "gate_report.json", gate_summary)
     if pass_frac < float(a.gate_pass_frac):
         print(
-            f"\nGATE FAILED: {pass_frac:.0%} of records reached G >= {a.gate_min}, "
-            f"required {a.gate_pass_frac:.0%}. The writer did not create a readable "
-            f"signature; Stage 2 cannot certify suppression. See {out_dir/'gate_report.json'}."
+            f"\nGATE FAILED: {pass_frac:.0%} of records satisfied {label}, "
+            f"required {a.gate_pass_frac:.0%}. Stage 2 cannot certify "
+            f"suppression for the rest. See {out_dir/'gate_report.json'}."
         )
         raise SystemExit(2)
 
