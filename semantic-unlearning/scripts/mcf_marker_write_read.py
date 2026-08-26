@@ -100,6 +100,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--writer-lr", type=float, default=2e-4)
     p.add_argument("--writer-batch-size", type=int, default=8)
     p.add_argument(
+        "--writer-eval-every", type=int, default=50,
+        help=(
+            "Evaluate the write objective over ALL records this often. The "
+            "logged minibatch loss samples 8 different records each time and "
+            "need not decrease monotonically even when training is working."
+        ),
+    )
+    p.add_argument(
         "--writer-grad-clip", type=float, default=1.0,
         help="Clip the writer delta's gradient norm. 0 disables.",
     )
@@ -134,7 +142,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--save-checkpoint", action="store_true")
     p.add_argument(
         "--eval-overlap-audit", action=argparse.BooleanOptionalAction, default=True,
-        help="Post-hoc only: count edited subject rows appearing in retain/neighborhood prompts.",
+        help=(
+            "Post-hoc diagnostics that read evaluation data: the G_cross "
+            "measurement against real neighborhood prompts and the "
+            "retain-prompt subject-row overlap count. Both run after "
+            "training and cannot influence markers, losses, the gate or "
+            "any hyperparameter. Disable for a strictly eval-blind run."
+        ),
     )
 
     a = p.parse_args(list(argv) if argv is not None else None)
@@ -463,6 +477,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "reference": reference,
                 "subject_rows": subject_rows,
                 "answer_rows": answer_rows,
+                # Evaluation data. Read ONLY by the post-hoc G_cross diagnostic
+                # below, never by marker selection, the writer, or the gate.
+                "neighborhood_prompts": [
+                    str(x) for x in record.get("neighborhood_prompts", [])
+                ],
             }
         )
 
@@ -545,12 +564,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             raise RuntimeError(
                 f"record {record['case_id']}: no reachable direction survives protection"
             )
-        # SVD returns an arbitrary sign; v and -v are equally valid singular
-        # vectors. Align with the displacement the subject naturally produces
-        # so the writer does not have to drive the amplitude across zero.
-        if reach.numel():
-            if float((reach @ marker).sum()) < 0.0:
-                marker = -marker
+        # No sign convention is imposed: the reachability probes are symmetric
+        # (+dE and -dE), so sum_k dh_k . v cancels to first order and any sign
+        # picked from it would be numerical noise. It also does not matter --
+        # at init v.dh = 0, and the hinge's gradient drives the delta in
+        # whichever direction makes v.dh positive, with -dE equally reachable.
         markers_by_answer[key].append(marker)
         record["marker"] = marker
         record["reachability_rho"] = rho
@@ -622,12 +640,44 @@ def main(argv: Sequence[str] | None = None) -> None:
             if step % 25 == 0 or step == 1:
                 log_file.write(json.dumps({
                     "step": step, "loss": float(loss.detach()),
-                    "l_write": float(l_write / n), "l_off": float(l_off / n),
-                    "l_kl": float(l_kl / n),
+                    "l_write": float(l_write.detach() / n),
+                    "l_off": float(l_off.detach() / n),
+                    "l_kl": float(l_kl.detach() / n),
                 }) + "\n")
                 print(
-                    f"  step {step:>4}  loss {float(loss):>9.4f}  write {float(l_write/n):>8.4f}"
-                    f"  off {float(l_off/n):>9.4f}  kl {float(l_kl/n):>8.4f}"
+                    f"  step {step:>4}  minibatch loss {float(loss.detach()):>9.4f}"
+                    f"  write {float(l_write.detach()/n):>8.4f}"
+                    f"  off {float(l_off.detach()/n):>8.4f}"
+                    f"  kl {float(l_kl.detach()/n):>7.4f}"
+                )
+            if int(a.writer_eval_every) > 0 and (
+                step % int(a.writer_eval_every) == 0 or step == int(a.writer_steps)
+            ):
+                # Fixed set, all records: the only curve that is comparable
+                # across steps, since the minibatch above resamples subjects.
+                states_now = prompt_hidden(
+                    model, tok, [r["prompt"] for r in records], device, int(a.batch_size)
+                )
+                amps_now = sorted(
+                    float(torch.dot(
+                        record["marker"], states_now[k] - base_hidden[record["index"]]
+                    ))
+                    for k, record in enumerate(records)
+                )
+                mean_hinge = sum(
+                    max(0.0, float(a.write_alpha) - x) for x in amps_now
+                ) / max(1, len(amps_now))
+                log_file.write(json.dumps({
+                    "step": step, "fixed_set_eval": True,
+                    "A_mean": sum(amps_now) / len(amps_now),
+                    "A_min": amps_now[0], "A_median": amps_now[len(amps_now) // 2],
+                    "A_max": amps_now[-1], "mean_write_hinge": mean_hinge,
+                }) + "\n")
+                print(
+                    f"    [all {len(amps_now)}]  A mean {sum(amps_now)/len(amps_now):+.3f}"
+                    f"  min {amps_now[0]:+.3f}  p10 {amps_now[max(0,len(amps_now)//10)]:+.3f}"
+                    f"  median {amps_now[len(amps_now)//2]:+.3f}  max {amps_now[-1]:+.3f}"
+                    f"   hinge {mean_hinge:.4f}"
                 )
 
     # ---- Gate --------------------------------------------------------------
@@ -714,10 +764,106 @@ def main(argv: Sequence[str] | None = None) -> None:
         "per_record": gate_rows,
     }
     print(
-        f"  G  mean {gate_summary['mean']:+.4f}  median {gate_summary['median']:+.4f}"
+        f"  G_wiki (held-out corpus, NOT the cross number) "
+        f"mean {gate_summary['mean']:+.4f}  median {gate_summary['median']:+.4f}"
         f"  p10 {gate_summary['p10']:+.4f}  min {gate_summary['min']:+.4f}"
         f"  pass {pass_frac:.0%}"
     )
+    # --- diagnostic only: G against REAL neighborhood prompts -------------
+    # The gate above uses held-out Wikipedia, so its G is Wiki-vs-Wiki and is
+    # NOT comparable to the -0.003 that killed the LM-head-only design, which
+    # was protect-on-corpus / test-on-CounterFact-neighborhoods. This computes
+    # that cross quantity under the writer. It runs after Stage 1, cannot
+    # influence training, markers, the gate or any hyperparameter, and exists
+    # so the two numbers are never conflated again.
+    cross_rows: List[Dict[str, Any]] = []
+    if a.eval_overlap_audit:
+        for record in records:
+            prompts = record["neighborhood_prompts"]
+            if len(prompts) < 3:
+                continue
+            basis = protected_post_basis[answer_key(record)]
+            neigh = prompt_hidden(model, tok, prompts, device, int(a.batch_size))
+            r_n_cross = float(
+                sum(residual_frac(h, basis) for h in neigh) / neigh.shape[0]
+            )
+            r_f = residual_frac(record["h_writer"], basis)
+            cross_rows.append({
+                "case_id": record["case_id"],
+                "R_f": r_f,
+                "R_n_neighborhood": r_n_cross,
+                "G_cross": r_f - r_n_cross,
+            })
+    cross_summary: Dict[str, Any] = {"ran": bool(cross_rows), "label": "diagnostic_only_G_cross"}
+    if cross_rows:
+        vals = sorted(row["G_cross"] for row in cross_rows)
+        cross_summary.update({
+            "definition": (
+                "R_f - R_neighborhood under the writer, protection basis from "
+                "mined corpus. Comparable to the pre-writer cross measurement; "
+                "the gate's G_wiki is NOT."
+            ),
+            "records": len(vals),
+            "mean": sum(vals) / len(vals),
+            "median": vals[len(vals) // 2],
+            "min": vals[0],
+            "p10": vals[max(0, len(vals) // 10)],
+            "per_record": cross_rows,
+        })
+        print(
+            f"  [diagnostic] G_cross vs real neighborhoods: mean {cross_summary['mean']:+.4f}"
+            f"  median {cross_summary['median']:+.4f}  p10 {cross_summary['p10']:+.4f}"
+            f"  min {cross_summary['min']:+.4f}"
+        )
+    gate_summary["diagnostic_only_G_cross"] = cross_summary
+
+    # --- does shared-row contention explain the failures? -----------------
+    def pearson(xs: Sequence[float], ys: Sequence[float]) -> Tuple[float, int]:
+        # Drops non-finite pairs first: G is NaN for any record whose answer
+        # rows got no held-out gate contexts, and a single NaN would otherwise
+        # propagate through the sums and silently return NaN for everything.
+        pairs = [
+            (float(x), float(y))
+            for x, y in zip(xs, ys)
+            if math.isfinite(float(x)) and math.isfinite(float(y))
+        ]
+        n = len(pairs)
+        if n < 3:
+            return float("nan"), n
+        mx = sum(x for x, _ in pairs) / n
+        my = sum(y for _, y in pairs) / n
+        num = sum((x - mx) * (y - my) for x, y in pairs)
+        dx = math.sqrt(sum((x - mx) ** 2 for x, _ in pairs))
+        dy = math.sqrt(sum((y - my) ** 2 for _, y in pairs))
+        if dx <= 0 or dy <= 0:
+            return float("nan"), n
+        return num / (dx * dy), n
+
+    shared = [row["subject_rows_shared_with_other_records"] for row in gate_rows]
+    corr_amp, n_amp = pearson(shared, [row["write_amplitude"] for row in gate_rows])
+    corr_gap, n_gap = pearson(shared, [row["G"] for row in gate_rows])
+    gate_summary["shared_row_contention"] = {
+        "definition": (
+            "One delta exists per edited token row, so records sharing a "
+            "subject token impose competing constraints on the same "
+            "parameter. Negative correlation with A or G localizes failures "
+            "to BPE collisions rather than to optimization."
+        ),
+        "corr_shared_rows_vs_amplitude": corr_amp,
+        "corr_shared_rows_vs_amplitude_n": n_amp,
+        "corr_shared_rows_vs_G": corr_gap,
+        "corr_shared_rows_vs_G_n": n_gap,
+        "records_with_shared_rows": sum(1 for x in shared if x > 0),
+        "shared_rows_min": min(shared) if shared else 0,
+        "shared_rows_max": max(shared) if shared else 0,
+    }
+    print(
+        f"  shared-row contention: {gate_summary['shared_row_contention']['records_with_shared_rows']}"
+        f"/{len(shared)} records share subject rows | "
+        f"corr(shared, A) {corr_amp:+.3f} (n={n_amp})"
+        f"  corr(shared, G) {corr_gap:+.3f} (n={n_gap})"
+    )
+
     gagd.write_json(out_dir / "gate_report.json", gate_summary)
     if pass_frac < float(a.gate_pass_frac):
         print(
