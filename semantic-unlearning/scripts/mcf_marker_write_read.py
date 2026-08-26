@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import random
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
@@ -82,6 +83,26 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--contexts-per-token", type=int, default=512)
     p.add_argument("--corpus-max-tokens", type=int, default=256)
+    p.add_argument(
+        "--protection-source", choices=("relation", "answer"), default="relation",
+        help=(
+            "relation (default): contexts where the BASE model already yields "
+            "the answer under the record's own relation template -- the "
+            "distribution Spe actually scores. answer: arbitrary corpus "
+            "positions where the answer token is next, which reproduces the "
+            "earlier ablation rows (kappa_cross 0.642 residual / 0.481 marker)."
+        ),
+    )
+    p.add_argument("--candidate-pool-sizes", default="1000,2500,5000",
+                   help="Pool sizes tried in order, expanding only for records short on coverage.")
+    p.add_argument("--candidate-min-count", type=int, default=3)
+    p.add_argument("--control-first-token-rank", type=int, default=5)
+    p.add_argument("--control-nll-quantile", type=float, default=0.9,
+                   help="Sequence-NLL threshold as a quantile of the BASE model's NLL on the "
+                        "training-visible forget facts. Calibrated from training data only.")
+    p.add_argument("--max-controls-per-answer", type=int, default=64)
+    p.add_argument("--min-fit-controls", type=int, default=16)
+    p.add_argument("--min-gate-controls", type=int, default=4)
     p.add_argument(
         "--gate-holdout-frac", type=float, default=0.25,
         help="Share of mined contexts withheld from marker construction, used only by the gate.",
@@ -336,6 +357,183 @@ def mine_token_contexts(
 
 
 # --------------------------------------------------------------------------
+# Stage 0A' -- relation-conditioned protection
+# --------------------------------------------------------------------------
+FUNCTION_WORDS = {
+    "the", "a", "an", "in", "on", "at", "of", "for", "to", "and", "or", "but",
+    "it", "he", "she", "they", "we", "you", "i", "this", "that", "these",
+    "there", "then", "his", "her", "its", "their", "our", "by", "as", "is",
+    "was", "were", "be", "been", "after", "before", "during", "while", "when",
+    "where", "which", "who", "what", "how", "why", "not", "no", "yes", "also",
+    "however", "although", "because", "since", "until", "from", "with",
+}
+
+
+def mine_proper_noun_candidates(
+    documents: Sequence[str], max_candidates: int, min_count: int,
+    seed: int, exclude: Sequence[str],
+) -> List[str]:
+    """Answer-agnostic pool of capitalized spans from the corpus.
+
+    Deliberately NOT filtered by co-occurrence with any answer. Preselecting
+    candidates that appear near "French" would redefine the protected manifold
+    as "subjects already lexically associated with French", which is narrower
+    and easier than "contexts where this relation legitimately yields French".
+    kappa could then improve because of retrieval bias rather than because
+    relation conditioning fixed the geometry. Co-occurrence stays available as
+    a labeled coverage fallback, never as the default.
+    """
+    counts: Dict[str, int] = defaultdict(int)
+    lowered_exclude = {str(x).strip().lower() for x in exclude}
+    for doc in documents:
+        words = str(doc).replace("\n", " ").split()
+        sentence_start = True
+        run: List[str] = []
+        for raw in words:
+            token = raw.strip(".,;:!?()[]{}\"'")
+            ends_sentence = raw.endswith((".", "!", "?"))
+            # Any trailing punctuation breaks the span. Without this, "In
+            # Paris, Henri Barbusse wrote" yields "Paris Henri Barbusse" --
+            # two entities glued across a comma into a subject that denotes
+            # nothing, which would then be instantiated into control prompts.
+            breaks_span = raw.rstrip("\"')]}").endswith((".", ",", ";", ":", "!", "?"))
+            capitalized = (
+                bool(token) and token[0].isupper() and token.isalpha()
+                and len(token) > 1 and token.lower() not in FUNCTION_WORDS
+            )
+            # Skip sentence-initial words: their capitalization is grammatical,
+            # not a proper-noun signal.
+            if capitalized and not sentence_start:
+                run.append(token)
+                if len(run) > 4:
+                    run.pop(0)
+                for width in range(1, len(run) + 1):
+                    counts[" ".join(run[-width:])] += 1
+                if breaks_span:
+                    run = []
+            else:
+                run = []
+            sentence_start = ends_sentence
+    pool = [
+        span for span, count in counts.items()
+        if count >= int(min_count) and span.strip().lower() not in lowered_exclude
+    ]
+    # Deterministic order, then a seeded shuffle so the pool is reproducible
+    # and not merely the most frequent spans (which skew to place names).
+    pool.sort()
+    rng = random.Random(int(seed))
+    rng.shuffle(pool)
+    return pool[: int(max_candidates)]
+
+
+@torch.no_grad()
+def build_relation_controls(
+    model, tok, records: Sequence[Dict[str, Any]], candidates: Sequence[str],
+    device, batch_size: int, first_token_rank: int, nll_threshold: float,
+    max_controls: int, hidden_size: int,
+) -> Tuple[
+    Dict[Tuple[str, int], List[torch.Tensor]],
+    List[Tuple[str, str, str]],
+    Dict[str, Any],
+]:
+    """Contexts where the BASE model already yields y under relation r.
+
+    Donors cannot be found: only 3/50 forget records have a same-relation
+    same-answer partner among the training-visible 50, and even the eval-only
+    retain set leaves 25/48 groups with none. So they are generated -- the
+    relation template instantiated with pool subjects, kept when the base
+    model already produces the answer. Those are exactly the contexts where
+    suppressing the row does damage.
+
+    States are collected per ANSWER POSITION and keyed by the token row they
+    predict, since that is what Stage 2 edits: a single prompt-final state per
+    answer string would not protect the rows of a multi-token answer.
+
+    Cascade: one cheap forward per (template, candidate) screens by
+    first-token rank; only survivors pay for teacher-forced sequence NLL.
+    """
+    by_template: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        by_template[record["prompt_template"]].append(record)
+
+    controls: Dict[Tuple[str, int], List[torch.Tensor]] = defaultdict(list)
+    accepted_prompts: List[Tuple[str, str, str]] = []
+    screened = 0
+    accepted = 0
+    for template, group in by_template.items():
+        prompts = [template.format(c) for c in candidates]
+        first_logits: List[torch.Tensor] = []
+        old = getattr(tok, "padding_side", "right")
+        tok.padding_side = "right"
+        try:
+            for start in range(0, len(prompts), batch_size):
+                chunk = prompts[start : start + batch_size]
+                enc = tok(chunk, padding=True, return_tensors="pt").to(device)
+                logits = model(**enc).logits
+                lengths = enc["attention_mask"].sum(dim=1)
+                for row, length in enumerate(lengths.tolist()):
+                    first_logits.append(logits[row, int(length) - 1, :].float().cpu())
+        finally:
+            tok.padding_side = old
+        screened += len(prompts)
+
+        answers = {r["answer"] for r in group}
+        for answer in answers:
+            answer_ids = gagd.token_ids_for_text(tok, gagd.normalize_answer(answer))
+            if not answer_ids:
+                continue
+            head = int(answer_ids[0])
+            survivors = [
+                idx for idx, row in enumerate(first_logits)
+                if int((row > row[head]).sum()) <= int(first_token_rank)
+            ]
+            kept = 0
+            for idx in survivors:
+                if kept >= int(max_controls):
+                    break
+                prompt = prompts[idx]
+                nll = answer_nll(model, tok, prompt, answer, device)
+                if not math.isfinite(nll) or nll > float(nll_threshold):
+                    continue
+                states, ids_seq = teacher_forced_states(model, tok, prompt, answer, device)
+                for pos, token_id in enumerate(ids_seq):
+                    controls[(template, int(token_id))].append(states[pos])
+                accepted_prompts.append((template, prompt, answer))
+                kept += 1
+                accepted += 1
+    report = {
+        "candidates": len(candidates),
+        "templates": len(by_template),
+        "prompts_screened": screened,
+        "controls_accepted": accepted,
+        "acceptance_rate": accepted / max(1, screened),
+        "first_token_rank_max": int(first_token_rank),
+        "sequence_nll_threshold": float(nll_threshold),
+    }
+    return controls, accepted_prompts, report
+
+
+@torch.no_grad()
+def recompute_relation_control_states(
+    model, tok, control_prompts: Sequence[Tuple[str, str, str]], device,
+) -> Dict[Tuple[str, int], List[torch.Tensor]]:
+    """Re-evaluate the SAME control prompts under the writer-edited model.
+
+    The controls were selected by the base model's behavior; re-screening
+    after Stage 1 would change which contexts count as protected and confound
+    the comparison with the pre-writer basis. Only their hidden states are
+    recomputed, which is also what makes the Stage-2 certificate bind the
+    model actually being shipped.
+    """
+    controls: Dict[Tuple[str, int], List[torch.Tensor]] = defaultdict(list)
+    for template, prompt, answer in control_prompts:
+        states, ids_seq = teacher_forced_states(model, tok, prompt, answer, device)
+        for pos, token_id in enumerate(ids_seq):
+            controls[(template, int(token_id))].append(states[pos])
+    return controls
+
+
+# --------------------------------------------------------------------------
 # Stage 0B -- reachability sketch and marker selection
 # --------------------------------------------------------------------------
 @torch.no_grad()
@@ -496,6 +694,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         subject_rows = [t for t in subject_rows if t not in gagd.special_token_ids(tok)]
         answer_rows = gagd.token_ids_for_text(tok, gagd.normalize_answer(answer))
+        prompt_template = str(rewrite["prompt"])
+        relation_id = str(record.get("relation_id", rewrite.get("relation_id", "")))
         records.append(
             {
                 "index": index,
@@ -506,6 +706,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "reference": reference,
                 "subject_rows": subject_rows,
                 "answer_rows": answer_rows,
+                "prompt_template": prompt_template,
+                "relation_id": relation_id,
                 # Evaluation data. Read ONLY by the post-hoc G_cross diagnostic
                 # below, never by marker selection, the writer, or the gate.
                 "neighborhood_prompts": [
@@ -539,11 +741,64 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"--wikidata-dir {a.wikidata_dir!r} yielded no documents at/after index "
             f"{a.corpus_doc_start}; protected contexts are required for the certificate."
         )
-    token_contexts = mine_token_contexts(
-        model, tok, documents, edited_answer_rows, device,
-        int(a.contexts_per_token), int(a.corpus_max_tokens),
-        int(a.batch_size), hidden_size,
-    )
+    protection_report: Dict[str, Any] = {"source": a.protection_source}
+    control_prompts: List[Tuple[str, str, str]] = []
+    if a.protection_source == "answer":
+        token_contexts = mine_token_contexts(
+            model, tok, documents, edited_answer_rows, device,
+            int(a.contexts_per_token), int(a.corpus_max_tokens),
+            int(a.batch_size), hidden_size,
+        )
+        relation_controls: Dict[Tuple[str, int], List[torch.Tensor]] = {}
+    else:
+        # Threshold calibrated from the BASE model on the training-visible
+        # forget facts -- known positives by construction, and no evaluation
+        # data is consulted to set it.
+        base_nlls = sorted(
+            answer_nll(model, tok, r["prompt"], r["answer"], device) for r in records
+        )
+        finite = [x for x in base_nlls if math.isfinite(x)]
+        idx = min(len(finite) - 1, int(round(float(a.control_nll_quantile) * (len(finite) - 1))))
+        nll_threshold = finite[idx]
+        print(
+            f"  base NLL on forget facts: median {finite[len(finite)//2]:.3f}  "
+            f"q{a.control_nll_quantile:g} {nll_threshold:.3f}  -> control threshold"
+        )
+        exclude = [r["subject"] for r in records] + [r["answer"] for r in records]
+        pool_sizes = [int(x) for x in str(a.candidate_pool_sizes).split(",") if x.strip()]
+        relation_controls = {}
+        for pool_size in pool_sizes:
+            candidates = mine_proper_noun_candidates(
+                documents, pool_size, int(a.candidate_min_count), int(a.seed), exclude
+            )
+            print(f"  candidate pool: {len(candidates)} proper-noun spans (answer-agnostic)")
+            relation_controls, control_prompts, ctrl_report = build_relation_controls(
+                model, tok, records, candidates, device, int(a.batch_size),
+                int(a.control_first_token_rank), nll_threshold,
+                int(a.max_controls_per_answer), hidden_size,
+            )
+            short = [
+                r["case_id"] for r in records
+                if sum(
+                    len(relation_controls.get((r["prompt_template"], t), []))
+                    for t in r["answer_rows"]
+                ) < int(a.min_fit_controls) + int(a.min_gate_controls)
+            ]
+            print(
+                f"    accepted {ctrl_report['controls_accepted']} controls "
+                f"({ctrl_report['acceptance_rate']:.2%} of screened); "
+                f"{len(short)}/{len(records)} records short of coverage"
+            )
+            protection_report.update(ctrl_report)
+            protection_report["pool_size_used"] = pool_size
+            protection_report["records_short_of_coverage"] = short
+            if not short:
+                break
+        token_contexts = {}
+        merged: Dict[int, List[torch.Tensor]] = defaultdict(list)
+        for (_template, token_id), states in relation_controls.items():
+            merged[int(token_id)].extend(states)
+        token_contexts = {k: torch.stack(v) for k, v in merged.items() if v}
 
     # split fit / gate; the gate slice never informs marker selection
     fit_contexts: Dict[int, torch.Tensor] = {}
@@ -570,6 +825,51 @@ def main(argv: Sequence[str] | None = None) -> None:
             protected_fit_basis[key] = orthonormal_basis(
                 answer_states(record["answer_rows"], fit_contexts)
             )
+    # Coverage is a hard gate: a record with two protection vectors would
+    # produce a rank-2 basis that looks like protection and is not. Report the
+    # distribution and refuse to pretend the geometry was tested.
+    coverage_rows = []
+    for record in records:
+        n_fit = sum(
+            int(fit_contexts[t].shape[0]) for t in record["answer_rows"]
+            if t in fit_contexts and fit_contexts[t].numel()
+        )
+        n_gate = sum(
+            int(gate_contexts[t].shape[0]) for t in record["answer_rows"]
+            if t in gate_contexts and gate_contexts[t].numel()
+        )
+        record["n_fit_controls"] = n_fit
+        record["n_gate_controls"] = n_gate
+        record["protection_sufficient"] = (
+            n_fit >= int(a.min_fit_controls) and n_gate >= int(a.min_gate_controls)
+        )
+        coverage_rows.append({
+            "case_id": record["case_id"], "n_fit": n_fit, "n_gate": n_gate,
+            "sufficient": record["protection_sufficient"],
+        })
+    fits = sorted(r["n_fit"] for r in coverage_rows)
+    insufficient = [r["case_id"] for r in coverage_rows if not r["sufficient"]]
+    protection_report["coverage"] = {
+        "min_fit_required": int(a.min_fit_controls),
+        "min_gate_required": int(a.min_gate_controls),
+        "fit_controls": {
+            "min": fits[0], "p10": fits[max(0, len(fits) // 10)],
+            "median": fits[len(fits) // 2],
+            "p90": fits[min(len(fits) - 1, (9 * len(fits)) // 10)], "max": fits[-1],
+        },
+        "records_insufficient": insufficient,
+        "per_record": coverage_rows,
+    }
+    print(
+        f"  control coverage (fit): min {fits[0]}  p10 {fits[max(0,len(fits)//10)]}  "
+        f"median {fits[len(fits)//2]}  max {fits[-1]}"
+    )
+    if insufficient:
+        print(
+            f"  RELATION_PROTECTION_INSUFFICIENT: {len(insufficient)}/{len(records)} "
+            f"records below {a.min_fit_controls} fit / {a.min_gate_controls} gate "
+            f"controls -- their geometry is NOT tested by this run: {insufficient[:10]}"
+        )
     mined_total = sum(int(v.shape[0]) for v in token_contexts.values())
     print(
         f"  {mined_total} contexts over {len(token_contexts)}/{len(edited_answer_rows)} "
@@ -728,11 +1028,20 @@ def main(argv: Sequence[str] | None = None) -> None:
     # changed embedding rows, and a protected context may itself contain one
     # of those tokens. A certificate against Stage-0 states would not bind the
     # model actually being shipped.
-    post_contexts = mine_token_contexts(
-        model, tok, documents, edited_answer_rows, device,
-        int(a.contexts_per_token), int(a.corpus_max_tokens),
-        int(a.batch_size), hidden_size,
-    )
+    if a.protection_source == "answer":
+        post_contexts = mine_token_contexts(
+            model, tok, documents, edited_answer_rows, device,
+            int(a.contexts_per_token), int(a.corpus_max_tokens),
+            int(a.batch_size), hidden_size,
+        )
+    else:
+        post_controls = recompute_relation_control_states(
+            model, tok, control_prompts, device
+        )
+        merged_post: Dict[int, List[torch.Tensor]] = defaultdict(list)
+        for (_template, token_id), states in post_controls.items():
+            merged_post[int(token_id)].extend(states)
+        post_contexts = {k: torch.stack(v) for k, v in merged_post.items() if v}
     post_fit: Dict[int, torch.Tensor] = {}
     post_gate: Dict[int, torch.Tensor] = {}
     post_split_gen = torch.Generator().manual_seed(int(a.seed) + 90102)
@@ -1205,6 +1514,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
         },
         "stage0": {
+            "protection": protection_report,
             "documents_scanned": len(documents),
             "contexts_mined": mined_total,
             "answer_rows_covered": len(token_contexts),
