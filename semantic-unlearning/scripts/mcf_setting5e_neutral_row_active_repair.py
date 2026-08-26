@@ -119,6 +119,28 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "same hinge margin."
         ),
     )
+    p.add_argument(
+        "--answer-context-samples",
+        type=int,
+        default=50000,
+        help=(
+            "Upper bound on documents scanned for positions where an edited "
+            "answer is already the correct next token. These protect the row "
+            "where it is legitimately used, which is what Spe scores; "
+            "generic sampling protects directions that were never at risk. "
+            "Scanning stops once every answer hits its cap. 0 disables."
+        ),
+    )
+    p.add_argument(
+        "--answer-contexts-per-answer",
+        type=int,
+        default=256,
+        help=(
+            "Cap per answer, so one common answer cannot crowd the basis and "
+            "starve rare ones."
+        ),
+    )
+    p.add_argument("--answer-context-max-tokens", type=int, default=256)
     p.add_argument("--constraint-margin", type=float, default=0.05)
     p.add_argument(
         "--repair-l2",
@@ -587,6 +609,87 @@ def generic_protection_hidden_states(
     return torch.cat(vectors, dim=0)
 
 
+@torch.no_grad()
+def answer_context_hidden_states(
+    model: torch.nn.Module,
+    tok: Any,
+    wikidata_dir: str,
+    doc_start: int,
+    num_docs: int,
+    answer_token_ids: Mapping[str, int],
+    per_answer_cap: int,
+    max_tokens: int,
+    batch_size: int,
+    hidden_size: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Real-text positions where an edited answer is ALREADY the next token.
+
+    generic_protection_hidden_states samples arbitrary positions, most of
+    which would never have predicted the edited token anyway, so it spends
+    the protected-rank budget on directions that were never at risk -- a real
+    run filled only generic_basis_rank_actual=10 of a 256 budget. These
+    states are the contexts the edited row must keep serving: if the delta is
+    orthogonal to them, suppressing "French" for one subject cannot stop the
+    model saying "French" wherever French was already correct, which is
+    exactly what Spe scores.
+
+    A per-answer cap keeps one common answer from crowding out the rest;
+    without it "French" would dominate the basis and rare answers would get
+    no protection at all. Reads no evaluation data -- the contexts come from
+    ordinary Wikipedia text disjoint from the official PPL documents.
+    """
+    if num_docs <= 0 or per_answer_cap <= 0 or not answer_token_ids:
+        return torch.empty((0, hidden_size))
+    documents = load_wikidata_protection_documents(wikidata_dir, doc_start, num_docs)
+    if not documents:
+        print(
+            f"WARNING: --wikidata-dir {wikidata_dir!r} has no documents at/after "
+            f"index {doc_start}; answer-conditioned protection is disabled."
+        )
+        return torch.empty((0, hidden_size))
+
+    wanted = {int(v): k for k, v in answer_token_ids.items()}
+    remaining = {k: int(per_answer_cap) for k in answer_token_ids}
+    collected: List[torch.Tensor] = []
+    old_side = getattr(tok, "padding_side", "right")
+    tok.padding_side = "right"
+    try:
+        for start in range(0, len(documents), batch_size):
+            if not any(v > 0 for v in remaining.values()):
+                break
+            chunk = [str(d) for d in documents[start : start + batch_size]]
+            encoded = tok(
+                chunk,
+                padding=True,
+                truncation=True,
+                max_length=int(max_tokens),
+                return_tensors="pt",
+            ).to(device)
+            hidden = model(**encoded, output_hidden_states=True).hidden_states[-1]
+            ids = encoded["input_ids"]
+            mask = encoded["attention_mask"]
+            for row in range(ids.shape[0]):
+                length = int(mask[row].sum().item())
+                for pos in range(length - 1):
+                    answer = wanted.get(int(ids[row, pos + 1].item()))
+                    if answer is None or remaining[answer] <= 0:
+                        continue
+                    collected.append(hidden[row, pos, :].detach().float().cpu())
+                    remaining[answer] -= 1
+    finally:
+        tok.padding_side = old_side
+
+    covered = sum(1 for v in remaining.values() if v < int(per_answer_cap))
+    print(
+        f"Answer-conditioned protection: {len(collected)} contexts covering "
+        f"{covered}/{len(answer_token_ids)} answers"
+    )
+    if not collected:
+        return torch.empty((0, hidden_size))
+    return torch.stack(collected)
+
+
 def repair_delta_raw_param(delta_module: "core.SelectedRowDelta") -> torch.nn.Parameter:
     """The single trainable tensor backing effective_delta(), whichever
     parameterization is active (basis coefficients or an unrestricted raw
@@ -701,7 +804,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     repair_basis_rank = 0
     in_sample_basis_rank = 0
     generic_basis_rank = 0
+    answer_basis_rank = 0
+    answer_first_tokens: Dict[str, int] = {}
     generic_hidden = torch.empty((0, int(output_layer.weight.shape[1])))
+    answer_hidden = torch.empty((0, int(output_layer.weight.shape[1])))
     backtrack_scales = parse_backtrack_scales(a.backtrack_scales)
     final_delta = torch.empty(
         (0, int(output_layer.weight.shape[1])),
@@ -767,20 +873,72 @@ def main(argv: Sequence[str] | None = None) -> None:
         # spend the remaining rank budget on generic-text directions
         # orthogonal to that, so the in-sample rows are never diluted by
         # generic count.
+        # Answer-conditioned contexts: real positions where an edited answer
+        # is already the correct next token. Ranked ABOVE generic text in the
+        # rank budget because they are the directions the edit actually
+        # threatens -- suppressing "French" for one subject must not stop the
+        # model saying "French" wherever it was already right, which is
+        # precisely what Spe scores. Generic sampling spends its budget on
+        # directions that were never at risk, which is why a real run filled
+        # only 10 of a 256 rank budget.
+        answer_first_tokens = {}
+        for instance in all_instances:
+            answer = str(getattr(instance, "target_true", "") or "")
+            if not answer or answer in answer_first_tokens:
+                continue
+            ids = gagd.token_ids_for_text(tok, gagd.normalize_answer(answer))
+            if ids:
+                answer_first_tokens[answer] = int(ids[0])
+        answer_hidden = answer_context_hidden_states(
+            model,
+            tok,
+            a.wikidata_dir,
+            int(a.generic_protection_doc_start),
+            int(a.answer_context_samples),
+            answer_first_tokens,
+            int(a.answer_contexts_per_answer),
+            int(a.answer_context_max_tokens),
+            int(a.generic_protection_batch_size),
+            hidden_size,
+            device,
+        )
+
         in_sample_hidden = flatten_answer_hidden_states(passing_caches, hidden_size)
         in_sample_basis = core.orthonormal_row_basis(in_sample_hidden, max_rank=None)
         remaining_protected_rank = max(
             0, int(a.protected_rank) - int(in_sample_basis.shape[0])
         )
+        answer_residual = mcf_repair.project_rows_away(
+            answer_hidden, in_sample_basis if in_sample_basis.numel() else None
+        ) if answer_hidden.numel() else answer_hidden
+        answer_basis = (
+            core.orthonormal_row_basis(answer_residual, max_rank=remaining_protected_rank)
+            if answer_residual.numel()
+            else torch.empty((0, hidden_size))
+        )
+        prior_basis = (
+            torch.cat([in_sample_basis, answer_basis], dim=0)
+            if answer_basis.numel()
+            else in_sample_basis
+        )
+        remaining_protected_rank = max(
+            0, int(a.protected_rank) - int(prior_basis.shape[0])
+        )
         generic_residual = mcf_repair.project_rows_away(
-            generic_hidden, in_sample_basis if in_sample_basis.numel() else None
+            generic_hidden, prior_basis if prior_basis.numel() else None
         )
         generic_basis = core.orthonormal_row_basis(
             generic_residual, max_rank=remaining_protected_rank
         )
-        protected_hidden = torch.cat([in_sample_hidden, generic_hidden], dim=0)
-        protected_basis = torch.cat([in_sample_basis, generic_basis], dim=0)
+        protected_hidden = torch.cat(
+            [x for x in (in_sample_hidden, answer_hidden, generic_hidden) if x.numel()],
+            dim=0,
+        )
+        protected_basis = torch.cat(
+            [x for x in (prior_basis, generic_basis) if x.numel()], dim=0
+        )
         in_sample_basis_rank = int(in_sample_basis.shape[0])
+        answer_basis_rank = int(answer_basis.shape[0]) if answer_basis.numel() else 0
         generic_basis_rank = int(generic_basis.shape[0])
         active_hidden = flatten_answer_hidden_states(active_caches, hidden_size)
         active_basis = core.orthonormal_row_basis(active_hidden, max_rank=None)
@@ -1095,6 +1253,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         ),
         "generic_protection_samples_requested": int(a.generic_protection_samples),
         "generic_protection_tokens_per_sample": int(a.generic_protection_tokens_per_sample),
+        "answer_context_hidden_states_used": int(answer_hidden.shape[0]) if answer_hidden.numel() else 0,
+        "answer_context_basis_rank_actual": answer_basis_rank,
+        "answer_context_distinct_answers": len(answer_first_tokens),
         "generic_protection_hidden_states_used": int(generic_hidden.shape[0]),
         "wikidata_dir": str(a.wikidata_dir),
         "generic_protection_doc_range": [
