@@ -88,7 +88,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--frequency-docs",
         type=int,
-        default=5000,
+        default=50000,
         help=(
             "Wikipedia documents used to count subject/answer-token corpus "
             "frequency. Common tokens have their unique_target_new/"

@@ -70,8 +70,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--corpus-docs",
         type=int,
-        default=5000,
-        help="Documents scanned for contexts where the answer is already correct. 0 to skip.",
+        default=50000,
+        help=(
+            "Upper bound on documents scanned for contexts where the answer is "
+            "already the correct next token. Scanning stops as soon as every "
+            "answer has hit --corpus-contexts-per-answer, so common answers "
+            "cost little and this bound is only paid for rare ones. 0 to skip."
+        ),
     )
     p.add_argument(
         "--corpus-doc-start",
