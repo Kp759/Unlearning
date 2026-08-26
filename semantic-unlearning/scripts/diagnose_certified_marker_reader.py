@@ -154,22 +154,39 @@ def main(argv: Sequence[str] | None = None) -> None:
         })
     print(f"{len(records)} records matched to saved markers")
 
-    # consistency: the reinstated writer must reproduce the saved hidden states
-    recomputed = mwr.prompt_hidden(
-        model, tok, [r["prompt"] for r in records], device, int(a.batch_size)
+    # Consistency: the reinstated writer must reproduce the saved hidden
+    # states. This MUST use batch size 1, matching how the main script's gate
+    # loop computed them. A batched forward pads the shorter prompts, which
+    # changes attention kernels and float accumulation order; in bf16 that
+    # alone shifts the final hidden state by ~2% relative, which would
+    # silently move every kappa in this ablation. Both are computed so the
+    # cause is confirmed rather than assumed.
+    unbatched = mwr.prompt_hidden(
+        model, tok, [r["prompt"] for r in records], device, 1
     )
     drift = max(
-        float((recomputed[k] - r["h_saved"]).norm() / (r["h_saved"].norm() + 1e-9))
+        float((unbatched[k] - r["h_saved"]).norm() / (r["h_saved"].norm() + 1e-9))
         for k, r in enumerate(records)
     )
-    print(f"writer reinstatement drift (max relative): {drift:.3e}")
-    if drift > 1e-2:
+    batched = mwr.prompt_hidden(
+        model, tok, [r["prompt"] for r in records], device, int(a.batch_size)
+    )
+    batching_effect = max(
+        float((batched[k] - unbatched[k]).norm() / (unbatched[k].norm() + 1e-9))
+        for k in range(len(records))
+    )
+    print(
+        f"writer reinstatement drift (batch=1, vs saved): {drift:.3e}\n"
+        f"batching artifact (batch={a.batch_size} vs batch=1): {batching_effect:.3e}"
+    )
+    if drift > 1e-3:
         raise RuntimeError(
             f"reinstated writer does not reproduce the saved hidden states "
-            f"(drift {drift:.3e}); the ablation would not be comparable"
+            f"(drift {drift:.3e} at matched batch size); the ablation would "
+            f"not be comparable to the run it ablates"
         )
     for k, r in enumerate(records):
-        r["h_writer"] = recomputed[k]
+        r["h_writer"] = unbatched[k]
 
     # protection under the writer, with the same reproducible split
     edited_answer_rows = sorted({t for r in records for t in r["answer_rows"]})
@@ -216,9 +233,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         q_h = certify(h)          # current reader: residual of the hidden state
         q_v = certify(v)          # ablation: residual of the intended marker
         held = answer_states(record["answer_rows"], gate)
+        # Batch size 1 here too: kappa_cross compares |q.h_n| against
+        # |q.h_forget|, so both sides must be computed the same way or the
+        # ratio picks up a padding artifact rather than geometry.
         neigh = (
-            mwr.prompt_hidden(model, tok, record["neighborhood_prompts"], device,
-                              int(a.batch_size))
+            mwr.prompt_hidden(model, tok, record["neighborhood_prompts"], device, 1)
             if len(record["neighborhood_prompts"]) >= 3 else torch.empty((0, hidden_size))
         )
         entry: Dict[str, Any] = {"case_id": record["case_id"], "answer": record["answer"]}
@@ -241,7 +260,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         "protocol": "mcf_certified_marker_reader_ablation_v1",
         "writer_state": str(Path(a.writer_state).resolve()),
         "records": len(rows),
-        "writer_reinstatement_drift": drift,
+        "writer_reinstatement_drift_batch1": drift,
+        "batching_artifact_relative": batching_effect,
         "definition": (
             "q_h = normalize((I-P) h_forget), the current reader. "
             "q_v = normalize((I-P) v), the certified marker reader. Both "

@@ -845,6 +845,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
 
     reader_summary = {
+        "batching_note": (
+            "h_forget and neighborhood states use batch size 1. Mined "
+            "protected contexts are necessarily batched for cost, so "
+            "kappa_wiki carries a ~2% bf16 padding artifact; kappa_cross, the "
+            "decision number, is computed with both sides unbatched."
+        ),
         "definition": (
             "S = |q.h_forget|; L = max over protected states of |q.h_p|; "
             "kappa = L/S bounds the worst protected logit shift at d*kappa "
@@ -879,7 +885,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             if len(prompts) < 3:
                 continue
             basis = protected_post_basis[answer_key(record)]
-            neigh = prompt_hidden(model, tok, prompts, device, int(a.batch_size))
+            # Batch size 1, matching how h_writer was computed in the gate
+            # loop. kappa_cross is |q.h_n| / |q.h_forget|, so if one side is
+            # padded and the other is not, the ratio absorbs a bf16 padding
+            # artifact (~2% relative) instead of measuring geometry.
+            neigh = prompt_hidden(model, tok, prompts, device, 1)
             r_n_cross = float(
                 sum(residual_frac(h, basis) for h in neigh) / neigh.shape[0]
             )
