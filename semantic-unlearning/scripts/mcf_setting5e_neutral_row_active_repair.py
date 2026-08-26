@@ -57,6 +57,7 @@ opened for optimization or checkpoint selection.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 from pathlib import Path
@@ -87,6 +88,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--forget-num", type=int, default=50)
     p.add_argument("--repair-steps", type=int, default=800)
     p.add_argument("--repair-lr", type=float, default=5e-3)
+    p.add_argument(
+        "--neutral-target",
+        default="Unknown",
+        help=(
+            "Answer whose row this stage boosts, replacing the dataset's "
+            "target_new. Spe scores neighborhood prompts as NLL(target_true) < "
+            "NLL(target_new), so boosting the dataset's target_new pushes that "
+            "comparison the wrong way on every neighborhood prompt -- the "
+            "measured cause of Spe collapse (final neighborhood target_new NLL "
+            "6.1 vs target_true 7.22). A neutral answer appears on NEITHER side "
+            "of that comparison, so this stage becomes Spe-neutral by "
+            "construction, which is why ZsRE's forget Spe is byte-identical "
+            "pre/post repair. Must match Stage 1's --neutral-target. Set empty "
+            "to restore the previous target_new-boosting behavior."
+        ),
+    )
     p.add_argument("--constraint-margin", type=float, default=0.05)
     p.add_argument(
         "--repair-l2",
@@ -361,6 +378,30 @@ def validate_locked(
     return records, manifest
 
 
+def substitute_neutral_target(
+    records: Sequence[Mapping[str, Any]], neutral_target: str
+) -> List[Dict[str, Any]]:
+    """Replace every record's target_new with the neutral answer.
+
+    Applied to the records before instances, synthetic paraphrases and hidden
+    caches are built, so the rows selected for editing, the margin hinge and
+    the failure detection all consistently reference the neutral answer with
+    no sign flips anywhere else in this file: the margin stays
+    NLL(target_true) - NLL(reference) and boosting the reference still raises
+    it. The sensitive fact (target_true) is untouched -- what is forgotten
+    does not change, only which row is raised to replace it.
+    """
+    updated: List[Dict[str, Any]] = []
+    for record in records:
+        record = copy.deepcopy(dict(record))
+        rewrite = record["requested_rewrite"]
+        rewrites = rewrite if isinstance(rewrite, list) else [rewrite]
+        for item in rewrites:
+            item["target_new"] = {"str": neutral_target}
+        updated.append(record)
+    return updated
+
+
 def margins_from_caches(caches, delta: torch.Tensor) -> torch.Tensor:
     return shared.mcf_margins_from_delta_caches(
         caches,
@@ -522,6 +563,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     records, manifest = validate_locked(
         visible_path, manifest_path, int(a.seed), int(a.forget_num)
     )
+
+    neutral_target = str(a.neutral_target).strip()
+    if neutral_target:
+        records = substitute_neutral_target(records, neutral_target)
+        print(
+            f"Neutral target: {neutral_target!r} replaces the dataset's "
+            "target_new as the boosted row (Spe-neutral: it appears on "
+            "neither side of the neighborhood comparison)"
+        )
 
     synthetic_records = synth.build_synthetic_records(
         records, count=int(a.synthetic_paraphrases_per_record)
@@ -939,6 +989,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         },
         "repaired_row_field": "target_new",
         "repair_direction": "boost_neutral_answer_not_suppress_sensitive_answer",
+        "neutral_target": {
+            "text": neutral_target or None,
+            "replaced_dataset_target_new": bool(neutral_target),
+            "spe_neutral_by_construction": bool(neutral_target),
+            "rationale": (
+                "Spe scores neighborhood prompts as NLL(target_true) < "
+                "NLL(target_new); a neutral answer is on neither side, so "
+                "boosting it cannot move that comparison."
+            ),
+        },
         "stage1_failure_count": len(active_positions),
         "stage1_failure_positions": active_positions,
         "stage1_passing_positions": passing_positions,

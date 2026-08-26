@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Dict
 
@@ -56,6 +56,20 @@ def parse_args() -> argparse.Namespace:
             "before training, so editing a token's answer-confidence role "
             "does not also perturb its input-embedding role in unrelated "
             "prompts. No-op if the model is already untied."
+        ),
+    )
+    p.add_argument(
+        "--neutral-target",
+        default="Unknown",
+        help=(
+            "Answer Stage 1 raises instead of the dataset's target_new. MCF's "
+            "target_new values are common words (French, English, London) that "
+            "are the CORRECT answer for ~29%% of retain records, so boosting "
+            "them damages specificity; several are also suppressed as another "
+            "record's target_true, giving one row contradictory gradients. A "
+            "neutral answer collides with nothing. Matches the ZsRE/MQuAKE "
+            "adapters, which already train against 'Unknown'. Set empty to "
+            "restore the previous target_new behavior."
         ),
     )
     p.add_argument(
@@ -175,6 +189,34 @@ def main() -> None:
         f"untied now: {untied_now}"
     )
 
+    # Substitute the neutral answer into the raised slot before row groups are
+    # built. MCF keeps the sensitive fact in target_true (suppressed) and the
+    # counterfactual in target_new (raised); only the latter is replaced, so
+    # what gets forgotten is unchanged.
+    neutral_target = str(args.neutral_target).strip()
+    neutral_answer = ""
+    neutral_token_ids: list[int] = []
+    if neutral_target:
+        neutral_answer = gagd.normalize_answer(neutral_target)
+        neutral_token_ids = gagd.token_ids_for_text(tok, neutral_answer)
+        if not neutral_token_ids:
+            raise ValueError(
+                f"neutral target {neutral_target!r} tokenized to nothing"
+            )
+        if len(neutral_token_ids) > 1:
+            print(
+                f"WARNING: neutral target {neutral_answer!r} is "
+                f"{len(neutral_token_ids)} tokens {neutral_token_ids}; Stage 2 "
+                "will have that many rows to repair instead of one. A "
+                "single-token neutral answer keeps the edit minimal."
+            )
+        forget = [replace(ex, target_new=neutral_answer) for ex in forget]
+        print(
+            f"Neutral target: {neutral_answer!r} -> token ids "
+            f"{neutral_token_ids} (excluded from Stage 1 row groups and "
+            "restored to base; Stage 2 owns the raise)"
+        )
+
     vocab_size = model.get_input_embeddings().weight.shape[0]
     frequency_docs = gagd.load_wiki_frequency_documents(
         args.wikidata_dir, args.frequency_doc_start, args.frequency_docs
@@ -227,7 +269,15 @@ def main() -> None:
         optimizer = torch.optim.AdamW(params, lr=args.emb_lm_lr, weight_decay=0.0)
 
     base_rows = gagd.snapshot_embedding_output_weights(tied_info)
-    row_groups = gagd.collect_post_training_token_groups(tok, forget, [])
+    row_groups = gagd.collect_post_training_token_groups(
+        tok,
+        forget,
+        [],
+        # Excluded ids drop out of every group, so weight.copy_(base) leaves
+        # them untouched. Stage 1 only suppresses; the neutral row's raise is
+        # left to Stage 2, where it can be done under subspace protection.
+        excluded_token_ids=neutral_token_ids,
+    )
     sampler = gagd.EpochBatchSampler(forget, args.batch_size, args.seed)
     device = gagd.first_device(model)
 
@@ -338,6 +388,12 @@ def main() -> None:
         "post_training_new_true_alpha": args.post_training_new_true_alpha,
         "post_training_new_retain_alpha": args.post_training_new_retain_alpha,
         "post_training_new_true_retain_alpha": args.post_training_new_true_retain_alpha,
+        "neutral_target": {
+            "text": neutral_answer or None,
+            "token_ids": neutral_token_ids,
+            "excluded_and_restored_to_base_after_stage1": bool(neutral_token_ids),
+            "replaced_dataset_target_new": bool(neutral_token_ids),
+        },
         "embeddings_tied_before_run": was_tied,
         "embeddings_untied_this_run": untied_now,
         "train_scope": args.train_scope,

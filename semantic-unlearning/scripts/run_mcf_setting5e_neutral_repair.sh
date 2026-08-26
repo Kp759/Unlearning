@@ -58,6 +58,8 @@ GENERIC_PROTECTION_DOC_START=${GENERIC_PROTECTION_DOC_START:-20}
 
 STAGE1_UNTIE_EMBEDDINGS=${STAGE1_UNTIE_EMBEDDINGS:-1}
 STAGE1_TRAIN_SCOPE=${STAGE1_TRAIN_SCOPE:-lm_head}
+# Shared by both stages: they must agree on which row is raised.
+NEUTRAL_TARGET=${NEUTRAL_TARGET:-Unknown}
 STAGE1_FREQUENCY_DOCS=${STAGE1_FREQUENCY_DOCS:-5000}
 STAGE1_FREQUENCY_DOC_START=${STAGE1_FREQUENCY_DOC_START:-20}
 STAGE1_FREQUENCY_CAP_ALPHA=${STAGE1_FREQUENCY_CAP_ALPHA:-0.5}
@@ -131,6 +133,7 @@ python -u scripts/mcf_forget_only_setting5e.py \
   --forget-margin "$STAGE1_FORGET_MARGIN" \
   "$STAGE1_UNTIE_FLAG" \
   --train-scope "$STAGE1_TRAIN_SCOPE" \
+  --neutral-target "$NEUTRAL_TARGET" \
   --wikidata-dir "$WIKIDATA_DIR" \
   --frequency-docs "$STAGE1_FREQUENCY_DOCS" \
   --frequency-doc-start "$STAGE1_FREQUENCY_DOC_START" \
@@ -159,6 +162,7 @@ python -u scripts/mcf_setting5e_neutral_row_active_repair.py \
   --wikidata-dir "$WIKIDATA_DIR" \
   --generic-protection-samples "$GENERIC_PROTECTION_SAMPLES" \
   --generic-protection-doc-start "$GENERIC_PROTECTION_DOC_START" \
+  --neutral-target "$NEUTRAL_TARGET" \
   --protected-kl-max "$PROTECTED_KL_MAX" \
   --synthetic-paraphrases-per-record "$SYNTHETIC_PARAPHRASES_PER_RECORD" \
   --candidate-scales "$CANDIDATE_SCALES" \
