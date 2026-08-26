@@ -276,6 +276,10 @@ def mine_token_contexts(
     """
     remaining = {int(t): int(per_token_cap) for t in token_ids}
     collected: Dict[int, List[torch.Tensor]] = defaultdict(list)
+    vocab = int(model.get_input_embeddings().weight.shape[0])
+    wanted_lookup = torch.zeros(vocab, dtype=torch.bool)
+    for token_id in token_ids:
+        wanted_lookup[int(token_id)] = True
     old = getattr(tok, "padding_side", "right")
     tok.padding_side = "right"
     scanned = 0
@@ -291,14 +295,38 @@ def mine_token_contexts(
             hidden = model(**enc, output_hidden_states=True).hidden_states[-1]
             ids, mask = enc["input_ids"], enc["attention_mask"]
             scanned += len(chunk)
-            for row in range(ids.shape[0]):
-                length = int(mask[row].sum().item())
-                for pos in range(length - 1):
-                    nxt = int(ids[row, pos + 1].item())
-                    if remaining.get(nxt, 0) <= 0:
+            # Vectorized hit-finding. The obvious per-position loop calls
+            # .item() on a CUDA tensor for every token, forcing one
+            # host-device sync each: at 50k documents of 256 tokens that is
+            # ~13M syncs and dominates the run, dwarfing the forward passes.
+            # Here one masked comparison finds the hits, then only the hits
+            # (orders of magnitude fewer) are walked in Python to apply the
+            # per-token caps, and they are gathered in a single transfer.
+            next_ids = ids[:, 1:].cpu()
+            next_valid = mask[:, 1:].bool().cpu()
+            hits = next_valid & wanted_lookup[next_ids]
+            hit_rows, hit_cols = hits.nonzero(as_tuple=True)
+            if hit_rows.numel():
+                # nonzero returns row-major order, matching the original
+                # sequential scan, so the cap policy and the resulting
+                # collection order are unchanged.
+                hit_tokens = next_ids[hit_rows, hit_cols].tolist()
+                keep_rows, keep_cols, keep_tokens = [], [], []
+                for r, c, t in zip(hit_rows.tolist(), hit_cols.tolist(), hit_tokens):
+                    if remaining.get(t, 0) <= 0:
                         continue
-                    collected[nxt].append(hidden[row, pos, :].detach().float().cpu())
-                    remaining[nxt] -= 1
+                    remaining[t] -= 1
+                    keep_rows.append(r)
+                    keep_cols.append(c)
+                    keep_tokens.append(t)
+                if keep_rows:
+                    gathered = hidden[
+                        torch.tensor(keep_rows, device=hidden.device),
+                        torch.tensor(keep_cols, device=hidden.device),
+                        :,
+                    ].detach().float().cpu()
+                    for slot, token_id in enumerate(keep_tokens):
+                        collected[token_id].append(gathered[slot])
             if scanned % 5000 < batch_size:
                 filled = sum(1 for v in remaining.values() if v <= 0)
                 print(f"    scanned {scanned} docs; {filled}/{len(remaining)} token rows at cap")

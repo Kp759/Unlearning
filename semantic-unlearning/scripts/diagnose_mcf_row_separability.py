@@ -219,6 +219,10 @@ def corpus_answer_contexts(
     "French" wherever French was already right. No evaluation data is read.
     """
     wanted = {int(v): k for k, v in answer_first_token.items()}
+    vocab = int(model.get_input_embeddings().weight.shape[0])
+    wanted_lookup = torch.zeros(vocab, dtype=torch.bool)
+    for token_id in wanted:
+        wanted_lookup[int(token_id)] = True
     collected: Dict[str, List[torch.Tensor]] = defaultdict(list)
     remaining = {k: int(per_answer_cap) for k in answer_first_token}
     scanned = 0
@@ -233,14 +237,33 @@ def corpus_answer_contexts(
         hidden = model(**enc, output_hidden_states=True).hidden_states[-1]
         ids, mask = enc["input_ids"], enc["attention_mask"]
         scanned += len(chunk)
-        for row in range(ids.shape[0]):
-            length = int(mask[row].sum().item())
-            for pos in range(length - 1):
-                answer = wanted.get(int(ids[row, pos + 1].item()))
+        # Vectorized: the per-position form calls .item() on a CUDA tensor for
+        # every token, one host-device sync each, which dominates the run at
+        # 50k documents. One masked comparison finds the hits; only those are
+        # walked to apply caps, and they are gathered in a single transfer.
+        next_ids = ids[:, 1:].cpu()
+        next_valid = mask[:, 1:].bool().cpu()
+        hits = next_valid & wanted_lookup[next_ids]
+        hit_rows, hit_cols = hits.nonzero(as_tuple=True)
+        if hit_rows.numel():
+            hit_tokens = next_ids[hit_rows, hit_cols].tolist()
+            keep_rows, keep_cols, keep_answers = [], [], []
+            for r, c, t in zip(hit_rows.tolist(), hit_cols.tolist(), hit_tokens):
+                answer = wanted.get(t)
                 if answer is None or remaining[answer] <= 0:
                     continue
-                collected[answer].append(hidden[row, pos, :].detach().float().cpu())
                 remaining[answer] -= 1
+                keep_rows.append(r)
+                keep_cols.append(c)
+                keep_answers.append(answer)
+            if keep_rows:
+                gathered = hidden[
+                    torch.tensor(keep_rows, device=hidden.device),
+                    torch.tensor(keep_cols, device=hidden.device),
+                    :,
+                ].detach().float().cpu()
+                for slot, answer in enumerate(keep_answers):
+                    collected[answer].append(gathered[slot])
         if scanned % 2000 < batch_size:
             filled = sum(1 for v in remaining.values() if v <= 0)
             print(f"  scanned {scanned} docs; {filled}/{len(remaining)} answers at cap")
