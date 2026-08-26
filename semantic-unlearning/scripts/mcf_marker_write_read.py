@@ -520,8 +520,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     # split fit / gate; the gate slice never informs marker selection
     fit_contexts: Dict[int, torch.Tensor] = {}
     gate_contexts: Dict[int, torch.Tensor] = {}
+    # Dedicated generator, not the shared one: the shared stream's state depends
+    # on how many draws happened earlier, so a separate diagnostic script could
+    # never reproduce this split and its numbers would not be comparable.
+    split_gen = torch.Generator().manual_seed(int(a.seed) + 90101)
     for token_id, states in token_contexts.items():
-        perm = torch.randperm(states.shape[0], generator=generator)
+        perm = torch.randperm(states.shape[0], generator=split_gen)
         n_gate = max(1, int(round(states.shape[0] * float(a.gate_holdout_frac))))
         gate_contexts[token_id] = states[perm[:n_gate]]
         fit_contexts[token_id] = states[perm[n_gate:]]
@@ -703,8 +707,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     post_fit: Dict[int, torch.Tensor] = {}
     post_gate: Dict[int, torch.Tensor] = {}
+    post_split_gen = torch.Generator().manual_seed(int(a.seed) + 90102)
     for token_id, states in post_contexts.items():
-        perm = torch.randperm(states.shape[0], generator=generator)
+        perm = torch.randperm(states.shape[0], generator=post_split_gen)
         n_gate = max(1, int(round(states.shape[0] * float(a.gate_holdout_frac))))
         post_gate[token_id] = states[perm[:n_gate]]
         post_fit[token_id] = states[perm[n_gate:]]
