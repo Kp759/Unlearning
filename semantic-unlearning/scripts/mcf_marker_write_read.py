@@ -97,8 +97,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--lambda-off", type=float, default=1.0)
     p.add_argument("--lambda-kl", type=float, default=1.0)
     p.add_argument("--writer-steps", type=int, default=400)
-    p.add_argument("--writer-lr", type=float, default=5e-3)
+    p.add_argument("--writer-lr", type=float, default=2e-4)
     p.add_argument("--writer-batch-size", type=int, default=8)
+    p.add_argument(
+        "--writer-grad-clip", type=float, default=1.0,
+        help="Clip the writer delta's gradient norm. 0 disables.",
+    )
 
     # Gate
     p.add_argument("--gate-min", type=float, default=0.15)
@@ -462,6 +466,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             }
         )
 
+    row_owners: Dict[int, int] = defaultdict(int)
+    for record in records:
+        for token_id in record["subject_rows"]:
+            row_owners[token_id] += 1
+    for record in records:
+        record["shared_rows"] = sum(
+            1 for t in record["subject_rows"] if row_owners[t] > 1
+        )
     edited_subject_rows = sorted({t for r in records for t in r["subject_rows"]})
     edited_answer_rows = sorted({t for r in records for t in r["answer_rows"]})
     print(
@@ -533,6 +545,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             raise RuntimeError(
                 f"record {record['case_id']}: no reachable direction survives protection"
             )
+        # SVD returns an arbitrary sign; v and -v are equally valid singular
+        # vectors. Align with the displacement the subject naturally produces
+        # so the writer does not have to drive the amplitude across zero.
+        if reach.numel():
+            if float((reach @ marker).sum()) < 0.0:
+                marker = -marker
         markers_by_answer[key].append(marker)
         record["marker"] = marker
         record["reachability_rho"] = rho
@@ -580,7 +598,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 delta_h = h_new - base_hidden[record["index"]].to(device)
                 along = torch.dot(marker, delta_h)
                 l_write = l_write + F.relu(float(a.write_alpha) - along)
-                l_off = l_off + (delta_h - along * marker).pow(2).sum()
+                # Normalized by hidden size: unnormalized this term reaches
+                # ~2e3 against a write hinge of ~1e1, so it owns the gradient
+                # while fighting the displacement the hinge is asking for.
+                l_off = l_off + (delta_h - along * marker).pow(2).sum() / delta_h.shape[0]
                 logprobs = torch.log_softmax(out.logits[0, -1, :].float(), dim=-1)
                 l_kl = l_kl + F.kl_div(
                     logprobs, base_logprobs[record["index"]].to(device),
@@ -595,10 +616,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite writer loss at step {step}")
             loss.backward()
+            if float(a.writer_grad_clip) > 0:
+                torch.nn.utils.clip_grad_norm_([writer.delta], float(a.writer_grad_clip))
             optimizer.step()
             if step % 25 == 0 or step == 1:
                 log_file.write(json.dumps({
-                    "step": step, "loss": float(loss),
+                    "step": step, "loss": float(loss.detach()),
                     "l_write": float(l_write / n), "l_off": float(l_off / n),
                     "l_kl": float(l_kl / n),
                 }) + "\n")
@@ -666,8 +689,17 @@ def main(argv: Sequence[str] | None = None) -> None:
             "case_id": record["case_id"], "answer": record["answer"],
             "R_f": r_f, "R_n": r_n, "G": r_f - r_n,
             "rho": record["reachability_rho"],
+            "write_amplitude": record["write_amplitude"],
+            "write_parallel_fraction": record["write_parallel_fraction"],
+            "write_off_axis_norm": record["write_off_axis_norm"],
+            "subject_rows_shared_with_other_records": record["shared_rows"],
         })
 
+    amps = sorted(row["write_amplitude"] for row in gate_rows)
+    print(
+        f"  write amplitude A: min {amps[0]:+.3f}  p10 {amps[max(0,len(amps)//10)]:+.3f}  "
+        f"median {amps[len(amps)//2]:+.3f}  max {amps[-1]:+.3f}   (target alpha={a.write_alpha})"
+    )
     gaps = sorted(row["G"] for row in gate_rows if row["G"] == row["G"])
     passed = [g for g in gaps if g >= float(a.gate_min)]
     pass_frac = len(passed) / max(1, len(gaps))
