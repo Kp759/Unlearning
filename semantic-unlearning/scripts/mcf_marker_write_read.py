@@ -109,7 +109,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--control-nll-quantile", type=float, default=0.9,
                    help="Sequence-NLL threshold as a quantile of the BASE model's NLL on the "
                         "training-visible forget facts. Calibrated from training data only.")
-    p.add_argument("--max-controls-per-answer", type=int, default=64)
+    p.add_argument(
+        "--max-controls-per-answer", type=int, default=64,
+        help=(
+            "Cap applied per (TEMPLATE, answer) during screening, not per "
+            "(relation, answer). Controls are pooled afterwards by relation_id, "
+            "so when several templates share a relation_id their accepted "
+            "controls combine and a relation-answer group can exceed this cap "
+            "-- observed max 97 fit controls at a cap of 64. The pooling is "
+            "intended, since H_{y,r} is defined at the semantic relation level; "
+            "the flag name is the misleading part."
+        ),
+    )
     p.add_argument("--min-fit-controls", type=int, default=16)
     p.add_argument(
         "--stop-after-protection", action="store_true",
@@ -554,6 +565,9 @@ def build_relation_controls(
         by_template[record["prompt_template"]].append(record)
 
     accepted: List[Dict[str, Any]] = []
+    funnel: Dict[Tuple[str, str], Dict[str, int]] = defaultdict(
+        lambda: {"candidates": 0, "rank_survivors": 0, "nll_scored": 0, "nll_accepted": 0}
+    )
     screened = 0
     for template, group in by_template.items():
         answers = sorted({r["answer"] for r in group})
@@ -597,11 +611,14 @@ def build_relation_controls(
                 continue
             # Cap the candidates scored: accepting max_controls needs only
             # enough survivors to clear the NLL threshold, not all of them.
-            shortlist = [prompts[i] for i in survivors.get(head, [])][
-                : int(max_controls) * 4
-            ]
+            all_survivors = survivors.get(head, [])
+            stats = funnel[(relation_key, answer)]
+            stats["candidates"] += len(prompts)
+            stats["rank_survivors"] += len(all_survivors)
+            shortlist = [prompts[i] for i in all_survivors][: int(max_controls) * 4]
             if not shortlist:
                 continue
+            stats["nll_scored"] += len(shortlist)
             nlls = batch_answer_nll(model, tok, shortlist, answer, device, batch_size)
             kept = 0
             for prompt, nll in zip(shortlist, nlls):
@@ -615,6 +632,7 @@ def build_relation_controls(
                     "prompt": prompt,
                     "answer": answer,
                 })
+                stats["nll_accepted"] += 1
                 kept += 1
     report = {
         "candidates": len(candidates),
@@ -624,6 +642,9 @@ def build_relation_controls(
         "acceptance_rate": len(accepted) / max(1, screened),
         "first_token_rank_max": int(first_token_rank),
         "sequence_nll_threshold": float(nll_threshold),
+        "funnel": {
+            f"{key[0]}||{key[1]}": dict(value) for key, value in funnel.items()
+        },
     }
     return accepted, report
 
@@ -931,10 +952,23 @@ def main(argv: Sequence[str] | None = None) -> None:
             per_group: Dict[Tuple[str, str], int] = defaultdict(int)
             for control in control_prompts:
                 per_group[(control["relation_key"], control["answer"])] += 1
+
+            def would_be_short(n_accepted: int) -> bool:
+                """Apply the SAME split the fit/gate partition will apply.
+
+                Comparing against min_fit + min_gate treats 20 accepted as
+                sufficient, but 25% holdout turns 20 into 15 fit + 5 gate,
+                which fails min_fit=16. The practical minimum is 21, and the
+                mismatch is why the adaptive loop reported 26 short while the
+                post-split gate found 28.
+                """
+                n_gate = max(1, int(round(n_accepted * float(a.gate_holdout_frac))))
+                n_fit = n_accepted - n_gate
+                return n_fit < int(a.min_fit_controls) or n_gate < int(a.min_gate_controls)
+
             short = [
                 r["case_id"] for r in records
-                if per_group.get((relation_key_of(r), r["answer"]), 0)
-                < int(a.min_fit_controls) + int(a.min_gate_controls)
+                if would_be_short(per_group.get((relation_key_of(r), r["answer"]), 0))
             ]
             print(
                 f"    accepted {ctrl_report['controls_accepted']} control prompts "
@@ -1018,6 +1052,38 @@ def main(argv: Sequence[str] | None = None) -> None:
         "records_insufficient": insufficient,
         "per_record": coverage_rows,
     }
+    # Attach the funnel to each record: "5000 candidates -> 3 rank survivors"
+    # and "5000 candidates -> 842 rank survivors -> 0 NLL accepted" are
+    # different failures needing different fixes, and coverage alone cannot
+    # distinguish them.
+    funnel = protection_report.get("funnel", {})
+    for row, record in zip(coverage_rows, records):
+        stats = funnel.get(f"{relation_key_of(record)}||{record['answer']}")
+        if stats:
+            row.update({
+                "candidates": stats["candidates"],
+                "rank_survivors": stats["rank_survivors"],
+                "nll_scored": stats["nll_scored"],
+                "nll_accepted": stats["nll_accepted"],
+            })
+    failing = [r for r in coverage_rows if not r["sufficient"] and "candidates" in r]
+    if failing:
+        no_survivors = [r for r in failing if r["rank_survivors"] == 0]
+        survived_but_rejected = [
+            r for r in failing if r["rank_survivors"] > 0 and r["nll_accepted"] == 0
+        ]
+        partial = [r for r in failing if r["nll_accepted"] > 0]
+        print(
+            f"  failure breakdown: {len(no_survivors)} passed no rank screen, "
+            f"{len(survived_but_rejected)} survived rank but failed NLL, "
+            f"{len(partial)} accepted some but too few"
+        )
+        for row in failing[:5]:
+            print(
+                f"    case {row['case_id']}: {row['candidates']} candidates -> "
+                f"{row['rank_survivors']} rank survivors -> {row['nll_scored']} scored -> "
+                f"{row['nll_accepted']} accepted -> {row['n_fit']} fit / {row['n_gate']} gate"
+            )
     print(
         f"  control coverage (unique PROMPTS, fit): min {fits[0]}  p10 {fits[max(0,len(fits)//10)]}  "
         f"median {fits[len(fits)//2]}  p90 {fits[min(len(fits)-1,(9*len(fits))//10)]}  max {fits[-1]}"
