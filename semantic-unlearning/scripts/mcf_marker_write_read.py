@@ -47,6 +47,7 @@ import argparse
 import json
 import math
 import random
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
@@ -96,6 +97,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--candidate-pool-sizes", default="1000,2500,5000",
                    help="Pool sizes tried in order, expanding only for records short on coverage.")
     p.add_argument("--candidate-min-count", type=int, default=3)
+    p.add_argument(
+        "--candidate-scan-docs", type=int, default=5000,
+        help=(
+            "Documents scanned for proper-noun candidates. A few thousand "
+            "yield far more spans than the largest pool; scanning all 50k is "
+            "pure cost. 0 scans everything."
+        ),
+    )
     p.add_argument("--control-first-token-rank", type=int, default=5)
     p.add_argument("--control-nll-quantile", type=float, default=0.9,
                    help="Sequence-NLL threshold as a quantile of the BASE model's NLL on the "
@@ -469,6 +478,47 @@ def mine_proper_noun_candidates(
     return pool[: int(max_candidates)]
 
 
+@torch.no_grad()
+def batch_answer_nll(
+    model, tok, prompts: Sequence[str], answer: str, device, batch_size: int,
+) -> List[float]:
+    """Mean teacher-forced NLL of one answer across many prompts, batched.
+
+    The screening loop called the single-prompt form once per survivor, which
+    at thousands of survivors is thousands of separate GPU launches for
+    ~20-token inputs -- launch overhead, not compute. This decides accept or
+    reject only; the states that feed kappa are still computed unbatched so
+    both sides of that ratio stay numerically comparable.
+    """
+    answer_ids = gagd.token_ids_for_text(tok, gagd.normalize_answer(answer))
+    if not answer_ids:
+        return [float("nan")] * len(prompts)
+    pad = tok.pad_token_id if tok.pad_token_id is not None else 0
+    out: List[float] = []
+    for start in range(0, len(prompts), batch_size):
+        chunk = prompts[start : start + batch_size]
+        seqs = [gagd.token_ids_for_text(tok, p) + answer_ids for p in chunk]
+        width = max(len(x) for x in seqs)
+        ids = torch.tensor(
+            [x + [pad] * (width - len(x)) for x in seqs], dtype=torch.long, device=device
+        )
+        attn = torch.tensor(
+            [[1] * len(x) + [0] * (width - len(x)) for x in seqs],
+            dtype=torch.long, device=device,
+        )
+        logits = model(input_ids=ids, attention_mask=attn).logits.float()
+        for row, seq in enumerate(seqs):
+            prompt_len = len(seq) - len(answer_ids)
+            total = 0.0
+            for j, token_id in enumerate(answer_ids):
+                total += float(
+                    -torch.log_softmax(logits[row, prompt_len + j - 1], dim=-1)[token_id]
+                )
+            out.append(total / len(answer_ids))
+        del logits
+    return out
+
+
 def relation_key_of(record: Mapping[str, Any]) -> str:
     """Relation identity for protection keying.
 
@@ -545,12 +595,18 @@ def build_relation_controls(
             head = heads.get(answer)
             if head is None:
                 continue
+            # Cap the candidates scored: accepting max_controls needs only
+            # enough survivors to clear the NLL threshold, not all of them.
+            shortlist = [prompts[i] for i in survivors.get(head, [])][
+                : int(max_controls) * 4
+            ]
+            if not shortlist:
+                continue
+            nlls = batch_answer_nll(model, tok, shortlist, answer, device, batch_size)
             kept = 0
-            for idx in survivors.get(head, []):
+            for prompt, nll in zip(shortlist, nlls):
                 if kept >= int(max_controls):
                     break
-                prompt = prompts[idx]
-                nll = answer_nll(model, tok, prompt, answer, device)
                 if not math.isfinite(nll) or nll > float(nll_threshold):
                     continue
                 accepted.append({
@@ -806,6 +862,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     # ---- Stage 0A: mine protected contexts per answer-token row -----------
     print("\nStage 0A: mining answer-conditioned protected contexts")
+    _t_0a = time.time()
     documents = gagd.load_wiki_frequency_documents(
         a.wikidata_dir, int(a.corpus_doc_start), int(a.corpus_docs)
     )
@@ -849,10 +906,22 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         exclude = [r["subject"] for r in records] + [r["answer"] for r in records]
         pool_sizes = [int(x) for x in str(a.candidate_pool_sizes).split(",") if x.strip()]
+        # Mined once: the counts do not depend on pool size, only the slice
+        # does. Re-mining per size repeated a full pass over every document
+        # for an identical ranking.
+        t_mine = time.time()
+        full_pool = mine_proper_noun_candidates(
+            documents[: int(a.candidate_scan_docs)] if int(a.candidate_scan_docs) > 0
+            else documents,
+            max(pool_sizes), int(a.candidate_min_count), int(a.seed), exclude,
+        )
+        print(
+            f"  mined {len(full_pool)} candidate spans from "
+            f"{min(len(documents), int(a.candidate_scan_docs) or len(documents))} docs "
+            f"in {time.time() - t_mine:.1f}s"
+        )
         for pool_size in pool_sizes:
-            candidates = mine_proper_noun_candidates(
-                documents, pool_size, int(a.candidate_min_count), int(a.seed), exclude
-            )
+            candidates = full_pool[:pool_size]
             print(f"  candidate pool: {len(candidates)} proper-noun spans (answer-agnostic)")
             control_prompts, ctrl_report = build_relation_controls(
                 model, tok, records, candidates, device, int(a.batch_size),
@@ -968,6 +1037,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         raise SystemExit(2)
     if a.stop_after_protection:
+        print(f"\n  Stage 0A wall time: {time.time() - _t_0a:.1f}s")
         print(
             f"\n--stop-after-protection: coverage is healthy "
             f"({len(records) - len(insufficient)}/{len(records)} records). "
@@ -983,6 +1053,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     # ---- Stage 0B: reachability + markers ---------------------------------
     print("\nStage 0B: reachability sketch and marker selection")
+    _t_stage0b = time.time()
     writer = EmbeddingRowDelta(embedding, edited_subject_rows, device)
     slot_of = {t: i for i, t in enumerate(writer.row_ids)}
     markers_by_answer: Dict[Tuple[int, ...], List[torch.Tensor]] = defaultdict(list)
@@ -1031,6 +1102,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(f"  WARNING: {len(weak)} records with rho < 0.05 are unlikely to write successfully")
 
     # ---- Stage 1: writer ---------------------------------------------------
+    print(f"  Stage 0B wall time: {time.time() - _t_stage0b:.1f}s")
     print(f"\nStage 1: writer ({len(writer.row_ids)} embedding rows trainable)")
     writer.enabled = False
     base_hidden = {

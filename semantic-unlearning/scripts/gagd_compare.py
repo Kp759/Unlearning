@@ -872,7 +872,15 @@ def load_wiki_frequency_documents(
     if not path.exists():
         return []
     raw_ds = load_from_disk(str(path))
-    texts = raw_ds["train"]["text"][doc_start : doc_start + num_docs]
+    # Slice the Dataset BEFORE selecting the column. raw_ds["train"]["text"]
+    # materializes the entire column as a Python list first -- for the 100k
+    # Wikipedia corpus that is every document decoded into memory before the
+    # slice discards half of them.
+    split = raw_ds["train"]
+    stop = min(len(split), int(doc_start) + int(num_docs))
+    if int(doc_start) >= stop:
+        return []
+    texts = split[int(doc_start) : stop]["text"]
     return [t for t in texts if t and t.strip()]
 
 
