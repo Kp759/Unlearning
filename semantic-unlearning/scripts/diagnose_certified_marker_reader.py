@@ -102,7 +102,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     gagd.set_seed(int(a.seed))
 
     state = torch.load(Path(a.writer_state).resolve(), map_location="cpu", weights_only=False)
-    print(f"loaded writer state: {len(state['writer_row_ids'])} rows, "
+    writer_mode = str(state.get("writer_mode", "embedding"))
+    writer_units = (
+        len(state.get("writer_row_ids", []))
+        if writer_mode == "embedding" else int(state["writer_delta"].shape[0])
+    )
+    print(f"loaded {writer_mode} writer state: {writer_units} units, "
           f"{len(state['markers'])} markers")
 
     data = json.loads(Path(a.mcf_path).read_text(encoding="utf-8"))
@@ -124,10 +129,31 @@ def main(argv: Sequence[str] | None = None) -> None:
     embedding = model.get_input_embeddings()
     hidden_size = int(embedding.weight.shape[1])
 
-    # reinstate the trained writer
-    writer = mwr.EmbeddingRowDelta(embedding, state["writer_row_ids"], device)
+    # Reinstate either historical global rows or the exact-subject runtime.
+    # The latter is still a useful writer-only kappa counterfactual here; its
+    # final shipped reader is scoped too, so actual closed-scope leakage is 0.
+    scope_router = None
+    if writer_mode == "embedding":
+        writer = mwr.EmbeddingRowDelta(embedding, state["writer_row_ids"], device)
+    elif writer_mode == "span_gated":
+        layers = mwr.scoped_edit.find_decoder_layers(model)
+        layer_index = int(state["writer_layer"])
+        scope_router = mwr.SpanGateRouter(
+            embedding,
+            state["subject_patterns"],
+            subjects=state.get("subjects"),
+            model=model,
+        )
+        writer = mwr.SpanGatedWriter(
+            layers[layer_index],
+            scope_router,
+            hidden_size,
+            next(layers[layer_index].parameters()).device,
+        )
+    else:
+        raise RuntimeError(f"unsupported writer_mode in state: {writer_mode!r}")
     with torch.no_grad():
-        writer.delta.detach().copy_(state["writer_delta"].to(device))
+        writer.delta.detach().copy_(state["writer_delta"].to(writer.delta.device))
 
     records: List[Dict[str, Any]] = []
     for index, record in enumerate(forget_records):
@@ -307,6 +333,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     print(f"\nreport: {out}")
     writer.close()
+    if scope_router is not None:
+        scope_router.close()
 
 
 if __name__ == "__main__":

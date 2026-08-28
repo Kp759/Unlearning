@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
-"""Embedding Writer + Orthogonal LM-Head Reader for MCF unlearning.
+"""Context-scoped Writer + Orthogonal Reader for MCF editing experiments.
 
-The transformer is frozen end to end. Only sparse input-embedding rows
-(subject tokens) and sparse LM-head rows (sensitive answer tokens) change.
+The transformer is frozen end to end. Two writer modes are retained for a
+causal comparison:
+
+``embedding`` changes sparse subject embedding rows and installs a global
+sparse LM-head reader (the historical baseline).
+
+``span_gated`` keeps both embedding and LM-head weights frozen. A complete
+subject token sequence routes to a per-record hidden residual, and the SAME
+gate controls a sparse per-record logit reader. Gating only the writer is not
+enough: a global reader still contributes q.h_n on neighborhoods, which is the
+observed flat L_cross term. Gating the whole edit path makes closed-scope hidden
+states and logits bit-identical to Base.
 
 Motivation, measured rather than assumed: MCF's Eff and Spe read the SAME
 LM-head row in opposite directions -- the forget prompt wants "French"
@@ -20,19 +30,19 @@ This architecture removes the conflict instead of trading against it:
            correct, build a protected basis, and choose a marker direction
            that is (a) orthogonal to that basis and (b) reachable by
            perturbing only the subject's embedding rows.
-  Stage 1  Train ONLY the subject embedding rows so the forget prompt writes
+  Stage 1  Train the selected writer parameters so the forget prompt writes
            that marker into its final hidden state. No forgetting hinge --
            Stage 1 creates a signature, it does not forget.
   Gate     Verify per record that separability actually opened. Fail loudly
            if it did not; the mechanism is falsified there, cheaply.
-  Stage 2  Closed form, no optimizer. Read the marker back with a sparse
-           LM-head delta that is exactly orthogonal to every protected state.
+  Stage 2  Closed form, no optimizer. Read the marker back with either the
+           historical global LM-head delta or a per-record sparse logit delta
+           controlled by the same subject gate.
 
-Locality then holds two ways. Structurally: a prompt containing none of the
-edited subject tokens has a bit-identical embedding sequence, and the
-transformer is frozen, so its hidden states are unchanged. Analytically: the
-reader direction is orthogonal to every protected state by construction, so
-those logits are unchanged to floating-point.
+For span_gated, locality is structural: an input containing no complete scoped
+subject takes neither intervention, so the entire model output is exactly Base.
+This is scoped editing, not proof that the underlying weights no longer encode
+the fact; the sidecar and reports label it accordingly.
 
 Data discipline: Stages 0-2 read only the training-visible forget records and
 Wikipedia text. Paraphrases, neighborhood prompts, retain records and the
@@ -56,11 +66,14 @@ import torch
 import torch.nn.functional as F
 
 import gagd_compare as gagd
+import scoped_span_edit as scoped_edit
 from mcf_sampling import sample_official_mcf_records
 
 
 METHOD = "MCF-embedding-writer-orthogonal-lm-head-reader"
 PROTOCOL = "mcf_marker_write_read_v1"
+SCOPED_METHOD = "MCF-exact-subject-scoped-hidden-writer-and-logit-reader"
+SCOPED_PROTOCOL = "mcf_scoped_span_write_read_v2"
 
 
 # --------------------------------------------------------------------------
@@ -146,11 +159,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
-        "--gate-criterion", choices=("auto", "g", "kappa"), default="auto",
+        "--gate-criterion", choices=("auto", "g", "kappa", "scope"), default="auto",
         help=(
             "auto: kappa for relation protection, G for answer protection, so "
-            "--protection-source answer reproduces the historical runs exactly "
-            "while the new method uses the statistic Stage 2 actually depends on."
+            "--protection-source answer reproduces the historical embedding-writer "
+            "runs exactly. span_gated uses scope: every direct prompt must route "
+            "to its own record. Its Stage-2 reader is gated too, so out-of-scope "
+            "L is exactly zero and kappa is diagnostic rather than a feasibility gate."
         ),
     )
     p.add_argument(
@@ -198,14 +213,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--writer-mode", choices=("embedding", "span_gated"), default="embedding",
         help=(
             "embedding: the current global vocabulary-row writer. span_gated: "
-            "a rank-1 hidden-state writer at --writer-layer, applied only "
-            "inside the subject's character span and only when its record is "
-            "active. The embedding matrix is untouched, so out-of-scope "
-            "neighborhood drift is exactly zero by construction. Expect drift "
-            "-> 0; do NOT expect kappa to move, since L_cross stayed flat "
-            "(10.80 -> 10.48) while drift nearly doubled across alpha 16->32, "
-            "which places leakage in base q-vs-h_n geometry rather than in "
-            "shared-row contamination. Separating those two is the point."
+            "a per-record hidden-state residual at --writer-layer, applied only "
+            "to complete subject spans. The same input-derived scope gate also "
+            "controls Stage 2's sparse reader; gating only the writer would leave "
+            "the global q-vs-h_n leakage term intact. Input embeddings and LM-head "
+            "weights remain frozen, and a closed gate is bit-identical to Base."
         ),
     )
     p.add_argument(
@@ -339,7 +351,10 @@ def subject_span_mask(tok, prompt: str, subject: str) -> Optional[List[int]]:
         return None
     end = start + len(subject)
     try:
-        enc = tok(prompt, return_offsets_mapping=True, add_special_tokens=False)
+        # Match the exact tokenization passed to the model.  In particular,
+        # Llama tokenizers normally prepend BOS here; omitting special tokens
+        # made the old mask one position short so the hook silently did nothing.
+        enc = tok(prompt, return_offsets_mapping=True, add_special_tokens=True)
     except (TypeError, NotImplementedError):
         return None
     offsets = enc.get("offset_mapping")
@@ -352,49 +367,12 @@ def subject_span_mask(tok, prompt: str, subject: str) -> Optional[List[int]]:
     return mask if any(mask) else None
 
 
-class SpanGatedWriter:
-    """Rank-1 hidden-state writer applied only inside a gated subject span.
-
-    The embedding matrix is never touched, so the shared ' de' row stays
-    frozen and identical for every prompt. The intervention fires only when a
-    record is explicitly activated with its own span mask; for anything else
-    -- neighborhood prompts, protected controls, PPL text -- the hook returns
-    its input unchanged, so out-of-scope drift is zero by construction rather
-    than by tuning.
-
-    The learned parameter is a free vector per record at the intervention
-    layer, NOT the marker itself: v_i is a direction in the FINAL hidden
-    state, and adding it mid-stack would not produce it at the output. The
-    write objective is unchanged -- align the final-layer displacement with
-    v_i -- only the point of intervention moves.
-    """
-
-    def __init__(self, layer_module, hidden_size: int, n_records: int, device):
-        self.delta = torch.zeros(
-            (max(1, n_records), hidden_size), dtype=torch.float32, device=device
-        ).requires_grad_(True)
-        self.active: Optional[Tuple[int, torch.Tensor]] = None
-        self.fired = 0
-        self.calls = 0
-        self._handle = layer_module.register_forward_hook(self._hook)
-
-    def _hook(self, module, inputs, output):
-        self.calls += 1
-        if self.active is None:
-            return output
-        index, mask = self.active
-        hidden = output[0] if isinstance(output, tuple) else output
-        span = mask.to(hidden.dtype).view(1, -1, 1)
-        if span.shape[1] != hidden.shape[1]:
-            return output
-        self.fired += 1
-        updated = hidden + span * self.delta[index].to(hidden.dtype).view(1, 1, -1)
-        if isinstance(output, tuple):
-            return (updated,) + tuple(output[1:])
-        return updated
-
-    def close(self) -> None:
-        self._handle.remove()
+# Public aliases retained for callers that import the implementation from this
+# script.  The runtime lives in a dependency-light module so the official
+# evaluator can reinstall a serialized sidecar after loading a normal HF model.
+SpanGatedWriter = scoped_edit.SpanGatedWriter
+SpanGateRouter = scoped_edit.SpanGateRouter
+ScopedLogitReader = scoped_edit.ScopedLogitReader
 
 
 # --------------------------------------------------------------------------
@@ -418,13 +396,29 @@ def prompt_hidden(model, tok, prompts: Sequence[str], device, batch_size: int) -
     return torch.stack(rows) if rows else torch.empty((0, 0))
 
 
+def model_prompt_token_ids(tok, prompt: str) -> List[int]:
+    """Prompt ids exactly as a normal tokenizer->model call sees them.
+
+    ``gagd.token_ids_for_text`` intentionally omits special tokens.  Using it
+    for teacher forcing removed Llama's BOS while ``prompt_hidden`` and the
+    official evaluator retained BOS, so Stage 1, Stage 2, and final evaluation
+    were optimizing three slightly different hidden states.
+    """
+    encoded = tok(str(prompt), add_special_tokens=True)["input_ids"]
+    if encoded and isinstance(encoded[0], list):
+        if len(encoded) != 1:
+            raise ValueError("prompt tokenizer unexpectedly returned a batch")
+        encoded = encoded[0]
+    return [int(x) for x in encoded]
+
+
 def answer_positions(tok, prompt: str, answer: str) -> Tuple[List[int], List[int]]:
     """Token ids of the answer and the hidden-state index that predicts each.
 
     Position j of the answer is predicted by the state at index
     len(prompt) + j - 1 in the teacher-forced sequence.
     """
-    prompt_ids = gagd.token_ids_for_text(tok, prompt)
+    prompt_ids = model_prompt_token_ids(tok, prompt)
     answer_ids = gagd.token_ids_for_text(tok, gagd.normalize_answer(answer))
     predictors = [len(prompt_ids) + j - 1 for j in range(len(answer_ids))]
     return answer_ids, predictors
@@ -436,7 +430,7 @@ def teacher_forced_states(
 ) -> Tuple[torch.Tensor, List[int]]:
     """Hidden states predicting each answer token, plus those token ids."""
     answer_ids, predictors = answer_positions(tok, prompt, answer)
-    prompt_ids = gagd.token_ids_for_text(tok, prompt)
+    prompt_ids = model_prompt_token_ids(tok, prompt)
     ids = torch.tensor([prompt_ids + answer_ids], dtype=torch.long, device=device)
     hidden = model(input_ids=ids, output_hidden_states=True).hidden_states[-1][0]
     return hidden[predictors, :].detach().float().cpu(), answer_ids
@@ -448,7 +442,7 @@ def answer_nll(model, tok, prompt: str, answer: str, device) -> float:
     answer_ids, predictors = answer_positions(tok, prompt, answer)
     if not answer_ids:
         return float("nan")
-    prompt_ids = gagd.token_ids_for_text(tok, prompt)
+    prompt_ids = model_prompt_token_ids(tok, prompt)
     ids = torch.tensor([prompt_ids + answer_ids], dtype=torch.long, device=device)
     logits = model(input_ids=ids).logits[0].float()
     total = 0.0
@@ -637,7 +631,7 @@ def batch_answer_nll(
     out: List[float] = []
     for start in range(0, len(prompts), batch_size):
         chunk = prompts[start : start + batch_size]
-        seqs = [gagd.token_ids_for_text(tok, p) + answer_ids for p in chunk]
+        seqs = [model_prompt_token_ids(tok, p) + answer_ids for p in chunk]
         width = max(len(x) for x in seqs)
         ids = torch.tensor(
             [x + [pad] * (width - len(x)) for x in seqs], dtype=torch.long, device=device
@@ -824,16 +818,15 @@ def recompute_relation_control_states(
 # --------------------------------------------------------------------------
 @torch.no_grad()
 def reachability_sketch(
-    model, tok, writer: EmbeddingRowDelta, prompt: str, subject_slots: Sequence[int],
+    model, tok, writer, prompt: str, subject_slots: Sequence[int],
     probes: int, sigma: float, device, generator: torch.Generator,
 ) -> torch.Tensor:
-    """Hidden-state displacements reachable by perturbing only subject rows.
+    """Hidden-state displacements reachable by perturbing writer slots.
 
-    Symmetric random probes on the subject's embedding rows, each pushed
-    through the frozen transformer. Their span approximates the locally
-    reachable subspace, which is what makes a marker writable rather than
-    merely orthogonal -- an arbitrary null-space direction may be unreachable
-    from these few rows, and the writer would then never converge.
+    For the embedding writer a slot is a vocabulary row.  For the scoped writer
+    it is the record-specific residual selected by the complete-subject router.
+    Symmetric random probes are pushed through the frozen transformer; their
+    span approximates the locally reachable final-state subspace.
     """
     base = prompt_hidden(model, tok, [prompt], device, 1)[0]
     rows: List[torch.Tensor] = []
@@ -933,6 +926,8 @@ def solve_betas(cross: torch.Tensor, drops: torch.Tensor, ridge: float) -> torch
 # --------------------------------------------------------------------------
 def main(argv: Sequence[str] | None = None) -> None:
     a = parse_args(argv)
+    active_method = SCOPED_METHOD if a.writer_mode == "span_gated" else METHOD
+    active_protocol = SCOPED_PROTOCOL if a.writer_mode == "span_gated" else PROTOCOL
     gagd.set_seed(int(a.seed))
     generator = torch.Generator().manual_seed(int(a.seed))
     out_dir = gagd.resolve_output_path(a.output_dir)
@@ -1078,7 +1073,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"--wikidata-dir {a.wikidata_dir!r} yielded no documents at/after index "
             f"{a.corpus_doc_start}; protected contexts are required for the certificate."
         )
-    if int(a.subject_row_max_frequency) > 0:
+    if int(a.subject_row_max_frequency) > 0 and a.writer_mode == "embedding":
         vocab_size = int(embedding.weight.shape[0])
         freqs = gagd.token_frequency_counts(
             tok, documents[: int(a.candidate_scan_docs) or len(documents)], vocab_size
@@ -1114,6 +1109,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"  subject-row frequency filter (<= {a.subject_row_max_frequency}): "
             f"dropped {dropped_total} rows, {len(edited_subject_rows)} remain, "
             f"{kept_rare_only} records kept only their rarest row"
+        )
+    elif int(a.subject_row_max_frequency) > 0:
+        print(
+            "  --subject-row-max-frequency ignored for span_gated: no input "
+            "embedding rows are edited"
         )
 
     protection_report: Dict[str, Any] = {"source": a.protection_source}
@@ -1312,6 +1312,26 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"  control coverage (unique PROMPTS, fit): min {fits[0]}  p10 {fits[max(0,len(fits)//10)]}  "
         f"median {fits[len(fits)//2]}  p90 {fits[min(len(fits)-1,(9*len(fits))//10)]}  max {fits[-1]}"
     )
+    if insufficient and a.writer_mode == "span_gated":
+        # Protection coverage is a feasibility requirement only for a global
+        # reader. The scoped path leaves both base matrices untouched and its
+        # closed gate is the locality certificate, so excluding these records
+        # would merely leave official forget cases unedited. Preserve the
+        # coverage failure as a diagnostic, but keep all records active.
+        protection_report["scoped_mode_coverage_override"] = {
+            "case_ids": list(insufficient),
+            "count": len(insufficient),
+            "reason": (
+                "relation-control coverage is diagnostic for span_gated; "
+                "out-of-scope locality comes from the shared writer+reader gate"
+            ),
+            "records_excluded": False,
+        }
+        print(
+            f"  span_gated: retaining {len(insufficient)} records with sparse "
+            "relation controls; scope identity, not basis coverage, certifies locality"
+        )
+        insufficient = []
     if insufficient and a.protection_source == "relation" and a.on_insufficient == "exclude":
         excluded = set(insufficient)
         records = [r for r in records if r["case_id"] not in excluded]
@@ -1394,17 +1414,68 @@ def main(argv: Sequence[str] | None = None) -> None:
     protected_fit_basis: Dict[str, torch.Tensor] = {}
     for record in records:
         key = record["case_id"]
-        protected_fit_basis[key] = orthonormal_basis(answer_states(record, fit_contexts))
+        protected_fit_basis[key] = (
+            torch.empty((0, hidden_size))
+            if a.writer_mode == "span_gated" else
+            orthonormal_basis(answer_states(record, fit_contexts))
+        )
     print(f"  {mined_total} fit states across {len(fit_contexts)} (relation, row) keys")
 
     # ---- Stage 0B: reachability + markers ---------------------------------
     print("\nStage 0B: reachability sketch and marker selection")
     _t_stage0b = time.time()
-    writer = EmbeddingRowDelta(embedding, edited_subject_rows, device)
-    slot_of = {t: i for i, t in enumerate(writer.row_ids)}
+    scope_router: Optional[scoped_edit.SpanGateRouter] = None
+    subject_patterns: List[List[List[int]]] = []
+    if a.writer_mode == "embedding":
+        writer = EmbeddingRowDelta(embedding, edited_subject_rows, device)
+        slot_of = {t: i for i, t in enumerate(writer.row_ids)}
+        writer_description = f"{len(writer.row_ids)} embedding rows"
+    else:
+        layers = scoped_edit.find_decoder_layers(model)
+        if int(a.writer_layer) < 0 or int(a.writer_layer) >= len(layers):
+            raise ValueError(
+                f"--writer-layer {a.writer_layer} outside decoder range "
+                f"[0, {len(layers) - 1}]"
+            )
+        for slot, record in enumerate(records):
+            record["writer_slot"] = slot
+        subject_patterns = scoped_edit.build_subject_patterns(
+            tok, [r["subject"] for r in records]
+        )
+        scope_router = scoped_edit.SpanGateRouter(
+            embedding,
+            subject_patterns,
+            subjects=[r["subject"] for r in records],
+            model=model,
+        )
+        layer_device = next(layers[int(a.writer_layer)].parameters()).device
+        writer = scoped_edit.SpanGatedWriter(
+            layers[int(a.writer_layer)], scope_router, hidden_size, layer_device
+        )
+        writer_description = (
+            f"{len(records)} record residuals at decoder layer {a.writer_layer}; "
+            "input embeddings frozen"
+        )
+        # Validate routing against the actual model tokenization, including BOS.
+        # A failure here used to be silent: the offset mask was one token shorter
+        # than the model sequence and the layer hook simply returned unchanged.
+        for record in records:
+            encoded = tok([record["prompt"]], return_tensors="pt")
+            route = scope_router.route(encoded["input_ids"])
+            active_slots = route.active[0].nonzero().flatten().tolist()
+            record["scope_route_active_slots"] = [int(x) for x in active_slots]
+            record["scope_route_own_match"] = record["writer_slot"] in active_slots
+            if not record["scope_route_own_match"]:
+                raise RuntimeError(
+                    f"record {record['case_id']}: exact subject {record['subject']!r} "
+                    "did not route in its direct prompt"
+                )
     markers_by_answer: Dict[Tuple[int, ...], List[torch.Tensor]] = defaultdict(list)
     for record in records:
-        slots = [slot_of[t] for t in record["subject_rows"] if t in slot_of]
+        if a.writer_mode == "embedding":
+            slots = [slot_of[t] for t in record["subject_rows"] if t in slot_of]
+        else:
+            slots = [record["writer_slot"]]
         reach = reachability_sketch(
             model, tok, writer, record["prompt"], slots,
             int(a.reach_probes), float(a.reach_sigma), device, generator,
@@ -1449,7 +1520,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     # ---- Stage 1: writer ---------------------------------------------------
     print(f"  Stage 0B wall time: {time.time() - _t_stage0b:.1f}s")
-    print(f"\nStage 1: writer ({len(writer.row_ids)} embedding rows trainable)")
+    print(f"\nStage 1: writer ({writer_description})")
     writer.enabled = False
     base_hidden = {
         r["index"]: prompt_hidden(model, tok, [r["prompt"]], device, 1)[0] for r in records
@@ -1580,8 +1651,10 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     protected_post_basis: Dict[int, torch.Tensor] = {}
     for record in records:
-        protected_post_basis[record["case_id"]] = orthonormal_basis(
-            answer_states(record, post_fit)
+        protected_post_basis[record["case_id"]] = (
+            torch.empty((0, hidden_size))
+            if a.writer_mode == "span_gated" else
+            orthonormal_basis(answer_states(record, post_fit))
         )
 
     def residual_frac(vec: torch.Tensor, basis: torch.Tensor) -> float:
@@ -1619,6 +1692,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "write_parallel_fraction": record["write_parallel_fraction"],
             "write_off_axis_norm": record["write_off_axis_norm"],
             "subject_rows_shared_with_other_records": record["shared_rows"],
+            "scope_route_own_match": record.get("scope_route_own_match"),
+            "scope_route_active_slots": record.get("scope_route_active_slots", []),
         })
 
     amps = sorted(row["write_amplitude"] for row in gate_rows)
@@ -1629,7 +1704,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     gaps = sorted(row["G"] for row in gate_rows if row["G"] == row["G"])
     criterion = a.gate_criterion
     if criterion == "auto":
-        criterion = "kappa" if a.protection_source == "relation" else "g"
+        if a.writer_mode == "span_gated":
+            criterion = "scope"
+        else:
+            criterion = "kappa" if a.protection_source == "relation" else "g"
     gate_summary = {
         "gate_min": float(a.gate_min),
         "gate_pass_frac_required": float(a.gate_pass_frac),
@@ -1752,8 +1830,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         "definition": (
             "S = |q.h_forget|; L = max over protected states of |q.h_p|; "
             "kappa = L/S bounds the worst protected logit shift at d*kappa "
-            "when suppressing the forget logit by d. This, not G, is what "
-            "Stage 2 feasibility depends on."
+            "for a GLOBAL reader. In span_gated mode this is retained as the "
+            "writer-only counterfactual; the actual reader shares the subject "
+            "gate and its closed-scope shift is zero."
         ),
         "amplitude_relative": dist([r["amplitude_relative"] for r in records]),
         "cos_marker_q": dist([r["cos_marker_q"] for r in records]),
@@ -1763,7 +1842,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         "kappa_rel_gate_residual": dist([r["kappa_rel_gate_residual"] for r in records]),
         "multi_token_answers": sum(1 for r in records if len(r["answer_positions"]) > 1),
     }
-    print("\n  reader selectivity (what Stage 2 actually uses):")
+    reader_label = (
+        "reader selectivity (global-reader counterfactual; actual reader is scoped):"
+        if a.writer_mode == "span_gated" else
+        "reader selectivity (what Stage 2 actually uses):"
+    )
+    print(f"\n  {reader_label}")
     show("A/||h|| (relative)", reader_summary["amplitude_relative"])
     show("cos(v, q)", reader_summary["cos_marker_q"])
     show("S = |q.h_forget|", reader_summary["S_q"])
@@ -1779,7 +1863,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     # that cross quantity under the writer. It runs after Stage 1, cannot
     # influence training, markers, the gate or any hyperparameter, and exists
     # so the two numbers are never conflated again.
-    subject_row_set = set(edited_subject_rows)
+    subject_row_set = set(edited_subject_rows) if a.writer_mode == "embedding" else set()
+
+    def scope_match_count(prompts: Sequence[str]) -> int:
+        if not prompts or scope_router is None:
+            return 0
+        encoded = tok(list(prompts), padding=True, return_tensors="pt")
+        route = scope_router.route(encoded["input_ids"])
+        return int(route.active.any(dim=1).sum().item())
+
     cross_rows: List[Dict[str, Any]] = []
     if a.eval_overlap_audit:
         for record in records:
@@ -1803,10 +1895,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             neigh_base = prompt_hidden(model, tok, prompts, device, 1)
             writer.enabled = True
             drift = (neigh - neigh_base).norm(dim=1) / neigh_base.norm(dim=1).clamp_min(1e-9)
-            touching = sum(
-                1 for text in prompts
-                if subject_row_set & set(gagd.token_ids_for_text(tok, text))
-            )
+            if a.writer_mode == "embedding":
+                touching = sum(
+                    1 for text in prompts
+                    if subject_row_set & set(gagd.token_ids_for_text(tok, text))
+                )
+            else:
+                touching = scope_match_count(prompts)
             record["neighborhood_state_drift_max"] = float(drift.max())
             record["neighborhood_state_drift_mean"] = float(drift.mean())
             record["neighborhood_prompts_touching_edited_rows"] = touching
@@ -1827,6 +1922,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "S_v": s_v, "L_cross_v": l_v, "kappa_cross_v": k_v,
                 "neighborhood_state_drift_max": record["neighborhood_state_drift_max"],
                 "neighborhood_prompts_touching_edited_rows": touching,
+                "neighborhood_prompts_opening_writer_gate": touching,
                 "neighborhood_prompts": len(prompts),
             })
     cross_summary: Dict[str, Any] = {"ran": bool(cross_rows), "label": "diagnostic_only_G_cross"}
@@ -1862,11 +1958,16 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"  median {cross_summary['median']:+.4f}  p10 {cross_summary['p10']:+.4f}"
             f"  min {cross_summary['min']:+.4f}"
         )
+        locality_label = (
+            "contain an edited subject row"
+            if a.writer_mode == "embedding"
+            else "contain a complete scoped subject and open the gate"
+        )
         print(
             f"  structural locality check: "
             f"{cross_summary['neighborhood_prompts_touching_edited_rows']}"
             f"/{cross_summary['neighborhood_prompts_total']} neighborhood prompts "
-            f"contain an edited subject row"
+            f"{locality_label}"
         )
         show("  neighborhood state drift", cross_summary["neighborhood_state_drift_max"])
         show("  L_cross (leakage numerator)", cross_summary["L_cross_q"])
@@ -1875,10 +1976,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         show("kappa_cross (residual)", cross_summary["kappa_cross_v"])
         med = cross_summary["kappa_cross_q"].get("median")
         if med is not None and math.isfinite(med):
-            print(
-                f"    -> suppressing a forget logit by d moves the worst tested "
-                f"neighborhood logit by <= {med:.4f}*d at the median record."
-            )
+            if a.writer_mode == "embedding":
+                print(
+                    f"    -> suppressing a forget logit by d moves the worst tested "
+                    f"neighborhood logit by <= {med:.4f}*d at the median record."
+                )
+            else:
+                print(
+                    f"    -> writer-only/global-reader counterfactual: {med:.4f}*d; "
+                    "actual closed-scope reader shift: 0."
+                )
     gate_summary["diagnostic_only_G_cross"] = cross_summary
 
     # --- does shared-row contention explain the failures? -----------------
@@ -1903,16 +2010,28 @@ def main(argv: Sequence[str] | None = None) -> None:
             return float("nan"), n
         return num / (dx * dy), n
 
-    shared = [row["subject_rows_shared_with_other_records"] for row in gate_rows]
+    if a.writer_mode == "embedding":
+        shared = [row["subject_rows_shared_with_other_records"] for row in gate_rows]
+        contention_definition = (
+            "One delta exists per edited token row, so records sharing a "
+            "subject token impose competing constraints on the same parameter."
+        )
+        contention_label = "shared subject rows"
+    else:
+        shared = [
+            max(0, len(row.get("scope_route_active_slots", [])) - 1)
+            for row in gate_rows
+        ]
+        contention_definition = (
+            "The scoped writer has one independent delta per record, so BPE-row "
+            "contention is eliminated. This count instead records duplicate or "
+            "equal-length subject scopes that activate together."
+        )
+        contention_label = "additional equal subject scopes"
     corr_amp, n_amp = pearson(shared, [row["write_amplitude"] for row in gate_rows])
     corr_gap, n_gap = pearson(shared, [row["G"] for row in gate_rows])
     gate_summary["shared_row_contention"] = {
-        "definition": (
-            "One delta exists per edited token row, so records sharing a "
-            "subject token impose competing constraints on the same "
-            "parameter. Negative correlation with A or G localizes failures "
-            "to BPE collisions rather than to optimization."
-        ),
+        "definition": contention_definition,
         "corr_shared_rows_vs_amplitude": corr_amp,
         "corr_shared_rows_vs_amplitude_n": n_amp,
         "corr_shared_rows_vs_G": corr_gap,
@@ -1922,8 +2041,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         "shared_rows_max": max(shared) if shared else 0,
     }
     print(
-        f"  shared-row contention: {gate_summary['shared_row_contention']['records_with_shared_rows']}"
-        f"/{len(shared)} records share subject rows | "
+        f"  writer contention: {gate_summary['shared_row_contention']['records_with_shared_rows']}"
+        f"/{len(shared)} records have {contention_label} | "
         f"corr(shared, A) {corr_amp:+.3f} (n={n_amp})"
         f"  corr(shared, G) {corr_gap:+.3f} (n={n_gap})"
     )
@@ -1932,8 +2051,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     # needed, and Stage 1 is the expensive part to reproduce.
     torch.save(
         {
-            "writer_row_ids": writer.row_ids,
+            "method": active_method,
+            "protocol": active_protocol,
+            "writer_mode": a.writer_mode,
+            "writer_layer": int(a.writer_layer) if a.writer_mode == "span_gated" else None,
+            "writer_row_ids": getattr(writer, "row_ids", []),
             "writer_delta": writer.delta.detach().cpu(),
+            "subjects": [r["subject"] for r in records],
+            "subject_patterns": subject_patterns,
             "markers": {r["case_id"]: r["marker"] for r in records},
             "realized_readers": {r["case_id"]: r["q"] for r in records},
             "h_writer": {r["case_id"]: r["h_writer"] for r in records},
@@ -1946,7 +2071,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     # G is retained as a diagnostic but no longer decides anything in relation
     # mode: it compares total nullspace energy, while Stage 2 reads a single
     # direction, and the two can disagree completely.
-    if criterion == "kappa":
+    if criterion == "scope":
+        route_results = [bool(r.get("scope_route_own_match")) for r in records]
+        passing = [value for value in route_results if value]
+        pass_frac = len(passing) / max(1, len(route_results))
+        label = "complete subject span routes to its own scoped writer+reader"
+    elif criterion == "kappa":
         kappas = [
             r["kappa_rel_gate"] for r in records if math.isfinite(r["kappa_rel_gate"])
         ]
@@ -1972,11 +2102,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(2)
 
     # ---- Stage 2: certified reader ----------------------------------------
-    print("\nStage 2: closed-form orthogonal reader")
-    # constraints per (record, answer position) grouped by the row they edit
-    per_row: Dict[int, Dict[str, List[Any]]] = defaultdict(
-        lambda: {"states": [], "drops": [], "owners": []}
-    )
+    reader_scope = "exact_subject" if a.writer_mode == "span_gated" else "global"
+    print(f"\nStage 2: closed-form orthogonal reader ({reader_scope} scope)")
+    # First cache every direct constraint under the trained writer.  In scoped
+    # mode the complete-subject router activates automatically from input_ids.
+    direct_constraints: Dict[int, Dict[str, Any]] = {}
     for record in records:
         states, answer_ids = teacher_forced_states(
             model, tok, record["prompt"], record["answer"], device
@@ -1987,53 +2117,120 @@ def main(argv: Sequence[str] | None = None) -> None:
         record["nll_true_pre"] = nll_true
         record["nll_reference"] = nll_ref
         record["required_drop"] = needed
-        for j, token_id in enumerate(answer_ids):
-            per_row[int(token_id)]["states"].append(states[j])
-            per_row[int(token_id)]["drops"].append(needed)
-            per_row[int(token_id)]["owners"].append(record["index"])
+        direct_constraints[record["index"]] = {
+            "states": states,
+            "answer_ids": answer_ids,
+            "needed": needed,
+        }
 
     index_of = {r["index"]: r for r in records}
     row_deltas: Dict[int, torch.Tensor] = {}
+    reader_row_ids: Optional[torch.Tensor] = None
+    reader_deltas: Optional[torch.Tensor] = None
+    scoped_reader: Optional[scoped_edit.ScopedLogitReader] = None
     crosstalk_report: List[Dict[str, Any]] = []
-    for token_id, payload in per_row.items():
-        owners = sorted({o for o in payload["owners"]})
-        readers = torch.stack([index_of[o]["q"] for o in owners])
-        states = torch.stack(payload["states"])
-        drops = torch.tensor(payload["drops"], dtype=torch.float32)
-        cross = states @ readers.T                      # A[m, k] = q_k . h_m
-        betas = solve_betas(cross, drops, float(a.reader_ridge))
-        row_deltas[token_id] = -(betas.unsqueeze(1) * readers).sum(dim=0)
-        off = cross.clone()
-        chis: List[float] = []
-        for m, owner in enumerate(payload["owners"]):
-            if owner in owners:
+    if a.writer_mode == "embedding":
+        # Global reader: records sharing an answer row must be solved jointly
+        # because every q_k is active for every prompt using that vocabulary row.
+        per_row: Dict[int, Dict[str, List[Any]]] = defaultdict(
+            lambda: {"states": [], "drops": [], "owners": []}
+        )
+        for record in records:
+            payload = direct_constraints[record["index"]]
+            for j, token_id in enumerate(payload["answer_ids"]):
+                per_row[int(token_id)]["states"].append(payload["states"][j])
+                per_row[int(token_id)]["drops"].append(payload["needed"])
+                per_row[int(token_id)]["owners"].append(record["index"])
+        for token_id, payload in per_row.items():
+            owners = sorted({o for o in payload["owners"]})
+            readers = torch.stack([index_of[o]["q"] for o in owners])
+            states = torch.stack(payload["states"])
+            drops = torch.tensor(payload["drops"], dtype=torch.float32)
+            cross = states @ readers.T                  # A[m, k] = q_k . h_m
+            betas = solve_betas(cross, drops, float(a.reader_ridge))
+            row_deltas[token_id] = -(betas.unsqueeze(1) * readers).sum(dim=0)
+            off = cross.clone()
+            chis: List[float] = []
+            for m, owner in enumerate(payload["owners"]):
                 col = owners.index(owner)
                 diag = abs(float(cross[m, col]))
                 other = float(cross[m].abs().sum()) - diag
                 chis.append(other / (diag + 1e-9))
                 off[m, col] = 0.0
-        crosstalk_report.append({
-            "token_id": int(token_id),
-            "token": tok.decode([int(token_id)]),
-            "records": [int(index_of[o]["case_id"]) for o in owners],
-            "constraints": int(states.shape[0]),
-            "diag_mean": float(torch.diagonal(cross[: len(owners), : len(owners)]).mean())
-            if cross.shape[0] >= len(owners) else float("nan"),
-            "offdiag_abs_max": float(off.abs().max()) if off.numel() else 0.0,
-            "beta_abs_max": float(betas.abs().max()),
-            "chi_mean": float(sum(chis) / len(chis)) if chis else float("nan"),
-            "chi_max": max(chis) if chis else float("nan"),
-        })
+            crosstalk_report.append({
+                "scope": "global",
+                "token_id": int(token_id),
+                "token": tok.decode([int(token_id)]),
+                "records": [int(index_of[o]["case_id"]) for o in owners],
+                "constraints": int(states.shape[0]),
+                "offdiag_abs_max": float(off.abs().max()) if off.numel() else 0.0,
+                "beta_abs_max": float(betas.abs().max()),
+                "chi_mean": float(sum(chis) / len(chis)) if chis else float("nan"),
+                "chi_max": max(chis) if chis else float("nan"),
+            })
+        base_rows = {t: output_layer.weight[t].detach().clone() for t in row_deltas}
+    else:
+        if scope_router is None:
+            raise AssertionError("span_gated reader requires the shared scope router")
+        # Scoped reader: each record owns an independent sparse residual.  No
+        # cross-record solve is needed because only routed record(s) are active.
+        unique_rows = [
+            sorted(set(direct_constraints[r["index"]]["answer_ids"])) for r in records
+        ]
+        max_rows = max((len(rows) for rows in unique_rows), default=1)
+        reader_row_ids = torch.full((len(records), max_rows), -1, dtype=torch.long)
+        reader_deltas = torch.zeros(
+            (len(records), max_rows, hidden_size), dtype=torch.float32
+        )
+        for slot, record in enumerate(records):
+            payload = direct_constraints[record["index"]]
+            for row_slot, token_id in enumerate(unique_rows[slot]):
+                positions = [
+                    j for j, value in enumerate(payload["answer_ids"])
+                    if int(value) == int(token_id)
+                ]
+                states = payload["states"][positions]
+                cross = states @ record["q"].view(-1, 1)
+                drops = torch.full(
+                    (len(positions),), float(payload["needed"]), dtype=torch.float32
+                )
+                beta = solve_betas(cross, drops, float(a.reader_ridge))[0]
+                delta = -beta * record["q"]
+                reader_row_ids[slot, row_slot] = int(token_id)
+                reader_deltas[slot, row_slot] = delta
+                crosstalk_report.append({
+                    "scope": "exact_subject",
+                    "case_id": int(record["case_id"]),
+                    "token_id": int(token_id),
+                    "token": tok.decode([int(token_id)]),
+                    "constraints": len(positions),
+                    "signal_abs_min": float(cross.abs().min()),
+                    "beta_abs": abs(float(beta)),
+                    "cross_record_terms": 0,
+                })
+        scoped_reader = scoped_edit.ScopedLogitReader(
+            output_layer,
+            scope_router,
+            reader_row_ids,
+            reader_deltas.to(output_layer.weight.device),
+            scale=0.0,
+        )
+        base_rows = {}
 
-    base_rows = {t: output_layer.weight[t].detach().clone() for t in row_deltas}
     scales = [float(x) for x in a.reader_backtrack]
     chosen_scale, final_eval = None, None
     for scale in scales:
-        with torch.no_grad():
-            for token_id, delta in row_deltas.items():
-                output_layer.weight[token_id] = (
-                    base_rows[token_id] + scale * delta.to(output_layer.weight.dtype).to(device)
-                )
+        if scoped_reader is not None:
+            scoped_reader.scale = float(scale)
+        else:
+            with torch.no_grad():
+                for token_id, delta in row_deltas.items():
+                    output_layer.weight[token_id] = (
+                        base_rows[token_id]
+                        + scale * delta.to(output_layer.weight.dtype).to(
+                            output_layer.weight.device
+                        )
+                    )
         margins = []
         for record in records:
             # BOTH recomputed under the current delta. Reusing a reference NLL
@@ -2051,6 +2248,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     if chosen_scale is None:
         chosen_scale, final_eval = scales[-1], margins
         print(f"  no scale met the margin; keeping {chosen_scale}")
+    if scoped_reader is not None:
+        scoped_reader.scale = float(chosen_scale)
 
     # ---- certificate -------------------------------------------------------
     # Three numbers, because a single absolute threshold is misleading. The
@@ -2063,22 +2262,50 @@ def main(argv: Sequence[str] | None = None) -> None:
     worst_shift = 0.0
     worst_relative_orth = 0.0
     worst_vs_logit = 0.0
-    for token_id, delta in row_deltas.items():
-        protected = torch.cat(
-            [x for x in (post_fit.get(token_id), post_gate.get(token_id)) if x is not None and x.numel()],
-            dim=0,
-        ) if (post_fit.get(token_id) is not None or post_gate.get(token_id) is not None) else torch.empty((0, hidden_size))
-        if protected.numel() == 0:
-            continue
-        applied = chosen_scale * delta
-        shifts = (protected @ applied).abs()
-        worst_shift = max(worst_shift, float(shifts.max()))
-        norms = protected.norm(dim=1).clamp_min(1e-9) * applied.norm().clamp_min(1e-9)
-        worst_relative_orth = max(worst_relative_orth, float((shifts / norms).max()))
-        base_logits = (protected @ base_rows[token_id].detach().float().cpu()).abs()
-        worst_vs_logit = max(
-            worst_vs_logit, float(shifts.max() / base_logits.mean().clamp_min(1e-9))
-        )
+    scope_closed_bit_identical: Optional[bool] = None
+    if scoped_reader is not None:
+        # Use a control known not to match any subject pattern and compare the
+        # entire output tensor with both interventions enabled vs disabled.
+        control_text = "An unrelated control sentence about ordinary objects."
+        control_enc = tok([control_text], return_tensors="pt").to(device)
+        route = scope_router.route(control_enc["input_ids"].detach().cpu())
+        if bool(route.active.any()):
+            raise RuntimeError("internal closed-gate control unexpectedly matched a subject")
+        with torch.no_grad():
+            scoped_logits = model(**control_enc).logits.detach().cpu()
+            writer.enabled = False
+            scoped_reader.enabled = False
+            base_logits_closed = model(**control_enc).logits.detach().cpu()
+            writer.enabled = True
+            scoped_reader.enabled = True
+        scope_closed_bit_identical = torch.equal(scoped_logits, base_logits_closed)
+        if not scope_closed_bit_identical:
+            raise RuntimeError("closed span gate changed logits; structural locality is broken")
+    else:
+        def protected_for_row(token_id: int) -> torch.Tensor:
+            parts = [
+                value for source in (post_fit, post_gate)
+                for key, value in source.items()
+                if int(key[1]) == int(token_id) and value.numel()
+            ]
+            return torch.cat(parts, dim=0) if parts else torch.empty((0, hidden_size))
+
+        for token_id, delta in row_deltas.items():
+            protected = protected_for_row(token_id)
+            if protected.numel() == 0:
+                continue
+            applied = chosen_scale * delta
+            shifts = (protected @ applied).abs()
+            worst_shift = max(worst_shift, float(shifts.max()))
+            norms = protected.norm(dim=1).clamp_min(1e-9) * applied.norm().clamp_min(1e-9)
+            worst_relative_orth = max(worst_relative_orth, float((shifts / norms).max()))
+            logits_at_base_row = (
+                protected @ base_rows[token_id].detach().float().cpu()
+            ).abs()
+            worst_vs_logit = max(
+                worst_vs_logit,
+                float(shifts.max() / logits_at_base_row.mean().clamp_min(1e-9)),
+            )
 
     post_fingerprint = sum(
         float(p.detach().float().abs().sum())
@@ -2088,13 +2315,26 @@ def main(argv: Sequence[str] | None = None) -> None:
     transformer_delta = abs(post_fingerprint - transformer_fingerprint)
 
     # ---- audits ------------------------------------------------------------
-    subject_row_set = set(edited_subject_rows)
+    subject_row_set = set(edited_subject_rows) if a.writer_mode == "embedding" else set()
     training_audit = {
-        "edited_subject_rows": len(edited_subject_rows),
-        "edited_answer_rows": len(edited_answer_rows),
+        "writer_mode": a.writer_mode,
+        "edited_input_embedding_rows": (
+            len(edited_subject_rows) if a.writer_mode == "embedding" else 0
+        ),
+        "edited_lm_head_rows": (
+            len(row_deltas) if a.writer_mode == "embedding" else 0
+        ),
+        "scoped_reader_rows": (
+            int((reader_row_ids >= 0).sum().item())
+            if reader_row_ids is not None else 0
+        ),
         "forget_prompts_touching_edited_subject_rows": sum(
             1 for r in records
             if subject_row_set & set(gagd.token_ids_for_text(tok, r["prompt"]))
+        ),
+        "forget_prompts_opening_scope_gate": (
+            scope_match_count([r["prompt"] for r in records])
+            if a.writer_mode == "span_gated" else None
         ),
     }
     eval_audit: Dict[str, Any] = {"ran": False}
@@ -2108,22 +2348,31 @@ def main(argv: Sequence[str] | None = None) -> None:
                 rewrite = rewrite[0]
             prompt = str(rewrite["prompt"]).format(str(rewrite["subject"]))
             total += 1
-            if subject_row_set & set(gagd.token_ids_for_text(tok, prompt)):
-                touched += 1
+            if a.writer_mode == "embedding":
+                touched += int(bool(
+                    subject_row_set & set(gagd.token_ids_for_text(tok, prompt))
+                ))
+            else:
+                touched += scope_match_count([prompt])
         eval_audit = {
             "ran": True,
             "label": "diagnostic_only_eval_overlap",
             "retain_prompts": total,
             "retain_prompts_touching_edited_subject_rows": touched,
+            "retain_prompts_opening_scope_gate": (
+                touched if a.writer_mode == "span_gated" else None
+            ),
             "fraction": touched / max(1, total),
             "note": "post-hoc analysis only; did not influence training, markers, or gating",
         }
 
     summary = {
         "schema_version": 1,
-        "method": METHOD,
-        "protocol": PROTOCOL,
+        "method": active_method,
+        "protocol": active_protocol,
         "model_path": str(Path(a.model_path).resolve()),
+        "writer_mode": a.writer_mode,
+        "writer_layer": int(a.writer_layer) if a.writer_mode == "span_gated" else None,
         "seed": int(a.seed),
         "forget_num": len(records),
         "records_sampled": int(a.forget_num),
@@ -2137,11 +2386,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             "max_shift_over_mean_protected_logit": worst_vs_logit,
             "certificate_eps": float(a.certificate_eps),
             "certificate_holds": bool(worst_vs_logit < float(a.certificate_eps)),
+            "scope_closed_bit_identical": scope_closed_bit_identical,
             "certificate_definition": (
-                "max |dW_y . h_p| divided by the mean |W_y . h_p| over protected "
-                "states: the protected logit shift relative to the logit being "
-                "protected. Scale-aware, unlike a bare absolute threshold, since "
-                "|dW . h_p| grows with ||dW|| under backtracking."
+                "Closed exact-subject gate returns both hidden states and logits "
+                "unchanged; out-of-scope protected shift is exactly zero."
+                if scoped_reader is not None else
+                "max |dW_y . h_p| divided by mean |W_y . h_p| over protected "
+                "states; scale-aware under reader backtracking."
             ),
         },
         "stage0": {
@@ -2156,6 +2407,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         },
         "gate": gate_summary,
         "stage2": {
+            "reader_scope": reader_scope,
+            "base_lm_head_weights_edited": bool(a.writer_mode == "embedding"),
             "selected_scale": chosen_scale,
             "reader_ridge": float(a.reader_ridge),
             "worst_final_margin": min(final_eval) if final_eval else None,
@@ -2180,50 +2433,144 @@ def main(argv: Sequence[str] | None = None) -> None:
             for i, r in enumerate(records)
         ],
     }
-    gagd.write_json(out_dir / "marker_write_read_summary.json", summary)
-
     print("\n" + "=" * 68)
     print(f"  transformer parameters changed : {transformer_delta:.3e}  "
           f"({'CHANGED' if transformer_delta > 1e-3 else 'UNCHANGED'})")
-    print(f"  max |dW_y . h_protected|       : {worst_shift:.3e}  (absolute logit shift)")
-    print(f"  relative orthogonality error   : {worst_relative_orth:.3e}  (scale-free)")
-    print(f"  shift / mean protected logit   : {worst_vs_logit:.3e}  "
-          f"({'OK' if worst_vs_logit < float(a.certificate_eps) else 'CERTIFICATE VIOLATED'})")
+    if scoped_reader is not None:
+        print(f"  closed scope bit-identical      : {scope_closed_bit_identical}")
+        print("  out-of-scope protected shift    : 0.000e+00  (by construction)")
+    else:
+        print(f"  max |dW_y . h_protected|       : {worst_shift:.3e}  (absolute logit shift)")
+        print(f"  relative orthogonality error   : {worst_relative_orth:.3e}  (scale-free)")
+        print(f"  shift / mean protected logit   : {worst_vs_logit:.3e}  "
+              f"({'OK' if worst_vs_logit < float(a.certificate_eps) else 'CERTIFICATE VIOLATED'})")
     print("=" * 68)
 
+    checkpoint_report: Dict[str, Any] = {"saved": False}
+    if a.writer_mode == "span_gated":
+        if scoped_reader is None or scope_router is None:
+            raise AssertionError("scoped writer finished without scoped reader/router")
+        sidecar_state = scoped_edit.build_sidecar_state(
+            subjects=[r["subject"] for r in records],
+            subject_patterns=subject_patterns,
+            writer_layer=int(a.writer_layer),
+            writer_delta=writer.delta,
+            reader_row_ids=scoped_reader.row_ids,
+            reader_deltas=scoped_reader.deltas,
+            reader_scale=float(chosen_scale),
+            metadata={
+                "method": active_method,
+                "protocol": active_protocol,
+                "seed": int(a.seed),
+                "case_ids": [int(r["case_id"]) for r in records],
+                "scope": "exact complete subject token sequence",
+                "reader_scope": "same gate as writer",
+            },
+        )
+        final_sidecar = scoped_edit.save_sidecar(out_dir / scoped_edit.SIDECAR_NAME, sidecar_state)
+        summary["stage2"]["sidecar_path"] = str(final_sidecar)
+
     if a.save_checkpoint:
-        # The writer is a forward hook, so it exists only at runtime: saving
-        # without materializing it writes the BASE embeddings and the
-        # checkpoint silently lacks Stage 1 entirely. Fold the delta into the
-        # rows, remove the hook, then verify the saved model reproduces the
-        # in-memory hidden states.
-        with torch.no_grad():
-            for slot, token_id in enumerate(writer.row_ids):
-                embedding.weight[token_id] += writer.delta[slot].to(
-                    embedding.weight.dtype
-                )
-        writer.enabled = False
-        writer.close()
-        check = prompt_hidden(
-            model, tok, [r["prompt"] for r in records], device, 1
-        )
-        drift = max(
-            float((check[k] - r["h_writer"]).norm() / (r["h_writer"].norm() + 1e-9))
-            for k, r in enumerate(records)
-        )
-        print(f"  writer materialized into embedding rows; max drift {drift:.3e}")
-        if drift > 1e-3:
-            raise RuntimeError(
-                f"materialized writer does not reproduce the hooked hidden "
-                f"states (drift {drift:.3e}); the checkpoint would not match "
-                f"the measured model"
-            )
         ckpt = out_dir / "checkpoint"
-        model.save_pretrained(ckpt)
-        tok.save_pretrained(ckpt)
+        if a.writer_mode == "embedding":
+            # A global embedding hook can be folded into its sparse rows.
+            with torch.no_grad():
+                for slot, token_id in enumerate(writer.row_ids):
+                    embedding.weight[token_id] += writer.delta[slot].to(
+                        embedding.weight.dtype
+                    )
+            writer.enabled = False
+            writer.close()
+            check = prompt_hidden(
+                model, tok, [r["prompt"] for r in records], device, 1
+            )
+            drift = max(
+                float(
+                    (check[k] - r["h_writer"]).norm()
+                    / (r["h_writer"].norm() + 1e-9)
+                )
+                for k, r in enumerate(records)
+            )
+            print(f"  writer materialized into embedding rows; max drift {drift:.3e}")
+            if drift > 1e-3:
+                raise RuntimeError(
+                    f"materialized writer does not reproduce the hooked hidden "
+                    f"states (drift {drift:.3e}); checkpoint would not match"
+                )
+            model.save_pretrained(ckpt)
+            tok.save_pretrained(ckpt)
+        else:
+            # Conditional behavior cannot be represented by ordinary static
+            # HF weights. Save the untouched base weights plus an auto-loaded
+            # sidecar, then remove/reinstall the runtime from serialized state
+            # and verify that it reproduces Stage 1 before handing it off.
+            model.save_pretrained(ckpt)
+            tok.save_pretrained(ckpt)
+            scoped_edit.save_sidecar(ckpt / scoped_edit.SIDECAR_NAME, sidecar_state)
+            scoped_reader.close()
+            writer.close()
+            scope_router.close()
+            reloaded_runtime = scoped_edit.load_and_attach_scoped_span_edit(
+                model, ckpt / scoped_edit.SIDECAR_NAME
+            )
+            check = prompt_hidden(
+                model, tok, [r["prompt"] for r in records], device, 1
+            )
+            drift = max(
+                float(
+                    (check[k] - r["h_writer"]).norm()
+                    / (r["h_writer"].norm() + 1e-9)
+                )
+                for k, r in enumerate(records)
+            )
+            print(f"  scoped sidecar reinstallation max hidden drift {drift:.3e}")
+            if drift > 1e-3:
+                reloaded_runtime.close()
+                raise RuntimeError(
+                    f"serialized scoped writer does not reproduce measured states "
+                    f"(drift {drift:.3e})"
+                )
+            reloaded_margins = [
+                answer_nll(model, tok, record["prompt"], record["answer"], device)
+                - answer_nll(model, tok, record["prompt"], record["reference"], device)
+                for record in records
+            ]
+            reader_margin_drift = max(
+                abs(float(observed) - float(expected))
+                for observed, expected in zip(reloaded_margins, final_eval)
+            )
+            print(
+                f"  scoped sidecar reinstallation max margin drift "
+                f"{reader_margin_drift:.3e}"
+            )
+            if reader_margin_drift > 1e-5:
+                reloaded_runtime.close()
+                raise RuntimeError(
+                    "serialized scoped reader does not reproduce measured margins "
+                    f"(max drift {reader_margin_drift:.3e})"
+                )
+            reloaded_runtime.close()
+        checkpoint_report = {
+            "saved": True,
+            "path": str(ckpt),
+            "writer_reinstallation_max_hidden_drift": drift,
+            "reader_reinstallation_max_margin_drift": (
+                reader_margin_drift if a.writer_mode == "span_gated" else None
+            ),
+            "scoped_sidecar": (
+                str(ckpt / scoped_edit.SIDECAR_NAME)
+                if a.writer_mode == "span_gated" else None
+            ),
+        }
         print(f"checkpoint: {ckpt}")
     else:
+        if scoped_reader is not None:
+            scoped_reader.close()
         writer.close()
+        if scope_router is not None:
+            scope_router.close()
+    summary["checkpoint"] = checkpoint_report
+    gagd.write_json(out_dir / "marker_write_read_summary.json", summary)
     print(f"summary: {out_dir / 'marker_write_read_summary.json'}")
 
 

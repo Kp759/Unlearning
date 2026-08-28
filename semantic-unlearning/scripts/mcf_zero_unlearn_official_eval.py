@@ -12,6 +12,7 @@ from datasets import load_from_disk
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from mcf_sampling import sample_first_mcf_records, sample_official_mcf_records
+import scoped_span_edit as scoped_edit
 
 
 MCF_URL = "https://memit.baulab.info/data/dsets/multi_counterfact.json"
@@ -594,6 +595,20 @@ def evaluate_loaded_model_official(
         "forget_raw": forget_raw,
         "retain_raw": retain_raw,
     }
+    scoped_runtime = getattr(model, "_scoped_span_edit_runtime", None)
+    if scoped_runtime is not None:
+        result["scoped_span_edit"] = {
+            "loaded": True,
+            "record_scopes": scoped_runtime.router.n_records,
+            "router_calls": scoped_runtime.router.calls,
+            "matched_batch_rows": scoped_runtime.router.matched_rows,
+            "writer_fired_rows": scoped_runtime.writer.fired,
+            "reader_fired_routes": (
+                scoped_runtime.reader.fired if scoped_runtime.reader is not None else 0
+            ),
+            "routing_input": "complete subject token sequences only",
+            "evaluation_group_labels_used_by_router": False,
+        }
     if out_path is not None:
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -632,6 +647,21 @@ def evaluate_model_dir_official(
             if not torch.cuda.is_available():
                 raise RuntimeError("CUDA is required for single-device official MCF evaluation, but torch.cuda.is_available() is False")
             model = model.to("cuda")
+        # A scoped edit cannot be folded into ordinary static weights without
+        # destroying its locality guarantee.  The training script therefore
+        # saves a small sidecar beside the normal HF checkpoint.  Discovery is
+        # automatic and routing depends only on complete training-visible
+        # subject token sequences in input_ids; no evaluation labels, prompt
+        # groups, paraphrases, or neighborhoods are exposed to the gate.
+        scoped_runtime = scoped_edit.maybe_attach_scoped_span_edit(model, model_dir)
+        if scoped_runtime is not None:
+            # Keep an explicit lifetime/reference and expose auditable routing
+            # counters in the result payload.
+            model._scoped_span_edit_runtime = scoped_runtime
+            print(
+                f"Loaded {scoped_edit.SIDECAR_NAME}: "
+                f"{scoped_runtime.router.n_records} exact-subject scopes"
+            )
     except Exception as exc:
         raise RuntimeError(f"Failed to load model for method {method!r} from {model_dir}: {exc}") from exc
 
