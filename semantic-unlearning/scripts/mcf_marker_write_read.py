@@ -2457,6 +2457,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             writer_delta=writer.delta,
             reader_row_ids=scoped_reader.row_ids,
             reader_deltas=scoped_reader.deltas,
+            reader_biases=scoped_reader.biases,
             reader_scale=float(chosen_scale),
             metadata={
                 "method": active_method,

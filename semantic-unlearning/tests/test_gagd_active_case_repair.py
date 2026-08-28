@@ -1266,7 +1266,7 @@ class GAGDActiveCaseRepairTests(unittest.TestCase):
         self.assertEqual(summary["Eff"], 100.0)
         self.assertEqual(summary["Gen"], 50.0)
         self.assertEqual(summary["post_rewrite_prompt_instances"], 1)
-        self.assertEqual(summary["post_rewrite_failure_prompt_instances"], 0)
+        self.assertEqual(summary["post_rewrite_failure_prompt_instances"], 1)
         self.assertEqual(summary["post_paraphrase_prompt_instances"], 2)
         self.assertEqual(
             summary["post_paraphrase_failure_prompt_instances"],

@@ -271,17 +271,23 @@ class ScopedLogitReader:
         router: SpanGateRouter,
         row_ids: torch.Tensor,
         deltas: torch.Tensor,
+        biases: Optional[torch.Tensor] = None,
         scale: float = 1.0,
     ) -> None:
         if row_ids.ndim != 2 or deltas.ndim != 3:
             raise ValueError("row_ids must be [records, rows] and deltas [records, rows, hidden]")
         if tuple(row_ids.shape) != tuple(deltas.shape[:2]):
             raise ValueError("reader row_ids/deltas shapes disagree")
+        if biases is not None and tuple(biases.shape) != tuple(row_ids.shape):
+            raise ValueError("reader biases must have the same [records, rows] shape as row_ids")
         if row_ids.shape[0] != router.n_records:
             raise ValueError("reader record count does not match router")
         self.router = router
         self.row_ids = row_ids.detach().to(dtype=torch.long)
         self.deltas = deltas.detach().to(dtype=torch.float32)
+        self.biases = (
+            None if biases is None else biases.detach().to(dtype=torch.float32)
+        )
         self.scale = float(scale)
         self.enabled = True
         self.calls = 0
@@ -313,6 +319,11 @@ class ScopedLogitReader:
                 device=hidden.device, dtype=hidden.dtype
             )
             shifts = hidden[batch_index] @ delta.T
+            if self.biases is not None:
+                bias = self.biases[record_index, valid].to(
+                    device=hidden.device, dtype=hidden.dtype
+                )
+                shifts = shifts + bias.view(1, -1)
             shifts = shifts.to(updated.dtype) * float(self.scale)
             updated[batch_index].index_add_(1, ids, shifts)
             self.fired += 1
@@ -329,6 +340,7 @@ class ScopedSpanEditRuntime:
     router: SpanGateRouter
     writer: SpanGatedWriter
     reader: Optional[ScopedLogitReader]
+    metadata: Optional[Dict[str, Any]] = None
 
     def close(self) -> None:
         if self.reader is not None:
@@ -345,6 +357,7 @@ def build_sidecar_state(
     writer_delta: torch.Tensor,
     reader_row_ids: Optional[torch.Tensor] = None,
     reader_deltas: Optional[torch.Tensor] = None,
+    reader_biases: Optional[torch.Tensor] = None,
     reader_scale: float = 1.0,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -363,11 +376,22 @@ def build_sidecar_state(
         "reader_scale": float(reader_scale),
         "metadata": dict(metadata or {}),
     }
-    if reader_row_ids is not None or reader_deltas is not None:
+    if (
+        reader_row_ids is not None
+        or reader_deltas is not None
+        or reader_biases is not None
+    ):
         if reader_row_ids is None or reader_deltas is None:
             raise ValueError("reader_row_ids and reader_deltas must be supplied together")
         state["reader_row_ids"] = reader_row_ids.detach().long().cpu()
         state["reader_deltas"] = reader_deltas.detach().float().cpu()
+        if reader_biases is not None:
+            if tuple(reader_biases.shape) != tuple(reader_row_ids.shape):
+                raise ValueError(
+                    "reader_biases must have the same [records, rows] shape "
+                    "as reader_row_ids"
+                )
+            state["reader_biases"] = reader_biases.detach().float().cpu()
     return state
 
 
@@ -431,9 +455,19 @@ def attach_scoped_span_edit(model: nn.Module, state: Dict[str, Any]) -> ScopedSp
             router,
             state["reader_row_ids"],
             state["reader_deltas"].to(output_layer.weight.device),
+            (
+                state["reader_biases"].to(output_layer.weight.device)
+                if "reader_biases" in state
+                else None
+            ),
             float(state.get("reader_scale", 1.0)),
         )
-    return ScopedSpanEditRuntime(router=router, writer=writer, reader=reader)
+    return ScopedSpanEditRuntime(
+        router=router,
+        writer=writer,
+        reader=reader,
+        metadata=dict(state.get("metadata") or {}),
+    )
 
 
 def load_and_attach_scoped_span_edit(

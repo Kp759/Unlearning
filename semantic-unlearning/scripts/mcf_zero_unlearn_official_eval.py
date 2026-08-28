@@ -270,7 +270,7 @@ def official_summarize(split_name, metric_data):
                 np.mean([x["target_true"] for x in xs])
             )
             prompt_margins[out_prefix].extend(
-                float(x["target_new"]) - float(x["target_true"])
+                float(x["target_true"]) - float(x["target_new"])
                 for x in xs
             )
 
@@ -323,16 +323,13 @@ def official_summarize(split_name, metric_data):
     out["Spe_success"] = out["post_neighborhood_success"][0]
     for prompt_type in ("rewrite", "paraphrase"):
         margins = prompt_margins[prompt_type]
-        # margin = target_new_NLL - target_true_NLL. Success (line 249-251:
-        # target_true_NLL > target_new_NLL, target_new preferred) means
-        # target_new_NLL < target_true_NLL, i.e. margin < 0. A genuine
-        # failure (forget did not take, including exact ties, matching the
-        # strict `>` used by success) is therefore margin >= 0 -- NOT
-        # margin <= 0, which is still (almost entirely) the success range
-        # and was left mislabeling successes as failures.
+        # Forget margin = target_true_NLL - target_new_NLL. Positive means the
+        # sensitive target_true is less likely than the reference target_new;
+        # this is the same direction used by Stage 2 and by the post-reload
+        # margin floor. Exact ties fail the strict buffered acceptance gate.
         out[f"post_{prompt_type}_prompt_instances"] = len(margins)
         out[f"post_{prompt_type}_failure_prompt_instances"] = sum(
-            margin >= 0.0 for margin in margins
+            margin <= 0.0 for margin in margins
         )
         out[f"post_{prompt_type}_min_margin"] = (
             float(min(margins)) if margins else None
@@ -357,8 +354,8 @@ def _minimum_margin_from_raw(metric_data):
         for key in ("rewrite_prompts_probs", "paraphrase_prompts_probs"):
             for values in post.get(key, []):
                 margins.append(
-                    float(values["target_new"])
-                    - float(values["target_true"])
+                    float(values["target_true"])
+                    - float(values["target_new"])
                 )
     return min(margins) if margins else None
 
@@ -687,7 +684,13 @@ def evaluate_loaded_model_official(
         )
         result["scoped_span_edit"] = {
             "loaded": True,
+            "sidecar_path": getattr(
+                model,
+                "_scoped_span_edit_source",
+                str(Path(model_dir) / scoped_edit.SIDECAR_NAME),
+            ),
             "record_scopes": scoped_runtime.router.n_records,
+            "metadata": dict(scoped_runtime.metadata or {}),
             "router_calls": scoped_runtime.router.calls,
             "matched_batch_rows": scoped_runtime.router.matched_rows,
             "writer_fired_rows": scoped_runtime.writer.fired,
@@ -719,6 +722,7 @@ def evaluate_model_dir_official(
     dtype="bfloat16",
     device_map="auto",
     skip_ppl=False,
+    scoped_sidecar=None,
 ):
     model_dir = Path(model_dir)
     if not model_dir.exists():
@@ -742,13 +746,27 @@ def evaluate_model_dir_official(
         # automatic and routing depends only on complete training-visible
         # subject token sequences in input_ids; no evaluation labels, prompt
         # groups, paraphrases, or neighborhoods are exposed to the gate.
-        scoped_runtime = scoped_edit.maybe_attach_scoped_span_edit(model, model_dir)
+        if scoped_sidecar is not None:
+            sidecar_source = Path(scoped_sidecar)
+            if not sidecar_source.exists():
+                raise FileNotFoundError(
+                    f"Explicit scoped sidecar does not exist: {sidecar_source}"
+                )
+            scoped_runtime = scoped_edit.load_and_attach_scoped_span_edit(
+                model, sidecar_source
+            )
+        else:
+            sidecar_source = model_dir / scoped_edit.SIDECAR_NAME
+            scoped_runtime = scoped_edit.maybe_attach_scoped_span_edit(
+                model, model_dir
+            )
         if scoped_runtime is not None:
             # Keep an explicit lifetime/reference and expose auditable routing
             # counters in the result payload.
             model._scoped_span_edit_runtime = scoped_runtime
+            model._scoped_span_edit_source = str(sidecar_source.resolve())
             print(
-                f"Loaded {scoped_edit.SIDECAR_NAME}: "
+                f"Loaded scoped sidecar {sidecar_source}: "
                 f"{scoped_runtime.router.n_records} exact-subject scopes"
             )
     except Exception as exc:
@@ -784,6 +802,14 @@ def main():
 
     ap.add_argument("--dtype", default="bfloat16")
     ap.add_argument("--device-map", default="auto")
+    ap.add_argument(
+        "--scoped-sidecar",
+        default=None,
+        help=(
+            "Optional external scoped_span_edit.pt. When supplied, this "
+            "sidecar is attached instead of auto-discovering one in model-dir."
+        ),
+    )
     ap.add_argument("--skip-ppl", action="store_true")
     ap.add_argument(
         "--quiet",
@@ -832,6 +858,7 @@ def main():
         dtype=args.dtype,
         device_map=args.device_map,
         skip_ppl=args.skip_ppl,
+        scoped_sidecar=args.scoped_sidecar,
     )
 
     # Backward-compatible top-level aliases for older one-model usage.

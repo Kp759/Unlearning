@@ -150,6 +150,36 @@ def test_batch_routes_each_record_independently_and_keeps_negative_row_exact():
         runtime.close()
 
 
+def test_scoped_reader_bias_is_context_invariant_inside_scope():
+    model = ToyLM()
+    inputs = torch.tensor([[0, 2, 3, 9], [0, 4, 4, 9]], dtype=torch.long)
+    base = model(inputs)
+    router = scoped.SpanGateRouter(model.embed, [[[2, 3]]])
+    writer = scoped.SpanGatedWriter(
+        model.model.layers[0], router, 3, torch.device("cpu")
+    )
+    row_ids = torch.tensor([[7]], dtype=torch.long)
+    deltas = torch.zeros((1, 1, 3), dtype=torch.float32)
+    biases = torch.tensor([[-3.0]], dtype=torch.float32)
+    reader = scoped.ScopedLogitReader(
+        model.lm_head,
+        router,
+        row_ids,
+        deltas,
+        biases=biases,
+        scale=2.0,
+    )
+    runtime = scoped.ScopedSpanEditRuntime(router, writer, reader)
+    try:
+        edited = model(inputs)
+        expected = base.logits.clone()
+        expected[0, :, 7] -= 6.0
+        torch.testing.assert_close(edited.logits, expected)
+        assert torch.equal(edited.logits[1], base.logits[1])
+    finally:
+        runtime.close()
+
+
 def test_writer_gradient_reaches_only_the_routed_record():
     model = ToyLM()
     runtime = _runtime(model)
@@ -210,6 +240,9 @@ def test_sidecar_round_trip_reinstalls_identical_runtime(tmp_path):
             runtime.writer.delta[0] = torch.tensor([1.0, 2.0, 3.0])
             runtime.writer.delta[1] = torch.tensor([-1.0, 0.5, 2.0])
         assert runtime.reader is not None
+        runtime.reader.biases = torch.tensor(
+            [[-0.75, 0.0], [-1.25, 0.0]], dtype=torch.float32
+        )
         state = scoped.build_sidecar_state(
             subjects=["first", "second"],
             subject_patterns=runtime.router.subject_patterns,
@@ -217,6 +250,7 @@ def test_sidecar_round_trip_reinstalls_identical_runtime(tmp_path):
             writer_delta=runtime.writer.delta,
             reader_row_ids=runtime.reader.row_ids,
             reader_deltas=runtime.reader.deltas,
+            reader_biases=runtime.reader.biases,
             reader_scale=runtime.reader.scale,
         )
         path = scoped.save_sidecar(tmp_path, state)
