@@ -27,7 +27,7 @@ import torch
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v1"
+PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v2"
 
 
 def normalize_text(value: Any) -> str:
@@ -417,14 +417,15 @@ def distributional_reader(
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Fit ``q`` from distributions of positive and negative hidden states.
 
-    The initialization is the regularized discriminant
+    The initial candidate is a regularized discriminant, projected into the
+    exact span-complement of the registered negative states:
 
     ``(C_neg + lambda*C_pos_centered + ridge*I + gamma*I)^-1
       (mu_pos + gamma*v)``.
 
-    A small fixed-state refinement then enforces a positive cone over every
-    training-safe positive context while retaining the negative and marker
-    penalties.  It trains no model parameter and consumes no held-out probe.
+    A small fixed-state refinement stays inside that negative nullspace and
+    enforces a positive cone over every training-safe positive context. It
+    trains no model parameter and consumes no held-out probe.
     """
     if marker.ndim != 1:
         raise ValueError("marker must be one-dimensional")
@@ -454,6 +455,22 @@ def distributional_reader(
     mu = pos.mean(dim=0)
     centered = pos - mu
 
+    # The first run showed why a covariance penalty is not enough here:
+    # cos(v,q) stayed near one while kappa reached 158 because the large base
+    # hidden-state component survived.  In this high-dimensional, low-sample
+    # regime we can impose the locality condition directly.  Remove the span
+    # of every training-safe negative from both the positive mean and marker,
+    # then optimize only inside that negative nullspace.  Thus q.h_negative is
+    # zero by construction on the registered controls, while the remaining
+    # degrees of freedom maximize the worst positive projection.
+    negative_basis = orthonormal_row_basis(
+        neg,
+        max_rank=min(int(neg.shape[0]), max(0, hidden - 1)),
+    )
+    residual_pos = project_out(pos, negative_basis)
+    residual_marker = project_out(v.unsqueeze(0), negative_basis).squeeze(0)
+    residual_mu = residual_pos.mean(dim=0)
+
     def matvec(vector: torch.Tensor) -> torch.Tensor:
         result = (float(ridge) + float(anchor_weight)) * vector
         if neg.shape[0] and float(negative_weight) > 0:
@@ -466,8 +483,13 @@ def distributional_reader(
             ) / centered.shape[0]
         return result
 
-    rhs = mu + float(anchor_weight) * v
+    rhs = residual_mu + float(anchor_weight) * residual_marker
     initial, cg_report = conjugate_gradient(matvec, rhs)
+    initial = project_out(initial.unsqueeze(0), negative_basis).squeeze(0)
+    if float(initial.norm()) < 1e-10:
+        initial = residual_mu
+    if float(initial.norm()) < 1e-10:
+        raise RuntimeError("positive states have no direction outside the negative span")
     q = F.normalize(initial, dim=0, eps=1e-12)
     if float((pos @ q).mean()) < 0:
         q = -q
@@ -482,15 +504,19 @@ def distributional_reader(
         parameter = q.detach().clone().requires_grad_(True)
         momentum = torch.zeros_like(parameter)
         for _ in range(int(refine_steps)):
-            unit = F.normalize(parameter, dim=0, eps=1e-12)
+            unit = F.normalize(
+                project_out(parameter.unsqueeze(0), negative_basis).squeeze(0),
+                dim=0,
+                eps=1e-12,
+            )
             pos_scores = pos @ unit
             hinge = F.relu(float(positive_floor) - pos_scores).square().mean()
             consistency = pos_scores.var(unbiased=False)
             negative = (neg @ unit).square().mean() if neg.shape[0] else unit.sum() * 0.0
             anchor = 1.0 - torch.dot(unit, v)
             loss = (
-                20.0 * hinge
-                + float(consistency_weight) * consistency
+                200.0 * hinge
+                + 0.1 * float(consistency_weight) * consistency
                 + float(negative_weight) * negative
                 + float(anchor_weight) * anchor
             )
@@ -498,6 +524,9 @@ def distributional_reader(
             with torch.no_grad():
                 momentum.mul_(0.9).add_(gradient)
                 updated = parameter - float(refine_lr) * momentum
+                updated = project_out(
+                    updated.unsqueeze(0), negative_basis
+                ).squeeze(0)
                 updated = F.normalize(updated, dim=0, eps=1e-12)
             parameter = updated.detach().requires_grad_(True)
         q = F.normalize(parameter.detach(), dim=0, eps=1e-12)
@@ -513,6 +542,7 @@ def distributional_reader(
             float((neg @ q).abs().max()) if neg.shape[0] else 0.0
         ),
         "cos_marker_q": float(torch.dot(v, q)),
+        "negative_nullspace_rank": int(negative_basis.shape[0]),
         "refine_steps": int(refine_steps),
     }
     return q.cpu(), report
@@ -563,3 +593,55 @@ def directional_row_deltas(
                 raise ValueError(f"answer token {token_id} missing from selected output rows")
             membership[row_slot[token_id], record_index] = 1.0
     return -((membership * betas.unsqueeze(0)) @ readers)
+
+
+def monotone_cover_betas(
+    response: torch.Tensor,
+    required_margin_gain: torch.Tensor,
+    *,
+    safety_factor: float = 1.25,
+    max_steps: int = 10000,
+) -> Tuple[torch.Tensor, Dict[str, float]]:
+    """Solve non-negative linearized margin constraints monotonically.
+
+    ``response[i, j]`` is the predicted increase in instance ``i``'s
+    sensitive-vs-reference NLL margin per unit of reader ``j``.  Negative
+    cross-reader responses are excluded from the initializer (the exact
+    Stage-2 optimizer still sees them).  Repeated projections onto the most
+    violated non-negative halfspace cannot undo a previously accumulated
+    margin because every retained coefficient is non-negative.
+    """
+    if response.ndim != 2:
+        raise ValueError("response must be [instances, readers]")
+    if required_margin_gain.ndim != 1 or required_margin_gain.shape[0] != response.shape[0]:
+        raise ValueError("required-margin vector has incompatible shape")
+    if not math.isfinite(float(safety_factor)) or float(safety_factor) < 1.0:
+        raise ValueError("safety_factor must be finite and >=1")
+    matrix = response.float().clamp_min(0.0)
+    target = required_margin_gain.float().clamp_min(0.0) * float(safety_factor)
+    beta = torch.zeros(matrix.shape[1], dtype=torch.float32, device=matrix.device)
+    steps = 0
+    for steps in range(1, int(max_steps) + 1):
+        deficit = target - matrix @ beta
+        worst_value, worst_index = deficit.max(dim=0)
+        if float(worst_value) <= 1e-5:
+            break
+        row = matrix[int(worst_index)]
+        norm_sq = torch.dot(row, row)
+        if float(norm_sq) <= 1e-12:
+            raise RuntimeError(
+                f"instance {int(worst_index)} has no positive reader response"
+            )
+        beta = beta + (worst_value / norm_sq) * row
+    residual = target - matrix @ beta
+    return beta.cpu(), {
+        "steps": int(steps),
+        "instances": int(matrix.shape[0]),
+        "readers": int(matrix.shape[1]),
+        "response_positive_fraction": float((matrix > 0).float().mean()),
+        "target_max": float(target.max()) if target.numel() else 0.0,
+        "residual_max": float(residual.max()) if residual.numel() else 0.0,
+        "beta_min": float(beta.min()) if beta.numel() else 0.0,
+        "beta_median": float(beta.median()) if beta.numel() else 0.0,
+        "beta_max": float(beta.max()) if beta.numel() else 0.0,
+    }

@@ -36,11 +36,17 @@ The new method changes four causal components:
    direction with high reachable energy across positive contexts and low
    reachable energy across collision contexts.
 4. **Distributional reader.** `q` is fitted against all training-safe positive
-   and negative states, refined to keep every positive projection signed and
-   portable, then checked before Stage 2.
+   and negative states. V2 explicitly projects it into the nullspace of the
+   compositional controls, shared-answer collisions, and reference-answer
+   states before maximizing the worst positive projection. This addresses the
+   first run's decisive result: preserving `cos(v,q) ~= 1` left base-state
+   `q`-vs-`h` leakage as high as `kappa=158`.
 
-Stage 2 initializes each `beta_i` from the worst positive context and optimizes
-only those scalar coefficients against the exact full-answer MCF NLL margin.
+Stage 2 jointly initializes all `beta_i` values from the complete
+instance-by-reader response matrix, including shared answer rows, and then
+optimizes only those scalar coefficients against the exact full-answer MCF NLL
+margin. This replaces independent initialization, which produced very large
+interfering betas and a worst margin of `-193` in the first run.
 The resulting deltas touch only sensitive LM-head rows.
 
 ## Data firewall
@@ -75,7 +81,9 @@ The registered criteria are:
 - consistent positive sign;
 - `kappa_train <= 0.10`;
 - `R >= 0.50`;
-- `cos(v, q) >= 0.90`.
+- `abs(cos(v, q))` is reported but has no positive lower bound in v2. The
+  negative-nullspace locality constraint is load-bearing; forcing the reader
+  to retain the original marker direction reproduced the measured leakage.
 
 The seed-1 launcher uses `--gate-policy report` because this is the first
 falsification run: it records the predeclared gate but still permits a standard
@@ -89,10 +97,15 @@ From the repository root:
 ```bash
 export MODEL_PATH=/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean
 export WIKIDATA_DIR=/scratch/yl258/kp759/datasets/wikipedia_sure_50020
-export OUTPUT_DIR=outputs/mcf_compositional_marker_seed1_3b
+export OUTPUT_DIR=outputs/mcf_compositional_marker_v2_seed1_3b
 
 bash scripts/submit_mcf_compositional_marker_seed1.sh
 ```
+
+To reuse a previously validated seed-1 v7 surrogate artifact rather than
+regenerating it, set `SURROGATE_ARTIFACT` to that JSON file. The learner still
+revalidates its seed, cases, subjects, direct prompts, answer guard, semantic
+receipt, and zero-probe-access declaration.
 
 By default the job first builds the high-precision v7 semantic-surrogate
 artifact. For a faster structural-only ablation:

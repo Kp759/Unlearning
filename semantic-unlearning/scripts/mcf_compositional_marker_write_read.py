@@ -102,11 +102,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--marker-ridge", type=float, default=1e-4)
 
     # Stage 1: sparse embedding writer only.
-    p.add_argument("--writer-steps", type=int, default=800)
-    p.add_argument("--writer-lr", type=float, default=3e-4)
+    p.add_argument("--writer-steps", type=int, default=1200)
+    p.add_argument("--writer-lr", type=float, default=2e-4)
     p.add_argument("--writer-record-batch", type=int, default=4)
-    p.add_argument("--positive-context-batch", type=int, default=3)
-    p.add_argument("--negative-context-batch", type=int, default=4)
+    p.add_argument("--positive-context-batch", type=int, default=4)
+    p.add_argument("--negative-context-batch", type=int, default=5)
     p.add_argument("--write-alpha", type=float, default=6.0)
     p.add_argument("--lambda-consistency", type=float, default=2.0)
     p.add_argument("--lambda-negative", type=float, default=10.0)
@@ -117,25 +117,32 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--kl-topk", type=int, default=64)
     p.add_argument("--writer-grad-clip", type=float, default=1.0)
     p.add_argument("--writer-eval-every", type=int, default=50)
-    p.add_argument("--row-norm-cap", type=float, default=4.0)
+    p.add_argument("--row-norm-cap", type=float, default=8.0)
     p.add_argument("--row-norm-cap-frequency-alpha", type=float, default=0.15)
     p.add_argument("--writer-amplitude-min-frac", type=float, default=0.75)
     p.add_argument("--writer-marker-kappa-max", type=float, default=0.10)
 
     # Distributional q reader.
     p.add_argument("--reader-ridge", type=float, default=0.05)
-    p.add_argument("--reader-anchor-weight", type=float, default=10.0)
+    p.add_argument("--reader-anchor-weight", type=float, default=0.05)
     p.add_argument("--reader-consistency-weight", type=float, default=2.0)
     p.add_argument("--reader-negative-weight", type=float, default=2.0)
-    p.add_argument("--reader-refine-steps", type=int, default=300)
+    p.add_argument("--reader-refine-steps", type=int, default=600)
     p.add_argument("--reader-refine-lr", type=float, default=0.03)
     p.add_argument("--reader-positive-floor", type=float, default=0.02)
-    p.add_argument("--reader-cross-positive-cap", type=int, default=64)
+    p.add_argument("--reader-cross-positive-cap", type=int, default=256)
 
     # Pre-Stage-2 portability gate.
     p.add_argument("--kappa-train-max", type=float, default=0.10)
     p.add_argument("--portability-min", type=float, default=0.50)
-    p.add_argument("--cos-marker-reader-min", type=float, default=0.90)
+    p.add_argument(
+        "--cos-marker-reader-min", type=float, default=0.0,
+        help=(
+            "Diagnostic lower bound after negative-nullspace projection. The first "
+            "run showed that forcing cos(v,q) near one preserves base-state leakage; "
+            "zero allows the distributional reader to remove that geometry."
+        ),
+    )
     p.add_argument("--gate-pass-frac", type=float, default=1.0)
     p.add_argument(
         "--gate-policy", choices=("strict", "report"), default="strict",
@@ -867,6 +874,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     else:
         row_caps = torch.zeros_like(row_frequencies)
     log_path = out_dir / "stage1_writer_log.jsonl"
+    hard_positive_prompts = {
+        index: context_sets[int(record["case_id"])]["positive_prompts"][0]
+        for index, record in enumerate(records)
+    }
+    hard_negative_prompts = {
+        index: context_sets[int(record["case_id"])]["negative_contexts"][0]["prompt"]
+        for index, record in enumerate(records)
+    }
     with log_path.open("w", encoding="utf-8") as log_file:
         for step in range(1, int(a.writer_steps) + 1):
             record_indices = sampler.next()
@@ -876,14 +891,24 @@ def main(argv: Sequence[str] | None = None) -> None:
                 context = context_sets[int(record["case_id"])]
                 positives = list(context["positive_prompts"])
                 selected_pos = [positives[0]]
+                hard_positive = hard_positive_prompts[record_index]
+                if hard_positive not in selected_pos:
+                    selected_pos.append(hard_positive)
                 remainder = positives[1:]
                 py_rng.shuffle(remainder)
-                selected_pos.extend(
-                    remainder[: max(0, int(a.positive_context_batch) - 1)]
-                )
+                for prompt in remainder:
+                    if len(selected_pos) >= int(a.positive_context_batch):
+                        break
+                    if prompt not in selected_pos:
+                        selected_pos.append(prompt)
                 negatives = [row["prompt"] for row in context["negative_contexts"]]
                 py_rng.shuffle(negatives)
-                selected_neg = negatives[: int(a.negative_context_batch)]
+                selected_neg = [hard_negative_prompts[record_index]]
+                for prompt in negatives:
+                    if len(selected_neg) >= int(a.negative_context_batch):
+                        break
+                    if prompt not in selected_neg:
+                        selected_neg.append(prompt)
                 entries.extend((record_index, "positive", prompt) for prompt in selected_pos)
                 entries.extend((record_index, "negative", prompt) for prompt in selected_neg)
 
@@ -907,8 +932,16 @@ def main(argv: Sequence[str] | None = None) -> None:
                 marker = marker_bank[record_index].to(device)
                 pos_delta = displacement[pos_indices]
                 amplitudes = pos_delta @ marker
-                l_write = l_write + F.relu(float(a.write_alpha) - amplitudes).mean()
-                l_consistency = l_consistency + amplitudes.var(unbiased=False)
+                shortfall = F.relu(float(a.write_alpha) - amplitudes)
+                alpha_scale = max(float(a.write_alpha), 1e-6)
+                # Squared shortfall makes the currently worst context own the
+                # gradient. The first run's mean hinge tolerated A_min=-10
+                # while its median climbed, exactly the wrong optimization
+                # behavior for zero Gen.
+                l_write = l_write + shortfall.square().mean() / alpha_scale
+                l_consistency = l_consistency + (
+                    amplitudes.var(unbiased=False) / (alpha_scale * alpha_scale)
+                )
                 parallel = amplitudes.unsqueeze(1) * marker.unsqueeze(0)
                 l_off = l_off + (pos_delta - parallel).square().mean()
                 if neg_indices:
@@ -1010,6 +1043,32 @@ def main(argv: Sequence[str] | None = None) -> None:
                     )
                     per_record_minima.append(float(amplitudes.min()))
                     per_record_medians.append(float(amplitudes.median()))
+                    hard_positive_prompts[record_index] = eval_prompts[
+                        int(amplitudes.argmin())
+                    ]
+                    negative_prompts = [
+                        row["prompt"]
+                        for row in context_sets[int(record["case_id"])][
+                            "negative_contexts"
+                        ]
+                    ]
+                    negative_hidden = batched_last_hidden_only(
+                        model,
+                        tok,
+                        negative_prompts,
+                        device,
+                        batch_size=int(a.cache_batch_size),
+                    )
+                    negative_base = torch.stack(
+                        [base_cache[prompt]["hidden"] for prompt in negative_prompts]
+                    )
+                    negative_amplitudes = (
+                        (negative_hidden - negative_base)
+                        @ marker_bank[record_index].float()
+                    )
+                    hard_negative_prompts[record_index] = negative_prompts[
+                        int(negative_amplitudes.abs().argmax())
+                    ]
                 sorted_minima = sorted(per_record_minima)
                 sorted_medians = sorted(per_record_medians)
                 print(
@@ -1137,7 +1196,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     print("\nReader: distributional q over all training-safe contexts")
     positive_state_groups: Dict[int, List[torch.Tensor]] = {}
     negative_state_groups: Dict[int, List[torch.Tensor]] = {}
+    reference_state_groups: Dict[int, List[torch.Tensor]] = {}
     answer_rows_by_record: List[List[int]] = []
+    reference_rows_by_record: List[List[int]] = []
     for position, record in enumerate(records):
         context = context_sets[int(record["case_id"])]
         positives = list(context["positive_prompts"])
@@ -1160,15 +1221,31 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         if answer_rows != negative_answer_rows:
             raise AssertionError("positive/negative answer tokenization diverged")
+        reference_groups, reference_rows = teacher_forced_state_groups(
+            model,
+            tok,
+            positives,
+            str(record["reference"]),
+            device,
+            batch_size=int(a.cache_batch_size),
+        )
         positive_state_groups[position] = positive_groups
         negative_state_groups[position] = negative_groups
+        reference_state_groups[position] = reference_groups
         answer_rows_by_record.append(answer_rows)
+        reference_rows_by_record.append(reference_rows)
 
     readers: List[torch.Tensor] = []
     reader_reports: List[Dict[str, Any]] = []
     for position, record in enumerate(records):
         own_positive = torch.cat(positive_state_groups[position], dim=0)
-        own_negative_parts = list(negative_state_groups[position])
+        # Protect both compositional controls and the reference-answer path.
+        # The Stage-2 row update then changes sensitive-answer NLL without
+        # winning merely by damaging the counterfactual reference NLL.
+        own_negative_parts = [
+            *negative_state_groups[position],
+            *reference_state_groups[position],
+        ]
         own_answer_rows = set(answer_rows_by_record[position])
         own_subject_rows = set(selected_by_case[int(record["case_id"])])
         cross_candidates: List[torch.Tensor] = []
@@ -1178,20 +1255,24 @@ def main(argv: Sequence[str] | None = None) -> None:
             answer_collision = bool(
                 own_answer_rows & set(answer_rows_by_record[other_position])
             )
+            reference_collision = bool(
+                own_answer_rows & set(reference_rows_by_record[other_position])
+            )
             subject_collision = bool(
                 own_subject_rows & set(selected_by_case[int(other["case_id"])])
             )
-            if answer_collision or subject_collision:
+            if answer_collision or reference_collision or subject_collision:
                 cross_candidates.extend(positive_state_groups[other_position])
+                cross_candidates.extend(reference_state_groups[other_position])
         if cross_candidates:
             flat_cross = torch.cat(cross_candidates, dim=0)
             cap = min(int(a.reader_cross_positive_cap), flat_cross.shape[0])
             own_negative_parts.append(flat_cross[:cap])
         own_negative = torch.cat(own_negative_parts, dim=0)
         reader, fit_report = compositional.distributional_reader(
-            record["marker"],
-            own_positive,
-            own_negative,
+            record["marker"].to(device),
+            own_positive.to(device),
+            own_negative.to(device),
             ridge=float(a.reader_ridge),
             anchor_weight=float(a.reader_anchor_weight),
             consistency_weight=float(a.reader_consistency_weight),
@@ -1209,6 +1290,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "negative_states": int(own_negative.shape[0]),
                 **fit_report,
                 **metrics,
+                "abs_cos_marker_q": abs(float(fit_report["cos_marker_q"])),
             }
         )
         print(
@@ -1222,7 +1304,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         and bool(row["positive_sign_consistent"])
         and float(row["kappa_train"]) <= float(a.kappa_train_max)
         and float(row["portability_ratio"]) >= float(a.portability_min)
-        and float(row["cos_marker_q"]) >= float(a.cos_marker_reader_min)
+        and float(row["abs_cos_marker_q"]) >= float(a.cos_marker_reader_min)
         for index, row in enumerate(reader_reports)
     ]
     pass_fraction = sum(pass_flags) / max(1, len(pass_flags))
@@ -1231,7 +1313,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "positive_sign_consistent": True,
             "kappa_train_max": float(a.kappa_train_max),
             "portability_min": float(a.portability_min),
-            "cos_marker_reader_min": float(a.cos_marker_reader_min),
+            "abs_cos_marker_reader_min": float(a.cos_marker_reader_min),
             "writer_amplitude_min_frac": float(a.writer_amplitude_min_frac),
             "writer_marker_kappa_max": float(a.writer_marker_kappa_max),
             "pass_fraction_required": float(a.gate_pass_frac),
@@ -1245,6 +1327,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             [row["portability_ratio"] for row in reader_reports]
         ),
         "cos_marker_q": distribution([row["cos_marker_q"] for row in reader_reports]),
+        "abs_cos_marker_q": distribution(
+            [row["abs_cos_marker_q"] for row in reader_reports]
+        ),
         "per_record": reader_reports,
     }
     gagd.write_json(out_dir / "reader_gate_report.json", gate_report)
@@ -1271,26 +1356,39 @@ def main(argv: Sequence[str] | None = None) -> None:
         llama_like=llama_like,
         batch_size=int(a.stage2_batch_size),
     )
-    initial_betas = torch.zeros(len(records), dtype=torch.float32)
-    for position in range(len(records)):
-        owned = [i for i, owner in enumerate(instance_owners) if owner == position]
-        needed = max(
-            0.0,
-            max(float(a.forget_margin) - float(pre_margins[i]) for i in owned),
-        )
-        q = reader_bank[position]
-        prompt_signals = [
-            float((group @ q).mean()) for group in positive_state_groups[position]
-        ]
-        signal = min(prompt_signals)
-        if signal <= 0:
-            if a.gate_policy == "strict":
-                embedding_hook.remove()
-                raise RuntimeError(
-                    f"case {records[position]['case_id']} has non-positive worst-context reader signal"
-                )
-            signal = max(abs(signal), 1e-3)
-        initial_betas[position] = 1.05 * needed / max(signal, 1e-6)
+    # Jointly initialize all record readers.  The old per-record division by
+    # one tiny worst-context signal produced enormous betas; on shared answer
+    # rows those readers then interacted and drove the worst margin to -193.
+    # This matrix includes the actual token-row memberships and every reader's
+    # response at every positive teacher-forced state.
+    linear_response = torch.zeros(
+        (len(positive_instances), len(records)), dtype=torch.float32
+    )
+    answer_row_sets = [set(rows) for rows in answer_rows_by_record]
+    for instance_index, instance in enumerate(positive_instances):
+        owner = int(instance_owners[instance_index])
+        states = positive_state_groups[owner][int(instance.prompt_index)]
+        target_rows = answer_rows_by_record[owner]
+        for reader_index, q in enumerate(reader_bank):
+            contributions = [
+                float(states[offset] @ q)
+                if int(token_id) in answer_row_sets[reader_index]
+                else 0.0
+                for offset, token_id in enumerate(target_rows)
+            ]
+            linear_response[instance_index, reader_index] = sum(contributions) / max(
+                1, len(contributions)
+            )
+    initial_betas, beta_initialization_report = compositional.monotone_cover_betas(
+        linear_response,
+        float(a.forget_margin) - pre_margins,
+        safety_factor=1.25,
+    )
+    print(
+        "  beta initializer: max "
+        f"{beta_initialization_report['beta_max']:.3f}, residual "
+        f"{beta_initialization_report['residual_max']:+.3e}"
+    )
 
     selected_output_rows = sorted(
         {int(token_id) for rows in answer_rows_by_record for token_id in rows}
@@ -1322,7 +1420,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         len(positive_instances), int(a.stage2_batch_size), int(a.seed) + 811
     )
     protection_rows = torch.cat(
-        [torch.cat(negative_state_groups[i], dim=0) for i in range(len(records))],
+        [
+            torch.cat(
+                [
+                    *negative_state_groups[i],
+                    *reference_state_groups[i],
+                ],
+                dim=0,
+            )
+            for i in range(len(records))
+        ],
         dim=0,
     )
     if protection_rows.shape[0] > 1024:
@@ -1444,7 +1551,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     # cannot be lost to that numerical representation change.
     output_hook.remove()
     embedding_hook.remove()
-    canonical.materialize_input_delta(
+    directional.materialize_input_delta(
         input_layer, selected_rows, trained_embedding_delta
     )
     materialization_reports: List[Dict[str, Any]] = []
@@ -1491,6 +1598,36 @@ def main(argv: Sequence[str] | None = None) -> None:
         selected_materialization_scale = float(scale)
         if all_count == 0:
             break
+    if materialization_reports[-1]["positive_failures"] != 0:
+        best_materialized = min(
+            materialization_reports,
+            key=lambda row: (
+                int(row["direct_failures"]),
+                int(row["positive_failures"]),
+                -float(row["minimum_margin"]),
+            ),
+        )
+        best_scale = float(best_materialized["scale"])
+        if abs(best_scale - selected_materialization_scale) > 1e-12:
+            with torch.no_grad():
+                output_layer.weight.index_copy_(
+                    0,
+                    output_row_index,
+                    base_selected_output_rows
+                    + (best_scale * final_output_delta).to(
+                        device=base_selected_output_rows.device,
+                        dtype=base_selected_output_rows.dtype,
+                    ),
+                )
+            materialized_margins = evaluate_instance_margins(
+                model,
+                tok,
+                positive_instances,
+                device,
+                llama_like=llama_like,
+                batch_size=int(a.stage2_batch_size),
+            )
+            selected_materialization_scale = best_scale
     actual_output_delta = final_output_delta * selected_materialization_scale
     margin_drift = (
         float(scale_one_margin_drift)
@@ -1582,7 +1719,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         },
         "reader_gate": gate_report,
         "stage2": {
-            "initialization": "worst training-safe positive context per record",
+            "initialization": (
+                "joint monotone cover over the full instance-by-reader shared-row "
+                "response matrix"
+            ),
+            "beta_initialization": beta_initialization_report,
             "exact_margin_optimization": True,
             "forget_margin": float(a.forget_margin),
             "selected_scale": selected_scale,

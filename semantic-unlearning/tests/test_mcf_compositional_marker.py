@@ -238,6 +238,44 @@ def test_distributional_reader_is_portable_and_rejects_negative_axis():
     assert metrics["kappa_train"] < 0.02
 
 
+def test_distributional_reader_drops_marker_when_marker_is_base_leakage_axis():
+    marker = torch.tensor([1.0, 0.0, 0.0, 0.0])
+    negatives = torch.tensor(
+        [
+            [10.0, 10.0, 0.0, 0.0],
+            [10.0, -10.0, 0.0, 0.0],
+            [-8.0, 8.0, 0.0, 0.0],
+            [-8.0, -8.0, 0.0, 0.0],
+        ]
+    )
+    positives = torch.tensor(
+        [
+            [10.0, 1.0, 5.0, 0.1],
+            [9.0, -1.0, 5.2, -0.1],
+            [11.0, 0.5, 4.8, 0.0],
+        ]
+    )
+
+    reader, fit = core.distributional_reader(
+        marker,
+        positives,
+        negatives,
+        ridge=0.05,
+        anchor_weight=0.05,
+        consistency_weight=2.0,
+        negative_weight=10.0,
+        refine_steps=100,
+        refine_lr=0.03,
+        positive_floor=0.02,
+    )
+    metrics = core.reader_metrics(reader, positives, negatives)
+
+    assert abs(fit["cos_marker_q"]) < 1e-4
+    assert metrics["positive_sign_consistent"] is True
+    assert metrics["kappa_train"] < 1e-5
+    assert metrics["portability_ratio"] > 0.85
+
+
 def test_directional_row_delta_sums_readers_only_on_owned_answer_rows():
     readers = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
     betas = torch.tensor([2.0, 3.0, 0.5])
@@ -250,6 +288,26 @@ def test_directional_row_delta_sums_readers_only_on_owned_answer_rows():
     assert torch.equal(delta[0], torch.tensor([-2.0, -3.0]))
     assert torch.equal(delta[1], torch.tensor([0.0, -3.0]))
     assert torch.equal(delta[2], torch.tensor([-0.5, -0.5]))
+
+
+def test_monotone_beta_initializer_covers_joint_shared_row_constraints():
+    response = torch.tensor(
+        [
+            [2.0, 0.2, -4.0],
+            [0.1, 1.5, 0.0],
+            [0.0, 0.4, 2.5],
+        ]
+    )
+    required = torch.tensor([4.0, 3.0, 5.0])
+
+    beta, report = core.monotone_cover_betas(
+        response, required, safety_factor=1.25
+    )
+
+    retained = response.clamp_min(0.0)
+    assert torch.all(retained @ beta >= required * 1.25 - 1e-4)
+    assert torch.all(beta >= 0)
+    assert report["residual_max"] <= 1e-4
 
 
 def test_method_defaults_to_standard_weights_and_strict_reader_gate():
@@ -269,6 +327,8 @@ def test_method_defaults_to_standard_weights_and_strict_reader_gate():
     assert args.kappa_train_max == 0.10
     assert args.portability_min == 0.50
     assert args.writer_marker_kappa_max == 0.10
+    assert args.reader_anchor_weight == 0.05
+    assert args.cos_marker_reader_min == 0.0
     assert not hasattr(args, "router")
     assert not hasattr(args, "logit_bias")
 

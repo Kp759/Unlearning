@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=mcf-compose-s1
+#SBATCH --job-name=mcf-compose2-s1
 #SBATCH --account=yl258
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
@@ -18,8 +18,9 @@ ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_seed1_3b}"
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v2_seed1_3b}"
 BUILD_SEMANTIC_SURROGATES="${BUILD_SEMANTIC_SURROGATES:-1}"
+SURROGATE_ARTIFACT="${SURROGATE_ARTIFACT:-}"
 
 cd "${PROJECT_DIR}"
 mkdir -p slurm_logs "${OUTPUT_DIR}/protocol"
@@ -45,7 +46,9 @@ SPLIT_MANIFEST="${OUTPUT_DIR}/protocol/split_manifest.json"
 SURROGATE_ARGS=()
 
 if [[ "${BUILD_SEMANTIC_SURROGATES}" == "1" ]]; then
-  SURROGATE_ARTIFACT="${OUTPUT_DIR}/protocol/robust_prompt_adapter_v7.json"
+  if [[ -z "${SURROGATE_ARTIFACT}" ]]; then
+    SURROGATE_ARTIFACT="${OUTPUT_DIR}/protocol/robust_prompt_adapter_v7.json"
+  fi
   if [[ ! -e "${SURROGATE_ARTIFACT}" ]]; then
     python -u scripts/build_mcf_robust_prompt_adapter_v7.py \
       --training-visible-path "${TRAINING_VISIBLE}" \
@@ -78,15 +81,22 @@ python -u scripts/mcf_compositional_marker_write_read.py \
   --synthetic-paraphrases-per-record 6 \
   --corpus-context-prefixes 256 \
   --reach-probes 12 \
-  --writer-steps 800 \
+  --writer-steps 1200 \
+  --writer-lr 2e-4 \
+  --positive-context-batch 4 \
+  --negative-context-batch 5 \
+  --row-norm-cap 8 \
   --write-alpha 6 \
   --lambda-consistency 2 \
   --lambda-negative 10 \
   --lambda-cross 2 \
-  --reader-refine-steps 300 \
+  --reader-anchor-weight 0.05 \
+  --reader-negative-weight 10 \
+  --reader-refine-steps 600 \
+  --reader-cross-positive-cap 256 \
   --kappa-train-max 0.10 \
   --portability-min 0.50 \
-  --cos-marker-reader-min 0.90 \
+  --cos-marker-reader-min 0 \
   --gate-policy report \
   --forget-margin 1 \
   --stage2-steps 500 \
