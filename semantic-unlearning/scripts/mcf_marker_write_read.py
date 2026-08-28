@@ -66,6 +66,7 @@ import torch
 import torch.nn.functional as F
 
 import gagd_compare as gagd
+import mcf_synthetic_paraphrase_templates as synth
 import scoped_span_edit as scoped_edit
 from mcf_sampling import sample_official_mcf_records
 
@@ -232,6 +233,34 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--lambda-write", type=float, default=1.0)
     p.add_argument("--lambda-off", type=float, default=1.0)
     p.add_argument("--lambda-kl", type=float, default=1.0)
+    p.add_argument(
+        "--positive-contexts", type=int, default=6,
+        help=(
+            "Training-safe phrasings per record that the marker must fire on. "
+            "Gen 64 came from training the write objective at ONE context: the "
+            "reader worked on the direct prompt and did not transfer. Real "
+            "CounterFact paraphrases vary TWO axes at once -- a rephrased "
+            "relation AND an arbitrary unrelated sentence prefix "
+            "('Wallendorf is an Ortsteil of the Lichte municipality. Belgium "
+            "is a part of the'). Official paraphrases are never read; these "
+            "are generated from the training-visible relation template."
+        ),
+    )
+    p.add_argument(
+        "--corpus-context-prefixes", type=int, default=256,
+        help=(
+            "Unrelated sentences sampled from the corpus for prefixing. The "
+            "four hand-authored GENERIC_CONTEXT_PREFIXES are formulaic meta "
+            "lead-ins; a sibling run trained on those reached 30%% synthetic "
+            "failure but 59%% real-paraphrase failure, having learned to fire "
+            "after a lead-in announcing a fact rather than after noise. 0 "
+            "falls back to the formulaic set."
+        ),
+    )
+    p.add_argument("--lambda-consistency", type=float, default=1.0,
+                   help="Penalty on the VARIANCE of v.dh across a record's contexts. "
+                        "Equal mean amplitude with high variance is what a "
+                        "non-transferring reader looks like.")
     p.add_argument("--writer-steps", type=int, default=400)
     p.add_argument("--writer-lr", type=float, default=2e-4)
     p.add_argument("--writer-batch-size", type=int, default=8)
@@ -1520,6 +1549,46 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     # ---- Stage 1: writer ---------------------------------------------------
     print(f"  Stage 0B wall time: {time.time() - _t_stage0b:.1f}s")
+    prefixes = (
+        synth.corpus_context_prefixes(
+            documents, count=int(a.corpus_context_prefixes), seed=int(a.seed)
+        )
+        if int(a.corpus_context_prefixes) > 0 else None
+    )
+    for record in records:
+        variants = synth.synthetic_prompt_templates(
+            relation_id=record.get("relation_id", ""),
+            canonical_prompt=record["prompt_template"],
+            case_id=int(record["case_id"]),
+            count=max(0, int(a.positive_contexts) - 1),
+            context_prefixes=prefixes,
+        )
+        record["positive_contexts"] = [record["prompt"]] + [
+            t.format(record["subject"]) for t in variants
+        ]
+    # Explicitly disabled: these are the BASE states each context is measured
+    # against, and the writer hook exists by this point.
+    writer_enabled_before = writer.enabled
+    writer.enabled = False
+    all_contexts = sorted({c for r in records for c in r["positive_contexts"]})
+    base_ctx_states = {}
+    for start in range(0, len(all_contexts), int(a.batch_size)):
+        chunk = all_contexts[start : start + int(a.batch_size)]
+        got = prompt_hidden(model, tok, chunk, device, 1)
+        for k, ctx in enumerate(chunk):
+            base_ctx_states[ctx] = got[k]
+    writer.enabled = writer_enabled_before
+    for record in records:
+        record["base_context_hidden"] = {
+            c: base_ctx_states[c] for c in record["positive_contexts"]
+        }
+    widths = sorted(len(r["positive_contexts"]) for r in records)
+    print(
+        f"  positive contexts per record: min {widths[0]} median "
+        f"{widths[len(widths)//2]} max {widths[-1]}"
+        f"  (corpus prefixes: {len(prefixes) if prefixes else 0})"
+    )
+
     print(f"\nStage 1: writer ({writer_description})")
     writer.enabled = False
     base_hidden = {
@@ -1544,14 +1613,33 @@ def main(argv: Sequence[str] | None = None) -> None:
             l_write = torch.zeros((), device=device)
             l_off = torch.zeros((), device=device)
             l_kl = torch.zeros((), device=device)
+            l_consistency = torch.zeros((), device=device)
             for record in batch:
+                marker = record["marker"].to(device)
+                # Every training-safe phrasing, not just the canonical prompt.
+                amplitudes = []
+                for context in record["positive_contexts"]:
+                    enc = tok([context], return_tensors="pt").to(device)
+                    out = model(**enc, output_hidden_states=True)
+                    h_ctx = out.hidden_states[-1][0, -1, :].float()
+                    base_ctx = record["base_context_hidden"][context].to(device)
+                    d_ctx = h_ctx - base_ctx
+                    a_ctx = torch.dot(marker, d_ctx)
+                    amplitudes.append(a_ctx)
+                    l_write = l_write + F.relu(float(a.write_alpha) - a_ctx) / len(
+                        record["positive_contexts"]
+                    )
+                if len(amplitudes) > 1:
+                    stacked = torch.stack(amplitudes)
+                    # Uniform amplitude across phrasings. A high mean with high
+                    # variance is exactly the non-transferring reader that
+                    # produced Gen 64 (paraphrase NLL std 7.26).
+                    l_consistency = l_consistency + stacked.var(unbiased=False)
                 enc = tok([record["prompt"]], return_tensors="pt").to(device)
                 out = model(**enc, output_hidden_states=True)
                 h_new = out.hidden_states[-1][0, -1, :].float()
-                marker = record["marker"].to(device)
                 delta_h = h_new - base_hidden[record["index"]].to(device)
                 along = torch.dot(marker, delta_h)
-                l_write = l_write + F.relu(float(a.write_alpha) - along)
                 # Normalized by hidden size: unnormalized this term reaches
                 # ~2e3 against a write hinge of ~1e1, so it owns the gradient
                 # while fighting the displacement the hinge is asking for.
@@ -1566,6 +1654,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 float(a.lambda_write) * l_write / n
                 + float(a.lambda_off) * l_off / n
                 + float(a.lambda_kl) * l_kl / n
+                + float(a.lambda_consistency) * l_consistency / n
             )
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite writer loss at step {step}")
