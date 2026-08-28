@@ -150,14 +150,28 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--min-gate-controls", type=int, default=4)
     p.add_argument(
+        "--only-case-ids", default="",
+        help=(
+            "Restrict to these case ids: a comma-separated list, or a path to "
+            "a JSON file containing them (a protection_report.json works -- "
+            "its retained_after_exclusion.case_ids is used). Needed for a "
+            "paired comparison: a 44-record H_{y,r} kappa is not comparable "
+            "to a 50-record H_y kappa, since the excluded six are the hard "
+            "ones. Run the baseline with this flag on the same ids."
+        ),
+    )
+    p.add_argument(
         "--on-insufficient", choices=("stop", "exclude"), default="stop",
         help=(
             "stop (default): refuse to run when any record lacks protection. "
             "exclude: drop those records and continue on the rest, recording "
             "them as excluded with their funnels. Excluding is a protocol "
-            "decision -- a record with 4 controls has a rank-4 basis, so any "
-            "kappa measured against it is meaningless -- and the excluded set "
-            "must be reported alongside the result, never dropped silently."
+            "decision: a handful of controls gives too little empirical "
+            "coverage of the protected distribution for its orthogonality "
+            "certificate to generalize, which is why the predeclared minimum "
+            "exists -- not because a low-rank basis is meaningless in itself. "
+            "The excluded set must be reported alongside the result, never "
+            "dropped silently."
         ),
     )
     p.add_argument(
@@ -892,6 +906,37 @@ def main(argv: Sequence[str] | None = None) -> None:
         record["shared_rows"] = sum(
             1 for t in record["subject_rows"] if row_owners[t] > 1
         )
+    if str(a.only_case_ids).strip():
+        raw = str(a.only_case_ids).strip()
+        candidate_path = Path(raw)
+        if candidate_path.exists():
+            payload = json.loads(candidate_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                wanted = payload.get("retained_after_exclusion", {}).get("case_ids")
+                if wanted is None:
+                    wanted = payload.get("case_ids")
+            else:
+                wanted = payload
+            keep = {int(x) for x in (wanted or [])}
+        else:
+            keep = {int(x) for x in raw.split(",") if x.strip()}
+        before = len(records)
+        records = [r for r in records if r["case_id"] in keep]
+        print(
+            f"  --only-case-ids: {len(records)}/{before} records retained "
+            f"(requested {len(keep)})"
+        )
+        if not records:
+            raise SystemExit("no records match --only-case-ids")
+        row_owners.clear()
+        for record in records:
+            for token_id in record["subject_rows"]:
+                row_owners[token_id] += 1
+        for record in records:
+            record["shared_rows"] = sum(
+                1 for t in record["subject_rows"] if row_owners[t] > 1
+            )
+
     edited_subject_rows = sorted({t for r in records for t in r["subject_rows"]})
     edited_answer_rows = sorted({t for r in records for t in r["answer_rows"]})
     print(
@@ -1106,7 +1151,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"  control coverage (unique PROMPTS, fit): min {fits[0]}  p10 {fits[max(0,len(fits)//10)]}  "
         f"median {fits[len(fits)//2]}  p90 {fits[min(len(fits)-1,(9*len(fits))//10)]}  max {fits[-1]}"
     )
-    gagd.write_json(out_dir / "protection_report.json", protection_report)
     if insufficient and a.protection_source == "relation" and a.on_insufficient == "exclude":
         excluded = set(insufficient)
         records = [r for r in records if r["case_id"] not in excluded]
@@ -1115,8 +1159,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             "count": len(excluded),
             "case_ids": sorted(excluded),
             "reason": (
-                "insufficient relation-conditioned controls; a rank-deficient "
-                "protected basis makes kappa uninterpretable for these records"
+                "insufficient Base-supported relation controls under the "
+                "predeclared minimum; too little empirical coverage of the "
+                "protected distribution for the orthogonality certificate to "
+                "generalize, so kappa would not be interpretable"
             ),
             "funnels": [r for r in coverage_rows if r["case_id"] in excluded],
         }
@@ -1129,7 +1175,38 @@ def main(argv: Sequence[str] | None = None) -> None:
         if not records:
             print("  no records remain after exclusion")
             raise SystemExit(2)
+        # Recompute the edited-row support on the RETAINED records. Left
+        # unchanged, the writer would be instantiated over the 50-record row
+        # set and the shared-row contention statistics would describe an
+        # experiment that was not run. Rows belonging only to excluded records
+        # get no gradient (weight_decay is 0), so training is unaffected, but
+        # the audit numbers would be wrong.
+        row_owners.clear()
+        for record in records:
+            for token_id in record["subject_rows"]:
+                row_owners[token_id] += 1
+        for record in records:
+            record["shared_rows"] = sum(
+                1 for t in record["subject_rows"] if row_owners[t] > 1
+            )
+        edited_subject_rows = sorted({t for r in records for t in r["subject_rows"]})
+        edited_answer_rows = sorted({t for r in records for t in r["answer_rows"]})
+        protection_report["retained_after_exclusion"] = {
+            "records": len(records),
+            "case_ids": sorted(r["case_id"] for r in records),
+            "edited_subject_rows": len(edited_subject_rows),
+            "edited_answer_rows": len(edited_answer_rows),
+        }
+        print(
+            f"  edited-row support recomputed on {len(records)} records: "
+            f"{len(edited_subject_rows)} subject rows, "
+            f"{len(edited_answer_rows)} answer rows"
+        )
         insufficient = []
+
+    # Written AFTER the exclusion block: writing before it meant
+    # excluded_records was computed and then never persisted.
+    gagd.write_json(out_dir / "protection_report.json", protection_report)
 
     if insufficient and a.protection_source == "relation":
         # A hard gate, not a warning. A record with a handful of controls gets
@@ -1843,6 +1920,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         "model_path": str(Path(a.model_path).resolve()),
         "seed": int(a.seed),
         "forget_num": len(records),
+        "records_sampled": int(a.forget_num),
+        "records_active": len(records),
+        "records_excluded": protection_report.get("excluded_records", {}).get("case_ids", []),
         "invariants": {
             "transformer_parameter_absdiff": transformer_delta,
             "transformer_parameters_changed": bool(transformer_delta > 1e-3),
