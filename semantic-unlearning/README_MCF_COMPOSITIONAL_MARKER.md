@@ -24,7 +24,7 @@ measured `Gen=64` result was consistent with that design: routing fired on all
 official paraphrases, but the marker amplitude did not transfer across their
 relation rewording and arbitrary unrelated prefixes.
 
-Across V2-V5, the method changes six causal components:
+Across V2-V5.1, the method changes six causal components:
 
 1. **Multi-context positives.** Every record uses the direct prompt,
    hand-authored relation-specific alternate templates, arbitrary prefixes
@@ -48,12 +48,15 @@ Across V2-V5, the method changes six causal components:
    states, compositional negatives, and disjoint corpus states. It also
    constrains absolute target-new NLL drift directly, so forgetting must come from raising
    sensitive-target NLL rather than damaging the reference target.
-6. **Bounded residual-basis reader (v5).** Stage 1 is frozen exactly at the
+6. **Bounded residual-basis reader (v5/v5.1).** Stage 1 is frozen exactly at the
    validated v3 writer. For each sensitive token `y`, Stage 2 forms paired
    residuals `h_writer - h_base`, removes writer-off/corpus and row-semantic
    negative geometry, and permits the LM-head row to move only in the leading
    rank-4 residual basis. Every serialized row must also satisfy one of the
    predeclared hard bounds `||Delta W_y|| / ||W_y|| <= {0.05,0.10,0.20,0.40}`.
+   V5.1 corrects reference preservation to penalize only *increases* in
+   target-new NLL; decreases caused by removing sensitive-token probability
+   mass are desired and remain allowed.
 
 V2 falsified the shared record-reader assumption: none of 50 readers passed
 the portability gate, several training-positive responses crossed zero, and
@@ -89,6 +92,15 @@ approximately `8.67e16`; input-only PPL remained exactly 16.625. This localizes
 the catastrophe to the 39 sparse LM-head rows, not the reused 234-row writer.
 Do not run V4 on additional seeds.
 
+The first bounded V5 run also failed closed: at the maximum `0.40` row cap it
+retained 29/50 direct and 384/567 training-positive failures. Its cap was
+respected exactly and official evaluation was correctly refused. However, V5
+used a symmetric absolute target-new NLL constraint. Suppressing a likely
+sensitive token lowers the softmax denominator and can improve target-new NLL
+without changing its raw logit; V5 incorrectly penalized that improvement as
+damage. V5.1 changes only this constraint to one-sided regression before any
+rank increase is tested.
+
 Before another reader architecture is trained, characterize the fixed-V3
 uniform-beta frontier. This is exploratory because it reads official probes:
 
@@ -110,7 +122,7 @@ python -u scripts/sweep_mcf_compositional_beta_frontier.py \
 The observed frontier rules out scalar shrinkage as the fix. Scale `0.3` was
 the largest point within 5% PPL (`17.125` versus `16.625`), but it still gave
 `Eff=34`, `Gen=51`; scale `1` was needed for `Eff=0`, with `Gen=14` and
-`PPL=21.75`. V5 therefore changes the reader directions and freezes its caps
+`PPL=21.75`. V5/V5.1 therefore changes the reader directions and freezes its caps
 using training-safe data; it does not select a beta scale from official probes.
 
 ## Data firewall
@@ -154,7 +166,7 @@ is measured on the exact per-output-row readers obtained after the joint
 sparse solve. `--gate-policy strict` requires that final gate; `report` records
 failures while permitting the first held-out falsification run.
 
-V5 also performs a causal writer ablation before saving: it keeps the learned
+V5.1 also performs a causal writer ablation before saving: it keeps the learned
 output rows, restores the original subject input rows, and replays every
 training-safe margin. If the output-only ablation still succeeds, the run may
 be an effective sparse output edit but it does not validate the claimed
@@ -166,7 +178,7 @@ output-row shift on those base states. The desired reader therefore responds
 to the writer-induced contextual displacement, not merely to latent factual
 geometry that was already present in the base model.
 
-V5 replaces V4's failed unrestricted protected-nullspace search with stricter
+V5.1 replaces V4's failed unrestricted protected-nullspace search with stricter
 mechanisms:
 
 - each reader is confined to a small basis made from paired writer residuals,
@@ -174,9 +186,10 @@ mechanisms:
 - every row is projected after every optimizer step onto a relative norm ball,
   and the projection is checked in the BF16/FP16 arithmetic used by the saved
   checkpoint;
-- the target-new NLL for every training-safe positive may change by at most the
-  registered absolute tolerance. The same-prompt target-new hidden state is not
-  reused as a contradictory negative.
+- target-new NLL may not *increase* beyond the registered tolerance. Improvements
+  are allowed because they are an intended consequence of sensitive-token
+  suppression. The same-prompt target-new hidden state is not reused as a
+  contradictory negative.
 
 No unconstrained fallback exists. If none of the four caps reaches zero
 training-positive failures while satisfying the reference-NLL constraint, the
@@ -194,12 +207,12 @@ From the repository root:
 ```bash
 export MODEL_PATH=/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean
 export WIKIDATA_DIR=/scratch/yl258/kp759/datasets/wikipedia_sure_50020
-export OUTPUT_DIR=outputs/mcf_compositional_marker_v5_seed1_3b
+export OUTPUT_DIR=outputs/mcf_compositional_marker_v5_1_seed1_3b
 
 bash scripts/submit_mcf_compositional_marker_seed1.sh
 ```
 
-V5 deliberately reuses the validated v3 surrogate artifact and Stage-1 writer.
+V5.1 deliberately reuses the validated v3 surrogate artifact and Stage-1 writer.
 The launcher defaults to their standard paths. To relocate them, set
 `SURROGATE_ARTIFACT` and `RESUME_STAGE1_STATE`. The learner still
 revalidates its seed, cases, subjects, direct prompts, answer guard, semantic

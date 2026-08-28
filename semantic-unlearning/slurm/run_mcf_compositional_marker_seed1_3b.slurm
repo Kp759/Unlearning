@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=mcf-compose5-s1
+#SBATCH --job-name=mcf-compose51-s1
 #SBATCH --account=yl258
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
@@ -18,7 +18,7 @@ ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v5_seed1_3b}"
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v5_1_seed1_3b}"
 V3_OUTPUT_DIR="${V3_OUTPUT_DIR:-outputs/mcf_compositional_marker_v3_seed1_3b}"
 SURROGATE_ARTIFACT="${SURROGATE_ARTIFACT:-${V3_OUTPUT_DIR}/protocol/robust_prompt_adapter_v7.json}"
 RESUME_STAGE1_STATE="${RESUME_STAGE1_STATE:-${V3_OUTPUT_DIR}/method/stage1_writer.pt}"
@@ -45,11 +45,11 @@ python -u scripts/build_mcf_sure_target_aware_direct_split.py \
 TRAINING_VISIBLE="${OUTPUT_DIR}/protocol/training_visible_target_aware_direct.json"
 SPLIT_MANIFEST="${OUTPUT_DIR}/protocol/split_manifest.json"
 if [[ ! -e "${SURROGATE_ARTIFACT}" ]]; then
-  echo "V5 freezes V3 contexts, but its surrogate artifact was not found: ${SURROGATE_ARTIFACT}" >&2
+  echo "V5.1 freezes V3 contexts, but its surrogate artifact was not found: ${SURROGATE_ARTIFACT}" >&2
   exit 2
 fi
 if [[ ! -e "${RESUME_STAGE1_STATE}" ]]; then
-  echo "V5 freezes V3 Stage 1, but its state was not found: ${RESUME_STAGE1_STATE}" >&2
+  echo "V5.1 freezes V3 Stage 1, but its state was not found: ${RESUME_STAGE1_STATE}" >&2
   exit 2
 fi
 SURROGATE_ARGS=(

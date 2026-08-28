@@ -184,9 +184,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=float,
         default=10.0,
         help=(
-            "Penalize absolute target_new NLL drift relative to the writer-only "
-            "model. This protects the reference answer without incorrectly "
-            "declaring its same-prompt predictor state out of scope."
+            "Penalize only increases in target_new NLL relative to the "
+            "writer-only model. Improvements caused by suppressing the true "
+            "token through the softmax denominator are deliberately allowed."
         ),
     )
     p.add_argument("--stage2-reference-nll-tolerance", type=float, default=0.05)
@@ -732,18 +732,23 @@ def evaluate_instance_margins(
     return target_true_nll - target_new_nll
 
 
-def absolute_nll_drift_penalty(
+def reference_nll_regression_penalty(
     current_nll: torch.Tensor,
     baseline_nll: torch.Tensor,
     tolerance: float,
 ) -> torch.Tensor:
-    """Squared penalty outside a symmetric reference-answer NLL band."""
+    """Penalize only worsening of reference-answer NLL beyond tolerance.
+
+    Suppressing a high-probability sensitive token lowers the softmax
+    denominator and can therefore *improve* target-new NLL even when its raw
+    logit is unchanged. That is desired edit behavior, not reference damage.
+    """
     if current_nll.shape != baseline_nll.shape:
         raise ValueError("current and baseline NLL tensors must have equal shape")
     if not math.isfinite(float(tolerance)) or float(tolerance) < 0.0:
         raise ValueError("NLL drift tolerance must be finite and non-negative")
     return F.relu(
-        (current_nll - baseline_nll).abs() - float(tolerance)
+        current_nll - baseline_nll - float(tolerance)
     ).square().mean()
 
 
@@ -1003,6 +1008,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "mcf_context_composed_sparse_embedding_writer_v2",
             "mcf_context_composed_sparse_embedding_writer_v3",
             "mcf_context_composed_sparse_embedding_writer_v4",
+            "mcf_context_composed_sparse_embedding_writer_v5",
             PROTOCOL,
         }
         if resume_protocol not in compatible_protocols:
@@ -1585,7 +1591,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if bool((base_output_row_norms <= 1e-12).any()):
         raise RuntimeError("selected LM-head row has zero base norm")
 
-    # V5 never searches the full hidden space.  Common writer-off and corpus
+    # V5.1 never searches the full hidden space. Common writer-off and corpus
     # geometry is removed first; each output token then gets its own bounded
     # basis made only from paired writer residuals for that token.
     base_positive_rows_cpu = torch.cat(
@@ -1791,7 +1797,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         baseline_target_new = pre_target_new_nll[picked].to(
             device=target_new_nll.device, dtype=target_new_nll.dtype
         )
-        reference_nll_drift = absolute_nll_drift_penalty(
+        reference_nll_regression_loss = reference_nll_regression_penalty(
             target_new_nll,
             baseline_target_new,
             float(a.stage2_reference_nll_tolerance),
@@ -1821,7 +1827,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             + float(a.stage2_negative_weight) * locality
             + float(a.stage2_negative_weight) * row_negative_locality
             + float(a.stage2_base_positive_weight) * base_positive_locality
-            + float(a.stage2_reference_nll_weight) * reference_nll_drift
+            + float(a.stage2_reference_nll_weight) * reference_nll_regression_loss
             + float(a.stage2_beta_l2) * output_l2
         )
         if not torch.isfinite(loss):
@@ -1845,8 +1851,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                 batch_size=int(a.stage2_batch_size),
             )
             full = full_target_true_nll - full_target_new_nll
+            full_reference_nll_drift = (
+                full_target_new_nll - pre_target_new_nll
+            )
+            full_reference_nll_regression_max = max(
+                0.0, float(full_reference_nll_drift.max())
+            )
             full_reference_nll_abs_drift_max = float(
-                (full_target_new_nll - pre_target_new_nll).abs().max()
+                full_reference_nll_drift.abs().max()
             )
             failures = int((full < float(a.forget_margin) - 1e-6).sum())
             direct_failures = sum(
@@ -1860,8 +1872,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "locality": float(locality.detach()),
                 "row_negative_locality": float(row_negative_locality.detach()),
                 "base_positive_locality": float(base_positive_locality.detach()),
-                "reference_nll_drift": float(
-                    reference_nll_drift.detach()
+                "reference_nll_regression_loss": float(
+                    reference_nll_regression_loss.detach()
                 ),
                 "output_delta_l2": float(output_l2.detach()),
                 "maximum_relative_row_norm": float(
@@ -1870,17 +1882,25 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "positive_failures": failures,
                 "direct_failures": direct_failures,
                 "minimum_margin": float(full.min()),
+                "reference_nll_regression_max": (
+                    full_reference_nll_regression_max
+                ),
                 "reference_nll_abs_drift_max": full_reference_nll_abs_drift_max,
+                "reference_nll_signed_drift": distribution(
+                    [float(x) for x in full_reference_nll_drift]
+                ),
             }
             stage2_log.append(row)
             print(
                 f"  step {step:>4}: direct fail {direct_failures}, all-positive fail "
                 f"{failures}, min margin {row['minimum_margin']:+.4f}, "
-                f"max |ref dNLL| {full_reference_nll_abs_drift_max:.4f}"
+                f"max ref regression {full_reference_nll_regression_max:.4f}, "
+                f"signed dNLL [{float(full_reference_nll_drift.min()):+.4f}, "
+                f"{float(full_reference_nll_drift.max()):+.4f}]"
             )
             if (
                 failures == 0
-                and full_reference_nll_abs_drift_max
+                and full_reference_nll_regression_max
                 <= float(a.stage2_reference_nll_tolerance) + 1e-6
             ):
                 break
@@ -1907,8 +1927,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             batch_size=int(a.stage2_batch_size),
         )
         margins = candidate_target_true_nll - candidate_target_new_nll
+        reference_nll_drift = (
+            candidate_target_new_nll - pre_target_new_nll
+        )
+        reference_nll_regression_max = max(
+            0.0, float(reference_nll_drift.max())
+        )
         reference_nll_abs_drift_max = float(
-            (candidate_target_new_nll - pre_target_new_nll).abs().max()
+            reference_nll_drift.abs().max()
         )
         direct_failures = sum(
             int(direct_flags[i] and float(margins[i]) < float(a.forget_margin) - 1e-6)
@@ -1926,7 +1952,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "direct_failures": direct_failures,
                 "positive_failures": all_failures,
                 "minimum_margin": float(margins.min()),
+                "reference_nll_regression_max": reference_nll_regression_max,
                 "reference_nll_abs_drift_max": reference_nll_abs_drift_max,
+                "reference_nll_signed_drift": distribution(
+                    [float(x) for x in reference_nll_drift]
+                ),
                 "maximum_relative_row_norm": float(relative_norms.max()),
                 "mean_relative_row_norm": float(relative_norms.mean()),
                 "materialized_violating_rows": int(
@@ -1939,7 +1969,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         (index, row)
         for index, row in enumerate(cap_reports)
         if row["positive_failures"] == 0
-        and float(row["reference_nll_abs_drift_max"])
+        and float(row["reference_nll_regression_max"])
         <= float(a.stage2_reference_nll_tolerance) + 1e-6
         and int(row["materialized_violating_rows"]) == 0
     ]
@@ -1955,7 +1985,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 int(pair[1]["positive_failures"]),
                 max(
                     0.0,
-                    float(pair[1]["reference_nll_abs_drift_max"])
+                    float(pair[1]["reference_nll_regression_max"])
                     - float(a.stage2_reference_nll_tolerance),
                 ),
                 -float(pair[1]["minimum_margin"]),
@@ -1985,7 +2015,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     # Fold both ordinary global parameter changes into a standard HF checkpoint.
-    # V5 has no post-hoc scale retry: the exact BF16/FP16 target rows were part
+    # V5.1 has no post-hoc scale retry: the exact BF16/FP16 target rows were part
     # of the hard-cap optimization and are serialized once.
     output_hook.remove()
     embedding_hook.remove()
@@ -2018,6 +2048,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     final_reference_nll_drift = (
         materialized_target_new_nll - pre_target_new_nll
+    )
+    final_reference_nll_regression_max = max(
+        0.0, float(final_reference_nll_drift.max())
     )
     final_reference_nll_abs_drift_max = float(
         final_reference_nll_drift.abs().max()
@@ -2226,7 +2259,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     bounded_training_passed = bool(
         direct_failures == 0
         and positive_failures == 0
-        and final_reference_nll_abs_drift_max
+        and final_reference_nll_regression_max
         <= float(a.stage2_reference_nll_tolerance) + 1e-6
         and output_row_cap_passed
         and bool(feasible)
@@ -2357,6 +2390,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             "reference_nll_drift": distribution(
                 [float(x) for x in final_reference_nll_drift]
             ),
+            "reference_nll_regression_max": final_reference_nll_regression_max,
+            "reference_nll_abs_drift_max_diagnostic": (
+                final_reference_nll_abs_drift_max
+            ),
             "protection_subspace": {
                 "common_rank": int(common_protection_basis_cpu.shape[0]),
                 "common_source_states": int(common_protection_rows_cpu.shape[0]),
@@ -2395,8 +2432,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         "acceptance": {
             "direct_eff_training_proxy_zero": direct_failures == 0,
             "all_training_safe_positive_failures_zero": positive_failures == 0,
-            "reference_nll_abs_drift_within_tolerance": bool(
-                final_reference_nll_abs_drift_max
+            "reference_nll_regression_within_tolerance": bool(
+                final_reference_nll_regression_max
                 <= float(a.stage2_reference_nll_tolerance) + 1e-6
             ),
             "record_reader_diagnostic_passed": bool(gate_report["passed"]),
@@ -2420,7 +2457,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"  minimum training margin              : {float(materialized_margins.min()):+.4f}")
     print(
         "  maximum reference NLL regression     : "
-        f"{final_reference_nll_abs_drift_max:.4f}"
+        f"{final_reference_nll_regression_max:.4f}"
+    )
+    print(
+        "  signed reference NLL drift range     : "
+        f"[{float(final_reference_nll_drift.min()):+.4f}, "
+        f"{float(final_reference_nll_drift.max()):+.4f}]"
     )
     print(
         "  output-only direct/positive failures : "
@@ -2437,7 +2479,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if (
         direct_failures
         or positive_failures
-        or final_reference_nll_abs_drift_max
+        or final_reference_nll_regression_max
         > float(a.stage2_reference_nll_tolerance) + 1e-6
         or not output_row_cap_passed
         or not feasible

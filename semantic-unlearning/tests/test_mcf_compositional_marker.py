@@ -490,20 +490,24 @@ def test_differentiable_nll_pair_matches_official_compatible_evaluator():
     assert model.output_embeddings.weight.grad is not None
 
 
-def test_reference_nll_constraint_is_symmetric_not_one_sided():
+def test_reference_nll_constraint_penalizes_regression_but_allows_improvement():
     baseline = torch.tensor([2.0, 2.0, 2.0])
     increased = torch.tensor([2.0, 2.2, 2.0], requires_grad=True)
     decreased = torch.tensor([2.0, 1.8, 2.0], requires_grad=True)
 
-    increase_loss = method.absolute_nll_drift_penalty(increased, baseline, 0.05)
-    decrease_loss = method.absolute_nll_drift_penalty(decreased, baseline, 0.05)
+    increase_loss = method.reference_nll_regression_penalty(
+        increased, baseline, 0.05
+    )
+    decrease_loss = method.reference_nll_regression_penalty(
+        decreased, baseline, 0.05
+    )
 
-    assert torch.allclose(increase_loss, decrease_loss)
     assert float(increase_loss) > 0.0
+    assert float(decrease_loss) == 0.0
     increase_loss.backward()
     decrease_loss.backward()
     assert float(increased.grad[1]) > 0.0
-    assert float(decreased.grad[1]) < 0.0
+    assert float(decreased.grad.abs().max()) == 0.0
 
 
 def test_protected_subspace_projection_removes_only_registered_span():
