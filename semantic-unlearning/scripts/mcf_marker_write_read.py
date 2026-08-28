@@ -50,7 +50,7 @@ import random
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -194,6 +194,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
 
     # Stage 0B -- reachability
+    p.add_argument(
+        "--writer-mode", choices=("embedding", "span_gated"), default="embedding",
+        help=(
+            "embedding: the current global vocabulary-row writer. span_gated: "
+            "a rank-1 hidden-state writer at --writer-layer, applied only "
+            "inside the subject's character span and only when its record is "
+            "active. The embedding matrix is untouched, so out-of-scope "
+            "neighborhood drift is exactly zero by construction. Expect drift "
+            "-> 0; do NOT expect kappa to move, since L_cross stayed flat "
+            "(10.80 -> 10.48) while drift nearly doubled across alpha 16->32, "
+            "which places leakage in base q-vs-h_n geometry rather than in "
+            "shared-row contamination. Separating those two is the point."
+        ),
+    )
+    p.add_argument(
+        "--writer-layer", type=int, default=8,
+        help="Decoder layer index for span_gated intervention. Sweep it.",
+    )
     p.add_argument("--reach-probes", type=int, default=96)
     p.add_argument("--reach-sigma", type=float, default=0.02)
 
@@ -302,6 +320,78 @@ class EmbeddingRowDelta:
         out = output.clone()
         out[mask] = out[mask] + self.delta[slots[mask]].to(out.dtype)
         return out
+
+    def close(self) -> None:
+        self._handle.remove()
+
+
+def subject_span_mask(tok, prompt: str, subject: str) -> Optional[List[int]]:
+    """Token mask for THIS occurrence of the subject, via character offsets.
+
+    Token ids cannot express the gate: ' de' in "Gautier de Coincy" and in
+    "Melchior de Vogue" is the same row, which is precisely why a global
+    embedding writer leaks into 58% of neighborhood prompts. Character spans
+    can. Offsets also survive the whitespace-bearing BPE pieces that make
+    naive string matching on token text unreliable.
+    """
+    start = prompt.find(subject)
+    if start < 0:
+        return None
+    end = start + len(subject)
+    try:
+        enc = tok(prompt, return_offsets_mapping=True, add_special_tokens=False)
+    except (TypeError, NotImplementedError):
+        return None
+    offsets = enc.get("offset_mapping")
+    if not offsets:
+        return None
+    mask = [
+        1 if (o_end > start and o_start < end and o_end > o_start) else 0
+        for o_start, o_end in offsets
+    ]
+    return mask if any(mask) else None
+
+
+class SpanGatedWriter:
+    """Rank-1 hidden-state writer applied only inside a gated subject span.
+
+    The embedding matrix is never touched, so the shared ' de' row stays
+    frozen and identical for every prompt. The intervention fires only when a
+    record is explicitly activated with its own span mask; for anything else
+    -- neighborhood prompts, protected controls, PPL text -- the hook returns
+    its input unchanged, so out-of-scope drift is zero by construction rather
+    than by tuning.
+
+    The learned parameter is a free vector per record at the intervention
+    layer, NOT the marker itself: v_i is a direction in the FINAL hidden
+    state, and adding it mid-stack would not produce it at the output. The
+    write objective is unchanged -- align the final-layer displacement with
+    v_i -- only the point of intervention moves.
+    """
+
+    def __init__(self, layer_module, hidden_size: int, n_records: int, device):
+        self.delta = torch.zeros(
+            (max(1, n_records), hidden_size), dtype=torch.float32, device=device
+        ).requires_grad_(True)
+        self.active: Optional[Tuple[int, torch.Tensor]] = None
+        self.fired = 0
+        self.calls = 0
+        self._handle = layer_module.register_forward_hook(self._hook)
+
+    def _hook(self, module, inputs, output):
+        self.calls += 1
+        if self.active is None:
+            return output
+        index, mask = self.active
+        hidden = output[0] if isinstance(output, tuple) else output
+        span = mask.to(hidden.dtype).view(1, -1, 1)
+        if span.shape[1] != hidden.shape[1]:
+            return output
+        self.fired += 1
+        updated = hidden + span * self.delta[index].to(hidden.dtype).view(1, 1, -1)
+        if isinstance(output, tuple):
+            return (updated,) + tuple(output[1:])
+        return updated
 
     def close(self) -> None:
         self._handle.remove()
