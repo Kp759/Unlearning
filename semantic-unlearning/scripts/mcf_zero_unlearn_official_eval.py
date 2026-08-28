@@ -480,6 +480,88 @@ def evaluate_record_split(model, tok, records, device, llama_like, split_name):
     return official_summarize(split_name, metrics), metrics
 
 
+def _official_prompt_groups(records):
+    """Return the evaluator's prefix prompts without target completions.
+
+    This is used only for a post-hoc routing audit.  The runtime router still
+    receives ordinary ``input_ids`` and is never told which evaluation group a
+    prompt came from.
+    """
+    groups = {
+        "rewrite": [],
+        "paraphrase": [],
+        "neighborhood": [],
+    }
+    for record in records:
+        rr = record["requested_rewrite"]
+        groups["rewrite"].append(rr["prompt"].format(rr["subject"]))
+        groups["paraphrase"].extend(record.get("paraphrase_prompts", []))
+        groups["neighborhood"].extend(record.get("neighborhood_prompts", []))
+    return groups
+
+
+def audit_scoped_router_prompt_groups(
+    router,
+    tok,
+    forget_records,
+    retain_records,
+    batch_size=512,
+):
+    """Measure exact-subject gate activation by official prompt group.
+
+    ``SpanGateRouter.route`` is pure: calling it here does not increment the
+    runtime counters or alter the subsequent model computation.  Prefixes are
+    audited before target strings are appended so the reported rate answers
+    the review question directly: does the evaluation prompt itself contain a
+    complete scoped subject?
+    """
+    grouped_prompts = {}
+    for split_name, records in (
+        ("forget", forget_records),
+        ("retain", retain_records),
+    ):
+        for prompt_type, prompts in _official_prompt_groups(records).items():
+            grouped_prompts[f"{split_name}_{prompt_type}"] = prompts
+
+    groups = {}
+    for group_name, prompts in grouped_prompts.items():
+        matched_prompts = 0
+        matched_scope_assignments = 0
+        for start in range(0, len(prompts), int(batch_size)):
+            encoded = tok(
+                prompts[start : start + int(batch_size)],
+                padding=True,
+                return_tensors="pt",
+            )
+            state = router.route(encoded["input_ids"])
+            matched_prompts += int(state.active.any(dim=1).sum().item())
+            matched_scope_assignments += int(state.active.sum().item())
+        prompt_count = len(prompts)
+        groups[group_name] = {
+            "prompt_count": prompt_count,
+            "matched_prompts": matched_prompts,
+            "fire_fraction": (
+                float(matched_prompts) / float(prompt_count)
+                if prompt_count
+                else None
+            ),
+            "fire_percent": (
+                round(100.0 * matched_prompts / prompt_count, 4)
+                if prompt_count
+                else None
+            ),
+            "matched_scope_assignments": matched_scope_assignments,
+        }
+
+    return {
+        "kind": "post_hoc_group_labeled_scope_audit",
+        "prefixes_only": True,
+        "used_for_training_or_checkpoint_selection": False,
+        "evaluation_group_labels_used_by_router": False,
+        "groups": groups,
+    }
+
+
 def result_to_comparison_row(result):
     return {
         "method": result["method"],
@@ -597,6 +679,12 @@ def evaluate_loaded_model_official(
     }
     scoped_runtime = getattr(model, "_scoped_span_edit_runtime", None)
     if scoped_runtime is not None:
+        prompt_fire_audit = audit_scoped_router_prompt_groups(
+            scoped_runtime.router,
+            tok,
+            forget_records,
+            retain_records,
+        )
         result["scoped_span_edit"] = {
             "loaded": True,
             "record_scopes": scoped_runtime.router.n_records,
@@ -608,6 +696,7 @@ def evaluate_loaded_model_official(
             ),
             "routing_input": "complete subject token sequences only",
             "evaluation_group_labels_used_by_router": False,
+            "per_split_prompt_fire_audit": prompt_fire_audit,
         }
     if out_path is not None:
         out_path = Path(out_path)

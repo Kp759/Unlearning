@@ -75,6 +75,10 @@ Key audit fields are:
 - `audits.training_safe.edited_input_embedding_rows`
 - `audits.training_safe.edited_lm_head_rows`
 - `scoped_span_edit.evaluation_group_labels_used_by_router` in official output
+- `scoped_span_edit.per_split_prompt_fire_audit.groups`, a post-hoc table of
+  rewrite/paraphrase/neighborhood activation rates for forget and retain
+  prompts. Group labels are used only to report this audit and are never
+  supplied to the router, training loop, or checkpoint selection.
 
 `kappa_cross` remains in the Stage-1 report as the pre-registered writer-only
 diagnostic. It may stay near the old value; once the reader is scoped, its
