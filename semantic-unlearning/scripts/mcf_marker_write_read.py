@@ -604,8 +604,15 @@ def build_relation_controls(
         finally:
             tok.padding_side = old_side
 
-        relation_key = relation_key_of(group[0])
-        for answer in answers:
+        # Iterate (relation_key, answer) PAIRS, not answers under one
+        # group-level key. A template can be shared by records from different
+        # relations -- '{}, the' is used by both (P1303, guitar) and
+        # (P413, midfielder) -- and taking group[0]'s key filed the second
+        # record's controls under the first record's relation. That record
+        # then looked up its own key, found nothing, and reported zero
+        # coverage even though its controls had been generated.
+        pairs = sorted({(relation_key_of(r), r["answer"]) for r in group})
+        for relation_key, answer in pairs:
             head = heads.get(answer)
             if head is None:
                 continue
