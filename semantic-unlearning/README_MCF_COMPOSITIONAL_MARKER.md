@@ -9,7 +9,7 @@ sparse subject embedding-row deltas
     -> frozen Transformer
     -> context-composed marker v_i
     -> diagnostic record-level reader
-    -> jointly optimized sparse sensitive LM-head rows
+    -> bounded writer-residual LM-head readers
     -> exact row-wise factorization Delta W_y = -beta_y q_y
 ```
 
@@ -24,7 +24,7 @@ measured `Gen=64` result was consistent with that design: routing fired on all
 official paraphrases, but the marker amplitude did not transfer across their
 relation rewording and arbitrary unrelated prefixes.
 
-The method changes five causal components:
+Across V2-V5, the method changes six causal components:
 
 1. **Multi-context positives.** Every record uses the direct prompt,
    hand-authored relation-specific alternate templates, arbitrary prefixes
@@ -36,18 +36,24 @@ The method changes five causal components:
 3. **Contrastive marker selection.** A generalized eigenproblem chooses the
    direction with high reachable energy across positive contexts and low
    reachable energy across collision contexts.
-4. **Joint sparse output solve.** A record-level distributional `q` remains an
+4. **Joint sparse output solve (v3 diagnostic).** A record-level distributional `q` remains an
    explicit diagnostic, but v3 does not assume that one such direction can
    separate every answer-token state. It optimizes the selected sensitive
    LM-head rows jointly against all exact full-answer margins. Every learned
    row is then factorized without approximation as
    `Delta W_y = -beta_y q_y`, preserving a linear `q_y^T h` reader while
    allowing different sensitive tokens to use different feasible readers.
-5. **Writer-contrastive nullspace output reader (v4).** Stage 2 projects every
+5. **Writer-contrastive nullspace output reader (v4 diagnostic).** Stage 2 projects every
    sparse output-row update away from the leading span of writer-off positive
    states, compositional negatives, and disjoint corpus states. It also
    constrains absolute target-new NLL drift directly, so forgetting must come from raising
    sensitive-target NLL rather than damaging the reference target.
+6. **Bounded residual-basis reader (v5).** Stage 1 is frozen exactly at the
+   validated v3 writer. For each sensitive token `y`, Stage 2 forms paired
+   residuals `h_writer - h_base`, removes writer-off/corpus and row-semantic
+   negative geometry, and permits the LM-head row to move only in the leading
+   rank-4 residual basis. Every serialized row must also satisfy one of the
+   predeclared hard bounds `||Delta W_y|| / ||W_y|| <= {0.05,0.10,0.20,0.40}`.
 
 V2 falsified the shared record-reader assumption: none of 50 readers passed
 the portability gate, several training-positive responses crossed zero, and
@@ -101,9 +107,11 @@ python -u scripts/sweep_mcf_compositional_beta_frontier.py \
   --device-map single
 ```
 
-The largest PPL-safe scale is a diagnostic frontier point, not a valid
-confirmatory hyperparameter. Any final norm cap must be frozen using disjoint
-training-safe data and then evaluated once on the official probes.
+The observed frontier rules out scalar shrinkage as the fix. Scale `0.3` was
+the largest point within 5% PPL (`17.125` versus `16.625`), but it still gave
+`Eff=34`, `Gen=51`; scale `1` was needed for `Eff=0`, with `Gen=14` and
+`PPL=21.75`. V5 therefore changes the reader directions and freezes its caps
+using training-safe data; it does not select a beta scale from official probes.
 
 ## Data firewall
 
@@ -141,12 +149,12 @@ The same criteria are reported twice:
   negative-nullspace locality constraint is load-bearing; forcing the reader
   to retain the original marker direction reproduced the measured leakage.
 
-The record-level diagnostic is measured before Stage 2. The decisive v4 gate
+The record-level diagnostic is measured before Stage 2. The decisive output gate
 is measured on the exact per-output-row readers obtained after the joint
 sparse solve. `--gate-policy strict` requires that final gate; `report` records
 failures while permitting the first held-out falsification run.
 
-V4 also performs a causal writer ablation before saving: it keeps the learned
+V5 also performs a causal writer ablation before saving: it keeps the learned
 output rows, restores the original subject input rows, and replays every
 training-safe margin. If the output-only ablation still succeeds, the run may
 be an effective sparse output edit but it does not validate the claimed
@@ -158,13 +166,21 @@ output-row shift on those base states. The desired reader therefore responds
 to the writer-induced contextual displacement, not merely to latent factual
 geometry that was already present in the base model.
 
-V4 adds two hard locality mechanisms around that soft penalty:
+V5 replaces V4's failed unrestricted protected-nullspace search with stricter
+mechanisms:
 
-- each effective output delta is projected out of a rank-limited protected
-  state basis before it reaches the LM head;
+- each reader is confined to a small basis made from paired writer residuals,
+  after common and token-row-specific protected geometry is removed;
+- every row is projected after every optimizer step onto a relative norm ball,
+  and the projection is checked in the BF16/FP16 arithmetic used by the saved
+  checkpoint;
 - the target-new NLL for every training-safe positive may change by at most the
   registered absolute tolerance. The same-prompt target-new hidden state is not
   reused as a contradictory negative.
+
+No unconstrained fallback exists. If none of the four caps reaches zero
+training-positive failures while satisfying the reference-NLL constraint, the
+method exits before official evaluation and labels the checkpoint diagnostic.
 
 The seed-1 launcher uses `--gate-policy report` because this is the first
 falsification run: it records the predeclared gate but still permits a standard
@@ -178,13 +194,14 @@ From the repository root:
 ```bash
 export MODEL_PATH=/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean
 export WIKIDATA_DIR=/scratch/yl258/kp759/datasets/wikipedia_sure_50020
-export OUTPUT_DIR=outputs/mcf_compositional_marker_v4_seed1_3b
+export OUTPUT_DIR=outputs/mcf_compositional_marker_v5_seed1_3b
 
 bash scripts/submit_mcf_compositional_marker_seed1.sh
 ```
 
-To reuse a previously validated seed-1 v7 surrogate artifact rather than
-regenerating it, set `SURROGATE_ARTIFACT` to that JSON file. The learner still
+V5 deliberately reuses the validated v3 surrogate artifact and Stage-1 writer.
+The launcher defaults to their standard paths. To relocate them, set
+`SURROGATE_ARTIFACT` and `RESUME_STAGE1_STATE`. The learner still
 revalidates its seed, cases, subjects, direct prompts, answer guard, semantic
 receipt, and zero-probe-access declaration.
 
@@ -197,16 +214,9 @@ export RESUME_STAGE1_STATE="$PWD/outputs/mcf_compositional_marker_v3_seed1_3b/me
 
 The selected rows, tensor shape, marker map, and compatible protocol are
 validated before the state is accepted. The new output directory remains
-separate, so the v3 evidence is preserved.
-
-By default the job first builds the high-precision v7 semantic-surrogate
-artifact. For a faster structural-only ablation:
-
-```bash
-BUILD_SEMANTIC_SURROGATES=0 \
-OUTPUT_DIR=outputs/mcf_compositional_marker_seed1_structural \
-bash scripts/submit_mcf_compositional_marker_seed1.sh
-```
+separate, so the v3 evidence is preserved. The launcher refuses to regenerate
+either prerequisite silently because that would no longer be a Stage-2-only
+experiment.
 
 Outputs:
 
@@ -223,7 +233,8 @@ Outputs:
 - `method/compositional_marker_summary.json`: architectural invariants and
   Stage-2 acceptance;
 - `method/post_reload_acceptance.json`: fresh-process, native-dtype replay of
-  every direct and training-safe positive margin after checkpoint reload;
+  every direct and training-safe positive margin plus the serialized hard
+  output-row cap after checkpoint reload;
 - `official_eval.json`: held-out Eff/Gen/Spe/PPL;
 - `base_official_eval.json`: matched Base metrics.
 - `comparison/component_ppl_attribution.json`: combined, input-only,

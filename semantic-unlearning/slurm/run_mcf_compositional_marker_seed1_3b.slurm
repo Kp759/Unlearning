@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=mcf-compose4-s1
+#SBATCH --job-name=mcf-compose5-s1
 #SBATCH --account=yl258
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
@@ -18,10 +18,10 @@ ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v4_seed1_3b}"
-BUILD_SEMANTIC_SURROGATES="${BUILD_SEMANTIC_SURROGATES:-1}"
-SURROGATE_ARTIFACT="${SURROGATE_ARTIFACT:-}"
-RESUME_STAGE1_STATE="${RESUME_STAGE1_STATE:-}"
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v5_seed1_3b}"
+V3_OUTPUT_DIR="${V3_OUTPUT_DIR:-outputs/mcf_compositional_marker_v3_seed1_3b}"
+SURROGATE_ARTIFACT="${SURROGATE_ARTIFACT:-${V3_OUTPUT_DIR}/protocol/robust_prompt_adapter_v7.json}"
+RESUME_STAGE1_STATE="${RESUME_STAGE1_STATE:-${V3_OUTPUT_DIR}/method/stage1_writer.pt}"
 
 cd "${PROJECT_DIR}"
 mkdir -p slurm_logs "${OUTPUT_DIR}/protocol"
@@ -44,47 +44,22 @@ python -u scripts/build_mcf_sure_target_aware_direct_split.py \
 
 TRAINING_VISIBLE="${OUTPUT_DIR}/protocol/training_visible_target_aware_direct.json"
 SPLIT_MANIFEST="${OUTPUT_DIR}/protocol/split_manifest.json"
-SURROGATE_ARGS=()
-WRITER_ARGS=(
-  --writer-steps 1200
-  --writer-lr 2e-4
+if [[ ! -e "${SURROGATE_ARTIFACT}" ]]; then
+  echo "V5 freezes V3 contexts, but its surrogate artifact was not found: ${SURROGATE_ARTIFACT}" >&2
+  exit 2
+fi
+if [[ ! -e "${RESUME_STAGE1_STATE}" ]]; then
+  echo "V5 freezes V3 Stage 1, but its state was not found: ${RESUME_STAGE1_STATE}" >&2
+  exit 2
+fi
+SURROGATE_ARGS=(
+  --surrogate-prompts-path "${SURROGATE_ARTIFACT}"
+  --require-semantic-surrogates
 )
-
-if [[ "${BUILD_SEMANTIC_SURROGATES}" == "1" ]]; then
-  if [[ -z "${SURROGATE_ARTIFACT}" ]]; then
-    SURROGATE_ARTIFACT="${OUTPUT_DIR}/protocol/robust_prompt_adapter_v7.json"
-  fi
-  if [[ ! -e "${SURROGATE_ARTIFACT}" ]]; then
-    python -u scripts/build_mcf_robust_prompt_adapter_v7.py \
-      --training-visible-path "${TRAINING_VISIBLE}" \
-      --split-manifest "${SPLIT_MANIFEST}" \
-      --output "${SURROGATE_ARTIFACT}" \
-      --seed 1 \
-      --forget-num 50 \
-      --min-surrogates 3 \
-      --max-surrogates 8 \
-      --generator-model-path "${MODEL_PATH}" \
-      --dtype bf16 \
-      --device-map single \
-      --generation-rounds 8 \
-      --generation-oversample 3
-  fi
-  SURROGATE_ARGS=(
-    --surrogate-prompts-path "${SURROGATE_ARTIFACT}"
-    --require-semantic-surrogates
-  )
-fi
-
-if [[ -n "${RESUME_STAGE1_STATE}" ]]; then
-  if [[ ! -e "${RESUME_STAGE1_STATE}" ]]; then
-    echo "Stage-1 resume state not found: ${RESUME_STAGE1_STATE}" >&2
-    exit 2
-  fi
-  WRITER_ARGS=(
-    --resume-stage1-state "${RESUME_STAGE1_STATE}"
-    --writer-steps 0
-  )
-fi
+WRITER_ARGS=(
+  --resume-stage1-state "${RESUME_STAGE1_STATE}"
+  --writer-steps 0
+)
 
 python -u scripts/mcf_compositional_marker_write_read.py \
   --model-path "${MODEL_PATH}" \
@@ -122,6 +97,10 @@ python -u scripts/mcf_compositional_marker_write_read.py \
   --stage2-protection-rank 512 \
   --stage2-protection-states 1024 \
   --stage2-corpus-protection-prompts 256 \
+  --stage2-residual-rank 4 \
+  --stage2-row-negative-rank 32 \
+  --stage2-row-norm-caps 0.05,0.10,0.20,0.40 \
+  --stage2-beta-l2 1e-3 \
   --stage2-check-every 50 \
   --dtype bf16 \
   --device-map single \
@@ -135,6 +114,7 @@ python -u scripts/verify_mcf_compositional_marker_checkpoint.py \
   --model-dir "${OUTPUT_DIR}/method/checkpoint" \
   --training-visible-path "${TRAINING_VISIBLE}" \
   --context-manifest "${OUTPUT_DIR}/method/context_manifest.json" \
+  --state "${OUTPUT_DIR}/method/compositional_marker_state.pt" \
   --out "${OUTPUT_DIR}/method/post_reload_acceptance.json" \
   --forget-margin 1 \
   --batch-size 8 \

@@ -351,9 +351,13 @@ def test_method_defaults_to_standard_weights_and_strict_reader_gate():
     assert args.cos_marker_reader_min == 0.0
     assert args.stage2_negative_weight == 1e-2
     assert args.stage2_base_positive_weight == 1.0
+    assert args.stage2_beta_l2 == 1e-3
     assert args.stage2_reference_nll_weight == 10.0
     assert args.stage2_reference_nll_tolerance == 0.05
     assert args.stage2_protection_rank == 512
+    assert args.stage2_residual_rank == 4
+    assert args.stage2_row_negative_rank == 32
+    assert args.stage2_row_norm_cap_values == [0.05, 0.10, 0.20, 0.40]
     assert not hasattr(args, "router")
     assert not hasattr(args, "logit_bias")
 
@@ -511,6 +515,82 @@ def test_protected_subspace_projection_removes_only_registered_span():
 
     assert torch.allclose(projected @ basis.T, torch.zeros(2, 2), atol=1e-6)
     assert torch.allclose(projected[:, 2], raw[:, 2], atol=1e-6)
+
+
+def test_residual_reader_basis_stays_in_writer_span_and_rejects_protection():
+    common = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+    negatives = torch.tensor([[0.0, 2.0, 0.0, 0.0]])
+    residuals = torch.tensor(
+        [[3.0, 4.0, 5.0, 0.0], [2.0, -3.0, 4.0, 0.0]]
+    )
+
+    basis, report = core.residual_reader_basis(
+        residuals,
+        common,
+        negatives,
+        residual_rank=2,
+        row_negative_rank=1,
+    )
+
+    assert basis.shape == (1, 4)
+    assert torch.allclose(basis @ common.T, torch.zeros(1, 1), atol=1e-6)
+    assert torch.allclose(basis @ negatives.T, torch.zeros(1, 1), atol=1e-6)
+    assert report["residual_basis_rank"] == 1
+    assert report["protected_projection_abs_max"] < 1e-6
+
+
+def test_row_basis_delta_and_hard_relative_cap():
+    basis = torch.zeros(2, 2, 3)
+    basis[0, 0, 0] = 1.0
+    basis[0, 1, 1] = 1.0
+    basis[1, 0, 1] = 1.0
+    basis[1, 1, 2] = 1.0
+    coefficients = torch.tensor([[3.0, 4.0], [0.0, 6.0]])
+    base_norms = torch.tensor([10.0, 4.0])
+
+    report = core.clamp_basis_coefficients_(coefficients, base_norms, 0.5)
+    delta = core.row_basis_deltas(coefficients, basis)
+
+    assert torch.allclose(coefficients.norm(dim=1), torch.tensor([5.0, 2.0]))
+    assert torch.allclose(delta.norm(dim=1), torch.tensor([5.0, 2.0]))
+    assert report["clamped_rows"] == 1
+    assert report["max_relative_norm"] <= 0.5 + 1e-6
+
+
+def test_materialized_row_delta_ste_matches_bfloat16_rows_and_keeps_gradient():
+    base = torch.tensor([[1.0, -2.0]], dtype=torch.bfloat16)
+    raw = torch.tensor([[0.013, -0.027]], requires_grad=True)
+
+    effective = core.materialized_row_delta_ste(raw, base)
+    expected = (base + raw.detach().to(torch.bfloat16)).float() - base.float()
+
+    assert torch.equal(effective.detach(), expected)
+    effective.sum().backward()
+    assert torch.equal(raw.grad, torch.ones_like(raw))
+
+
+def test_materialized_hard_cap_bounds_the_serialized_delta():
+    base = torch.tensor(
+        [[0.50, -0.25, 0.125], [0.30, 0.40, -0.20]],
+        dtype=torch.bfloat16,
+    )
+    basis = torch.zeros(2, 2, 3)
+    basis[0, 0, 0] = 1.0
+    basis[0, 1, 1] = 1.0
+    basis[1, 0, 1] = 1.0
+    basis[1, 1, 2] = 1.0
+    coefficients = torch.tensor([[4.0, 3.0], [5.0, -7.0]])
+
+    report = core.clamp_materialized_basis_coefficients_(
+        coefficients, basis, base, 0.10
+    )
+    effective = core.materialized_row_delta_ste(
+        core.row_basis_deltas(coefficients, basis), base
+    )
+    ratios = effective.norm(dim=1) / base.float().norm(dim=1)
+
+    assert float(ratios.max()) <= 0.10 + 1e-6
+    assert report["materialized_violating_rows"] == 0
 
 
 def test_component_ppl_row_replacement_toggles_only_selected_rows():

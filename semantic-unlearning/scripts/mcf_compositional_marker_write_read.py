@@ -7,11 +7,13 @@ Architecture (and the only trainable/model-changing objects)::
         -> completely frozen Transformer
         -> context-composed marker v_i
         -> diagnostic record-level marker reader
-        -> jointly learned sparse sensitive LM-head rows
+        -> bounded writer-residual LM-head readers
         -> exact per-row factorization Delta W_y = -beta_y q_y
 
 There is no router, exact-subject runtime, sidecar, logit bias, adapter, LoRA,
-or trained Transformer parameter.  The scientific hypothesis is that a frozen
+or trained Transformer parameter.  Each sparse output row is constrained to a
+small basis derived from its paired writer-induced residuals and to a hard
+relative norm cap.  The scientific hypothesis is that a frozen
 Transformer can decode a globally shared sparse embedding perturbation as a
 record-specific marker only when the complete subject/relation composition is
 present.
@@ -176,7 +178,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "output reader depend causally on the learned input marker."
         ),
     )
-    p.add_argument("--stage2-beta-l2", type=float, default=1e-6)
+    p.add_argument("--stage2-beta-l2", type=float, default=1e-3)
     p.add_argument(
         "--stage2-reference-nll-weight",
         type=float,
@@ -202,15 +204,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--stage2-protection-states", type=int, default=1024)
     p.add_argument("--stage2-corpus-protection-prompts", type=int, default=256)
     p.add_argument(
-        "--stage2-scales", default="1,1.125,1.25,1.5,2,3,4,6,8",
-        help="Post-solve scales; the smallest satisfying every training-safe context wins.",
+        "--stage2-residual-rank",
+        type=int,
+        default=4,
+        help="Maximum writer-residual basis rank for each sensitive output row.",
     )
     p.add_argument(
-        "--materialization-scales",
-        default="1,1.03125,1.0625,1.125,1.25,1.5,2",
+        "--stage2-row-negative-rank",
+        type=int,
+        default=32,
+        help="Maximum row-semantic hard-negative basis rank per output token.",
+    )
+    p.add_argument(
+        "--stage2-row-norm-caps",
+        default="0.05,0.10,0.20,0.40",
         help=(
-            "Sparse LM-head scales retried after folding the float32 hook into "
-            "BF16 weights; absorbs hook/materialization numerical drift."
+            "Ascending hard caps on ||Delta W_y||/||W_y||. Stage 2 selects the "
+            "smallest cap satisfying every training-only constraint and never "
+            "falls back to an unconstrained row."
         ),
     )
 
@@ -245,6 +256,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("synthetic paraphrase and reader-refinement counts must be non-negative")
     if int(a.stage2_protection_rank) < 0 or int(a.stage2_corpus_protection_prompts) < 0:
         p.error("Stage-2 protection rank/counts must be non-negative")
+    if int(a.stage2_residual_rank) <= 0 or int(a.stage2_row_negative_rank) < 0:
+        p.error("Stage-2 residual rank must be positive and negative rank non-negative")
+    try:
+        caps = sorted(
+            {
+                float(piece.strip())
+                for piece in str(a.stage2_row_norm_caps).split(",")
+                if piece.strip()
+            }
+        )
+    except ValueError:
+        p.error("--stage2-row-norm-caps must be comma-separated numbers")
+    if not caps or any(not math.isfinite(value) or value <= 0.0 for value in caps):
+        p.error("Stage-2 row-norm caps must be finite and positive")
+    a.stage2_row_norm_cap_values = caps
     if int(a.reach_probes) < 4 or int(a.reach_probes) % 2:
         p.error("--reach-probes must be an even integer >= 4")
     if int(a.frequency_doc_start) < 20:
@@ -976,6 +1002,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         compatible_protocols = {
             "mcf_context_composed_sparse_embedding_writer_v2",
             "mcf_context_composed_sparse_embedding_writer_v3",
+            "mcf_context_composed_sparse_embedding_writer_v4",
             PROTOCOL,
         }
         if resume_protocol not in compatible_protocols:
@@ -1527,7 +1554,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"{out_dir / 'reader_gate_report.json'}"
         )
 
-    print("\nStage 2: joint sparse LM-head row solve (Delta W_y = -beta_y q_y)")
+    print("\nStage 2: bounded writer-residual LM-head reader solve")
     positive_instances, _instance_owners, direct_flags = build_prompt_instances(
         records, context_sets
     )
@@ -1551,66 +1578,203 @@ def main(argv: Sequence[str] | None = None) -> None:
     base_selected_output_rows = output_layer.weight.index_select(
         0, output_row_index
     ).detach().clone()
-    output_delta_parameter = torch.nn.Parameter(
-        torch.zeros(
-            (len(selected_output_rows), hidden_size),
-            dtype=torch.float32,
-            device=output_layer.weight.device,
-        )
-    )
-    protection_rows = torch.cat(
-        [
-            torch.cat(negative_state_groups[i], dim=0)
-            for i in range(len(records))
-        ],
-        dim=0,
-    )
-    if corpus_protection_rows.numel():
-        protection_rows = torch.cat(
-            [protection_rows, corpus_protection_rows], dim=0
-        )
-    if protection_rows.shape[0] > int(a.stage2_protection_states):
-        indices = torch.linspace(
-            0,
-            protection_rows.shape[0] - 1,
-            steps=int(a.stage2_protection_states),
-        ).round().long()
-        protection_rows = protection_rows.index_select(0, indices)
-    protection_rows = protection_rows.to(output_layer.weight.device)
-    base_positive_rows = torch.cat(
+    output_slot = {
+        token_id: slot for slot, token_id in enumerate(selected_output_rows)
+    }
+    base_output_row_norms = base_selected_output_rows.float().norm(dim=1)
+    if bool((base_output_row_norms <= 1e-12).any()):
+        raise RuntimeError("selected LM-head row has zero base norm")
+
+    # V5 never searches the full hidden space.  Common writer-off and corpus
+    # geometry is removed first; each output token then gets its own bounded
+    # basis made only from paired writer residuals for that token.
+    base_positive_rows_cpu = torch.cat(
         [
             torch.cat(base_positive_state_groups[i], dim=0)
             for i in range(len(records))
         ],
         dim=0,
-    ).to(output_layer.weight.device)
-    projection_source = torch.cat(
-        [base_positive_rows, protection_rows], dim=0
-    )
+    ).float()
+    common_protection_rows_cpu = base_positive_rows_cpu
+    if corpus_protection_rows.numel():
+        common_protection_rows_cpu = torch.cat(
+            [common_protection_rows_cpu, corpus_protection_rows.float()], dim=0
+        )
+    if common_protection_rows_cpu.shape[0] > int(a.stage2_protection_states):
+        indices = torch.linspace(
+            0,
+            common_protection_rows_cpu.shape[0] - 1,
+            steps=int(a.stage2_protection_states),
+        ).round().long()
+        common_protection_rows_cpu = common_protection_rows_cpu.index_select(
+            0, indices
+        )
     if int(a.stage2_protection_rank) > 0:
-        protection_basis = compositional.orthonormal_row_basis(
-            projection_source,
+        common_protection_basis = compositional.orthonormal_row_basis(
+            common_protection_rows_cpu.to(output_layer.weight.device),
             max_rank=min(
                 int(a.stage2_protection_rank),
                 hidden_size - 1,
             ),
         )
     else:
-        protection_basis = projection_source.new_empty((0, hidden_size))
+        common_protection_basis = torch.empty(
+            (0, hidden_size),
+            dtype=torch.float32,
+            device=output_layer.weight.device,
+        )
+    common_protection_basis_cpu = common_protection_basis.cpu()
     print(
-        f"  protected output subspace: rank {protection_basis.shape[0]} "
-        f"from {projection_source.shape[0]} training-safe states"
+        f"  common protected subspace: rank {common_protection_basis_cpu.shape[0]} "
+        f"from {common_protection_rows_cpu.shape[0]} writer-off/corpus states"
     )
 
+    def row_state_key(
+        prompt: str, answer_rows: Sequence[int], offset: int
+    ) -> Tuple[str, Tuple[int, ...], int]:
+        return (
+            compositional.normalized_key(prompt),
+            tuple(int(x) for x in answer_rows[:offset]),
+            int(answer_rows[offset]),
+        )
+
+    positive_keys_by_token: Dict[int, set[Tuple[str, Tuple[int, ...], int]]] = {
+        token_id: set() for token_id in selected_output_rows
+    }
+    for position, record in enumerate(records):
+        prompts = list(
+            context_sets[int(record["case_id"])]["positive_prompts"]
+        )
+        answer_rows = answer_rows_by_record[position]
+        for prompt in prompts:
+            for offset, token_id in enumerate(answer_rows):
+                if int(token_id) in positive_keys_by_token:
+                    positive_keys_by_token[int(token_id)].add(
+                        row_state_key(prompt, answer_rows, offset)
+                    )
+
+    residual_basis_bank_cpu = torch.zeros(
+        (
+            len(selected_output_rows),
+            int(a.stage2_residual_rank),
+            hidden_size,
+        ),
+        dtype=torch.float32,
+    )
+    row_negative_states_cpu: List[torch.Tensor] = []
+    residual_basis_reports: List[Dict[str, Any]] = []
+    for token_id in selected_output_rows:
+        residual_parts: List[torch.Tensor] = []
+        row_negative_parts: List[torch.Tensor] = []
+        for position, record in enumerate(records):
+            answer_rows = answer_rows_by_record[position]
+            offsets = [
+                offset
+                for offset, owned_token in enumerate(answer_rows)
+                if int(owned_token) == int(token_id)
+            ]
+            if not offsets:
+                continue
+            edited_groups = positive_state_groups[position]
+            writer_off_groups = base_positive_state_groups[position]
+            if len(edited_groups) != len(writer_off_groups):
+                raise AssertionError("edited/writer-off positive groups diverged")
+            for edited_group, writer_off_group in zip(
+                edited_groups, writer_off_groups
+            ):
+                residual_parts.extend(
+                    (edited_group[offset] - writer_off_group[offset]).unsqueeze(0)
+                    for offset in offsets
+                )
+
+            negative_prompts = [
+                row["prompt"]
+                for row in context_sets[int(record["case_id"])][
+                    "negative_contexts"
+                ]
+            ]
+            owned_negative_groups = negative_state_groups[position]
+            if len(negative_prompts) != len(owned_negative_groups):
+                raise AssertionError("negative prompt/state groups diverged")
+            for prompt, group in zip(negative_prompts, owned_negative_groups):
+                for offset in offsets:
+                    # Token-row semantics: a state that is a positive for y in
+                    # any record cannot simultaneously be a negative for q_y.
+                    if (
+                        row_state_key(prompt, answer_rows, offset)
+                        in positive_keys_by_token[int(token_id)]
+                    ):
+                        continue
+                    row_negative_parts.append(group[offset].unsqueeze(0))
+
+        residuals = torch.cat(residual_parts, dim=0).float()
+        row_negatives = (
+            torch.cat(row_negative_parts, dim=0).float()
+            if row_negative_parts
+            else torch.empty((0, hidden_size), dtype=torch.float32)
+        )
+        basis_device, basis_report = compositional.residual_reader_basis(
+            residuals.to(output_layer.weight.device),
+            common_protection_basis,
+            row_negatives.to(output_layer.weight.device),
+            residual_rank=int(a.stage2_residual_rank),
+            row_negative_rank=int(a.stage2_row_negative_rank),
+        )
+        basis = basis_device.cpu()
+        slot = output_slot[int(token_id)]
+        residual_basis_bank_cpu[slot, : basis.shape[0]] = basis
+        row_negative_states_cpu.append(row_negatives)
+        residual_norms = residuals.norm(dim=1)
+        residual_basis_reports.append(
+            {
+                "token_id": int(token_id),
+                **basis_report,
+                "writer_residual_norm": distribution(
+                    [float(x) for x in residual_norms]
+                ),
+            }
+        )
+        print(
+            f"  token {token_id}: residual rank {basis.shape[0]}, "
+            f"row-negative rank {basis_report['row_negative_rank']}, "
+            f"safe energy {basis_report['safe_residual_energy_fraction']:.4f}"
+        )
+
+    residual_basis_bank = residual_basis_bank_cpu.to(
+        output_layer.weight.device
+    )
+    output_coefficients = torch.nn.Parameter(
+        torch.zeros(
+            (len(selected_output_rows), int(a.stage2_residual_rank)),
+            dtype=torch.float32,
+            device=output_layer.weight.device,
+        )
+    )
+
+    def raw_output_delta() -> torch.Tensor:
+        return compositional.row_basis_deltas(
+            output_coefficients, residual_basis_bank
+        )
+
     def current_output_delta() -> torch.Tensor:
-        return compositional.project_out(output_delta_parameter, protection_basis)
+        return compositional.materialized_row_delta_ste(
+            raw_output_delta(), base_selected_output_rows
+        )
 
     output_hook = canonical.register_output_delta_hook(
         output_layer, selected_output_rows, current_output_delta
     )
     stage2_optimizer = torch.optim.AdamW(
-        [output_delta_parameter], lr=float(a.stage2_lr), weight_decay=0.0
+        [output_coefficients], lr=float(a.stage2_lr), weight_decay=0.0
     )
+    common_protection_rows = common_protection_rows_cpu.to(
+        output_layer.weight.device
+    )
+    base_positive_rows = base_positive_rows_cpu.to(output_layer.weight.device)
+    row_negative_states = [
+        rows.to(output_layer.weight.device) for rows in row_negative_states_cpu
+    ]
+    maximum_relative_cap = max(a.stage2_row_norm_cap_values)
     instance_sampler = canonical.IndexSampler(
         len(positive_instances), int(a.stage2_batch_size), int(a.seed) + 811
     )
@@ -1633,16 +1797,29 @@ def main(argv: Sequence[str] | None = None) -> None:
             float(a.stage2_reference_nll_tolerance),
         )
         delta_rows = current_output_delta()
-        protected_shift = protection_rows.float() @ delta_rows.float().T
+        protected_shift = common_protection_rows.float() @ delta_rows.float().T
         locality = protected_shift.square().sum(dim=1).mean()
         base_positive_shift = base_positive_rows.float() @ delta_rows.float().T
         base_positive_locality = base_positive_shift.square().sum(dim=1).mean()
-        # Regularize the effective row update. Components of the raw parameter
-        # inside the protected span are projected out and have no causal effect.
-        output_l2 = delta_rows.square().mean()
+        per_row_negative_losses = [
+            (rows.float() @ delta_rows[slot].float()).square().mean()
+            for slot, rows in enumerate(row_negative_states)
+            if rows.numel()
+        ]
+        row_negative_locality = (
+            torch.stack(per_row_negative_losses).mean()
+            if per_row_negative_losses
+            else delta_rows.sum() * 0.0
+        )
+        relative_row_norms = (
+            delta_rows.float().norm(dim=1)
+            / base_output_row_norms.to(delta_rows).clamp_min(1e-30)
+        )
+        output_l2 = relative_row_norms.square().mean()
         loss = (
             float(a.stage2_margin_weight) * hinge
             + float(a.stage2_negative_weight) * locality
+            + float(a.stage2_negative_weight) * row_negative_locality
             + float(a.stage2_base_positive_weight) * base_positive_locality
             + float(a.stage2_reference_nll_weight) * reference_nll_drift
             + float(a.stage2_beta_l2) * output_l2
@@ -1651,6 +1828,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             raise FloatingPointError(f"non-finite Stage-2 loss at step {step}")
         loss.backward()
         stage2_optimizer.step()
+        cap_projection = compositional.clamp_materialized_basis_coefficients_(
+            output_coefficients,
+            residual_basis_bank,
+            base_selected_output_rows,
+            maximum_relative_cap,
+        )
 
         if step == 1 or step % int(a.stage2_check_every) == 0 or step == int(a.stage2_steps):
             full_target_new_nll, full_target_true_nll = evaluate_instance_nlls(
@@ -1675,11 +1858,15 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "loss": float(loss.detach()),
                 "batch_hinge": float(hinge.detach()),
                 "locality": float(locality.detach()),
+                "row_negative_locality": float(row_negative_locality.detach()),
                 "base_positive_locality": float(base_positive_locality.detach()),
                 "reference_nll_drift": float(
                     reference_nll_drift.detach()
                 ),
                 "output_delta_l2": float(output_l2.detach()),
+                "maximum_relative_row_norm": float(
+                    cap_projection["materialized_max_relative_norm"]
+                ),
                 "positive_failures": failures,
                 "direct_failures": direct_failures,
                 "minimum_margin": float(full.min()),
@@ -1699,12 +1886,19 @@ def main(argv: Sequence[str] | None = None) -> None:
                 break
     del stage2_optimizer
 
-    solved_output_delta = output_delta_parameter.detach().clone()
-    scale_reports: List[Dict[str, Any]] = []
-    for scale in canonical.parse_scales(a.stage2_scales):
+    solved_output_coefficients = output_coefficients.detach().clone()
+    cap_reports: List[Dict[str, Any]] = []
+    cap_candidates: List[torch.Tensor] = []
+    for relative_cap in a.stage2_row_norm_cap_values:
         with torch.no_grad():
-            output_delta_parameter.copy_(solved_output_delta * float(scale))
-        scaled_target_new_nll, scaled_target_true_nll = evaluate_instance_nlls(
+            output_coefficients.copy_(solved_output_coefficients)
+        cap_projection = compositional.clamp_materialized_basis_coefficients_(
+            output_coefficients,
+            residual_basis_bank,
+            base_selected_output_rows,
+            float(relative_cap),
+        )
+        candidate_target_new_nll, candidate_target_true_nll = evaluate_instance_nlls(
             model,
             tok,
             positive_instances,
@@ -1712,51 +1906,75 @@ def main(argv: Sequence[str] | None = None) -> None:
             llama_like=llama_like,
             batch_size=int(a.stage2_batch_size),
         )
-        margins = scaled_target_true_nll - scaled_target_new_nll
+        margins = candidate_target_true_nll - candidate_target_new_nll
         reference_nll_abs_drift_max = float(
-            (scaled_target_new_nll - pre_target_new_nll).abs().max()
+            (candidate_target_new_nll - pre_target_new_nll).abs().max()
         )
         direct_failures = sum(
             int(direct_flags[i] and float(margins[i]) < float(a.forget_margin) - 1e-6)
             for i in range(len(margins))
         )
         all_failures = int((margins < float(a.forget_margin) - 1e-6).sum())
-        scale_reports.append(
+        candidate_delta = current_output_delta().detach()
+        relative_norms = (
+            candidate_delta.float().norm(dim=1)
+            / base_output_row_norms.to(candidate_delta).clamp_min(1e-30)
+        )
+        cap_reports.append(
             {
-                "scale": float(scale),
+                "relative_cap": float(relative_cap),
                 "direct_failures": direct_failures,
                 "positive_failures": all_failures,
                 "minimum_margin": float(margins.min()),
                 "reference_nll_abs_drift_max": reference_nll_abs_drift_max,
+                "maximum_relative_row_norm": float(relative_norms.max()),
+                "mean_relative_row_norm": float(relative_norms.mean()),
+                "materialized_violating_rows": int(
+                    cap_projection["materialized_violating_rows"]
+                ),
             }
         )
+        cap_candidates.append(output_coefficients.detach().clone())
     feasible = [
-        row
-        for row in scale_reports
+        (index, row)
+        for index, row in enumerate(cap_reports)
         if row["positive_failures"] == 0
         and float(row["reference_nll_abs_drift_max"])
         <= float(a.stage2_reference_nll_tolerance) + 1e-6
+        and int(row["materialized_violating_rows"]) == 0
     ]
     if feasible:
-        selected_scale = min(float(row["scale"]) for row in feasible)
+        selected_cap_index, _selected_cap_report = min(
+            feasible, key=lambda pair: float(pair[1]["relative_cap"])
+        )
     else:
-        best = min(
-            scale_reports,
-            key=lambda row: (
-                int(row["direct_failures"]),
-                int(row["positive_failures"]),
+        selected_cap_index, _selected_cap_report = min(
+            enumerate(cap_reports),
+            key=lambda pair: (
+                int(pair[1]["direct_failures"]),
+                int(pair[1]["positive_failures"]),
                 max(
                     0.0,
-                    float(row["reference_nll_abs_drift_max"])
+                    float(pair[1]["reference_nll_abs_drift_max"])
                     - float(a.stage2_reference_nll_tolerance),
                 ),
-                -float(row["minimum_margin"]),
+                -float(pair[1]["minimum_margin"]),
             ),
         )
-        selected_scale = float(best["scale"])
+    selected_relative_cap = float(
+        cap_reports[selected_cap_index]["relative_cap"]
+    )
     with torch.no_grad():
-        output_delta_parameter.copy_(solved_output_delta * selected_scale)
+        output_coefficients.copy_(cap_candidates[selected_cap_index])
         final_output_delta = current_output_delta().detach().cpu()
+        final_raw_output_delta = raw_output_delta().detach().cpu()
+        final_output_rows = (
+            base_selected_output_rows
+            + final_raw_output_delta.to(
+                device=base_selected_output_rows.device,
+                dtype=base_selected_output_rows.dtype,
+            )
+        )
     hooked_final_margins = evaluate_instance_margins(
         model,
         tok,
@@ -1767,10 +1985,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     # Fold both ordinary global parameter changes into a standard HF checkpoint.
-    # The output hook computes its directional correction in float32, whereas
-    # a materialized BF16 row participates in the fused LM-head matmul. Retry a
-    # small predeclared scale grid on the materialized rows so direct acceptance
-    # cannot be lost to that numerical representation change.
+    # V5 has no post-hoc scale retry: the exact BF16/FP16 target rows were part
+    # of the hard-cap optimization and are serialized once.
     output_hook.remove()
     embedding_hook.remove()
     input_row_index = torch.tensor(
@@ -1782,101 +1998,24 @@ def main(argv: Sequence[str] | None = None) -> None:
     directional.materialize_input_delta(
         input_layer, selected_rows, trained_embedding_delta
     )
-    materialization_reports: List[Dict[str, Any]] = []
-    materialized_margins = torch.empty(0)
-    selected_materialization_scale = 1.0
-    scale_one_margin_drift: float | None = None
-    for scale in canonical.parse_scales(a.materialization_scales):
-        with torch.no_grad():
-            output_layer.weight.index_copy_(
-                0,
-                output_row_index,
-                base_selected_output_rows
-                + (float(scale) * final_output_delta).to(
-                    device=base_selected_output_rows.device,
-                    dtype=base_selected_output_rows.dtype,
-                ),
-            )
-        materialized_target_new_nll, materialized_target_true_nll = evaluate_instance_nlls(
-            model,
-            tok,
-            positive_instances,
-            device,
-            llama_like=llama_like,
-            batch_size=int(a.stage2_batch_size),
+    with torch.no_grad():
+        output_layer.weight.index_copy_(
+            0, output_row_index, final_output_rows
         )
-        margins = materialized_target_true_nll - materialized_target_new_nll
-        reference_nll_abs_drift_max = float(
-            (materialized_target_new_nll - pre_target_new_nll).abs().max()
-        )
-        direct_count = sum(
-            int(direct_flags[i] and float(margins[i]) < float(a.forget_margin) - 1e-6)
-            for i in range(len(margins))
-        )
-        all_count = int((margins < float(a.forget_margin) - 1e-6).sum())
-        materialization_reports.append(
-            {
-                "scale": float(scale),
-                "direct_failures": direct_count,
-                "positive_failures": all_count,
-                "minimum_margin": float(margins.min()),
-                "reference_nll_abs_drift_max": reference_nll_abs_drift_max,
-            }
-        )
-        if abs(float(scale) - 1.0) < 1e-12:
-            scale_one_margin_drift = float(
-                (margins - hooked_final_margins).abs().max()
-            )
-        materialized_margins = margins
-        selected_materialization_scale = float(scale)
-        if (
-            all_count == 0
-            and reference_nll_abs_drift_max
-            <= float(a.stage2_reference_nll_tolerance) + 1e-6
-        ):
-            break
-    if not (
-        materialization_reports[-1]["positive_failures"] == 0
-        and float(materialization_reports[-1]["reference_nll_abs_drift_max"])
-        <= float(a.stage2_reference_nll_tolerance) + 1e-6
-    ):
-        best_materialized = min(
-            materialization_reports,
-            key=lambda row: (
-                int(row["direct_failures"]),
-                int(row["positive_failures"]),
-                max(
-                    0.0,
-                    float(row["reference_nll_abs_drift_max"])
-                    - float(a.stage2_reference_nll_tolerance),
-                ),
-                -float(row["minimum_margin"]),
-            ),
-        )
-        best_scale = float(best_materialized["scale"])
-        if abs(best_scale - selected_materialization_scale) > 1e-12:
-            with torch.no_grad():
-                output_layer.weight.index_copy_(
-                    0,
-                    output_row_index,
-                    base_selected_output_rows
-                    + (best_scale * final_output_delta).to(
-                        device=base_selected_output_rows.device,
-                        dtype=base_selected_output_rows.dtype,
-                    ),
-                )
-            materialized_target_new_nll, materialized_target_true_nll = evaluate_instance_nlls(
-                model,
-                tok,
-                positive_instances,
-                device,
-                llama_like=llama_like,
-                batch_size=int(a.stage2_batch_size),
-            )
-            materialized_margins = (
-                materialized_target_true_nll - materialized_target_new_nll
-            )
-            selected_materialization_scale = best_scale
+    materialized_target_new_nll, materialized_target_true_nll = evaluate_instance_nlls(
+        model,
+        tok,
+        positive_instances,
+        device,
+        llama_like=llama_like,
+        batch_size=int(a.stage2_batch_size),
+    )
+    materialized_margins = (
+        materialized_target_true_nll - materialized_target_new_nll
+    )
+    margin_drift = float(
+        (materialized_margins - hooked_final_margins).abs().max()
+    )
     final_reference_nll_drift = (
         materialized_target_new_nll - pre_target_new_nll
     )
@@ -1941,7 +2080,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         ),
     }
     gagd.write_json(out_dir / "causal_writer_ablation.json", causal_writer_ablation)
-    intended_output_delta = final_output_delta * selected_materialization_scale
+    intended_output_delta = final_output_delta
     actual_embedding_delta = (
         edited_selected_input_rows.detach().float().cpu()
         - base_selected_input_rows.detach().float().cpu()
@@ -1956,22 +2095,34 @@ def main(argv: Sequence[str] | None = None) -> None:
     output_row_betas, output_row_readers = compositional.factorize_output_rows(
         actual_output_delta
     )
+    actual_relative_output_row_norms = (
+        actual_output_delta.norm(dim=1)
+        / base_selected_output_rows.detach().float().cpu().norm(dim=1).clamp_min(1e-30)
+    )
+    output_row_cap_passed = bool(
+        float(actual_relative_output_row_norms.max())
+        <= selected_relative_cap + 1e-6
+    )
 
     # Every jointly learned sparse row has the exact decomposition
     # Delta W_y = -beta_y q_y. Audit the resulting q_y readers on all
     # training-safe states where token y is sensitive, versus the protected
     # compositional, writer-off, and disjoint-corpus pool used by Stage 2.
     output_reader_rows: List[Dict[str, Any]] = []
-    output_slot = {token_id: slot for slot, token_id in enumerate(selected_output_rows)}
-    protected_cpu = torch.cat(
-        [
-            protection_rows.detach().float().cpu(),
-            base_positive_rows.detach().float().cpu(),
-        ],
-        dim=0,
-    )
+    common_audit_rows_cpu = base_positive_rows_cpu
+    if corpus_protection_rows.numel():
+        common_audit_rows_cpu = torch.cat(
+            [common_audit_rows_cpu, corpus_protection_rows.float()], dim=0
+        )
+    basis_report_by_token = {
+        int(row["token_id"]): row for row in residual_basis_reports
+    }
     for token_id in selected_output_rows:
         slot = output_slot[token_id]
+        protected_parts = [common_audit_rows_cpu]
+        if row_negative_states_cpu[slot].numel():
+            protected_parts.append(row_negative_states_cpu[slot])
+        protected_cpu = torch.cat(protected_parts, dim=0)
         beta = float(output_row_betas[slot])
         positive_parts: List[torch.Tensor] = []
         base_positive_parts: List[torch.Tensor] = []
@@ -1995,6 +2146,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 {
                     "token_id": int(token_id),
                     "beta": beta,
+                    "relative_row_norm": float(
+                        actual_relative_output_row_norms[slot]
+                    ),
+                    "residual_basis": basis_report_by_token[int(token_id)],
                     "active": False,
                     "passed": True,
                 }
@@ -2021,6 +2176,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             {
                 "token_id": int(token_id),
                 "beta": beta,
+                "relative_row_norm": float(
+                    actual_relative_output_row_norms[slot]
+                ),
+                "residual_basis": basis_report_by_token[int(token_id)],
                 "active": True,
                 "passed": passed,
                 **metrics,
@@ -2043,25 +2202,37 @@ def main(argv: Sequence[str] | None = None) -> None:
             "positive_sign_consistent": True,
             "kappa_train_max": float(a.kappa_train_max),
             "portability_min": float(a.portability_min),
+            "selected_relative_row_norm_cap": selected_relative_cap,
         },
+        "hard_row_cap_passed": output_row_cap_passed,
         "active_rows": len(active_reader_rows),
         "total_rows": len(output_reader_rows),
         "passed_rows": sum(int(row["passed"]) for row in active_reader_rows),
-        "passed": bool(active_reader_rows and all(row["passed"] for row in active_reader_rows)),
+        "passed": bool(
+            active_reader_rows
+            and all(row["passed"] for row in active_reader_rows)
+            and output_row_cap_passed
+        ),
         "per_row": output_reader_rows,
     }
     gagd.write_json(out_dir / "output_reader_gate_report.json", output_reader_gate)
-    margin_drift = (
-        float(scale_one_margin_drift)
-        if scale_one_margin_drift is not None
-        else float("nan")
-    )
     direct_failures = sum(
         int(direct_flags[i] and float(materialized_margins[i]) < float(a.forget_margin) - 1e-6)
         for i in range(len(materialized_margins))
     )
     positive_failures = int(
         (materialized_margins < float(a.forget_margin) - 1e-6).sum()
+    )
+    bounded_training_passed = bool(
+        direct_failures == 0
+        and positive_failures == 0
+        and final_reference_nll_abs_drift_max
+        <= float(a.stage2_reference_nll_tolerance) + 1e-6
+        and output_row_cap_passed
+        and bool(feasible)
+    )
+    reader_policy_passed = bool(
+        output_reader_gate["passed"] or a.gate_policy == "report"
     )
 
     post_transformer_fingerprint = sum(
@@ -2073,7 +2244,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     if transformer_absdiff > 1e-3:
         raise RuntimeError("a frozen Transformer parameter changed")
     checkpoint_path = out_dir / "checkpoint"
-    if bool(a.save_checkpoint):
+    checkpoint_saved = bool(
+        a.save_checkpoint and bounded_training_passed and reader_policy_passed
+    )
+    if checkpoint_saved:
         checkpoint_path.mkdir(parents=True, exist_ok=True)
         model.save_pretrained(checkpoint_path)
         tok.save_pretrained(checkpoint_path)
@@ -2100,6 +2274,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             "diagnostic_record_readers": reader_bank,
             "selected_output_rows": selected_output_rows,
             "output_delta": actual_output_delta,
+            "residual_basis_bank": residual_basis_bank_cpu,
+            "residual_basis_reports": residual_basis_reports,
+            "selected_output_coefficients": output_coefficients.detach().cpu(),
+            "selected_relative_row_norm_cap": selected_relative_cap,
+            "relative_output_row_norms": actual_relative_output_row_norms,
+            "cap_reports": cap_reports,
+            "unconstrained_fallback_used": False,
             "base_selected_output_rows": base_selected_output_rows.detach().cpu(),
             "edited_selected_output_rows": (
                 output_layer.weight.index_select(0, output_row_index).detach().cpu()
@@ -2129,7 +2310,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             "input_embedding_rows_edited": len(selected_rows),
             "lm_head_rows_edited": len(selected_output_rows),
             "writer": "ordinary global sparse subject embedding-row deltas",
-            "reader": "jointly learned per-sensitive-token q_y^T h",
+            "reader": (
+                "per-sensitive-token q_y constrained to a rank-bounded, "
+                "protected writer-residual basis"
+            ),
             "decoder": "ordinary sparse LM-head rows, exactly Delta W_y=-beta_y q_y",
         },
         "data_firewall": context_manifest["data_access"],
@@ -2156,8 +2340,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         "causal_writer_ablation": causal_writer_ablation,
         "stage2": {
             "parameterization": (
-                "joint full sparse sensitive-token rows; post-solve exact "
-                "factorization Delta W_y=-beta_y q_y"
+                "row-specific writer-residual bases with hard relative norm "
+                "balls; post-solve exact factorization Delta W_y=-beta_y q_y"
             ),
             "initialization": "zero output-row delta",
             "pre_margin": pre_margin_report,
@@ -2174,14 +2358,27 @@ def main(argv: Sequence[str] | None = None) -> None:
                 [float(x) for x in final_reference_nll_drift]
             ),
             "protection_subspace": {
-                "rank": int(protection_basis.shape[0]),
-                "source_states": int(projection_source.shape[0]),
-                "hard_negative_and_corpus_states": int(protection_rows.shape[0]),
-                "writer_off_positive_states": int(base_positive_rows.shape[0]),
+                "common_rank": int(common_protection_basis_cpu.shape[0]),
+                "common_source_states": int(common_protection_rows_cpu.shape[0]),
+                "writer_off_positive_states": int(base_positive_rows_cpu.shape[0]),
                 "corpus_states": int(corpus_protection_rows.shape[0]),
+                "row_negative_states": distribution(
+                    [int(rows.shape[0]) for rows in row_negative_states_cpu]
+                ),
             },
-            "selected_scale": selected_scale,
-            "selected_materialization_scale": selected_materialization_scale,
+            "residual_basis_rank_limit": int(a.stage2_residual_rank),
+            "row_negative_rank_limit": int(a.stage2_row_negative_rank),
+            "residual_basis": residual_basis_reports,
+            "predeclared_relative_row_norm_caps": [
+                float(x) for x in a.stage2_row_norm_cap_values
+            ],
+            "selected_relative_row_norm_cap": selected_relative_cap,
+            "bounded_candidate_feasible": bool(feasible),
+            "actual_relative_row_norms": distribution(
+                [float(x) for x in actual_relative_output_row_norms]
+            ),
+            "hard_row_cap_passed": output_row_cap_passed,
+            "unconstrained_fallback_used": False,
             "selected_output_rows": selected_output_rows,
             "beta": [float(x) for x in output_row_betas],
             "output_delta_norm": float(actual_output_delta.norm()),
@@ -2189,8 +2386,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 output_materialization_delta_error
             ),
             "optimization_log": stage2_log,
-            "scale_reports": scale_reports,
-            "materialization_scale_reports": materialization_reports,
+            "cap_reports": cap_reports,
             "direct_failures": direct_failures,
             "training_safe_positive_failures": positive_failures,
             "minimum_margin": float(materialized_margins.min()),
@@ -2205,16 +2401,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
             "record_reader_diagnostic_passed": bool(gate_report["passed"]),
             "output_reader_gate_passed": bool(output_reader_gate["passed"]),
-            "checkpoint_saved": bool(a.save_checkpoint),
-            "passed": bool(
-                direct_failures == 0
-                and positive_failures == 0
-                and final_reference_nll_abs_drift_max
-                <= float(a.stage2_reference_nll_tolerance) + 1e-6
-                and (output_reader_gate["passed"] or a.gate_policy == "report")
-            ),
+            "hard_output_row_cap_passed": output_row_cap_passed,
+            "bounded_candidate_feasible": bool(feasible),
+            "checkpoint_saved": checkpoint_saved,
+            "passed": bool(bounded_training_passed and reader_policy_passed),
         },
-        "checkpoint": str(checkpoint_path) if a.save_checkpoint else None,
+        "checkpoint": str(checkpoint_path) if checkpoint_saved else None,
         "claim_boundary": (
             "Standard weight-level sparse edit with no runtime scope mechanism. "
             "Official unseen Gen, Spe, retain, and PPL are not known until the "
@@ -2234,12 +2426,26 @@ def main(argv: Sequence[str] | None = None) -> None:
         "  output-only direct/positive failures : "
         f"{output_only_direct_failures}/{output_only_positive_failures}"
     )
+    print(
+        "  selected / actual max row cap        : "
+        f"{selected_relative_cap:.3f} / "
+        f"{float(actual_relative_output_row_norms.max()):.6f}"
+    )
     print(f"  Transformer parameter absdiff        : {transformer_absdiff:.3e}")
     print("  router / bias / sidecar              : False / False / False")
     print("=" * 72)
-    if direct_failures or positive_failures:
+    if (
+        direct_failures
+        or positive_failures
+        or final_reference_nll_abs_drift_max
+        > float(a.stage2_reference_nll_tolerance) + 1e-6
+        or not output_row_cap_passed
+        or not feasible
+        or not reader_policy_passed
+    ):
         raise SystemExit(
-            "Stage 2 did not reach zero training-visible failures; checkpoint is diagnostic only"
+            "bounded Stage 2 did not satisfy every training-only constraint; "
+            "checkpoint is diagnostic only and official evaluation is refused"
         )
     print(f"checkpoint: {checkpoint_path}")
     print(f"summary: {out_dir / 'compositional_marker_summary.json'}")

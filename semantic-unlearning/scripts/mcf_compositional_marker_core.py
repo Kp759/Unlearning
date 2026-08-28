@@ -27,7 +27,7 @@ import torch
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v4"
+PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v5"
 
 
 def normalize_text(value: Any) -> str:
@@ -290,6 +290,190 @@ def project_out(rows: torch.Tensor, basis: torch.Tensor) -> torch.Tensor:
     if rows.numel() == 0 or basis.numel() == 0:
         return rows
     return rows - (rows @ basis.T) @ basis
+
+
+def residual_reader_basis(
+    residuals: torch.Tensor,
+    common_protected_basis: torch.Tensor,
+    row_negative_states: torch.Tensor,
+    *,
+    residual_rank: int,
+    row_negative_rank: int,
+) -> Tuple[torch.Tensor, Dict[str, float]]:
+    """Build a small reader basis only from protected writer residuals.
+
+    ``residuals`` are paired ``h_writer - h_base`` states for one sensitive
+    output token. Common writer-off/corpus geometry is supplied as an already
+    orthonormal basis. Row-semantic hard negatives are residualized against
+    that common span before their own bounded basis is added. The returned
+    directions therefore lie in the positive writer-residual span while being
+    orthogonal to the registered protected geometry.
+    """
+    if residuals.ndim != 2 or residuals.shape[0] == 0:
+        raise ValueError("residuals must be a non-empty matrix")
+    hidden = residuals.shape[1]
+    if common_protected_basis.ndim != 2 or common_protected_basis.shape[1] != hidden:
+        raise ValueError("common protected basis has incompatible shape")
+    if row_negative_states.ndim != 2 or row_negative_states.shape[1] != hidden:
+        raise ValueError("row-negative states have incompatible shape")
+    if int(residual_rank) <= 0 or int(row_negative_rank) < 0:
+        raise ValueError("residual rank must be positive and negative rank non-negative")
+
+    common = common_protected_basis.float()
+    negatives = row_negative_states.float()
+    if negatives.numel() and int(row_negative_rank) > 0:
+        negative_residual = project_out(negatives, common)
+        negative_basis = orthonormal_row_basis(
+            negative_residual, max_rank=int(row_negative_rank)
+        )
+    else:
+        negative_basis = residuals.new_empty((0, hidden), dtype=torch.float32)
+    protected = (
+        torch.cat([common, negative_basis], dim=0)
+        if negative_basis.numel()
+        else common
+    )
+    safe_residuals = project_out(residuals.float(), protected)
+    basis = orthonormal_row_basis(safe_residuals, max_rank=int(residual_rank))
+    if not basis.shape[0]:
+        raise RuntimeError("writer residual has no component outside protected geometry")
+
+    total_energy = residuals.float().square().sum().clamp_min(1e-30)
+    safe_energy = safe_residuals.square().sum()
+    reconstructed = (safe_residuals @ basis.T) @ basis
+    captured_energy = reconstructed.square().sum()
+    protected_projection = (
+        float((basis @ protected.T).abs().max()) if protected.numel() else 0.0
+    )
+    return basis, {
+        "positive_residual_states": int(residuals.shape[0]),
+        "row_negative_states": int(row_negative_states.shape[0]),
+        "common_protected_rank": int(common.shape[0]),
+        "row_negative_rank": int(negative_basis.shape[0]),
+        "residual_basis_rank": int(basis.shape[0]),
+        "safe_residual_energy_fraction": float(safe_energy / total_energy),
+        "basis_captured_safe_energy_fraction": float(
+            captured_energy / safe_energy.clamp_min(1e-30)
+        ),
+        "protected_projection_abs_max": protected_projection,
+    }
+
+
+def row_basis_deltas(
+    coefficients: torch.Tensor,
+    basis_bank: torch.Tensor,
+) -> torch.Tensor:
+    """Return one LM-head row delta per row-specific orthonormal basis."""
+    if coefficients.ndim != 2 or basis_bank.ndim != 3:
+        raise ValueError("coefficients/basis bank must be rank two/three")
+    if tuple(coefficients.shape) != tuple(basis_bank.shape[:2]):
+        raise ValueError("coefficient and basis-bank shapes do not match")
+    return torch.einsum("rk,rkh->rh", coefficients, basis_bank)
+
+
+@torch.no_grad()
+def clamp_basis_coefficients_(
+    coefficients: torch.Tensor,
+    base_row_norms: torch.Tensor,
+    relative_cap: float,
+) -> Dict[str, float]:
+    """Hard-project orthonormal-basis coefficients onto per-row norm balls."""
+    if coefficients.ndim != 2 or base_row_norms.ndim != 1:
+        raise ValueError("coefficients/base norms have incompatible ranks")
+    if coefficients.shape[0] != base_row_norms.shape[0]:
+        raise ValueError("coefficient rows do not match base-row norms")
+    if not math.isfinite(float(relative_cap)) or float(relative_cap) < 0.0:
+        raise ValueError("relative cap must be finite and non-negative")
+    limits = base_row_norms.to(
+        device=coefficients.device, dtype=coefficients.dtype
+    ) * float(relative_cap)
+    before = coefficients.norm(dim=1)
+    scales = torch.minimum(
+        torch.ones_like(before),
+        limits / before.clamp_min(1e-30),
+    )
+    coefficients.mul_(scales.unsqueeze(1))
+    after = coefficients.norm(dim=1)
+    return {
+        "relative_cap": float(relative_cap),
+        "clamped_rows": int((before > limits + 1e-8).sum()),
+        "max_norm": float(after.max()) if after.numel() else 0.0,
+        "max_relative_norm": float(
+            (after / base_row_norms.to(after).clamp_min(1e-30)).max()
+        ) if after.numel() else 0.0,
+    }
+
+
+def materialized_row_delta_ste(
+    raw_delta: torch.Tensor,
+    base_rows: torch.Tensor,
+) -> torch.Tensor:
+    """Straight-through row delta matching base-plus-delta materialization."""
+    if raw_delta.shape != base_rows.shape or raw_delta.ndim != 2:
+        raise ValueError("raw delta and base rows must have equal matrix shapes")
+    base = base_rows.to(device=raw_delta.device)
+    materialized = (
+        base + raw_delta.to(dtype=base.dtype)
+    ).to(dtype=base.dtype).float() - base.float()
+    return raw_delta + (materialized - raw_delta).detach()
+
+
+@torch.no_grad()
+def clamp_materialized_basis_coefficients_(
+    coefficients: torch.Tensor,
+    basis_bank: torch.Tensor,
+    base_rows: torch.Tensor,
+    relative_cap: float,
+    *,
+    max_iterations: int = 8,
+) -> Dict[str, float]:
+    """Enforce the row cap on the BF16/FP16 rows that will be serialized.
+
+    A float32 coefficient vector can satisfy a norm ball while its rounded
+    ``base + delta`` row exceeds it slightly.  This routine first projects the
+    orthonormal-basis coefficients, then shrinks only rows whose *materialized*
+    deltas exceed the same predeclared relative cap.  Consequently the audit
+    and the saved checkpoint are constrained in the same arithmetic.
+    """
+    if basis_bank.ndim != 3 or base_rows.ndim != 2:
+        raise ValueError("basis bank/base rows have incompatible ranks")
+    if coefficients.shape != basis_bank.shape[:2]:
+        raise ValueError("coefficient and basis-bank shapes do not match")
+    if base_rows.shape != (basis_bank.shape[0], basis_bank.shape[2]):
+        raise ValueError("base rows have incompatible shape")
+    if int(max_iterations) <= 0:
+        raise ValueError("max_iterations must be positive")
+
+    base_norms = base_rows.float().norm(dim=1).clamp_min(1e-30)
+    initial = clamp_basis_coefficients_(coefficients, base_norms, relative_cap)
+    iterations = 0
+    materialized_relative = torch.zeros_like(base_norms)
+    for iterations in range(1, int(max_iterations) + 1):
+        raw = row_basis_deltas(coefficients, basis_bank)
+        effective = materialized_row_delta_ste(raw, base_rows).detach()
+        materialized_relative = effective.float().norm(dim=1) / base_norms
+        violating = materialized_relative > float(relative_cap) + 1e-7
+        if not bool(violating.any()):
+            break
+        # Leave a small numerical interior so the next low-precision rounding
+        # lands inside the ball instead of oscillating on its boundary.
+        scales = torch.ones_like(materialized_relative)
+        scales[violating] = (
+            float(relative_cap)
+            * 0.999
+            / materialized_relative[violating].clamp_min(1e-30)
+        ).clamp(max=1.0)
+        coefficients.mul_(scales.to(coefficients).unsqueeze(1))
+    return {
+        **initial,
+        "materialization_iterations": int(iterations),
+        "materialized_max_relative_norm": float(materialized_relative.max())
+        if materialized_relative.numel()
+        else 0.0,
+        "materialized_violating_rows": int(
+            (materialized_relative > float(relative_cap) + 1e-7).sum()
+        ),
+    }
 
 
 def select_contrastive_marker(

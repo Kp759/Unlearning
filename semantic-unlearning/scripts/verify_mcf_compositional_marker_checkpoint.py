@@ -28,6 +28,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--model-dir", required=True)
     p.add_argument("--training-visible-path", required=True)
     p.add_argument("--context-manifest", required=True)
+    p.add_argument(
+        "--state",
+        default="",
+        help="Optional V5 state artifact used to re-audit serialized row caps.",
+    )
     p.add_argument("--out", required=True)
     p.add_argument("--forget-margin", type=float, default=1.0)
     p.add_argument("--batch-size", type=int, default=8)
@@ -44,6 +49,7 @@ def acceptance_payload(
     direct_flags: Sequence[bool],
     *,
     forget_margin: float,
+    serialized_row_cap: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     if margins.ndim != 1 or margins.shape[0] != len(direct_flags):
         raise ValueError("margin/direct-flag lengths do not match")
@@ -54,6 +60,9 @@ def acceptance_payload(
         for index in range(len(direct_flags))
     )
     positive_failures = int(failures.sum())
+    cap_passed = bool(
+        serialized_row_cap is None or serialized_row_cap.get("passed") is True
+    )
     return {
         "schema_version": 1,
         "kind": "mcf_compositional_marker_post_reload_acceptance",
@@ -63,6 +72,7 @@ def acceptance_payload(
             "forget_margin": float(forget_margin),
             "max_direct_failures": 0,
             "max_training_safe_positive_failures": 0,
+            "serialized_output_row_cap_required": serialized_row_cap is not None,
         },
         "observed": {
             "direct_prompt_instances": int(sum(bool(x) for x in direct_flags)),
@@ -77,7 +87,46 @@ def acceptance_payload(
             "benchmark_retain_seen": 0,
             "official_ppl_seen": False,
         },
-        "passed": direct_failures == 0 and positive_failures == 0,
+        "serialized_output_row_cap": serialized_row_cap,
+        "passed": direct_failures == 0 and positive_failures == 0 and cap_passed,
+    }
+
+
+def serialized_row_cap_report(
+    model: torch.nn.Module,
+    state: Mapping[str, Any],
+) -> Dict[str, Any]:
+    selected = [int(x) for x in state.get("selected_output_rows", [])]
+    base_rows = state.get("base_selected_output_rows")
+    cap = float(state.get("selected_relative_row_norm_cap", float("nan")))
+    if not selected or not isinstance(base_rows, torch.Tensor):
+        raise RuntimeError("V5 state lacks selected output rows or their base values")
+    if base_rows.ndim != 2 or base_rows.shape[0] != len(selected):
+        raise RuntimeError("V5 base output rows have incompatible shape")
+    if not torch.isfinite(torch.tensor(cap)) or cap <= 0.0:
+        raise RuntimeError("V5 state has an invalid selected row cap")
+    output_layer = model.get_output_embeddings()
+    if output_layer is None:
+        raise RuntimeError("reloaded model has no output embedding layer")
+    indices = torch.tensor(selected, dtype=torch.long, device=output_layer.weight.device)
+    current = output_layer.weight.index_select(0, indices).detach().float().cpu()
+    base = base_rows.detach().float().cpu()
+    if current.shape != base.shape:
+        raise RuntimeError("reloaded/base selected output row shapes diverged")
+    relative = (current - base).norm(dim=1) / base.norm(dim=1).clamp_min(1e-30)
+    maximum = float(relative.max())
+    return {
+        "selected_relative_cap": cap,
+        "rows": len(selected),
+        "maximum_relative_row_norm": maximum,
+        "violating_rows": int((relative > cap + 1e-6).sum()),
+        "unconstrained_fallback_used": bool(
+            state.get("unconstrained_fallback_used", False)
+        ),
+        "passed": bool(
+            maximum <= cap + 1e-6
+            and not bool(state.get("unconstrained_fallback_used", False))
+        ),
     }
 
 
@@ -129,6 +178,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     device = gagd.first_device(model)
+    row_cap: Dict[str, Any] | None = None
+    if str(a.state).strip():
+        state = torch.load(
+            Path(a.state).resolve(), map_location="cpu", weights_only=False
+        )
+        if not isinstance(state, Mapping) or state.get("protocol") != method.PROTOCOL:
+            raise RuntimeError("V5 state protocol mismatch")
+        row_cap = serialized_row_cap_report(model, state)
     margins = method.evaluate_instance_margins(
         model,
         tok,
@@ -141,6 +198,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         margins,
         direct_flags,
         forget_margin=float(a.forget_margin),
+        serialized_row_cap=row_cap,
     )
     output = Path(a.out).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
