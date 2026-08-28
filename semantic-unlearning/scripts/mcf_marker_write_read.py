@@ -98,6 +98,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                    help="Pool sizes tried in order, expanding only for records short on coverage.")
     p.add_argument("--candidate-min-count", type=int, default=3)
     p.add_argument(
+        "--subject-row-max-frequency", type=int, default=0,
+        help=(
+            "Drop subject embedding rows whose corpus frequency exceeds this. "
+            "0 disables. The writer edits GLOBAL vocabulary rows, so a common "
+            "subword like ' de' carries the marker into every prompt "
+            "containing it: 58%% of neighborhood prompts contain an edited "
+            "row, and their hidden states drift (median 0.25 at alpha=32) "
+            "while token-disjoint prompts stay bit-identical (drift exactly "
+            "0). Restricting the writer to rare pieces is the direct lever on "
+            "that fraction. Each record always keeps its rarest row, so no "
+            "record is left unable to write."
+        ),
+    )
+    p.add_argument(
         "--candidate-scan-docs", type=int, default=5000,
         help=(
             "Documents scanned for proper-noun candidates. A few thousand "
@@ -974,6 +988,44 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"--wikidata-dir {a.wikidata_dir!r} yielded no documents at/after index "
             f"{a.corpus_doc_start}; protected contexts are required for the certificate."
         )
+    if int(a.subject_row_max_frequency) > 0:
+        vocab_size = int(embedding.weight.shape[0])
+        freqs = gagd.token_frequency_counts(
+            tok, documents[: int(a.candidate_scan_docs) or len(documents)], vocab_size
+        )
+        dropped_total = 0
+        kept_rare_only = 0
+        for record in records:
+            scored = sorted(
+                record["subject_rows"], key=lambda t: int(freqs[t]) if t < vocab_size else 0
+            )
+            keep = [
+                t for t in record["subject_rows"]
+                if t < vocab_size and int(freqs[t]) <= int(a.subject_row_max_frequency)
+            ]
+            if not keep and scored:
+                # Mandatory liveness: a record with no editable row cannot
+                # write a marker at all, so its rarest piece is kept even if
+                # it exceeds the threshold.
+                keep = [scored[0]]
+                kept_rare_only += 1
+            dropped_total += len(record["subject_rows"]) - len(keep)
+            record["subject_rows"] = sorted(keep)
+        row_owners.clear()
+        for record in records:
+            for token_id in record["subject_rows"]:
+                row_owners[token_id] += 1
+        for record in records:
+            record["shared_rows"] = sum(
+                1 for t in record["subject_rows"] if row_owners[t] > 1
+            )
+        edited_subject_rows = sorted({t for r in records for t in r["subject_rows"]})
+        print(
+            f"  subject-row frequency filter (<= {a.subject_row_max_frequency}): "
+            f"dropped {dropped_total} rows, {len(edited_subject_rows)} remain, "
+            f"{kept_rare_only} records kept only their rarest row"
+        )
+
     protection_report: Dict[str, Any] = {"source": a.protection_source}
     control_prompts: List[Dict[str, Any]] = []
     fit_prompts: List[Dict[str, Any]] = []
@@ -2003,6 +2055,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
         },
         "stage0": {
+            "subject_row_max_frequency": int(a.subject_row_max_frequency),
+            "edited_subject_rows_final": len(edited_subject_rows),
             "protection": protection_report,
             "documents_scanned": len(documents),
             "contexts_mined": mined_total,
