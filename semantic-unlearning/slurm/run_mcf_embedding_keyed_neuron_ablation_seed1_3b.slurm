@@ -62,7 +62,10 @@ for required in "${TRAINING_VISIBLE}" "${SPLIT_MANIFEST}" "${CONTEXT_MANIFEST}" 
 done
 cp "${REGISTRY}" "${OUTPUT_DIR}/protocol/ablation_registry_v1.json"
 
-python -u scripts/mcf_embedding_keyed_neuron_erasure.py \
+env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
+  -u PARAPHRASE_PATH -u NEIGHBORHOOD_PATH -u RETAIN_EVAL_PATH \
+  -u ADVERSARIAL_EVAL_PATH \
+  python -u scripts/mcf_embedding_keyed_neuron_erasure.py \
   --model-path "${MODEL_PATH}" \
   --training-visible-path "${TRAINING_VISIBLE}" \
   --split-manifest "${SPLIT_MANIFEST}" \

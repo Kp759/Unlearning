@@ -36,6 +36,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import random
 import time
 from pathlib import Path
@@ -58,6 +59,15 @@ import sure_canonical_core as canonical
 
 METHOD = "Embedding-Keyed Sparse Neuron Erasure"
 PROTOCOL = neuron_core.PROTOCOL
+FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES = (
+    "MCF_PATH",
+    "OFFICIAL_MCF_PATH",
+    "OFFICIAL_EVAL_PATH",
+    "PARAPHRASE_PATH",
+    "NEIGHBORHOOD_PATH",
+    "RETAIN_EVAL_PATH",
+    "ADVERSARIAL_EVAL_PATH",
+)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -167,6 +177,19 @@ def _load_json(path: Path) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise RuntimeError(f"expected a JSON object: {path}")
     return value
+
+
+def _validate_environment_firewall() -> None:
+    exposed = [
+        name
+        for name in FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES
+        if str(os.environ.get(name, "")).strip()
+    ]
+    if exposed:
+        raise RuntimeError(
+            "evaluation path leaked into learner environment: "
+            + ", ".join(sorted(exposed))
+        )
 
 
 def _validate_experiment_registry(
@@ -475,6 +498,7 @@ def _replace_embedding_rows(
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
+    _validate_environment_firewall()
     gagd.set_seed(int(args.seed))
     gagd.require_cuda_if_needed(args.device_map)
     py_rng = random.Random(int(args.seed) + 78103)
@@ -548,6 +572,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "experiment_registry_path": str(registry_path),
         "experiment_registry_sha256": compositional_method.sha256_file(registry_path),
         "official_evaluation_file_argument_exists": False,
+        "forbidden_evaluation_environment_variables_present": [],
         "data_access": dict(context_manifest["data_access"]),
         "evaluation_only_unavailable_during_training": [
             "official paraphrases",

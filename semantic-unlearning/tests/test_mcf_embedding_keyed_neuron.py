@@ -275,6 +275,13 @@ def test_firewall_rejects_heldout_probe_content_recursively():
         method._validate_firewall(leaked, {"context_manifest_sha256": "abc"})
 
 
+def test_environment_firewall_rejects_evaluation_paths(monkeypatch):
+    method._validate_environment_firewall()
+    monkeypatch.setenv("MCF_PATH", "/heldout/multi_counterfact.json")
+    with pytest.raises(RuntimeError, match="leaked into learner environment"):
+        method._validate_environment_firewall()
+
+
 def test_primary_configuration_is_bound_to_preregistered_values():
     args = method.parse_args(
         [

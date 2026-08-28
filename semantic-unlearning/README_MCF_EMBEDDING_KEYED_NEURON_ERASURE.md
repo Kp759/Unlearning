@@ -71,6 +71,8 @@ fraction of base-model parameters they represent.
 The learner in `scripts/mcf_embedding_keyed_neuron_erasure.py` deliberately has
 no `--mcf-path`, official-evaluation, paraphrase, neighborhood, retain, PPL,
 alias, or adversarial argument.
+The launchers also remove all known evaluation-path variables from the learner
+and fresh-reload environments; the learner refuses to start if one is present.
 
 It may read only:
 

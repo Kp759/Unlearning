@@ -91,6 +91,7 @@ def _exact_tensor_match(current: torch.Tensor, expected: torch.Tensor) -> bool:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
+    method._validate_environment_firewall()
     visible_path = Path(args.training_visible_path).resolve()
     context_path = Path(args.context_manifest).resolve()
     state_path = Path(args.state).resolve()

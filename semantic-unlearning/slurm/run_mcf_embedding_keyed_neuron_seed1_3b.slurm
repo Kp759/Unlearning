@@ -51,7 +51,10 @@ done
 cp "${REGISTRY}" "${OUTPUT_DIR}/protocol/ablation_registry_v1.json"
 
 # TRAINING PROCESS. Deliberately no --mcf-path and no evaluation file argument.
-python -u scripts/mcf_embedding_keyed_neuron_erasure.py \
+env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
+  -u PARAPHRASE_PATH -u NEIGHBORHOOD_PATH -u RETAIN_EVAL_PATH \
+  -u ADVERSARIAL_EVAL_PATH \
+  python -u scripts/mcf_embedding_keyed_neuron_erasure.py \
   --model-path "${MODEL_PATH}" \
   --training-visible-path "${TRAINING_VISIBLE}" \
   --split-manifest "${SPLIT_MANIFEST}" \
@@ -94,7 +97,10 @@ python -u scripts/mcf_embedding_keyed_neuron_erasure.py \
   --save-checkpoint
 
 # FRESH RELOAD. Still no official probe is available.
-python -u scripts/verify_mcf_embedding_keyed_neuron_checkpoint.py \
+env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
+  -u PARAPHRASE_PATH -u NEIGHBORHOOD_PATH -u RETAIN_EVAL_PATH \
+  -u ADVERSARIAL_EVAL_PATH \
+  python -u scripts/verify_mcf_embedding_keyed_neuron_checkpoint.py \
   --model-dir "${OUTPUT_DIR}/method/checkpoint" \
   --training-visible-path "${TRAINING_VISIBLE}" \
   --context-manifest "${CONTEXT_MANIFEST}" \
