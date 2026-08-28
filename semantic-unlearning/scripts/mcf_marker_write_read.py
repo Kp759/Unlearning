@@ -1618,6 +1618,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     # that cross quantity under the writer. It runs after Stage 1, cannot
     # influence training, markers, the gate or any hyperparameter, and exists
     # so the two numbers are never conflated again.
+    subject_row_set = set(edited_subject_rows)
     cross_rows: List[Dict[str, Any]] = []
     if a.eval_overlap_audit:
         for record in records:
@@ -1630,6 +1631,24 @@ def main(argv: Sequence[str] | None = None) -> None:
             # padded and the other is not, the ratio absorbs a bf16 padding
             # artifact (~2% relative) instead of measuring geometry.
             neigh = prompt_hidden(model, tok, prompts, device, 1)
+            # Do the neighborhood states actually move under the writer?
+            # Structural locality requires the WHOLE prompt to be free of
+            # edited rows, and different subject names can still share subword
+            # ids with edited subjects, so "different subject" does not by
+            # itself imply an unchanged hidden state. Measured, not assumed:
+            # this decomposes any change in L across an alpha sweep into
+            # reader drift (q_alpha) versus neighborhood-state movement.
+            writer.enabled = False
+            neigh_base = prompt_hidden(model, tok, prompts, device, 1)
+            writer.enabled = True
+            drift = (neigh - neigh_base).norm(dim=1) / neigh_base.norm(dim=1).clamp_min(1e-9)
+            touching = sum(
+                1 for text in prompts
+                if subject_row_set & set(gagd.token_ids_for_text(tok, text))
+            )
+            record["neighborhood_state_drift_max"] = float(drift.max())
+            record["neighborhood_state_drift_mean"] = float(drift.mean())
+            record["neighborhood_prompts_touching_edited_rows"] = touching
             r_n_cross = float(
                 sum(residual_frac(h, basis) for h in neigh) / neigh.shape[0]
             )
@@ -1645,6 +1664,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "G_cross": r_f - r_n_cross,
                 "S_q": s_q, "L_cross_q": l_q, "kappa_cross_q": k_q,
                 "S_v": s_v, "L_cross_v": l_v, "kappa_cross_v": k_v,
+                "neighborhood_state_drift_max": record["neighborhood_state_drift_max"],
+                "neighborhood_prompts_touching_edited_rows": touching,
+                "neighborhood_prompts": len(prompts),
             })
     cross_summary: Dict[str, Any] = {"ran": bool(cross_rows), "label": "diagnostic_only_G_cross"}
     if cross_rows:
@@ -1662,6 +1684,16 @@ def main(argv: Sequence[str] | None = None) -> None:
             "p10": vals[max(0, len(vals) // 10)],
             "per_record": cross_rows,
         })
+        cross_summary["L_cross_q"] = dist([r["L_cross_q"] for r in cross_rows])
+        cross_summary["neighborhood_state_drift_max"] = dist(
+            [r["neighborhood_state_drift_max"] for r in cross_rows]
+        )
+        cross_summary["neighborhood_prompts_touching_edited_rows"] = sum(
+            r["neighborhood_prompts_touching_edited_rows"] for r in cross_rows
+        )
+        cross_summary["neighborhood_prompts_total"] = sum(
+            r["neighborhood_prompts"] for r in cross_rows
+        )
         cross_summary["kappa_cross_q"] = dist([r["kappa_cross_q"] for r in cross_rows])
         cross_summary["kappa_cross_v"] = dist([r["kappa_cross_v"] for r in cross_rows])
         print(
@@ -1669,6 +1701,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"  median {cross_summary['median']:+.4f}  p10 {cross_summary['p10']:+.4f}"
             f"  min {cross_summary['min']:+.4f}"
         )
+        print(
+            f"  structural locality check: "
+            f"{cross_summary['neighborhood_prompts_touching_edited_rows']}"
+            f"/{cross_summary['neighborhood_prompts_total']} neighborhood prompts "
+            f"contain an edited subject row"
+        )
+        show("  neighborhood state drift", cross_summary["neighborhood_state_drift_max"])
+        show("  L_cross (leakage numerator)", cross_summary["L_cross_q"])
         print("\n  DECISION NUMBER -- reader selectivity vs REAL neighborhoods:")
         show("kappa_cross (marker q)  <-", cross_summary["kappa_cross_q"])
         show("kappa_cross (residual)", cross_summary["kappa_cross_v"])
