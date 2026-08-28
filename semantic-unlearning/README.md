@@ -69,6 +69,13 @@ The MCF workflow includes a preregistered margin/rank sweep and rejects
 serialized checkpoints unless a fresh reload preserves `Eff = 0`, `Gen = 0`,
 and the configured positive forget-margin buffer.
 
+The no-router, unchanged-LM-head experiment that uses sparse subject-embedding
+codes to activate record-owned existing SwiGLU neurons is documented in
+[README_MCF_EMBEDDING_KEYED_NEURON_ERASURE.md](README_MCF_EMBEDDING_KEYED_NEURON_ERASURE.md).
+Its learner is cryptographically bound to direct-only/training-safe artifacts;
+official paraphrase, locality, retain, PPL, alias, and adversarial probes are
+opened only by separate post-checkpoint processes.
+
 Skip extraction if hidden states are already cached:
 ```bash
 python scripts/run_pipeline.py --config config/config.yaml --skip-extraction

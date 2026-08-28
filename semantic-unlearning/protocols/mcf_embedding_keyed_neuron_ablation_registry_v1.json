@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "protocol": "mcf_embedding_keyed_sparse_neuron_erasure_v1",
+  "status": "preregistered_before_official_evaluation",
+  "primary_configuration": {
+    "forget_num": 50,
+    "neuron_layer": 8,
+    "neurons_per_record": 4,
+    "selection_mode": "writer_contrastive",
+    "dormant_fraction": 0.35,
+    "selection_stability_weight": 1.0,
+    "selection_positive_contexts": 8,
+    "selection_protected_prompts": 1024,
+    "frequency_doc_start": 20,
+    "frequency_docs": 5000,
+    "corpus_protection_prompts": 256,
+    "detector_steps": 600,
+    "detector_lr": 0.001,
+    "detector_record_batch": 4,
+    "detector_positive_contexts": 2,
+    "detector_negative_contexts": 2,
+    "detector_positive_floor": 1.0,
+    "detector_negative_weight": 5.0,
+    "detector_cross_weight": 2.0,
+    "detector_writer_off_weight": 10.0,
+    "detector_consistency_weight": 1.0,
+    "detector_l2": 0.00001,
+    "detector_relative_cap": 0.4,
+    "detector_off_abs_max": 0.2,
+    "actuator_steps": 1000,
+    "actuator_lr": 0.005,
+    "actuator_batch_size": 4,
+    "actuator_protected_batch": 4,
+    "actuator_writer_off_every": 4,
+    "forget_margin": 1.0,
+    "margin_weight": 100.0,
+    "reference_nll_weight": 10.0,
+    "reference_nll_tolerance": 0.05,
+    "protected_kl_weight": 10.0,
+    "writer_off_nll_weight": 10.0,
+    "actuator_l2": 0.0001,
+    "actuator_relative_cap": 0.4,
+    "grad_clip": 1.0,
+    "check_every": 50,
+    "cache_batch_size": 8,
+    "kl_topk": 64,
+    "hook_materialization_tolerance": 0.05,
+    "min_writer_necessary_direct_fraction": 0.5,
+    "min_decoder_necessary_direct_fraction": 0.5,
+    "gate_policy": "strict"
+  },
+  "ablation_common_configuration": {
+    "gate_policy": "report"
+  },
+  "why_50_first": "The first run is a falsification of the embedding-key-to-neuron mechanism. Scaling to 100 is confirmatory only after the 50-record mechanism passes without evaluation-set tuning.",
+  "mandatory_within_checkpoint_causal_ablation": [
+    "full_embedding_plus_neuron",
+    "embedding_only",
+    "neuron_only",
+    "reconstructed_base"
+  ],
+  "controlled_training_ablations": [
+    {
+      "name": "random_dormant_neurons",
+      "change_only": {"selection_mode": "dormant_random"},
+      "question": "Does writer-aware neuron selection matter beyond choosing quiet neurons?"
+    },
+    {
+      "name": "no_learned_detector",
+      "change_only": {"detector_steps": 0, "gate_policy": "report"},
+      "question": "Can the actuator work without teaching gate/up rows to decode the embedding key?"
+    },
+    {
+      "name": "no_compositional_negative_loss",
+      "change_only": {"detector_negative_weight": 0.0, "detector_cross_weight": 0.0},
+      "question": "Do shared-subword, fragment, and cross-record negatives create contextual locality?"
+    },
+    {
+      "name": "no_writer_off_constraint",
+      "change_only": {"detector_writer_off_weight": 0.0, "writer_off_nll_weight": 0.0},
+      "question": "Is explicit key dependence required to prevent a stand-alone MLP edit?"
+    }
+  ],
+  "capacity_ablations": {
+    "neurons_per_record": [1, 2, 4, 8],
+    "neuron_layer_zero_based": [4, 8, 12, 16]
+  },
+  "confirmatory_scaling": {
+    "forget_num": 100,
+    "condition": "Run only with a separately frozen 100-record Stage-1 writer/context manifest and the primary hyperparameters; do not concatenate, inspect, or tune on official probes."
+  },
+  "held_out_evaluation": {
+    "opened_only_after_checkpoint_is_frozen": true,
+    "never_used_for_gradient_updates_checkpoint_selection_or_early_stopping": true,
+    "sets": [
+      "official MCF paraphrases",
+      "official MCF neighborhoods",
+      "official retain split",
+      "official PPL text",
+      "aliases and entity descriptions",
+      "adversarial elicitation",
+      "latent probes",
+      "relearning attacks"
+    ]
+  },
+  "primary_acceptance": {
+    "Eff": 0.0,
+    "Gen": 0.0,
+    "max_abs_forget_Spe_delta": 0.2,
+    "max_abs_retain_Eff_Gen_delta": 1.0,
+    "max_abs_retain_Spe_delta": 0.2,
+    "max_abs_PPL_percent_delta": 5.0,
+    "embedding_writer_causally_necessary": true,
+    "neuron_decoder_causally_necessary": true,
+    "LM_head_unchanged": true
+  }
+}
