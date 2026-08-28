@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=mcf-compose3-s1
+#SBATCH --job-name=mcf-compose4-s1
 #SBATCH --account=yl258
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
@@ -18,7 +18,7 @@ ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v3_seed1_3b}"
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v4_seed1_3b}"
 BUILD_SEMANTIC_SURROGATES="${BUILD_SEMANTIC_SURROGATES:-1}"
 SURROGATE_ARTIFACT="${SURROGATE_ARTIFACT:-}"
 RESUME_STAGE1_STATE="${RESUME_STAGE1_STATE:-}"
@@ -115,8 +115,13 @@ python -u scripts/mcf_compositional_marker_write_read.py \
   --forget-margin 1 \
   --stage2-steps 1000 \
   --stage2-lr 0.02 \
-  --stage2-negative-weight 0.01 \
+  --stage2-negative-weight 0.1 \
   --stage2-base-positive-weight 1 \
+  --stage2-reference-nll-weight 10 \
+  --stage2-reference-nll-tolerance 0.05 \
+  --stage2-protection-rank 512 \
+  --stage2-protection-states 1024 \
+  --stage2-corpus-protection-prompts 256 \
   --stage2-check-every 50 \
   --dtype bf16 \
   --device-map single \
@@ -159,6 +164,23 @@ python -u scripts/mcf_zero_unlearn_official_eval.py \
   --device-map auto \
   --quiet
 
+# Post-hoc attribution only. These diagnostics run after the checkpoint and
+# official evaluation are frozen, and are never used for model selection.
+python -u scripts/diagnose_mcf_compositional_component_ppl.py \
+  --model-dir "${OUTPUT_DIR}/method/checkpoint" \
+  --state "${OUTPUT_DIR}/method/compositional_marker_state.pt" \
+  --wikidata-dir "${WIKIDATA_DIR}" \
+  --out "${OUTPUT_DIR}/comparison/component_ppl_attribution.json" \
+  --dtype bf16 \
+  --device-map single
+
+if [[ -n "${SURROGATE_ARTIFACT}" && -e "${SURROGATE_ARTIFACT}" ]]; then
+  python -u scripts/diagnose_mcf_compositional_gen_failures.py \
+    --official-eval "${OUTPUT_DIR}/official_eval.json" \
+    --surrogate-artifact "${SURROGATE_ARTIFACT}" \
+    --out "${OUTPUT_DIR}/comparison/gen_failure_attribution.json"
+fi
+
 python -u scripts/report_mcf_compositional_marker_result.py \
   --base "${OUTPUT_DIR}/base_official_eval.json" \
   --edited "${OUTPUT_DIR}/official_eval.json" \
@@ -172,3 +194,4 @@ echo "reload audit:   ${OUTPUT_DIR}/method/post_reload_acceptance.json"
 echo "official eval:  ${OUTPUT_DIR}/official_eval.json"
 echo "base eval:      ${OUTPUT_DIR}/base_official_eval.json"
 echo "comparison:     ${OUTPUT_DIR}/comparison/comparison.md"
+echo "component PPL:  ${OUTPUT_DIR}/comparison/component_ppl_attribution.json"

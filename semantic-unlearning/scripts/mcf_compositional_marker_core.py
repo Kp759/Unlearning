@@ -27,7 +27,7 @@ import torch
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v3"
+PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v4"
 
 
 def normalize_text(value: Any) -> str:

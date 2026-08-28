@@ -177,7 +177,30 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     p.add_argument("--stage2-beta-l2", type=float, default=1e-6)
+    p.add_argument(
+        "--stage2-reference-nll-weight",
+        type=float,
+        default=10.0,
+        help=(
+            "Penalize absolute target_new NLL drift relative to the writer-only "
+            "model. This protects the reference answer without incorrectly "
+            "declaring its same-prompt predictor state out of scope."
+        ),
+    )
+    p.add_argument("--stage2-reference-nll-tolerance", type=float, default=0.05)
     p.add_argument("--stage2-check-every", type=int, default=25)
+    p.add_argument(
+        "--stage2-protection-rank",
+        type=int,
+        default=512,
+        help=(
+            "Project every learned output row away from the leading span of "
+            "writer-off positives, hard negatives, and disjoint corpus states; "
+            "0 disables the hard projection."
+        ),
+    )
+    p.add_argument("--stage2-protection-states", type=int, default=1024)
+    p.add_argument("--stage2-corpus-protection-prompts", type=int, default=256)
     p.add_argument(
         "--stage2-scales", default="1,1.125,1.25,1.5,2,3,4,6,8",
         help="Post-solve scales; the smallest satisfying every training-safe context wins.",
@@ -209,6 +232,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         a.kl_topk,
         a.stage2_steps,
         a.stage2_batch_size,
+        a.stage2_protection_states,
         a.cache_batch_size,
     )
     if any(int(x) <= 0 for x in positive_ints):
@@ -219,6 +243,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("--writer-steps 0 requires --resume-stage1-state")
     if int(a.synthetic_paraphrases_per_record) < 0 or int(a.reader_refine_steps) < 0:
         p.error("synthetic paraphrase and reader-refinement counts must be non-negative")
+    if int(a.stage2_protection_rank) < 0 or int(a.stage2_corpus_protection_prompts) < 0:
+        p.error("Stage-2 protection rank/counts must be non-negative")
     if int(a.reach_probes) < 4 or int(a.reach_probes) % 2:
         p.error("--reach-probes must be an even integer >= 4")
     if int(a.frequency_doc_start) < 20:
@@ -242,6 +268,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         float(a.stage2_negative_weight),
         float(a.stage2_base_positive_weight),
         float(a.stage2_beta_l2),
+        float(a.stage2_reference_nll_weight),
+        float(a.stage2_reference_nll_tolerance),
     ) < 0:
         p.error("Stage-2 loss weights must be non-negative")
     return a
@@ -581,14 +609,14 @@ def build_prompt_instances(
     return instances, owners, direct_flags
 
 
-def differentiable_instance_margins(
+def differentiable_instance_nlls(
     model: torch.nn.Module,
     tok: Any,
     instances: Sequence[mcf_repair.MCFPromptInstance],
     device: torch.device,
     *,
     llama_like: bool,
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     encoded, target_ids, prefix_lens = mcf_repair.official_batch_components(
         tok, instances, device, llama_like
     )
@@ -603,7 +631,48 @@ def differentiable_instance_margins(
         ]
         losses.append(torch.stack(pieces).mean())
     paired = torch.stack(losses).reshape(len(instances), 2)
-    return paired[:, 1] - paired[:, 0]  # NLL(sensitive true) - NLL(reference new)
+    return paired[:, 0], paired[:, 1]  # reference new, sensitive true
+
+
+def differentiable_instance_margins(
+    model: torch.nn.Module,
+    tok: Any,
+    instances: Sequence[mcf_repair.MCFPromptInstance],
+    device: torch.device,
+    *,
+    llama_like: bool,
+) -> torch.Tensor:
+    target_new_nll, target_true_nll = differentiable_instance_nlls(
+        model, tok, instances, device, llama_like=llama_like
+    )
+    return target_true_nll - target_new_nll
+
+
+@torch.no_grad()
+def evaluate_instance_nlls(
+    model: torch.nn.Module,
+    tok: Any,
+    instances: Sequence[mcf_repair.MCFPromptInstance],
+    device: torch.device,
+    *,
+    llama_like: bool,
+    batch_size: int,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    target_new: List[torch.Tensor] = []
+    target_true: List[torch.Tensor] = []
+    for start in range(0, len(instances), int(batch_size)):
+        new_batch, true_batch = mcf_repair.official_prompt_instance_nll_tensors(
+            model,
+            tok,
+            instances[start : start + int(batch_size)],
+            device,
+            llama_like,
+        )
+        target_new.append(new_batch.detach().cpu())
+        target_true.append(true_batch.detach().cpu())
+    if not target_new:
+        return torch.empty(0), torch.empty(0)
+    return torch.cat(target_new), torch.cat(target_true)
 
 
 @torch.no_grad()
@@ -626,19 +695,30 @@ def evaluate_instance_margins(
     every non-gradient decision sees the same token positions, native-dtype
     ``log_softmax``, and float32 sequential accumulation as the evaluator.
     """
-    values: List[torch.Tensor] = []
-    for start in range(0, len(instances), int(batch_size)):
-        target_new_nll, target_true_nll = (
-            mcf_repair.official_prompt_instance_nll_tensors(
-                model,
-                tok,
-                instances[start : start + int(batch_size)],
-                device,
-                llama_like,
-            )
-        )
-        values.append((target_true_nll - target_new_nll).detach().cpu())
-    return torch.cat(values) if values else torch.empty(0)
+    target_new_nll, target_true_nll = evaluate_instance_nlls(
+        model,
+        tok,
+        instances,
+        device,
+        llama_like=llama_like,
+        batch_size=batch_size,
+    )
+    return target_true_nll - target_new_nll
+
+
+def absolute_nll_drift_penalty(
+    current_nll: torch.Tensor,
+    baseline_nll: torch.Tensor,
+    tolerance: float,
+) -> torch.Tensor:
+    """Squared penalty outside a symmetric reference-answer NLL band."""
+    if current_nll.shape != baseline_nll.shape:
+        raise ValueError("current and baseline NLL tensors must have equal shape")
+    if not math.isfinite(float(tolerance)) or float(tolerance) < 0.0:
+        raise ValueError("NLL drift tolerance must be finite and non-negative")
+    return F.relu(
+        (current_nll - baseline_nll).abs() - float(tolerance)
+    ).square().mean()
 
 
 def distribution(values: Sequence[float]) -> Dict[str, float]:
@@ -895,6 +975,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         resume_protocol = str(resumed_stage1.get("protocol") or "")
         compatible_protocols = {
             "mcf_context_composed_sparse_embedding_writer_v2",
+            "mcf_context_composed_sparse_embedding_writer_v3",
             PROTOCOL,
         }
         if resume_protocol not in compatible_protocols:
@@ -1275,9 +1356,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     print("\nReader: distributional q over all training-safe contexts")
     positive_state_groups: Dict[int, List[torch.Tensor]] = {}
     negative_state_groups: Dict[int, List[torch.Tensor]] = {}
-    reference_state_groups: Dict[int, List[torch.Tensor]] = {}
     answer_rows_by_record: List[List[int]] = []
-    reference_rows_by_record: List[List[int]] = []
     for position, record in enumerate(records):
         context = context_sets[int(record["case_id"])]
         positives = list(context["positive_prompts"])
@@ -1300,19 +1379,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         if answer_rows != negative_answer_rows:
             raise AssertionError("positive/negative answer tokenization diverged")
-        reference_groups, reference_rows = teacher_forced_state_groups(
-            model,
-            tok,
-            positives,
-            str(record["reference"]),
-            device,
-            batch_size=int(a.cache_batch_size),
-        )
         positive_state_groups[position] = positive_groups
         negative_state_groups[position] = negative_groups
-        reference_state_groups[position] = reference_groups
         answer_rows_by_record.append(answer_rows)
-        reference_rows_by_record.append(reference_rows)
 
     # Cache the exact same sensitive-answer states with the sparse embedding
     # writer removed. Stage 2 penalizes output-row activation on these states,
@@ -1320,6 +1389,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     # of learning a stand-alone output-head edit from pre-existing geometry.
     embedding_hook.remove()
     base_positive_state_groups: Dict[int, List[torch.Tensor]] = {}
+    corpus_protection_rows = torch.empty((0, hidden_size), dtype=torch.float32)
     try:
         for position, record in enumerate(records):
             context = context_sets[int(record["case_id"])]
@@ -1334,6 +1404,17 @@ def main(argv: Sequence[str] | None = None) -> None:
             if base_answer_rows != answer_rows_by_record[position]:
                 raise AssertionError("base/edited answer tokenization diverged")
             base_positive_state_groups[position] = base_groups
+        corpus_prompts = list(
+            corpus_prefixes[: int(a.stage2_corpus_protection_prompts)]
+        )
+        if corpus_prompts:
+            corpus_protection_rows = batched_last_hidden_only(
+                model,
+                tok,
+                corpus_prompts,
+                device,
+                batch_size=int(a.cache_batch_size),
+            )
     finally:
         embedding_hook = directional.register_input_embedding_delta_hook(
             input_layer, selected_rows, delta_module.effective_delta
@@ -1343,12 +1424,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     reader_reports: List[Dict[str, Any]] = []
     for position, record in enumerate(records):
         own_positive = torch.cat(positive_state_groups[position], dim=0)
-        # Protect both compositional controls and the reference-answer path.
-        # The Stage-2 row update then changes sensitive-answer NLL without
-        # winning merely by damaging the counterfactual reference NLL.
+        # The same-prompt reference sequence is deliberately not a hidden-state
+        # negative. Its first predictor is exactly the positive predictor, so
+        # including it makes selectivity impossible by construction. Reference
+        # answer preservation is enforced directly as an NLL constraint in
+        # Stage 2 instead.
         own_negative_parts = [
             *negative_state_groups[position],
-            *reference_state_groups[position],
+            *base_positive_state_groups[position],
         ]
         own_answer_rows = set(answer_rows_by_record[position])
         own_subject_rows = set(selected_by_case[int(record["case_id"])])
@@ -1359,15 +1442,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             answer_collision = bool(
                 own_answer_rows & set(answer_rows_by_record[other_position])
             )
-            reference_collision = bool(
-                own_answer_rows & set(reference_rows_by_record[other_position])
-            )
             subject_collision = bool(
                 own_subject_rows & set(selected_by_case[int(other["case_id"])])
             )
-            if answer_collision or reference_collision or subject_collision:
+            if answer_collision or subject_collision:
                 cross_candidates.extend(positive_state_groups[other_position])
-                cross_candidates.extend(reference_state_groups[other_position])
         if cross_candidates:
             flat_cross = torch.cat(cross_candidates, dim=0)
             cap = min(int(a.reader_cross_positive_cap), flat_cross.shape[0])
@@ -1452,7 +1531,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     positive_instances, _instance_owners, direct_flags = build_prompt_instances(
         records, context_sets
     )
-    pre_margins = evaluate_instance_margins(
+    pre_target_new_nll, pre_target_true_nll = evaluate_instance_nlls(
         model,
         tok,
         positive_instances,
@@ -1460,6 +1539,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         llama_like=llama_like,
         batch_size=int(a.stage2_batch_size),
     )
+    pre_margins = pre_target_true_nll - pre_target_new_nll
     pre_margin_report = distribution([float(x) for x in pre_margins])
     selected_output_rows = sorted(
         {int(token_id) for rows in answer_rows_by_record for token_id in rows}
@@ -1478,35 +1558,22 @@ def main(argv: Sequence[str] | None = None) -> None:
             device=output_layer.weight.device,
         )
     )
-
-    def current_output_delta() -> torch.Tensor:
-        return output_delta_parameter
-
-    output_hook = canonical.register_output_delta_hook(
-        output_layer, selected_output_rows, current_output_delta
-    )
-    stage2_optimizer = torch.optim.AdamW(
-        [output_delta_parameter], lr=float(a.stage2_lr), weight_decay=0.0
-    )
-    instance_sampler = canonical.IndexSampler(
-        len(positive_instances), int(a.stage2_batch_size), int(a.seed) + 811
-    )
     protection_rows = torch.cat(
         [
-            torch.cat(
-                [
-                    *negative_state_groups[i],
-                    *reference_state_groups[i],
-                ],
-                dim=0,
-            )
+            torch.cat(negative_state_groups[i], dim=0)
             for i in range(len(records))
         ],
         dim=0,
     )
-    if protection_rows.shape[0] > 1024:
+    if corpus_protection_rows.numel():
+        protection_rows = torch.cat(
+            [protection_rows, corpus_protection_rows], dim=0
+        )
+    if protection_rows.shape[0] > int(a.stage2_protection_states):
         indices = torch.linspace(
-            0, protection_rows.shape[0] - 1, steps=1024
+            0,
+            protection_rows.shape[0] - 1,
+            steps=int(a.stage2_protection_states),
         ).round().long()
         protection_rows = protection_rows.index_select(0, indices)
     protection_rows = protection_rows.to(output_layer.weight.device)
@@ -1517,25 +1584,67 @@ def main(argv: Sequence[str] | None = None) -> None:
         ],
         dim=0,
     ).to(output_layer.weight.device)
+    projection_source = torch.cat(
+        [base_positive_rows, protection_rows], dim=0
+    )
+    if int(a.stage2_protection_rank) > 0:
+        protection_basis = compositional.orthonormal_row_basis(
+            projection_source,
+            max_rank=min(
+                int(a.stage2_protection_rank),
+                hidden_size - 1,
+            ),
+        )
+    else:
+        protection_basis = projection_source.new_empty((0, hidden_size))
+    print(
+        f"  protected output subspace: rank {protection_basis.shape[0]} "
+        f"from {projection_source.shape[0]} training-safe states"
+    )
+
+    def current_output_delta() -> torch.Tensor:
+        return compositional.project_out(output_delta_parameter, protection_basis)
+
+    output_hook = canonical.register_output_delta_hook(
+        output_layer, selected_output_rows, current_output_delta
+    )
+    stage2_optimizer = torch.optim.AdamW(
+        [output_delta_parameter], lr=float(a.stage2_lr), weight_decay=0.0
+    )
+    instance_sampler = canonical.IndexSampler(
+        len(positive_instances), int(a.stage2_batch_size), int(a.seed) + 811
+    )
     stage2_log: List[Dict[str, Any]] = []
     for step in range(1, int(a.stage2_steps) + 1):
         picked = instance_sampler.next()
         batch = [positive_instances[i] for i in picked]
         stage2_optimizer.zero_grad(set_to_none=True)
-        margins = differentiable_instance_margins(
+        target_new_nll, target_true_nll = differentiable_instance_nlls(
             model, tok, batch, device, llama_like=llama_like
         )
+        margins = target_true_nll - target_new_nll
         hinge = F.relu(float(a.forget_margin) - margins).mean()
+        baseline_target_new = pre_target_new_nll[picked].to(
+            device=target_new_nll.device, dtype=target_new_nll.dtype
+        )
+        reference_nll_drift = absolute_nll_drift_penalty(
+            target_new_nll,
+            baseline_target_new,
+            float(a.stage2_reference_nll_tolerance),
+        )
         delta_rows = current_output_delta()
         protected_shift = protection_rows.float() @ delta_rows.float().T
         locality = protected_shift.square().sum(dim=1).mean()
         base_positive_shift = base_positive_rows.float() @ delta_rows.float().T
         base_positive_locality = base_positive_shift.square().sum(dim=1).mean()
-        output_l2 = output_delta_parameter.square().mean()
+        # Regularize the effective row update. Components of the raw parameter
+        # inside the protected span are projected out and have no causal effect.
+        output_l2 = delta_rows.square().mean()
         loss = (
             float(a.stage2_margin_weight) * hinge
             + float(a.stage2_negative_weight) * locality
             + float(a.stage2_base_positive_weight) * base_positive_locality
+            + float(a.stage2_reference_nll_weight) * reference_nll_drift
             + float(a.stage2_beta_l2) * output_l2
         )
         if not torch.isfinite(loss):
@@ -1544,13 +1653,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         stage2_optimizer.step()
 
         if step == 1 or step % int(a.stage2_check_every) == 0 or step == int(a.stage2_steps):
-            full = evaluate_instance_margins(
+            full_target_new_nll, full_target_true_nll = evaluate_instance_nlls(
                 model,
                 tok,
                 positive_instances,
                 device,
                 llama_like=llama_like,
                 batch_size=int(a.stage2_batch_size),
+            )
+            full = full_target_true_nll - full_target_new_nll
+            full_reference_nll_abs_drift_max = float(
+                (full_target_new_nll - pre_target_new_nll).abs().max()
             )
             failures = int((full < float(a.forget_margin) - 1e-6).sum())
             direct_failures = sum(
@@ -1563,17 +1676,26 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "batch_hinge": float(hinge.detach()),
                 "locality": float(locality.detach()),
                 "base_positive_locality": float(base_positive_locality.detach()),
+                "reference_nll_drift": float(
+                    reference_nll_drift.detach()
+                ),
                 "output_delta_l2": float(output_l2.detach()),
                 "positive_failures": failures,
                 "direct_failures": direct_failures,
                 "minimum_margin": float(full.min()),
+                "reference_nll_abs_drift_max": full_reference_nll_abs_drift_max,
             }
             stage2_log.append(row)
             print(
                 f"  step {step:>4}: direct fail {direct_failures}, all-positive fail "
-                f"{failures}, min margin {row['minimum_margin']:+.4f}"
+                f"{failures}, min margin {row['minimum_margin']:+.4f}, "
+                f"max |ref dNLL| {full_reference_nll_abs_drift_max:.4f}"
             )
-            if failures == 0:
+            if (
+                failures == 0
+                and full_reference_nll_abs_drift_max
+                <= float(a.stage2_reference_nll_tolerance) + 1e-6
+            ):
                 break
     del stage2_optimizer
 
@@ -1582,13 +1704,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     for scale in canonical.parse_scales(a.stage2_scales):
         with torch.no_grad():
             output_delta_parameter.copy_(solved_output_delta * float(scale))
-        margins = evaluate_instance_margins(
+        scaled_target_new_nll, scaled_target_true_nll = evaluate_instance_nlls(
             model,
             tok,
             positive_instances,
             device,
             llama_like=llama_like,
             batch_size=int(a.stage2_batch_size),
+        )
+        margins = scaled_target_true_nll - scaled_target_new_nll
+        reference_nll_abs_drift_max = float(
+            (scaled_target_new_nll - pre_target_new_nll).abs().max()
         )
         direct_failures = sum(
             int(direct_flags[i] and float(margins[i]) < float(a.forget_margin) - 1e-6)
@@ -1601,9 +1727,16 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "direct_failures": direct_failures,
                 "positive_failures": all_failures,
                 "minimum_margin": float(margins.min()),
+                "reference_nll_abs_drift_max": reference_nll_abs_drift_max,
             }
         )
-    feasible = [row for row in scale_reports if row["positive_failures"] == 0]
+    feasible = [
+        row
+        for row in scale_reports
+        if row["positive_failures"] == 0
+        and float(row["reference_nll_abs_drift_max"])
+        <= float(a.stage2_reference_nll_tolerance) + 1e-6
+    ]
     if feasible:
         selected_scale = min(float(row["scale"]) for row in feasible)
     else:
@@ -1612,6 +1745,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             key=lambda row: (
                 int(row["direct_failures"]),
                 int(row["positive_failures"]),
+                max(
+                    0.0,
+                    float(row["reference_nll_abs_drift_max"])
+                    - float(a.stage2_reference_nll_tolerance),
+                ),
                 -float(row["minimum_margin"]),
             ),
         )
@@ -1659,13 +1797,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                     dtype=base_selected_output_rows.dtype,
                 ),
             )
-        margins = evaluate_instance_margins(
+        materialized_target_new_nll, materialized_target_true_nll = evaluate_instance_nlls(
             model,
             tok,
             positive_instances,
             device,
             llama_like=llama_like,
             batch_size=int(a.stage2_batch_size),
+        )
+        margins = materialized_target_true_nll - materialized_target_new_nll
+        reference_nll_abs_drift_max = float(
+            (materialized_target_new_nll - pre_target_new_nll).abs().max()
         )
         direct_count = sum(
             int(direct_flags[i] and float(margins[i]) < float(a.forget_margin) - 1e-6)
@@ -1678,6 +1820,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "direct_failures": direct_count,
                 "positive_failures": all_count,
                 "minimum_margin": float(margins.min()),
+                "reference_nll_abs_drift_max": reference_nll_abs_drift_max,
             }
         )
         if abs(float(scale) - 1.0) < 1e-12:
@@ -1686,14 +1829,27 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         materialized_margins = margins
         selected_materialization_scale = float(scale)
-        if all_count == 0:
+        if (
+            all_count == 0
+            and reference_nll_abs_drift_max
+            <= float(a.stage2_reference_nll_tolerance) + 1e-6
+        ):
             break
-    if materialization_reports[-1]["positive_failures"] != 0:
+    if not (
+        materialization_reports[-1]["positive_failures"] == 0
+        and float(materialization_reports[-1]["reference_nll_abs_drift_max"])
+        <= float(a.stage2_reference_nll_tolerance) + 1e-6
+    ):
         best_materialized = min(
             materialization_reports,
             key=lambda row: (
                 int(row["direct_failures"]),
                 int(row["positive_failures"]),
+                max(
+                    0.0,
+                    float(row["reference_nll_abs_drift_max"])
+                    - float(a.stage2_reference_nll_tolerance),
+                ),
                 -float(row["minimum_margin"]),
             ),
         )
@@ -1709,7 +1865,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         dtype=base_selected_output_rows.dtype,
                     ),
                 )
-            materialized_margins = evaluate_instance_margins(
+            materialized_target_new_nll, materialized_target_true_nll = evaluate_instance_nlls(
                 model,
                 tok,
                 positive_instances,
@@ -1717,7 +1873,16 @@ def main(argv: Sequence[str] | None = None) -> None:
                 llama_like=llama_like,
                 batch_size=int(a.stage2_batch_size),
             )
+            materialized_margins = (
+                materialized_target_true_nll - materialized_target_new_nll
+            )
             selected_materialization_scale = best_scale
+    final_reference_nll_drift = (
+        materialized_target_new_nll - pre_target_new_nll
+    )
+    final_reference_nll_abs_drift_max = float(
+        final_reference_nll_drift.abs().max()
+    )
 
     # Causal writer ablation: leave the learned output rows in place but
     # restore the original subject input rows. If this output-only model still
@@ -1777,6 +1942,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     }
     gagd.write_json(out_dir / "causal_writer_ablation.json", causal_writer_ablation)
     intended_output_delta = final_output_delta * selected_materialization_scale
+    actual_embedding_delta = (
+        edited_selected_input_rows.detach().float().cpu()
+        - base_selected_input_rows.detach().float().cpu()
+    )
     actual_output_delta = (
         output_layer.weight.index_select(0, output_row_index).detach().float().cpu()
         - base_selected_output_rows.detach().float().cpu()
@@ -1791,7 +1960,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     # Every jointly learned sparse row has the exact decomposition
     # Delta W_y = -beta_y q_y. Audit the resulting q_y readers on all
     # training-safe states where token y is sensitive, versus the protected
-    # compositional/reference pool used by Stage 2.
+    # compositional, writer-off, and disjoint-corpus pool used by Stage 2.
     output_reader_rows: List[Dict[str, Any]] = []
     output_slot = {token_id: slot for slot, token_id in enumerate(selected_output_rows)}
     protected_cpu = torch.cat(
@@ -1805,14 +1974,22 @@ def main(argv: Sequence[str] | None = None) -> None:
         slot = output_slot[token_id]
         beta = float(output_row_betas[slot])
         positive_parts: List[torch.Tensor] = []
+        base_positive_parts: List[torch.Tensor] = []
         for position in range(len(records)):
             offsets = [
                 offset
                 for offset, owned_token in enumerate(answer_rows_by_record[position])
                 if int(owned_token) == int(token_id)
             ]
-            for group in positive_state_groups[position]:
+            edited_groups = positive_state_groups[position]
+            writer_off_groups = base_positive_state_groups[position]
+            if len(edited_groups) != len(writer_off_groups):
+                raise AssertionError("edited/writer-off positive groups diverged")
+            for group, base_group in zip(edited_groups, writer_off_groups):
                 positive_parts.extend(group[offset].unsqueeze(0) for offset in offsets)
+                base_positive_parts.extend(
+                    base_group[offset].unsqueeze(0) for offset in offsets
+                )
         if not positive_parts or beta <= 1e-12:
             output_reader_rows.append(
                 {
@@ -1824,6 +2001,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             continue
         positive_states = torch.cat(positive_parts, dim=0)
+        owned_base_states = torch.cat(base_positive_parts, dim=0)
+        writer_displacement = positive_states - owned_base_states
+        displacement_response = writer_displacement @ output_row_readers[slot]
+        positive_response = positive_states @ output_row_readers[slot]
+        writer_response_fraction = (
+            displacement_response.abs()
+            / positive_response.abs().clamp_min(1e-9)
+        )
         metrics = compositional.reader_metrics(
             output_row_readers[slot], positive_states, protected_cpu
         )
@@ -1839,6 +2024,15 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "active": True,
                 "passed": passed,
                 **metrics,
+                "writer_displacement_response": distribution(
+                    [float(x) for x in displacement_response]
+                ),
+                "writer_displacement_positive_fraction": float(
+                    (displacement_response > 0).float().mean()
+                ),
+                "writer_response_fraction": distribution(
+                    [float(x) for x in writer_response_fraction]
+                ),
             }
         )
     active_reader_rows = [row for row in output_reader_rows if row["active"]]
@@ -1893,12 +2087,23 @@ def main(argv: Sequence[str] | None = None) -> None:
             "case_ids": [int(record["case_id"]) for record in records],
             "selected_embedding_rows": selected_rows,
             "embedding_delta": trained_embedding_delta,
+            "actual_embedding_delta": actual_embedding_delta,
+            "base_selected_embedding_rows": (
+                base_selected_input_rows.detach().cpu()
+            ),
+            "edited_selected_embedding_rows": (
+                edited_selected_input_rows.detach().cpu()
+            ),
             "markers": marker_bank,
             "readers": output_row_readers,
             "betas": output_row_betas,
             "diagnostic_record_readers": reader_bank,
             "selected_output_rows": selected_output_rows,
             "output_delta": actual_output_delta,
+            "base_selected_output_rows": base_selected_output_rows.detach().cpu(),
+            "edited_selected_output_rows": (
+                output_layer.weight.index_select(0, output_row_index).detach().cpu()
+            ),
             "context_manifest_sha256": sha256_file(
                 out_dir / "context_manifest.json"
             ),
@@ -1961,6 +2166,20 @@ def main(argv: Sequence[str] | None = None) -> None:
             "base_positive_writer_dependence_weight": float(
                 a.stage2_base_positive_weight
             ),
+            "reference_nll_weight": float(a.stage2_reference_nll_weight),
+            "reference_nll_tolerance": float(
+                a.stage2_reference_nll_tolerance
+            ),
+            "reference_nll_drift": distribution(
+                [float(x) for x in final_reference_nll_drift]
+            ),
+            "protection_subspace": {
+                "rank": int(protection_basis.shape[0]),
+                "source_states": int(projection_source.shape[0]),
+                "hard_negative_and_corpus_states": int(protection_rows.shape[0]),
+                "writer_off_positive_states": int(base_positive_rows.shape[0]),
+                "corpus_states": int(corpus_protection_rows.shape[0]),
+            },
             "selected_scale": selected_scale,
             "selected_materialization_scale": selected_materialization_scale,
             "selected_output_rows": selected_output_rows,
@@ -1980,12 +2199,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         "acceptance": {
             "direct_eff_training_proxy_zero": direct_failures == 0,
             "all_training_safe_positive_failures_zero": positive_failures == 0,
+            "reference_nll_abs_drift_within_tolerance": bool(
+                final_reference_nll_abs_drift_max
+                <= float(a.stage2_reference_nll_tolerance) + 1e-6
+            ),
             "record_reader_diagnostic_passed": bool(gate_report["passed"]),
             "output_reader_gate_passed": bool(output_reader_gate["passed"]),
             "checkpoint_saved": bool(a.save_checkpoint),
             "passed": bool(
                 direct_failures == 0
                 and positive_failures == 0
+                and final_reference_nll_abs_drift_max
+                <= float(a.stage2_reference_nll_tolerance) + 1e-6
                 and (output_reader_gate["passed"] or a.gate_policy == "report")
             ),
         },
@@ -2001,6 +2226,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"  direct training failures             : {direct_failures}")
     print(f"  all training-safe positive failures  : {positive_failures}")
     print(f"  minimum training margin              : {float(materialized_margins.min()):+.4f}")
+    print(
+        "  maximum reference NLL regression     : "
+        f"{final_reference_nll_abs_drift_max:.4f}"
+    )
     print(
         "  output-only direct/positive failures : "
         f"{output_only_direct_failures}/{output_only_positive_failures}"

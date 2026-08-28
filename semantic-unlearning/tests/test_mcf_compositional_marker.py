@@ -16,6 +16,8 @@ if str(SCRIPTS) not in sys.path:
 
 import mcf_compositional_marker_core as core
 import mcf_compositional_marker_write_read as method
+import diagnose_mcf_compositional_component_ppl as component_ppl
+import diagnose_mcf_compositional_gen_failures as gen_diagnostic
 
 
 class WordTokenizer:
@@ -348,6 +350,9 @@ def test_method_defaults_to_standard_weights_and_strict_reader_gate():
     assert args.cos_marker_reader_min == 0.0
     assert args.stage2_negative_weight == 1e-2
     assert args.stage2_base_positive_weight == 1.0
+    assert args.stage2_reference_nll_weight == 10.0
+    assert args.stage2_reference_nll_tolerance == 0.05
+    assert args.stage2_protection_rank == 512
     assert not hasattr(args, "router")
     assert not hasattr(args, "logit_bias")
 
@@ -414,6 +419,159 @@ def test_multi_context_reachability_moves_only_prompts_containing_selected_row()
 
     assert float(positive.norm()) > 0
     assert torch.equal(negative, torch.zeros_like(negative))
+
+
+def test_same_prompt_reference_first_predictor_is_not_a_valid_negative_state():
+    torch.manual_seed(4)
+    model = TinyContextLM()
+    tok = CharacterBatchTokenizer()
+
+    sensitive, _ = method.teacher_forced_state_groups(
+        model,
+        tok,
+        ["ab"],
+        "x",
+        torch.device("cpu"),
+        batch_size=1,
+    )
+    reference, _ = method.teacher_forced_state_groups(
+        model,
+        tok,
+        ["ab"],
+        "y",
+        torch.device("cpu"),
+        batch_size=1,
+    )
+
+    # Before either answer's first token, the model has seen exactly the same
+    # prompt. Labeling one state positive and the other negative makes any
+    # linear-reader selectivity threshold impossible.
+    assert torch.equal(sensitive[0][0], reference[0][0])
+
+
+def test_differentiable_nll_pair_matches_official_compatible_evaluator():
+    torch.manual_seed(5)
+    model = TinyContextLM()
+    tok = CharacterBatchTokenizer()
+    instance = method.mcf_repair.MCFPromptInstance(
+        record_index=0,
+        sampled_position=0,
+        prompt_type="rewrite",
+        prompt_index=0,
+        prompt="ab",
+        target_new="x",
+        target_true="y",
+    )
+
+    differentiable = method.differentiable_instance_nlls(
+        model,
+        tok,
+        [instance],
+        torch.device("cpu"),
+        llama_like=False,
+    )
+    exact = method.evaluate_instance_nlls(
+        model,
+        tok,
+        [instance],
+        torch.device("cpu"),
+        llama_like=False,
+        batch_size=1,
+    )
+
+    assert torch.allclose(differentiable[0].detach(), exact[0], atol=1e-6)
+    assert torch.allclose(differentiable[1].detach(), exact[1], atol=1e-6)
+    (differentiable[0].sum() + differentiable[1].sum()).backward()
+    assert model.output_embeddings.weight.grad is not None
+
+
+def test_reference_nll_constraint_is_symmetric_not_one_sided():
+    baseline = torch.tensor([2.0, 2.0, 2.0])
+    increased = torch.tensor([2.0, 2.2, 2.0], requires_grad=True)
+    decreased = torch.tensor([2.0, 1.8, 2.0], requires_grad=True)
+
+    increase_loss = method.absolute_nll_drift_penalty(increased, baseline, 0.05)
+    decrease_loss = method.absolute_nll_drift_penalty(decreased, baseline, 0.05)
+
+    assert torch.allclose(increase_loss, decrease_loss)
+    assert float(increase_loss) > 0.0
+    increase_loss.backward()
+    decrease_loss.backward()
+    assert float(increased.grad[1]) > 0.0
+    assert float(decreased.grad[1]) < 0.0
+
+
+def test_protected_subspace_projection_removes_only_registered_span():
+    protected = torch.tensor([[1.0, 0.0, 0.0], [0.0, 2.0, 0.0]])
+    basis = core.orthonormal_row_basis(protected, max_rank=2)
+    raw = torch.tensor([[3.0, 4.0, 5.0], [-2.0, 7.0, -11.0]])
+
+    projected = core.project_out(raw, basis)
+
+    assert torch.allclose(projected @ basis.T, torch.zeros(2, 2), atol=1e-6)
+    assert torch.allclose(projected[:, 2], raw[:, 2], atol=1e-6)
+
+
+def test_component_ppl_row_replacement_toggles_only_selected_rows():
+    layer = torch.nn.Embedding(5, 3)
+    original = layer.weight.detach().clone()
+    replacement = torch.tensor([[10.0, 11.0, 12.0], [20.0, 21.0, 22.0]])
+
+    component_ppl.replace_selected_rows(layer, [1, 4], replacement)
+
+    assert torch.equal(layer.weight[1], replacement[0])
+    assert torch.equal(layer.weight[4], replacement[1])
+    assert torch.equal(layer.weight[0], original[0])
+    assert torch.equal(layer.weight[2], original[2])
+    assert torch.equal(layer.weight[3], original[3])
+
+
+def test_gen_diagnostic_separates_direct_only_surrogate_coverage():
+    official = {
+        "forget_raw": [
+            {
+                "requested_rewrite": {"subject": "Ada"},
+                "post": {
+                    "paraphrase_prompts_probs": [
+                        {"target_true": 1.0, "target_new": 2.0},
+                        {"target_true": 3.0, "target_new": 2.0},
+                    ]
+                },
+            },
+            {
+                "requested_rewrite": {"subject": "Grace"},
+                "post": {
+                    "paraphrase_prompts_probs": [
+                        {"target_true": 4.0, "target_new": 2.0},
+                        {"target_true": 5.0, "target_new": 2.0},
+                    ]
+                },
+            },
+        ]
+    }
+    surrogate = {
+        "records": [
+            {
+                "case_id": 1,
+                "subject": "Ada",
+                "augmentation_status": "direct_only",
+                "surrogate_prompts": [],
+            },
+            {
+                "case_id": 2,
+                "subject": "Grace",
+                "augmentation_status": "robust_prompt_set",
+                "surrogate_prompts": ["Records say Grace worked in"],
+            },
+        ]
+    }
+
+    report = gen_diagnostic.analyze(official, surrogate)
+
+    assert report["official_gen_recomputed"] == 25.0
+    assert report["groups"]["direct_only"]["sensitive_preference_percent"] == 50.0
+    assert report["groups"]["robust_prompt_set"]["sensitive_preference_percent"] == 0.0
+    assert [row["subject"] for row in report["failed_records"]] == ["Ada"]
 
 
 def test_surrogate_loader_accepts_audited_robust_adapter_direct_only_rows(tmp_path):
