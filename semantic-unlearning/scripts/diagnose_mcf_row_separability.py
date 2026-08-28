@@ -100,6 +100,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=4096,
         help="Cap on mined contexts per answer. Must exceed the largest swept size.",
     )
+    p.add_argument(
+        "--layers", default="",
+        help=(
+            "Comma-separated hidden-state indices to profile, or empty for the "
+            "final layer only. THE question for a context-gated writer: at the "
+            "final layer the forget prompt is indistinguishable from its "
+            "neighbors (residual 0.08 vs 0.08, gap -0.003) because the model "
+            "has resolved the answer and discarded which subject asked. "
+            "Earlier the subject tokens still differ. Whether a gate can fire "
+            "on the forget prompt and not on neighbors is exactly this "
+            "measurement, at whatever depth the gate would sit. All layers "
+            "come from one forward, so a sweep costs what one layer costs."
+        ),
+    )
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
     p.add_argument("--device-map", choices=("single", "auto"), default="single")
@@ -108,6 +122,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("forget-num and batch-size must be positive")
     if a.corpus_doc_start < 20:
         p.error("corpus-doc-start must be >= 20 to stay disjoint from official PPL text")
+    a.layers = sorted({int(x) for x in str(a.layers).split(",") if x.strip()})
     a.sweep_sizes = sorted({int(x) for x in str(a.sweep_sizes).split(",") if x.strip()})
     if not a.sweep_sizes or a.sweep_sizes[0] < 2:
         p.error("sweep-sizes must contain integers >= 2")
@@ -191,27 +206,45 @@ def measure(
 
 
 @torch.no_grad()
-def last_token_hidden(model, tok, prompts, device, batch_size: int) -> torch.Tensor:
-    rows: List[torch.Tensor] = []
+def last_token_hidden(
+    model, tok, prompts, device, batch_size: int, layers: Sequence[int],
+) -> Dict[int, torch.Tensor]:
+    """Last-real-token state at each requested layer.
+
+    One forward returns every layer, so sweeping depth costs the same compute
+    as measuring a single layer -- the question is which depth still
+    distinguishes the forget subject from its neighbors, and re-running per
+    layer would multiply the cost for no reason.
+    """
+    rows: Dict[int, List[torch.Tensor]] = {int(l): [] for l in layers}
     old_side = getattr(tok, "padding_side", "right")
     tok.padding_side = "right"
     try:
         for start in range(0, len(prompts), batch_size):
             chunk = [str(x) for x in prompts[start : start + batch_size]]
             enc = tok(chunk, padding=True, return_tensors="pt").to(device)
-            hidden = model(**enc, output_hidden_states=True).hidden_states[-1]
-            for row, length in enumerate(enc["attention_mask"].sum(dim=1).tolist()):
-                rows.append(hidden[row, int(length) - 1, :].detach().float().cpu())
+            states = model(**enc, output_hidden_states=True).hidden_states
+            lengths = enc["attention_mask"].sum(dim=1).tolist()
+            for layer in rows:
+                hidden = states[layer]
+                for row, length in enumerate(lengths):
+                    rows[layer].append(
+                        hidden[row, int(length) - 1, :].detach().float().cpu()
+                    )
     finally:
         tok.padding_side = old_side
-    return torch.stack(rows) if rows else torch.empty((0, 0))
+    return {
+        layer: (torch.stack(v) if v else torch.empty((0, 0)))
+        for layer, v in rows.items()
+    }
 
 
 @torch.no_grad()
 def corpus_answer_contexts(
     model, tok, documents, answer_first_token, device,
     max_tokens: int, per_answer_cap: int, batch_size: int,
-) -> Dict[str, torch.Tensor]:
+    layers: Sequence[int],
+) -> Dict[int, Dict[str, torch.Tensor]]:
     """Hidden states in real text where each answer is already the next token.
 
     These are precisely the contexts the row must keep serving: if the delta
@@ -223,7 +256,9 @@ def corpus_answer_contexts(
     wanted_lookup = torch.zeros(vocab, dtype=torch.bool)
     for token_id in wanted:
         wanted_lookup[int(token_id)] = True
-    collected: Dict[str, List[torch.Tensor]] = defaultdict(list)
+    collected: Dict[int, Dict[str, List[torch.Tensor]]] = {
+        int(l): defaultdict(list) for l in layers
+    }
     remaining = {k: int(per_answer_cap) for k in answer_first_token}
     scanned = 0
     for start in range(0, len(documents), batch_size):
@@ -234,7 +269,7 @@ def corpus_answer_contexts(
             chunk, padding=True, truncation=True,
             max_length=int(max_tokens), return_tensors="pt",
         ).to(device)
-        hidden = model(**enc, output_hidden_states=True).hidden_states[-1]
+        all_states = model(**enc, output_hidden_states=True).hidden_states
         ids, mask = enc["input_ids"], enc["attention_mask"]
         scanned += len(chunk)
         # Vectorized: the per-position form calls .item() on a CUDA tensor for
@@ -257,17 +292,19 @@ def corpus_answer_contexts(
                 keep_cols.append(c)
                 keep_answers.append(answer)
             if keep_rows:
-                gathered = hidden[
-                    torch.tensor(keep_rows, device=hidden.device),
-                    torch.tensor(keep_cols, device=hidden.device),
-                    :,
-                ].detach().float().cpu()
-                for slot, answer in enumerate(keep_answers):
-                    collected[answer].append(gathered[slot])
+                idx_r = torch.tensor(keep_rows, device=all_states[0].device)
+                idx_c = torch.tensor(keep_cols, device=all_states[0].device)
+                for layer in collected:
+                    gathered = all_states[layer][idx_r, idx_c, :].detach().float().cpu()
+                    for slot, answer in enumerate(keep_answers):
+                        collected[layer][answer].append(gathered[slot])
         if scanned % 2000 < batch_size:
             filled = sum(1 for v in remaining.values() if v <= 0)
             print(f"  scanned {scanned} docs; {filled}/{len(remaining)} answers at cap")
-    return {k: torch.stack(v) for k, v in collected.items() if v}
+    return {
+        layer: {k: torch.stack(v) for k, v in per_answer.items() if v}
+        for layer, per_answer in collected.items()
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -289,6 +326,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         tok.pad_token = tok.eos_token
     model.eval()
     device = gagd.first_device(model)
+    n_layers = int(getattr(model.config, "num_hidden_layers", 0)) + 1
+    layers = a.layers or [n_layers - 1]
+    layers = [l if l >= 0 else n_layers + l for l in layers]
+    bad = [l for l in layers if not 0 <= l < n_layers]
+    if bad:
+        raise SystemExit(f"layer indices out of range for a {n_layers}-state model: {bad}")
+    print(f"profiling layers {layers} of {n_layers} hidden states")
 
     # Pool by answer token: one row serves every fact sharing that answer, so
     # the protected population is the union across those records.
@@ -311,7 +355,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"(one shared row each)"
     )
 
-    corpus_states: Dict[str, torch.Tensor] = {}
+    corpus_states: Dict[int, Dict[str, torch.Tensor]] = {}
     if int(a.corpus_docs) > 0:
         documents = gagd.load_wiki_frequency_documents(
             a.wikidata_dir, int(a.corpus_doc_start), int(a.corpus_docs)
@@ -328,48 +372,61 @@ def main(argv: Sequence[str] | None = None) -> None:
             corpus_states = corpus_answer_contexts(
                 model, tok, documents, first_token, device,
                 int(a.corpus_max_tokens), int(a.corpus_contexts_per_answer),
-                int(a.batch_size),
+                int(a.batch_size), layers,
             )
 
     per_answer: List[Dict[str, Any]] = []
-    aggregate: Dict[str, Dict[int, List[float]]] = {
-        s: defaultdict(list) for s in ("oracle", "corpus", "cross")
-    }
-    aggregate_forget: Dict[str, Dict[int, List[float]]] = {
-        s: defaultdict(list) for s in ("oracle", "corpus", "cross")
-    }
+    aggregate: Dict[Any, Dict[int, List[float]]] = defaultdict(lambda: defaultdict(list))
+    aggregate_forget: Dict[Any, Dict[int, List[float]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
 
     for answer, prompts in by_answer.items():
-        forget_states = last_token_hidden(
-            model, tok, prompts["forget"], device, int(a.batch_size)
+        forget_by_layer = last_token_hidden(
+            model, tok, prompts["forget"], device, int(a.batch_size), layers
         )
-        neigh_states = (
-            last_token_hidden(model, tok, prompts["neighborhood"], device, int(a.batch_size))
-            if prompts["neighborhood"] else torch.empty((0, 0))
+        neigh_by_layer = (
+            last_token_hidden(
+                model, tok, prompts["neighborhood"], device, int(a.batch_size), layers
+            )
+            if prompts["neighborhood"] else {l: torch.empty((0, 0)) for l in layers}
         )
-        corpus = corpus_states.get(answer, torch.empty((0, 0)))
+        # Measured independently at each depth: the gate would sit at one
+        # layer, so the question is which depth still separates the forget
+        # subject from its neighbors.
+        for layer in layers:
+            forget_states = forget_by_layer[layer]
+            neigh_states = neigh_by_layer[layer]
+            corpus = corpus_states.get(layer, {}).get(answer, torch.empty((0, 0)))
 
-        entry: Dict[str, Any] = {
-            "answer": answer,
-            "forget_prompts": len(prompts["forget"]),
-            "neighborhood_prompts": int(neigh_states.shape[0]) if neigh_states.numel() else 0,
-            "corpus_contexts": int(corpus.shape[0]) if corpus.numel() else 0,
-        }
-        sources = {
-            "oracle": (neigh_states, None),
-            "corpus": (corpus, None),
-            "cross": (corpus, neigh_states if neigh_states.numel() else None),
-        }
-        for name, (protect, test) in sources.items():
-            if protect.numel() == 0 or (name == "cross" and test is None):
-                continue
-            rows = measure(forget_states, protect, test, a.sweep_sizes, generator)
-            if rows:
-                entry[name] = rows
-                for row in rows:
-                    aggregate[name][row["protection_size"]].append(row["heldout_residual"])
-                    aggregate_forget[name][row["protection_size"]].append(row["forget_residual"])
-        per_answer.append(entry)
+            entry: Dict[str, Any] = {
+                "answer": answer,
+                "layer": layer,
+                "forget_prompts": len(prompts["forget"]),
+                "neighborhood_prompts": (
+                    int(neigh_states.shape[0]) if neigh_states.numel() else 0
+                ),
+                "corpus_contexts": int(corpus.shape[0]) if corpus.numel() else 0,
+            }
+            sources = {
+                "oracle": (neigh_states, None),
+                "corpus": (corpus, None),
+                "cross": (corpus, neigh_states if neigh_states.numel() else None),
+            }
+            for name, (protect, test) in sources.items():
+                if protect.numel() == 0 or (name == "cross" and test is None):
+                    continue
+                rows = measure(forget_states, protect, test, a.sweep_sizes, generator)
+                if rows:
+                    entry[name] = rows
+                    for row in rows:
+                        aggregate[(name, layer)][row["protection_size"]].append(
+                            row["heldout_residual"]
+                        )
+                        aggregate_forget[(name, layer)][row["protection_size"]].append(
+                            row["forget_residual"]
+                        )
+            per_answer.append(entry)
 
     summary: Dict[str, Any] = {
         "schema_version": 2,
@@ -398,25 +455,24 @@ def main(argv: Sequence[str] | None = None) -> None:
     }
 
     for name in ("oracle", "corpus", "cross"):
-        curve = []
-        for size in a.sweep_sizes:
-            f_vals = aggregate_forget[name].get(size, [])
-            h_vals = aggregate[name].get(size, [])
-            if not f_vals or not h_vals:
-                continue
-            f_mean = sum(f_vals) / len(f_vals)
-            h_mean = sum(h_vals) / len(h_vals)
-            curve.append(
-                {
+        for layer in layers:
+            curve = []
+            for size in a.sweep_sizes:
+                f_vals = aggregate_forget[(name, layer)].get(size, [])
+                h_vals = aggregate[(name, layer)].get(size, [])
+                if not f_vals or not h_vals:
+                    continue
+                f_mean = sum(f_vals) / len(f_vals)
+                h_mean = sum(h_vals) / len(h_vals)
+                curve.append({
                     "protection_size": size,
                     "forget_residual": f_mean,
                     "heldout_residual": h_mean,
                     "separability_gap": f_mean - h_mean,
                     "answers": len(f_vals),
-                }
-            )
-        if curve:
-            summary[f"{name}_curve"] = curve
+                })
+            if curve:
+                summary[f"{name}_layer{layer}_curve"] = curve
 
     out = Path(a.out).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -424,28 +480,26 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     print(f"\nSeparability report: {out}")
     for name in ("oracle", "corpus", "cross"):
-        curve = summary.get(f"{name}_curve")
-        if not curve:
-            continue
         label = {
             "oracle": "protect+test on neighborhoods (eval data, diagnostic)",
             "corpus": "protect+test on mined contexts (deployable)",
             "cross": "protect on corpus, TEST ON NEIGHBORHOODS (decision number)",
         }[name]
+        curves = [(l, summary.get(f"{name}_layer{l}_curve")) for l in layers]
+        curves = [(l, c) for l, c in curves if c]
+        if not curves:
+            continue
         print(f"\n[{name}]  {label}")
-        print(f"  {'size':>6} {'rank':>6} {'forget':>9} {'heldout':>9} {'gap':>9}")
-        for row in curve:
+        print(f"  {'layer':>6} {'size':>7} {'forget':>9} {'heldout':>9} {'gap':>9}")
+        for layer, curve in curves:
+            row = curve[-1]          # largest protection size reached
             print(
-                f"  {row['protection_size']:>6} {'':>6} "
+                f"  {layer:>6} {row['protection_size']:>7} "
                 f"{row['forget_residual']:>9.4f} {row['heldout_residual']:>9.4f} "
                 f"{row['separability_gap']:>+9.4f}"
             )
-        first, last = curve[0], curve[-1]
+        best = max(curves, key=lambda x: x[1][-1]["separability_gap"])
         print(
-            f"  gap {first['separability_gap']:+.4f} @ size {first['protection_size']} "
-            f"-> {last['separability_gap']:+.4f} @ size {last['protection_size']}"
+            f"  -> widest gap at layer {best[0]}: "
+            f"{best[1][-1]['separability_gap']:+.4f}"
         )
-
-
-if __name__ == "__main__":
-    main()
