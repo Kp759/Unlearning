@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export PROJECT_DIR="${PROJECT_DIR:-$(pwd -P)}"
+mkdir -p slurm_logs
+
 ARRAY_JOB="$(sbatch --parsable slurm/run_mcf_scoped_bias_confirmatory_3b.slurm)"
 AGGREGATE_JOB="$(
   sbatch --parsable \
