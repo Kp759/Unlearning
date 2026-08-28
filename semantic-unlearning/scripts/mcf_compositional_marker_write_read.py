@@ -6,8 +6,9 @@ Architecture (and the only trainable/model-changing objects)::
     sparse subject embedding-row deltas
         -> completely frozen Transformer
         -> context-composed marker v_i
-        -> distributional linear reader q_i^T h
-        -> sparse sensitive LM-head row delta -beta_i q_i
+        -> diagnostic record-level marker reader
+        -> jointly learned sparse sensitive LM-head rows
+        -> exact per-row factorization Delta W_y = -beta_y q_y
 
 There is no router, exact-subject runtime, sidecar, logit bias, adapter, LoRA,
 or trained Transformer parameter.  The scientific hypothesis is that a frozen
@@ -102,6 +103,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--marker-ridge", type=float, default=1e-4)
 
     # Stage 1: sparse embedding writer only.
+    p.add_argument(
+        "--resume-stage1-state",
+        default="",
+        help=(
+            "Optional stage1_writer.pt from the same seed/context protocol. "
+            "When supplied with --writer-steps 0, reuse its sparse embedding "
+            "delta and markers without retraining."
+        ),
+    )
     p.add_argument("--writer-steps", type=int, default=1200)
     p.add_argument("--writer-lr", type=float, default=2e-4)
     p.add_argument("--writer-record-batch", type=int, default=4)
@@ -149,13 +159,23 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="strict refuses Stage 2 if the predeclared reader gate fails.",
     )
 
-    # Stage 2: beta coefficients only; materialized into sparse LM-head rows.
+    # Stage 2: joint sparse LM-head rows, each exactly factorized as -beta_y q_y.
     p.add_argument("--forget-margin", type=float, default=1.0)
     p.add_argument("--stage2-steps", type=int, default=500)
     p.add_argument("--stage2-lr", type=float, default=0.05)
     p.add_argument("--stage2-batch-size", type=int, default=8)
     p.add_argument("--stage2-margin-weight", type=float, default=100.0)
-    p.add_argument("--stage2-negative-weight", type=float, default=1e-4)
+    p.add_argument("--stage2-negative-weight", type=float, default=1e-2)
+    p.add_argument(
+        "--stage2-base-positive-weight",
+        type=float,
+        default=1.0,
+        help=(
+            "Penalty on output-row shifts at the same positive teacher-forced "
+            "states with the embedding writer removed. This makes the sparse "
+            "output reader depend causally on the learned input marker."
+        ),
+    )
     p.add_argument("--stage2-beta-l2", type=float, default=1e-6)
     p.add_argument("--stage2-check-every", type=int, default=25)
     p.add_argument(
@@ -183,7 +203,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         a.reach_positive_contexts,
         a.reach_negative_contexts,
         a.marker_max_rank,
-        a.writer_steps,
         a.writer_record_batch,
         a.positive_context_batch,
         a.negative_context_batch,
@@ -194,6 +213,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     if any(int(x) <= 0 for x in positive_ints):
         p.error("counts, ranks, and optimization steps must be positive")
+    if int(a.writer_steps) < 0:
+        p.error("--writer-steps must be non-negative")
+    if int(a.writer_steps) == 0 and not str(a.resume_stage1_state).strip():
+        p.error("--writer-steps 0 requires --resume-stage1-state")
     if int(a.synthetic_paraphrases_per_record) < 0 or int(a.reader_refine_steps) < 0:
         p.error("synthetic paraphrase and reader-refinement counts must be non-negative")
     if int(a.reach_probes) < 4 or int(a.reach_probes) % 2:
@@ -214,6 +237,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("--kappa-train-max must be non-negative")
     if float(a.writer_marker_kappa_max) < 0:
         p.error("--writer-marker-kappa-max must be non-negative")
+    if min(
+        float(a.stage2_margin_weight),
+        float(a.stage2_negative_weight),
+        float(a.stage2_base_positive_weight),
+        float(a.stage2_beta_l2),
+    ) < 0:
+        p.error("Stage-2 loss weights must be non-negative")
     return a
 
 
@@ -855,6 +885,51 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     marker_bank = torch.stack([record["marker"] for record in records])
     delta_module.raw_delta.detach().zero_()
+    resumed_stage1: Dict[str, Any] | None = None
+    resume_path: Path | None = None
+    if str(a.resume_stage1_state).strip():
+        resume_path = Path(a.resume_stage1_state).resolve()
+        resumed_stage1 = torch.load(
+            resume_path, map_location="cpu", weights_only=False
+        )
+        resume_protocol = str(resumed_stage1.get("protocol") or "")
+        compatible_protocols = {
+            "mcf_context_composed_sparse_embedding_writer_v2",
+            PROTOCOL,
+        }
+        if resume_protocol not in compatible_protocols:
+            raise RuntimeError(
+                f"resumed Stage-1 protocol {resume_protocol!r} is incompatible"
+            )
+        if [int(x) for x in resumed_stage1.get("selected_embedding_rows", [])] != [
+            int(x) for x in selected_rows
+        ]:
+            raise RuntimeError("resumed Stage-1 selected embedding rows do not match")
+        resumed_delta = resumed_stage1.get("embedding_delta")
+        if not isinstance(resumed_delta, torch.Tensor) or tuple(resumed_delta.shape) != tuple(
+            delta_module.raw_delta.shape
+        ):
+            raise RuntimeError("resumed Stage-1 embedding delta has incompatible shape")
+        resumed_markers = resumed_stage1.get("markers")
+        if not isinstance(resumed_markers, Mapping):
+            raise RuntimeError("resumed Stage-1 state lacks its marker map")
+        loaded_markers: List[torch.Tensor] = []
+        for record in records:
+            case_id = int(record["case_id"])
+            marker = resumed_markers.get(case_id, resumed_markers.get(str(case_id)))
+            if not isinstance(marker, torch.Tensor) or tuple(marker.shape) != (hidden_size,):
+                raise RuntimeError(f"resumed marker mismatch for case {case_id}")
+            record["marker"] = marker.float().cpu()
+            loaded_markers.append(record["marker"])
+        marker_bank = torch.stack(loaded_markers)
+        with torch.no_grad():
+            delta_module.raw_delta.copy_(
+                resumed_delta.to(
+                    device=delta_module.raw_delta.device,
+                    dtype=delta_module.raw_delta.dtype,
+                )
+            )
+        print(f"  resumed sparse Stage 1: {resume_path}")
     print(f"  marker selection wall time: {time.time() - marker_start:.1f}s")
 
     print("\nStage 1: compositional sparse embedding writer")
@@ -1082,9 +1157,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     torch.save(
         {
             "protocol": PROTOCOL,
+            "seed": int(a.seed),
+            "case_ids": [int(record["case_id"]) for record in records],
             "selected_embedding_rows": selected_rows,
             "embedding_delta": trained_embedding_delta,
             "markers": {int(r["case_id"]): r["marker"] for r in records},
+            "context_manifest_sha256": sha256_file(out_dir / "context_manifest.json"),
+            "resumed_from": str(resume_path) if resume_path is not None else None,
         },
         out_dir / "stage1_writer.pt",
     )
@@ -1235,6 +1314,31 @@ def main(argv: Sequence[str] | None = None) -> None:
         answer_rows_by_record.append(answer_rows)
         reference_rows_by_record.append(reference_rows)
 
+    # Cache the exact same sensitive-answer states with the sparse embedding
+    # writer removed. Stage 2 penalizes output-row activation on these states,
+    # so success must use the writer-induced contextual displacement instead
+    # of learning a stand-alone output-head edit from pre-existing geometry.
+    embedding_hook.remove()
+    base_positive_state_groups: Dict[int, List[torch.Tensor]] = {}
+    try:
+        for position, record in enumerate(records):
+            context = context_sets[int(record["case_id"])]
+            base_groups, base_answer_rows = teacher_forced_state_groups(
+                model,
+                tok,
+                list(context["positive_prompts"]),
+                str(record["answer"]),
+                device,
+                batch_size=int(a.cache_batch_size),
+            )
+            if base_answer_rows != answer_rows_by_record[position]:
+                raise AssertionError("base/edited answer tokenization diverged")
+            base_positive_state_groups[position] = base_groups
+    finally:
+        embedding_hook = directional.register_input_embedding_delta_hook(
+            input_layer, selected_rows, delta_module.effective_delta
+        )
+
     readers: List[torch.Tensor] = []
     reader_reports: List[Dict[str, Any]] = []
     for position, record in enumerate(records):
@@ -1344,8 +1448,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"{out_dir / 'reader_gate_report.json'}"
         )
 
-    print("\nStage 2: worst-context initialized sparse directional LM-head solve")
-    positive_instances, instance_owners, direct_flags = build_prompt_instances(
+    print("\nStage 2: joint sparse LM-head row solve (Delta W_y = -beta_y q_y)")
+    positive_instances, _instance_owners, direct_flags = build_prompt_instances(
         records, context_sets
     )
     pre_margins = evaluate_instance_margins(
@@ -1356,40 +1460,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         llama_like=llama_like,
         batch_size=int(a.stage2_batch_size),
     )
-    # Jointly initialize all record readers.  The old per-record division by
-    # one tiny worst-context signal produced enormous betas; on shared answer
-    # rows those readers then interacted and drove the worst margin to -193.
-    # This matrix includes the actual token-row memberships and every reader's
-    # response at every positive teacher-forced state.
-    linear_response = torch.zeros(
-        (len(positive_instances), len(records)), dtype=torch.float32
-    )
-    answer_row_sets = [set(rows) for rows in answer_rows_by_record]
-    for instance_index, instance in enumerate(positive_instances):
-        owner = int(instance_owners[instance_index])
-        states = positive_state_groups[owner][int(instance.prompt_index)]
-        target_rows = answer_rows_by_record[owner]
-        for reader_index, q in enumerate(reader_bank):
-            contributions = [
-                float(states[offset] @ q)
-                if int(token_id) in answer_row_sets[reader_index]
-                else 0.0
-                for offset, token_id in enumerate(target_rows)
-            ]
-            linear_response[instance_index, reader_index] = sum(contributions) / max(
-                1, len(contributions)
-            )
-    initial_betas, beta_initialization_report = compositional.monotone_cover_betas(
-        linear_response,
-        float(a.forget_margin) - pre_margins,
-        safety_factor=1.25,
-    )
-    print(
-        "  beta initializer: max "
-        f"{beta_initialization_report['beta_max']:.3f}, residual "
-        f"{beta_initialization_report['residual_max']:+.3e}"
-    )
-
+    pre_margin_report = distribution([float(x) for x in pre_margins])
     selected_output_rows = sorted(
         {int(token_id) for rows in answer_rows_by_record for token_id in rows}
         - set(gagd.special_token_ids(tok))
@@ -1400,21 +1471,22 @@ def main(argv: Sequence[str] | None = None) -> None:
     base_selected_output_rows = output_layer.weight.index_select(
         0, output_row_index
     ).detach().clone()
-    beta_parameter = torch.nn.Parameter(initial_betas.to(output_layer.weight.device))
+    output_delta_parameter = torch.nn.Parameter(
+        torch.zeros(
+            (len(selected_output_rows), hidden_size),
+            dtype=torch.float32,
+            device=output_layer.weight.device,
+        )
+    )
 
     def current_output_delta() -> torch.Tensor:
-        return compositional.directional_row_deltas(
-            reader_bank.to(beta_parameter.device),
-            beta_parameter,
-            answer_rows_by_record,
-            selected_output_rows,
-        )
+        return output_delta_parameter
 
     output_hook = canonical.register_output_delta_hook(
         output_layer, selected_output_rows, current_output_delta
     )
     stage2_optimizer = torch.optim.AdamW(
-        [beta_parameter], lr=float(a.stage2_lr), weight_decay=0.0
+        [output_delta_parameter], lr=float(a.stage2_lr), weight_decay=0.0
     )
     instance_sampler = canonical.IndexSampler(
         len(positive_instances), int(a.stage2_batch_size), int(a.seed) + 811
@@ -1433,8 +1505,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         dim=0,
     )
     if protection_rows.shape[0] > 1024:
-        protection_rows = protection_rows[:1024]
+        indices = torch.linspace(
+            0, protection_rows.shape[0] - 1, steps=1024
+        ).round().long()
+        protection_rows = protection_rows.index_select(0, indices)
     protection_rows = protection_rows.to(output_layer.weight.device)
+    base_positive_rows = torch.cat(
+        [
+            torch.cat(base_positive_state_groups[i], dim=0)
+            for i in range(len(records))
+        ],
+        dim=0,
+    ).to(output_layer.weight.device)
     stage2_log: List[Dict[str, Any]] = []
     for step in range(1, int(a.stage2_steps) + 1):
         picked = instance_sampler.next()
@@ -1446,19 +1528,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         hinge = F.relu(float(a.forget_margin) - margins).mean()
         delta_rows = current_output_delta()
         protected_shift = protection_rows.float() @ delta_rows.float().T
-        locality = protected_shift.square().mean()
-        beta_l2 = beta_parameter.square().mean()
+        locality = protected_shift.square().sum(dim=1).mean()
+        base_positive_shift = base_positive_rows.float() @ delta_rows.float().T
+        base_positive_locality = base_positive_shift.square().sum(dim=1).mean()
+        output_l2 = output_delta_parameter.square().mean()
         loss = (
             float(a.stage2_margin_weight) * hinge
             + float(a.stage2_negative_weight) * locality
-            + float(a.stage2_beta_l2) * beta_l2
+            + float(a.stage2_base_positive_weight) * base_positive_locality
+            + float(a.stage2_beta_l2) * output_l2
         )
         if not torch.isfinite(loss):
             raise FloatingPointError(f"non-finite Stage-2 loss at step {step}")
         loss.backward()
         stage2_optimizer.step()
-        with torch.no_grad():
-            beta_parameter.clamp_(min=0.0, max=10000.0)
 
         if step == 1 or step % int(a.stage2_check_every) == 0 or step == int(a.stage2_steps):
             full = evaluate_instance_margins(
@@ -1479,7 +1562,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "loss": float(loss.detach()),
                 "batch_hinge": float(hinge.detach()),
                 "locality": float(locality.detach()),
-                "beta_l2": float(beta_l2.detach()),
+                "base_positive_locality": float(base_positive_locality.detach()),
+                "output_delta_l2": float(output_l2.detach()),
                 "positive_failures": failures,
                 "direct_failures": direct_failures,
                 "minimum_margin": float(full.min()),
@@ -1493,11 +1577,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                 break
     del stage2_optimizer
 
-    solved_betas = beta_parameter.detach().clone()
+    solved_output_delta = output_delta_parameter.detach().clone()
     scale_reports: List[Dict[str, Any]] = []
     for scale in canonical.parse_scales(a.stage2_scales):
         with torch.no_grad():
-            beta_parameter.copy_(solved_betas * float(scale))
+            output_delta_parameter.copy_(solved_output_delta * float(scale))
         margins = evaluate_instance_margins(
             model,
             tok,
@@ -1533,7 +1617,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         selected_scale = float(best["scale"])
     with torch.no_grad():
-        beta_parameter.copy_(solved_betas * selected_scale)
+        output_delta_parameter.copy_(solved_output_delta * selected_scale)
         final_output_delta = current_output_delta().detach().cpu()
     hooked_final_margins = evaluate_instance_margins(
         model,
@@ -1551,6 +1635,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     # cannot be lost to that numerical representation change.
     output_hook.remove()
     embedding_hook.remove()
+    input_row_index = torch.tensor(
+        selected_rows, dtype=torch.long, device=input_layer.weight.device
+    )
+    base_selected_input_rows = input_layer.weight.index_select(
+        0, input_row_index
+    ).detach().clone()
     directional.materialize_input_delta(
         input_layer, selected_rows, trained_embedding_delta
     )
@@ -1628,7 +1718,145 @@ def main(argv: Sequence[str] | None = None) -> None:
                 batch_size=int(a.stage2_batch_size),
             )
             selected_materialization_scale = best_scale
-    actual_output_delta = final_output_delta * selected_materialization_scale
+
+    # Causal writer ablation: leave the learned output rows in place but
+    # restore the original subject input rows. If this output-only model still
+    # satisfies the forget constraints, the flexible LM-head solve bypassed
+    # the proposed context-composed embedding code. Always restore the edited
+    # input rows before serialization.
+    edited_selected_input_rows = input_layer.weight.index_select(
+        0, input_row_index
+    ).detach().clone()
+    with torch.no_grad():
+        input_layer.weight.index_copy_(0, input_row_index, base_selected_input_rows)
+    try:
+        output_only_margins = evaluate_instance_margins(
+            model,
+            tok,
+            positive_instances,
+            device,
+            llama_like=llama_like,
+            batch_size=int(a.stage2_batch_size),
+        )
+    finally:
+        with torch.no_grad():
+            input_layer.weight.index_copy_(
+                0, input_row_index, edited_selected_input_rows
+            )
+    output_only_direct_failures = sum(
+        int(
+            direct_flags[i]
+            and float(output_only_margins[i]) < float(a.forget_margin) - 1e-6
+        )
+        for i in range(len(output_only_margins))
+    )
+    output_only_positive_failures = int(
+        (output_only_margins < float(a.forget_margin) - 1e-6).sum()
+    )
+    causal_writer_gain = materialized_margins - output_only_margins
+    causal_writer_ablation = {
+        "kind": "restore_original_input_rows_keep_sparse_output_edit",
+        "direct_failures_without_writer": output_only_direct_failures,
+        "positive_failures_without_writer": output_only_positive_failures,
+        "minimum_margin_without_writer": float(output_only_margins.min()),
+        "margin_gain_from_writer": distribution(
+            [float(x) for x in causal_writer_gain]
+        ),
+        "writer_is_necessary_for_at_least_one_positive": bool(
+            output_only_positive_failures > 0
+        ),
+        "writer_is_necessary_for_at_least_one_direct": bool(
+            output_only_direct_failures > 0
+        ),
+        "edited_input_rows_restored_before_save": bool(
+            torch.equal(
+                input_layer.weight.index_select(0, input_row_index),
+                edited_selected_input_rows,
+            )
+        ),
+    }
+    gagd.write_json(out_dir / "causal_writer_ablation.json", causal_writer_ablation)
+    intended_output_delta = final_output_delta * selected_materialization_scale
+    actual_output_delta = (
+        output_layer.weight.index_select(0, output_row_index).detach().float().cpu()
+        - base_selected_output_rows.detach().float().cpu()
+    )
+    output_materialization_delta_error = float(
+        (actual_output_delta - intended_output_delta.float()).abs().max()
+    )
+    output_row_betas, output_row_readers = compositional.factorize_output_rows(
+        actual_output_delta
+    )
+
+    # Every jointly learned sparse row has the exact decomposition
+    # Delta W_y = -beta_y q_y. Audit the resulting q_y readers on all
+    # training-safe states where token y is sensitive, versus the protected
+    # compositional/reference pool used by Stage 2.
+    output_reader_rows: List[Dict[str, Any]] = []
+    output_slot = {token_id: slot for slot, token_id in enumerate(selected_output_rows)}
+    protected_cpu = torch.cat(
+        [
+            protection_rows.detach().float().cpu(),
+            base_positive_rows.detach().float().cpu(),
+        ],
+        dim=0,
+    )
+    for token_id in selected_output_rows:
+        slot = output_slot[token_id]
+        beta = float(output_row_betas[slot])
+        positive_parts: List[torch.Tensor] = []
+        for position in range(len(records)):
+            offsets = [
+                offset
+                for offset, owned_token in enumerate(answer_rows_by_record[position])
+                if int(owned_token) == int(token_id)
+            ]
+            for group in positive_state_groups[position]:
+                positive_parts.extend(group[offset].unsqueeze(0) for offset in offsets)
+        if not positive_parts or beta <= 1e-12:
+            output_reader_rows.append(
+                {
+                    "token_id": int(token_id),
+                    "beta": beta,
+                    "active": False,
+                    "passed": True,
+                }
+            )
+            continue
+        positive_states = torch.cat(positive_parts, dim=0)
+        metrics = compositional.reader_metrics(
+            output_row_readers[slot], positive_states, protected_cpu
+        )
+        passed = bool(
+            metrics["positive_sign_consistent"]
+            and float(metrics["kappa_train"]) <= float(a.kappa_train_max)
+            and float(metrics["portability_ratio"]) >= float(a.portability_min)
+        )
+        output_reader_rows.append(
+            {
+                "token_id": int(token_id),
+                "beta": beta,
+                "active": True,
+                "passed": passed,
+                **metrics,
+            }
+        )
+    active_reader_rows = [row for row in output_reader_rows if row["active"]]
+    output_reader_gate = {
+        "kind": "post_solve_sparse_lm_head_row_reader_gate",
+        "factorization": "Delta W_y = -beta_y q_y",
+        "criterion": {
+            "positive_sign_consistent": True,
+            "kappa_train_max": float(a.kappa_train_max),
+            "portability_min": float(a.portability_min),
+        },
+        "active_rows": len(active_reader_rows),
+        "total_rows": len(output_reader_rows),
+        "passed_rows": sum(int(row["passed"]) for row in active_reader_rows),
+        "passed": bool(active_reader_rows and all(row["passed"] for row in active_reader_rows)),
+        "per_row": output_reader_rows,
+    }
+    gagd.write_json(out_dir / "output_reader_gate_report.json", output_reader_gate)
     margin_drift = (
         float(scale_one_margin_drift)
         if scale_one_margin_drift is not None
@@ -1666,10 +1894,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             "selected_embedding_rows": selected_rows,
             "embedding_delta": trained_embedding_delta,
             "markers": marker_bank,
-            "readers": reader_bank,
-            "betas": (
-                beta_parameter.detach().cpu() * selected_materialization_scale
-            ),
+            "readers": output_row_readers,
+            "betas": output_row_betas,
+            "diagnostic_record_readers": reader_bank,
             "selected_output_rows": selected_output_rows,
             "output_delta": actual_output_delta,
             "context_manifest_sha256": sha256_file(
@@ -1697,8 +1924,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "input_embedding_rows_edited": len(selected_rows),
             "lm_head_rows_edited": len(selected_output_rows),
             "writer": "ordinary global sparse subject embedding-row deltas",
-            "reader": "distributional q^T h",
-            "decoder": "ordinary sparse LM-head row delta -sum_i beta_i q_i",
+            "reader": "jointly learned per-sensitive-token q_y^T h",
+            "decoder": "ordinary sparse LM-head rows, exactly Delta W_y=-beta_y q_y",
         },
         "data_firewall": context_manifest["data_access"],
         "contexts": context_report,
@@ -1711,32 +1938,37 @@ def main(argv: Sequence[str] | None = None) -> None:
         },
         "stage1": {
             "steps": int(a.writer_steps),
+            "resumed": resume_path is not None,
+            "resumed_from": str(resume_path) if resume_path is not None else None,
             "selected_embedding_rows": selected_rows,
             "embedding_delta_norm": float(trained_embedding_delta.norm()),
             "write_alpha": float(a.write_alpha),
             "row_norm_cap": float(a.row_norm_cap),
             "writer_selectivity": writer_report,
         },
-        "reader_gate": gate_report,
+        "record_reader_diagnostic": gate_report,
+        "reader_gate": output_reader_gate,
+        "causal_writer_ablation": causal_writer_ablation,
         "stage2": {
-            "initialization": (
-                "joint monotone cover over the full instance-by-reader shared-row "
-                "response matrix"
+            "parameterization": (
+                "joint full sparse sensitive-token rows; post-solve exact "
+                "factorization Delta W_y=-beta_y q_y"
             ),
-            "beta_initialization": beta_initialization_report,
+            "initialization": "zero output-row delta",
+            "pre_margin": pre_margin_report,
             "exact_margin_optimization": True,
             "forget_margin": float(a.forget_margin),
+            "base_positive_writer_dependence_weight": float(
+                a.stage2_base_positive_weight
+            ),
             "selected_scale": selected_scale,
             "selected_materialization_scale": selected_materialization_scale,
             "selected_output_rows": selected_output_rows,
-            "beta": [
-                float(x)
-                for x in (
-                    beta_parameter.detach().cpu()
-                    * selected_materialization_scale
-                )
-            ],
+            "beta": [float(x) for x in output_row_betas],
             "output_delta_norm": float(actual_output_delta.norm()),
+            "output_materialization_delta_abs_error_max": (
+                output_materialization_delta_error
+            ),
             "optimization_log": stage2_log,
             "scale_reports": scale_reports,
             "materialization_scale_reports": materialization_reports,
@@ -1748,12 +1980,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         "acceptance": {
             "direct_eff_training_proxy_zero": direct_failures == 0,
             "all_training_safe_positive_failures_zero": positive_failures == 0,
-            "reader_gate_passed": bool(gate_report["passed"]),
+            "record_reader_diagnostic_passed": bool(gate_report["passed"]),
+            "output_reader_gate_passed": bool(output_reader_gate["passed"]),
             "checkpoint_saved": bool(a.save_checkpoint),
             "passed": bool(
                 direct_failures == 0
                 and positive_failures == 0
-                and (gate_report["passed"] or a.gate_policy == "report")
+                and (output_reader_gate["passed"] or a.gate_policy == "report")
             ),
         },
         "checkpoint": str(checkpoint_path) if a.save_checkpoint else None,
@@ -1768,6 +2001,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"  direct training failures             : {direct_failures}")
     print(f"  all training-safe positive failures  : {positive_failures}")
     print(f"  minimum training margin              : {float(materialized_margins.min()):+.4f}")
+    print(
+        "  output-only direct/positive failures : "
+        f"{output_only_direct_failures}/{output_only_positive_failures}"
+    )
     print(f"  Transformer parameter absdiff        : {transformer_absdiff:.3e}")
     print("  router / bias / sidecar              : False / False / False")
     print("=" * 72)

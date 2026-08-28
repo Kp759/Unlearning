@@ -9,7 +9,7 @@ model:
 * construction of whole-subject and shared-subword hard negatives;
 * contrastive multi-context reachability marker selection;
 * a regularized distributional reader followed by a robust cone refinement;
-* sparse LM-head row deltas assembled from per-record ``beta * q`` terms.
+* sparse LM-head row deltas and their exact ``-beta * q`` factorization.
 
 None of these helpers implements a router or an inference-time gate.  Token
 rows and LM-head rows are ordinary globally shared model parameters.
@@ -27,7 +27,7 @@ import torch
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v2"
+PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v3"
 
 
 def normalize_text(value: Any) -> str:
@@ -593,6 +593,24 @@ def directional_row_deltas(
                 raise ValueError(f"answer token {token_id} missing from selected output rows")
             membership[row_slot[token_id], record_index] = 1.0
     return -((membership * betas.unsqueeze(0)) @ readers)
+
+
+def factorize_output_rows(delta: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Return the exact row-wise factorization ``delta_y = -beta_y q_y``.
+
+    ``beta_y`` is the non-negative row norm. Active ``q_y`` rows are unit
+    vectors; zero rows receive an all-zero reader. This is an identity, not a
+    low-rank approximation, so a jointly optimized sparse LM-head delta keeps
+    the linear-reader interpretation without imposing an infeasible shared
+    reader across different sensitive output tokens.
+    """
+    if delta.ndim != 2:
+        raise ValueError("delta must be [rows, hidden]")
+    betas = delta.norm(dim=1)
+    readers = torch.zeros_like(delta)
+    active = betas > 1e-12
+    readers[active] = -delta[active] / betas[active].unsqueeze(1)
+    return betas, readers
 
 
 def monotone_cover_betas(

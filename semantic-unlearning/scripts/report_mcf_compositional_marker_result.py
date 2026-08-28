@@ -123,6 +123,7 @@ def build_report(
         },
         "checks": checks,
         "reader_gate": method.get("reader_gate"),
+        "causal_writer_ablation": method.get("causal_writer_ablation"),
         "post_reload_acceptance": dict(post_reload),
         "architecture": method.get("architecture"),
     }

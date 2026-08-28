@@ -290,6 +290,23 @@ def test_directional_row_delta_sums_readers_only_on_owned_answer_rows():
     assert torch.equal(delta[2], torch.tensor([-0.5, -0.5]))
 
 
+def test_sparse_output_rows_have_exact_linear_reader_factorization():
+    delta = torch.tensor(
+        [
+            [3.0, 4.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [-2.0, 0.0, 0.0],
+        ]
+    )
+
+    betas, readers = core.factorize_output_rows(delta)
+
+    assert torch.allclose(delta, -betas.unsqueeze(1) * readers)
+    assert torch.allclose(betas, torch.tensor([5.0, 0.0, 2.0]))
+    assert torch.allclose(readers[[0, 2]].norm(dim=1), torch.ones(2))
+    assert torch.equal(readers[1], torch.zeros(3))
+
+
 def test_monotone_beta_initializer_covers_joint_shared_row_constraints():
     response = torch.tensor(
         [
@@ -329,8 +346,31 @@ def test_method_defaults_to_standard_weights_and_strict_reader_gate():
     assert args.writer_marker_kappa_max == 0.10
     assert args.reader_anchor_weight == 0.05
     assert args.cos_marker_reader_min == 0.0
+    assert args.stage2_negative_weight == 1e-2
+    assert args.stage2_base_positive_weight == 1.0
     assert not hasattr(args, "router")
     assert not hasattr(args, "logit_bias")
+
+
+def test_stage1_zero_steps_requires_a_resume_state():
+    common = [
+        "--model-path",
+        "/model",
+        "--training-visible-path",
+        "/locked.json",
+        "--split-manifest",
+        "/manifest.json",
+        "--output-dir",
+        "/out",
+        "--writer-steps",
+        "0",
+    ]
+    with pytest.raises(SystemExit):
+        method.parse_args(common)
+
+    args = method.parse_args([*common, "--resume-stage1-state", "/stage1.pt"])
+    assert args.writer_steps == 0
+    assert args.resume_stage1_state == "/stage1.pt"
 
 
 def test_multi_context_reachability_moves_only_prompts_containing_selected_row():

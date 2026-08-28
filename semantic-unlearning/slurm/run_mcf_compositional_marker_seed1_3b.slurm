@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=mcf-compose2-s1
+#SBATCH --job-name=mcf-compose3-s1
 #SBATCH --account=yl258
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
@@ -18,9 +18,10 @@ ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v2_seed1_3b}"
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v3_seed1_3b}"
 BUILD_SEMANTIC_SURROGATES="${BUILD_SEMANTIC_SURROGATES:-1}"
 SURROGATE_ARTIFACT="${SURROGATE_ARTIFACT:-}"
+RESUME_STAGE1_STATE="${RESUME_STAGE1_STATE:-}"
 
 cd "${PROJECT_DIR}"
 mkdir -p slurm_logs "${OUTPUT_DIR}/protocol"
@@ -44,6 +45,10 @@ python -u scripts/build_mcf_sure_target_aware_direct_split.py \
 TRAINING_VISIBLE="${OUTPUT_DIR}/protocol/training_visible_target_aware_direct.json"
 SPLIT_MANIFEST="${OUTPUT_DIR}/protocol/split_manifest.json"
 SURROGATE_ARGS=()
+WRITER_ARGS=(
+  --writer-steps 1200
+  --writer-lr 2e-4
+)
 
 if [[ "${BUILD_SEMANTIC_SURROGATES}" == "1" ]]; then
   if [[ -z "${SURROGATE_ARTIFACT}" ]]; then
@@ -70,6 +75,17 @@ if [[ "${BUILD_SEMANTIC_SURROGATES}" == "1" ]]; then
   )
 fi
 
+if [[ -n "${RESUME_STAGE1_STATE}" ]]; then
+  if [[ ! -e "${RESUME_STAGE1_STATE}" ]]; then
+    echo "Stage-1 resume state not found: ${RESUME_STAGE1_STATE}" >&2
+    exit 2
+  fi
+  WRITER_ARGS=(
+    --resume-stage1-state "${RESUME_STAGE1_STATE}"
+    --writer-steps 0
+  )
+fi
+
 python -u scripts/mcf_compositional_marker_write_read.py \
   --model-path "${MODEL_PATH}" \
   --training-visible-path "${TRAINING_VISIBLE}" \
@@ -81,8 +97,6 @@ python -u scripts/mcf_compositional_marker_write_read.py \
   --synthetic-paraphrases-per-record 6 \
   --corpus-context-prefixes 256 \
   --reach-probes 12 \
-  --writer-steps 1200 \
-  --writer-lr 2e-4 \
   --positive-context-batch 4 \
   --negative-context-batch 5 \
   --row-norm-cap 8 \
@@ -99,11 +113,16 @@ python -u scripts/mcf_compositional_marker_write_read.py \
   --cos-marker-reader-min 0 \
   --gate-policy report \
   --forget-margin 1 \
-  --stage2-steps 500 \
+  --stage2-steps 1000 \
+  --stage2-lr 0.02 \
+  --stage2-negative-weight 0.01 \
+  --stage2-base-positive-weight 1 \
+  --stage2-check-every 50 \
   --dtype bf16 \
   --device-map single \
   --save-checkpoint \
-  "${SURROGATE_ARGS[@]}"
+  "${SURROGATE_ARGS[@]}" \
+  "${WRITER_ARGS[@]}"
 
 # Reload in a clean process before any held-out probe is opened. This catches
 # hook/materialization, BF16, config, and serialization discrepancies.
