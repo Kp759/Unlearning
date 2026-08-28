@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "record_id": "mcf-scoped-bias-v1-seed1-exploratory",
+  "status": "EXPLORATORY_POST_HOC_CONTROL",
+  "date_recorded": "2026-08-28",
+  "dataset": "MCF",
+  "model": {
+    "name": "meta-llama/Llama-3.2-3B-Instruct",
+    "runtime_path": "/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean"
+  },
+  "frozen_method": {
+    "git_commit": "9284d91",
+    "git_tag": "mcf-scoped-bias-v1",
+    "sample_mode": "official",
+    "unlearn_num": 50,
+    "retain_num": 1000,
+    "penalty": 512.0,
+    "scope": "exact complete subject token sequence",
+    "reader": "constant negative bias on sensitive-only token rows",
+    "writer_delta": "all zeros",
+    "base_weights_modified": false
+  },
+  "seed1_role": {
+    "seed": 1,
+    "classification": "exploratory",
+    "reason": "The bias reader was designed after observing Gen=64 on the directional scoped reader at seed 1.",
+    "eligible_for_confirmatory_aggregate": false
+  },
+  "matched_base": {
+    "forget": {
+      "Eff": 84.0,
+      "Gen": 85.0,
+      "Spe": 12.57,
+      "Spe_success": 88.6
+    },
+    "retain": {
+      "Eff": 87.3,
+      "Gen": 85.0,
+      "Spe": 11.84,
+      "Spe_success": 84.82
+    },
+    "PPL": 16.625
+  },
+  "scoped_bias": {
+    "forget": {
+      "Eff": 0.0,
+      "Gen": 0.0,
+      "Spe": 12.57,
+      "Spe_success": 88.6
+    },
+    "retain": {
+      "Eff": 87.3,
+      "Gen": 85.0,
+      "Spe": 11.82,
+      "Spe_success": 84.8
+    },
+    "PPL": 16.625,
+    "minimum_rewrite_paraphrase_margin": 497.0,
+    "post_reload_acceptance_passed": true
+  },
+  "paired_delta_scoped_minus_base": {
+    "forget_Eff": -84.0,
+    "forget_Gen": -85.0,
+    "forget_Spe": 0.0,
+    "forget_Spe_success": 0.0,
+    "retain_Eff": 0.0,
+    "retain_Gen": 0.0,
+    "retain_Spe": -0.02,
+    "retain_Spe_success": -0.02,
+    "PPL": 0.0
+  },
+  "routing_audit": {
+    "forget_rewrite": {"matched": 50, "total": 50},
+    "forget_paraphrase": {"matched": 100, "total": 100},
+    "forget_neighborhood": {"matched": 0, "total": 500},
+    "retain_rewrite": {"matched": 0, "total": 1000},
+    "retain_paraphrase": {"matched": 2, "total": 2000},
+    "retain_neighborhood": {"matched": 22, "total": 10000},
+    "retain_auxiliary_false_activation_rate": 0.0018461538461538461
+  },
+  "claim_boundary": {
+    "supported": "Exact-name-scoped conditional suppression preserves matched Base Spe and PPL on seed 1.",
+    "unsupported": [
+      "weight-level unlearning",
+      "removal of the fact from base parameters",
+      "robustness to aliases, descriptions, misspellings, partial names, or adversarial scope evasion",
+      "confirmatory multi-seed performance"
+    ],
+    "recovery": "Removing the sidecar or bypassing the exact subject sequence recovers base behavior."
+  },
+  "artifact_provenance": {
+    "scoped_result": "outputs/scoped_bias_seed1_full50/official_eval.json on NJIT Wulver",
+    "base_result": "outputs/scoped_bias_seed1_full50/base_official_eval.json on NJIT Wulver",
+    "raw_files_tracked_in_git": false,
+    "metrics_source": "Matched terminal output supplied after the seed-1 run"
+  },
+  "next_protocol": {
+    "confirmatory_seeds": [2, 3, 4, 5, 6, 7, 8, 9, 10],
+    "selection_or_tuning_allowed": false,
+    "fixed_penalty": 512.0,
+    "required_comparators": ["matched Base"],
+    "required_audits": [
+      "per-split routing activation",
+      "retain metric deltas",
+      "PPL delta",
+      "exact-name scope-evasion limitation"
+    ]
+  }
+}

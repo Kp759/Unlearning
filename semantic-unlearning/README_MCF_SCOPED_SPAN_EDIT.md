@@ -57,6 +57,41 @@ python -u scripts/mcf_zero_unlearn_official_eval.py \
   --device-map auto
 ```
 
+### Frozen exploratory result
+
+The matched seed-1 run at tag `mcf-scoped-bias-v1` (`9284d91`, penalty 512)
+produced:
+
+| Metric | Base | Scoped bias | Delta |
+|---|---:|---:|---:|
+| forget Eff | 84.00 | 0.00 | -84.00 |
+| forget Gen | 85.00 | 0.00 | -85.00 |
+| forget Spe | 12.57 | 12.57 | 0.00 |
+| retain Spe | 11.84 | 11.82 | -0.02 |
+| PPL | 16.625 | 16.625 | 0.000 |
+
+The gate matched all 50 rewrite and 100 paraphrase prompts, none of the 500
+forget neighborhoods or 1,000 retain rewrites, and 24/13,000 retain auxiliary
+prompts. The minimum direct/paraphrase margin was 497, making clear that this
+result is driven by the constant lexical penalty. The complete receipt and
+claim boundary are recorded in
+`config/best_runs/mcf/scoped_bias_v1_seed1_exploratory.json`.
+
+Seed 1 is exploratory and must not enter a confirmatory aggregate. The method
+is frozen at `mcf-scoped-bias-v1`; untouched seeds 2--10 use matched Base runs
+and refuse to execute if any algorithm file differs from the tag:
+
+```bash
+bash scripts/submit_mcf_scoped_bias_confirmatory.sh
+```
+
+The dependent aggregation job writes
+`outputs/mcf_scoped_bias_confirmatory_v1/aggregate/{aggregate.json,aggregate.md,per_seed.csv}`.
+No hyperparameter selection, failure repair, or rerun-based seed exclusion is
+permitted. Exact-name routing does not cover aliases, descriptions,
+misspellings, partial names, or adversarial scope evasion; those remain stated
+limitations rather than claims established by MCF.
+
 The checkpoint is a normal Hugging Face directory plus
 `scoped_span_edit.pt`. The evaluator discovers that sidecar automatically. Its
 router sees only complete subject token sequences in `input_ids`; it does not
