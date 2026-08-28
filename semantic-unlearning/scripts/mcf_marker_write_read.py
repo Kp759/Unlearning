@@ -850,8 +850,27 @@ def main(argv: Sequence[str] | None = None) -> None:
     for param in model.parameters():
         param.requires_grad_(False)
     device = gagd.first_device(model)
+    # Untie FIRST. Llama-3.2-3B ships tied, so output_layer.weight IS
+    # embedding.weight: Stage 2's row assignment would simultaneously
+    # overwrite the input embedding for that token, changing every prompt
+    # containing it -- neighborhood, retain and PPL alike -- which destroys
+    # structural locality and voids the certificate. Must happen before any
+    # reference to either weight is captured.
     embedding = model.get_input_embeddings()
+    was_tied = (
+        embedding.weight.data_ptr() == model.get_output_embeddings().weight.data_ptr()
+    )
+    if was_tied:
+        head = model.get_output_embeddings()
+        head.weight = torch.nn.Parameter(head.weight.detach().clone())
+        if hasattr(model, "config"):
+            model.config.tie_word_embeddings = False
+        model.get_output_embeddings().weight.requires_grad_(False)
     output_layer = model.get_output_embeddings()
+    assert (
+        embedding.weight.data_ptr() != output_layer.weight.data_ptr()
+    ), "input embeddings and LM head must be untied before Stage 2 edits rows"
+    print(f"  embeddings tied on load: {was_tied}; untied for Stage 2: {was_tied}")
     hidden_size = int(embedding.weight.shape[1])
 
     transformer_fingerprint = sum(
@@ -1875,8 +1894,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                 )
         margins = []
         for record in records:
+            # BOTH recomputed under the current delta. Reusing a reference NLL
+            # measured before the edit leaves a residual (LSE_new - LSE_old) in
+            # the margin, since the two NLLs would carry different softmax
+            # normalizers.
             nll_true = answer_nll(model, tok, record["prompt"], record["answer"], device)
-            margins.append(nll_true - record["nll_reference"])
+            nll_ref = answer_nll(model, tok, record["prompt"], record["reference"], device)
+            margins.append(nll_true - nll_ref)
         worst = min(margins)
         print(f"  scale {scale:>5.2f}  worst margin {worst:+.4f}  (need >= {a.forget_margin - 1e-6:+.4f})")
         if worst >= float(a.forget_margin) - 1e-6:
@@ -2024,11 +2048,38 @@ def main(argv: Sequence[str] | None = None) -> None:
     print("=" * 68)
 
     if a.save_checkpoint:
+        # The writer is a forward hook, so it exists only at runtime: saving
+        # without materializing it writes the BASE embeddings and the
+        # checkpoint silently lacks Stage 1 entirely. Fold the delta into the
+        # rows, remove the hook, then verify the saved model reproduces the
+        # in-memory hidden states.
+        with torch.no_grad():
+            for slot, token_id in enumerate(writer.row_ids):
+                embedding.weight[token_id] += writer.delta[slot].to(
+                    embedding.weight.dtype
+                )
+        writer.enabled = False
+        writer.close()
+        check = prompt_hidden(
+            model, tok, [r["prompt"] for r in records], device, 1
+        )
+        drift = max(
+            float((check[k] - r["h_writer"]).norm() / (r["h_writer"].norm() + 1e-9))
+            for k, r in enumerate(records)
+        )
+        print(f"  writer materialized into embedding rows; max drift {drift:.3e}")
+        if drift > 1e-3:
+            raise RuntimeError(
+                f"materialized writer does not reproduce the hooked hidden "
+                f"states (drift {drift:.3e}); the checkpoint would not match "
+                f"the measured model"
+            )
         ckpt = out_dir / "checkpoint"
         model.save_pretrained(ckpt)
         tok.save_pretrained(ckpt)
         print(f"checkpoint: {ckpt}")
-    writer.close()
+    else:
+        writer.close()
     print(f"summary: {out_dir / 'marker_write_read_summary.json'}")
 
 
