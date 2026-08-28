@@ -77,6 +77,34 @@ systematic `L_max == S_max` pattern, but it does **not** explain away the
 observed PPL and retain damage. V4 removes this invalid hidden-state negative
 and protects target-new by its measured NLL instead.
 
+The seed-1 V4 run is also rejected. It improved held-out `Gen` from 14 to 10,
+but its output-only PPL reached approximately `6.76e16` and combined PPL
+approximately `8.67e16`; input-only PPL remained exactly 16.625. This localizes
+the catastrophe to the 39 sparse LM-head rows, not the reused 234-row writer.
+Do not run V4 on additional seeds.
+
+Before another reader architecture is trained, characterize the fixed-V3
+uniform-beta frontier. This is exploratory because it reads official probes:
+
+```bash
+python -u scripts/sweep_mcf_compositional_beta_frontier.py \
+  --model-dir outputs/mcf_compositional_marker_v3_seed1_3b/method/checkpoint \
+  --base-model-path "$MODEL_PATH" \
+  --state outputs/mcf_compositional_marker_v3_seed1_3b/method/compositional_marker_state.pt \
+  --mcf-path data/multi_counterfact.json \
+  --wikidata-dir "$WIKIDATA_DIR" \
+  --out outputs/mcf_compositional_marker_v3_seed1_3b/comparison/beta_frontier.json \
+  --seed 1 \
+  --scales 0,0.0001,0.0003,0.001,0.003,0.01,0.03,0.1,0.3,1 \
+  --ppl-limit-percent 5 \
+  --dtype bf16 \
+  --device-map single
+```
+
+The largest PPL-safe scale is a diagnostic frontier point, not a valid
+confirmatory hyperparameter. Any final norm cap must be frozen using disjoint
+training-safe data and then evaluated once on the official probes.
+
 ## Data firewall
 
 Training requires the direct-only artifact produced by

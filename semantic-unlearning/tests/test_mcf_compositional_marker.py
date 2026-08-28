@@ -18,6 +18,7 @@ import mcf_compositional_marker_core as core
 import mcf_compositional_marker_write_read as method
 import diagnose_mcf_compositional_component_ppl as component_ppl
 import diagnose_mcf_compositional_gen_failures as gen_diagnostic
+import sweep_mcf_compositional_beta_frontier as beta_frontier
 
 
 class WordTokenizer:
@@ -572,6 +573,34 @@ def test_gen_diagnostic_separates_direct_only_surrogate_coverage():
     assert report["groups"]["direct_only"]["sensitive_preference_percent"] == 50.0
     assert report["groups"]["robust_prompt_set"]["sensitive_preference_percent"] == 0.0
     assert [row["subject"] for row in report["failed_records"]] == ["Ada"]
+
+
+def test_beta_frontier_scales_are_sorted_unique_and_bounded():
+    assert beta_frontier.parse_scales("1,0.1,0,0.1,0.01") == [
+        0.0,
+        0.01,
+        0.1,
+        1.0,
+    ]
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        beta_frontier.parse_scales("1.1")
+
+
+def test_beta_frontier_relative_norm_and_ppl_safe_selection():
+    base = torch.tensor([[3.0, 4.0], [0.0, 2.0]])
+    delta = torch.tensor([[0.3, 0.4], [0.0, 1.0]])
+    ratios = beta_frontier.relative_row_norms(delta, base)
+    rows = [
+        {"scale": 0.0, "output_only_ppl_percent_delta": 0.0},
+        {"scale": 0.1, "output_only_ppl_percent_delta": 4.9},
+        {"scale": 0.3, "output_only_ppl_percent_delta": 5.1},
+    ]
+
+    assert torch.allclose(ratios, torch.tensor([0.1, 0.5]))
+    assert (
+        beta_frontier.choose_largest_ppl_safe_scale(rows, limit_percent=5.0)
+        == 0.1
+    )
 
 
 def test_surrogate_loader_accepts_audited_robust_adapter_direct_only_rows(tmp_path):
