@@ -1,0 +1,379 @@
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+import torch
+
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import mcf_compositional_marker_core as core
+import mcf_compositional_marker_write_read as method
+
+
+class WordTokenizer:
+    """Tiny tokenizer where ``de`` is deliberately shared by two subjects."""
+
+    def __init__(self):
+        self.vocab = {
+            "gautier": 1,
+            "de": 2,
+            "coincy": 3,
+            "melchior": 4,
+            "vogue": 5,
+            "charles": 6,
+            "gaulle": 7,
+            "speaks": 8,
+            "records": 9,
+            "say": 10,
+            "x": 11,
+        }
+
+    def __call__(self, text, *, add_special_tokens=False, **_kwargs):
+        words = re.findall(r"[A-Za-z]+", str(text).lower())
+        return {"input_ids": [self.vocab.setdefault(word, len(self.vocab) + 1) for word in words]}
+
+
+class TensorBatch(dict):
+    def to(self, device):
+        return TensorBatch(
+            {
+                key: value.to(device) if isinstance(value, torch.Tensor) else value
+                for key, value in self.items()
+            }
+        )
+
+
+class CharacterBatchTokenizer:
+    pad_token_id = 0
+    bos_token_id = None
+    eos_token_id = 127
+    unk_token_id = None
+    padding_side = "right"
+
+    def __call__(
+        self,
+        text,
+        *,
+        add_special_tokens=True,
+        padding=False,
+        return_tensors=None,
+        **_kwargs,
+    ):
+        values = text if isinstance(text, list) else [text]
+        rows = [[ord(character) for character in value] for value in values]
+        width = max(len(row) for row in rows)
+        attention = [[1] * len(row) + [0] * (width - len(row)) for row in rows]
+        if padding:
+            rows = [row + [self.pad_token_id] * (width - len(row)) for row in rows]
+        if return_tensors == "pt":
+            return TensorBatch(
+                {
+                    "input_ids": torch.tensor(rows, dtype=torch.long),
+                    "attention_mask": torch.tensor(attention, dtype=torch.long),
+                }
+            )
+        encoded = rows if isinstance(text, list) else rows[0]
+        return {"input_ids": encoded}
+
+
+class TinyContextLM(torch.nn.Module):
+    def __init__(self, vocab_size=128, hidden_size=4):
+        super().__init__()
+        self.input_embeddings = torch.nn.Embedding(vocab_size, hidden_size)
+        self.output_embeddings = torch.nn.Linear(hidden_size, vocab_size, bias=False)
+
+    def get_input_embeddings(self):
+        return self.input_embeddings
+
+    def get_output_embeddings(self):
+        return self.output_embeddings
+
+    def forward(self, input_ids, attention_mask=None, **_kwargs):
+        del attention_mask
+        # Cumulative context makes the final state depend on every prior row.
+        hidden = self.input_embeddings(input_ids).cumsum(dim=1)
+        return SimpleNamespace(
+            logits=self.output_embeddings(hidden),
+            hidden_states=(hidden,),
+        )
+
+
+def test_context_builder_makes_shared_subword_and_leave_one_out_negatives():
+    tok = WordTokenizer()
+    records = [
+        {"case_id": 1, "subject": "Gautier de Coincy", "prompt_template": "{} speaks"},
+        {"case_id": 2, "subject": "Melchior de Vogue", "prompt_template": "{} speaks"},
+        {"case_id": 3, "subject": "Charles de Gaulle", "prompt_template": "{} speaks"},
+    ]
+    positives = {
+        1: ["Gautier de Coincy speaks", "Records say Gautier de Coincy speaks"],
+        2: ["Melchior de Vogue speaks"],
+        3: ["Charles de Gaulle speaks"],
+    }
+    selected = {1: [1, 2, 3], 2: [4, 2, 5], 3: [6, 2, 7]}
+
+    contexts, report = core.build_compositional_contexts(
+        records,
+        positives,
+        selected,
+        tok,
+        seed=7,
+        max_shared_subjects=4,
+        max_leave_one_out=4,
+        max_fragments=4,
+        max_unrelated=2,
+    )
+
+    first = contexts[1]
+    assert first["positive_prompts"][0] == "Gautier de Coincy speaks"
+    shared = [x for x in first["negative_contexts"] if x["kind"] == "shared_subword_subject"]
+    assert {x["source_subject"] for x in shared} == {
+        "Melchior de Vogue",
+        "Charles de Gaulle",
+    }
+    assert all(2 in x["overlap_token_ids"] for x in shared)
+
+    leave_one = [x for x in first["negative_contexts"] if x["kind"] == "leave_one_component_out"]
+    assert len(leave_one) == 3
+    assert all("gautier de coincy" not in x["prompt"].casefold() for x in leave_one)
+    assert report["official_paraphrases_seen"] == 0
+    assert report["official_neighborhoods_seen"] == 0
+    assert report["benchmark_retain_seen"] == 0
+
+
+def test_context_builder_rejects_a_positive_without_the_complete_subject():
+    tok = WordTokenizer()
+    records = [
+        {"case_id": 1, "subject": "Gautier de Coincy", "prompt_template": "{} speaks"},
+        {"case_id": 2, "subject": "Melchior de Vogue", "prompt_template": "{} speaks"},
+    ]
+    with pytest.raises(ValueError, match="complete subject"):
+        core.build_compositional_contexts(
+            records,
+            {1: ["Gautier de Coincy speaks", "Coincy speaks"], 2: ["Melchior de Vogue speaks"]},
+            {1: [1, 2, 3], 2: [4, 2, 5]},
+            tok,
+            seed=1,
+        )
+
+
+def test_contrastive_marker_prefers_positive_only_reachable_axis():
+    positive = torch.tensor(
+        [
+            [3.0, 0.10, 0.0, 0.0],
+            [-2.8, -0.10, 0.0, 0.0],
+            [2.5, 0.05, 0.0, 0.0],
+            [-2.6, -0.05, 0.0, 0.0],
+        ]
+    )
+    negative = torch.tensor(
+        [
+            [0.02, 3.0, 0.0, 0.0],
+            [-0.02, -2.7, 0.0, 0.0],
+            [0.01, 2.5, 0.0, 0.0],
+            [-0.01, -2.4, 0.0, 0.0],
+        ]
+    )
+    forbidden = torch.tensor([[0.0, 0.0, 1.0, 0.0]])
+
+    marker, report = core.select_contrastive_marker(
+        positive,
+        negative,
+        forbidden_basis=forbidden,
+        ridge=1e-3,
+        max_rank=4,
+    )
+
+    assert abs(float(marker[0])) > 0.99
+    assert abs(float(marker[1])) < 0.05
+    assert abs(float(marker[2])) < 1e-6
+    assert report["contrastive_ratio"] > 100.0
+    assert report["forbidden_projection_abs_max"] < 1e-6
+
+
+def test_distributional_reader_is_portable_and_rejects_negative_axis():
+    marker = torch.tensor([1.0, 0.0, 0.0])
+    positives = torch.tensor(
+        [
+            [5.0, 0.10, 0.0],
+            [4.8, -0.10, 0.05],
+            [5.2, 0.05, -0.05],
+            [4.9, 0.00, 0.02],
+        ]
+    )
+    negatives = torch.tensor(
+        [
+            [0.01, 5.0, 0.0],
+            [-0.01, 4.5, 0.2],
+            [0.02, -4.8, 0.1],
+            [-0.02, -5.2, -0.1],
+        ]
+    )
+
+    reader, fit = core.distributional_reader(
+        marker,
+        positives,
+        negatives,
+        ridge=0.05,
+        anchor_weight=10.0,
+        consistency_weight=2.0,
+        negative_weight=2.0,
+        refine_steps=100,
+        refine_lr=0.03,
+        positive_floor=0.02,
+    )
+    metrics = core.reader_metrics(reader, positives, negatives)
+
+    assert fit["cos_marker_q"] > 0.99
+    assert metrics["positive_sign_consistent"] is True
+    assert metrics["portability_ratio"] > 0.90
+    assert metrics["kappa_train"] < 0.02
+
+
+def test_directional_row_delta_sums_readers_only_on_owned_answer_rows():
+    readers = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+    betas = torch.tensor([2.0, 3.0, 0.5])
+    answer_rows = [[10], [10, 11], [12]]
+
+    delta = core.directional_row_deltas(
+        readers, betas, answer_rows, selected_output_rows=[10, 11, 12]
+    )
+
+    assert torch.equal(delta[0], torch.tensor([-2.0, -3.0]))
+    assert torch.equal(delta[1], torch.tensor([0.0, -3.0]))
+    assert torch.equal(delta[2], torch.tensor([-0.5, -0.5]))
+
+
+def test_method_defaults_to_standard_weights_and_strict_reader_gate():
+    args = method.parse_args(
+        [
+            "--model-path",
+            "/model",
+            "--training-visible-path",
+            "/locked.json",
+            "--split-manifest",
+            "/manifest.json",
+            "--output-dir",
+            "/out",
+        ]
+    )
+    assert args.gate_policy == "strict"
+    assert args.kappa_train_max == 0.10
+    assert args.portability_min == 0.50
+    assert args.writer_marker_kappa_max == 0.10
+    assert not hasattr(args, "router")
+    assert not hasattr(args, "logit_bias")
+
+
+def test_multi_context_reachability_moves_only_prompts_containing_selected_row():
+    torch.manual_seed(3)
+    model = TinyContextLM()
+    tok = CharacterBatchTokenizer()
+    prompts = ["ab", "cb"]
+    base = method.cache_prompt_baselines(
+        model,
+        tok,
+        prompts,
+        torch.device("cpu"),
+        batch_size=2,
+        topk=4,
+    )
+    delta = method.canonical.SelectedRowDelta(
+        1,
+        4,
+        direction_basis=None,
+        device=torch.device("cpu"),
+    )
+    handle = method.directional.register_input_embedding_delta_hook(
+        model.get_input_embeddings(), [ord("a")], delta.effective_delta
+    )
+    try:
+        positive, negative = method.multi_context_reachability(
+            model,
+            tok,
+            delta,
+            [0],
+            ["ab"],
+            ["cb"],
+            base,
+            torch.device("cpu"),
+            probes=4,
+            sigma=0.2,
+            generator=torch.Generator().manual_seed(8),
+        )
+    finally:
+        handle.remove()
+
+    assert float(positive.norm()) > 0
+    assert torch.equal(negative, torch.zeros_like(negative))
+
+
+def test_surrogate_loader_accepts_audited_robust_adapter_direct_only_rows(tmp_path):
+    records = [
+        {
+            "case_id": 10,
+            "requested_rewrite": {
+                "subject": "Gautier de Coincy",
+                "prompt": "{} speaks",
+                "target_true": {"str": "French"},
+                "target_new": {"str": "English"},
+            },
+        },
+        {
+            "case_id": 11,
+            "requested_rewrite": {
+                "subject": "Melchior de Vogue",
+                "prompt": "{} speaks",
+                "target_true": {"str": "French"},
+                "target_new": {"str": "German"},
+            },
+        },
+    ]
+    artifact = {
+        "schema_version": 1,
+        "protocol": "mcf_direct_only_robust_prompt_adapter_v7",
+        "seed": 1,
+        "forget_num": 2,
+        "semantic_validation": {"protocol": "semantic-validator"},
+        "data_access": {
+            "official_paraphrase_seen": 0,
+            "official_neighborhood_seen": 0,
+            "benchmark_retain_seen": 0,
+            "official_PPL_seen": False,
+        },
+        "records": [
+            {
+                "case_id": 10,
+                "sampled_position": 0,
+                "subject": "Gautier de Coincy",
+                "direct_prompt": "Gautier de Coincy speaks",
+                "augmentation_status": "direct_only",
+                "surrogate_prompts": [],
+            },
+            {
+                "case_id": 11,
+                "sampled_position": 1,
+                "subject": "Melchior de Vogue",
+                "direct_prompt": "Melchior de Vogue speaks",
+                "augmentation_status": "robust_prompt_set",
+                "surrogate_prompts": ["Records say Melchior de Vogue speaks"],
+            },
+        ],
+    }
+    path = tmp_path / "surrogates.json"
+    path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    prompts, receipt = method.load_surrogate_prompts(
+        path, records, seed=1, require_semantic=True
+    )
+
+    assert prompts == [[], ["Records say Melchior de Vogue speaks"]]
+    assert receipt["protocol"] == "mcf_direct_only_robust_prompt_adapter_v7"

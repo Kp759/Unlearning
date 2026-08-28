@@ -86,8 +86,9 @@ class TargetAwareDirectOnlyV8Tests(unittest.TestCase):
         self.assertEqual(set(visible), {"case_id", "requested_rewrite", "data_role"})
         self.assertEqual(
             set(visible["requested_rewrite"]),
-            {"prompt", "subject", "target_true", "target_new"},
+            {"prompt", "subject", "relation_id", "target_true", "target_new"},
         )
+        self.assertEqual(visible["requested_rewrite"]["relation_id"], "P106")
         self.assertEqual(
             visible["requested_rewrite"]["target_true"]["str"], "politician"
         )
