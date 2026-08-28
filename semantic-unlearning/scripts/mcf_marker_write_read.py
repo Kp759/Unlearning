@@ -150,6 +150,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--min-gate-controls", type=int, default=4)
     p.add_argument(
+        "--on-insufficient", choices=("stop", "exclude"), default="stop",
+        help=(
+            "stop (default): refuse to run when any record lacks protection. "
+            "exclude: drop those records and continue on the rest, recording "
+            "them as excluded with their funnels. Excluding is a protocol "
+            "decision -- a record with 4 controls has a rank-4 basis, so any "
+            "kappa measured against it is meaningless -- and the excluded set "
+            "must be reported alongside the result, never dropped silently."
+        ),
+    )
+    p.add_argument(
         "--gate-holdout-frac", type=float, default=0.25,
         help="Share of mined contexts withheld from marker construction, used only by the gate.",
     )
@@ -1085,7 +1096,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"{len(survived_but_rejected)} survived rank but failed NLL, "
             f"{len(partial)} accepted some but too few"
         )
-        for row in failing[:5]:
+        for row in failing:
             print(
                 f"    case {row['case_id']}: {row['candidates']} candidates -> "
                 f"{row['rank_survivors']} rank survivors -> {row['nll_scored']} scored -> "
@@ -1096,6 +1107,30 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"median {fits[len(fits)//2]}  p90 {fits[min(len(fits)-1,(9*len(fits))//10)]}  max {fits[-1]}"
     )
     gagd.write_json(out_dir / "protection_report.json", protection_report)
+    if insufficient and a.protection_source == "relation" and a.on_insufficient == "exclude":
+        excluded = set(insufficient)
+        records = [r for r in records if r["case_id"] not in excluded]
+        protection_report["excluded_records"] = {
+            "policy": "exclude",
+            "count": len(excluded),
+            "case_ids": sorted(excluded),
+            "reason": (
+                "insufficient relation-conditioned controls; a rank-deficient "
+                "protected basis makes kappa uninterpretable for these records"
+            ),
+            "funnels": [r for r in coverage_rows if r["case_id"] in excluded],
+        }
+        print(
+            f"\n  EXCLUDING {len(excluded)}/{len(excluded) + len(records)} records "
+            f"with insufficient protection; continuing on {len(records)}. "
+            f"Any result MUST be reported as {len(records)}/"
+            f"{len(excluded) + len(records)} with the excluded ids."
+        )
+        if not records:
+            print("  no records remain after exclusion")
+            raise SystemExit(2)
+        insufficient = []
+
     if insufficient and a.protection_source == "relation":
         # A hard gate, not a warning. A record with a handful of controls gets
         # a near-degenerate basis that resembles protection; any marker, writer
