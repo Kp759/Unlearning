@@ -20,7 +20,7 @@ WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_embedding_keyed_neuron_v3_seed1_3b}"
 CONTROL_OUTPUT_DIR="${CONTROL_OUTPUT_DIR:-${OUTPUT_DIR}_mlp_only_retrained}"
-CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_clean_seed1_3b}"
+CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_1_clean_seed1_3b}"
 
 # These are the exact artifacts that produced the frozen Stage-1 writer.  The
 # neuron learner never receives MCF_PATH and cannot open official probes.
@@ -30,6 +30,7 @@ CONTEXT_MANIFEST="${CONTEXT_MANIFEST:-${CLEAN_WRITER_OUTPUT_DIR}/method/context_
 STAGE1_STATE="${STAGE1_STATE:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_writer.pt}"
 STAGE1_REPORT="${STAGE1_REPORT:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_writer_report.json}"
 STAGE1_LOG="${STAGE1_LOG:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_writer_log.jsonl}"
+STAGE1_PORTABILITY="${STAGE1_PORTABILITY:-${CLEAN_WRITER_OUTPUT_DIR}/method/training_safe_portability_preflight.json}"
 STAGE1_ACCEPTANCE="${STAGE1_ACCEPTANCE:-${CLEAN_WRITER_OUTPUT_DIR}/method/clean_stage1_acceptance.json}"
 REGISTRY="${REGISTRY:-protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json}"
 
@@ -47,14 +48,26 @@ if [[ -e "${CONTROL_OUTPUT_DIR}" ]]; then
   echo "matched-control path already exists; refusing overwrite: ${CONTROL_OUTPUT_DIR}" >&2
   exit 2
 fi
-for required in "${TRAINING_VISIBLE}" "${SPLIT_MANIFEST}" "${CONTEXT_MANIFEST}" "${STAGE1_STATE}" "${STAGE1_REPORT}" "${STAGE1_LOG}" "${STAGE1_ACCEPTANCE}" "${REGISTRY}"; do
+for required in "${TRAINING_VISIBLE}" "${SPLIT_MANIFEST}" "${CONTEXT_MANIFEST}" "${STAGE1_STATE}" "${STAGE1_REPORT}" "${STAGE1_LOG}" "${STAGE1_PORTABILITY}" "${STAGE1_ACCEPTANCE}" "${REGISTRY}"; do
   if [[ ! -e "${required}" ]]; then
     echo "required frozen training artifact is missing: ${required}" >&2
     exit 2
   fi
 done
-if ! jq -e '.passed == true and .protocol == "mcf_context_composed_sparse_embedding_writer_v6" and .lineage.from_scratch == true and .lineage.writer_steps == 1200' "${STAGE1_ACCEPTANCE}" >/dev/null; then
-  echo "clean Stage-1 integrity receipt failed: ${STAGE1_ACCEPTANCE}" >&2
+if ! jq -e '
+  .kind == "mcf_clean_stage1_writer_acceptance" and
+  .passed == true and
+  .protocol == "mcf_context_composed_sparse_embedding_writer_v6_1" and
+  .lineage.from_scratch == true and
+  .lineage.writer_steps == 1200 and
+  .checks.artifact_integrity == true and
+  .checks.training_safe_portability == true and
+  .training_safe_portability.passed == true and
+  .training_safe_portability.amplitude_threshold == 4.5 and
+  .training_safe_portability.criterion.minimum_global_fraction == 0.95 and
+  .training_safe_portability.criterion.minimum_record_fraction == 0.8
+' "${STAGE1_ACCEPTANCE}" >/dev/null; then
+  echo "clean Stage-1 integrity/portability acceptance failed: ${STAGE1_ACCEPTANCE}" >&2
   exit 2
 fi
 EXPECTED_PROTOCOL="mcf_embedding_keyed_sparse_neuron_suppression_v3"
@@ -88,6 +101,8 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --stage1-state "${STAGE1_STATE}" \
   --stage1-report "${STAGE1_REPORT}" \
   --stage1-writer-log "${STAGE1_LOG}" \
+  --clean-stage1-portability-preflight "${STAGE1_PORTABILITY}" \
+  --clean-stage1-acceptance "${STAGE1_ACCEPTANCE}" \
   --experiment-registry "${REGISTRY}" \
   --experiment-label primary \
   --output-dir "${OUTPUT_DIR}/method" \
@@ -160,6 +175,8 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --stage1-state "${STAGE1_STATE}" \
   --stage1-report "${STAGE1_REPORT}" \
   --stage1-writer-log "${STAGE1_LOG}" \
+  --clean-stage1-portability-preflight "${STAGE1_PORTABILITY}" \
+  --clean-stage1-acceptance "${STAGE1_ACCEPTANCE}" \
   --experiment-registry "${REGISTRY}" \
   --experiment-label mlp_only_retrained \
   --output-dir "${CONTROL_OUTPUT_DIR}/method" \

@@ -22,7 +22,7 @@ ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
-CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_clean_seed1_3b}"
+CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_1_clean_seed1_3b}"
 FACTORIAL_ROOT="${FACTORIAL_ROOT:-outputs/mcf_context_gating_frequency_factorial_seed1_3b}"
 REGISTRY="${REGISTRY:-protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json}"
 TRAINING_VISIBLE="${TRAINING_VISIBLE:-${CLEAN_WRITER_OUTPUT_DIR}/protocol/training_visible_target_aware_direct.json}"
@@ -71,7 +71,10 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --synthetic-paraphrases-per-record 6 \
   --corpus-context-prefixes 256 \
   --reach-probes 12 \
-  --positive-context-batch 4 \
+  --writer-record-batch 3 \
+  --positive-context-batch 7 \
+  --writer-positive-context-mode all \
+  --writer-positive-tail-k 2 \
   --negative-context-batch 5 \
   --writer-steps 1200 \
   --writer-lr 0.0002 \
@@ -86,6 +89,35 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --dtype bf16 \
   --device-map single
 
+TRAINING_SAFE_PORTABILITY="${WRITER_DIR}/training_safe_portability_preflight.json"
+CLEAN_STAGE1_ACCEPTANCE="${WRITER_DIR}/clean_stage1_acceptance.json"
+env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
+  -u PARAPHRASE_PATH -u NEIGHBORHOOD_PATH -u RETAIN_EVAL_PATH \
+  -u ADVERSARIAL_EVAL_PATH -u SURROGATE_ARTIFACT \
+  python -u scripts/audit_mcf_clean_stage1_training_preflight.py \
+  --model-path "${MODEL_PATH}" \
+  --context-manifest "${WRITER_DIR}/context_manifest.json" \
+  --stage1-state "${WRITER_DIR}/stage1_writer.pt" \
+  --stage1-report "${WRITER_DIR}/stage1_writer_report.json" \
+  --stage1-writer-log "${WRITER_DIR}/stage1_writer_log.jsonl" \
+  --out "${TRAINING_SAFE_PORTABILITY}" \
+  --amplitude-threshold 4.5 \
+  --minimum-global-fraction 0.95 \
+  --minimum-record-fraction 0.80 \
+  --batch-size 8 \
+  --dtype bf16 \
+  --device-map single
+
+python -u scripts/verify_mcf_clean_stage1_writer.py \
+  --training-visible-path "${TRAINING_VISIBLE}" \
+  --split-manifest "${SPLIT_MANIFEST}" \
+  --context-manifest "${WRITER_DIR}/context_manifest.json" \
+  --stage1-state "${WRITER_DIR}/stage1_writer.pt" \
+  --stage1-report "${WRITER_DIR}/stage1_writer_report.json" \
+  --stage1-writer-log "${WRITER_DIR}/stage1_writer_log.jsonl" \
+  --training-safe-portability "${TRAINING_SAFE_PORTABILITY}" \
+  --out "${CLEAN_STAGE1_ACCEPTANCE}"
+
 env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   -u PARAPHRASE_PATH -u NEIGHBORHOOD_PATH -u RETAIN_EVAL_PATH \
   -u ADVERSARIAL_EVAL_PATH \
@@ -97,6 +129,8 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --stage1-state "${WRITER_DIR}/stage1_writer.pt" \
   --stage1-report "${WRITER_DIR}/stage1_writer_report.json" \
   --stage1-writer-log "${WRITER_DIR}/stage1_writer_log.jsonl" \
+  --clean-stage1-portability-preflight "${TRAINING_SAFE_PORTABILITY}" \
+  --clean-stage1-acceptance "${CLEAN_STAGE1_ACCEPTANCE}" \
   --experiment-registry "${REGISTRY}" \
   --experiment-label primary \
   --output-dir "${NEURON_DIR}" \

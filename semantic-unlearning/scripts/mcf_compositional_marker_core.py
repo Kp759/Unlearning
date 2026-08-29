@@ -27,7 +27,45 @@ import torch
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v6"
+PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v6_1"
+
+
+def robust_positive_shortfall_loss(
+    amplitudes: torch.Tensor,
+    *,
+    target: float,
+    tail_k: int,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Penalize both average and worst-context marker shortfall.
+
+    V6 optimized the mean squared hinge over a subsample of each record's
+    positive contexts.  V6.1 presents every positive context together and
+    adds a CVaR-like term over the ``tail_k`` largest squared shortfalls.  The
+    tail term is deliberately conservative: the registered 80% per-record
+    portability gate can tolerate one miss for a six- or seven-prompt record,
+    but optimizing the weakest two avoids placing the learned solution on that
+    discrete boundary.
+
+    The returned loss retains V6's division by ``target`` so the new term has
+    the same basic scale as the historical writer objective.
+    """
+
+    if amplitudes.ndim != 1 or amplitudes.numel() == 0:
+        raise ValueError("amplitudes must be a non-empty vector")
+    if not math.isfinite(float(target)) or float(target) <= 0.0:
+        raise ValueError("target must be finite and positive")
+    if int(tail_k) <= 0:
+        raise ValueError("tail_k must be positive")
+    squared_shortfall = F.relu(float(target) - amplitudes).square()
+    mean_term = squared_shortfall.mean()
+    effective_tail_k = min(int(tail_k), int(squared_shortfall.numel()))
+    tail_term = squared_shortfall.topk(effective_tail_k).values.mean()
+    scale = float(target)
+    return (mean_term + tail_term) / scale, {
+        "mean": mean_term / scale,
+        "tail": tail_term / scale,
+        "maximum": squared_shortfall.max() / scale,
+    }
 
 
 def normalize_text(value: Any) -> str:

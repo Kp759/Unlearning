@@ -125,6 +125,40 @@ without changing its raw logit; V5 incorrectly penalized that improvement as
 damage. V5.1 changes only this constraint to one-sided regression before any
 rank increase is tested.
 
+### Clean V6 Stage-1 diagnostic and V6.1
+
+The first clean, from-Base V6 writer was stopped by the unchanged training-safe
+portability gate before any sparse-neuron decoder or official evaluation was
+opened. It completed the marker on 339/346 prompts (97.98%) globally. At the
+record level, 45/50 records completed every one of their prompts, three
+completed 6/7, and two completed 5/7. The two 5/7 records failed the registered
+minimum of 0.80; the three 6/7 records passed. The previously corrupted
+free-form-surrogate cases 14801 and 17256 both completed 7/7, supporting the
+training-data repair.
+
+Training-only inspection showed no uniformly harmful prompt class. The same
+relation template could strengthen or weaken the marker depending on its
+unrelated prefix, and one canonical direct prompt was weaker than all of its
+alternates. The defensible diagnosis is therefore context-manifold margin
+instability under V6 optimization, not invalid V6 data and not a generic
+Wikipedia-prefix failure.
+
+V6.1 changes only the uniformly applied Stage-1 optimization:
+
+- every clean positive for a sampled record is presented in the same update;
+- the record batch is reduced from four to three while the registered positive
+  capacity rises from four to seven, keeping the maximum 3 x (7 + 5) = 36
+  prompt batch equal to V6's 4 x (4 + 5) = 36;
+- the mean squared marker shortfall is augmented with the mean of the two
+  largest squared shortfalls for that record; and
+- the data, 1,200 steps, row caps, amplitude 4.5, global 0.95, and per-record
+  0.80 acceptance thresholds remain unchanged.
+
+The worst-two term is a conservative robustness objective rather than a
+restatement of the gate: a six- or seven-prompt record can miss one prompt and
+still pass 0.80. Its purpose is to keep the learned writer away from that
+discrete boundary without dropping or specially weighting named records.
+
 Before another reader architecture is trained, characterize the fixed-V3
 uniform-beta frontier. This is exploratory because it reads official probes:
 
@@ -152,7 +186,7 @@ using training-safe data; it does not select a beta scale from official probes.
 ## Data firewall
 
 Training requires the direct-only artifact produced by
-`build_mcf_sure_target_aware_direct_split.py`. The V6 paper path does not accept
+`build_mcf_sure_target_aware_direct_split.py`. The V6.1 paper path does not accept
 a surrogate artifact. The legacy surrogate mode remains available only for
 explicitly labelled diagnostics and validates its receipt for:
 
@@ -232,32 +266,37 @@ From the repository root:
 ```bash
 export MODEL_PATH=/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean
 export WIKIDATA_DIR=/scratch/yl258/kp759/datasets/wikipedia_sure_50020
-export OUTPUT_DIR=outputs/mcf_compositional_marker_v6_seed1_3b
+export OUTPUT_DIR=outputs/mcf_compositional_marker_v6_1_seed1_3b
 
 bash scripts/submit_mcf_compositional_marker_seed1.sh
 ```
 
-For the sparse-neuron experiment, build only the clean V6 writer first:
+For the sparse-neuron experiment, build only the clean V6.1 writer first:
 
 ```bash
 mkdir -p slurm_logs
 bash scripts/run_mcf_compositional_marker_clean_stage1_manual.sh \
-  outputs/mcf_compositional_marker_v6_clean_seed1_3b \
-  2>&1 | tee slurm_logs/mcf_compositional_marker_v6_clean_seed1_manual.log
+  outputs/mcf_compositional_marker_v6_1_clean_seed1_3b \
+  2>&1 | tee slurm_logs/mcf_compositional_marker_v6_1_clean_seed1_manual.log
 ```
 
-This stops after Stage 1 and writes `method/clean_stage1_acceptance.json`.
-It never trains an output reader or opens official evaluation probes. Existing
-output directories are refused so the V2/V3 artifacts remain historical.
+This stops after Stage 1, reloads the writer against every training-safe
+positive, and writes `method/clean_stage1_acceptance.json`. That receipt passes
+only when artifact integrity and the unchanged 4.5 / 95% / 80% portability
+gate both pass. It never trains an output reader or opens official evaluation
+probes. Existing output directories are refused so V6 and earlier artifacts
+remain historical.
 
 Outputs:
 
 - `method/context_manifest.json`: every training-visible positive/negative and
   its provenance;
 - `method/stage1_writer_log.jsonl`: nonempty optimization trace bound into the
-  V6 writer state and report;
+  V6.1 writer state and report;
+- `method/training_safe_portability_preflight.json`: fresh-Base replay of the
+  exact pre-decoder writer-on minus writer-off amplitude gate;
 - `method/clean_stage1_acceptance.json`: from-Base lineage, relation-template
-  policy, and cross-artifact hash receipt for Stage-1-only runs;
+  policy, cross-artifact hashes, and conjunctive portability decision;
 - `method/reader_gate_report.json`: per-record `kappa`, portability, cosine,
   and the diagnostic pre-Stage-2 result;
 - `method/output_reader_gate_report.json`: per-sensitive-output-row reader
@@ -277,7 +316,7 @@ Outputs:
   output-only, and exactly reconstructed-base PPL from one frozen checkpoint;
 - historical diagnostic-only `comparison/gen_failure_attribution.json`:
   post-hoc Gen failures stratified by robust-surrogate versus direct-only
-  training coverage; it is not produced by the clean V6 paper path.
+  training coverage; it is not produced by the clean V6.1 paper path.
 
 The target is `Eff=0`, `Gen=0`, negligible `Delta Spe`, and negligible
 `Delta PPL`. Only the first two are forced on training-safe contexts; unseen

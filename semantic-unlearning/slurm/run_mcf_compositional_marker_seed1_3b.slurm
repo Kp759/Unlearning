@@ -18,7 +18,7 @@ ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_seed1_3b}"
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_1_seed1_3b}"
 
 cd "${PROJECT_DIR}"
 mkdir -p slurm_logs "${OUTPUT_DIR}/protocol"
@@ -44,6 +44,10 @@ SPLIT_MANIFEST="${OUTPUT_DIR}/protocol/split_manifest.json"
 WRITER_ARGS=(
   --writer-steps 1200
   --writer-lr 2e-4
+  --writer-record-batch 3
+  --positive-context-batch 7
+  --writer-positive-context-mode all
+  --writer-positive-tail-k 2
 )
 
 python -u scripts/mcf_compositional_marker_write_read.py \
@@ -58,7 +62,6 @@ python -u scripts/mcf_compositional_marker_write_read.py \
   --synthetic-paraphrases-per-record 6 \
   --corpus-context-prefixes 256 \
   --reach-probes 12 \
-  --positive-context-batch 4 \
   --negative-context-batch 5 \
   --row-norm-cap 8 \
   --write-alpha 6 \

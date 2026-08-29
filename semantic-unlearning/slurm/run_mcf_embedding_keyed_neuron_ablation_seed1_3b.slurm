@@ -21,7 +21,7 @@ PROJECT_DIR="${PROJECT_DIR:-/scratch/yl258/kp759/Unlearning/semantic-unlearning}
 ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
-CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_clean_seed1_3b}"
+CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_1_clean_seed1_3b}"
 ABLATION_ROOT="${ABLATION_ROOT:-outputs/mcf_embedding_keyed_neuron_ablations_seed1_3b}"
 TRAINING_VISIBLE="${TRAINING_VISIBLE:-${CLEAN_WRITER_OUTPUT_DIR}/protocol/training_visible_target_aware_direct.json}"
 SPLIT_MANIFEST="${SPLIT_MANIFEST:-${CLEAN_WRITER_OUTPUT_DIR}/protocol/split_manifest.json}"
@@ -29,6 +29,8 @@ CONTEXT_MANIFEST="${CONTEXT_MANIFEST:-${CLEAN_WRITER_OUTPUT_DIR}/method/context_
 STAGE1_STATE="${STAGE1_STATE:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_writer.pt}"
 STAGE1_REPORT="${STAGE1_REPORT:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_writer_report.json}"
 STAGE1_LOG="${STAGE1_LOG:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_writer_log.jsonl}"
+STAGE1_PORTABILITY="${STAGE1_PORTABILITY:-${CLEAN_WRITER_OUTPUT_DIR}/method/training_safe_portability_preflight.json}"
+STAGE1_ACCEPTANCE="${STAGE1_ACCEPTANCE:-${CLEAN_WRITER_OUTPUT_DIR}/method/clean_stage1_acceptance.json}"
 REGISTRY="${REGISTRY:-protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json}"
 
 case "${SLURM_ARRAY_TASK_ID}" in
@@ -57,7 +59,7 @@ if [[ -e "${OUTPUT_DIR}/embedding_keyed_neuron_summary.json" || -e "${OUTPUT_DIR
   echo "ablation output exists; refusing overwrite: ${OUTPUT_DIR}" >&2
   exit 2
 fi
-for required in "${TRAINING_VISIBLE}" "${SPLIT_MANIFEST}" "${CONTEXT_MANIFEST}" "${STAGE1_STATE}" "${STAGE1_REPORT}" "${STAGE1_LOG}" "${REGISTRY}"; do
+for required in "${TRAINING_VISIBLE}" "${SPLIT_MANIFEST}" "${CONTEXT_MANIFEST}" "${STAGE1_STATE}" "${STAGE1_REPORT}" "${STAGE1_LOG}" "${STAGE1_PORTABILITY}" "${STAGE1_ACCEPTANCE}" "${REGISTRY}"; do
   if [[ ! -e "${required}" ]]; then
     echo "required frozen artifact is missing: ${required}" >&2
     exit 2
@@ -76,6 +78,8 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --stage1-state "${STAGE1_STATE}" \
   --stage1-report "${STAGE1_REPORT}" \
   --stage1-writer-log "${STAGE1_LOG}" \
+  --clean-stage1-portability-preflight "${STAGE1_PORTABILITY}" \
+  --clean-stage1-acceptance "${STAGE1_ACCEPTANCE}" \
   --experiment-registry "${REGISTRY}" \
   --experiment-label "${LABEL}" \
   --output-dir "${OUTPUT_DIR}" \

@@ -367,8 +367,27 @@ def test_method_defaults_to_standard_weights_and_strict_reader_gate():
     assert args.stage2_residual_rank == 4
     assert args.stage2_row_negative_rank == 32
     assert args.stage2_row_norm_cap_values == [0.05, 0.10, 0.20, 0.40]
+    assert args.writer_record_batch == 3
+    assert args.positive_context_batch == 7
+    assert args.writer_positive_context_mode == "all"
+    assert args.writer_positive_tail_k == 2
     assert not hasattr(args, "router")
     assert not hasattr(args, "logit_bias")
+
+
+def test_v6_1_writer_loss_adds_the_worst_two_positive_shortfalls():
+    amplitudes = torch.tensor([6.0, 5.0, 4.0], requires_grad=True)
+    loss, terms = core.robust_positive_shortfall_loss(amplitudes, target=6.0, tail_k=2)
+
+    expected_mean = (0.0 + 1.0 + 4.0) / 3.0 / 6.0
+    expected_tail = (4.0 + 1.0) / 2.0 / 6.0
+    assert float(loss.detach()) == pytest.approx(expected_mean + expected_tail)
+    assert float(terms["mean"].detach()) == pytest.approx(expected_mean)
+    assert float(terms["tail"].detach()) == pytest.approx(expected_tail)
+    loss.backward()
+    assert amplitudes.grad is not None
+    assert abs(float(amplitudes.grad[2])) > abs(float(amplitudes.grad[1]))
+    assert float(amplitudes.grad[0]) == pytest.approx(0.0)
 
 
 def test_stage1_zero_steps_requires_a_resume_state():

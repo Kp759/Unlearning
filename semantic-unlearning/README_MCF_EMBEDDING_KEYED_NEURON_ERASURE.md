@@ -131,6 +131,14 @@ Acceptance requires:
 - at least 95% complete marker projections globally; and
 - at least 80% for the worst record.
 
+The clean V6 writer reached 339/346 (97.98%) globally but failed two
+record-level gates at 5/7, so decoder construction and official evaluation were
+correctly refused. V6.1 keeps the contexts and thresholds fixed, trains on all
+positives for each sampled record, and adds a worst-two squared-shortfall term.
+Its upstream acceptance receipt now means artifact integrity **and** an exact
+fresh-Base replay of this same 4.5 / 95% / 80% pre-decoder gate. An
+integrity-only receipt cannot authorize the neuron run.
+
 The audit is an empirical diagnostic of the claimed pathway. It is not stated
 as a mathematical upper bound on every possible nonlinear decoder.
 
@@ -254,7 +262,7 @@ run.
 
 The registry is
 `protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json`. The legacy
-filename is retained for launcher compatibility; its current schema is 4 and
+filename is retained for launcher compatibility; its current schema is 5 and
 its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3`.
 The paper-level report requires all of the following:
 
@@ -288,8 +296,8 @@ bash scripts/submit_mcf_compositional_marker_clean_stage1_seed1.sh
 ## Or, inside an interactive allocation
 mkdir -p slurm_logs
 bash scripts/run_mcf_compositional_marker_clean_stage1_manual.sh \
-  outputs/mcf_compositional_marker_v6_clean_seed1_3b \
-  2>&1 | tee slurm_logs/mcf_compositional_marker_v6_clean_seed1_manual.log
+  outputs/mcf_compositional_marker_v6_1_clean_seed1_3b \
+  2>&1 | tee slurm_logs/mcf_compositional_marker_v6_1_clean_seed1_manual.log
 ```
 
 Only after `method/clean_stage1_acceptance.json` passes, run the proposed model,
@@ -304,7 +312,7 @@ the historical v2/V3 writer lineage and existing output directories:
 
 ```bash
 bash scripts/run_mcf_embedding_keyed_neuron_v3_manual.sh \
-  /scratch/yl258/kp759/ul-a8864ff/semantic-unlearning/outputs/mcf_compositional_marker_v6_clean_seed1_3b \
+  /scratch/yl258/kp759/ul-a8864ff/semantic-unlearning/outputs/mcf_compositional_marker_v6_1_clean_seed1_3b \
   outputs/mcf_embedding_keyed_neuron_v3_seed1_3b \
   2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_seed1_manual.log
 ```
@@ -341,8 +349,8 @@ python scripts/aggregate_mcf_context_gating_frequency_factorial.py \
 - `method/writer_preflight_report.json`: frozen-writer training-safe coverage
   measured before decoder construction;
 - upstream `method/clean_stage1_acceptance.json`: exact from-Base lineage,
-  relation-template policy, artifact hashes, and nonempty optimization-log
-  receipt;
+  relation-template policy, artifact hashes, nonempty optimization log, and
+  passed training-safe 4.5 / 95% / 80% portability replay;
 - `method/causal_component_ablation.json`: explicitly labeled
   within-checkpoint intervention;
 - `method/embedding_keyed_neuron_state.pt`: exact base/edited sparse weights,

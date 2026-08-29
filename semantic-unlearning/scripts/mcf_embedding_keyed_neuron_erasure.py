@@ -79,6 +79,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--stage1-state", required=True)
     parser.add_argument("--stage1-report", required=True)
     parser.add_argument("--stage1-writer-log", required=True)
+    parser.add_argument("--clean-stage1-portability-preflight", required=True)
+    parser.add_argument("--clean-stage1-acceptance", required=True)
     parser.add_argument("--experiment-registry", required=True)
     parser.add_argument("--experiment-label", default="primary")
     parser.add_argument("--output-dir", required=True)
@@ -316,6 +318,12 @@ def _validate_experiment_registry(
         "relation_template_bank_sha256": expected_template_hash,
         "training_origin": "Base model with no resumed Stage-1 state",
         "writer_steps": 1200,
+        "writer_record_batch": 3,
+        "writer_positive_context_mode": "all",
+        "writer_positive_context_batch": 7,
+        "writer_positive_tail_k": 2,
+        "writer_negative_context_batch": 5,
+        "writer_objective": "mean_plus_worst_k_squared_shortfall",
     }
     for key, expected_value in expected_writer_prerequisite.items():
         if writer_prerequisite.get(key) != expected_value:
@@ -528,6 +536,25 @@ def _validate_clean_stage1_lineage(
         raise RuntimeError(
             "Stage-1 writer must be trained from Base for exactly 1,200 steps"
         )
+    expected_optimization = {
+        "record_batch": 3,
+        "positive_context_mode": "all",
+        "positive_context_batch": 7,
+        "positive_tail_k": 2,
+        "negative_context_batch": 5,
+        "objective": "mean_plus_worst_k_squared_shortfall",
+    }
+    observed_optimization = lineage.get("writer_optimization")
+    if (
+        not isinstance(observed_optimization, Mapping)
+        or dict(observed_optimization) != expected_optimization
+    ):
+        raise RuntimeError(
+            "Stage-1 writer was not trained with the registered V6.1 "
+            "all-positive/worst-two objective"
+        )
+    if dict(stage1_state.get("writer_optimization", {})) != expected_optimization:
+        raise RuntimeError("Stage-1 state writer-optimization receipt mismatch")
     context_hash = compositional_method.sha256_file(context_path)
     if str(lineage.get("current_context_manifest_sha256") or "") != context_hash:
         raise RuntimeError(
@@ -555,6 +582,12 @@ def _validate_clean_stage1_lineage(
         raise RuntimeError("Stage-1 report is not bound to the context manifest")
     if str(stage1_report.get("positive_context_policy") or "") != expected_policy:
         raise RuntimeError("Stage-1 report records a different context policy")
+    writer_configuration = stage1_report.get("writer_configuration")
+    if not isinstance(writer_configuration, Mapping) or any(
+        writer_configuration.get(key) != value
+        for key, value in expected_optimization.items()
+    ):
+        raise RuntimeError("Stage-1 report writer-optimization receipt mismatch")
     report_lineage = stage1_report.get("training_lineage")
     if not isinstance(report_lineage, Mapping) or dict(report_lineage) != dict(lineage):
         raise RuntimeError("Stage-1 state/report lineage receipts differ")
@@ -582,6 +615,7 @@ def _validate_clean_stage1_lineage(
         "context_manifest_sha256": context_hash,
         "writer_log_sha256": log_sha256,
         "writer_log_event_count": log_events,
+        "writer_optimization": expected_optimization,
         "base_model_path": base_model_path,
         "base_transformer_fingerprint": base_transformer_fingerprint,
         "base_selected_embedding_rows_sha256": base_selected_rows_sha256,
@@ -617,6 +651,71 @@ def _context_sets_by_case(
                 f"case {case_id} direct prompt changed in context manifest"
             )
     return by_case
+
+
+def _validate_clean_stage1_acceptance(
+    receipt: Mapping[str, Any],
+    *,
+    seed: int,
+    case_ids: Sequence[int],
+    expected_artifacts: Mapping[str, str],
+    amplitude_threshold: float,
+    minimum_global_fraction: float,
+    minimum_record_fraction: float,
+) -> Dict[str, Any]:
+    """Require the integrity *and* replayed portability conjunction."""
+
+    if receipt.get("kind") != "mcf_clean_stage1_writer_acceptance":
+        raise RuntimeError("clean Stage-1 acceptance receipt has the wrong kind")
+    if receipt.get("passed") is not True:
+        raise RuntimeError("clean Stage-1 acceptance receipt did not pass")
+    if str(receipt.get("protocol") or "") != compositional_core.PROTOCOL:
+        raise RuntimeError("clean Stage-1 acceptance protocol mismatch")
+    if int(receipt.get("seed", -1)) != int(seed):
+        raise RuntimeError("clean Stage-1 acceptance seed mismatch")
+    if [int(value) for value in receipt.get("case_ids", [])] != [
+        int(value) for value in case_ids
+    ]:
+        raise RuntimeError("clean Stage-1 acceptance case IDs mismatch")
+    checks = receipt.get("checks")
+    required_checks = ("artifact_integrity", "training_safe_portability")
+    if not isinstance(checks, Mapping) or not all(
+        checks.get(key) is True for key in required_checks
+    ):
+        raise RuntimeError("clean Stage-1 acceptance conjunction is incomplete")
+    if bool(receipt.get("official_evaluation_opened")):
+        raise RuntimeError("clean Stage-1 acceptance crossed the evaluation firewall")
+    artifacts = receipt.get("artifacts")
+    if not isinstance(artifacts, Mapping) or any(
+        str(artifacts.get(key) or "") != value
+        for key, value in expected_artifacts.items()
+    ):
+        raise RuntimeError("clean Stage-1 acceptance artifact binding mismatch")
+
+    preflight = receipt.get("training_safe_portability")
+    if not isinstance(preflight, Mapping) or preflight.get("passed") is not True:
+        raise RuntimeError("clean Stage-1 portability preflight did not pass")
+    if preflight.get("kind") != "mcf_clean_stage1_training_safe_portability_preflight":
+        raise RuntimeError("clean Stage-1 portability preflight has the wrong kind")
+    validate_writer_preflight_summary(
+        preflight,
+        amplitude_threshold=float(amplitude_threshold),
+        minimum_global_fraction=float(minimum_global_fraction),
+        minimum_record_fraction=float(minimum_record_fraction),
+    )
+    return {
+        "kind": str(receipt["kind"]),
+        "passed": True,
+        "training_safe_portability": {
+            "prompt_count": int(preflight["prompt_count"]),
+            "complete_count": int(preflight["complete_count"]),
+            "global_complete_fraction": float(preflight["global_complete_fraction"]),
+            "minimum_record_complete_fraction": float(
+                preflight["minimum_record_complete_fraction"]
+            ),
+            "amplitude_threshold": float(preflight["amplitude_threshold"]),
+        },
+    }
 
 
 def _record_views(locked_records: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
@@ -860,6 +959,165 @@ def summarize_writer_preflight(
     }
 
 
+def validate_writer_preflight_summary(
+    summary: Mapping[str, Any],
+    *,
+    amplitude_threshold: float,
+    minimum_global_fraction: float,
+    minimum_record_fraction: float,
+) -> None:
+    """Recompute the portability decision from its per-record counts."""
+
+    rows = summary.get("per_record")
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError("writer preflight has no per-record rows")
+    prompt_count = 0
+    complete_count = 0
+    fractions: List[float] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            raise RuntimeError("writer preflight per-record row is invalid")
+        prompts = int(row.get("prompt_count", 0))
+        complete = int(row.get("complete_count", -1))
+        if prompts <= 0 or complete < 0 or complete > prompts:
+            raise RuntimeError("writer preflight per-record counts are invalid")
+        fraction = complete / prompts
+        if not math.isclose(
+            float(row.get("complete_fraction", float("nan"))),
+            fraction,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            raise RuntimeError("writer preflight per-record fraction is inconsistent")
+        prompt_count += prompts
+        complete_count += complete
+        fractions.append(fraction)
+    global_fraction = complete_count / prompt_count
+    minimum_observed = min(fractions)
+    for observed, expected, label in (
+        (summary.get("prompt_count"), prompt_count, "prompt count"),
+        (summary.get("complete_count"), complete_count, "complete count"),
+    ):
+        if int(observed if observed is not None else -1) != expected:
+            raise RuntimeError(f"writer preflight {label} is inconsistent")
+    for observed, expected, label in (
+        (
+            float(summary.get("amplitude_threshold", float("nan"))),
+            float(amplitude_threshold),
+            "amplitude threshold",
+        ),
+        (
+            float(summary.get("global_complete_fraction", float("nan"))),
+            global_fraction,
+            "global fraction",
+        ),
+        (
+            float(summary.get("minimum_record_complete_fraction", float("nan"))),
+            minimum_observed,
+            "minimum-record fraction",
+        ),
+    ):
+        if not math.isclose(observed, expected, rel_tol=0.0, abs_tol=1e-12):
+            raise RuntimeError(f"writer preflight {label} is inconsistent")
+    criterion = summary.get("criterion")
+    if (
+        not isinstance(criterion, Mapping)
+        or not math.isclose(
+            float(criterion.get("minimum_global_fraction", float("nan"))),
+            float(minimum_global_fraction),
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+        or not math.isclose(
+            float(criterion.get("minimum_record_fraction", float("nan"))),
+            float(minimum_record_fraction),
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+    ):
+        raise RuntimeError("writer preflight registered fractions are inconsistent")
+    expected_checks = {
+        "global_complete_fraction": global_fraction >= float(minimum_global_fraction),
+        "minimum_record_complete_fraction": minimum_observed
+        >= float(minimum_record_fraction),
+    }
+    observed_checks = summary.get("checks")
+    if not isinstance(observed_checks, Mapping) or any(
+        observed_checks.get(key) is not value for key, value in expected_checks.items()
+    ):
+        raise RuntimeError("writer preflight Boolean checks are inconsistent")
+    if summary.get("passed") is not all(expected_checks.values()):
+        raise RuntimeError("writer preflight pass flag is inconsistent")
+
+
+@torch.no_grad()
+def measure_training_safe_writer_preflight(
+    model: torch.nn.Module,
+    tok: Any,
+    embedding_writer: Any,
+    positive_prompts_by_record: Sequence[Sequence[str]],
+    marker_map: Mapping[Any, Any],
+    case_ids: Sequence[int],
+    device: torch.device,
+    *,
+    batch_size: int,
+    amplitude_threshold: float,
+    minimum_global_fraction: float,
+    minimum_record_fraction: float,
+) -> Dict[str, Any]:
+    """Replay the exact pre-decoder writer gate on training-safe positives."""
+
+    if len(positive_prompts_by_record) != len(case_ids):
+        raise ValueError("writer preflight prompt groups/case IDs differ")
+    previous_enabled = bool(embedding_writer.enabled)
+    amplitude_groups: List[torch.Tensor] = []
+    try:
+        for position, prompts in enumerate(positive_prompts_by_record):
+            case_id = int(case_ids[position])
+            marker = marker_map.get(case_id, marker_map.get(str(case_id)))
+            if not isinstance(marker, torch.Tensor) or marker.ndim != 1:
+                raise RuntimeError(f"Stage-1 marker missing for case {case_id}")
+            embedding_writer.enabled = False
+            writer_off_hidden = compositional_method.batched_last_hidden_only(
+                model,
+                tok,
+                list(prompts),
+                device,
+                batch_size=int(batch_size),
+            )
+            embedding_writer.enabled = True
+            writer_on_hidden = compositional_method.batched_last_hidden_only(
+                model,
+                tok,
+                list(prompts),
+                device,
+                batch_size=int(batch_size),
+            )
+            amplitude_groups.append(
+                (writer_on_hidden - writer_off_hidden) @ marker.detach().float().cpu()
+            )
+    finally:
+        embedding_writer.enabled = previous_enabled
+
+    result = summarize_writer_preflight(
+        amplitude_groups,
+        amplitude_threshold=float(amplitude_threshold),
+        minimum_global_fraction=float(minimum_global_fraction),
+        minimum_record_fraction=float(minimum_record_fraction),
+    )
+    for index, row in enumerate(result["per_record"]):
+        row["case_id"] = int(case_ids[index])
+    result.update(
+        {
+            "kind": "frozen_writer_training_safe_pre_decoder_preflight",
+            "applicable": True,
+            "official_evaluation_prompts_seen": 0,
+            "used_for_decoder_hyperparameter_selection": False,
+        }
+    )
+    return result
+
+
 @torch.no_grad()
 def capture_base_last_token_activations(
     model: torch.nn.Module,
@@ -1012,6 +1270,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     stage1_path = Path(args.stage1_state).resolve()
     stage1_report_path = Path(args.stage1_report).resolve()
     stage1_log_path = Path(args.stage1_writer_log).resolve()
+    stage1_portability_path = Path(args.clean_stage1_portability_preflight).resolve()
+    stage1_acceptance_path = Path(args.clean_stage1_acceptance).resolve()
     registry_path = Path(args.experiment_registry).resolve()
     for path in (
         visible_path,
@@ -1020,6 +1280,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         stage1_path,
         stage1_report_path,
         stage1_log_path,
+        stage1_portability_path,
+        stage1_acceptance_path,
         registry_path,
     ):
         if not path.exists():
@@ -1039,6 +1301,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not isinstance(stage1_state, Mapping):
         raise RuntimeError("Stage-1 writer state must be a mapping")
     stage1_report = _load_json(stage1_report_path)
+    stage1_portability = _load_json(stage1_portability_path)
+    stage1_acceptance = _load_json(stage1_acceptance_path)
     _validate_firewall(context_manifest, stage1_state)
     if compositional_method.sha256_file(context_path) != str(
         stage1_state["context_manifest_sha256"]
@@ -1084,6 +1348,35 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise RuntimeError(
             "registered writer preflight threshold differs from the frozen writer"
         )
+    if dict(stage1_acceptance.get("training_safe_portability", {})) != dict(
+        stage1_portability
+    ):
+        raise RuntimeError(
+            "clean Stage-1 acceptance embeds a different portability preflight"
+        )
+    clean_acceptance_receipt = _validate_clean_stage1_acceptance(
+        stage1_acceptance,
+        seed=int(args.seed),
+        case_ids=case_ids,
+        expected_artifacts={
+            "training_visible_sha256": visible_sha256,
+            "split_manifest_sha256": split_sha256,
+            "context_manifest_sha256": compositional_method.sha256_file(context_path),
+            "stage1_state_sha256": compositional_method.sha256_file(stage1_path),
+            "stage1_report_sha256": compositional_method.sha256_file(
+                stage1_report_path
+            ),
+            "stage1_writer_log_sha256": compositional_method.sha256_file(
+                stage1_log_path
+            ),
+            "training_safe_portability_sha256": compositional_method.sha256_file(
+                stage1_portability_path
+            ),
+        },
+        amplitude_threshold=float(args.writer_preflight_amplitude_threshold),
+        minimum_global_fraction=float(args.writer_preflight_min_global_fraction),
+        minimum_record_fraction=float(args.writer_preflight_min_record_fraction),
+    )
     context_sets = _context_sets_by_case(context_manifest, records)
 
     firewall_receipt = {
@@ -1104,7 +1397,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         "stage1_report_sha256": compositional_method.sha256_file(stage1_report_path),
         "stage1_writer_log_path": str(stage1_log_path),
         "stage1_writer_log_sha256": compositional_method.sha256_file(stage1_log_path),
+        "clean_stage1_portability_path": str(stage1_portability_path),
+        "clean_stage1_portability_sha256": compositional_method.sha256_file(
+            stage1_portability_path
+        ),
+        "clean_stage1_acceptance_path": str(stage1_acceptance_path),
+        "clean_stage1_acceptance_sha256": compositional_method.sha256_file(
+            stage1_acceptance_path
+        ),
         "clean_stage1_writer": clean_writer_receipt,
+        "clean_stage1_acceptance": clean_acceptance_receipt,
         "experiment_label": str(args.experiment_label),
         "experiment_registry_path": str(registry_path),
         "experiment_registry_sha256": compositional_method.sha256_file(registry_path),
@@ -1222,49 +1524,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         marker_map = stage1_state.get("markers")
         if not isinstance(marker_map, Mapping):
             raise RuntimeError("Stage-1 state lacks marker directions for preflight")
-        preflight_amplitudes: List[torch.Tensor] = []
-        for position, prompts in enumerate(positive_prompts_by_record):
-            marker = marker_map.get(
-                case_ids[position], marker_map.get(str(case_ids[position]))
-            )
-            if not isinstance(marker, torch.Tensor) or marker.ndim != 1:
-                raise RuntimeError(
-                    f"Stage-1 marker missing for case {case_ids[position]}"
-                )
-            embedding_writer.enabled = False
-            writer_off_hidden = compositional_method.batched_last_hidden_only(
-                model,
-                tok,
-                prompts,
-                device,
-                batch_size=int(args.cache_batch_size),
-            )
-            embedding_writer.enabled = True
-            writer_on_hidden = compositional_method.batched_last_hidden_only(
-                model,
-                tok,
-                prompts,
-                device,
-                batch_size=int(args.cache_batch_size),
-            )
-            preflight_amplitudes.append(
-                (writer_on_hidden - writer_off_hidden) @ marker.detach().float().cpu()
-            )
-        writer_preflight = summarize_writer_preflight(
-            preflight_amplitudes,
+        writer_preflight = measure_training_safe_writer_preflight(
+            model,
+            tok,
+            embedding_writer,
+            positive_prompts_by_record,
+            marker_map,
+            case_ids,
+            device,
+            batch_size=int(args.cache_batch_size),
             amplitude_threshold=float(args.writer_preflight_amplitude_threshold),
             minimum_global_fraction=float(args.writer_preflight_min_global_fraction),
             minimum_record_fraction=float(args.writer_preflight_min_record_fraction),
-        )
-        for index, row in enumerate(writer_preflight["per_record"]):
-            row["case_id"] = case_ids[index]
-        writer_preflight.update(
-            {
-                "kind": "frozen_writer_training_safe_pre_decoder_preflight",
-                "applicable": True,
-                "official_evaluation_prompts_seen": 0,
-                "used_for_decoder_hyperparameter_selection": False,
-            }
         )
     else:
         writer_preflight = {

@@ -20,6 +20,7 @@ import audit_mcf_embedding_keyed_neuron_relearning as relearning_audit
 import audit_mcf_frozen_writer_portability as portability_audit
 import aggregate_mcf_context_gating_frequency_factorial as frequency_aggregate
 import report_mcf_embedding_keyed_neuron_result as report
+import verify_mcf_clean_stage1_writer as clean_writer_verify
 
 
 class TinySwiGLU(torch.nn.Module):
@@ -77,6 +78,20 @@ def _portability_receipt(*, passed: bool = True):
             "paraphrase": {"prompt_count": 50},
         },
         "acceptance": {"passed": passed},
+    }
+
+
+def _clean_stage1_acceptance_summary():
+    return {
+        "kind": "mcf_clean_stage1_writer_acceptance",
+        "passed": True,
+        "training_safe_portability": {
+            "amplitude_threshold": 4.5,
+            "prompt_count": 346,
+            "complete_count": 346,
+            "global_complete_fraction": 1.0,
+            "minimum_record_complete_fraction": 1.0,
+        },
     }
 
 
@@ -396,6 +411,187 @@ def test_writer_preflight_checks_global_and_worst_record_completeness():
     assert not summary["checks"]["minimum_record_complete_fraction"]
 
 
+def test_decoder_requires_conjunctive_clean_stage1_acceptance():
+    artifact_hashes = {
+        "training_visible_sha256": "visible",
+        "split_manifest_sha256": "split",
+        "context_manifest_sha256": "context",
+        "stage1_state_sha256": "state",
+        "stage1_report_sha256": "report",
+        "stage1_writer_log_sha256": "log",
+    }
+    receipt = {
+        "kind": "mcf_clean_stage1_writer_acceptance",
+        "passed": True,
+        "protocol": method.compositional_core.PROTOCOL,
+        "seed": 1,
+        "case_ids": [11, 12],
+        "checks": {
+            "artifact_integrity": True,
+            "training_safe_portability": True,
+        },
+        "artifacts": artifact_hashes,
+        "official_evaluation_opened": False,
+        "training_safe_portability": {
+            "kind": "mcf_clean_stage1_training_safe_portability_preflight",
+            "passed": True,
+            "amplitude_threshold": 4.5,
+            "prompt_count": 14,
+            "complete_count": 14,
+            "global_complete_fraction": 1.0,
+            "minimum_record_complete_fraction": 1.0,
+            "per_record": [
+                {
+                    "case_id": 11,
+                    "prompt_count": 7,
+                    "complete_count": 7,
+                    "complete_fraction": 1.0,
+                },
+                {
+                    "case_id": 12,
+                    "prompt_count": 7,
+                    "complete_count": 7,
+                    "complete_fraction": 1.0,
+                },
+            ],
+            "criterion": {
+                "minimum_global_fraction": 0.95,
+                "minimum_record_fraction": 0.8,
+            },
+            "checks": {
+                "global_complete_fraction": True,
+                "minimum_record_complete_fraction": True,
+            },
+        },
+    }
+    accepted = method._validate_clean_stage1_acceptance(
+        receipt,
+        seed=1,
+        case_ids=[11, 12],
+        expected_artifacts=artifact_hashes,
+        amplitude_threshold=4.5,
+        minimum_global_fraction=0.95,
+        minimum_record_fraction=0.8,
+    )
+    assert accepted["passed"]
+
+    integrity_only = {
+        **receipt,
+        "checks": {
+            "artifact_integrity": True,
+            "training_safe_portability": False,
+        },
+    }
+    with pytest.raises(RuntimeError, match="conjunction"):
+        method._validate_clean_stage1_acceptance(
+            integrity_only,
+            seed=1,
+            case_ids=[11, 12],
+            expected_artifacts=artifact_hashes,
+            amplitude_threshold=4.5,
+            minimum_global_fraction=0.95,
+            minimum_record_fraction=0.8,
+        )
+
+
+def test_clean_writer_receipt_reports_failed_portability_after_valid_integrity(
+    tmp_path, monkeypatch
+):
+    training = tmp_path / "training.json"
+    split = tmp_path / "split.json"
+    context_path = tmp_path / "context.json"
+    state_path = tmp_path / "writer.pt"
+    report_path = tmp_path / "report.json"
+    log_path = tmp_path / "writer.jsonl"
+    preflight_path = tmp_path / "preflight.json"
+    training.write_text("{}\n", encoding="utf-8")
+    split.write_text("{}\n", encoding="utf-8")
+    context = {
+        "source_training_visible_sha256": method.compositional_method.sha256_file(
+            training
+        ),
+        "source_split_manifest_sha256": method.compositional_method.sha256_file(split),
+        "data_access": {
+            "official_paraphrases_seen": 0,
+            "official_neighborhoods_seen": 0,
+            "benchmark_retain_seen": 0,
+            "official_ppl_seen": False,
+        },
+    }
+    context_path.write_text(json.dumps(context), encoding="utf-8")
+    context_hash = method.compositional_method.sha256_file(context_path)
+    torch.save(
+        {
+            "protocol": method.compositional_core.PROTOCOL,
+            "seed": 1,
+            "case_ids": [17],
+            "context_manifest_sha256": context_hash,
+        },
+        state_path,
+    )
+    report_path.write_text("{}\n", encoding="utf-8")
+    log_path.write_text('{"step": 1}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        clean_writer_verify.neuron,
+        "_validate_clean_stage1_lineage",
+        lambda *_args, **_kwargs: {"from_scratch": True, "writer_steps": 1200},
+    )
+    preflight = {
+        "kind": "mcf_clean_stage1_training_safe_portability_preflight",
+        "protocol": method.compositional_core.PROTOCOL,
+        "seed": 1,
+        "case_ids": [17],
+        "amplitude_threshold": 4.5,
+        "prompt_count": 1,
+        "complete_count": 0,
+        "global_complete_fraction": 0.0,
+        "minimum_record_complete_fraction": 0.0,
+        "criterion": {
+            "minimum_global_fraction": 0.95,
+            "minimum_record_fraction": 0.8,
+        },
+        "per_record": [
+            {
+                "case_id": 17,
+                "prompt_count": 1,
+                "complete_count": 0,
+                "complete_fraction": 0.0,
+            }
+        ],
+        "checks": {
+            "global_complete_fraction": False,
+            "minimum_record_complete_fraction": False,
+        },
+        "passed": False,
+        "decoder_constructed": False,
+        "official_evaluation_opened": False,
+        "binding": {
+            "context_manifest_sha256": context_hash,
+            "stage1_state_sha256": method.compositional_method.sha256_file(state_path),
+            "stage1_report_sha256": method.compositional_method.sha256_file(
+                report_path
+            ),
+            "stage1_writer_log_sha256": method.compositional_method.sha256_file(
+                log_path
+            ),
+        },
+    }
+    preflight_path.write_text(json.dumps(preflight), encoding="utf-8")
+
+    receipt = clean_writer_verify.verify(
+        training_visible_path=training,
+        split_manifest_path=split,
+        context_manifest_path=context_path,
+        stage1_state_path=state_path,
+        stage1_report_path=report_path,
+        stage1_log_path=log_path,
+        portability_preflight_path=preflight_path,
+    )
+    assert receipt["checks"]["artifact_integrity"]
+    assert not receipt["checks"]["training_safe_portability"]
+    assert not receipt["passed"]
+
+
 def test_retain_tail_uses_binomial_bound_and_explicit_effect_events():
     assert tail_audit.wilson_upper_bound(0, 1000) > 0.0
     summary = tail_audit.summarize_tail(
@@ -563,6 +759,10 @@ def test_training_cli_exposes_no_original_mcf_or_official_eval_argument():
             "writer-report.json",
             "--stage1-writer-log",
             "writer-log.jsonl",
+            "--clean-stage1-portability-preflight",
+            "clean-stage1-portability.json",
+            "--clean-stage1-acceptance",
+            "clean-stage1-acceptance.json",
             "--experiment-registry",
             "registry.json",
             "--output-dir",
@@ -590,6 +790,10 @@ def test_training_cli_exposes_no_original_mcf_or_official_eval_argument():
                 "writer-report.json",
                 "--stage1-writer-log",
                 "writer-log.jsonl",
+                "--clean-stage1-portability-preflight",
+                "clean-stage1-portability.json",
+                "--clean-stage1-acceptance",
+                "clean-stage1-acceptance.json",
                 "--experiment-registry",
                 "registry.json",
                 "--output-dir",
@@ -616,6 +820,10 @@ def test_no_writer_cli_requires_matched_control_settings():
         "writer-report.json",
         "--stage1-writer-log",
         "writer-log.jsonl",
+        "--clean-stage1-portability-preflight",
+        "clean-stage1-portability.json",
+        "--clean-stage1-acceptance",
+        "clean-stage1-acceptance.json",
         "--experiment-registry",
         "registry.json",
         "--output-dir",
@@ -705,6 +913,14 @@ def test_clean_stage1_lineage_requires_from_scratch_training_and_nonempty_log(
         "base_model_path": "/models/base",
         "base_transformer_fingerprint": 123.5,
         "base_selected_embedding_rows_sha256": "a" * 64,
+        "writer_optimization": {
+            "record_batch": 3,
+            "positive_context_mode": "all",
+            "positive_context_batch": 7,
+            "positive_tail_k": 2,
+            "negative_context_batch": 5,
+            "objective": "mean_plus_worst_k_squared_shortfall",
+        },
     }
     state = {
         "protocol": method.compositional_core.PROTOCOL,
@@ -712,6 +928,7 @@ def test_clean_stage1_lineage_requires_from_scratch_training_and_nonempty_log(
         "training_lineage": lineage,
         "writer_log_sha256": log_hash,
         "writer_log_event_count": 1,
+        "writer_optimization": lineage["writer_optimization"],
     }
     report = {
         "protocol": method.compositional_core.PROTOCOL,
@@ -722,6 +939,7 @@ def test_clean_stage1_lineage_requires_from_scratch_training_and_nonempty_log(
         "training_lineage": lineage,
         "writer_log_sha256": log_hash,
         "writer_log_event_count": 1,
+        "writer_configuration": lineage["writer_optimization"],
     }
 
     receipt = method._validate_clean_stage1_lineage(
@@ -776,6 +994,10 @@ def test_primary_configuration_is_bound_to_preregistered_values():
             "writer-report.json",
             "--stage1-writer-log",
             "writer-log.jsonl",
+            "--clean-stage1-portability-preflight",
+            "clean-stage1-portability.json",
+            "--clean-stage1-acceptance",
+            "clean-stage1-acceptance.json",
             "--experiment-registry",
             "registry.json",
             "--output-dir",
@@ -796,6 +1018,12 @@ def test_primary_configuration_is_bound_to_preregistered_values():
             ),
             "training_origin": "Base model with no resumed Stage-1 state",
             "writer_steps": 1200,
+            "writer_record_batch": 3,
+            "writer_positive_context_mode": "all",
+            "writer_positive_context_batch": 7,
+            "writer_positive_tail_k": 2,
+            "writer_negative_context_batch": 5,
+            "writer_objective": "mean_plus_worst_k_squared_shortfall",
         },
         "primary_configuration": {
             "forget_num": 50,
@@ -836,6 +1064,10 @@ def test_repository_registry_binds_primary_and_independent_control():
         "writer-report.json",
         "--stage1-writer-log",
         "writer-log.jsonl",
+        "--clean-stage1-portability-preflight",
+        "clean-stage1-portability.json",
+        "--clean-stage1-acceptance",
+        "clean-stage1-acceptance.json",
         "--experiment-registry",
         str(registry_path),
         "--output-dir",
@@ -894,6 +1126,7 @@ def test_final_report_requires_metrics_mechanism_and_firewall_to_pass():
                 "positive_context_policy": "relation_templates_only_v1",
                 "writer_log_event_count": 49,
             },
+            "clean_stage1_acceptance": _clean_stage1_acceptance_summary(),
             "data_access": {
                 "official_paraphrases_seen": 0,
                 "official_neighborhoods_seen": 0,
@@ -1038,6 +1271,8 @@ def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
             "stage1_state_sha256": "stage1-hash",
             "stage1_report_sha256": "stage1-report-hash",
             "stage1_writer_log_sha256": "stage1-log-hash",
+            "clean_stage1_acceptance_sha256": "stage1-acceptance-hash",
+            "clean_stage1_portability_sha256": "stage1-portability-hash",
             "experiment_registry_sha256": "registry-hash",
             "clean_stage1_writer": {
                 "from_scratch": True,
@@ -1045,6 +1280,7 @@ def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
                 "positive_context_policy": "relation_templates_only_v1",
                 "writer_log_event_count": 49,
             },
+            "clean_stage1_acceptance": _clean_stage1_acceptance_summary(),
             "data_access": {
                 "official_paraphrases_seen": 0,
                 "official_neighborhoods_seen": 0,
@@ -1069,6 +1305,8 @@ def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
             "stage1_state_sha256": "stage1-hash",
             "stage1_report_sha256": "stage1-report-hash",
             "stage1_writer_log_sha256": "stage1-log-hash",
+            "clean_stage1_acceptance_sha256": "stage1-acceptance-hash",
+            "clean_stage1_portability_sha256": "stage1-portability-hash",
             "experiment_registry_sha256": "registry-hash",
             "clean_stage1_writer": {
                 "from_scratch": True,
@@ -1076,6 +1314,7 @@ def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
                 "positive_context_policy": "relation_templates_only_v1",
                 "writer_log_event_count": 49,
             },
+            "clean_stage1_acceptance": _clean_stage1_acceptance_summary(),
         },
     }
     result = report.build_report(

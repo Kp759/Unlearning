@@ -1,7 +1,7 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3",
-  "status": "training_only_v3_revision_frozen_before_clean_writer_or_v3_checkpoint_evaluation",
+  "status": "training_only_v6_1_writer_revision_frozen_after_v6_portability_rejection_before_decoder_or_official_evaluation",
   "development_history": [
     {
       "version": "v1",
@@ -35,11 +35,31 @@
         "bind the context manifest, writer state, report, and nonempty optimization log by hash",
         "refuse zero-step resume unless the prior and current context-manifest hashes are identical"
       ]
+    },
+    {
+      "version": "v3_clean_writer_v6",
+      "evidence_opened": "locked semantically valid training-safe prompts only",
+      "official_evaluation_opened_by_this_failed_run": false,
+      "result": "rejected by the unchanged writer-portability preflight before neuron selection: 339/346 prompts passed (97.98% global), 45/50 records completed every available prompt, three records completed 6/7, and two records completed 5/7 below the 80% per-record floor",
+      "failed_record_ids": [11471, 15638],
+      "training_data_audit": {
+        "semantically_invalid_positive_prompts_found": 0,
+        "previously_failed_free_form_cases": "cases 14801 and 17256 both completed 7/7 under the clean relation-template policy",
+        "context_effect": "unrelated prefixes sometimes increased and sometimes decreased amplitude for the same template family",
+        "interpretation": "the clean data repair worked; remaining failure is context-manifold marker-margin instability under V6 optimization"
+      },
+      "changes_motivated": [
+        "present every clean positive for each sampled record in the same update",
+        "reduce writer record batch from four to three while raising positive capacity from four to seven so the maximum prompt batch remains 36",
+        "augment mean squared marker shortfall with the mean of the two largest per-record squared shortfalls",
+        "keep the data, steps, row caps, and 4.5 / 95% / 80% portability thresholds unchanged",
+        "make clean_stage1_acceptance.json conjunct artifact integrity with a fresh-Base replay of the exact pre-decoder portability gate"
+      ]
     }
   ],
-  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1 and v2 runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the v3 learner or used for checkpoint selection/retry.",
+  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, and clean-writer V6 runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.1 writer or v3 learner or used for checkpoint selection/retry.",
   "stage1_writer_prerequisite": {
-    "protocol": "mcf_context_composed_sparse_embedding_writer_v6",
+    "protocol": "mcf_context_composed_sparse_embedding_writer_v6_1",
     "positive_context_policy": "relation_templates_only_v1",
     "relation_template_bank_sha256": "72437131c32a949d175b7d42deb3098c9e91ac2e941613239dbe7b351bc72bdd",
     "training_origin": "Base model with no resumed Stage-1 state",
@@ -49,6 +69,12 @@
       "SHA-256 of selected Base embedding rows"
     ],
     "writer_steps": 1200,
+    "writer_record_batch": 3,
+    "writer_positive_context_mode": "all",
+    "writer_positive_context_batch": 7,
+    "writer_positive_tail_k": 2,
+    "writer_negative_context_batch": 5,
+    "writer_objective": "mean_plus_worst_k_squared_shortfall",
     "canonical_direct_prompt_per_record": true,
     "hand_authored_relation_id_templates_required_for_every_record": true,
     "unrelated_corpus_prefix_variants_required": true,

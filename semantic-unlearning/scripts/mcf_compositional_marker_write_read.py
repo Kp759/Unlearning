@@ -132,8 +132,27 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--writer-steps", type=int, default=1200)
     p.add_argument("--writer-lr", type=float, default=2e-4)
-    p.add_argument("--writer-record-batch", type=int, default=4)
-    p.add_argument("--positive-context-batch", type=int, default=4)
+    p.add_argument("--writer-record-batch", type=int, default=3)
+    p.add_argument("--positive-context-batch", type=int, default=7)
+    p.add_argument(
+        "--writer-positive-context-mode",
+        choices=("all", "subsample"),
+        default="all",
+        help=(
+            "all presents every clean positive for each sampled record in the "
+            "same update; subsample retains the historical bounded sampler for "
+            "diagnostic reproduction only."
+        ),
+    )
+    p.add_argument(
+        "--writer-positive-tail-k",
+        type=int,
+        default=2,
+        help=(
+            "Number of largest per-record positive squared shortfalls included "
+            "as a CVaR-like tail term in addition to their mean."
+        ),
+    )
     p.add_argument("--negative-context-batch", type=int, default=5)
     p.add_argument("--write-alpha", type=float, default=6.0)
     p.add_argument("--lambda-consistency", type=float, default=2.0)
@@ -269,6 +288,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         a.marker_max_rank,
         a.writer_record_batch,
         a.positive_context_batch,
+        a.writer_positive_tail_k,
         a.negative_context_batch,
         a.kl_topk,
         a.stage2_steps,
@@ -1083,6 +1103,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         max_fragments=int(a.max_fragment_negatives),
         max_unrelated=int(a.max_unrelated_negatives),
     )
+    positive_context_counts = [
+        len(context_sets[int(record["case_id"])]["positive_prompts"])
+        for record in records
+    ]
+    if str(a.writer_positive_context_mode) == "all" and max(
+        positive_context_counts
+    ) > int(a.positive_context_batch):
+        raise RuntimeError(
+            "registered all-positive writer capacity is smaller than the clean "
+            "context set; bump the protocol instead of silently subsampling"
+        )
     context_manifest = {
         "schema_version": 2,
         "protocol": PROTOCOL,
@@ -1107,6 +1138,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 synthetic.RELATION_ALTERNATE_TEMPLATES
             ),
             "synthetic_paraphrases_per_record": int(a.synthetic_paraphrases_per_record),
+            "positive_context_count_min": min(positive_context_counts),
+            "positive_context_count_max": max(positive_context_counts),
             "source_prompt_counts": {
                 "canonical_direct": int(direct_prompt_count),
                 "hand_authored_relation_template_or_prefix": int(
@@ -1340,17 +1373,20 @@ def main(argv: Sequence[str] | None = None) -> None:
                 record = records[record_index]
                 context = context_sets[int(record["case_id"])]
                 positives = list(context["positive_prompts"])
-                selected_pos = [positives[0]]
-                hard_positive = hard_positive_prompts[record_index]
-                if hard_positive not in selected_pos:
-                    selected_pos.append(hard_positive)
-                remainder = positives[1:]
-                py_rng.shuffle(remainder)
-                for prompt in remainder:
-                    if len(selected_pos) >= int(a.positive_context_batch):
-                        break
-                    if prompt not in selected_pos:
-                        selected_pos.append(prompt)
+                if str(a.writer_positive_context_mode) == "all":
+                    selected_pos = positives
+                else:
+                    selected_pos = [positives[0]]
+                    hard_positive = hard_positive_prompts[record_index]
+                    if hard_positive not in selected_pos:
+                        selected_pos.append(hard_positive)
+                    remainder = positives[1:]
+                    py_rng.shuffle(remainder)
+                    for prompt in remainder:
+                        if len(selected_pos) >= int(a.positive_context_batch):
+                            break
+                        if prompt not in selected_pos:
+                            selected_pos.append(prompt)
                 negatives = [row["prompt"] for row in context["negative_contexts"]]
                 py_rng.shuffle(negatives)
                 selected_neg = [hard_negative_prompts[record_index]]
@@ -1374,6 +1410,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             ).to(device)
             displacement = hidden.float() - base_hidden
             l_write = hidden.sum() * 0.0
+            l_write_mean = hidden.sum() * 0.0
+            l_write_tail = hidden.sum() * 0.0
+            l_write_max = hidden.sum() * 0.0
             l_consistency = hidden.sum() * 0.0
             l_negative = hidden.sum() * 0.0
             l_state = hidden.sum() * 0.0
@@ -1386,13 +1425,16 @@ def main(argv: Sequence[str] | None = None) -> None:
                 marker = marker_bank[record_index].to(device)
                 pos_delta = displacement[pos_indices]
                 amplitudes = pos_delta @ marker
-                shortfall = F.relu(float(a.write_alpha) - amplitudes)
+                write_term, write_parts = compositional.robust_positive_shortfall_loss(
+                    amplitudes,
+                    target=float(a.write_alpha),
+                    tail_k=int(a.writer_positive_tail_k),
+                )
+                l_write = l_write + write_term
+                l_write_mean = l_write_mean + write_parts["mean"]
+                l_write_tail = l_write_tail + write_parts["tail"]
+                l_write_max = l_write_max + write_parts["maximum"]
                 alpha_scale = max(float(a.write_alpha), 1e-6)
-                # Squared shortfall makes the currently worst context own the
-                # gradient. The first run's mean hinge tolerated A_min=-10
-                # while its median climbed, exactly the wrong optimization
-                # behavior for zero Gen.
-                l_write = l_write + shortfall.square().mean() / alpha_scale
                 l_consistency = l_consistency + (
                     amplitudes.var(unbiased=False) / (alpha_scale * alpha_scale)
                 )
@@ -1413,6 +1455,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
             count = max(1, len(record_indices))
             l_write = l_write / count
+            l_write_mean = l_write_mean / count
+            l_write_tail = l_write_tail / count
+            l_write_max = l_write_max / count
             l_consistency = l_consistency / count
             l_negative = l_negative / count
             l_state = l_state / count
@@ -1460,6 +1505,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                     "step": step,
                     "loss": float(loss.detach()),
                     "write": float(l_write.detach()),
+                    "write_mean": float(l_write_mean.detach()),
+                    "write_tail": float(l_write_tail.detach()),
+                    "write_max": float(l_write_max.detach()),
                     "consistency": float(l_consistency.detach()),
                     "negative": float(l_negative.detach()),
                     "state": float(l_state.detach()),
@@ -1544,6 +1592,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         "base_model_path": str(Path(a.model_path).resolve()),
         "base_transformer_fingerprint": float(transformer_fingerprint),
         "base_selected_embedding_rows_sha256": (base_selected_embedding_rows_sha256),
+        "writer_optimization": {
+            "record_batch": int(a.writer_record_batch),
+            "positive_context_mode": str(a.writer_positive_context_mode),
+            "positive_context_batch": int(a.positive_context_batch),
+            "positive_tail_k": int(a.writer_positive_tail_k),
+            "negative_context_batch": int(a.negative_context_batch),
+            "objective": "mean_plus_worst_k_squared_shortfall",
+        },
     }
     torch.save(
         {
@@ -1564,6 +1620,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "context_manifest_sha256": context_manifest_sha256,
             "resumed_from": str(resume_path) if resume_path is not None else None,
             "writer_steps": int(a.writer_steps),
+            "writer_optimization": training_lineage["writer_optimization"],
             "positive_context_policy": str(a.positive_context_policy),
             "training_lineage": training_lineage,
             "writer_log_sha256": writer_log_sha256,
@@ -1646,6 +1703,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         "writer_log_event_count": int(writer_log_event_count),
         "write_alpha": float(a.write_alpha),
         "writer_configuration": {
+            "record_batch": int(a.writer_record_batch),
+            "positive_context_mode": str(a.writer_positive_context_mode),
+            "positive_context_batch": int(a.positive_context_batch),
+            "positive_tail_k": int(a.writer_positive_tail_k),
+            "negative_context_batch": int(a.negative_context_batch),
+            "objective": "mean_plus_worst_k_squared_shortfall",
             "row_norm_cap": float(a.row_norm_cap),
             "row_norm_cap_frequency_alpha": float(a.row_norm_cap_frequency_alpha),
             "max_subject_token_frequency": int(a.max_subject_token_frequency),

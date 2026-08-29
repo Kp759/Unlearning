@@ -254,6 +254,14 @@ def _training_binding_match(
             first_firewall.get("stage1_writer_log_sha256"),
             second_firewall.get("stage1_writer_log_sha256"),
         ),
+        "clean_stage1_acceptance_sha256": (
+            first_firewall.get("clean_stage1_acceptance_sha256"),
+            second_firewall.get("clean_stage1_acceptance_sha256"),
+        ),
+        "clean_stage1_portability_sha256": (
+            first_firewall.get("clean_stage1_portability_sha256"),
+            second_firewall.get("clean_stage1_portability_sha256"),
+        ),
         "experiment_registry_sha256": (
             first_firewall.get("experiment_registry_sha256"),
             second_firewall.get("experiment_registry_sha256"),
@@ -471,6 +479,11 @@ def build_report(
     clean_stage1 = (
         firewall.get("clean_stage1_writer", {}) if isinstance(firewall, Mapping) else {}
     )
+    clean_stage1_acceptance = (
+        firewall.get("clean_stage1_acceptance", {})
+        if isinstance(firewall, Mapping)
+        else {}
+    )
     checks: Dict[str, bool] = {
         **metric_checks,
         "locked_training_acceptance": bool(method_acceptance.get("passed")),
@@ -503,6 +516,30 @@ def build_report(
             and clean_stage1.get("positive_context_policy")
             == "relation_templates_only_v1"
             and int(clean_stage1.get("writer_log_event_count", 0)) > 0
+        ),
+        "clean_stage1_integrity_and_portability_accepted": bool(
+            isinstance(clean_stage1_acceptance, Mapping)
+            and clean_stage1_acceptance.get("kind")
+            == "mcf_clean_stage1_writer_acceptance"
+            and clean_stage1_acceptance.get("passed") is True
+            and float(
+                clean_stage1_acceptance.get("training_safe_portability", {}).get(
+                    "amplitude_threshold", float("nan")
+                )
+            )
+            == 4.5
+            and float(
+                clean_stage1_acceptance.get("training_safe_portability", {}).get(
+                    "global_complete_fraction", 0.0
+                )
+            )
+            >= 0.95
+            and float(
+                clean_stage1_acceptance.get("training_safe_portability", {}).get(
+                    "minimum_record_complete_fraction", 0.0
+                )
+            )
+            >= 0.80
         ),
     }
 
