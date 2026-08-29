@@ -44,7 +44,7 @@ subtract a paired Base activation that would be unavailable at inference. The
 training floor and off-context threshold are diagnostics, not a fictional
 runtime classifier.
 
-## Training-only v1/v2 rejections and v3 revision
+## Training-only rejections and the V3.1 detector revision
 
 The first layer-8 feasibility run was rejected before its official evaluation: its
 detector passed 0/50 records, and the subsequently attempted actuator was
@@ -78,6 +78,42 @@ manifest, state, report, and nonempty optimization log by hash. The 4.5, 95%,
 and 80% portability thresholds are unchanged. The writer and decoder also bind
 the resolved Base-model path, frozen-Transformer fingerprint, and SHA-256 of
 the selected Base embedding rows.
+
+The clean V6.2 writer then passed all 346/346 registered training contexts, but
+the V3 detector failed closed at 0/50 records. Positive response was the clear
+bottleneck: 49/50 records missed the 0.25 floor, with median
+`positive_min = 0.0029`; negatives all passed with maximum absolute response
+0.0752; and 13/50 writer-off tails exceeded 0.20. Actuator training did not
+start and official evaluation remained unopened. The registry preserves this
+as a training-only rejection rather than overwriting it.
+
+V3.1 changes only detector optimization. It keeps the V6.2 writer, deterministic
+layer-27 neuron selection, four neurons per record, 200 disjoint neurons, norm
+caps, 0.25/0.20 gate, 1,000 optimizer updates, actuator, and firewall fixed. It:
+
+- caches the frozen layer-27 MLP input for every writer-on positive, writer-on
+  negative, and writer-off positive context;
+- accumulates bounded four-record microbatches across all 50 records before one
+  clip, Adam step, and relative-norm projection;
+- trains on every positive and negative context on every update;
+- uses an equal-record prompt mean plus worst-two positive shortfall; and
+- penalizes negative, cross-record, and writer-off responses only for their
+  mean plus worst-two squared excess above the unchanged 0.20 gate.
+
+The selected MLP input is upstream of the rows being optimized and the selected
+down projection is disabled during detector training, so the cache does not
+approximate or stale the learned detector computation.
+
+To add the case-ID binding to the preserved historical V3 rejection without
+changing its gate JSON:
+
+```bash
+python scripts/report_mcf_detector_gate_cases.py \
+  --gate "$DECODER_OUT/method/detector_gate_report.json" \
+  --training-visible \
+    outputs/mcf_compositional_marker_v6_2_clean_seed1_3b/protocol/training_visible_target_aware_direct.json \
+  --out "$DECODER_OUT/method/detector_gate_case_report.tsv"
+```
 
 ## What changed after mechanism review
 
@@ -290,8 +326,8 @@ run.
 
 The registry is
 `protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json`. The legacy
-filename is retained for launcher compatibility; its current schema is 6 and
-its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3`.
+filename is retained for launcher compatibility; its current schema is 7 and
+its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_1`.
 The paper-level report requires all of the following:
 
 - primary Eff = 0 and Gen = 0;
@@ -335,14 +371,14 @@ full retrained control, and post-freeze audits:
 bash scripts/submit_mcf_embedding_keyed_neuron_seed1.sh
 ```
 
-For an interactive allocation, use the v3 argument-taking wrapper. It rejects
-the historical v2/V3 writer lineage and existing output directories:
+For an interactive allocation, use the V3.1 argument-taking wrapper. It rejects
+the historical writer lineage and existing output directories:
 
 ```bash
-bash scripts/run_mcf_embedding_keyed_neuron_v3_manual.sh \
+bash scripts/run_mcf_embedding_keyed_neuron_v3_1_manual.sh \
   /scratch/yl258/kp759/ul-a8864ff/semantic-unlearning/outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
-  outputs/mcf_embedding_keyed_neuron_v3_seed1_3b \
-  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_seed1_manual.log
+  outputs/mcf_embedding_keyed_neuron_v3_1_seed1_3b \
+  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_1_seed1_manual.log
 ```
 
 The job is intentionally budgeted for two full training runs. The result report
@@ -376,6 +412,10 @@ python scripts/aggregate_mcf_context_gating_frequency_factorial.py \
   selected-neuron baseline activation/function tails;
 - `method/writer_preflight_report.json`: frozen-writer training-safe coverage
   measured before decoder construction;
+- `method/detector_hidden_cache_report.json`: all-record/all-context cache
+  coverage and the exact cached-computation contract;
+- `method/detector_gate_case_report.tsv`: record-index to MCF case-ID binding
+  with positive, negative, writer-off, and pass/fail values;
 - upstream `method/clean_stage1_acceptance.json`: exact from-Base lineage,
   relation-template policy, artifact hashes, nonempty optimization log, and
   passed training-safe 4.5 / 95% / 80% portability replay;

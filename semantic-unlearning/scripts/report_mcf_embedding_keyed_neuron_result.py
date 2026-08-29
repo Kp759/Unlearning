@@ -12,7 +12,7 @@ from typing import Any, Dict, Mapping, Sequence
 
 
 METRICS = ("Eff", "Gen", "Spe", "Spe_success")
-EXPECTED_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3"
+EXPECTED_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_1"
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -130,8 +130,20 @@ def _budget_match(
         "detector_steps",
         "detector_lr",
         "detector_record_batch",
+        "detector_record_batch_semantics",
+        "detector_update_coverage",
+        "detector_records_per_optimizer_update",
+        "detector_microbatches_per_optimizer_update",
+        "detector_record_exposures",
         "detector_positive_contexts",
         "detector_negative_contexts",
+        "detector_tail_k",
+        "detector_positive_objective",
+        "detector_negative_objective",
+        "detector_cross_objective",
+        "detector_writer_off_objective",
+        "detector_gradient_normalization",
+        "detector_cached_mlp_inputs",
         "detector_positive_floor",
         "detector_off_abs_max",
         "detector_negative_weight",
@@ -628,8 +640,8 @@ def build_report(
         }
 
     evidence_checks = {
-        "primary_protocol_is_v3": method.get("protocol") == EXPECTED_PROTOCOL,
-        "matched_control_protocol_is_v3": bool(
+        "primary_protocol_is_v3_1": method.get("protocol") == EXPECTED_PROTOCOL,
+        "matched_control_protocol_is_v3_1": bool(
             mlp_only_method is not None
             and mlp_only_method.get("protocol") == EXPECTED_PROTOCOL
         ),

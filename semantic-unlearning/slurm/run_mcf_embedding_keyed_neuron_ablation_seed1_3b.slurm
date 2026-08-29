@@ -99,6 +99,10 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --corpus-protection-prompts 8192 \
   --detector-steps 1000 \
   --detector-lr 0.001 \
+  --detector-record-batch 4 \
+  --detector-positive-contexts all \
+  --detector-negative-contexts all \
+  --detector-tail-k 2 \
   --detector-positive-floor 0.25 \
   --detector-negative-weight 5 \
   --detector-cross-weight 2 \

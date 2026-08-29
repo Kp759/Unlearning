@@ -28,7 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_1"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
@@ -287,10 +287,26 @@ def detector_objective(
     positive: torch.Tensor,
     *,
     positive_floor: float,
+    off_abs_max: float,
+    tail_k: int,
     negative_weight: float,
     cross_weight: float,
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-    """Hinge the owned code on positives and null all out-of-scope codes."""
+    """Return an equal-record, gate-aligned detector objective.
+
+    The training-only detector certificate reduces positive contexts with a
+    minimum and off-context responses with a maximum absolute value.  A plain
+    prompt mean can therefore look healthy while a single context still
+    rejects the record.  This objective mirrors those reductions: each record
+    contributes a prompt mean plus the mean of its ``tail_k`` largest squared
+    violations.  Negative and cross-record responses are penalized only above
+    the registered absolute gate instead of being wastefully driven to zero.
+
+    ``responses`` may contain a bounded microbatch of record groups, but every
+    represented record receives equal weight regardless of how many contexts
+    it owns.  The caller is responsible for accumulating these record means
+    over all records before taking one optimizer step.
+    """
     if responses.ndim != 2:
         raise ValueError("responses must be [batch, records]")
     batch, records = responses.shape
@@ -298,22 +314,147 @@ def detector_objective(
         raise ValueError("owners and positive flags must match response batch")
     if bool((owners < 0).any()) or bool((owners >= records).any()):
         raise ValueError("owner index out of range")
+    if batch == 0:
+        raise ValueError("detector objective requires at least one response")
+    if float(positive_floor) < 0 or float(off_abs_max) < 0:
+        raise ValueError("detector thresholds must be non-negative")
+    if int(tail_k) <= 0:
+        raise ValueError("tail_k must be positive")
+
+    def mean_plus_tail(
+        squared_violations: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        values = squared_violations.reshape(-1)
+        if values.numel() == 0:
+            zero = responses.sum() * 0.0
+            return zero, zero, zero
+        mean = values.mean()
+        count = min(int(tail_k), int(values.numel()))
+        tail = values.topk(count).values.mean()
+        return mean + tail, mean, tail
+
     rows = torch.arange(batch, device=responses.device)
     owned = responses[rows, owners]
-    pos_mask = positive.bool()
-    neg_mask = ~pos_mask
-    zero = responses.sum() * 0.0
-    write = (
-        F.relu(float(positive_floor) - owned[pos_mask]).square().mean()
-        if bool(pos_mask.any())
-        else zero
-    )
-    negative = owned[neg_mask].square().mean() if bool(neg_mask.any()) else zero
-    cross_mask = torch.ones_like(responses, dtype=torch.bool)
-    cross_mask[rows, owners] = False
-    cross = responses[cross_mask].square().mean() if records > 1 else zero
+    record_ids = owners.unique(sorted=True)
+    write_rows: List[torch.Tensor] = []
+    write_mean_rows: List[torch.Tensor] = []
+    write_tail_rows: List[torch.Tensor] = []
+    negative_rows: List[torch.Tensor] = []
+    negative_mean_rows: List[torch.Tensor] = []
+    negative_tail_rows: List[torch.Tensor] = []
+    cross_rows: List[torch.Tensor] = []
+    cross_mean_rows: List[torch.Tensor] = []
+    cross_tail_rows: List[torch.Tensor] = []
+    consistency_rows: List[torch.Tensor] = []
+    for record_id_tensor in record_ids:
+        record_id = int(record_id_tensor.item())
+        record_mask = owners.eq(record_id)
+        record_positive = record_mask & positive.bool()
+        record_negative = record_mask & ~positive.bool()
+        if not bool(record_positive.any()):
+            raise ValueError(f"record {record_id} has no positive detector context")
+
+        write, write_mean, write_tail = mean_plus_tail(
+            F.relu(float(positive_floor) - owned[record_positive]).square()
+        )
+        negative, negative_mean, negative_tail = mean_plus_tail(
+            F.relu(owned[record_negative].abs() - float(off_abs_max)).square()
+        )
+        write_rows.append(write)
+        write_mean_rows.append(write_mean)
+        write_tail_rows.append(write_tail)
+        negative_rows.append(negative)
+        negative_mean_rows.append(negative_mean)
+        negative_tail_rows.append(negative_tail)
+
+        if records > 1:
+            nonowner_columns = torch.ones(
+                records, dtype=torch.bool, device=responses.device
+            )
+            nonowner_columns[record_id] = False
+            cross_values = responses[record_mask][:, nonowner_columns]
+            cross, cross_mean, cross_tail = mean_plus_tail(
+                F.relu(cross_values.abs() - float(off_abs_max)).square()
+            )
+        else:
+            cross = cross_mean = cross_tail = responses.sum() * 0.0
+        cross_rows.append(cross)
+        cross_mean_rows.append(cross_mean)
+        cross_tail_rows.append(cross_tail)
+
+        positive_values = owned[record_positive]
+        consistency_rows.append(
+            positive_values.var(unbiased=False)
+            if positive_values.numel() > 1
+            else responses.sum() * 0.0
+        )
+
+    write = torch.stack(write_rows).mean()
+    negative = torch.stack(negative_rows).mean()
+    cross = torch.stack(cross_rows).mean()
+    consistency = torch.stack(consistency_rows).mean()
     total = write + float(negative_weight) * negative + float(cross_weight) * cross
-    return total, {"write": write, "negative": negative, "cross": cross}
+    return total, {
+        "write": write,
+        "write_mean": torch.stack(write_mean_rows).mean(),
+        "write_tail": torch.stack(write_tail_rows).mean(),
+        "negative": negative,
+        "negative_mean": torch.stack(negative_mean_rows).mean(),
+        "negative_tail": torch.stack(negative_tail_rows).mean(),
+        "cross": cross,
+        "cross_mean": torch.stack(cross_mean_rows).mean(),
+        "cross_tail": torch.stack(cross_tail_rows).mean(),
+        "consistency": consistency,
+    }
+
+
+def detector_writer_off_objective(
+    responses: torch.Tensor,
+    owners: torch.Tensor,
+    *,
+    off_abs_max: float,
+    tail_k: int,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Penalize only certificate-breaking owned writer-off responses.
+
+    Each record is weighted equally and contributes the mean squared excess
+    above ``off_abs_max`` plus its worst-``tail_k`` mean.  Harmless nonzero
+    activations inside the registered gate receive exactly zero loss.
+    """
+    if responses.ndim != 2:
+        raise ValueError("responses must be [batch, records]")
+    batch, records = responses.shape
+    if owners.shape != (batch,):
+        raise ValueError("owners must match response batch")
+    if batch == 0:
+        raise ValueError("writer-off objective requires at least one response")
+    if bool((owners < 0).any()) or bool((owners >= records).any()):
+        raise ValueError("owner index out of range")
+    if float(off_abs_max) < 0:
+        raise ValueError("off_abs_max must be non-negative")
+    if int(tail_k) <= 0:
+        raise ValueError("tail_k must be positive")
+
+    rows = torch.arange(batch, device=responses.device)
+    owned = responses[rows, owners]
+    totals: List[torch.Tensor] = []
+    means: List[torch.Tensor] = []
+    tails: List[torch.Tensor] = []
+    for record_id_tensor in owners.unique(sorted=True):
+        record_id = int(record_id_tensor.item())
+        values = F.relu(
+            owned[owners.eq(record_id)].abs() - float(off_abs_max)
+        ).square()
+        mean = values.mean()
+        count = min(int(tail_k), int(values.numel()))
+        tail = values.topk(count).values.mean()
+        totals.append(mean + tail)
+        means.append(mean)
+        tails.append(tail)
+    return torch.stack(totals).mean(), {
+        "writer_off_mean": torch.stack(means).mean(),
+        "writer_off_tail": torch.stack(tails).mean(),
+    }
 
 
 def detector_gate_report(
@@ -459,12 +600,16 @@ class SparseSwiGLUNeuronEditor(nn.Module):
         x = hidden.float()
         base_gate = F.linear(x, self.base_gate_rows)
         base_up = F.linear(x, self.base_up_rows)
-        edited = self.edited_weights()
-        edited_gate = F.linear(x, edited.gate_rows)
-        edited_up = F.linear(x, edited.up_rows)
         base_activation = self._act_fn(base_gate) * base_up
-        edited_activation = self._act_fn(edited_gate) * edited_up
+        edited_activation = self.edited_selected_activations(x)
         return base_activation, edited_activation
+
+    def edited_selected_activations(self, hidden: torch.Tensor) -> torch.Tensor:
+        """Evaluate only the trainable selected gate/up rows on cached input."""
+        x = hidden.float()
+        edited_gate = F.linear(x, self.base_gate_rows + self.gate_delta)
+        edited_up = F.linear(x, self.base_up_rows + self.up_delta)
+        return self._act_fn(edited_gate) * edited_up
 
     def _hook(
         self, _module: nn.Module, inputs: Any, output: torch.Tensor

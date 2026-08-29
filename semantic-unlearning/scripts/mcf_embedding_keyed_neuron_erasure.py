@@ -139,9 +139,28 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     parser.add_argument("--detector-steps", type=int, default=1000)
     parser.add_argument("--detector-lr", type=float, default=1e-3)
-    parser.add_argument("--detector-record-batch", type=int, default=4)
-    parser.add_argument("--detector-positive-contexts", type=int, default=2)
-    parser.add_argument("--detector-negative-contexts", type=int, default=2)
+    parser.add_argument(
+        "--detector-record-batch",
+        type=int,
+        default=4,
+        help=(
+            "Record-microbatch capacity for detector gradient accumulation. "
+            "Every optimizer update still covers every record."
+        ),
+    )
+    parser.add_argument(
+        "--detector-positive-contexts",
+        choices=("all",),
+        default="all",
+        help="V3.1 locks detector training to every training-safe positive context.",
+    )
+    parser.add_argument(
+        "--detector-negative-contexts",
+        choices=("all",),
+        default="all",
+        help="V3.1 locks detector training to every training-safe negative context.",
+    )
+    parser.add_argument("--detector-tail-k", type=int, default=2)
     parser.add_argument(
         "--detector-response-mode",
         choices=("absolute_signed_group_activation",),
@@ -246,6 +265,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error(
             "--corpus-protection-prompts must cover the reserved selection corpus quota"
         )
+    if int(value.detector_steps) < 0:
+        parser.error("--detector-steps must be non-negative")
+    if int(value.detector_record_batch) <= 0:
+        parser.error("--detector-record-batch must be positive")
+    if int(value.detector_tail_k) <= 0:
+        parser.error("--detector-tail-k must be positive")
+    if float(value.detector_positive_floor) < 0:
+        parser.error("--detector-positive-floor must be non-negative")
+    if float(value.detector_off_abs_max) < 0:
+        parser.error("--detector-off-abs-max must be non-negative")
+    for name in (
+        "detector_negative_weight",
+        "detector_cross_weight",
+        "detector_writer_off_weight",
+        "detector_consistency_weight",
+        "detector_l2",
+    ):
+        if float(getattr(value, name)) < 0:
+            parser.error(f"--{name.replace('_', '-')} must be non-negative")
     if float(value.writer_preflight_amplitude_threshold) < 0:
         parser.error("--writer-preflight-amplitude-threshold must be non-negative")
     for name in (
@@ -353,6 +391,39 @@ def _validate_experiment_registry(
     for key, expected_value in expected_writer_prerequisite.items():
         if writer_prerequisite.get(key) != expected_value:
             raise RuntimeError(f"registry clean-writer prerequisite mismatch: {key}")
+    detector_revision = registry.get("detector_training_revision")
+    expected_detector_revision = {
+        "version": "v3.1",
+        "training_input": "cached_selected_layer_mlp_input_hidden_states",
+        "cache_dtype": "float32",
+        "cache_device": "cpu",
+        "cache_scope": [
+            "writer_on_positive",
+            "writer_on_negative",
+            "writer_off_positive",
+        ],
+        "update_coverage": "all_records_accumulated",
+        "record_microbatch_argument": "detector_record_batch",
+        "records_per_optimizer_update": 50,
+        "optimizer_updates": 1000,
+        "record_exposures": 50000,
+        "positive_context_mode": "all",
+        "negative_context_mode": "all",
+        "tail_k": 2,
+        "positive_objective": "mean_plus_worst_k_squared_shortfall",
+        "negative_objective": "mean_plus_worst_k_squared_gate_excess",
+        "cross_objective": "mean_plus_worst_k_squared_gate_excess",
+        "writer_off_objective": "mean_plus_worst_k_squared_gate_excess",
+        "gradient_normalization": "equal_record_mean",
+        "gradient_clip_frequency": "once_per_optimizer_update",
+        "norm_projection_frequency": "once_per_optimizer_update",
+        "official_evaluation_prompts_seen": 0,
+    }
+    if not isinstance(detector_revision, Mapping):
+        raise RuntimeError("registry lacks the V3.1 detector-training revision")
+    for key, expected_value in expected_detector_revision.items():
+        if detector_revision.get(key) != expected_value:
+            raise RuntimeError(f"registry V3.1 detector revision mismatch: {key}")
     label = str(args.experiment_label)
     if label == "primary":
         expected = registry.get("primary_configuration")
@@ -1294,6 +1365,86 @@ def capture_base_last_token_activations(
     return torch.cat(rows, dim=0)
 
 
+@torch.no_grad()
+def capture_mlp_input_last_token_hidden_states(
+    model: torch.nn.Module,
+    tok: Any,
+    mlp: torch.nn.Module,
+    prompts: Sequence[str],
+    device: torch.device,
+    *,
+    batch_size: int,
+) -> torch.Tensor:
+    """Cache the exact frozen input used by selected detector gate/up rows.
+
+    During detector training the sparse down projection is disabled, so edits
+    to this MLP cannot affect the tensor entering it.  Caching that tensor once
+    therefore removes repeated 3B-backbone execution without approximating the
+    learned detector computation.  Values are stored as CPU float32 because
+    ``SparseSwiGLUNeuronEditor.selected_activations`` applies the same float32
+    conversion during an ordinary model forward.
+    """
+    if int(batch_size) <= 0:
+        raise ValueError("batch_size must be positive")
+    rows: List[torch.Tensor] = []
+    captured: List[torch.Tensor] = []
+
+    def pre_hook(_module: torch.nn.Module, inputs: Any) -> None:
+        captured.append(inputs[0])
+
+    handle = mlp.register_forward_pre_hook(pre_hook)
+    old_side = getattr(tok, "padding_side", "right")
+    tok.padding_side = "right"
+    try:
+        backbone = getattr(model, "model", None)
+        if backbone is None or backbone is model:
+            raise RuntimeError("detector cache requires a separate model backbone")
+        for start in range(0, len(prompts), int(batch_size)):
+            batch = list(prompts[start : start + int(batch_size)])
+            encoded = tok(batch, padding=True, return_tensors="pt").to(device)
+            captured.clear()
+            backbone(**encoded, use_cache=False, return_dict=True)
+            if len(captured) != 1:
+                raise RuntimeError(
+                    f"expected one MLP input, captured {len(captured)}"
+                )
+            hidden = captured[0]
+            positions = encoded["attention_mask"].sum(dim=1) - 1
+            batch_rows = torch.arange(len(batch), device=device)
+            rows.append(hidden[batch_rows, positions, :].detach().float().cpu())
+    finally:
+        handle.remove()
+        tok.padding_side = old_side
+    if not rows:
+        return torch.empty((0, int(mlp.gate_proj.weight.shape[1])))
+    return torch.cat(rows, dim=0)
+
+
+def capture_grouped_mlp_input_hidden_states(
+    model: torch.nn.Module,
+    tok: Any,
+    mlp: torch.nn.Module,
+    prompt_groups: Sequence[Sequence[str]],
+    device: torch.device,
+    *,
+    batch_size: int,
+) -> List[torch.Tensor]:
+    """Capture a flattened prompt bank once and restore record grouping."""
+    sizes = [len(group) for group in prompt_groups]
+    prompts = [str(prompt) for group in prompt_groups for prompt in group]
+    hidden = capture_mlp_input_last_token_hidden_states(
+        model, tok, mlp, prompts, device, batch_size=int(batch_size)
+    )
+    if int(hidden.shape[0]) != sum(sizes):
+        raise RuntimeError("detector cache row count does not match prompt bank")
+    result: List[torch.Tensor] = []
+    start = 0
+    for size in sizes:
+        result.append(hidden[start : start + size])
+        start += size
+    return result
+
+
 def capture_editor_last_token_activations(
     model: torch.nn.Module,
     tok: Any,
@@ -1875,94 +2026,250 @@ def main(argv: Sequence[str] | None = None) -> None:
     flat_signs = flat_signs_cpu.to(device)
     embedding_writer.enabled = writer_present
 
-    print("\nStage 1: train sparse nonlinear contextual-code detector")
+    print("\nStage 1: cache frozen layer-input states for detector training")
     editor.write_enabled = False
     editor.gate_delta.requires_grad_(True)
     editor.up_delta.requires_grad_(True)
     editor.down_delta.requires_grad_(False)
+    embedding_writer.enabled = writer_present
+    positive_hidden_cache = capture_grouped_mlp_input_hidden_states(
+        model,
+        tok,
+        mlp,
+        positive_prompts_by_record,
+        device,
+        batch_size=int(args.cache_batch_size),
+    )
+    negative_hidden_cache = capture_grouped_mlp_input_hidden_states(
+        model,
+        tok,
+        mlp,
+        negative_prompts_by_record,
+        device,
+        batch_size=int(args.cache_batch_size),
+    )
+    if writer_present:
+        embedding_writer.enabled = False
+        writer_off_hidden_cache = capture_grouped_mlp_input_hidden_states(
+            model,
+            tok,
+            mlp,
+            positive_prompts_by_record,
+            device,
+            batch_size=int(args.cache_batch_size),
+        )
+    else:
+        writer_off_hidden_cache = [
+            torch.empty((0, int(mlp.gate_proj.weight.shape[1]))) for _ in records
+        ]
+    embedding_writer.enabled = writer_present
+    if any(int(rows.shape[0]) == 0 for rows in positive_hidden_cache):
+        raise RuntimeError("every record needs at least one cached positive context")
+    if any(int(rows.shape[0]) == 0 for rows in negative_hidden_cache):
+        raise RuntimeError("every record needs at least one cached negative context")
+    hidden_width = int(mlp.gate_proj.weight.shape[1])
+    all_cache_rows = [
+        *positive_hidden_cache,
+        *negative_hidden_cache,
+        *writer_off_hidden_cache,
+    ]
+    if any(
+        rows.ndim != 2
+        or int(rows.shape[1]) != hidden_width
+        or rows.device.type != "cpu"
+        or rows.dtype != torch.float32
+        or not bool(torch.isfinite(rows).all())
+        for rows in all_cache_rows
+    ):
+        raise RuntimeError("detector hidden-state cache failed shape/dtype validation")
+    detector_cache_report = {
+        "schema_version": 1,
+        "kind": "training_only_frozen_mlp_input_detector_cache",
+        "layer": int(args.neuron_layer),
+        "hidden_width": hidden_width,
+        "storage": "in_memory_cpu_float32",
+        "detector_computation": (
+            "cached_h -> selected gate_proj rows -> SiLU -> selected up_proj "
+            "rows -> signed record-group activation"
+        ),
+        "cache_exactness": (
+            "the selected MLP down projection is disabled during detector training; "
+            "the cached MLP input is independent of learned gate/up rows"
+        ),
+        "records": len(records),
+        "writer_on_positive_contexts": sum(
+            int(rows.shape[0]) for rows in positive_hidden_cache
+        ),
+        "writer_on_negative_contexts": sum(
+            int(rows.shape[0]) for rows in negative_hidden_cache
+        ),
+        "writer_off_positive_contexts": sum(
+            int(rows.shape[0]) for rows in writer_off_hidden_cache
+        ),
+        "positive_context_mode": str(args.detector_positive_contexts),
+        "negative_context_mode": str(args.detector_negative_contexts),
+        "per_record": [
+            {
+                "record_index": index,
+                "case_id": int(case_ids[index]),
+                "writer_on_positive_contexts": int(
+                    positive_hidden_cache[index].shape[0]
+                ),
+                "writer_on_negative_contexts": int(
+                    negative_hidden_cache[index].shape[0]
+                ),
+                "writer_off_positive_contexts": int(
+                    writer_off_hidden_cache[index].shape[0]
+                ),
+            }
+            for index in range(len(records))
+        ],
+        "official_evaluation_prompts_seen": 0,
+    }
+    gagd.write_json(out_dir / "detector_hidden_cache_report.json", detector_cache_report)
+    print(
+        "  cached "
+        f"{detector_cache_report['writer_on_positive_contexts']} writer-on positives, "
+        f"{detector_cache_report['writer_on_negative_contexts']} writer-on negatives, "
+        f"and {detector_cache_report['writer_off_positive_contexts']} writer-off "
+        "positives"
+    )
+
+    def cached_detector_responses(hidden: torch.Tensor) -> torch.Tensor:
+        if hidden.ndim != 2 or int(hidden.shape[1]) != hidden_width:
+            raise ValueError("cached detector hidden states have the wrong shape")
+        edited_activation = editor.edited_selected_activations(
+            hidden.to(device=device, non_blocking=True)
+        )
+        return neuron_core.signed_group_activations(
+            edited_activation, local_groups, flat_signs
+        )
+
+    print("\nStage 1: train globally balanced sparse contextual-code detector")
     detector_optimizer = torch.optim.AdamW(
         [editor.gate_delta, editor.up_delta],
         lr=float(args.detector_lr),
         weight_decay=0.0,
     )
     detector_log: List[Dict[str, float]] = []
+    detector_microbatches = math.ceil(
+        len(records) / max(1, int(args.detector_record_batch))
+    )
     for step in range(1, int(args.detector_steps) + 1):
-        record_indices = py_rng.sample(
-            range(len(records)), min(int(args.detector_record_batch), len(records))
-        )
-        prompts: List[str] = []
-        batch_owners: List[int] = []
-        positive_flags: List[bool] = []
-        positive_batch: List[str] = []
-        for record_index in record_indices:
-            positives = list(positive_prompts_by_record[record_index])
-            negatives = list(negative_prompts_by_record[record_index])
-            direct = positives[0]
-            remaining = positives[1:]
-            py_rng.shuffle(remaining)
-            chosen_positive = [direct, *remaining][
-                : int(args.detector_positive_contexts)
-            ]
-            py_rng.shuffle(negatives)
-            chosen_negative = negatives[: int(args.detector_negative_contexts)]
-            for prompt in chosen_positive:
-                prompts.append(prompt)
-                positive_batch.append(prompt)
-                batch_owners.append(record_index)
-                positive_flags.append(True)
-            for prompt in chosen_negative:
-                prompts.append(prompt)
-                batch_owners.append(record_index)
-                positive_flags.append(False)
-
         detector_optimizer.zero_grad(set_to_none=True)
-        embedding_writer.enabled = writer_present
-        activation = capture_editor_last_token_activations(
-            model, tok, editor, prompts, device
-        )
-        responses = neuron_core.signed_group_activations(
-            activation, local_groups, flat_signs
-        )
-        owner_tensor = torch.tensor(batch_owners, dtype=torch.long, device=device)
-        positive_tensor = torch.tensor(positive_flags, dtype=torch.bool, device=device)
-        detector_loss, pieces = neuron_core.detector_objective(
-            responses,
-            owner_tensor,
-            positive_tensor,
-            positive_floor=float(args.detector_positive_floor),
-            negative_weight=float(args.detector_negative_weight),
-            cross_weight=float(args.detector_cross_weight),
-        )
-        consistency = responses.sum() * 0.0
-        for record_index in record_indices:
-            mask = positive_tensor & owner_tensor.eq(record_index)
-            if int(mask.sum()) > 1:
-                consistency = consistency + responses[mask, record_index].var(
-                    unbiased=False
+        accumulated = {
+            "write": 0.0,
+            "write_mean": 0.0,
+            "write_tail": 0.0,
+            "negative": 0.0,
+            "negative_mean": 0.0,
+            "negative_tail": 0.0,
+            "cross": 0.0,
+            "cross_mean": 0.0,
+            "cross_tail": 0.0,
+            "consistency": 0.0,
+            "writer_off": 0.0,
+            "writer_off_mean": 0.0,
+            "writer_off_tail": 0.0,
+        }
+        for record_start in range(
+            0, len(records), int(args.detector_record_batch)
+        ):
+            record_indices = list(
+                range(
+                    record_start,
+                    min(
+                        len(records),
+                        record_start + int(args.detector_record_batch),
+                    ),
                 )
-        consistency = consistency / max(1, len(record_indices))
+            )
+            hidden_rows: List[torch.Tensor] = []
+            batch_owners: List[int] = []
+            positive_flags: List[bool] = []
+            off_hidden_rows: List[torch.Tensor] = []
+            off_owners: List[int] = []
+            for record_index in record_indices:
+                positive_hidden = positive_hidden_cache[record_index]
+                negative_hidden = negative_hidden_cache[record_index]
+                hidden_rows.extend((positive_hidden, negative_hidden))
+                batch_owners.extend(
+                    [record_index]
+                    * (int(positive_hidden.shape[0]) + int(negative_hidden.shape[0]))
+                )
+                positive_flags.extend(
+                    [True] * int(positive_hidden.shape[0])
+                    + [False] * int(negative_hidden.shape[0])
+                )
+                if writer_present:
+                    off_hidden = writer_off_hidden_cache[record_index]
+                    off_hidden_rows.append(off_hidden)
+                    off_owners.extend([record_index] * int(off_hidden.shape[0]))
 
-        writer_off_loss = responses.sum() * 0.0
-        if writer_present:
-            embedding_writer.enabled = False
-            off_activation = capture_editor_last_token_activations(
-                model, tok, editor, positive_batch, device
+            responses = cached_detector_responses(torch.cat(hidden_rows, dim=0))
+            owner_tensor = torch.tensor(
+                batch_owners, dtype=torch.long, device=device
             )
-            off_response = neuron_core.signed_group_activations(
-                off_activation, local_groups, flat_signs
+            positive_tensor = torch.tensor(
+                positive_flags, dtype=torch.bool, device=device
             )
-            writer_off_loss = off_response.square().mean()
-        embedding_writer.enabled = writer_present
+            detector_loss, pieces = neuron_core.detector_objective(
+                responses,
+                owner_tensor,
+                positive_tensor,
+                positive_floor=float(args.detector_positive_floor),
+                off_abs_max=float(args.detector_off_abs_max),
+                tail_k=int(args.detector_tail_k),
+                negative_weight=float(args.detector_negative_weight),
+                cross_weight=float(args.detector_cross_weight),
+            )
+            writer_off_loss = responses.sum() * 0.0
+            writer_off_pieces = {
+                "writer_off_mean": writer_off_loss,
+                "writer_off_tail": writer_off_loss,
+            }
+            if writer_present:
+                off_response = cached_detector_responses(
+                    torch.cat(off_hidden_rows, dim=0)
+                )
+                off_owner_tensor = torch.tensor(
+                    off_owners, dtype=torch.long, device=device
+                )
+                writer_off_loss, writer_off_pieces = (
+                    neuron_core.detector_writer_off_objective(
+                        off_response,
+                        off_owner_tensor,
+                        off_abs_max=float(args.detector_off_abs_max),
+                        tail_k=int(args.detector_tail_k),
+                    )
+                )
+            microbatch_total = (
+                detector_loss
+                + float(args.detector_consistency_weight) * pieces["consistency"]
+                + float(args.detector_writer_off_weight) * writer_off_loss
+            )
+            record_scale = len(record_indices) / len(records)
+            (record_scale * microbatch_total).backward()
+            for name, value in pieces.items():
+                accumulated[name] += record_scale * float(value.detach())
+            accumulated["writer_off"] += record_scale * float(
+                writer_off_loss.detach()
+            )
+            for name, value in writer_off_pieces.items():
+                accumulated[name] += record_scale * float(value.detach())
+
         l2 = editor.gate_delta.square().mean() + editor.up_delta.square().mean()
-        total = (
-            detector_loss
-            + float(args.detector_consistency_weight) * consistency
-            + float(args.detector_writer_off_weight) * writer_off_loss
-            + float(args.detector_l2) * l2
+        (float(args.detector_l2) * l2).backward()
+        total_value = (
+            accumulated["write"]
+            + float(args.detector_negative_weight) * accumulated["negative"]
+            + float(args.detector_cross_weight) * accumulated["cross"]
+            + float(args.detector_consistency_weight) * accumulated["consistency"]
+            + float(args.detector_writer_off_weight) * accumulated["writer_off"]
+            + float(args.detector_l2) * float(l2.detach())
         )
-        if not torch.isfinite(total):
+        if not math.isfinite(total_value):
             raise FloatingPointError(f"non-finite detector loss at step {step}")
-        total.backward()
         if float(args.grad_clip) > 0:
             torch.nn.utils.clip_grad_norm_(
                 [editor.gate_delta, editor.up_delta], float(args.grad_clip)
@@ -1975,12 +2282,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         if step == 1 or step % 25 == 0 or step == int(args.detector_steps):
             row = {
                 "step": step,
-                "loss": float(total.detach()),
-                "write": float(pieces["write"].detach()),
-                "negative": float(pieces["negative"].detach()),
-                "cross": float(pieces["cross"].detach()),
-                "consistency": float(consistency.detach()),
-                "writer_off": float(writer_off_loss.detach()),
+                "loss": total_value,
+                **accumulated,
+                "l2": float(l2.detach()),
+                "records_per_optimizer_update": len(records),
+                "microbatches_per_optimizer_update": detector_microbatches,
                 "gate_max_relative_norm": cap["gate_max_relative_norm"],
                 "up_max_relative_norm": cap["up_max_relative_norm"],
             }
@@ -1993,35 +2299,22 @@ def main(argv: Sequence[str] | None = None) -> None:
     del detector_optimizer
 
     @torch.no_grad()
-    def record_detector_responses(
-        prompt_groups: Sequence[Sequence[str]], *, writer_enabled: bool
+    def record_cached_detector_responses(
+        hidden_groups: Sequence[torch.Tensor],
     ) -> List[torch.Tensor]:
         result: List[torch.Tensor] = []
-        embedding_writer.enabled = bool(writer_enabled and writer_present)
-        editor.write_enabled = False
-        for record_index, prompts in enumerate(prompt_groups):
-            rows: List[torch.Tensor] = []
-            for start in range(0, len(prompts), int(args.cache_batch_size)):
-                batch = list(prompts[start : start + int(args.cache_batch_size)])
-                activation = capture_editor_last_token_activations(
-                    model, tok, editor, batch, device
-                )
-                response = neuron_core.signed_group_activations(
-                    activation, local_groups, flat_signs
-                )
-                rows.append(response[:, record_index].detach().cpu())
-            result.append(torch.cat(rows) if rows else torch.empty(0))
-        embedding_writer.enabled = writer_present
+        for record_index, hidden in enumerate(hidden_groups):
+            if int(hidden.shape[0]) == 0:
+                result.append(torch.empty(0))
+                continue
+            response = cached_detector_responses(hidden)
+            result.append(response[:, record_index].detach().cpu())
         return result
 
-    positive_detector = record_detector_responses(
-        positive_prompts_by_record, writer_enabled=writer_present
-    )
-    negative_detector = record_detector_responses(
-        negative_prompts_by_record, writer_enabled=writer_present
-    )
+    positive_detector = record_cached_detector_responses(positive_hidden_cache)
+    negative_detector = record_cached_detector_responses(negative_hidden_cache)
     writer_off_detector = (
-        record_detector_responses(positive_prompts_by_record, writer_enabled=False)
+        record_cached_detector_responses(writer_off_hidden_cache)
         if writer_present
         else [torch.empty(0) for _ in positive_prompts_by_record]
     )
@@ -2039,8 +2332,53 @@ def main(argv: Sequence[str] | None = None) -> None:
         else "training_only_base_context_sparse_mlp_detector_gate"
     )
     detector_gate["writer_mode"] = str(args.writer_mode)
+    detector_gate["optimization"] = {
+        "revision": "v3.1",
+        "update_coverage": "all_records_accumulated",
+        "records_per_optimizer_update": len(records),
+        "record_microbatch_capacity": int(args.detector_record_batch),
+        "microbatches_per_optimizer_update": detector_microbatches,
+        "positive_context_mode": str(args.detector_positive_contexts),
+        "negative_context_mode": str(args.detector_negative_contexts),
+        "tail_k": int(args.detector_tail_k),
+        "positive_objective": "mean_plus_worst_k_squared_shortfall",
+        "negative_objective": "mean_plus_worst_k_squared_gate_excess",
+        "cross_objective": "mean_plus_worst_k_squared_gate_excess",
+        "writer_off_objective": "mean_plus_worst_k_squared_gate_excess",
+        "gradient_normalization": "equal_record_mean",
+        "optimizer_steps": int(args.detector_steps),
+        "record_exposures": int(args.detector_steps) * len(records),
+        "gradient_clip_frequency": "once_per_optimizer_update",
+        "norm_projection_frequency": "once_per_optimizer_update",
+        "cached_mlp_inputs": True,
+    }
+    if len(detector_gate["per_record"]) != len(case_ids):
+        raise RuntimeError("detector gate lost the locked record-index binding")
+    for row, case_id in zip(detector_gate["per_record"], case_ids):
+        row["case_id"] = int(case_id)
+    detector_gate["record_index_binding"] = "locked training-visible record order"
     detector_gate["official_evaluation_prompts_seen"] = 0
     gagd.write_json(out_dir / "detector_gate_report.json", detector_gate)
+    diagnostic_lines = [
+        "record_index\tcase_id\tpositive_min\tnegative_abs_max\t"
+        "writer_off_abs_max\tpassed"
+    ]
+    diagnostic_lines.extend(
+        "\t".join(
+            (
+                str(row["record_index"]),
+                str(row["case_id"]),
+                f"{float(row['positive_min']):+.8f}",
+                f"{float(row['negative_abs_max']):.8f}",
+                f"{float(row['writer_off_abs_max']):.8f}",
+                str(bool(row["passed"])).lower(),
+            )
+        )
+        for row in detector_gate["per_record"]
+    )
+    (out_dir / "detector_gate_case_report.tsv").write_text(
+        "\n".join(diagnostic_lines) + "\n", encoding="utf-8"
+    )
     print(
         f"  detector gate: {detector_gate['passed_records']}/"
         f"{detector_gate['total_records']} records"
@@ -2470,6 +2808,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             "detector_positive_floor": float(args.detector_positive_floor),
             "detector_off_abs_max": float(args.detector_off_abs_max),
             "detector_response_mode": str(args.detector_response_mode),
+            "detector_training_revision": "v3.1",
+            "detector_tail_k": int(args.detector_tail_k),
+            "detector_update_coverage": "all_records_accumulated",
             "writer_preflight_amplitude_threshold": float(
                 args.writer_preflight_amplitude_threshold
             ),
@@ -2570,8 +2911,30 @@ def main(argv: Sequence[str] | None = None) -> None:
             "detector_steps": int(args.detector_steps),
             "detector_lr": float(args.detector_lr),
             "detector_record_batch": int(args.detector_record_batch),
-            "detector_positive_contexts": int(args.detector_positive_contexts),
-            "detector_negative_contexts": int(args.detector_negative_contexts),
+            "detector_record_batch_semantics": (
+                "gradient_accumulation_microbatch_capacity"
+            ),
+            "detector_update_coverage": "all_records_accumulated",
+            "detector_records_per_optimizer_update": len(records),
+            "detector_microbatches_per_optimizer_update": detector_microbatches,
+            "detector_record_exposures": int(args.detector_steps) * len(records),
+            "detector_positive_contexts": str(args.detector_positive_contexts),
+            "detector_negative_contexts": str(args.detector_negative_contexts),
+            "detector_tail_k": int(args.detector_tail_k),
+            "detector_positive_objective": (
+                "mean_plus_worst_k_squared_shortfall"
+            ),
+            "detector_negative_objective": (
+                "mean_plus_worst_k_squared_gate_excess"
+            ),
+            "detector_cross_objective": (
+                "mean_plus_worst_k_squared_gate_excess"
+            ),
+            "detector_writer_off_objective": (
+                "mean_plus_worst_k_squared_gate_excess"
+            ),
+            "detector_gradient_normalization": "equal_record_mean",
+            "detector_cached_mlp_inputs": True,
             "detector_positive_floor": float(args.detector_positive_floor),
             "detector_off_abs_max": float(args.detector_off_abs_max),
             "detector_negative_weight": float(args.detector_negative_weight),
@@ -2621,6 +2984,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         "selection": selection_report,
         "detector": {
             "response_mode": str(args.detector_response_mode),
+            "training_revision": "v3.1",
+            "hidden_cache": detector_cache_report,
             "training_log": detector_log,
             "gate": detector_gate,
             "relative_norm_cap": float(args.detector_relative_cap),

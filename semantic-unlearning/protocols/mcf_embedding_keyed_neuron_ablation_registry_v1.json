@@ -1,7 +1,7 @@
 {
-  "schema_version": 6,
-  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3",
-  "status": "training_only_v6_2_global_record_accumulation_preregistered_after_v6_1_portability_rejection_before_decoder_or_official_evaluation",
+  "schema_version": 7,
+  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_1",
+  "status": "training_only_detector_v3_1_preregistered_after_v3_detector_rejection_before_actuator_or_official_evaluation",
   "development_history": [
     {
       "version": "v1",
@@ -78,9 +78,58 @@
         "measure initial and final per-record gradient cosines for both the positive-write and full writer objectives",
         "accept count-derived float32 fractions within 1e-7 while continuing to recompute all counts and Boolean decisions exactly"
       ]
+    },
+    {
+      "version": "v5_embedding_keyed_detector_v3",
+      "evidence_opened": "locked semantically valid training-safe prompts only",
+      "official_evaluation_opened_by_this_failed_run": false,
+      "actuator_training_started": false,
+      "result": "rejected by the locked detector gate after the V6.2 writer passed all 346/346 contexts: 0/50 detector records passed, so actuator training and official evaluation were refused",
+      "detector_gate": {
+        "criterion": {
+          "positive_floor": 0.25,
+          "negative_abs_max": 0.2,
+          "writer_off_abs_max": 0.2
+        },
+        "positive_failures": 49,
+        "negative_failures": 0,
+        "writer_off_failures": 13,
+        "positive_min_distribution": {
+          "min": -0.9657,
+          "median": 0.0029,
+          "p90": 0.1822,
+          "max": 0.3199
+        },
+        "negative_abs_max_distribution": {
+          "median": 0.0079,
+          "max": 0.0752
+        },
+        "writer_off_abs_max_distribution": {
+          "median": 0.1076,
+          "max": 0.4992
+        },
+        "diagnostic_record_indices": [6, 45, 33, 27, 20]
+      },
+      "optimization_audit": {
+        "records_sampled_per_optimizer_update": 4,
+        "records_blind_per_optimizer_update": 46,
+        "positive_contexts_sampled_per_record": 2,
+        "negative_contexts_sampled_per_record": 2,
+        "certificate_positive_reduction": "minimum over all contexts",
+        "certificate_off_reduction": "maximum absolute response over all contexts",
+        "interpretation": "the near-zero endpoint losses described a quiet detector, not a robust record-specific positive response; negative locality already had large headroom"
+      },
+      "changes_motivated": [
+        "cache the frozen layer-27 MLP input hidden states for writer-on positives, writer-on negatives, and writer-off positives",
+        "accumulate bounded record-microbatch gradients over all 50 records before every detector optimizer update",
+        "present every positive and negative training-safe context on every detector update",
+        "replace the positive mean hinge with an equal-record mean plus worst-two squared-shortfall objective",
+        "replace negative, cross-record, and writer-off zero-seeking losses with mean plus worst-two squared excess above the unchanged 0.20 gate",
+        "retain the writer, selected-neuron architecture, layer, neuron count, norm caps, 0.25/0.20 certificate, 1000 optimizer updates, actuator configuration, and evaluation firewall"
+      ]
     }
   ],
-  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, and V6.1 runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer or v3 learner or used for checkpoint selection/retry.",
+  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, and detector V3 runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer or V3.1 learner or used for checkpoint selection/retry.",
   "stage1_writer_prerequisite": {
     "protocol": "mcf_context_composed_sparse_embedding_writer_v6_2",
     "positive_context_policy": "relation_templates_only_v1",
@@ -126,6 +175,33 @@
       "minimum_per_record_fraction": 0.8
     }
   },
+  "detector_training_revision": {
+    "version": "v3.1",
+    "training_input": "cached_selected_layer_mlp_input_hidden_states",
+    "cache_dtype": "float32",
+    "cache_device": "cpu",
+    "cache_scope": [
+      "writer_on_positive",
+      "writer_on_negative",
+      "writer_off_positive"
+    ],
+    "update_coverage": "all_records_accumulated",
+    "record_microbatch_argument": "detector_record_batch",
+    "records_per_optimizer_update": 50,
+    "optimizer_updates": 1000,
+    "record_exposures": 50000,
+    "positive_context_mode": "all",
+    "negative_context_mode": "all",
+    "tail_k": 2,
+    "positive_objective": "mean_plus_worst_k_squared_shortfall",
+    "negative_objective": "mean_plus_worst_k_squared_gate_excess",
+    "cross_objective": "mean_plus_worst_k_squared_gate_excess",
+    "writer_off_objective": "mean_plus_worst_k_squared_gate_excess",
+    "gradient_normalization": "equal_record_mean",
+    "gradient_clip_frequency": "once_per_optimizer_update",
+    "norm_projection_frequency": "once_per_optimizer_update",
+    "official_evaluation_prompts_seen": 0
+  },
   "v6_2_mechanism_interpretation": {
     "hypothesis": "record-local optimizer updates redistribute margin because each update is blind to 47 of 50 records sharing the sparse embedding parameterization",
     "primary_intervention": "every Adam update receives gradients from all 50 records through 17 bounded microbatches",
@@ -162,8 +238,9 @@
     "detector_steps": 1000,
     "detector_lr": 0.001,
     "detector_record_batch": 4,
-    "detector_positive_contexts": 2,
-    "detector_negative_contexts": 2,
+    "detector_positive_contexts": "all",
+    "detector_negative_contexts": "all",
+    "detector_tail_k": 2,
     "detector_positive_floor": 0.25,
     "detector_negative_weight": 5.0,
     "detector_cross_weight": 2.0,

@@ -20,6 +20,7 @@ import audit_mcf_embedding_keyed_neuron_relearning as relearning_audit
 import audit_mcf_frozen_writer_portability as portability_audit
 import aggregate_mcf_context_gating_frequency_factorial as frequency_aggregate
 import report_mcf_embedding_keyed_neuron_result as report
+import report_mcf_detector_gate_cases as gate_cases
 import verify_mcf_clean_stage1_writer as clean_writer_verify
 
 
@@ -92,6 +93,36 @@ def _clean_stage1_acceptance_summary():
             "global_complete_fraction": 1.0,
             "minimum_record_complete_fraction": 1.0,
         },
+    }
+
+
+def _detector_training_revision():
+    return {
+        "version": "v3.1",
+        "training_input": "cached_selected_layer_mlp_input_hidden_states",
+        "cache_dtype": "float32",
+        "cache_device": "cpu",
+        "cache_scope": [
+            "writer_on_positive",
+            "writer_on_negative",
+            "writer_off_positive",
+        ],
+        "update_coverage": "all_records_accumulated",
+        "record_microbatch_argument": "detector_record_batch",
+        "records_per_optimizer_update": 50,
+        "optimizer_updates": 1000,
+        "record_exposures": 50000,
+        "positive_context_mode": "all",
+        "negative_context_mode": "all",
+        "tail_k": 2,
+        "positive_objective": "mean_plus_worst_k_squared_shortfall",
+        "negative_objective": "mean_plus_worst_k_squared_gate_excess",
+        "cross_objective": "mean_plus_worst_k_squared_gate_excess",
+        "writer_off_objective": "mean_plus_worst_k_squared_gate_excess",
+        "gradient_normalization": "equal_record_mean",
+        "gradient_clip_frequency": "once_per_optimizer_update",
+        "norm_projection_frequency": "once_per_optimizer_update",
+        "official_evaluation_prompts_seen": 0,
     }
 
 
@@ -242,6 +273,8 @@ def test_detector_objective_rewards_owned_positive_and_nulls_cross_codes():
         owners,
         positive,
         positive_floor=1.0,
+        off_abs_max=0.2,
+        tail_k=2,
         negative_weight=2.0,
         cross_weight=2.0,
     )
@@ -253,11 +286,104 @@ def test_detector_objective_rewards_owned_positive_and_nulls_cross_codes():
         owners,
         positive,
         positive_floor=1.0,
+        off_abs_max=0.2,
+        tail_k=2,
         negative_weight=2.0,
         cross_weight=2.0,
     )
     assert good_loss == pytest.approx(0.0)
     assert bad_loss > good_loss
+
+
+def test_detector_positive_loss_is_equal_record_mean_plus_worst_two():
+    responses = torch.tensor(
+        [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 1.0],
+            [0.0, 1.0],
+        ]
+    )
+    owners = torch.tensor([0, 0, 0, 1, 1, 1])
+    positive = torch.ones(6, dtype=torch.bool)
+    loss, pieces = core.detector_objective(
+        responses,
+        owners,
+        positive,
+        positive_floor=1.0,
+        off_abs_max=0.2,
+        tail_k=2,
+        negative_weight=0.0,
+        cross_weight=0.0,
+    )
+
+    # Record 0: mean shortfall 1/3 + worst-two mean 1/2. Record 1: zero.
+    assert pieces["write_mean"] == pytest.approx(1.0 / 6.0)
+    assert pieces["write_tail"] == pytest.approx(1.0 / 4.0)
+    assert loss == pytest.approx(5.0 / 12.0)
+
+
+def test_detector_off_context_losses_ignore_gate_compliant_nonzero_responses():
+    owners = torch.tensor([0, 0, 1, 1])
+    compliant = torch.tensor(
+        [[0.15, 9.0], [-0.20, 9.0], [9.0, -0.19], [9.0, 0.05]]
+    )
+    loss, pieces = core.detector_writer_off_objective(
+        compliant, owners, off_abs_max=0.2, tail_k=2
+    )
+    assert loss == pytest.approx(0.0)
+    assert pieces["writer_off_mean"] == pytest.approx(0.0)
+    assert pieces["writer_off_tail"] == pytest.approx(0.0)
+
+    violating = compliant.clone()
+    violating[0, 0] = 0.30
+    violating_loss, _ = core.detector_writer_off_objective(
+        violating, owners, off_abs_max=0.2, tail_k=2
+    )
+    assert violating_loss > loss
+
+
+def test_detector_record_microbatch_accumulation_matches_one_global_objective():
+    torch.manual_seed(23)
+    owners = torch.tensor([0, 0, 1, 1, 2, 2, 3, 3])
+    positive = torch.tensor([True, False] * 4)
+    full_responses = torch.randn(8, 4, requires_grad=True)
+    full_loss, _ = core.detector_objective(
+        full_responses,
+        owners,
+        positive,
+        positive_floor=0.25,
+        off_abs_max=0.2,
+        tail_k=2,
+        negative_weight=5.0,
+        cross_weight=2.0,
+    )
+    full_loss.backward()
+    full_gradient = full_responses.grad.detach().clone()
+
+    micro_responses = full_responses.detach().clone().requires_grad_(True)
+    accumulated_loss = micro_responses.sum() * 0.0
+    for record_ids in ((0, 1), (2, 3)):
+        mask = torch.zeros_like(owners, dtype=torch.bool)
+        for record_id in record_ids:
+            mask |= owners.eq(record_id)
+        micro_loss, _ = core.detector_objective(
+            micro_responses[mask],
+            owners[mask],
+            positive[mask],
+            positive_floor=0.25,
+            off_abs_max=0.2,
+            tail_k=2,
+            negative_weight=5.0,
+            cross_weight=2.0,
+        )
+        accumulated_loss = accumulated_loss + 0.5 * micro_loss
+    accumulated_loss.backward()
+
+    assert float(accumulated_loss.detach()) == pytest.approx(float(full_loss.detach()))
+    assert torch.allclose(micro_responses.grad, full_gradient, atol=1e-7, rtol=1e-6)
 
 
 def test_sparse_swiglu_hook_matches_materialized_weights_in_float32():
@@ -297,6 +423,61 @@ def test_sparse_swiglu_write_can_be_disabled_while_capturing_detector():
     assert torch.equal(expected, actual.detach())
     assert editor.last_edited_activations is not None
     assert editor.last_edited_activations.shape == (2, 3, 2)
+
+
+def test_detector_cache_captures_exact_mlp_input_last_token_in_batches():
+    class Encoded(dict):
+        def to(self, device):
+            return Encoded({key: value.to(device) for key, value in self.items()})
+
+    class Tokenizer:
+        padding_side = "left"
+
+        def __call__(self, prompts, *, padding, return_tensors):
+            assert padding and return_tensors == "pt"
+            width = max(len(prompt) for prompt in prompts)
+            input_ids = torch.zeros((len(prompts), width), dtype=torch.long)
+            attention = torch.zeros_like(input_ids)
+            for row, prompt in enumerate(prompts):
+                size = len(prompt)
+                input_ids[row, :size] = torch.arange(1, size + 1)
+                attention[row, :size] = 1
+            return Encoded(input_ids=input_ids, attention_mask=attention)
+
+    class Backbone(torch.nn.Module):
+        def __init__(self, mlp):
+            super().__init__()
+            self.mlp = mlp
+
+        def forward(self, input_ids, attention_mask, **_kwargs):
+            offsets = torch.arange(5, dtype=torch.float32).reshape(1, 1, 5)
+            hidden = input_ids.float().unsqueeze(-1) + offsets
+            self.mlp(hidden)
+            return {"last_hidden_state": hidden}
+
+    mlp = TinySwiGLU(hidden=5, intermediate=7)
+    model = type("Model", (), {"model": Backbone(mlp)})()
+    tok = Tokenizer()
+    hidden = method.capture_mlp_input_last_token_hidden_states(
+        model,
+        tok,
+        mlp,
+        ["a", "bbb", "cc"],
+        torch.device("cpu"),
+        batch_size=2,
+    )
+
+    assert hidden.dtype == torch.float32
+    assert hidden.device.type == "cpu"
+    assert torch.equal(
+        hidden,
+        torch.tensor(
+            [[1.0, 2.0, 3.0, 4.0, 5.0],
+             [3.0, 4.0, 5.0, 6.0, 7.0],
+             [2.0, 3.0, 4.0, 5.0, 6.0]]
+        ),
+    )
+    assert tok.padding_side == "left"
 
 
 def test_relative_caps_bound_each_materialized_neuron_component():
@@ -360,6 +541,25 @@ def test_detector_gate_requires_writer_off_and_negative_silence():
     )
     assert no_writer["passed"]
     assert not no_writer["criterion"]["writer_off_required"]
+
+
+def test_detector_gate_case_tsv_binds_locked_record_order():
+    gate = core.detector_gate_report(
+        [torch.tensor([1.2])],
+        [torch.tensor([0.01])],
+        [torch.tensor([0.02])],
+        positive_floor=1.0,
+        off_abs_max=0.1,
+    )
+    output = gate_cases.detector_gate_case_tsv(gate, [{"case_id": 14801}])
+    assert output.splitlines() == [
+        "record_index\tcase_id\tpositive_min\tnegative_abs_max\t"
+        "writer_off_abs_max\tpassed",
+        "0\t14801\t+1.20000005\t0.01000000\t0.02000000\ttrue",
+    ]
+
+    with pytest.raises(RuntimeError, match="length mismatch"):
+        gate_cases.detector_gate_case_tsv(gate, [])
 
 
 def test_protected_prompt_bank_reserves_corpus_and_round_robins_records():
@@ -1142,6 +1342,7 @@ def test_primary_configuration_is_bound_to_preregistered_values():
             "writer_objective": "mean_plus_worst_k_squared_shortfall",
             "cross_record_parameter_sharing_audit_required": True,
         },
+        "detector_training_revision": _detector_training_revision(),
         "primary_configuration": {
             "forget_num": 50,
             "neuron_layer": 27,
@@ -1331,8 +1532,24 @@ def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
         "detector_steps": 1000,
         "detector_lr": 0.001,
         "detector_record_batch": 4,
-        "detector_positive_contexts": 2,
-        "detector_negative_contexts": 2,
+        "detector_record_batch_semantics": (
+            "gradient_accumulation_microbatch_capacity"
+        ),
+        "detector_update_coverage": "all_records_accumulated",
+        "detector_records_per_optimizer_update": 50,
+        "detector_microbatches_per_optimizer_update": 13,
+        "detector_record_exposures": 50000,
+        "detector_positive_contexts": "all",
+        "detector_negative_contexts": "all",
+        "detector_tail_k": 2,
+        "detector_positive_objective": "mean_plus_worst_k_squared_shortfall",
+        "detector_negative_objective": "mean_plus_worst_k_squared_gate_excess",
+        "detector_cross_objective": "mean_plus_worst_k_squared_gate_excess",
+        "detector_writer_off_objective": (
+            "mean_plus_worst_k_squared_gate_excess"
+        ),
+        "detector_gradient_normalization": "equal_record_mean",
+        "detector_cached_mlp_inputs": True,
         "detector_positive_floor": 0.25,
         "detector_off_abs_max": 0.2,
         "detector_negative_weight": 5.0,
