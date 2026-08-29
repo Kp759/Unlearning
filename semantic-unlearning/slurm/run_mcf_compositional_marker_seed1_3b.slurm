@@ -4,7 +4,7 @@
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
 #SBATCH --gres=gpu:1
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
 #SBATCH --no-requeue
@@ -18,7 +18,7 @@ ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_1_seed1_3b}"
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_2_seed1_3b}"
 
 cd "${PROJECT_DIR}"
 mkdir -p slurm_logs "${OUTPUT_DIR}/protocol"
@@ -45,6 +45,7 @@ WRITER_ARGS=(
   --writer-steps 1200
   --writer-lr 2e-4
   --writer-record-batch 3
+  --writer-update-coverage all_records_accumulated
   --positive-context-batch 7
   --writer-positive-context-mode all
   --writer-positive-tail-k 2

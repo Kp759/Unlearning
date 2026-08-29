@@ -179,6 +179,26 @@ def test_context_builder_rejects_a_positive_without_the_complete_subject():
         )
 
 
+def test_cross_record_parameter_sharing_audit_separates_two_pathways():
+    tok = WordTokenizer()
+    report = core.cross_record_parameter_sharing_report(
+        {1: [1, 2], 2: [2, 5], 3: [6]},
+        {
+            1: ["Gautier de speaks"],
+            2: ["Melchior de Vogue speaks"],
+            3: ["Charles Vogue speaks"],
+        },
+        tok,
+    )
+
+    assert report["selected_row_count"] == 4
+    assert report["selected_rows_with_multiple_record_owners"] == 1
+    assert report["record_pairs_with_shared_owned_rows"] == 1
+    assert report["positive_prompts_touching_multiply_owned_rows"] == 2
+    assert report["positive_prompts_touching_foreign_selected_rows"] == 1
+    assert report["records_touching_foreign_selected_rows"] == 1
+
+
 def test_contrastive_marker_prefers_positive_only_reachable_axis():
     positive = torch.tensor(
         [
@@ -368,6 +388,7 @@ def test_method_defaults_to_standard_weights_and_strict_reader_gate():
     assert args.stage2_row_negative_rank == 32
     assert args.stage2_row_norm_cap_values == [0.05, 0.10, 0.20, 0.40]
     assert args.writer_record_batch == 3
+    assert args.writer_update_coverage == "all_records_accumulated"
     assert args.positive_context_batch == 7
     assert args.writer_positive_context_mode == "all"
     assert args.writer_positive_tail_k == 2
@@ -375,7 +396,7 @@ def test_method_defaults_to_standard_weights_and_strict_reader_gate():
     assert not hasattr(args, "logit_bias")
 
 
-def test_v6_1_writer_loss_adds_the_worst_two_positive_shortfalls():
+def test_v6_2_writer_loss_retains_the_worst_two_positive_shortfalls():
     amplitudes = torch.tensor([6.0, 5.0, 4.0], requires_grad=True)
     loss, terms = core.robust_positive_shortfall_loss(amplitudes, target=6.0, tail_k=2)
 
@@ -388,6 +409,63 @@ def test_v6_1_writer_loss_adds_the_worst_two_positive_shortfalls():
     assert amplitudes.grad is not None
     assert abs(float(amplitudes.grad[2])) > abs(float(amplitudes.grad[1]))
     assert float(amplitudes.grad[0]) == pytest.approx(0.0)
+
+
+def test_v6_2_global_record_microbatches_cover_every_record_once():
+    import random
+
+    batches = core.globally_balanced_record_microbatches(50, 3, random.Random(448))
+
+    assert len(batches) == 17
+    assert [len(batch) for batch in batches[:-1]] == [3] * 16
+    assert len(batches[-1]) == 2
+    flattened = [index for batch in batches for index in batch]
+    assert sorted(flattened) == list(range(50))
+    assert len(flattened) == len(set(flattened))
+
+
+def test_gradient_conflict_summary_reports_opposing_record_directions():
+    summary = core.gradient_conflict_summary(
+        [
+            torch.tensor([1.0, 0.0]),
+            torch.tensor([-1.0, 0.0]),
+            torch.tensor([0.0, 1.0]),
+        ],
+        [11, 12, 13],
+    )
+
+    assert summary["valid_pair_count"] == 3
+    assert summary["negative_pair_count"] == 1
+    assert summary["negative_pair_fraction"] == pytest.approx(1 / 3)
+    assert summary["pairwise_cosine"]["min"] == pytest.approx(-1.0)
+    assert summary["per_record"][0]["negative_peer_count"] == 1
+    assert summary["cosine_matrix"][0][1] == pytest.approx(-1.0)
+
+
+def test_gradient_conflict_summary_serializes_zero_gradient_records():
+    summary = core.gradient_conflict_summary(
+        [torch.zeros(2), torch.tensor([1.0, 0.0])],
+        [21, 22],
+    )
+
+    assert summary["nonzero_gradient_records"] == 1
+    assert summary["valid_pair_count"] == 0
+    assert summary["negative_pair_fraction"] is None
+    assert summary["cosine_matrix"][0][1] is None
+    json.dumps(summary)
+
+
+def test_restricted_output_logits_match_selected_full_head_rows():
+    layer = torch.nn.Linear(4, 9, bias=True)
+    hidden = torch.randn(3, 4, requires_grad=True)
+    token_ids = torch.tensor([1, 4, 8])
+
+    restricted = method.restricted_output_logits(layer, hidden, token_ids)
+    expected = layer(hidden).index_select(1, token_ids)
+
+    assert torch.allclose(restricted, expected, atol=1e-7, rtol=1e-7)
+    restricted.sum().backward()
+    assert hidden.grad is not None
 
 
 def test_stage1_zero_steps_requires_a_resume_state():

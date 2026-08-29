@@ -27,7 +27,131 @@ import torch
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v6_1"
+PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v6_2"
+
+
+def globally_balanced_record_microbatches(
+    record_count: int,
+    microbatch_size: int,
+    rng: random.Random,
+) -> List[List[int]]:
+    """Return one shuffled, exactly-once sweep over every record.
+
+    V6.1 updated Adam after a record-local minibatch.  V6.2 accumulates these
+    microbatch gradients and updates only after every record has contributed.
+    Keeping this scheduler pure makes the all-record coverage invariant easy
+    to audit without loading a language model.
+    """
+
+    if int(record_count) <= 0:
+        raise ValueError("record_count must be positive")
+    if int(microbatch_size) <= 0:
+        raise ValueError("microbatch_size must be positive")
+    indices = list(range(int(record_count)))
+    rng.shuffle(indices)
+    size = int(microbatch_size)
+    return [indices[start : start + size] for start in range(0, len(indices), size)]
+
+
+def gradient_conflict_summary(
+    gradients: Sequence[torch.Tensor],
+    case_ids: Sequence[int],
+    *,
+    negative_cosine_tolerance: float = 1e-8,
+) -> Dict[str, Any]:
+    """Summarize pairwise cosine conflict between per-record gradients."""
+
+    if not gradients or len(gradients) != len(case_ids):
+        raise ValueError("gradients and case_ids must be non-empty and aligned")
+    shape = tuple(gradients[0].shape)
+    if any(tuple(gradient.shape) != shape for gradient in gradients):
+        raise ValueError("all gradients must have the same shape")
+    if (
+        not math.isfinite(float(negative_cosine_tolerance))
+        or float(negative_cosine_tolerance) < 0.0
+    ):
+        raise ValueError("negative_cosine_tolerance must be finite and non-negative")
+    matrix = torch.stack(
+        [gradient.detach().float().reshape(-1).cpu() for gradient in gradients]
+    )
+    if not torch.isfinite(matrix).all():
+        raise ValueError("gradients contain non-finite values")
+    norms = matrix.norm(dim=1)
+    valid = norms > 0.0
+    unit = matrix / norms.clamp_min(torch.finfo(matrix.dtype).tiny).unsqueeze(1)
+    cosine = (unit @ unit.T).clamp(min=-1.0, max=1.0)
+
+    pair_values: List[float] = []
+    negative_pairs = 0
+    per_record_negative = [0 for _ in gradients]
+    per_record_valid = [0 for _ in gradients]
+    tolerance = float(negative_cosine_tolerance)
+    for left in range(len(gradients)):
+        for right in range(left + 1, len(gradients)):
+            if not bool(valid[left]) or not bool(valid[right]):
+                continue
+            value = float(cosine[left, right])
+            pair_values.append(value)
+            per_record_valid[left] += 1
+            per_record_valid[right] += 1
+            if value < -tolerance:
+                negative_pairs += 1
+                per_record_negative[left] += 1
+                per_record_negative[right] += 1
+
+    def distribution(values: Sequence[float]) -> Dict[str, Any]:
+        ordered = sorted(float(value) for value in values)
+        if not ordered:
+            return {"n": 0}
+        return {
+            "n": len(ordered),
+            "min": ordered[0],
+            "p10": ordered[int(0.10 * (len(ordered) - 1))],
+            "median": ordered[len(ordered) // 2],
+            "mean": sum(ordered) / len(ordered),
+            "p90": ordered[int(0.90 * (len(ordered) - 1))],
+            "max": ordered[-1],
+        }
+
+    cosine_rows: List[List[float | None]] = []
+    for left in range(len(gradients)):
+        cosine_rows.append(
+            [
+                float(cosine[left, right])
+                if bool(valid[left]) and bool(valid[right])
+                else None
+                for right in range(len(gradients))
+            ]
+        )
+    return {
+        "case_ids": [int(case_id) for case_id in case_ids],
+        "gradient_shape": list(shape),
+        "gradient_dimension": int(matrix.shape[1]),
+        "nonzero_gradient_records": int(valid.sum()),
+        "gradient_norm": distribution([float(value) for value in norms]),
+        "valid_pair_count": len(pair_values),
+        "negative_cosine_tolerance": tolerance,
+        "negative_pair_count": negative_pairs,
+        "negative_pair_fraction": (
+            negative_pairs / len(pair_values) if pair_values else None
+        ),
+        "pairwise_cosine": distribution(pair_values),
+        "per_record": [
+            {
+                "case_id": int(case_ids[index]),
+                "gradient_norm": float(norms[index]),
+                "valid_peer_count": per_record_valid[index],
+                "negative_peer_count": per_record_negative[index],
+                "negative_peer_fraction": (
+                    per_record_negative[index] / per_record_valid[index]
+                    if per_record_valid[index]
+                    else None
+                ),
+            }
+            for index in range(len(gradients))
+        ],
+        "cosine_matrix": cosine_rows,
+    }
 
 
 def robust_positive_shortfall_loss(
@@ -40,8 +164,10 @@ def robust_positive_shortfall_loss(
 
     V6 optimized the mean squared hinge over a subsample of each record's
     positive contexts.  V6.1 presents every positive context together and
-    adds a CVaR-like term over the ``tail_k`` largest squared shortfalls.  The
-    tail term is deliberately conservative: the registered 80% per-record
+    adds a CVaR-like term over the ``tail_k`` largest squared shortfalls. V6.2
+    retains that per-record loss while accumulating gradients across all
+    records before each optimizer update. The tail term is deliberately
+    conservative: the registered 80% per-record
     portability gate can tolerate one miss for a six- or seven-prompt record,
     but optimizing the weakest two avoids placing the learned solution on that
     discrete boundary.
@@ -98,6 +224,104 @@ def _flat_token_ids(tokenizer: Any, text: str) -> List[int]:
             raise ValueError("expected one tokenized string")
         value = value[0]
     return [int(x) for x in value]
+
+
+def cross_record_parameter_sharing_report(
+    selected_rows_by_case: Mapping[int, Sequence[int]],
+    positives_by_case: Mapping[int, Sequence[str]],
+    tokenizer: Any,
+) -> Dict[str, Any]:
+    """Measure direct gradient-sharing paths between record objectives.
+
+    A sparse embedding row is globally shared even when it was selected for a
+    particular subject. Interference can arise either because two records own
+    the same selected row or because one record's positive prompt contains a
+    selected row owned only by another record. This training-only audit makes
+    both pathways explicit; it does not infer gradient conflict from incidence
+    alone.
+    """
+
+    normalized_selected = {
+        int(case_id): {int(row) for row in rows}
+        for case_id, rows in selected_rows_by_case.items()
+    }
+    normalized_positives = {
+        int(case_id): [str(prompt) for prompt in prompts]
+        for case_id, prompts in positives_by_case.items()
+    }
+    case_ids = sorted(normalized_selected)
+    if not case_ids:
+        raise ValueError("selected_rows_by_case must not be empty")
+    if set(case_ids) != set(normalized_positives):
+        raise ValueError("selected-row and positive-prompt case IDs differ")
+    selected = normalized_selected
+    if any(not rows for rows in selected.values()):
+        raise ValueError("every record must own at least one selected row")
+    owners: Counter[int] = Counter(row for rows in selected.values() for row in rows)
+    all_rows = set(owners)
+    multiply_owned_rows = {row for row, count in owners.items() if count > 1}
+    pair_overlap_count = 0
+    for position, case_id in enumerate(case_ids):
+        for peer_case_id in case_ids[position + 1 :]:
+            if selected[case_id].intersection(selected[peer_case_id]):
+                pair_overlap_count += 1
+
+    per_record: List[Dict[str, Any]] = []
+    total_prompts = 0
+    shared_prompt_count = 0
+    foreign_prompt_count = 0
+    for case_id in case_ids:
+        prompts = normalized_positives[case_id]
+        if not prompts:
+            raise ValueError(f"case {case_id} has no positive prompts")
+        own_rows = selected[case_id]
+        foreign_rows = all_rows - own_rows
+        shared_owned_rows = own_rows.intersection(multiply_owned_rows)
+        prompts_touching_shared = 0
+        prompts_touching_foreign = 0
+        for prompt in prompts:
+            prompt_rows = set(_flat_token_ids(tokenizer, prompt))
+            prompts_touching_shared += bool(prompt_rows.intersection(shared_owned_rows))
+            prompts_touching_foreign += bool(prompt_rows.intersection(foreign_rows))
+        total_prompts += len(prompts)
+        shared_prompt_count += prompts_touching_shared
+        foreign_prompt_count += prompts_touching_foreign
+        per_record.append(
+            {
+                "case_id": case_id,
+                "owned_selected_rows": len(own_rows),
+                "multiply_owned_selected_rows": len(shared_owned_rows),
+                "positive_prompt_count": len(prompts),
+                "positive_prompts_touching_multiply_owned_rows": (
+                    prompts_touching_shared
+                ),
+                "positive_prompts_touching_foreign_selected_rows": (
+                    prompts_touching_foreign
+                ),
+            }
+        )
+    return {
+        "case_count": len(case_ids),
+        "selected_row_count": len(all_rows),
+        "selected_rows_with_multiple_record_owners": len(multiply_owned_rows),
+        "record_pairs_with_shared_owned_rows": pair_overlap_count,
+        "positive_prompt_count": total_prompts,
+        "positive_prompts_touching_multiply_owned_rows": shared_prompt_count,
+        "positive_prompts_touching_foreign_selected_rows": foreign_prompt_count,
+        "records_touching_multiply_owned_rows": sum(
+            row["positive_prompts_touching_multiply_owned_rows"] > 0
+            for row in per_record
+        ),
+        "records_touching_foreign_selected_rows": sum(
+            row["positive_prompts_touching_foreign_selected_rows"] > 0
+            for row in per_record
+        ),
+        "interpretation": (
+            "incidence establishes shared parameter pathways, not opposing "
+            "gradient directions"
+        ),
+        "per_record": per_record,
+    }
 
 
 def _format_prompt(template: str, subject: str) -> str:

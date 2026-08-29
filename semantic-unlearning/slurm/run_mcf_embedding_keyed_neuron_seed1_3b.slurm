@@ -20,7 +20,7 @@ WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_embedding_keyed_neuron_v3_seed1_3b}"
 CONTROL_OUTPUT_DIR="${CONTROL_OUTPUT_DIR:-${OUTPUT_DIR}_mlp_only_retrained}"
-CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_1_clean_seed1_3b}"
+CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_2_clean_seed1_3b}"
 
 # These are the exact artifacts that produced the frozen Stage-1 writer.  The
 # neuron learner never receives MCF_PATH and cannot open official probes.
@@ -30,6 +30,7 @@ CONTEXT_MANIFEST="${CONTEXT_MANIFEST:-${CLEAN_WRITER_OUTPUT_DIR}/method/context_
 STAGE1_STATE="${STAGE1_STATE:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_writer.pt}"
 STAGE1_REPORT="${STAGE1_REPORT:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_writer_report.json}"
 STAGE1_LOG="${STAGE1_LOG:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_writer_log.jsonl}"
+STAGE1_GRADIENT_AUDIT="${STAGE1_GRADIENT_AUDIT:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_gradient_conflict_audit.json}"
 STAGE1_PORTABILITY="${STAGE1_PORTABILITY:-${CLEAN_WRITER_OUTPUT_DIR}/method/training_safe_portability_preflight.json}"
 STAGE1_ACCEPTANCE="${STAGE1_ACCEPTANCE:-${CLEAN_WRITER_OUTPUT_DIR}/method/clean_stage1_acceptance.json}"
 REGISTRY="${REGISTRY:-protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json}"
@@ -48,7 +49,7 @@ if [[ -e "${CONTROL_OUTPUT_DIR}" ]]; then
   echo "matched-control path already exists; refusing overwrite: ${CONTROL_OUTPUT_DIR}" >&2
   exit 2
 fi
-for required in "${TRAINING_VISIBLE}" "${SPLIT_MANIFEST}" "${CONTEXT_MANIFEST}" "${STAGE1_STATE}" "${STAGE1_REPORT}" "${STAGE1_LOG}" "${STAGE1_PORTABILITY}" "${STAGE1_ACCEPTANCE}" "${REGISTRY}"; do
+for required in "${TRAINING_VISIBLE}" "${SPLIT_MANIFEST}" "${CONTEXT_MANIFEST}" "${STAGE1_STATE}" "${STAGE1_REPORT}" "${STAGE1_LOG}" "${STAGE1_GRADIENT_AUDIT}" "${STAGE1_PORTABILITY}" "${STAGE1_ACCEPTANCE}" "${REGISTRY}"; do
   if [[ ! -e "${required}" ]]; then
     echo "required frozen training artifact is missing: ${required}" >&2
     exit 2
@@ -57,9 +58,15 @@ done
 if ! jq -e '
   .kind == "mcf_clean_stage1_writer_acceptance" and
   .passed == true and
-  .protocol == "mcf_context_composed_sparse_embedding_writer_v6_1" and
+  .protocol == "mcf_context_composed_sparse_embedding_writer_v6_2" and
   .lineage.from_scratch == true and
   .lineage.writer_steps == 1200 and
+  .lineage.writer_optimization.update_coverage == "all_records_accumulated" and
+  .lineage.writer_optimization.records_per_optimizer_update == 50 and
+  .lineage.writer_optimization.microbatches_per_optimizer_update == 17 and
+  .lineage.writer_optimization.record_exposures == 60000 and
+  (.lineage.gradient_conflict_audit_sha256 | length) == 64 and
+  (.lineage.gradient_conflict_audit_file_sha256 | length) == 64 and
   .checks.artifact_integrity == true and
   .checks.training_safe_portability == true and
   .training_safe_portability.passed == true and

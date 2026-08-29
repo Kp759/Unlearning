@@ -133,6 +133,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--writer-steps", type=int, default=1200)
     p.add_argument("--writer-lr", type=float, default=2e-4)
     p.add_argument("--writer-record-batch", type=int, default=3)
+    p.add_argument(
+        "--writer-update-coverage",
+        choices=("all_records_accumulated", "record_local"),
+        default="all_records_accumulated",
+        help=(
+            "all_records_accumulated makes each optimizer update the exact "
+            "record-average gradient, evaluated in bounded record microbatches; "
+            "record_local retains the V6.1 update schedule for diagnostics only."
+        ),
+    )
     p.add_argument("--positive-context-batch", type=int, default=7)
     p.add_argument(
         "--writer-positive-context-mode",
@@ -625,6 +635,29 @@ def forward_last_hidden_only(
         tok.padding_side = old_side
 
 
+def restricted_output_logits(
+    output_layer: torch.nn.Module,
+    hidden: torch.Tensor,
+    token_ids: torch.Tensor,
+) -> torch.Tensor:
+    """Apply only selected frozen LM-head rows to one or more hidden states."""
+
+    weight = getattr(output_layer, "weight", None)
+    if not isinstance(weight, torch.Tensor) or weight.ndim != 2:
+        raise ValueError("output layer must expose a matrix weight")
+    ids = token_ids.to(device=weight.device, dtype=torch.long)
+    selected_weight = weight.index_select(0, ids)
+    bias = getattr(output_layer, "bias", None)
+    selected_bias = (
+        bias.index_select(0, ids) if isinstance(bias, torch.Tensor) else None
+    )
+    return F.linear(
+        hidden.to(device=weight.device, dtype=selected_weight.dtype),
+        selected_weight,
+        selected_bias,
+    )
+
+
 @torch.no_grad()
 def batched_last_hidden_only(
     model: torch.nn.Module,
@@ -1114,6 +1147,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             "registered all-positive writer capacity is smaller than the clean "
             "context set; bump the protocol instead of silently subsampling"
         )
+    parameter_sharing_report = compositional.cross_record_parameter_sharing_report(
+        selected_by_case,
+        positives_by_case,
+        tok,
+    )
     context_manifest = {
         "schema_version": 2,
         "protocol": PROTOCOL,
@@ -1157,6 +1195,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         ],
         "selected_embedding_rows": selected_rows,
         "subject_row_selection": row_reports,
+        "cross_record_parameter_sharing": parameter_sharing_report,
         "summary": context_report,
         "records": [
             {
@@ -1293,6 +1332,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "mcf_context_composed_sparse_embedding_writer_v4",
             "mcf_context_composed_sparse_embedding_writer_v5",
             "mcf_context_composed_sparse_embedding_writer_v5_1",
+            "mcf_context_composed_sparse_embedding_writer_v6",
+            "mcf_context_composed_sparse_embedding_writer_v6_1",
             PROTOCOL,
         }
         if resume_protocol not in compatible_protocols:
@@ -1343,8 +1384,37 @@ def main(argv: Sequence[str] | None = None) -> None:
     optimizer = torch.optim.AdamW(
         delta_module.parameters(), lr=float(a.writer_lr), weight_decay=0.0
     )
-    sampler = canonical.IndexSampler(
-        len(records), int(a.writer_record_batch), int(a.seed) + 447
+    record_count = len(records)
+    record_order_rng = random.Random(int(a.seed) + 447)
+    record_local_sampler = (
+        canonical.IndexSampler(
+            record_count, int(a.writer_record_batch), int(a.seed) + 447
+        )
+        if str(a.writer_update_coverage) == "record_local"
+        else None
+    )
+    if str(a.writer_update_coverage) == "all_records_accumulated":
+        records_per_optimizer_update = record_count
+        microbatches_per_optimizer_update = math.ceil(
+            record_count / int(a.writer_record_batch)
+        )
+    else:
+        records_per_optimizer_update = min(record_count, int(a.writer_record_batch))
+        microbatches_per_optimizer_update = 1
+    writer_record_exposures = int(a.writer_steps) * records_per_optimizer_update
+    record_local_exposures = int(a.writer_steps) * min(
+        record_count, int(a.writer_record_batch)
+    )
+    exposure_multiplier_vs_record_local = writer_record_exposures / max(
+        1, record_local_exposures
+    )
+    print(
+        "  optimizer coverage: "
+        f"{a.writer_update_coverage}, "
+        f"{records_per_optimizer_update} records/update in "
+        f"{microbatches_per_optimizer_update} microbatch(es); "
+        f"{writer_record_exposures} total record exposures "
+        f"({exposure_multiplier_vs_record_local:.2f}x record-local)"
     )
     row_frequencies = torch.tensor(
         [float(token_counts[token_id]) for token_id in selected_rows],
@@ -1365,129 +1435,266 @@ def main(argv: Sequence[str] | None = None) -> None:
         index: context_sets[int(record["case_id"])]["negative_contexts"][0]["prompt"]
         for index, record in enumerate(records)
     }
+
+    def build_writer_entries(
+        record_indices: Sequence[int],
+        *,
+        entry_rng: random.Random | None = None,
+    ) -> List[Tuple[int, str, str]]:
+        active_rng = entry_rng if entry_rng is not None else py_rng
+        entries: List[Tuple[int, str, str]] = []
+        for record_index in record_indices:
+            record = records[record_index]
+            context = context_sets[int(record["case_id"])]
+            positives = list(context["positive_prompts"])
+            if str(a.writer_positive_context_mode) == "all":
+                selected_pos = positives
+            else:
+                selected_pos = [positives[0]]
+                hard_positive = hard_positive_prompts[record_index]
+                if hard_positive not in selected_pos:
+                    selected_pos.append(hard_positive)
+                remainder = positives[1:]
+                active_rng.shuffle(remainder)
+                for prompt in remainder:
+                    if len(selected_pos) >= int(a.positive_context_batch):
+                        break
+                    if prompt not in selected_pos:
+                        selected_pos.append(prompt)
+            negatives = [row["prompt"] for row in context["negative_contexts"]]
+            active_rng.shuffle(negatives)
+            selected_neg = [hard_negative_prompts[record_index]]
+            for prompt in negatives:
+                if len(selected_neg) >= int(a.negative_context_batch):
+                    break
+                if prompt not in selected_neg:
+                    selected_neg.append(prompt)
+            entries.extend(
+                (record_index, "positive", prompt) for prompt in selected_pos
+            )
+            entries.extend(
+                (record_index, "negative", prompt) for prompt in selected_neg
+            )
+        return entries
+
+    def writer_microbatch_terms(
+        record_indices: Sequence[int],
+        entries: Sequence[Tuple[int, str, str]],
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor]:
+        """Evaluate one bounded record microbatch without stepping Adam."""
+
+        prompts = [entry[2] for entry in entries]
+        hidden = forward_last_hidden_only(model, tok, prompts, device)
+        base_hidden = torch.stack(
+            [base_cache[prompt]["hidden"] for prompt in prompts]
+        ).to(device)
+        displacement = hidden.float() - base_hidden
+        zero = hidden.sum() * 0.0
+        parts = {
+            "write": zero,
+            "write_mean": zero,
+            "write_tail": zero,
+            "write_max": zero,
+            "consistency": zero,
+            "negative": zero,
+            "state": zero,
+            "cross": zero,
+            "off_axis": zero,
+        }
+        for record_index in record_indices:
+            own = [i for i, entry in enumerate(entries) if entry[0] == record_index]
+            pos_indices = [i for i in own if entries[i][1] == "positive"]
+            neg_indices = [i for i in own if entries[i][1] == "negative"]
+            marker = marker_bank[record_index].to(device)
+            pos_delta = displacement[pos_indices]
+            amplitudes = pos_delta @ marker
+            write_term, write_parts = compositional.robust_positive_shortfall_loss(
+                amplitudes,
+                target=float(a.write_alpha),
+                tail_k=int(a.writer_positive_tail_k),
+            )
+            parts["write"] = parts["write"] + write_term
+            parts["write_mean"] = parts["write_mean"] + write_parts["mean"]
+            parts["write_tail"] = parts["write_tail"] + write_parts["tail"]
+            parts["write_max"] = parts["write_max"] + write_parts["maximum"]
+            alpha_scale = max(float(a.write_alpha), 1e-6)
+            parts["consistency"] = parts["consistency"] + (
+                amplitudes.var(unbiased=False) / (alpha_scale * alpha_scale)
+            )
+            parallel = amplitudes.unsqueeze(1) * marker.unsqueeze(0)
+            parts["off_axis"] = (
+                parts["off_axis"] + (pos_delta - parallel).square().mean()
+            )
+            if neg_indices:
+                neg_delta = displacement[neg_indices]
+                parts["negative"] = (
+                    parts["negative"] + (neg_delta @ marker).square().mean()
+                )
+                denominator = base_hidden[neg_indices].norm(dim=1).clamp_min(1e-9)
+                parts["state"] = (
+                    parts["state"]
+                    + (neg_delta.norm(dim=1) / denominator).square().mean()
+                )
+            peers = torch.cat(
+                [marker_bank[:record_index], marker_bank[record_index + 1 :]], dim=0
+            ).to(device)
+            if peers.shape[0]:
+                parts["cross"] = parts["cross"] + (pos_delta @ peers.T).square().mean()
+
+        count = max(1, len(record_indices))
+        parts = {key: value / count for key, value in parts.items()}
+        record_objective = (
+            parts["write"]
+            + float(a.lambda_consistency) * parts["consistency"]
+            + float(a.lambda_negative) * parts["negative"]
+            + float(a.lambda_state) * parts["state"]
+            + float(a.lambda_cross) * parts["cross"]
+            + float(a.lambda_off_axis) * parts["off_axis"]
+        )
+
+        kl_sum = zero
+        if float(a.lambda_kl) > 0:
+            kl_terms: List[torch.Tensor] = []
+            for row, prompt in enumerate(prompts):
+                ids = base_cache[prompt]["top_ids"].to(device)
+                target = base_cache[prompt]["top_log_probs"].to(device)
+                observed = torch.log_softmax(
+                    restricted_output_logits(output_layer, hidden[row], ids).float(),
+                    dim=-1,
+                )
+                kl_terms.append(
+                    F.kl_div(observed, target, log_target=True, reduction="sum")
+                )
+            kl_sum = torch.stack(kl_terms).sum()
+        return record_objective, parts, kl_sum
+
+    def capture_writer_gradient_conflict(phase: str) -> Dict[str, Any]:
+        """Measure per-record gradient cosines without changing optimizer state."""
+
+        if phase not in {"initial", "final"}:
+            raise ValueError(f"unknown gradient-conflict audit phase: {phase}")
+        audit_rng = random.Random(
+            int(a.seed) + (104729 if phase == "initial" else 130363)
+        )
+        write_gradients: List[torch.Tensor] = []
+        full_gradients: List[torch.Tensor] = []
+        for record_index in range(record_count):
+            entries = build_writer_entries([record_index], entry_rng=audit_rng)
+            record_objective, parts, kl_sum = writer_microbatch_terms(
+                [record_index], entries
+            )
+            full_objective = record_objective
+            if float(a.lambda_kl) > 0:
+                full_objective = full_objective + (
+                    float(a.lambda_kl) * kl_sum / len(entries)
+                )
+            write_gradient = torch.autograd.grad(
+                parts["write"],
+                delta_module.raw_delta,
+                retain_graph=True,
+            )[0]
+            full_gradient = torch.autograd.grad(
+                full_objective,
+                delta_module.raw_delta,
+            )[0]
+            write_gradients.append(write_gradient.detach().float().cpu())
+            full_gradients.append(full_gradient.detach().float().cpu())
+        case_ids = [int(record["case_id"]) for record in records]
+        result = {
+            "phase": phase,
+            "positive_write": compositional.gradient_conflict_summary(
+                write_gradients, case_ids
+            ),
+            "full_writer": compositional.gradient_conflict_summary(
+                full_gradients, case_ids
+            ),
+        }
+        print(
+            f"  {phase} gradient conflict: "
+            f"write {result['positive_write']['negative_pair_count']}/"
+            f"{result['positive_write']['valid_pair_count']} negative pairs; "
+            f"full {result['full_writer']['negative_pair_count']}/"
+            f"{result['full_writer']['valid_pair_count']}"
+        )
+        return result
+
+    gradient_conflict_audit = {
+        "schema_version": 1,
+        "protocol": PROTOCOL,
+        "kind": "mcf_stage1_per_record_gradient_conflict_audit",
+        "negative_cosine_tolerance": 1e-8,
+        "interpretation": (
+            "negative pairwise cosine establishes opposing local gradients at "
+            "the measured parameter state; it does not alone prove that such "
+            "conflict caused a prior run's final failures"
+        ),
+        "initial": capture_writer_gradient_conflict("initial"),
+        "official_evaluation_opened": False,
+    }
+
     with log_path.open("w", encoding="utf-8") as log_file:
         for step in range(1, int(a.writer_steps) + 1):
-            record_indices = sampler.next()
-            entries: List[Tuple[int, str, str]] = []
-            for record_index in record_indices:
-                record = records[record_index]
-                context = context_sets[int(record["case_id"])]
-                positives = list(context["positive_prompts"])
-                if str(a.writer_positive_context_mode) == "all":
-                    selected_pos = positives
-                else:
-                    selected_pos = [positives[0]]
-                    hard_positive = hard_positive_prompts[record_index]
-                    if hard_positive not in selected_pos:
-                        selected_pos.append(hard_positive)
-                    remainder = positives[1:]
-                    py_rng.shuffle(remainder)
-                    for prompt in remainder:
-                        if len(selected_pos) >= int(a.positive_context_batch):
-                            break
-                        if prompt not in selected_pos:
-                            selected_pos.append(prompt)
-                negatives = [row["prompt"] for row in context["negative_contexts"]]
-                py_rng.shuffle(negatives)
-                selected_neg = [hard_negative_prompts[record_index]]
-                for prompt in negatives:
-                    if len(selected_neg) >= int(a.negative_context_batch):
-                        break
-                    if prompt not in selected_neg:
-                        selected_neg.append(prompt)
-                entries.extend(
-                    (record_index, "positive", prompt) for prompt in selected_pos
+            if str(a.writer_update_coverage) == "all_records_accumulated":
+                record_microbatches = (
+                    compositional.globally_balanced_record_microbatches(
+                        record_count,
+                        int(a.writer_record_batch),
+                        record_order_rng,
+                    )
                 )
-                entries.extend(
-                    (record_index, "negative", prompt) for prompt in selected_neg
-                )
-
+            else:
+                if record_local_sampler is None:
+                    raise AssertionError("record-local sampler was not initialized")
+                record_microbatches = [record_local_sampler.next()]
+            microbatch_entries = [
+                (record_indices, build_writer_entries(record_indices))
+                for record_indices in record_microbatches
+            ]
+            covered_records = sum(len(indices) for indices, _ in microbatch_entries)
+            if str(a.writer_update_coverage) == "all_records_accumulated" and sorted(
+                index for indices, _ in microbatch_entries for index in indices
+            ) != list(range(record_count)):
+                raise AssertionError("global writer update did not cover every record")
+            total_prompt_count = sum(len(entries) for _, entries in microbatch_entries)
+            if covered_records <= 0 or total_prompt_count <= 0:
+                raise AssertionError("empty writer optimizer update")
             optimizer.zero_grad(set_to_none=True)
-            prompts = [entry[2] for entry in entries]
-            hidden, logits = forward_last_hidden_logits(model, tok, prompts, device)
-            base_hidden = torch.stack(
-                [base_cache[prompt]["hidden"] for prompt in prompts]
-            ).to(device)
-            displacement = hidden.float() - base_hidden
-            l_write = hidden.sum() * 0.0
-            l_write_mean = hidden.sum() * 0.0
-            l_write_tail = hidden.sum() * 0.0
-            l_write_max = hidden.sum() * 0.0
-            l_consistency = hidden.sum() * 0.0
-            l_negative = hidden.sum() * 0.0
-            l_state = hidden.sum() * 0.0
-            l_cross = hidden.sum() * 0.0
-            l_off = hidden.sum() * 0.0
-            for record_index in record_indices:
-                own = [i for i, entry in enumerate(entries) if entry[0] == record_index]
-                pos_indices = [i for i in own if entries[i][1] == "positive"]
-                neg_indices = [i for i in own if entries[i][1] == "negative"]
-                marker = marker_bank[record_index].to(device)
-                pos_delta = displacement[pos_indices]
-                amplitudes = pos_delta @ marker
-                write_term, write_parts = compositional.robust_positive_shortfall_loss(
-                    amplitudes,
-                    target=float(a.write_alpha),
-                    tail_k=int(a.writer_positive_tail_k),
-                )
-                l_write = l_write + write_term
-                l_write_mean = l_write_mean + write_parts["mean"]
-                l_write_tail = l_write_tail + write_parts["tail"]
-                l_write_max = l_write_max + write_parts["maximum"]
-                alpha_scale = max(float(a.write_alpha), 1e-6)
-                l_consistency = l_consistency + (
-                    amplitudes.var(unbiased=False) / (alpha_scale * alpha_scale)
-                )
-                parallel = amplitudes.unsqueeze(1) * marker.unsqueeze(0)
-                l_off = l_off + (pos_delta - parallel).square().mean()
-                if neg_indices:
-                    neg_delta = displacement[neg_indices]
-                    l_negative = l_negative + (neg_delta @ marker).square().mean()
-                    denominator = base_hidden[neg_indices].norm(dim=1).clamp_min(1e-9)
-                    l_state = (
-                        l_state + (neg_delta.norm(dim=1) / denominator).square().mean()
-                    )
-                peers = torch.cat(
-                    [marker_bank[:record_index], marker_bank[record_index + 1 :]], dim=0
-                ).to(device)
-                if peers.shape[0]:
-                    l_cross = l_cross + (pos_delta @ peers.T).square().mean()
-
-            count = max(1, len(record_indices))
-            l_write = l_write / count
-            l_write_mean = l_write_mean / count
-            l_write_tail = l_write_tail / count
-            l_write_max = l_write_max / count
-            l_consistency = l_consistency / count
-            l_negative = l_negative / count
-            l_state = l_state / count
-            l_cross = l_cross / count
-            l_off = l_off / count
-
-            l_kl = hidden.sum() * 0.0
-            if float(a.lambda_kl) > 0:
-                terms: List[torch.Tensor] = []
-                for row, prompt in enumerate(prompts):
-                    ids = base_cache[prompt]["top_ids"].to(device)
-                    target = base_cache[prompt]["top_log_probs"].to(device)
-                    observed = torch.log_softmax(logits[row].float()[ids], dim=-1)
-                    terms.append(
-                        F.kl_div(observed, target, log_target=True, reduction="sum")
-                    )
-                l_kl = torch.stack(terms).mean()
-
-            loss = (
-                l_write
-                + float(a.lambda_consistency) * l_consistency
-                + float(a.lambda_negative) * l_negative
-                + float(a.lambda_state) * l_state
-                + float(a.lambda_cross) * l_cross
-                + float(a.lambda_off_axis) * l_off
-                + float(a.lambda_kl) * l_kl
+            should_log = step == 1 or step % 25 == 0 or step == int(a.writer_steps)
+            aggregate = (
+                {
+                    "loss": 0.0,
+                    "write": 0.0,
+                    "write_mean": 0.0,
+                    "write_tail": 0.0,
+                    "write_max": 0.0,
+                    "consistency": 0.0,
+                    "negative": 0.0,
+                    "state": 0.0,
+                    "cross": 0.0,
+                    "off_axis": 0.0,
+                    "topk_kl": 0.0,
+                }
+                if should_log
+                else None
             )
-            if not torch.isfinite(loss):
-                raise FloatingPointError(f"non-finite writer loss at step {step}")
-            loss.backward()
+            for record_indices, entries in microbatch_entries:
+                record_objective, parts, kl_sum = writer_microbatch_terms(
+                    record_indices, entries
+                )
+                record_weight = len(record_indices) / covered_records
+                scaled_loss = record_weight * record_objective
+                if float(a.lambda_kl) > 0:
+                    scaled_loss = scaled_loss + (
+                        float(a.lambda_kl) * kl_sum / total_prompt_count
+                    )
+                if not torch.isfinite(scaled_loss):
+                    raise FloatingPointError(f"non-finite writer loss at step {step}")
+                scaled_loss.backward()
+                if aggregate is not None:
+                    aggregate["loss"] += float(scaled_loss.detach())
+                    for key, value in parts.items():
+                        aggregate[key] += record_weight * float(value.detach())
+                    aggregate["topk_kl"] += float(kl_sum.detach()) / total_prompt_count
             if float(a.writer_grad_clip) > 0:
                 torch.nn.utils.clip_grad_norm_(
                     delta_module.parameters(), float(a.writer_grad_clip)
@@ -1500,20 +1707,16 @@ def main(argv: Sequence[str] | None = None) -> None:
                     scale = (caps / norms.clamp_min(1e-12)).clamp(max=1.0)
                     delta_module.raw_delta.mul_(scale.unsqueeze(1))
 
-            if step == 1 or step % 25 == 0 or step == int(a.writer_steps):
+            if should_log:
+                if aggregate is None:
+                    raise AssertionError("writer logging aggregate is missing")
                 row = {
                     "step": step,
-                    "loss": float(loss.detach()),
-                    "write": float(l_write.detach()),
-                    "write_mean": float(l_write_mean.detach()),
-                    "write_tail": float(l_write_tail.detach()),
-                    "write_max": float(l_write_max.detach()),
-                    "consistency": float(l_consistency.detach()),
-                    "negative": float(l_negative.detach()),
-                    "state": float(l_state.detach()),
-                    "cross": float(l_cross.detach()),
-                    "off_axis": float(l_off.detach()),
-                    "topk_kl": float(l_kl.detach()),
+                    **aggregate,
+                    "record_coverage": int(covered_records),
+                    "microbatch_count": len(microbatch_entries),
+                    "prompt_count": int(total_prompt_count),
+                    "cumulative_record_exposures": step * covered_records,
                     "writer_delta_norm": float(delta_module.raw_delta.detach().norm()),
                 }
                 log_file.write(json.dumps(row) + "\n")
@@ -1576,12 +1779,41 @@ def main(argv: Sequence[str] | None = None) -> None:
                     f"median {sorted_minima[len(sorted_minima)//2]:+.3f}; "
                     f"A_median median {sorted_medians[len(sorted_medians)//2]:+.3f}"
                 )
+    gradient_conflict_audit["final"] = capture_writer_gradient_conflict("final")
+    gradient_conflict_audit_sha256 = sha256_json(gradient_conflict_audit)
+    gradient_conflict_audit_path = out_dir / "stage1_gradient_conflict_audit.json"
+    gagd.write_json(gradient_conflict_audit_path, gradient_conflict_audit)
+    gradient_conflict_audit_file_sha256 = sha256_file(gradient_conflict_audit_path)
     del optimizer
 
     trained_embedding_delta = delta_module.effective_delta().detach().cpu()
     writer_log_sha256 = sha256_file(log_path)
     with log_path.open("r", encoding="utf-8") as log_handle:
         writer_log_event_count = sum(1 for line in log_handle if line.strip())
+    writer_optimization = {
+        "record_batch": int(a.writer_record_batch),
+        "record_batch_semantics": "gradient_accumulation_microbatch_capacity",
+        "update_coverage": str(a.writer_update_coverage),
+        "records_per_optimizer_update": int(records_per_optimizer_update),
+        "microbatches_per_optimizer_update": int(microbatches_per_optimizer_update),
+        "optimizer_updates": int(a.writer_steps),
+        "record_exposures": int(writer_record_exposures),
+        "record_local_reference_exposures": int(record_local_exposures),
+        "record_exposure_multiplier_vs_record_local": float(
+            exposure_multiplier_vs_record_local
+        ),
+        "gradient_normalization": "equal_record_mean_plus_global_prompt_mean_kl",
+        "kl_evaluation": (
+            "exact_registered_topk_rows_without_full_vocabulary_materialization"
+        ),
+        "gradient_conflict_audit_phases": ["initial", "final"],
+        "gradient_conflict_audit_objectives": ["positive_write", "full_writer"],
+        "positive_context_mode": str(a.writer_positive_context_mode),
+        "positive_context_batch": int(a.positive_context_batch),
+        "positive_tail_k": int(a.writer_positive_tail_k),
+        "negative_context_batch": int(a.negative_context_batch),
+        "objective": "mean_plus_worst_k_squared_shortfall",
+    }
     training_lineage = {
         **resume_binding,
         "from_scratch": resume_path is None,
@@ -1589,17 +1821,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         "positive_context_policy": str(a.positive_context_policy),
         "writer_log_sha256": writer_log_sha256,
         "writer_log_event_count": int(writer_log_event_count),
+        "gradient_conflict_audit_sha256": gradient_conflict_audit_sha256,
+        "gradient_conflict_audit_file_sha256": (gradient_conflict_audit_file_sha256),
         "base_model_path": str(Path(a.model_path).resolve()),
         "base_transformer_fingerprint": float(transformer_fingerprint),
         "base_selected_embedding_rows_sha256": (base_selected_embedding_rows_sha256),
-        "writer_optimization": {
-            "record_batch": int(a.writer_record_batch),
-            "positive_context_mode": str(a.writer_positive_context_mode),
-            "positive_context_batch": int(a.positive_context_batch),
-            "positive_tail_k": int(a.writer_positive_tail_k),
-            "negative_context_batch": int(a.negative_context_batch),
-            "objective": "mean_plus_worst_k_squared_shortfall",
-        },
+        "writer_optimization": writer_optimization,
     }
     torch.save(
         {
@@ -1625,6 +1852,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             "training_lineage": training_lineage,
             "writer_log_sha256": writer_log_sha256,
             "writer_log_event_count": int(writer_log_event_count),
+            "gradient_conflict_audit": gradient_conflict_audit,
+            "gradient_conflict_audit_sha256": gradient_conflict_audit_sha256,
+            "gradient_conflict_audit_file_sha256": (
+                gradient_conflict_audit_file_sha256
+            ),
         },
         out_dir / "stage1_writer.pt",
     )
@@ -1701,14 +1933,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         "training_lineage": training_lineage,
         "writer_log_sha256": writer_log_sha256,
         "writer_log_event_count": int(writer_log_event_count),
+        "gradient_conflict_audit": gradient_conflict_audit,
+        "gradient_conflict_audit_sha256": gradient_conflict_audit_sha256,
+        "gradient_conflict_audit_file_sha256": (gradient_conflict_audit_file_sha256),
         "write_alpha": float(a.write_alpha),
         "writer_configuration": {
-            "record_batch": int(a.writer_record_batch),
-            "positive_context_mode": str(a.writer_positive_context_mode),
-            "positive_context_batch": int(a.positive_context_batch),
-            "positive_tail_k": int(a.writer_positive_tail_k),
-            "negative_context_batch": int(a.negative_context_batch),
-            "objective": "mean_plus_worst_k_squared_shortfall",
+            **writer_optimization,
             "row_norm_cap": float(a.row_norm_cap),
             "row_norm_cap_frequency_alpha": float(a.row_norm_cap_frequency_alpha),
             "max_subject_token_frequency": int(a.max_subject_token_frequency),
@@ -1769,6 +1999,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             "training_lineage": training_lineage,
             "context_manifest": str(out_dir / "context_manifest.json"),
             "stage1_state": str(out_dir / "stage1_writer.pt"),
+            "gradient_conflict_audit": str(
+                out_dir / "stage1_gradient_conflict_audit.json"
+            ),
             "data_firewall": context_manifest["data_access"],
             "stage2_or_decoder_trained": False,
             "official_evaluation_opened": False,

@@ -60,7 +60,14 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     state_path = Path(args.stage1_state).resolve()
     report_path = Path(args.stage1_report).resolve()
     log_path = Path(args.stage1_writer_log).resolve()
-    for path in (context_path, state_path, report_path, log_path):
+    gradient_audit_path = log_path.with_name("stage1_gradient_conflict_audit.json")
+    for path in (
+        context_path,
+        state_path,
+        report_path,
+        log_path,
+        gradient_audit_path,
+    ):
         if not path.is_file():
             raise FileNotFoundError(path)
 
@@ -174,6 +181,9 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
                 "stage1_state_sha256": writer_method.sha256_file(state_path),
                 "stage1_report_sha256": writer_method.sha256_file(report_path),
                 "stage1_writer_log_sha256": writer_method.sha256_file(log_path),
+                "stage1_gradient_conflict_audit_sha256": (
+                    writer_method.sha256_file(gradient_audit_path)
+                ),
                 "base_model_path": str(Path(args.model_path).resolve()),
             },
             "decoder_constructed": False,

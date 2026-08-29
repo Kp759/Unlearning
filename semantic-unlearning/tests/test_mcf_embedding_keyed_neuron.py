@@ -411,6 +411,32 @@ def test_writer_preflight_checks_global_and_worst_record_completeness():
     assert not summary["checks"]["minimum_record_complete_fraction"]
 
 
+def test_writer_preflight_accepts_count_fractions_serialized_as_float32():
+    summary = method.summarize_writer_preflight(
+        [torch.full((7,), 5.0), torch.tensor([5.0] * 6 + [1.0])],
+        amplitude_threshold=4.5,
+        minimum_global_fraction=0.95,
+        minimum_record_fraction=0.8,
+    )
+    for row in summary["per_record"]:
+        row["complete_fraction"] = float(
+            torch.tensor(row["complete_fraction"], dtype=torch.float32)
+        )
+    summary["global_complete_fraction"] = float(
+        torch.tensor(summary["global_complete_fraction"], dtype=torch.float32)
+    )
+    summary["minimum_record_complete_fraction"] = float(
+        torch.tensor(summary["minimum_record_complete_fraction"], dtype=torch.float32)
+    )
+
+    method.validate_writer_preflight_summary(
+        summary,
+        amplitude_threshold=4.5,
+        minimum_global_fraction=0.95,
+        minimum_record_fraction=0.8,
+    )
+
+
 def test_decoder_requires_conjunctive_clean_stage1_acceptance():
     artifact_hashes = {
         "training_visible_sha256": "visible",
@@ -419,6 +445,7 @@ def test_decoder_requires_conjunctive_clean_stage1_acceptance():
         "stage1_state_sha256": "state",
         "stage1_report_sha256": "report",
         "stage1_writer_log_sha256": "log",
+        "stage1_gradient_conflict_audit_sha256": "gradient-audit",
     }
     receipt = {
         "kind": "mcf_clean_stage1_writer_acceptance",
@@ -503,6 +530,7 @@ def test_clean_writer_receipt_reports_failed_portability_after_valid_integrity(
     state_path = tmp_path / "writer.pt"
     report_path = tmp_path / "report.json"
     log_path = tmp_path / "writer.jsonl"
+    gradient_audit_path = tmp_path / "stage1_gradient_conflict_audit.json"
     preflight_path = tmp_path / "preflight.json"
     training.write_text("{}\n", encoding="utf-8")
     split.write_text("{}\n", encoding="utf-8")
@@ -531,6 +559,7 @@ def test_clean_writer_receipt_reports_failed_portability_after_valid_integrity(
     )
     report_path.write_text("{}\n", encoding="utf-8")
     log_path.write_text('{"step": 1}\n', encoding="utf-8")
+    gradient_audit_path.write_text("{}\n", encoding="utf-8")
     monkeypatch.setattr(
         clean_writer_verify.neuron,
         "_validate_clean_stage1_lineage",
@@ -573,6 +602,9 @@ def test_clean_writer_receipt_reports_failed_portability_after_valid_integrity(
             ),
             "stage1_writer_log_sha256": method.compositional_method.sha256_file(
                 log_path
+            ),
+            "stage1_gradient_conflict_audit_sha256": (
+                method.compositional_method.sha256_file(gradient_audit_path)
             ),
         },
     }
@@ -878,8 +910,15 @@ def test_clean_stage1_lineage_requires_from_scratch_training_and_nonempty_log(
         },
         "surrogate_receipt": None,
         "synthetic_coverage": {"generic_fallback_records": 0},
+        "selected_embedding_rows": [7],
+        "cross_record_parameter_sharing": {
+            "case_count": 1,
+            "selected_row_count": 1,
+            "positive_prompt_count": 2,
+        },
         "records": [
             {
+                "case_id": 11,
                 "positive_prompts": ["Ada works as", "The profession of Ada is"],
                 "positive_prompt_provenance": [
                     {"prompt": "Ada works as", "source": "canonical_direct"},
@@ -897,6 +936,33 @@ def test_clean_stage1_lineage_requires_from_scratch_training_and_nonempty_log(
     log_path = tmp_path / "writer.jsonl"
     log_path.write_text('{"step": 1}\n', encoding="utf-8")
     log_hash = method.compositional_method.sha256_file(log_path)
+    gradient_summary = method.compositional_core.gradient_conflict_summary(
+        [torch.tensor([1.0])], [11]
+    )
+    gradient_audit = {
+        "schema_version": 1,
+        "protocol": method.compositional_core.PROTOCOL,
+        "kind": "mcf_stage1_per_record_gradient_conflict_audit",
+        "negative_cosine_tolerance": 1e-8,
+        "interpretation": "test fixture",
+        "initial": {
+            "phase": "initial",
+            "positive_write": gradient_summary,
+            "full_writer": gradient_summary,
+        },
+        "final": {
+            "phase": "final",
+            "positive_write": gradient_summary,
+            "full_writer": gradient_summary,
+        },
+        "official_evaluation_opened": False,
+    }
+    gradient_audit_hash = method.compositional_method.sha256_json(gradient_audit)
+    gradient_audit_path = tmp_path / "stage1_gradient_conflict_audit.json"
+    gradient_audit_path.write_text(json.dumps(gradient_audit), encoding="utf-8")
+    gradient_audit_file_hash = method.compositional_method.sha256_file(
+        gradient_audit_path
+    )
     lineage = {
         "mode": "from_scratch",
         "same_context_manifest": True,
@@ -910,11 +976,30 @@ def test_clean_stage1_lineage_requires_from_scratch_training_and_nonempty_log(
         ),
         "writer_log_sha256": log_hash,
         "writer_log_event_count": 1,
+        "gradient_conflict_audit_sha256": gradient_audit_hash,
+        "gradient_conflict_audit_file_sha256": gradient_audit_file_hash,
         "base_model_path": "/models/base",
         "base_transformer_fingerprint": 123.5,
         "base_selected_embedding_rows_sha256": "a" * 64,
         "writer_optimization": {
             "record_batch": 3,
+            "record_batch_semantics": ("gradient_accumulation_microbatch_capacity"),
+            "update_coverage": "all_records_accumulated",
+            "records_per_optimizer_update": 50,
+            "microbatches_per_optimizer_update": 17,
+            "optimizer_updates": 1200,
+            "record_exposures": 60000,
+            "record_local_reference_exposures": 3600,
+            "record_exposure_multiplier_vs_record_local": 50 / 3,
+            "gradient_normalization": ("equal_record_mean_plus_global_prompt_mean_kl"),
+            "kl_evaluation": (
+                "exact_registered_topk_rows_without_full_vocabulary_materialization"
+            ),
+            "gradient_conflict_audit_phases": ["initial", "final"],
+            "gradient_conflict_audit_objectives": [
+                "positive_write",
+                "full_writer",
+            ],
             "positive_context_mode": "all",
             "positive_context_batch": 7,
             "positive_tail_k": 2,
@@ -928,6 +1013,9 @@ def test_clean_stage1_lineage_requires_from_scratch_training_and_nonempty_log(
         "training_lineage": lineage,
         "writer_log_sha256": log_hash,
         "writer_log_event_count": 1,
+        "gradient_conflict_audit": gradient_audit,
+        "gradient_conflict_audit_sha256": gradient_audit_hash,
+        "gradient_conflict_audit_file_sha256": gradient_audit_file_hash,
         "writer_optimization": lineage["writer_optimization"],
     }
     report = {
@@ -939,6 +1027,9 @@ def test_clean_stage1_lineage_requires_from_scratch_training_and_nonempty_log(
         "training_lineage": lineage,
         "writer_log_sha256": log_hash,
         "writer_log_event_count": 1,
+        "gradient_conflict_audit": gradient_audit,
+        "gradient_conflict_audit_sha256": gradient_audit_hash,
+        "gradient_conflict_audit_file_sha256": gradient_audit_file_hash,
         "writer_configuration": lineage["writer_optimization"],
     }
 
@@ -1018,12 +1109,38 @@ def test_primary_configuration_is_bound_to_preregistered_values():
             ),
             "training_origin": "Base model with no resumed Stage-1 state",
             "writer_steps": 1200,
+            "writer_steps_semantics": (
+                "optimizer updates after full-record gradient accumulation"
+            ),
             "writer_record_batch": 3,
+            "writer_record_batch_semantics": (
+                "gradient_accumulation_microbatch_capacity"
+            ),
+            "writer_update_coverage": "all_records_accumulated",
+            "writer_records_per_optimizer_update": 50,
+            "writer_microbatches_per_optimizer_update": 17,
+            "writer_optimizer_updates": 1200,
+            "writer_record_exposures": 60000,
+            "writer_record_local_reference_exposures": 3600,
+            "writer_record_exposure_multiplier_vs_v6_1": 50 / 3,
+            "writer_gradient_normalization": (
+                "equal_record_mean_plus_global_prompt_mean_kl"
+            ),
+            "writer_kl_evaluation": (
+                "exact_registered_topk_rows_without_full_vocabulary_materialization"
+            ),
+            "writer_gradient_conflict_audit_phases": ["initial", "final"],
+            "writer_gradient_conflict_audit_objectives": [
+                "positive_write",
+                "full_writer",
+            ],
+            "writer_gradient_conflict_audit_hash_bound": True,
             "writer_positive_context_mode": "all",
             "writer_positive_context_batch": 7,
             "writer_positive_tail_k": 2,
             "writer_negative_context_batch": 5,
             "writer_objective": "mean_plus_worst_k_squared_shortfall",
+            "cross_record_parameter_sharing_audit_required": True,
         },
         "primary_configuration": {
             "forget_num": 50,

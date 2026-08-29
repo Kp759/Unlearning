@@ -68,6 +68,7 @@ FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES = (
     "RETAIN_EVAL_PATH",
     "ADVERSARIAL_EVAL_PATH",
 )
+COUNT_DERIVED_FRACTION_ABS_TOLERANCE = 1e-7
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -318,12 +319,36 @@ def _validate_experiment_registry(
         "relation_template_bank_sha256": expected_template_hash,
         "training_origin": "Base model with no resumed Stage-1 state",
         "writer_steps": 1200,
+        "writer_steps_semantics": (
+            "optimizer updates after full-record gradient accumulation"
+        ),
         "writer_record_batch": 3,
+        "writer_record_batch_semantics": ("gradient_accumulation_microbatch_capacity"),
+        "writer_update_coverage": "all_records_accumulated",
+        "writer_records_per_optimizer_update": 50,
+        "writer_microbatches_per_optimizer_update": 17,
+        "writer_optimizer_updates": 1200,
+        "writer_record_exposures": 60000,
+        "writer_record_local_reference_exposures": 3600,
+        "writer_record_exposure_multiplier_vs_v6_1": 50 / 3,
+        "writer_gradient_normalization": (
+            "equal_record_mean_plus_global_prompt_mean_kl"
+        ),
+        "writer_kl_evaluation": (
+            "exact_registered_topk_rows_without_full_vocabulary_materialization"
+        ),
+        "writer_gradient_conflict_audit_phases": ["initial", "final"],
+        "writer_gradient_conflict_audit_objectives": [
+            "positive_write",
+            "full_writer",
+        ],
+        "writer_gradient_conflict_audit_hash_bound": True,
         "writer_positive_context_mode": "all",
         "writer_positive_context_batch": 7,
         "writer_positive_tail_k": 2,
         "writer_negative_context_batch": 5,
         "writer_objective": "mean_plus_worst_k_squared_shortfall",
+        "cross_record_parameter_sharing_audit_required": True,
     }
     for key, expected_value in expected_writer_prerequisite.items():
         if writer_prerequisite.get(key) != expected_value:
@@ -497,6 +522,23 @@ def _validate_clean_stage1_lineage(
     rows = context_manifest.get("records")
     if not isinstance(rows, list) or not rows:
         raise RuntimeError("clean writer context manifest has no records")
+    sharing = context_manifest.get("cross_record_parameter_sharing")
+    selected_embedding_rows = context_manifest.get("selected_embedding_rows")
+    if (
+        not isinstance(sharing, Mapping)
+        or not isinstance(selected_embedding_rows, list)
+        or int(sharing.get("case_count", -1)) != len(rows)
+        or int(sharing.get("selected_row_count", -1)) != len(selected_embedding_rows)
+        or int(sharing.get("positive_prompt_count", -1))
+        != sum(
+            len(row.get("positive_prompts", []))
+            for row in rows
+            if isinstance(row, Mapping)
+        )
+    ):
+        raise RuntimeError(
+            "clean writer lacks its cross-record parameter-sharing audit"
+        )
     allowed_sources = {
         "canonical_direct",
         "hand_authored_relation_template_or_corpus_prefix",
@@ -538,6 +580,20 @@ def _validate_clean_stage1_lineage(
         )
     expected_optimization = {
         "record_batch": 3,
+        "record_batch_semantics": "gradient_accumulation_microbatch_capacity",
+        "update_coverage": "all_records_accumulated",
+        "records_per_optimizer_update": 50,
+        "microbatches_per_optimizer_update": 17,
+        "optimizer_updates": 1200,
+        "record_exposures": 60000,
+        "record_local_reference_exposures": 3600,
+        "record_exposure_multiplier_vs_record_local": 50 / 3,
+        "gradient_normalization": ("equal_record_mean_plus_global_prompt_mean_kl"),
+        "kl_evaluation": (
+            "exact_registered_topk_rows_without_full_vocabulary_materialization"
+        ),
+        "gradient_conflict_audit_phases": ["initial", "final"],
+        "gradient_conflict_audit_objectives": ["positive_write", "full_writer"],
         "positive_context_mode": "all",
         "positive_context_batch": 7,
         "positive_tail_k": 2,
@@ -550,8 +606,8 @@ def _validate_clean_stage1_lineage(
         or dict(observed_optimization) != expected_optimization
     ):
         raise RuntimeError(
-            "Stage-1 writer was not trained with the registered V6.1 "
-            "all-positive/worst-two objective"
+            "Stage-1 writer was not trained with the registered V6.2 "
+            "all-record accumulated objective"
         )
     if dict(stage1_state.get("writer_optimization", {})) != expected_optimization:
         raise RuntimeError("Stage-1 state writer-optimization receipt mismatch")
@@ -592,6 +648,65 @@ def _validate_clean_stage1_lineage(
     if not isinstance(report_lineage, Mapping) or dict(report_lineage) != dict(lineage):
         raise RuntimeError("Stage-1 state/report lineage receipts differ")
 
+    state_gradient_audit = stage1_state.get("gradient_conflict_audit")
+    report_gradient_audit = stage1_report.get("gradient_conflict_audit")
+    gradient_audit_sha256 = str(
+        stage1_state.get("gradient_conflict_audit_sha256") or ""
+    )
+    gradient_audit_path = stage1_log_path.with_name(
+        "stage1_gradient_conflict_audit.json"
+    )
+    gradient_audit_file_sha256 = (
+        compositional_method.sha256_file(gradient_audit_path)
+        if gradient_audit_path.is_file()
+        else ""
+    )
+    if (
+        not isinstance(state_gradient_audit, Mapping)
+        or not isinstance(report_gradient_audit, Mapping)
+        or dict(state_gradient_audit) != dict(report_gradient_audit)
+        or gradient_audit_sha256
+        != compositional_method.sha256_json(state_gradient_audit)
+        or str(stage1_report.get("gradient_conflict_audit_sha256") or "")
+        != gradient_audit_sha256
+        or str(lineage.get("gradient_conflict_audit_sha256") or "")
+        != gradient_audit_sha256
+        or not gradient_audit_file_sha256
+        or str(stage1_state.get("gradient_conflict_audit_file_sha256") or "")
+        != gradient_audit_file_sha256
+        or str(stage1_report.get("gradient_conflict_audit_file_sha256") or "")
+        != gradient_audit_file_sha256
+        or str(lineage.get("gradient_conflict_audit_file_sha256") or "")
+        != gradient_audit_file_sha256
+        or state_gradient_audit.get("official_evaluation_opened") is not False
+    ):
+        raise RuntimeError("Stage-1 gradient-conflict audit binding is invalid")
+    expected_case_ids = [int(row["case_id"]) for row in rows]
+    for phase in ("initial", "final"):
+        phase_report = state_gradient_audit.get(phase)
+        if not isinstance(phase_report, Mapping) or phase_report.get("phase") != phase:
+            raise RuntimeError("Stage-1 gradient-conflict audit phase is incomplete")
+        for objective in ("positive_write", "full_writer"):
+            objective_report = phase_report.get(objective)
+            if (
+                not isinstance(objective_report, Mapping)
+                or [int(value) for value in objective_report.get("case_ids", [])]
+                != expected_case_ids
+            ):
+                raise RuntimeError(
+                    "Stage-1 gradient-conflict audit objective is incomplete"
+                )
+    for objective in ("positive_write", "full_writer"):
+        initial_report = state_gradient_audit["initial"][objective]
+        if (
+            int(initial_report.get("nonzero_gradient_records", -1)) != len(rows)
+            or int(initial_report.get("valid_pair_count", -1))
+            != len(rows) * (len(rows) - 1) // 2
+        ):
+            raise RuntimeError(
+                "Stage-1 initial gradient-conflict audit has zero gradients"
+            )
+
     if not stage1_log_path.is_file():
         raise RuntimeError("Stage-1 writer log is missing")
     log_sha256 = compositional_method.sha256_file(stage1_log_path)
@@ -615,6 +730,8 @@ def _validate_clean_stage1_lineage(
         "context_manifest_sha256": context_hash,
         "writer_log_sha256": log_sha256,
         "writer_log_event_count": log_events,
+        "gradient_conflict_audit_sha256": gradient_audit_sha256,
+        "gradient_conflict_audit_file_sha256": gradient_audit_file_sha256,
         "writer_optimization": expected_optimization,
         "base_model_path": base_model_path,
         "base_transformer_fingerprint": base_transformer_fingerprint,
@@ -686,9 +803,13 @@ def _validate_clean_stage1_acceptance(
     if bool(receipt.get("official_evaluation_opened")):
         raise RuntimeError("clean Stage-1 acceptance crossed the evaluation firewall")
     artifacts = receipt.get("artifacts")
-    if not isinstance(artifacts, Mapping) or any(
-        str(artifacts.get(key) or "") != value
-        for key, value in expected_artifacts.items()
+    if (
+        not isinstance(artifacts, Mapping)
+        or not str(artifacts.get("stage1_gradient_conflict_audit_sha256") or "")
+        or any(
+            str(artifacts.get(key) or "") != value
+            for key, value in expected_artifacts.items()
+        )
     ):
         raise RuntimeError("clean Stage-1 acceptance artifact binding mismatch")
 
@@ -920,17 +1041,18 @@ def summarize_writer_preflight(
     groups = [group.detach().float().reshape(-1).cpu() for group in amplitude_groups]
     if not all(torch.isfinite(group).all() for group in groups):
         raise ValueError("writer preflight contains non-finite amplitudes")
-    per_record = [
-        {
-            "prompt_count": int(group.numel()),
-            "complete_count": int((group >= float(amplitude_threshold)).sum()),
-            "complete_fraction": float(
-                (group >= float(amplitude_threshold)).float().mean()
-            ),
-            "amplitude": _distribution([float(value) for value in group]),
-        }
-        for group in groups
-    ]
+    per_record = []
+    for group in groups:
+        prompt_count = int(group.numel())
+        complete_count = int((group >= float(amplitude_threshold)).sum())
+        per_record.append(
+            {
+                "prompt_count": prompt_count,
+                "complete_count": complete_count,
+                "complete_fraction": complete_count / prompt_count,
+                "amplitude": _distribution([float(value) for value in group]),
+            }
+        )
     total = sum(row["prompt_count"] for row in per_record)
     complete = sum(row["complete_count"] for row in per_record)
     global_fraction = complete / total
@@ -986,7 +1108,7 @@ def validate_writer_preflight_summary(
             float(row.get("complete_fraction", float("nan"))),
             fraction,
             rel_tol=0.0,
-            abs_tol=1e-12,
+            abs_tol=COUNT_DERIVED_FRACTION_ABS_TOLERANCE,
         ):
             raise RuntimeError("writer preflight per-record fraction is inconsistent")
         prompt_count += prompts
@@ -1006,6 +1128,10 @@ def validate_writer_preflight_summary(
             float(amplitude_threshold),
             "amplitude threshold",
         ),
+    ):
+        if not math.isclose(observed, expected, rel_tol=0.0, abs_tol=1e-12):
+            raise RuntimeError(f"writer preflight {label} is inconsistent")
+    for observed, expected, label in (
         (
             float(summary.get("global_complete_fraction", float("nan"))),
             global_fraction,
@@ -1017,7 +1143,12 @@ def validate_writer_preflight_summary(
             "minimum-record fraction",
         ),
     ):
-        if not math.isclose(observed, expected, rel_tol=0.0, abs_tol=1e-12):
+        if not math.isclose(
+            observed,
+            expected,
+            rel_tol=0.0,
+            abs_tol=COUNT_DERIVED_FRACTION_ABS_TOLERANCE,
+        ):
             raise RuntimeError(f"writer preflight {label} is inconsistent")
     criterion = summary.get("criterion")
     if (
@@ -1270,6 +1401,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     stage1_path = Path(args.stage1_state).resolve()
     stage1_report_path = Path(args.stage1_report).resolve()
     stage1_log_path = Path(args.stage1_writer_log).resolve()
+    stage1_gradient_audit_path = stage1_log_path.with_name(
+        "stage1_gradient_conflict_audit.json"
+    )
     stage1_portability_path = Path(args.clean_stage1_portability_preflight).resolve()
     stage1_acceptance_path = Path(args.clean_stage1_acceptance).resolve()
     registry_path = Path(args.experiment_registry).resolve()
@@ -1280,6 +1414,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         stage1_path,
         stage1_report_path,
         stage1_log_path,
+        stage1_gradient_audit_path,
         stage1_portability_path,
         stage1_acceptance_path,
         registry_path,
@@ -1369,6 +1504,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             "stage1_writer_log_sha256": compositional_method.sha256_file(
                 stage1_log_path
             ),
+            "stage1_gradient_conflict_audit_sha256": (
+                compositional_method.sha256_file(stage1_gradient_audit_path)
+            ),
             "training_safe_portability_sha256": compositional_method.sha256_file(
                 stage1_portability_path
             ),
@@ -1397,6 +1535,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         "stage1_report_sha256": compositional_method.sha256_file(stage1_report_path),
         "stage1_writer_log_path": str(stage1_log_path),
         "stage1_writer_log_sha256": compositional_method.sha256_file(stage1_log_path),
+        "stage1_gradient_conflict_audit_path": str(stage1_gradient_audit_path),
+        "stage1_gradient_conflict_audit_sha256": (
+            compositional_method.sha256_file(stage1_gradient_audit_path)
+        ),
         "clean_stage1_portability_path": str(stage1_portability_path),
         "clean_stage1_portability_sha256": compositional_method.sha256_file(
             stage1_portability_path

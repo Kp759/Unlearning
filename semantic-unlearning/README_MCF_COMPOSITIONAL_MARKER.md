@@ -125,7 +125,7 @@ without changing its raw logit; V5 incorrectly penalized that improvement as
 damage. V5.1 changes only this constraint to one-sided regression before any
 rank increase is tested.
 
-### Clean V6 Stage-1 diagnostic and V6.1
+### Clean V6/V6.1 diagnostics and V6.2
 
 The first clean, from-Base V6 writer was stopped by the unchanged training-safe
 portability gate before any sparse-neuron decoder or official evaluation was
@@ -143,7 +143,7 @@ alternates. The defensible diagnosis is therefore context-manifold margin
 instability under V6 optimization, not invalid V6 data and not a generic
 Wikipedia-prefix failure.
 
-V6.1 changes only the uniformly applied Stage-1 optimization:
+V6.1 changed only the uniformly applied Stage-1 optimization:
 
 - every clean positive for a sampled record is presented in the same update;
 - the record batch is reduced from four to three while the registered positive
@@ -158,6 +158,42 @@ The worst-two term is a conservative robustness objective rather than a
 restatement of the gate: a six- or seven-prompt record can miss one prompt and
 still pass 0.80. Its purpose is to keep the learned writer away from that
 discrete boundary without dropping or specially weighting named records.
+
+V6.1 was also stopped before decoder construction or official evaluation. It
+completed 340/346 prompts (98.27%) globally, but case 10854 completed 3/7 and
+case 16683 completed 5/7. The V6 failures were repaired while two different
+records failed. That pattern is consistent with cross-record interference or
+stochastic redistribution of margin, but does not identify the cause by
+itself.
+
+V6.2 makes the optimizer globally balanced. One Adam update now consists of a
+shuffled, exactly-once sweep over all 50 records, evaluated as 17 record
+microbatches of size at most three. Gradients accumulate across the sweep,
+then clipping, the optimizer step, and row-cap projection happen once. The
+non-KL loss is an equal mean over records; KL remains a global prompt mean.
+The top-64 KL applies only the corresponding frozen LM-head rows instead of
+materializing 128k logits for every microbatch; this is the same registered
+restricted objective with substantially lower compute and memory overhead.
+All contexts, markers, weights, learning rate, row caps, worst-two objective,
+1,200 optimizer updates, and acceptance thresholds remain fixed.
+
+The compute budget does not remain fixed: V6.1 used 3,600 record exposures,
+whereas V6.2 uses 60,000 (16.67x). The state, report, log, and registry record
+both values. A V6.2 pass supports the globally balanced engineering
+configuration, but causal language about cross-record interference requires
+an exposure-matched control or a direct gradient-conflict audit. The context
+manifest now reports both shared ownership of selected embedding rows and
+positive prompts that touch rows owned by other records; this establishes
+parameter-sharing pathways but not opposing gradient directions. The receipt
+validator also now tolerates `1e-7` serialization error for count-derived
+float32 fractions while recomputing every count and pass/fail decision.
+
+`stage1_gradient_conflict_audit.json` measures the missing directional piece
+at both the initial and final parameter states. It reports pairwise cosine
+matrices for each record's positive-write gradient and full writer-objective
+gradient. Negative cosine is evidence of opposing local update directions at
+that state; the report explicitly does not infer that a measured conflict
+caused V6.1's final failures.
 
 Before another reader architecture is trained, characterize the fixed-V3
 uniform-beta frontier. This is exploratory because it reads official probes:
@@ -186,7 +222,7 @@ using training-safe data; it does not select a beta scale from official probes.
 ## Data firewall
 
 Training requires the direct-only artifact produced by
-`build_mcf_sure_target_aware_direct_split.py`. The V6.1 paper path does not accept
+`build_mcf_sure_target_aware_direct_split.py`. The V6.2 paper path does not accept
 a surrogate artifact. The legacy surrogate mode remains available only for
 explicitly labelled diagnostics and validates its receipt for:
 
@@ -266,18 +302,18 @@ From the repository root:
 ```bash
 export MODEL_PATH=/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean
 export WIKIDATA_DIR=/scratch/yl258/kp759/datasets/wikipedia_sure_50020
-export OUTPUT_DIR=outputs/mcf_compositional_marker_v6_1_seed1_3b
+export OUTPUT_DIR=outputs/mcf_compositional_marker_v6_2_seed1_3b
 
 bash scripts/submit_mcf_compositional_marker_seed1.sh
 ```
 
-For the sparse-neuron experiment, build only the clean V6.1 writer first:
+For the sparse-neuron experiment, build only the clean V6.2 writer first:
 
 ```bash
 mkdir -p slurm_logs
 bash scripts/run_mcf_compositional_marker_clean_stage1_manual.sh \
-  outputs/mcf_compositional_marker_v6_1_clean_seed1_3b \
-  2>&1 | tee slurm_logs/mcf_compositional_marker_v6_1_clean_seed1_manual.log
+  outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
+  2>&1 | tee slurm_logs/mcf_compositional_marker_v6_2_clean_seed1_manual.log
 ```
 
 This stops after Stage 1, reloads the writer against every training-safe
@@ -292,7 +328,9 @@ Outputs:
 - `method/context_manifest.json`: every training-visible positive/negative and
   its provenance;
 - `method/stage1_writer_log.jsonl`: nonempty optimization trace bound into the
-  V6.1 writer state and report;
+  V6.2 writer state and report;
+- `method/stage1_gradient_conflict_audit.json`: initial/final per-record
+  gradient cosine audit for the write-only and full writer objectives;
 - `method/training_safe_portability_preflight.json`: fresh-Base replay of the
   exact pre-decoder writer-on minus writer-off amplitude gate;
 - `method/clean_stage1_acceptance.json`: from-Base lineage, relation-template
@@ -316,7 +354,7 @@ Outputs:
   output-only, and exactly reconstructed-base PPL from one frozen checkpoint;
 - historical diagnostic-only `comparison/gen_failure_attribution.json`:
   post-hoc Gen failures stratified by robust-surrogate versus direct-only
-  training coverage; it is not produced by the clean V6.1 paper path.
+  training coverage; it is not produced by the clean V6.2 paper path.
 
 The target is `Eff=0`, `Gen=0`, negligible `Delta Spe`, and negligible
 `Delta PPL`. Only the first two are forced on training-safe contexts; unseen

@@ -84,6 +84,9 @@ def verify(
         "stage1_state_sha256": writer.sha256_file(stage1_state_path),
         "stage1_report_sha256": writer.sha256_file(stage1_report_path),
         "stage1_writer_log_sha256": writer.sha256_file(stage1_log_path),
+        "stage1_gradient_conflict_audit_sha256": writer.sha256_file(
+            stage1_log_path.with_name("stage1_gradient_conflict_audit.json")
+        ),
     }
     if not isinstance(preflight_binding, Mapping) or any(
         str(preflight_binding.get(key) or "") != value
@@ -91,6 +94,11 @@ def verify(
     ):
         raise RuntimeError("clean Stage-1 portability artifact binding mismatch")
     portability_passed = bool(preflight.get("passed"))
+    gradient_audit_path = stage1_log_path.with_name(
+        "stage1_gradient_conflict_audit.json"
+    )
+    if not gradient_audit_path.is_file():
+        raise RuntimeError("Stage-1 gradient-conflict audit file is missing")
     return {
         "schema_version": 2,
         "kind": "mcf_clean_stage1_writer_acceptance",
@@ -111,6 +119,9 @@ def verify(
             "stage1_state_sha256": writer.sha256_file(stage1_state_path),
             "stage1_report_sha256": writer.sha256_file(stage1_report_path),
             "stage1_writer_log_sha256": writer.sha256_file(stage1_log_path),
+            "stage1_gradient_conflict_audit_sha256": writer.sha256_file(
+                gradient_audit_path
+            ),
             "training_safe_portability_sha256": writer.sha256_file(
                 portability_preflight_path
             ),

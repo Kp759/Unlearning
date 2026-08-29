@@ -133,11 +133,39 @@ Acceptance requires:
 
 The clean V6 writer reached 339/346 (97.98%) globally but failed two
 record-level gates at 5/7, so decoder construction and official evaluation were
-correctly refused. V6.1 keeps the contexts and thresholds fixed, trains on all
-positives for each sampled record, and adds a worst-two squared-shortfall term.
-Its upstream acceptance receipt now means artifact integrity **and** an exact
-fresh-Base replay of this same 4.5 / 95% / 80% pre-decoder gate. An
-integrity-only receipt cannot authorize the neuron run.
+correctly refused. V6.1 kept the contexts and thresholds fixed, trained on all
+positives for each sampled record, and added a worst-two squared-shortfall
+term. It reached 340/346 (98.27%), but two different records failed at 3/7 and
+5/7. This is consistent with record-local updates redistributing margin, but
+the moved failure identities do not prove that cause.
+
+V6.2 therefore accumulates gradients from all 50 records, in 17 bounded
+microbatches of at most three records, before each Adam update. The non-KL
+objective is normalized as an equal record mean and KL as a global prompt
+mean. The top-64 KL is evaluated from those exact frozen LM-head rows without
+materializing the full vocabulary logits. All data, markers, loss weights,
+learning rate, row caps, 1,200 optimizer updates, and 4.5 / 95% / 80%
+acceptance thresholds remain fixed. This is not a
+compute-matched comparison: V6.2 has 60,000 record exposures versus V6.1's
+3,600, a 16.67x increase. A V6.2 pass would establish that the globally
+balanced engineering configuration works; an exposure-matched control or
+direct gradient-conflict audit is still required before claiming that
+cross-record interference was causally established.
+
+The context manifest also audits the two concrete sharing pathways: selected
+embedding rows owned by multiple records and positive prompts that contain
+selected rows owned by another record. Incidence supports the possibility of
+cross-record coupling; it is not reported as a gradient-conflict measurement.
+The Stage-1 report separately measures initial and final pairwise cosines for
+per-record write-only and full-objective gradients. A negative cosine is an
+observed local conflict, while causal attribution of V6.1's failures remains
+conditional on the V6.2 intervention result.
+
+The upstream acceptance receipt means artifact integrity **and** an exact
+fresh-Base replay of the same pre-decoder gate. Count-derived fractions may be
+serialized in float32 and are checked within `1e-7`; counts, thresholds, and
+Boolean decisions are still recomputed. An integrity-only receipt cannot
+authorize the neuron run.
 
 The audit is an empirical diagnostic of the claimed pathway. It is not stated
 as a mathematical upper bound on every possible nonlinear decoder.
@@ -262,7 +290,7 @@ run.
 
 The registry is
 `protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json`. The legacy
-filename is retained for launcher compatibility; its current schema is 5 and
+filename is retained for launcher compatibility; its current schema is 6 and
 its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3`.
 The paper-level report requires all of the following:
 
@@ -296,8 +324,8 @@ bash scripts/submit_mcf_compositional_marker_clean_stage1_seed1.sh
 ## Or, inside an interactive allocation
 mkdir -p slurm_logs
 bash scripts/run_mcf_compositional_marker_clean_stage1_manual.sh \
-  outputs/mcf_compositional_marker_v6_1_clean_seed1_3b \
-  2>&1 | tee slurm_logs/mcf_compositional_marker_v6_1_clean_seed1_manual.log
+  outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
+  2>&1 | tee slurm_logs/mcf_compositional_marker_v6_2_clean_seed1_manual.log
 ```
 
 Only after `method/clean_stage1_acceptance.json` passes, run the proposed model,
@@ -312,7 +340,7 @@ the historical v2/V3 writer lineage and existing output directories:
 
 ```bash
 bash scripts/run_mcf_embedding_keyed_neuron_v3_manual.sh \
-  /scratch/yl258/kp759/ul-a8864ff/semantic-unlearning/outputs/mcf_compositional_marker_v6_1_clean_seed1_3b \
+  /scratch/yl258/kp759/ul-a8864ff/semantic-unlearning/outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
   outputs/mcf_embedding_keyed_neuron_v3_seed1_3b \
   2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_seed1_manual.log
 ```

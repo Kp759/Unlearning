@@ -15,6 +15,7 @@ for required in \
   "${CLEAN_WRITER_DIR}/method/stage1_writer.pt" \
   "${CLEAN_WRITER_DIR}/method/stage1_writer_report.json" \
   "${CLEAN_WRITER_DIR}/method/stage1_writer_log.jsonl" \
+  "${CLEAN_WRITER_DIR}/method/stage1_gradient_conflict_audit.json" \
   "${CLEAN_WRITER_DIR}/method/training_safe_portability_preflight.json" \
   "${CLEAN_WRITER_DIR}/method/clean_stage1_acceptance.json"
 do
