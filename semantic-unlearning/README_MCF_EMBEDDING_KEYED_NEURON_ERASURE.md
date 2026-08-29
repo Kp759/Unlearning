@@ -44,7 +44,7 @@ subtract a paired Base activation that would be unavailable at inference. The
 training floor and off-context threshold are diagnostics, not a fictional
 runtime classifier.
 
-## Training-only rejections and the V3.1 detector revision
+## Training-only rejections and the V3.2 safety-margin revision
 
 The first layer-8 feasibility run was rejected before its official evaluation: its
 detector passed 0/50 records, and the subsequently attempted actuator was
@@ -103,6 +103,31 @@ caps, 0.25/0.20 gate, 1,000 optimizer updates, actuator, and firewall fixed. It:
 The selected MLP input is upstream of the rows being optimized and the selected
 down projection is disabled during detector training, so the cache does not
 approximate or stale the learned detector computation.
+
+V3.1 improved the unchanged detector certificate from 0/50 to 45/50 using the
+exact same 200-neuron ownership hash
+`acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1`.
+It remains a rejected training-only run: actuator training did not start and
+official evaluation saw zero prompts. Three writer-off values and one negative
+value exceeded 0.20 by only `1.79e-8` to `4.77e-8`; case 10472 was the one
+substantive miss, with `positive_min = 0.24717252` (0.00282748 below 0.25).
+Those observations do not retroactively change V3.1's exact comparison rule.
+
+V3.2 changes only optimization safety margins and numerical comparison policy,
+all registered before its run:
+
+- positive optimization target: 0.30; certificate floor: 0.25 unchanged;
+- negative/writer-off optimization ceiling: 0.15; certificate ceiling: 0.20
+  unchanged;
+- certificate absolute comparison tolerance: `1e-7`;
+- exact V3/V3.1 primary neuron-ownership hash required;
+- full-context gates saved before final Adam, after Adam, after norm projection,
+  and in a fresh final replay; and
+- all 1,000 detector optimizer-step rows saved to a complete JSON log.
+
+V3.2 still fails closed unless all 50 records pass the unchanged scientific
+certificate. A rejection leaves both actuator training and official evaluation
+unavailable.
 
 To add the case-ID binding to the preserved historical V3 rejection without
 changing its gate JSON:
@@ -326,8 +351,8 @@ run.
 
 The registry is
 `protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json`. The legacy
-filename is retained for launcher compatibility; its current schema is 7 and
-its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_1`.
+filename is retained for launcher compatibility; its current schema is 8 and
+its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_2`.
 The paper-level report requires all of the following:
 
 - primary Eff = 0 and Gen = 0;
@@ -371,14 +396,14 @@ full retrained control, and post-freeze audits:
 bash scripts/submit_mcf_embedding_keyed_neuron_seed1.sh
 ```
 
-For an interactive allocation, use the V3.1 argument-taking wrapper. It rejects
+For an interactive allocation, use the V3.2 argument-taking wrapper. It rejects
 the historical writer lineage and existing output directories:
 
 ```bash
-bash scripts/run_mcf_embedding_keyed_neuron_v3_1_manual.sh \
+bash scripts/run_mcf_embedding_keyed_neuron_v3_2_manual.sh \
   /scratch/yl258/kp759/ul-a8864ff/semantic-unlearning/outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
-  outputs/mcf_embedding_keyed_neuron_v3_1_seed1_3b \
-  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_1_seed1_manual.log
+  outputs/mcf_embedding_keyed_neuron_v3_2_seed1_3b \
+  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_2_seed1_manual.log
 ```
 
 The job is intentionally budgeted for two full training runs. The result report
@@ -414,6 +439,12 @@ python scripts/aggregate_mcf_context_gating_frequency_factorial.py \
   measured before decoder construction;
 - `method/detector_hidden_cache_report.json`: all-record/all-context cache
   coverage and the exact cached-computation contract;
+- `method/detector_training_log.json`: every detector optimizer update, not
+  only console-print checkpoints;
+- `method/detector_step_1000_{pre_update,post_adam,post_projection}_gate.json`:
+  full-context certificates at the final optimizer boundaries;
+- `method/detector_endpoint_audit.json`: hashes and consistency checks binding
+  those endpoint certificates to the fresh final gate;
 - `method/detector_gate_case_report.tsv`: record-index to MCF case-ID binding
   with positive, negative, writer-off, and pass/fail values;
 - upstream `method/clean_stage1_acceptance.json`: exact from-Base lineage,

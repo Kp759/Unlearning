@@ -98,7 +98,7 @@ def _clean_stage1_acceptance_summary():
 
 def _detector_training_revision():
     return {
-        "version": "v3.1",
+        "version": "v3.2",
         "training_input": "cached_selected_layer_mlp_input_hidden_states",
         "cache_dtype": "float32",
         "cache_device": "cpu",
@@ -119,9 +119,22 @@ def _detector_training_revision():
         "negative_objective": "mean_plus_worst_k_squared_gate_excess",
         "cross_objective": "mean_plus_worst_k_squared_gate_excess",
         "writer_off_objective": "mean_plus_worst_k_squared_gate_excess",
+        "training_positive_floor": 0.30,
+        "training_off_abs_max": 0.15,
+        "certificate_positive_floor": 0.25,
+        "certificate_off_abs_max": 0.20,
+        "certificate_abs_tolerance": 1e-7,
+        "certificate_thresholds_unchanged_from_v3_1": True,
         "gradient_normalization": "equal_record_mean",
         "gradient_clip_frequency": "once_per_optimizer_update",
         "norm_projection_frequency": "once_per_optimizer_update",
+        "endpoint_audit_phases": [
+            "pre_update",
+            "post_adam",
+            "post_projection",
+            "final_fresh_full_context_certificate",
+        ],
+        "complete_training_log_required": True,
         "official_evaluation_prompts_seen": 0,
     }
 
@@ -272,8 +285,8 @@ def test_detector_objective_rewards_owned_positive_and_nulls_cross_codes():
         good,
         owners,
         positive,
-        positive_floor=1.0,
-        off_abs_max=0.2,
+        positive_target=1.0,
+        off_target_abs_max=0.2,
         tail_k=2,
         negative_weight=2.0,
         cross_weight=2.0,
@@ -285,8 +298,8 @@ def test_detector_objective_rewards_owned_positive_and_nulls_cross_codes():
         bad,
         owners,
         positive,
-        positive_floor=1.0,
-        off_abs_max=0.2,
+        positive_target=1.0,
+        off_target_abs_max=0.2,
         tail_k=2,
         negative_weight=2.0,
         cross_weight=2.0,
@@ -312,8 +325,8 @@ def test_detector_positive_loss_is_equal_record_mean_plus_worst_two():
         responses,
         owners,
         positive,
-        positive_floor=1.0,
-        off_abs_max=0.2,
+        positive_target=1.0,
+        off_target_abs_max=0.2,
         tail_k=2,
         negative_weight=0.0,
         cross_weight=0.0,
@@ -327,11 +340,9 @@ def test_detector_positive_loss_is_equal_record_mean_plus_worst_two():
 
 def test_detector_off_context_losses_ignore_gate_compliant_nonzero_responses():
     owners = torch.tensor([0, 0, 1, 1])
-    compliant = torch.tensor(
-        [[0.15, 9.0], [-0.20, 9.0], [9.0, -0.19], [9.0, 0.05]]
-    )
+    compliant = torch.tensor([[0.15, 9.0], [-0.20, 9.0], [9.0, -0.19], [9.0, 0.05]])
     loss, pieces = core.detector_writer_off_objective(
-        compliant, owners, off_abs_max=0.2, tail_k=2
+        compliant, owners, off_target_abs_max=0.2, tail_k=2
     )
     assert loss == pytest.approx(0.0)
     assert pieces["writer_off_mean"] == pytest.approx(0.0)
@@ -340,9 +351,29 @@ def test_detector_off_context_losses_ignore_gate_compliant_nonzero_responses():
     violating = compliant.clone()
     violating[0, 0] = 0.30
     violating_loss, _ = core.detector_writer_off_objective(
-        violating, owners, off_abs_max=0.2, tail_k=2
+        violating, owners, off_target_abs_max=0.2, tail_k=2
     )
     assert violating_loss > loss
+
+
+def test_detector_training_targets_are_separate_from_certificate_thresholds():
+    responses = torch.tensor([[0.25], [0.18]])
+    owners = torch.tensor([0, 0])
+    positive = torch.tensor([True, False])
+    loss, pieces = core.detector_objective(
+        responses,
+        owners,
+        positive,
+        positive_target=0.30,
+        off_target_abs_max=0.15,
+        tail_k=2,
+        negative_weight=1.0,
+        cross_weight=0.0,
+    )
+
+    assert pieces["write"] > 0
+    assert pieces["negative"] > 0
+    assert loss > 0
 
 
 def test_detector_record_microbatch_accumulation_matches_one_global_objective():
@@ -354,8 +385,8 @@ def test_detector_record_microbatch_accumulation_matches_one_global_objective():
         full_responses,
         owners,
         positive,
-        positive_floor=0.25,
-        off_abs_max=0.2,
+        positive_target=0.25,
+        off_target_abs_max=0.2,
         tail_k=2,
         negative_weight=5.0,
         cross_weight=2.0,
@@ -373,8 +404,8 @@ def test_detector_record_microbatch_accumulation_matches_one_global_objective():
             micro_responses[mask],
             owners[mask],
             positive[mask],
-            positive_floor=0.25,
-            off_abs_max=0.2,
+            positive_target=0.25,
+            off_target_abs_max=0.2,
             tail_k=2,
             negative_weight=5.0,
             cross_weight=2.0,
@@ -541,6 +572,61 @@ def test_detector_gate_requires_writer_off_and_negative_silence():
     )
     assert no_writer["passed"]
     assert not no_writer["criterion"]["writer_off_required"]
+
+
+def test_detector_gate_uses_preregistered_numerical_tolerance():
+    exact = core.detector_gate_report(
+        [torch.tensor([0.25])],
+        [torch.tensor([0.20000005])],
+        [torch.tensor([0.20000005])],
+        positive_floor=0.25,
+        off_abs_max=0.20,
+    )
+    tolerant = core.detector_gate_report(
+        [torch.tensor([0.24999995])],
+        [torch.tensor([0.20000005])],
+        [torch.tensor([0.20000005])],
+        positive_floor=0.25,
+        off_abs_max=0.20,
+        comparison_abs_tolerance=1e-7,
+    )
+
+    assert not exact["passed"]
+    assert tolerant["passed"]
+    assert tolerant["criterion"]["comparison_abs_tolerance"] == pytest.approx(1e-7)
+    assert tolerant["per_record"][0]["positive_passed"]
+    assert tolerant["per_record"][0]["negative_passed"]
+    assert tolerant["per_record"][0]["writer_off_passed"]
+
+
+def test_selected_neuron_ownership_hash_matches_jq_compact_newline_contract():
+    assert method.selected_neuron_ownership_jq_compact_sha256([[4, 2], [9]]) == (
+        "dbc00724c7fd383c8dfc1da4ae76d75db73ee785e4a77c8224005507bc7eaf55"
+    )
+
+
+def test_detector_endpoint_replay_comparison_binds_metrics_and_record_order():
+    first = core.detector_gate_report(
+        [torch.tensor([0.30])],
+        [torch.tensor([0.10])],
+        [torch.tensor([0.10])],
+        positive_floor=0.25,
+        off_abs_max=0.20,
+        comparison_abs_tolerance=1e-7,
+    )
+    first["per_record"][0]["case_id"] = 10472
+    second = json.loads(json.dumps(first))
+    second["per_record"][0]["positive_min"] += 5e-8
+
+    replay = method.compare_detector_gate_replays(first, second, abs_tolerance=1e-7)
+    assert replay["passed"]
+    assert replay["record_binding_match"]
+    assert replay["decisions_match"]
+
+    second["per_record"][0]["case_id"] = 14801
+    assert not method.compare_detector_gate_replays(first, second, abs_tolerance=1e-7)[
+        "passed"
+    ]
 
 
 def test_detector_gate_case_tsv_binds_locked_record_order():
@@ -1004,6 +1090,11 @@ def test_training_cli_exposes_no_original_mcf_or_official_eval_argument():
     assert not hasattr(args, "mcf_path")
     assert not hasattr(args, "official_eval")
     assert not hasattr(args, "paraphrase_path")
+    assert args.detector_positive_floor == pytest.approx(0.25)
+    assert args.detector_off_abs_max == pytest.approx(0.20)
+    assert args.detector_training_positive_floor == pytest.approx(0.30)
+    assert args.detector_training_off_abs_max == pytest.approx(0.15)
+    assert args.detector_certificate_abs_tolerance == pytest.approx(1e-7)
 
     with pytest.raises(SystemExit):
         method.parse_args(
@@ -1343,12 +1434,29 @@ def test_primary_configuration_is_bound_to_preregistered_values():
             "cross_record_parameter_sharing_audit_required": True,
         },
         "detector_training_revision": _detector_training_revision(),
+        "selected_neuron_ownership_binding": {
+            "scope": "primary_embedding_keyed_configuration",
+            "source_runs": ["v3", "v3.1"],
+            "jq_projection": "[.ownership[].selected_neurons]",
+            "jq_compact_sha256": (
+                "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
+            ),
+            "writer_configuration": {
+                "row_norm_cap": 8.0,
+                "row_norm_cap_frequency_alpha": 0.15,
+                "max_subject_token_frequency": 1000000000,
+            },
+            "required": True,
+        },
         "primary_configuration": {
             "forget_num": 50,
             "neuron_layer": 27,
             "neurons_per_record": 4,
             "selection_mode": "writer_contrastive",
             "dormant_fraction": 0.2,
+            "detector_training_positive_floor": 0.3,
+            "detector_training_off_abs_max": 0.15,
+            "detector_certificate_abs_tolerance": 1e-7,
             "detector_relative_cap": 1.0,
             "actuator_relative_cap": 0.5,
             "gate_policy": "strict",
@@ -1367,6 +1475,28 @@ def test_repository_registry_binds_primary_and_independent_control():
         / "mcf_embedding_keyed_neuron_ablation_registry_v1.json"
     )
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert registry["schema_version"] == 8
+    assert registry["protocol"] == core.PROTOCOL
+    assert registry["development_history"][-1]["version"] == (
+        "v6_embedding_keyed_detector_v3_1"
+    )
+    assert registry["development_history"][-1]["detector_gate"]["passed_records"] == 45
+    assert not registry["development_history"][-1][
+        "official_evaluation_opened_by_this_failed_run"
+    ]
+    assert (
+        registry["selected_neuron_ownership_binding"]["jq_compact_sha256"]
+        == "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
+    )
+    assert registry["primary_configuration"][
+        "detector_training_positive_floor"
+    ] == pytest.approx(0.30)
+    assert registry["primary_configuration"][
+        "detector_training_off_abs_max"
+    ] == pytest.approx(0.15)
+    assert registry["primary_configuration"][
+        "detector_certificate_abs_tolerance"
+    ] == pytest.approx(1e-7)
     common = [
         "--model-path",
         "model",
@@ -1552,6 +1682,9 @@ def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
         "detector_cached_mlp_inputs": True,
         "detector_positive_floor": 0.25,
         "detector_off_abs_max": 0.2,
+        "detector_training_positive_floor": 0.3,
+        "detector_training_off_abs_max": 0.15,
+        "detector_certificate_abs_tolerance": 1e-7,
         "detector_negative_weight": 5.0,
         "detector_cross_weight": 2.0,
         "detector_consistency_weight": 1.0,

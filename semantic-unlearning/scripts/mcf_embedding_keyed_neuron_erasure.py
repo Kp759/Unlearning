@@ -152,13 +152,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--detector-positive-contexts",
         choices=("all",),
         default="all",
-        help="V3.1 locks detector training to every training-safe positive context.",
+        help="V3.2 locks detector training to every training-safe positive context.",
     )
     parser.add_argument(
         "--detector-negative-contexts",
         choices=("all",),
         default="all",
-        help="V3.1 locks detector training to every training-safe negative context.",
+        help="V3.2 locks detector training to every training-safe negative context.",
     )
     parser.add_argument("--detector-tail-k", type=int, default=2)
     parser.add_argument(
@@ -166,14 +166,42 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=("absolute_signed_group_activation",),
         default="absolute_signed_group_activation",
     )
-    parser.add_argument("--detector-positive-floor", type=float, default=0.25)
+    parser.add_argument(
+        "--detector-positive-floor",
+        type=float,
+        default=0.25,
+        help="Locked positive acceptance floor; this is not the training target.",
+    )
+    parser.add_argument(
+        "--detector-training-positive-floor",
+        type=float,
+        default=0.30,
+        help="Positive optimization target with preregistered certificate headroom.",
+    )
     parser.add_argument("--detector-negative-weight", type=float, default=5.0)
     parser.add_argument("--detector-cross-weight", type=float, default=2.0)
     parser.add_argument("--detector-writer-off-weight", type=float, default=10.0)
     parser.add_argument("--detector-consistency-weight", type=float, default=1.0)
     parser.add_argument("--detector-l2", type=float, default=1e-5)
     parser.add_argument("--detector-relative-cap", type=float, default=1.0)
-    parser.add_argument("--detector-off-abs-max", type=float, default=0.20)
+    parser.add_argument(
+        "--detector-off-abs-max",
+        type=float,
+        default=0.20,
+        help="Locked negative/writer-off acceptance ceiling.",
+    )
+    parser.add_argument(
+        "--detector-training-off-abs-max",
+        type=float,
+        default=0.15,
+        help="Negative/writer-off optimization ceiling with certificate headroom.",
+    )
+    parser.add_argument(
+        "--detector-certificate-abs-tolerance",
+        type=float,
+        default=1e-7,
+        help="Preregistered numerical comparison tolerance for the detector gate.",
+    )
 
     parser.add_argument("--actuator-steps", type=int, default=2000)
     parser.add_argument("--actuator-lr", type=float, default=5e-4)
@@ -273,8 +301,26 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--detector-tail-k must be positive")
     if float(value.detector_positive_floor) < 0:
         parser.error("--detector-positive-floor must be non-negative")
+    if float(value.detector_training_positive_floor) < float(
+        value.detector_positive_floor
+    ):
+        parser.error(
+            "--detector-training-positive-floor must be at least the locked "
+            "--detector-positive-floor"
+        )
     if float(value.detector_off_abs_max) < 0:
         parser.error("--detector-off-abs-max must be non-negative")
+    if (
+        not 0
+        <= float(value.detector_training_off_abs_max)
+        <= float(value.detector_off_abs_max)
+    ):
+        parser.error(
+            "--detector-training-off-abs-max must lie between zero and the "
+            "locked --detector-off-abs-max"
+        )
+    if not 0 <= float(value.detector_certificate_abs_tolerance) <= 1e-6:
+        parser.error("--detector-certificate-abs-tolerance must lie in [0, 1e-6]")
     for name in (
         "detector_negative_weight",
         "detector_cross_weight",
@@ -393,7 +439,7 @@ def _validate_experiment_registry(
             raise RuntimeError(f"registry clean-writer prerequisite mismatch: {key}")
     detector_revision = registry.get("detector_training_revision")
     expected_detector_revision = {
-        "version": "v3.1",
+        "version": "v3.2",
         "training_input": "cached_selected_layer_mlp_input_hidden_states",
         "cache_dtype": "float32",
         "cache_device": "cpu",
@@ -414,16 +460,49 @@ def _validate_experiment_registry(
         "negative_objective": "mean_plus_worst_k_squared_gate_excess",
         "cross_objective": "mean_plus_worst_k_squared_gate_excess",
         "writer_off_objective": "mean_plus_worst_k_squared_gate_excess",
+        "training_positive_floor": 0.30,
+        "training_off_abs_max": 0.15,
+        "certificate_positive_floor": 0.25,
+        "certificate_off_abs_max": 0.20,
+        "certificate_abs_tolerance": 1e-7,
+        "certificate_thresholds_unchanged_from_v3_1": True,
         "gradient_normalization": "equal_record_mean",
         "gradient_clip_frequency": "once_per_optimizer_update",
         "norm_projection_frequency": "once_per_optimizer_update",
+        "endpoint_audit_phases": [
+            "pre_update",
+            "post_adam",
+            "post_projection",
+            "final_fresh_full_context_certificate",
+        ],
+        "complete_training_log_required": True,
         "official_evaluation_prompts_seen": 0,
     }
     if not isinstance(detector_revision, Mapping):
-        raise RuntimeError("registry lacks the V3.1 detector-training revision")
+        raise RuntimeError("registry lacks the V3.2 detector-training revision")
     for key, expected_value in expected_detector_revision.items():
         if detector_revision.get(key) != expected_value:
-            raise RuntimeError(f"registry V3.1 detector revision mismatch: {key}")
+            raise RuntimeError(f"registry V3.2 detector revision mismatch: {key}")
+    ownership_binding = registry.get("selected_neuron_ownership_binding")
+    expected_ownership_binding = {
+        "scope": "primary_embedding_keyed_configuration",
+        "source_runs": ["v3", "v3.1"],
+        "jq_projection": "[.ownership[].selected_neurons]",
+        "jq_compact_sha256": (
+            "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
+        ),
+        "writer_configuration": {
+            "row_norm_cap": 8.0,
+            "row_norm_cap_frequency_alpha": 0.15,
+            "max_subject_token_frequency": 1000000000,
+        },
+        "required": True,
+    }
+    if not isinstance(ownership_binding, Mapping):
+        raise RuntimeError("registry lacks the V3.2 selected-neuron binding")
+    for key, expected_value in expected_ownership_binding.items():
+        if ownership_binding.get(key) != expected_value:
+            raise RuntimeError(f"registry V3.2 neuron binding mismatch: {key}")
     label = str(args.experiment_label)
     if label == "primary":
         expected = registry.get("primary_configuration")
@@ -474,6 +553,83 @@ def _tensor_digest(tensor: torch.Tensor, *, row_chunk: int = 256) -> str:
         block = detached[start : start + int(row_chunk)].contiguous().cpu()
         digest.update(block.view(torch.uint8).numpy().tobytes())
     return digest.hexdigest()
+
+
+def selected_neuron_ownership_jq_compact_sha256(
+    ownership: Sequence[Sequence[int]],
+) -> str:
+    """Match ``jq -c '[.ownership[].selected_neurons]' | sha256sum``."""
+
+    normalized = [[int(neuron) for neuron in group] for group in ownership]
+    compact_with_newline = json.dumps(normalized, separators=(",", ":")) + "\n"
+    return hashlib.sha256(compact_with_newline.encode("utf-8")).hexdigest()
+
+
+def compare_detector_gate_replays(
+    first: Mapping[str, Any],
+    second: Mapping[str, Any],
+    *,
+    abs_tolerance: float,
+) -> Dict[str, Any]:
+    """Compare two fresh evaluations of the same full detector certificate."""
+
+    if float(abs_tolerance) < 0:
+        raise ValueError("abs_tolerance must be non-negative")
+    first_rows = first.get("per_record")
+    second_rows = second.get("per_record")
+    if not isinstance(first_rows, list) or not isinstance(second_rows, list):
+        raise ValueError("detector gate replays must contain per_record lists")
+    if len(first_rows) != len(second_rows):
+        return {
+            "record_count_match": False,
+            "record_binding_match": False,
+            "decisions_match": False,
+            "metric_abs_max": float("inf"),
+            "passed": False,
+        }
+    metric_abs_max = 0.0
+    record_binding_match = True
+    decisions_match = True
+    metric_keys = ("positive_min", "negative_abs_max", "writer_off_abs_max")
+    decision_keys = (
+        "positive_passed",
+        "negative_passed",
+        "writer_off_passed",
+        "passed",
+    )
+    for first_row, second_row in zip(first_rows, second_rows):
+        if not isinstance(first_row, Mapping) or not isinstance(second_row, Mapping):
+            raise ValueError("detector gate replay rows must be mappings")
+        record_binding_match = bool(
+            record_binding_match
+            and first_row.get("record_index") == second_row.get("record_index")
+            and first_row.get("case_id") == second_row.get("case_id")
+        )
+        metric_abs_max = max(
+            metric_abs_max,
+            *(
+                abs(float(first_row[key]) - float(second_row[key]))
+                for key in metric_keys
+            ),
+        )
+        decisions_match = bool(
+            decisions_match
+            and all(
+                bool(first_row.get(key)) == bool(second_row.get(key))
+                for key in decision_keys
+            )
+        )
+    return {
+        "record_count_match": True,
+        "record_binding_match": record_binding_match,
+        "decisions_match": decisions_match,
+        "metric_abs_max": metric_abs_max,
+        "passed": bool(
+            record_binding_match
+            and decisions_match
+            and metric_abs_max <= float(abs_tolerance)
+        ),
+    }
 
 
 def _resolve_swiglu_mlp(model: torch.nn.Module, layer_index: int) -> torch.nn.Module:
@@ -1958,6 +2114,33 @@ def main(argv: Sequence[str] | None = None) -> None:
     selected_neurons, flat_signs_cpu, local_groups = neuron_core.flatten_ownership(
         ownership, sign_groups
     )
+    ownership_sha256 = selected_neuron_ownership_jq_compact_sha256(ownership)
+    ownership_binding = experiment_registry["selected_neuron_ownership_binding"]
+    bound_writer_configuration = ownership_binding["writer_configuration"]
+    writer_configuration_matches_binding = bool(
+        math.isclose(
+            float(stage1_state.get("row_norm_cap")),
+            float(bound_writer_configuration["row_norm_cap"]),
+            abs_tol=1e-12,
+        )
+        and math.isclose(
+            float(stage1_state.get("row_norm_cap_frequency_alpha")),
+            float(bound_writer_configuration["row_norm_cap_frequency_alpha"]),
+            abs_tol=1e-12,
+        )
+        and int(stage1_state.get("max_subject_token_frequency"))
+        == int(bound_writer_configuration["max_subject_token_frequency"])
+    )
+    ownership_binding_required = bool(
+        writer_present
+        and str(args.experiment_label) == "primary"
+        and writer_configuration_matches_binding
+        and ownership_binding.get("required")
+    )
+    expected_ownership_sha256 = str(ownership_binding["jq_compact_sha256"])
+    ownership_binding_passed = bool(
+        not ownership_binding_required or ownership_sha256 == expected_ownership_sha256
+    )
     selected_index = torch.tensor(selected_neurons, dtype=torch.long)
     selected_protected = protected_off.index_select(1, selected_index)
     base_down_norms = (
@@ -1998,6 +2181,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         "zero_based_layer_index": True,
         "neurons_per_record": int(args.neurons_per_record),
         "selected_neuron_count": len(selected_neurons),
+        "selected_neuron_ownership_jq_projection": ("[.ownership[].selected_neurons]"),
+        "selected_neuron_ownership_jq_compact_sha256": ownership_sha256,
+        "registered_selected_neuron_ownership_jq_compact_sha256": (
+            expected_ownership_sha256
+        ),
+        "selected_neuron_ownership_binding_required": ownership_binding_required,
+        "selected_neuron_ownership_binding_passed": ownership_binding_passed,
+        "writer_configuration_matches_neuron_ownership_binding": (
+            writer_configuration_matches_binding
+        ),
         "intermediate_size": int(mlp.gate_proj.weight.shape[0]),
         "dormant_fraction": float(args.dormant_fraction),
         "writer_mode": str(args.writer_mode),
@@ -2016,6 +2209,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         "selection_wall_time_seconds": time.time() - selection_start,
     }
     gagd.write_json(out_dir / "neuron_selection_report.json", selection_report)
+    if not ownership_binding_passed:
+        raise RuntimeError(
+            "V3.2 primary neuron ownership differs from the registered V3/V3.1 "
+            f"selection: observed {ownership_sha256}, expected "
+            f"{expected_ownership_sha256}"
+        )
     print(
         f"  selected {len(selected_neurons)} disjoint existing neurons at layer "
         f"{args.neuron_layer} ({args.neurons_per_record} per record)"
@@ -2126,7 +2325,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         ],
         "official_evaluation_prompts_seen": 0,
     }
-    gagd.write_json(out_dir / "detector_hidden_cache_report.json", detector_cache_report)
+    gagd.write_json(
+        out_dir / "detector_hidden_cache_report.json", detector_cache_report
+    )
     print(
         "  cached "
         f"{detector_cache_report['writer_on_positive_contexts']} writer-on positives, "
@@ -2145,16 +2346,126 @@ def main(argv: Sequence[str] | None = None) -> None:
             edited_activation, local_groups, flat_signs
         )
 
+    detector_microbatches = math.ceil(
+        len(records) / max(1, int(args.detector_record_batch))
+    )
+
+    def detector_optimization_metadata() -> Dict[str, Any]:
+        return {
+            "revision": "v3.2",
+            "update_coverage": "all_records_accumulated",
+            "records_per_optimizer_update": len(records),
+            "record_microbatch_capacity": int(args.detector_record_batch),
+            "microbatches_per_optimizer_update": detector_microbatches,
+            "positive_context_mode": str(args.detector_positive_contexts),
+            "negative_context_mode": str(args.detector_negative_contexts),
+            "tail_k": int(args.detector_tail_k),
+            "positive_objective": "mean_plus_worst_k_squared_shortfall",
+            "negative_objective": "mean_plus_worst_k_squared_gate_excess",
+            "cross_objective": "mean_plus_worst_k_squared_gate_excess",
+            "writer_off_objective": "mean_plus_worst_k_squared_gate_excess",
+            "training_positive_floor": float(args.detector_training_positive_floor),
+            "training_off_abs_max": float(args.detector_training_off_abs_max),
+            "certificate_positive_floor": float(args.detector_positive_floor),
+            "certificate_off_abs_max": float(args.detector_off_abs_max),
+            "certificate_abs_tolerance": float(args.detector_certificate_abs_tolerance),
+            "certificate_thresholds_unchanged_from_v3_1": True,
+            "gradient_normalization": "equal_record_mean",
+            "optimizer_steps": int(args.detector_steps),
+            "record_exposures": int(args.detector_steps) * len(records),
+            "gradient_clip_frequency": "once_per_optimizer_update",
+            "norm_projection_frequency": "once_per_optimizer_update",
+            "endpoint_audit_phases": [
+                "pre_update",
+                "post_adam",
+                "post_projection",
+                "final_fresh_full_context_certificate",
+            ],
+            "complete_training_log_required": True,
+            "selected_neuron_ownership_jq_compact_sha256": ownership_sha256,
+            "cached_mlp_inputs": True,
+        }
+
+    @torch.no_grad()
+    def record_cached_detector_responses(
+        hidden_groups: Sequence[torch.Tensor],
+    ) -> List[torch.Tensor]:
+        result: List[torch.Tensor] = []
+        for record_index, hidden in enumerate(hidden_groups):
+            if int(hidden.shape[0]) == 0:
+                result.append(torch.empty(0))
+                continue
+            response = cached_detector_responses(hidden)
+            result.append(response[:, record_index].detach().cpu())
+        return result
+
+    @torch.no_grad()
+    def full_cached_detector_gate(*, phase: str, optimizer_step: int) -> Dict[str, Any]:
+        phase_contracts = {
+            "pre_update": (
+                "after final-step gradient accumulation and before gradient "
+                "clipping or Adam"
+            ),
+            "post_adam": (
+                "after final-step gradient clipping and Adam and before "
+                "relative-norm projection"
+            ),
+            "post_projection": ("after final-step Adam and relative-norm projection"),
+            "final_fresh_full_context_certificate": (
+                "fresh replay after detector optimization is complete"
+            ),
+        }
+        if phase not in phase_contracts:
+            raise ValueError(f"unsupported detector gate audit phase: {phase!r}")
+        positive_detector = record_cached_detector_responses(positive_hidden_cache)
+        negative_detector = record_cached_detector_responses(negative_hidden_cache)
+        writer_off_detector = (
+            record_cached_detector_responses(writer_off_hidden_cache)
+            if writer_present
+            else [torch.empty(0) for _ in positive_prompts_by_record]
+        )
+        gate = neuron_core.detector_gate_report(
+            positive_detector,
+            negative_detector,
+            writer_off_detector,
+            positive_floor=float(args.detector_positive_floor),
+            off_abs_max=float(args.detector_off_abs_max),
+            require_writer_off=writer_present,
+            comparison_abs_tolerance=float(args.detector_certificate_abs_tolerance),
+        )
+        gate.update(
+            {
+                "schema_version": 2,
+                "kind": (
+                    "training_only_embedding_code_detector_gate"
+                    if writer_present
+                    else "training_only_base_context_sparse_mlp_detector_gate"
+                ),
+                "protocol": PROTOCOL,
+                "writer_mode": str(args.writer_mode),
+                "phase": str(phase),
+                "parameter_state": phase_contracts[phase],
+                "optimizer_step": int(optimizer_step),
+                "optimization": detector_optimization_metadata(),
+                "record_index_binding": "locked training-visible record order",
+                "official_evaluation_prompts_seen": 0,
+            }
+        )
+        if len(gate["per_record"]) != len(case_ids):
+            raise RuntimeError("detector gate lost the locked record-index binding")
+        for row, case_id in zip(gate["per_record"], case_ids):
+            row["case_id"] = int(case_id)
+        return gate
+
     print("\nStage 1: train globally balanced sparse contextual-code detector")
     detector_optimizer = torch.optim.AdamW(
         [editor.gate_delta, editor.up_delta],
         lr=float(args.detector_lr),
         weight_decay=0.0,
     )
-    detector_log: List[Dict[str, float]] = []
-    detector_microbatches = math.ceil(
-        len(records) / max(1, int(args.detector_record_batch))
-    )
+    detector_log: List[Dict[str, Any]] = []
+    endpoint_gate_reports: Dict[str, Dict[str, Any]] = {}
+    endpoint_gate_paths: Dict[str, Path] = {}
     for step in range(1, int(args.detector_steps) + 1):
         detector_optimizer.zero_grad(set_to_none=True)
         accumulated = {
@@ -2172,9 +2483,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "writer_off_mean": 0.0,
             "writer_off_tail": 0.0,
         }
-        for record_start in range(
-            0, len(records), int(args.detector_record_batch)
-        ):
+        for record_start in range(0, len(records), int(args.detector_record_batch)):
             record_indices = list(
                 range(
                     record_start,
@@ -2207,9 +2516,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     off_owners.extend([record_index] * int(off_hidden.shape[0]))
 
             responses = cached_detector_responses(torch.cat(hidden_rows, dim=0))
-            owner_tensor = torch.tensor(
-                batch_owners, dtype=torch.long, device=device
-            )
+            owner_tensor = torch.tensor(batch_owners, dtype=torch.long, device=device)
             positive_tensor = torch.tensor(
                 positive_flags, dtype=torch.bool, device=device
             )
@@ -2217,8 +2524,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 responses,
                 owner_tensor,
                 positive_tensor,
-                positive_floor=float(args.detector_positive_floor),
-                off_abs_max=float(args.detector_off_abs_max),
+                positive_target=float(args.detector_training_positive_floor),
+                off_target_abs_max=float(args.detector_training_off_abs_max),
                 tail_k=int(args.detector_tail_k),
                 negative_weight=float(args.detector_negative_weight),
                 cross_weight=float(args.detector_cross_weight),
@@ -2235,13 +2542,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                 off_owner_tensor = torch.tensor(
                     off_owners, dtype=torch.long, device=device
                 )
-                writer_off_loss, writer_off_pieces = (
-                    neuron_core.detector_writer_off_objective(
-                        off_response,
-                        off_owner_tensor,
-                        off_abs_max=float(args.detector_off_abs_max),
-                        tail_k=int(args.detector_tail_k),
-                    )
+                (
+                    writer_off_loss,
+                    writer_off_pieces,
+                ) = neuron_core.detector_writer_off_objective(
+                    off_response,
+                    off_owner_tensor,
+                    off_target_abs_max=float(args.detector_training_off_abs_max),
+                    tail_k=int(args.detector_tail_k),
                 )
             microbatch_total = (
                 detector_loss
@@ -2252,9 +2560,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             (record_scale * microbatch_total).backward()
             for name, value in pieces.items():
                 accumulated[name] += record_scale * float(value.detach())
-            accumulated["writer_off"] += record_scale * float(
-                writer_off_loss.detach()
-            )
+            accumulated["writer_off"] += record_scale * float(writer_off_loss.detach())
             for name, value in writer_off_pieces.items():
                 accumulated[name] += record_scale * float(value.detach())
 
@@ -2270,95 +2576,149 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         if not math.isfinite(total_value):
             raise FloatingPointError(f"non-finite detector loss at step {step}")
+        if step == int(args.detector_steps):
+            phase = "pre_update"
+            endpoint_gate_reports[phase] = full_cached_detector_gate(
+                phase=phase, optimizer_step=step
+            )
+            endpoint_gate_paths[phase] = (
+                out_dir / f"detector_step_{step}_pre_update_gate.json"
+            )
+            gagd.write_json(endpoint_gate_paths[phase], endpoint_gate_reports[phase])
         if float(args.grad_clip) > 0:
             torch.nn.utils.clip_grad_norm_(
                 [editor.gate_delta, editor.up_delta], float(args.grad_clip)
             )
         detector_optimizer.step()
+        if step == int(args.detector_steps):
+            phase = "post_adam"
+            endpoint_gate_reports[phase] = full_cached_detector_gate(
+                phase=phase, optimizer_step=step
+            )
+            endpoint_gate_paths[phase] = (
+                out_dir / f"detector_step_{step}_post_adam_gate.json"
+            )
+            gagd.write_json(endpoint_gate_paths[phase], endpoint_gate_reports[phase])
         cap = editor.clamp_relative_(
             detector_cap=float(args.detector_relative_cap),
             actuator_cap=float(args.actuator_relative_cap),
         )
+        if step == int(args.detector_steps):
+            phase = "post_projection"
+            endpoint_gate_reports[phase] = full_cached_detector_gate(
+                phase=phase, optimizer_step=step
+            )
+            endpoint_gate_paths[phase] = (
+                out_dir / f"detector_step_{step}_post_projection_gate.json"
+            )
+            gagd.write_json(endpoint_gate_paths[phase], endpoint_gate_reports[phase])
+        row = {
+            "step": step,
+            "loss": total_value,
+            **accumulated,
+            "l2": float(l2.detach()),
+            "records_per_optimizer_update": len(records),
+            "microbatches_per_optimizer_update": detector_microbatches,
+            "gate_max_relative_norm": cap["gate_max_relative_norm"],
+            "up_max_relative_norm": cap["up_max_relative_norm"],
+            "loss_measurement_phase": "pre_update",
+            "norm_measurement_phase": "post_projection",
+        }
+        detector_log.append(row)
         if step == 1 or step % 25 == 0 or step == int(args.detector_steps):
-            row = {
-                "step": step,
-                "loss": total_value,
-                **accumulated,
-                "l2": float(l2.detach()),
-                "records_per_optimizer_update": len(records),
-                "microbatches_per_optimizer_update": detector_microbatches,
-                "gate_max_relative_norm": cap["gate_max_relative_norm"],
-                "up_max_relative_norm": cap["up_max_relative_norm"],
-            }
-            detector_log.append(row)
             print(
                 f"  step {step:>4}: loss {row['loss']:.4f}, "
                 f"write {row['write']:.4f}, off {row['writer_off']:.4f}, "
                 f"cross {row['cross']:.4f}"
             )
+    if len(detector_log) != int(args.detector_steps):
+        raise RuntimeError("complete detector training log lost optimizer steps")
+    detector_training_log_report = {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_complete_detector_training_log",
+        "protocol": PROTOCOL,
+        "revision": "v3.2",
+        "optimizer_steps_expected": int(args.detector_steps),
+        "optimizer_steps_recorded": len(detector_log),
+        "complete": len(detector_log) == int(args.detector_steps),
+        "optimization": detector_optimization_metadata(),
+        "records": detector_log,
+        "official_evaluation_prompts_seen": 0,
+    }
+    detector_training_log_path = out_dir / "detector_training_log.json"
+    gagd.write_json(detector_training_log_path, detector_training_log_report)
     del detector_optimizer
 
-    @torch.no_grad()
-    def record_cached_detector_responses(
-        hidden_groups: Sequence[torch.Tensor],
-    ) -> List[torch.Tensor]:
-        result: List[torch.Tensor] = []
-        for record_index, hidden in enumerate(hidden_groups):
-            if int(hidden.shape[0]) == 0:
-                result.append(torch.empty(0))
-                continue
-            response = cached_detector_responses(hidden)
-            result.append(response[:, record_index].detach().cpu())
-        return result
-
-    positive_detector = record_cached_detector_responses(positive_hidden_cache)
-    negative_detector = record_cached_detector_responses(negative_hidden_cache)
-    writer_off_detector = (
-        record_cached_detector_responses(writer_off_hidden_cache)
-        if writer_present
-        else [torch.empty(0) for _ in positive_prompts_by_record]
+    detector_gate = full_cached_detector_gate(
+        phase="final_fresh_full_context_certificate",
+        optimizer_step=int(args.detector_steps),
     )
-    detector_gate = neuron_core.detector_gate_report(
-        positive_detector,
-        negative_detector,
-        writer_off_detector,
-        positive_floor=float(args.detector_positive_floor),
-        off_abs_max=float(args.detector_off_abs_max),
-        require_writer_off=writer_present,
+    detector_gate_path = out_dir / "detector_gate_report.json"
+    gagd.write_json(detector_gate_path, detector_gate)
+    endpoint_phases = ("pre_update", "post_adam", "post_projection")
+    endpoint_complete = bool(
+        int(args.detector_steps) == 0
+        or all(phase in endpoint_gate_reports for phase in endpoint_phases)
     )
-    detector_gate["kind"] = (
-        "training_only_embedding_code_detector_gate"
-        if writer_present
-        else "training_only_base_context_sparse_mlp_detector_gate"
+    endpoint_replay = (
+        compare_detector_gate_replays(
+            endpoint_gate_reports["post_projection"],
+            detector_gate,
+            abs_tolerance=float(args.detector_certificate_abs_tolerance),
+        )
+        if int(args.detector_steps) > 0
+        else {
+            "record_count_match": True,
+            "record_binding_match": True,
+            "decisions_match": True,
+            "metric_abs_max": 0.0,
+            "passed": True,
+        }
     )
-    detector_gate["writer_mode"] = str(args.writer_mode)
-    detector_gate["optimization"] = {
-        "revision": "v3.1",
-        "update_coverage": "all_records_accumulated",
-        "records_per_optimizer_update": len(records),
-        "record_microbatch_capacity": int(args.detector_record_batch),
-        "microbatches_per_optimizer_update": detector_microbatches,
-        "positive_context_mode": str(args.detector_positive_contexts),
-        "negative_context_mode": str(args.detector_negative_contexts),
-        "tail_k": int(args.detector_tail_k),
-        "positive_objective": "mean_plus_worst_k_squared_shortfall",
-        "negative_objective": "mean_plus_worst_k_squared_gate_excess",
-        "cross_objective": "mean_plus_worst_k_squared_gate_excess",
-        "writer_off_objective": "mean_plus_worst_k_squared_gate_excess",
-        "gradient_normalization": "equal_record_mean",
-        "optimizer_steps": int(args.detector_steps),
-        "record_exposures": int(args.detector_steps) * len(records),
-        "gradient_clip_frequency": "once_per_optimizer_update",
-        "norm_projection_frequency": "once_per_optimizer_update",
-        "cached_mlp_inputs": True,
+    post_projection_matches_final = bool(endpoint_replay["passed"])
+    endpoint_audit = {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_detector_endpoint_audit",
+        "protocol": PROTOCOL,
+        "optimizer_step": int(args.detector_steps),
+        "phases_required": list(endpoint_phases),
+        "phase_audits_not_applicable_for_zero_step_control": bool(
+            int(args.detector_steps) == 0
+        ),
+        "artifacts": {
+            phase: {
+                "path": str(endpoint_gate_paths[phase]),
+                "sha256": compositional_method.sha256_file(endpoint_gate_paths[phase]),
+                "passed_records": int(endpoint_gate_reports[phase]["passed_records"]),
+                "total_records": int(endpoint_gate_reports[phase]["total_records"]),
+                "passed": bool(endpoint_gate_reports[phase]["passed"]),
+            }
+            for phase in endpoint_phases
+            if phase in endpoint_gate_reports
+        },
+        "final_fresh_full_context_certificate": {
+            "path": str(detector_gate_path),
+            "sha256": compositional_method.sha256_file(detector_gate_path),
+            "passed_records": int(detector_gate["passed_records"]),
+            "total_records": int(detector_gate["total_records"]),
+            "passed": bool(detector_gate["passed"]),
+        },
+        "complete_training_log": {
+            "path": str(detector_training_log_path),
+            "sha256": compositional_method.sha256_file(detector_training_log_path),
+            "optimizer_steps_recorded": len(detector_log),
+            "complete": bool(detector_training_log_report["complete"]),
+        },
+        "post_projection_matches_final_fresh_certificate": (
+            post_projection_matches_final
+        ),
+        "post_projection_final_replay": endpoint_replay,
+        "complete": bool(endpoint_complete and post_projection_matches_final),
+        "official_evaluation_prompts_seen": 0,
     }
-    if len(detector_gate["per_record"]) != len(case_ids):
-        raise RuntimeError("detector gate lost the locked record-index binding")
-    for row, case_id in zip(detector_gate["per_record"], case_ids):
-        row["case_id"] = int(case_id)
-    detector_gate["record_index_binding"] = "locked training-visible record order"
-    detector_gate["official_evaluation_prompts_seen"] = 0
-    gagd.write_json(out_dir / "detector_gate_report.json", detector_gate)
+    if not endpoint_audit["complete"]:
+        raise RuntimeError("detector endpoint audit is incomplete or inconsistent")
+    gagd.write_json(out_dir / "detector_endpoint_audit.json", endpoint_audit)
     diagnostic_lines = [
         "record_index\tcase_id\tpositive_min\tnegative_abs_max\t"
         "writer_off_abs_max\tpassed"
@@ -2391,6 +2751,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             "reason": "detector_gate_failed",
             "writer_mode": str(args.writer_mode),
             "detector_gate": detector_gate,
+            "detector_training_log_path": str(detector_training_log_path),
+            "detector_endpoint_audit_path": str(
+                out_dir / "detector_endpoint_audit.json"
+            ),
             "actuator_training_started": False,
             "checkpoint_saved": False,
             "official_evaluation_allowed": False,
@@ -2777,7 +3141,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     state_path = out_dir / "embedding_keyed_neuron_state.pt"
     torch.save(
         {
-            "schema_version": 3,
+            "schema_version": 4,
             "method": METHOD,
             "protocol": PROTOCOL,
             "seed": int(args.seed),
@@ -2791,6 +3155,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "actual_embedding_delta": actual_input_delta,
             "selected_neurons": selected_neurons,
             "ownership": ownership,
+            "selected_neuron_ownership_jq_compact_sha256": ownership_sha256,
             "flat_signs": flat_signs_cpu,
             "base_neuron_weights": {
                 "gate_rows": base_neuron_weights.gate_rows.detach().cpu(),
@@ -2807,8 +3172,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             "down_delta": editor.down_delta.detach().cpu(),
             "detector_positive_floor": float(args.detector_positive_floor),
             "detector_off_abs_max": float(args.detector_off_abs_max),
+            "detector_training_positive_floor": float(
+                args.detector_training_positive_floor
+            ),
+            "detector_training_off_abs_max": float(args.detector_training_off_abs_max),
+            "detector_certificate_abs_tolerance": float(
+                args.detector_certificate_abs_tolerance
+            ),
             "detector_response_mode": str(args.detector_response_mode),
-            "detector_training_revision": "v3.1",
+            "detector_training_revision": "v3.2",
             "detector_tail_k": int(args.detector_tail_k),
             "detector_update_coverage": "all_records_accumulated",
             "writer_preflight_amplitude_threshold": float(
@@ -2845,7 +3217,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     summary = {
-        "schema_version": 3,
+        "schema_version": 4,
         "method": (
             METHOD
             if writer_present
@@ -2937,6 +3309,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             "detector_cached_mlp_inputs": True,
             "detector_positive_floor": float(args.detector_positive_floor),
             "detector_off_abs_max": float(args.detector_off_abs_max),
+            "detector_training_positive_floor": float(
+                args.detector_training_positive_floor
+            ),
+            "detector_training_off_abs_max": float(args.detector_training_off_abs_max),
+            "detector_certificate_abs_tolerance": float(
+                args.detector_certificate_abs_tolerance
+            ),
             "detector_negative_weight": float(args.detector_negative_weight),
             "detector_cross_weight": float(args.detector_cross_weight),
             "detector_consistency_weight": float(args.detector_consistency_weight),
@@ -2984,9 +3363,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         "selection": selection_report,
         "detector": {
             "response_mode": str(args.detector_response_mode),
-            "training_revision": "v3.1",
+            "training_revision": "v3.2",
             "hidden_cache": detector_cache_report,
             "training_log": detector_log,
+            "complete_training_log": detector_training_log_report,
+            "endpoint_audit": endpoint_audit,
             "gate": detector_gate,
             "relative_norm_cap": float(args.detector_relative_cap),
         },

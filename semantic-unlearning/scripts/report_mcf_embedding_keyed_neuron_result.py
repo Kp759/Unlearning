@@ -12,7 +12,7 @@ from typing import Any, Dict, Mapping, Sequence
 
 
 METRICS = ("Eff", "Gen", "Spe", "Spe_success")
-EXPECTED_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_1"
+EXPECTED_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_2"
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -146,6 +146,9 @@ def _budget_match(
         "detector_cached_mlp_inputs",
         "detector_positive_floor",
         "detector_off_abs_max",
+        "detector_training_positive_floor",
+        "detector_training_off_abs_max",
+        "detector_certificate_abs_tolerance",
         "detector_negative_weight",
         "detector_cross_weight",
         "detector_consistency_weight",
@@ -640,8 +643,8 @@ def build_report(
         }
 
     evidence_checks = {
-        "primary_protocol_is_v3_1": method.get("protocol") == EXPECTED_PROTOCOL,
-        "matched_control_protocol_is_v3_1": bool(
+        "primary_protocol_is_v3_2": method.get("protocol") == EXPECTED_PROTOCOL,
+        "matched_control_protocol_is_v3_2": bool(
             mlp_only_method is not None
             and mlp_only_method.get("protocol") == EXPECTED_PROTOCOL
         ),

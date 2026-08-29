@@ -1,7 +1,7 @@
 {
-  "schema_version": 7,
-  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_1",
-  "status": "training_only_detector_v3_1_preregistered_after_v3_detector_rejection_before_actuator_or_official_evaluation",
+  "schema_version": 8,
+  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_2",
+  "status": "training_only_detector_v3_2_safety_margin_revision_preregistered_after_v3_1_rejection_before_actuator_or_official_evaluation",
   "development_history": [
     {
       "version": "v1",
@@ -127,9 +127,54 @@
         "replace negative, cross-record, and writer-off zero-seeking losses with mean plus worst-two squared excess above the unchanged 0.20 gate",
         "retain the writer, selected-neuron architecture, layer, neuron count, norm caps, 0.25/0.20 certificate, 1000 optimizer updates, actuator configuration, and evaluation firewall"
       ]
+    },
+    {
+      "version": "v6_embedding_keyed_detector_v3_1",
+      "evidence_opened": "locked semantically valid training-safe prompts only",
+      "official_evaluation_opened_by_this_failed_run": false,
+      "official_evaluation_prompts_seen": 0,
+      "actuator_training_started": false,
+      "result": "rejected by the exact-comparator detector gate after globally balanced all-record/all-context training: 45/50 records passed, so actuator training and official evaluation were refused",
+      "selected_neuron_ownership": {
+        "same_as_v3": true,
+        "layer": 27,
+        "neurons_per_record": 4,
+        "selected_neuron_count": 200,
+        "jq_projection": "[.ownership[].selected_neurons]",
+        "jq_compact_sha256": "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
+      },
+      "detector_gate": {
+        "criterion": {
+          "positive_floor": 0.25,
+          "negative_abs_max": 0.2,
+          "writer_off_abs_max": 0.2,
+          "comparison_abs_tolerance": 0.0
+        },
+        "passed_records": 45,
+        "total_records": 50,
+        "positive_failures": 1,
+        "negative_failures": 1,
+        "writer_off_failures": 3,
+        "failed_records": [
+          {"record_index": 1, "case_id": 19763, "positive_min": 0.25054022669792175, "negative_abs_max": 0.1428317278623581, "writer_off_abs_max": 0.20000001788139343},
+          {"record_index": 12, "case_id": 10902, "positive_min": 0.25000032782554626, "negative_abs_max": 0.0856853500008583, "writer_off_abs_max": 0.20000001788139343},
+          {"record_index": 15, "case_id": 20390, "positive_min": 0.2553843855857849, "negative_abs_max": 0.10195082426071167, "writer_off_abs_max": 0.20000004768371582},
+          {"record_index": 16, "case_id": 10472, "positive_min": 0.2471725195646286, "negative_abs_max": 0.17943526804447174, "writer_off_abs_max": 0.19461879134178162},
+          {"record_index": 18, "case_id": 14801, "positive_min": 0.2501242756843567, "negative_abs_max": 0.20000001788139343, "writer_off_abs_max": 0.19677084684371948}
+        ]
+      },
+      "interpretation": "Four failures exceeded the 0.20 ceiling by at most 4.77e-8 and one positive response missed 0.25 by 0.00282748. V3.1 remains rejected under its registered exact comparator; these observed results are not retroactively reclassified.",
+      "changes_motivated": [
+        "separate detector optimization targets from the unchanged scientific certificate",
+        "train positives to 0.30 and negative/writer-off responses inside 0.15 while retaining the 0.25/0.20 acceptance thresholds",
+        "preregister a 1e-7 numerical comparison tolerance before V3.2 runs",
+        "save full-context certificates before final Adam, after Adam, after norm projection, and in a fresh final replay",
+        "persist all 1000 detector optimizer-step log rows",
+        "require the exact V3/V3.1 selected-neuron ownership hash for the V3.2 primary run"
+      ]
     }
   ],
-  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, and detector V3 runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer or V3.1 learner or used for checkpoint selection/retry.",
+  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, detector V3, and detector V3.1 runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer or V3.2 learner or used for checkpoint selection/retry.",
   "stage1_writer_prerequisite": {
     "protocol": "mcf_context_composed_sparse_embedding_writer_v6_2",
     "positive_context_policy": "relation_templates_only_v1",
@@ -176,7 +221,7 @@
     }
   },
   "detector_training_revision": {
-    "version": "v3.1",
+    "version": "v3.2",
     "training_input": "cached_selected_layer_mlp_input_hidden_states",
     "cache_dtype": "float32",
     "cache_device": "cpu",
@@ -197,10 +242,35 @@
     "negative_objective": "mean_plus_worst_k_squared_gate_excess",
     "cross_objective": "mean_plus_worst_k_squared_gate_excess",
     "writer_off_objective": "mean_plus_worst_k_squared_gate_excess",
+    "training_positive_floor": 0.3,
+    "training_off_abs_max": 0.15,
+    "certificate_positive_floor": 0.25,
+    "certificate_off_abs_max": 0.2,
+    "certificate_abs_tolerance": 1e-7,
+    "certificate_thresholds_unchanged_from_v3_1": true,
     "gradient_normalization": "equal_record_mean",
     "gradient_clip_frequency": "once_per_optimizer_update",
     "norm_projection_frequency": "once_per_optimizer_update",
+    "endpoint_audit_phases": [
+      "pre_update",
+      "post_adam",
+      "post_projection",
+      "final_fresh_full_context_certificate"
+    ],
+    "complete_training_log_required": true,
     "official_evaluation_prompts_seen": 0
+  },
+  "selected_neuron_ownership_binding": {
+    "scope": "primary_embedding_keyed_configuration",
+    "source_runs": ["v3", "v3.1"],
+    "jq_projection": "[.ownership[].selected_neurons]",
+    "jq_compact_sha256": "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1",
+    "writer_configuration": {
+      "row_norm_cap": 8.0,
+      "row_norm_cap_frequency_alpha": 0.15,
+      "max_subject_token_frequency": 1000000000
+    },
+    "required": true
   },
   "v6_2_mechanism_interpretation": {
     "hypothesis": "record-local optimizer updates redistribute margin because each update is blind to 47 of 50 records sharing the sparse embedding parameterization",
@@ -242,6 +312,7 @@
     "detector_negative_contexts": "all",
     "detector_tail_k": 2,
     "detector_positive_floor": 0.25,
+    "detector_training_positive_floor": 0.3,
     "detector_negative_weight": 5.0,
     "detector_cross_weight": 2.0,
     "detector_writer_off_weight": 10.0,
@@ -249,6 +320,8 @@
     "detector_l2": 0.00001,
     "detector_relative_cap": 1.0,
     "detector_off_abs_max": 0.2,
+    "detector_training_off_abs_max": 0.15,
+    "detector_certificate_abs_tolerance": 1e-7,
     "actuator_steps": 2000,
     "actuator_lr": 0.0005,
     "actuator_batch_size": 4,

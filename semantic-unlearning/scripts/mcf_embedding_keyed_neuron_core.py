@@ -28,7 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_1"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_2"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
@@ -286,8 +286,8 @@ def detector_objective(
     owners: torch.Tensor,
     positive: torch.Tensor,
     *,
-    positive_floor: float,
-    off_abs_max: float,
+    positive_target: float,
+    off_target_abs_max: float,
     tail_k: int,
     negative_weight: float,
     cross_weight: float,
@@ -300,7 +300,9 @@ def detector_objective(
     rejects the record.  This objective mirrors those reductions: each record
     contributes a prompt mean plus the mean of its ``tail_k`` largest squared
     violations.  Negative and cross-record responses are penalized only above
-    the registered absolute gate instead of being wastefully driven to zero.
+    the registered optimization target instead of being wastefully driven to
+    zero.  These targets are deliberately separate from the final detector
+    certificate so training can maintain a preregistered safety margin.
 
     ``responses`` may contain a bounded microbatch of record groups, but every
     represented record receives equal weight regardless of how many contexts
@@ -316,8 +318,8 @@ def detector_objective(
         raise ValueError("owner index out of range")
     if batch == 0:
         raise ValueError("detector objective requires at least one response")
-    if float(positive_floor) < 0 or float(off_abs_max) < 0:
-        raise ValueError("detector thresholds must be non-negative")
+    if float(positive_target) < 0 or float(off_target_abs_max) < 0:
+        raise ValueError("detector training targets must be non-negative")
     if int(tail_k) <= 0:
         raise ValueError("tail_k must be positive")
 
@@ -355,10 +357,10 @@ def detector_objective(
             raise ValueError(f"record {record_id} has no positive detector context")
 
         write, write_mean, write_tail = mean_plus_tail(
-            F.relu(float(positive_floor) - owned[record_positive]).square()
+            F.relu(float(positive_target) - owned[record_positive]).square()
         )
         negative, negative_mean, negative_tail = mean_plus_tail(
-            F.relu(owned[record_negative].abs() - float(off_abs_max)).square()
+            F.relu(owned[record_negative].abs() - float(off_target_abs_max)).square()
         )
         write_rows.append(write)
         write_mean_rows.append(write_mean)
@@ -374,7 +376,7 @@ def detector_objective(
             nonowner_columns[record_id] = False
             cross_values = responses[record_mask][:, nonowner_columns]
             cross, cross_mean, cross_tail = mean_plus_tail(
-                F.relu(cross_values.abs() - float(off_abs_max)).square()
+                F.relu(cross_values.abs() - float(off_target_abs_max)).square()
             )
         else:
             cross = cross_mean = cross_tail = responses.sum() * 0.0
@@ -412,14 +414,15 @@ def detector_writer_off_objective(
     responses: torch.Tensor,
     owners: torch.Tensor,
     *,
-    off_abs_max: float,
+    off_target_abs_max: float,
     tail_k: int,
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
     """Penalize only certificate-breaking owned writer-off responses.
 
     Each record is weighted equally and contributes the mean squared excess
-    above ``off_abs_max`` plus its worst-``tail_k`` mean.  Harmless nonzero
-    activations inside the registered gate receive exactly zero loss.
+    above ``off_target_abs_max`` plus its worst-``tail_k`` mean.  Harmless
+    nonzero activations inside the registered optimization target receive
+    exactly zero loss.
     """
     if responses.ndim != 2:
         raise ValueError("responses must be [batch, records]")
@@ -430,8 +433,8 @@ def detector_writer_off_objective(
         raise ValueError("writer-off objective requires at least one response")
     if bool((owners < 0).any()) or bool((owners >= records).any()):
         raise ValueError("owner index out of range")
-    if float(off_abs_max) < 0:
-        raise ValueError("off_abs_max must be non-negative")
+    if float(off_target_abs_max) < 0:
+        raise ValueError("off_target_abs_max must be non-negative")
     if int(tail_k) <= 0:
         raise ValueError("tail_k must be positive")
 
@@ -443,7 +446,7 @@ def detector_writer_off_objective(
     for record_id_tensor in owners.unique(sorted=True):
         record_id = int(record_id_tensor.item())
         values = F.relu(
-            owned[owners.eq(record_id)].abs() - float(off_abs_max)
+            owned[owners.eq(record_id)].abs() - float(off_target_abs_max)
         ).square()
         mean = values.mean()
         count = min(int(tail_k), int(values.numel()))
@@ -465,11 +468,17 @@ def detector_gate_report(
     positive_floor: float,
     off_abs_max: float,
     require_writer_off: bool = True,
+    comparison_abs_tolerance: float = 0.0,
 ) -> Dict[str, Any]:
     if not (
         len(positive_responses) == len(negative_responses) == len(writer_off_responses)
     ):
         raise ValueError("detector response groups must match")
+    if float(positive_floor) < 0 or float(off_abs_max) < 0:
+        raise ValueError("detector certificate thresholds must be non-negative")
+    if float(comparison_abs_tolerance) < 0:
+        raise ValueError("comparison_abs_tolerance must be non-negative")
+    tolerance = float(comparison_abs_tolerance)
     per_record: List[Dict[str, Any]] = []
     for index, (positive, negative, writer_off) in enumerate(
         zip(positive_responses, negative_responses, writer_off_responses)
@@ -482,11 +491,13 @@ def detector_gate_report(
         positive_min = float(positive.min())
         negative_max = float(negative.abs().max()) if negative.numel() else 0.0
         writer_off_max = float(writer_off.abs().max()) if writer_off.numel() else 0.0
-        passed = bool(
-            positive_min >= float(positive_floor)
-            and negative_max <= float(off_abs_max)
-            and (not bool(require_writer_off) or writer_off_max <= float(off_abs_max))
+        positive_passed = bool(positive_min + tolerance >= float(positive_floor))
+        negative_passed = bool(negative_max <= float(off_abs_max) + tolerance)
+        writer_off_passed = bool(
+            not bool(require_writer_off)
+            or writer_off_max <= float(off_abs_max) + tolerance
         )
+        passed = bool(positive_passed and negative_passed and writer_off_passed)
         per_record.append(
             {
                 "record_index": index,
@@ -495,6 +506,9 @@ def detector_gate_report(
                 "positive_max": float(positive.max()),
                 "negative_abs_max": negative_max,
                 "writer_off_abs_max": writer_off_max,
+                "positive_passed": positive_passed,
+                "negative_passed": negative_passed,
+                "writer_off_passed": writer_off_passed,
                 "passed": passed,
             }
         )
@@ -504,10 +518,29 @@ def detector_gate_report(
             "negative_abs_max": float(off_abs_max),
             "writer_off_abs_max": float(off_abs_max),
             "writer_off_required": bool(require_writer_off),
+            "comparison_abs_tolerance": tolerance,
+            "comparison_policy": {
+                "positive": (
+                    "positive_min + comparison_abs_tolerance >= positive_floor"
+                ),
+                "negative": (
+                    "observed_negative_abs_max <= negative_abs_max + "
+                    "comparison_abs_tolerance"
+                ),
+                "writer_off": (
+                    "observed_writer_off_abs_max <= writer_off_abs_max + "
+                    "comparison_abs_tolerance"
+                ),
+            },
         },
         "passed_records": sum(int(row["passed"]) for row in per_record),
         "total_records": len(per_record),
         "passed": bool(per_record and all(row["passed"] for row in per_record)),
+        "failure_counts": {
+            "positive": sum(int(not row["positive_passed"]) for row in per_record),
+            "negative": sum(int(not row["negative_passed"]) for row in per_record),
+            "writer_off": sum(int(not row["writer_off_passed"]) for row in per_record),
+        },
         "per_record": per_record,
     }
 

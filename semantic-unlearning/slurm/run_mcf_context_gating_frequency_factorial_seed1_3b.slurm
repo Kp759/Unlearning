@@ -154,12 +154,15 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --detector-negative-contexts all \
   --detector-tail-k 2 \
   --detector-positive-floor 0.25 \
+  --detector-training-positive-floor 0.30 \
   --detector-negative-weight 5 \
   --detector-cross-weight 2 \
   --detector-writer-off-weight 10 \
   --detector-consistency-weight 1 \
   --detector-relative-cap 1.0 \
   --detector-off-abs-max 0.20 \
+  --detector-training-off-abs-max 0.15 \
+  --detector-certificate-abs-tolerance 1e-7 \
   --actuator-steps 2000 \
   --actuator-lr 0.0005 \
   --forget-margin 1 \

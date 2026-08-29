@@ -18,7 +18,7 @@ ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_embedding_keyed_neuron_v3_1_seed1_3b}"
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_embedding_keyed_neuron_v3_2_seed1_3b}"
 CONTROL_OUTPUT_DIR="${CONTROL_OUTPUT_DIR:-${OUTPUT_DIR}_mlp_only_retrained}"
 CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_2_clean_seed1_3b}"
 
@@ -42,7 +42,7 @@ export PYTHONUNBUFFERED=1
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
 if [[ -e "${OUTPUT_DIR}" ]]; then
-  echo "output path already exists; refusing to mix historical/V3.1 artifacts: ${OUTPUT_DIR}" >&2
+  echo "output path already exists; refusing to mix historical/V3.2 artifacts: ${OUTPUT_DIR}" >&2
   exit 2
 fi
 if [[ -e "${CONTROL_OUTPUT_DIR}" ]]; then
@@ -77,14 +77,14 @@ if ! jq -e '
   echo "clean Stage-1 integrity/portability acceptance failed: ${STAGE1_ACCEPTANCE}" >&2
   exit 2
 fi
-EXPECTED_PROTOCOL="mcf_embedding_keyed_sparse_neuron_suppression_v3_1"
+EXPECTED_PROTOCOL="mcf_embedding_keyed_sparse_neuron_suppression_v3_2"
 if ! jq -e --arg expected "${EXPECTED_PROTOCOL}" '.protocol == $expected' "${REGISTRY}" >/dev/null; then
   echo "registry is stale; expected protocol ${EXPECTED_PROTOCOL}: ${REGISTRY}" >&2
   exit 2
 fi
-python -c 'import sys; sys.path.insert(0, "scripts"); import mcf_embedding_keyed_neuron_core as c; assert c.PROTOCOL == "mcf_embedding_keyed_sparse_neuron_suppression_v3_1", c.PROTOCOL' \
+python -c 'import sys; sys.path.insert(0, "scripts"); import mcf_embedding_keyed_neuron_core as c; assert c.PROTOCOL == "mcf_embedding_keyed_sparse_neuron_suppression_v3_2", c.PROTOCOL' \
   2>/dev/null || {
-    echo "checkout is stale: sparse-neuron V3.1 code is not importable" >&2
+    echo "checkout is stale: sparse-neuron V3.2 code is not importable" >&2
     exit 2
   }
 mkdir -p slurm_logs "${OUTPUT_DIR}/protocol" "${OUTPUT_DIR}/comparison" \
@@ -133,12 +133,15 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --detector-negative-contexts all \
   --detector-tail-k 2 \
   --detector-positive-floor 0.25 \
+  --detector-training-positive-floor 0.30 \
   --detector-negative-weight 5 \
   --detector-cross-weight 2 \
   --detector-writer-off-weight 10 \
   --detector-consistency-weight 1 \
   --detector-relative-cap 1.0 \
   --detector-off-abs-max 0.20 \
+  --detector-training-off-abs-max 0.15 \
+  --detector-certificate-abs-tolerance 1e-7 \
   --actuator-steps 2000 \
   --actuator-lr 0.0005 \
   --forget-margin 1 \
@@ -211,12 +214,15 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --detector-negative-contexts all \
   --detector-tail-k 2 \
   --detector-positive-floor 0.25 \
+  --detector-training-positive-floor 0.30 \
   --detector-negative-weight 5 \
   --detector-cross-weight 2 \
   --detector-writer-off-weight 0 \
   --detector-consistency-weight 1 \
   --detector-relative-cap 1.0 \
   --detector-off-abs-max 0.20 \
+  --detector-training-off-abs-max 0.15 \
+  --detector-certificate-abs-tolerance 1e-7 \
   --actuator-steps 2000 \
   --actuator-lr 0.0005 \
   --forget-margin 1 \
