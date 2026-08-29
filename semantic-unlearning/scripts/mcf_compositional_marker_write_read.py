@@ -133,6 +133,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--row-norm-cap-frequency-alpha", type=float, default=0.15)
     p.add_argument("--writer-amplitude-min-frac", type=float, default=0.75)
     p.add_argument("--writer-marker-kappa-max", type=float, default=0.10)
+    p.add_argument(
+        "--stage1-only",
+        action="store_true",
+        help=(
+            "Stop after saving the sparse writer and its selectivity report. "
+            "Used by the preregistered frequency-cap factorial."
+        ),
+    )
 
     # Distributional q reader.
     p.add_argument("--reader-ridge", type=float, default=0.05)
@@ -289,6 +297,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("--kappa-train-max must be non-negative")
     if float(a.writer_marker_kappa_max) < 0:
         p.error("--writer-marker-kappa-max must be non-negative")
+    if float(a.row_norm_cap) < 0 or float(a.row_norm_cap_frequency_alpha) < 0:
+        p.error("writer row-norm cap and frequency alpha must be non-negative")
     if min(
         float(a.stage2_margin_weight),
         float(a.stage2_negative_weight),
@@ -1276,6 +1286,17 @@ def main(argv: Sequence[str] | None = None) -> None:
             "selected_embedding_rows": selected_rows,
             "embedding_delta": trained_embedding_delta,
             "markers": {int(r["case_id"]): r["marker"] for r in records},
+            "row_norm_cap": float(a.row_norm_cap),
+            "row_norm_cap_frequency_alpha": float(
+                a.row_norm_cap_frequency_alpha
+            ),
+            "max_subject_token_frequency": int(a.max_subject_token_frequency),
+            "writer_positive_amplitude_threshold": float(
+                a.writer_amplitude_min_frac
+            )
+            * float(a.write_alpha),
+            "selected_row_frequencies": row_frequencies.detach().cpu(),
+            "effective_row_caps": row_caps.detach().cpu(),
             "context_manifest_sha256": sha256_file(out_dir / "context_manifest.json"),
             "resumed_from": str(resume_path) if resume_path is not None else None,
         },
@@ -1347,6 +1368,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     writer_report = {
         "write_alpha": float(a.write_alpha),
+        "writer_configuration": {
+            "row_norm_cap": float(a.row_norm_cap),
+            "row_norm_cap_frequency_alpha": float(
+                a.row_norm_cap_frequency_alpha
+            ),
+            "max_subject_token_frequency": int(a.max_subject_token_frequency),
+            "selected_row_frequency": distribution(
+                [float(value) for value in row_frequencies]
+            ),
+            "effective_row_cap": distribution(
+                [float(value) for value in row_caps]
+            ),
+        },
         "criterion": {
             "positive_amplitude_min": (
                 float(a.writer_amplitude_min_frac) * float(a.write_alpha)
@@ -1385,6 +1419,29 @@ def main(argv: Sequence[str] | None = None) -> None:
         1, len(writer_pass_flags)
     )
     gagd.write_json(out_dir / "stage1_writer_report.json", writer_report)
+
+    if bool(a.stage1_only):
+        stage1_only_summary = {
+            "schema_version": 1,
+            "kind": "mcf_context_composed_stage1_writer_only",
+            "protocol": PROTOCOL,
+            "seed": int(a.seed),
+            "forget_num": len(records),
+            "configuration": writer_report["writer_configuration"],
+            "selected_embedding_rows": len(selected_rows),
+            "embedding_delta_norm": float(trained_embedding_delta.norm()),
+            "writer_selectivity": writer_report,
+            "context_manifest": str(out_dir / "context_manifest.json"),
+            "stage1_state": str(out_dir / "stage1_writer.pt"),
+            "data_firewall": context_manifest["data_access"],
+            "stage2_or_decoder_trained": False,
+            "official_evaluation_opened": False,
+        }
+        gagd.write_json(out_dir / "stage1_only_summary.json", stage1_only_summary)
+        print("\nStage-1-only run complete; no reader or decoder was trained")
+        print(f"state: {out_dir / 'stage1_writer.pt'}")
+        print(f"summary: {out_dir / 'stage1_only_summary.json'}")
+        return
 
     print("\nReader: distributional q over all training-safe contexts")
     positive_state_groups: Dict[int, List[torch.Tensor]] = {}

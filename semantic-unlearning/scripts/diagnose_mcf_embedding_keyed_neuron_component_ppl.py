@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Post-checkpoint PPL attribution for embedding-keyed neuron erasure.
+"""Post-checkpoint PPL attribution for embedding-keyed neuron suppression.
 
 This diagnostic is intentionally downstream of checkpoint freezing.  It opens
 the official PPL text only to report the four fixed causal configurations:

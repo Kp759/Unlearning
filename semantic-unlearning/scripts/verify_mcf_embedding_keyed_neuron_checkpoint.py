@@ -36,6 +36,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
     parser.add_argument("--device-map", choices=("single", "auto"), default="single")
+    parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help="Write a failed verification receipt without exiting nonzero.",
+    )
     value = parser.parse_args(list(argv) if argv is not None else None)
     if int(value.batch_size) <= 0:
         parser.error("--batch-size must be positive")
@@ -109,6 +114,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     state = torch.load(state_path, map_location="cpu", weights_only=False)
     if not isinstance(state, Mapping) or state.get("protocol") != method.PROTOCOL:
         raise RuntimeError("embedding-keyed neuron state protocol mismatch")
+    if state.get("detector_response_mode") != "absolute_signed_group_activation":
+        raise RuntimeError("checkpoint lacks the v2 absolute detector gate")
     method._validate_firewall(context_manifest, state)
     if _sha256(context_path) != str(state.get("context_manifest_sha256")):
         raise RuntimeError("context manifest is not the exact training-bound artifact")
@@ -148,6 +155,21 @@ def main(argv: Sequence[str] | None = None) -> None:
     current_embedding = input_layer.weight.index_select(0, embedding_index)
     embedding_exact = _exact_tensor_match(
         current_embedding, state["edited_selected_embedding_rows"]
+    )
+    writer_mode = str(state.get("writer_mode") or "embedding_keyed")
+    no_writer_embedding_unchanged = bool(
+        writer_mode != "none"
+        or (
+            _exact_tensor_match(
+                current_embedding, state["base_selected_embedding_rows"]
+            )
+            and bool(
+                torch.count_nonzero(
+                    state["actual_embedding_delta"].detach().float()
+                ).item()
+                == 0
+            )
+        )
     )
 
     neurons = [int(value) for value in state["selected_neurons"]]
@@ -200,6 +222,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         direct_failures == 0
         and positive_failures == 0
         and embedding_exact
+        and no_writer_embedding_unchanged
         and gate_exact
         and up_exact
         and down_exact
@@ -207,9 +230,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         and output_head_exact
     )
     payload = {
-        "schema_version": 1,
+        "schema_version": 3,
         "kind": "mcf_embedding_keyed_neuron_post_reload_acceptance",
+        "writer_mode": writer_mode,
         "checkpoint_was_reloaded": True,
+        "verification_completed": True,
         "official_compatible_nll_arithmetic": True,
         "observed": {
             "direct_prompt_instances": int(sum(bool(value) for value in direct_flags)),
@@ -220,6 +245,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         },
         "serialization": {
             "embedding_rows_exact": embedding_exact,
+            "no_writer_embedding_rows_unchanged": no_writer_embedding_unchanged,
             "gate_rows_exact": gate_exact,
             "up_rows_exact": up_exact,
             "down_columns_exact": down_exact,
@@ -243,7 +269,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     output_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(payload, indent=2))
     print(f"post-reload acceptance: {output_path}")
-    if not passed:
+    if not passed and not args.report_only:
         raise SystemExit("reloaded checkpoint failed locked training-only acceptance")
 
 

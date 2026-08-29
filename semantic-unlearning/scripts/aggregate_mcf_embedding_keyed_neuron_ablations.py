@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate preregistered training-only neuron-erasure ablations.
+"""Aggregate preregistered training-only neuron-suppression ablations.
 
 This utility reads method summaries only. It has no benchmark or official-eval
 input, so its table cannot become an evaluation-driven model-selection loop.
@@ -30,6 +30,9 @@ def _load(path: Path) -> Dict[str, Any]:
 
 
 def _labels(registry: Mapping[str, Any]) -> List[str]:
+    primary = registry.get("primary_configuration", {})
+    primary_neurons = int(primary.get("neurons_per_record", 4))
+    primary_layer = int(primary.get("neuron_layer", 27))
     labels = [
         str(row["name"])
         for row in registry.get("controlled_training_ablations", [])
@@ -40,12 +43,12 @@ def _labels(registry: Mapping[str, Any]) -> List[str]:
         labels.extend(
             f"neurons_per_record_{int(value)}"
             for value in capacity.get("neurons_per_record", [])
-            if int(value) != 4
+            if int(value) != primary_neurons
         )
         labels.extend(
             f"layer_{int(value)}"
             for value in capacity.get("neuron_layer_zero_based", [])
-            if int(value) != 8
+            if int(value) != primary_layer
         )
     return labels
 
@@ -61,6 +64,7 @@ def _row(label: str, summary: Mapping[str, Any] | None) -> Dict[str, Any]:
     architecture = summary.get("architecture", {})
     return {
         "label": label,
+        "writer_mode": summary.get("writer_mode"),
         "status": "pass" if acceptance.get("passed") else "fail",
         "direct_failures": actuator.get("direct_failures"),
         "positive_failures": actuator.get("training_safe_positive_failures"),
@@ -72,6 +76,9 @@ def _row(label: str, summary: Mapping[str, Any] | None) -> Dict[str, Any]:
         "decoder_necessary": causal.get("decoder_is_necessary"),
         "selected_neurons": architecture.get("selected_existing_mlp_neurons"),
         "edited_parameter_fraction": architecture.get("edited_parameter_fraction"),
+        "rejected_checkpoint_saved": acceptance.get(
+            "rejected_control_checkpoint_saved"
+        ),
         "official_evaluation_opened": False,
     }
 

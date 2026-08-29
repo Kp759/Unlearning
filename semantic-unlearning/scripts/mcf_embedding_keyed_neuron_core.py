@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pure mechanisms for embedding-keyed sparse SwiGLU neuron erasure.
+"""Pure mechanisms for embedding-keyed sparse SwiGLU conditional suppression.
 
 The end-to-end experiment lives in
 ``mcf_embedding_keyed_neuron_erasure.py``.  This module contains the small,
@@ -28,7 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_erasure_v1"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v2"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
@@ -58,6 +58,7 @@ def select_record_owned_neurons(
     stability_weight: float = 1.0,
     used_neurons: Sequence[int] = (),
     selection_mode: str = "writer_contrastive",
+    context_negative_activations: Sequence[torch.Tensor] | None = None,
     generator: torch.Generator | None = None,
 ) -> Tuple[List[List[int]], List[torch.Tensor], List[Dict[str, Any]]]:
     """Select disjoint neurons with stable writer-induced activation gain.
@@ -68,16 +69,33 @@ def select_record_owned_neurons(
 
     ``abs(mean(writer - writer_off)) / (protected_rms + w * delta_std)``.
 
+    ``base_context_contrastive`` is the matched no-writer control.  It never
+    observes an embedding delta: candidates are ranked by the difference
+    between base-model positive and compositional-negative activation means,
+    under the same dormant-neuron, count, layer, and norm budgets.
+
     The returned signs convert each selected mean displacement to a positive
     code component.  Ownership is disjoint by construction, which makes the
     causal ablations and scaling cost explicit.
     """
-    if selection_mode not in {"writer_contrastive", "dormant_random"}:
+    if selection_mode not in {
+        "writer_contrastive",
+        "base_context_contrastive",
+        "dormant_random",
+    }:
         raise ValueError(f"unsupported selection mode: {selection_mode!r}")
     if len(writer_activations) != len(writer_off_activations):
         raise ValueError("writer-on and writer-off record groups must match")
     if not writer_activations:
         raise ValueError("at least one record is required")
+    if selection_mode == "base_context_contrastive":
+        if context_negative_activations is None or len(
+            context_negative_activations
+        ) != len(writer_activations):
+            raise ValueError(
+                "base_context_contrastive requires one negative activation "
+                "matrix per record"
+            )
     if int(neurons_per_record) <= 0:
         raise ValueError("neurons_per_record must be positive")
     protected = _as_float_matrix(protected_activations, "protected_activations")
@@ -104,9 +122,28 @@ def select_record_owned_neurons(
         )
         if writer.shape != writer_off.shape or writer.shape[1] != intermediate:
             raise ValueError("paired record activations have incompatible shapes")
-        displacement = writer - writer_off
-        mean = displacement.mean(dim=0)
-        stability = displacement.std(dim=0, unbiased=False)
+        if selection_mode == "base_context_contrastive":
+            assert context_negative_activations is not None
+            negative = _as_float_matrix(
+                context_negative_activations[record_index],
+                f"context_negative_activations[{record_index}]",
+            )
+            if negative.shape[1] != intermediate or negative.shape[0] == 0:
+                raise ValueError(
+                    "base-context negative activations have incompatible shape"
+                )
+            positive_centered = writer - writer.mean(dim=0, keepdim=True)
+            negative_centered = negative - negative.mean(dim=0, keepdim=True)
+            mean = writer.mean(dim=0) - negative.mean(dim=0)
+            stability = torch.cat([positive_centered, negative_centered], dim=0).std(
+                dim=0, unbiased=False
+            )
+            score_kind = "base_positive_minus_context_negative"
+        else:
+            displacement = writer - writer_off
+            mean = displacement.mean(dim=0)
+            stability = displacement.std(dim=0, unbiased=False)
+            score_kind = "writer_on_minus_writer_off"
         denominator = protected_rms + float(stability_weight) * stability + eps
         score = mean.abs() / denominator
         eligible = dormant & ~unavailable & torch.isfinite(score)
@@ -116,7 +153,7 @@ def select_record_owned_neurons(
                 f"record {record_index} has only {candidate_count} unused dormant "
                 f"neurons, needs {neurons_per_record}"
             )
-        if selection_mode == "writer_contrastive":
+        if selection_mode in {"writer_contrastive", "base_context_contrastive"}:
             masked = score.masked_fill(~eligible, float("-inf"))
             chosen = masked.topk(int(neurons_per_record)).indices.sort().values
         else:
@@ -141,10 +178,11 @@ def select_record_owned_neurons(
             {
                 "record_index": record_index,
                 "selection_mode": selection_mode,
+                "selection_score_kind": score_kind,
                 "selected_neurons": ids,
                 "selected_scores": [float(x) for x in score.index_select(0, chosen)],
-                "writer_displacement_mean": [float(x) for x in chosen_mean],
-                "writer_displacement_std": [
+                "selection_contrast_mean": [float(x) for x in chosen_mean],
+                "selection_contrast_std": [
                     float(x) for x in stability.index_select(0, chosen)
                 ],
                 "protected_rms": [
@@ -210,6 +248,39 @@ def contextual_code_responses(
     return torch.stack(columns, dim=1)
 
 
+def signed_group_activations(
+    activations: torch.Tensor,
+    local_groups: Sequence[Sequence[int]],
+    flat_signs: torch.Tensor,
+) -> torch.Tensor:
+    """Return the actual continuous gate amplitude for each neuron group.
+
+    Unlike ``contextual_code_responses``, this statistic does not subtract a
+    prompt-specific Base activation that is unavailable at inference time.
+    Training detector locality on this absolute activation makes the audited
+    response the quantity that really multiplies the edited down columns.
+    """
+
+    if activations.ndim != 2:
+        raise ValueError("activations must be a rank-two matrix")
+    if flat_signs.ndim != 1 or flat_signs.numel() != activations.shape[1]:
+        raise ValueError("flat signs must cover every selected neuron")
+    signed = activations * flat_signs.to(
+        device=activations.device, dtype=activations.dtype
+    )
+    columns: List[torch.Tensor] = []
+    for group in local_groups:
+        index = torch.tensor(
+            [int(value) for value in group],
+            dtype=torch.long,
+            device=activations.device,
+        )
+        if index.numel() == 0:
+            raise ValueError("activation group cannot be empty")
+        columns.append(signed.index_select(1, index).mean(dim=1))
+    return torch.stack(columns, dim=1)
+
+
 def detector_objective(
     responses: torch.Tensor,
     owners: torch.Tensor,
@@ -252,6 +323,7 @@ def detector_gate_report(
     *,
     positive_floor: float,
     off_abs_max: float,
+    require_writer_off: bool = True,
 ) -> Dict[str, Any]:
     if not (
         len(positive_responses) == len(negative_responses) == len(writer_off_responses)
@@ -272,7 +344,7 @@ def detector_gate_report(
         passed = bool(
             positive_min >= float(positive_floor)
             and negative_max <= float(off_abs_max)
-            and writer_off_max <= float(off_abs_max)
+            and (not bool(require_writer_off) or writer_off_max <= float(off_abs_max))
         )
         per_record.append(
             {
@@ -290,6 +362,7 @@ def detector_gate_report(
             "positive_floor": float(positive_floor),
             "negative_abs_max": float(off_abs_max),
             "writer_off_abs_max": float(off_abs_max),
+            "writer_off_required": bool(require_writer_off),
         },
         "passed_records": sum(int(row["passed"]) for row in per_record),
         "total_records": len(per_record),

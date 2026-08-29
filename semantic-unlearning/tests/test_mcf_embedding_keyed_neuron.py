@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import json
 
 import pytest
 import torch
@@ -13,6 +14,11 @@ if str(SCRIPTS) not in sys.path:
 
 import mcf_embedding_keyed_neuron_core as core
 import mcf_embedding_keyed_neuron_erasure as method
+import audit_mcf_embedding_keyed_neuron_retain_tail as tail_audit
+import audit_mcf_embedding_keyed_neuron_latent_recovery as latent_audit
+import audit_mcf_embedding_keyed_neuron_relearning as relearning_audit
+import audit_mcf_frozen_writer_portability as portability_audit
+import aggregate_mcf_context_gating_frequency_factorial as frequency_aggregate
 import report_mcf_embedding_keyed_neuron_result as report
 
 
@@ -28,6 +34,88 @@ class TinySwiGLU(torch.nn.Module):
         return self.down_proj(
             self.act_fn(self.gate_proj(hidden)) * self.up_proj(hidden)
         )
+
+
+def _tail_receipt(*, passed: bool = True, writer_mode: str = "embedding_keyed"):
+    checks = {
+        "minimum_unique_prompt_count": True,
+        "response_rate_at_most_24_over_13000": passed,
+        "response_wilson_upper_at_most_24_over_13000": passed,
+        "top1_change_rate_at_most_24_over_13000": passed,
+    }
+    return {
+        "kind": "mcf_embedding_keyed_neuron_post_freeze_retain_tail_audit",
+        "dataset": "MCF",
+        "seed": 1,
+        "unlearn_num": 50,
+        "retain_num": 9000,
+        "sample_mode": "official",
+        "writer_mode": writer_mode,
+        "unique_prompts": True,
+        "used_for_training_checkpoint_selection_or_retry": False,
+        "groups": {"all": {"prompt_count": 100_000}},
+        "acceptance": {"checks": checks, "passed": passed},
+    }
+
+
+def _portability_receipt(*, passed: bool = True):
+    return {
+        "kind": "mcf_frozen_stage1_writer_official_portability_audit",
+        "dataset": "MCF",
+        "seed": 1,
+        "unlearn_num": 50,
+        "sample_mode": "official",
+        "writer_mode": "embedding_keyed",
+        "threshold_binding_passed": True,
+        "decoder_loaded": False,
+        "writer_parameters_updated": False,
+        "used_for_training_checkpoint_selection_or_retry": False,
+        "prompt_count": 100,
+        "record_count": 50,
+        "by_prompt_type": {
+            "rewrite": {"prompt_count": 50},
+            "paraphrase": {"prompt_count": 50},
+        },
+        "acceptance": {"passed": passed},
+    }
+
+
+def _latent_receipt(*, fact_recoverable: bool):
+    return {
+        "kind": "mcf_embedding_keyed_neuron_post_freeze_latent_recovery_audit",
+        "dataset": "MCF",
+        "seed": 1,
+        "unlearn_num": 50,
+        "sample_mode": "official",
+        "writer_mode": "embedding_keyed",
+        "record_count": 50,
+        "prompt_count": 100,
+        "fact_recoverable": fact_recoverable,
+        "used_for_training_checkpoint_selection_or_retry": False,
+        "modes": {
+            "edited": {"final_model_output": {}},
+            "reconstructed_base": {"final_model_output": {}},
+        },
+        "positive_control_passed": True,
+    }
+
+
+def _relearning_receipt(*, fact_recoverable: bool):
+    return {
+        "kind": "mcf_embedding_keyed_neuron_post_freeze_relearning_attack",
+        "dataset": "MCF",
+        "seed": 1,
+        "unlearn_num": 50,
+        "sample_mode": "official",
+        "writer_mode": "embedding_keyed",
+        "record_count": 50,
+        "fact_recoverable": fact_recoverable,
+        "used_for_training_checkpoint_selection_or_retry": False,
+        "attack": {"maximum_steps": 64},
+        "curve": [{"step": 0}, {"step": 64}],
+        "reconstructed_base_positive_control": {},
+        "positive_control_passed": True,
+    }
 
 
 def test_record_owned_neuron_selection_is_disjoint_and_writer_sensitive():
@@ -82,6 +170,33 @@ def test_dormant_random_selection_is_deterministic_and_disjoint():
     assert reports[0]["selection_mode"] == "dormant_random"
 
 
+def test_no_writer_selection_uses_base_context_contrast_without_embedding_delta():
+    protected = torch.zeros(8, 6)
+    positive = [torch.zeros(3, 6), torch.zeros(3, 6)]
+    writer_off = [row.clone() for row in positive]
+    negatives = [torch.zeros(4, 6), torch.zeros(4, 6)]
+    positive[0][:, 1] = 3.0
+    positive[1][:, 4] = -2.0
+
+    ownership, signs, reports = core.select_record_owned_neurons(
+        positive,
+        writer_off,
+        protected,
+        context_negative_activations=negatives,
+        neurons_per_record=1,
+        dormant_fraction=1.0,
+        selection_mode="base_context_contrastive",
+    )
+
+    assert ownership == [[1], [4]]
+    assert signs[0].tolist() == [1.0]
+    assert signs[1].tolist() == [-1.0]
+    assert all(
+        row["selection_score_kind"] == "base_positive_minus_context_negative"
+        for row in reports
+    )
+
+
 def test_contextual_code_response_uses_owned_multibit_group():
     ownership = [[2, 4], [1, 7]]
     signs = [torch.tensor([1.0, -1.0]), torch.tensor([-1.0, 1.0])]
@@ -92,6 +207,15 @@ def test_contextual_code_response_uses_owned_multibit_group():
     edited = torch.tensor([[3.0, -3.0, 0.0, 0.0], [0.0, 0.0, -2.0, 2.0]])
     response = core.contextual_code_responses(edited, baseline, local, flat_signs)
     assert torch.allclose(response, torch.tensor([[3.0, 0.0], [0.0, 2.0]]))
+
+
+def test_absolute_group_response_is_the_runtime_actuator_gate():
+    ownership = [[2, 4], [1, 7]]
+    signs = [torch.tensor([1.0, -1.0]), torch.tensor([-1.0, 1.0])]
+    _flat, flat_signs, local = core.flatten_ownership(ownership, signs)
+    activations = torch.tensor([[3.0, -3.0, 2.0, -2.0]])
+    response = core.signed_group_activations(activations, local, flat_signs)
+    assert torch.allclose(response, torch.tensor([[3.0, -2.0]]))
 
 
 def test_detector_objective_rewards_owned_positive_and_nulls_cross_codes():
@@ -211,6 +335,216 @@ def test_detector_gate_requires_writer_off_and_negative_silence():
     )
     assert not failed["passed"]
 
+    no_writer = core.detector_gate_report(
+        [torch.tensor([1.2])],
+        [torch.tensor([0.02])],
+        [torch.tensor([99.0])],
+        positive_floor=1.0,
+        off_abs_max=0.1,
+        require_writer_off=False,
+    )
+    assert no_writer["passed"]
+    assert not no_writer["criterion"]["writer_off_required"]
+
+
+def test_protected_prompt_bank_reserves_corpus_and_round_robins_records():
+    training = [
+        [f"record-{record}-prompt-{prompt}" for prompt in range(20)]
+        for record in range(4)
+    ]
+    corpus = [f"corpus-{index}" for index in range(20)]
+    selected, audit = method.build_selection_protected_prompts(
+        training,
+        corpus,
+        total_limit=12,
+        minimum_corpus=8,
+    )
+
+    assert selected[:8] == corpus[:8]
+    assert len(selected) == 12
+    assert audit["source_counts"]["corpus"] >= 8
+    assert audit["training_groups_represented"] == 4
+    assert audit["all_training_groups_represented"]
+
+
+def test_activation_profile_reports_existing_neuron_function_tail():
+    activations = torch.tensor([[0.0, 1.0], [0.1, 2.0], [0.3, 3.0], [0.5, 4.0]])
+    profile = method.activation_tail_profile(
+        activations,
+        [7, 9],
+        activation_threshold=0.2,
+        down_column_norms=torch.tensor([2.0, 3.0]),
+    )
+
+    assert profile["prompt_count"] == 4
+    assert profile["per_neuron"][0]["neuron_id"] == 7
+    assert profile["per_neuron"][0][
+        "activation_threshold_exceedance_fraction"
+    ] == pytest.approx(0.5)
+    assert profile["per_neuron"][1]["base_down_column_norm"] == 3.0
+
+
+def test_writer_preflight_checks_global_and_worst_record_completeness():
+    summary = method.summarize_writer_preflight(
+        [torch.tensor([5.0, 5.0]), torch.tensor([5.0, 1.0])],
+        amplitude_threshold=4.5,
+        minimum_global_fraction=0.7,
+        minimum_record_fraction=0.8,
+    )
+    assert summary["global_complete_fraction"] == pytest.approx(0.75)
+    assert not summary["passed"]
+    assert not summary["checks"]["minimum_record_complete_fraction"]
+
+
+def test_retain_tail_uses_binomial_bound_and_explicit_effect_events():
+    assert tail_audit.wilson_upper_bound(0, 1000) > 0.0
+    summary = tail_audit.summarize_tail(
+        [0.01, 0.3, 0.02, 0.0],
+        [False, True, False, False],
+        [0.0, 0.02, 0.001, 0.0],
+        [0.0, 0.2, 0.01, 0.0],
+        response_threshold=0.2,
+        kl_threshold=0.01,
+        logprob_threshold=0.1,
+    )
+    assert summary["response_event"]["events"] == 1
+    assert summary["top1_change_event"]["events"] == 1
+    assert summary["restricted_topk_kl_event"]["events"] == 1
+    assert summary["max_abs_topk_logprob_change_event"]["events"] == 1
+
+
+def test_writer_portability_requires_global_and_worst_record_coverage():
+    rows = [
+        {
+            "prompts": [
+                {
+                    "prompt_type": "rewrite",
+                    "complete": True,
+                    "own_marker_amplitude": 2.0,
+                },
+                {
+                    "prompt_type": "paraphrase",
+                    "complete": True,
+                    "own_marker_amplitude": 1.5,
+                },
+            ]
+        },
+        {
+            "prompts": [
+                {
+                    "prompt_type": "rewrite",
+                    "complete": True,
+                    "own_marker_amplitude": 2.0,
+                },
+                {
+                    "prompt_type": "paraphrase",
+                    "complete": False,
+                    "own_marker_amplitude": 0.2,
+                },
+            ]
+        },
+    ]
+    summary = portability_audit.summarize_portability(
+        rows,
+        minimum_global_complete_fraction=0.7,
+        minimum_per_record_complete_fraction=0.8,
+    )
+    assert summary["global_complete_fraction"] == pytest.approx(0.75)
+    assert not summary["acceptance"]["passed"]
+    assert not summary["acceptance"]["checks"]["minimum_per_record_complete_fraction"]
+
+
+def test_latent_recovery_summary_uses_sensitive_target_preference():
+    summary = latent_audit.summarize_candidate_nlls(
+        [
+            {"target_true_nll": 1.0, "target_new_nll": 2.0},
+            {"target_true_nll": 3.0, "target_new_nll": 2.0},
+        ]
+    )
+    assert summary["sensitive_preference_count"] == 1
+    assert summary["sensitive_preference_fraction"] == pytest.approx(0.5)
+
+
+def test_relearning_recovery_requires_both_direct_and_paraphrase_return():
+    curve = [
+        {"step": 0, "Eff": 0.0, "Gen": 0.0},
+        {"step": 4, "Eff": 80.0, "Gen": 20.0},
+        {"step": 8, "Eff": 80.0, "Gen": 60.0},
+    ]
+    assert (
+        relearning_audit.first_recovery_step(curve, minimum_eff=50.0, minimum_gen=50.0)
+        == 8
+    )
+
+
+def test_frequency_factorial_tests_decoder_by_writer_cap_interaction():
+    def component(spe: float, ppl: float, common_spe: float):
+        return {
+            "forget": {"Eff": 0.0, "Gen": 0.0, "Spe": spe},
+            "retain": {"Eff": 80.0, "Gen": 80.0, "Spe": spe},
+            "PPL": ppl,
+            "forget_frequency_strata": {
+                "common": {
+                    "record_count": 3,
+                    "metrics": {"Eff": 0.0, "Gen": 0.0, "Spe": common_spe},
+                }
+            },
+        }
+
+    payloads = {}
+    expected = {
+        "frequency_capped": {
+            "row_norm_cap": 8.0,
+            "row_norm_cap_frequency_alpha": 0.15,
+            "max_subject_token_frequency": 1_000_000_000,
+        },
+        "uniform_same_cap": {
+            "row_norm_cap": 8.0,
+            "row_norm_cap_frequency_alpha": 0.0,
+            "max_subject_token_frequency": 1_000_000_000,
+        },
+        "uniform_raised_cap": {
+            "row_norm_cap": 16.0,
+            "row_norm_cap_frequency_alpha": 0.0,
+            "max_subject_token_frequency": 1_000_000_000,
+        },
+    }
+    for condition in frequency_aggregate.CONDITIONS:
+        base = component(10.0, 10.0, 10.0)
+        if condition == "uniform_raised_cap":
+            embedding = component(10.0, 10.0, 9.0)
+            full = component(10.1, 10.1, 9.8)
+        else:
+            embedding = component(10.0, 10.0, 9.9)
+            full = component(10.0, 10.0, 9.9)
+        payloads[condition] = {
+            "kind": "mcf_embedding_keyed_neuron_post_freeze_component_evaluation",
+            "writer_mode": "embedding_keyed",
+            "writer_configuration": expected[condition],
+            "source_stage1_state_sha256": f"hash-{condition}",
+            "dataset": "MCF",
+            "sample_mode": "official",
+            "seed": 1,
+            "unlearn_num": 50,
+            "retain_num": 1000,
+            "used_for_training_checkpoint_selection_or_retry": False,
+            "components": {
+                "reconstructed_base": base,
+                "embedding_only": embedding,
+                "full_embedding_plus_neuron": full,
+            },
+        }
+    result = frequency_aggregate.build_aggregate(
+        payloads,
+        expected_writer_conditions=expected,
+        max_abs_spe_delta=0.2,
+        max_abs_ppl_percent_delta=5.0,
+    )
+    assert result["acceptance"]["passed"]
+    assert result["acceptance"]["checks"][
+        "decoder_attenuates_common_token_leakage_increase"
+    ]
+
 
 def test_training_cli_exposes_no_original_mcf_or_official_eval_argument():
     args = method.parse_args(
@@ -256,6 +590,41 @@ def test_training_cli_exposes_no_original_mcf_or_official_eval_argument():
                 "0",
             ]
         )
+
+
+def test_no_writer_cli_requires_matched_control_settings():
+    common = [
+        "--model-path",
+        "model",
+        "--training-visible-path",
+        "direct.json",
+        "--split-manifest",
+        "split.json",
+        "--context-manifest",
+        "contexts.json",
+        "--stage1-state",
+        "writer.pt",
+        "--experiment-registry",
+        "registry.json",
+        "--output-dir",
+        "out",
+        "--writer-mode",
+        "none",
+    ]
+    with pytest.raises(SystemExit):
+        method.parse_args(common)
+
+    args = method.parse_args(
+        [
+            *common,
+            "--selection-mode",
+            "base_context_contrastive",
+            "--no-require-writer-necessity",
+            "--save-rejected-checkpoint",
+        ]
+    )
+    assert args.writer_mode == "none"
+    assert not args.require_writer_necessity
 
 
 def test_firewall_rejects_heldout_probe_content_recursively():
@@ -305,19 +674,65 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         "protocol": method.PROTOCOL,
         "primary_configuration": {
             "forget_num": 50,
-            "neuron_layer": 8,
+            "neuron_layer": 27,
             "neurons_per_record": 4,
             "selection_mode": "writer_contrastive",
-            "dormant_fraction": 0.35,
-            "detector_relative_cap": 0.4,
-            "actuator_relative_cap": 0.4,
+            "dormant_fraction": 0.2,
+            "detector_relative_cap": 1.0,
+            "actuator_relative_cap": 0.5,
             "gate_policy": "strict",
         },
     }
     method._validate_experiment_registry(registry, args)
-    args.neuron_layer = 12
+    args.neuron_layer = 24
     with pytest.raises(RuntimeError, match="diverges from registry"):
         method._validate_experiment_registry(registry, args)
+
+
+def test_repository_registry_binds_primary_and_independent_control():
+    registry_path = (
+        Path(__file__).resolve().parents[1]
+        / "protocols"
+        / "mcf_embedding_keyed_neuron_ablation_registry_v1.json"
+    )
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    common = [
+        "--model-path",
+        "model",
+        "--training-visible-path",
+        "direct.json",
+        "--split-manifest",
+        "split.json",
+        "--context-manifest",
+        "contexts.json",
+        "--stage1-state",
+        "writer.pt",
+        "--experiment-registry",
+        str(registry_path),
+        "--output-dir",
+        "out",
+    ]
+    primary = method.parse_args(common)
+    method._validate_experiment_registry(registry, primary)
+
+    control = method.parse_args(
+        [
+            *common,
+            "--experiment-label",
+            "mlp_only_retrained",
+            "--writer-mode",
+            "none",
+            "--selection-mode",
+            "base_context_contrastive",
+            "--detector-writer-off-weight",
+            "0",
+            "--writer-off-nll-weight",
+            "0",
+            "--no-require-writer-necessity",
+            "--save-rejected-checkpoint",
+        ]
+    )
+    method._validate_experiment_registry(registry, control)
 
 
 def test_final_report_requires_metrics_mechanism_and_firewall_to_pass():
@@ -375,3 +790,201 @@ def test_final_report_requires_metrics_mechanism_and_firewall_to_pass():
     )
     assert failed["status"] == "FAIL"
     assert not failed["checks"]["PPL_local"]
+
+
+def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
+    forget_raw = [
+        {
+            "requested_rewrite": {
+                "prompt": "{} was born in",
+                "subject": "Ada",
+                "target_true": {"str": "London"},
+                "target_new": {"str": "Paris"},
+            }
+        }
+    ]
+    retain_raw = [
+        {
+            "requested_rewrite": {
+                "prompt": "{} was born in",
+                "subject": "Grace",
+                "target_true": {"str": "New York"},
+                "target_new": {"str": "Paris"},
+            }
+        }
+    ]
+    base = {
+        "dataset": "MCF",
+        "sample_mode": "official",
+        "seed": 1,
+        "unlearn_num": 50,
+        "retain_num": 1000,
+        "forget": {"Eff": 30.0, "Gen": 40.0, "Spe": 10.0, "Spe_success": 90.0},
+        "retain": {"Eff": 80.0, "Gen": 82.0, "Spe": 11.0, "Spe_success": 85.0},
+        "PPL": 16.0,
+        "forget_raw": forget_raw,
+        "retain_raw": retain_raw,
+    }
+    successful = {
+        "dataset": "MCF",
+        "sample_mode": "official",
+        "seed": 1,
+        "unlearn_num": 50,
+        "retain_num": 1000,
+        "forget": {"Eff": 0.0, "Gen": 0.0, "Spe": 10.0, "Spe_success": 90.0},
+        "retain": dict(base["retain"]),
+        "PPL": 16.0,
+        "forget_raw": forget_raw,
+        "retain_raw": retain_raw,
+    }
+    budget = {
+        "detector_response_mode": "absolute_signed_group_activation",
+        "dormant_fraction": 0.2,
+        "selection_stability_weight": 1.0,
+        "selection_positive_contexts": 8,
+        "selection_negative_contexts": 8,
+        "detector_steps": 1000,
+        "detector_lr": 0.001,
+        "detector_record_batch": 4,
+        "detector_positive_contexts": 2,
+        "detector_negative_contexts": 2,
+        "detector_positive_floor": 0.25,
+        "detector_off_abs_max": 0.2,
+        "detector_negative_weight": 5.0,
+        "detector_cross_weight": 2.0,
+        "detector_consistency_weight": 1.0,
+        "detector_l2": 0.00001,
+        "detector_relative_cap": 1.0,
+        "actuator_steps": 2000,
+        "actuator_lr": 0.0005,
+        "actuator_batch_size": 4,
+        "actuator_protected_batch": 4,
+        "actuator_writer_off_every": 1,
+        "actuator_relative_cap": 0.5,
+        "actuator_l2": 0.0001,
+        "neurons_per_record": 4,
+        "selected_existing_mlp_neurons": 200,
+        "mlp_layer": 27,
+        "protected_prompt_count": 8192,
+        "protected_kl_weight": 20.0,
+        "margin_weight": 20.0,
+        "reference_nll_weight": 50.0,
+        "reference_nll_tolerance": 0.05,
+        "forget_margin": 1.0,
+        "grad_clip": 1.0,
+        "kl_topk": 64,
+    }
+    proposed_summary = {
+        "protocol": method.PROTOCOL,
+        "seed": 1,
+        "forget_num": 50,
+        "writer_mode": "embedding_keyed",
+        "optimization_budget": budget,
+        "acceptance": {
+            "passed": True,
+            "detector_gate_passed": True,
+            "lm_head_bit_identical": True,
+        },
+        "causal_component_ablation": {
+            "writer_is_necessary": True,
+            "decoder_is_necessary": True,
+        },
+        "architecture": {
+            "lm_head_edited": False,
+            "runtime_string_matcher": False,
+            "external_router": False,
+            "retrieval_cache": False,
+            "sidecar": False,
+        },
+        "data_firewall": {
+            "training_visible_sha256": "training-hash",
+            "context_manifest_sha256": "context-hash",
+            "split_manifest_sha256": "split-hash",
+            "stage1_state_sha256": "stage1-hash",
+            "experiment_registry_sha256": "registry-hash",
+            "data_access": {
+                "official_paraphrases_seen": 0,
+                "official_neighborhoods_seen": 0,
+                "benchmark_retain_seen": 0,
+                "official_ppl_seen": False,
+            },
+        },
+    }
+    control_summary = {
+        "protocol": method.PROTOCOL,
+        "seed": 1,
+        "forget_num": 50,
+        "writer_mode": "none",
+        "experiment_label": "mlp_only_retrained",
+        "optimization_budget": dict(budget),
+        "acceptance": {"passed": True},
+        "architecture": {"input_embedding_rows_edited": 0},
+        "data_firewall": {
+            "training_visible_sha256": "training-hash",
+            "context_manifest_sha256": "context-hash",
+            "split_manifest_sha256": "split-hash",
+            "stage1_state_sha256": "stage1-hash",
+            "experiment_registry_sha256": "registry-hash",
+        },
+    }
+    result = report.build_report(
+        base,
+        successful,
+        proposed_summary,
+        {"passed": True},
+        max_abs_spe_delta=0.2,
+        max_abs_retain_eff_gen_delta=1.0,
+        max_ppl_percent_delta=5.0,
+        mlp_only=successful,
+        mlp_only_method=control_summary,
+        mlp_only_reload={"passed": True},
+        mlp_only_retain_tail=_tail_receipt(writer_mode="none"),
+        writer_portability=_portability_receipt(),
+        retain_tail=_tail_receipt(),
+        latent_recovery=_latent_receipt(fact_recoverable=False),
+        relearning=_relearning_receipt(fact_recoverable=False),
+        require_complete_mechanism_evidence=True,
+    )
+    assert result["status"] == "FAIL"
+    assert result["matched_mlp_only_control"][
+        "meets_same_forgetting_and_locality_envelope"
+    ]
+    assert result["matched_mlp_only_control"]["embedding_key_necessity_falsified"]
+    assert not result["checks"]["registered_control_supports_keyed_advantage"]
+
+    weaker_control = {
+        **successful,
+        "forget": {**successful["forget"], "Gen": 5.0},
+    }
+    supported = report.build_report(
+        base,
+        successful,
+        proposed_summary,
+        {"passed": True},
+        max_abs_spe_delta=0.2,
+        max_abs_retain_eff_gen_delta=1.0,
+        max_ppl_percent_delta=5.0,
+        mlp_only=weaker_control,
+        mlp_only_method=control_summary,
+        mlp_only_reload={"passed": True},
+        mlp_only_retain_tail=_tail_receipt(writer_mode="none"),
+        writer_portability=_portability_receipt(),
+        retain_tail=_tail_receipt(),
+        latent_recovery=_latent_receipt(fact_recoverable=True),
+        relearning=_relearning_receipt(fact_recoverable=True),
+        require_complete_mechanism_evidence=True,
+    )
+    assert supported["status"] == "PASS"
+    assert supported["checks"]["registered_control_supports_keyed_advantage"]
+    assert not supported["matched_mlp_only_control"][
+        "architecture_level_necessity_proven"
+    ]
+    assert supported["knowledge_recovered_by_diagnostic"]
+    assert not supported["knowledge_removal_claim_allowed"]
+
+
+def test_paper_report_rejects_placeholder_audit_receipts():
+    assert not report._retain_tail_complete({"acceptance": {"passed": True}})
+    assert not report._writer_portability_complete({"acceptance": {"passed": True}})
+    assert not report._latent_endpoint_complete({"fact_recoverable": False})
+    assert not report._relearning_endpoint_complete({"fact_recoverable": False})

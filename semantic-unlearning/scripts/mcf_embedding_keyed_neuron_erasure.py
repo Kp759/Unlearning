@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Embedding-keyed sparse neuron erasure for locked direct-only MCF.
+"""Embedding-keyed sparse-neuron conditional suppression for locked MCF.
 
 Architecture
 ------------
@@ -14,7 +14,7 @@ Architecture
 For each edit, a disjoint group of existing low-activation MLP neurons is
 selected using only training-safe writer-on versus writer-off activations.
 ``gate_proj``/``up_proj`` rows learn to detect the complete embedding-induced
-contextual code.  The matching ``down_proj`` columns learn an erasure residual.
+contextual code. The matching ``down_proj`` columns learn a suppression residual.
 All edits are materialized into ordinary model weights; there is no tokenizer
 expansion, string matcher, retrieval cache, runtime router, sidecar, adapter,
 LoRA, logit bias, or LM-head update.
@@ -57,7 +57,7 @@ import mcf_synthetic_paraphrase_templates as synthetic
 import sure_canonical_core as canonical
 
 
-METHOD = "Embedding-Keyed Sparse Neuron Erasure"
+METHOD = "Embedding-Keyed Sparse-Neuron Conditional Suppression"
 PROTOCOL = neuron_core.PROTOCOL
 FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES = (
     "MCF_PATH",
@@ -82,50 +82,88 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--forget-num", type=int, default=50)
+    parser.add_argument(
+        "--writer-mode",
+        choices=("embedding_keyed", "none"),
+        default="embedding_keyed",
+        help=(
+            "embedding_keyed trains the proposed conjunction with the frozen "
+            "sparse embedding writer. none is the independently optimized, "
+            "matched-capacity sparse-MLP control and materializes no embedding edit."
+        ),
+    )
 
-    parser.add_argument("--neuron-layer", type=int, default=8)
+    parser.add_argument("--neuron-layer", type=int, default=27)
     parser.add_argument("--neurons-per-record", type=int, default=4)
-    parser.add_argument("--dormant-fraction", type=float, default=0.35)
+    parser.add_argument("--dormant-fraction", type=float, default=0.20)
     parser.add_argument(
         "--selection-mode",
-        choices=("writer_contrastive", "dormant_random"),
+        choices=(
+            "writer_contrastive",
+            "base_context_contrastive",
+            "dormant_random",
+        ),
         default="writer_contrastive",
     )
     parser.add_argument("--selection-stability-weight", type=float, default=1.0)
     parser.add_argument("--selection-positive-contexts", type=int, default=8)
-    parser.add_argument("--selection-protected-prompts", type=int, default=1024)
+    parser.add_argument("--selection-negative-contexts", type=int, default=8)
+    parser.add_argument("--selection-protected-prompts", type=int, default=8192)
+    parser.add_argument(
+        "--selection-min-corpus-prompts",
+        type=int,
+        default=4096,
+        help=(
+            "Reserve this many disjoint corpus prompts inside the protected-neuron "
+            "profile. Training prompts cannot consume this quota."
+        ),
+    )
     parser.add_argument("--wikidata-dir", default="data/wikidata")
     parser.add_argument("--frequency-doc-start", type=int, default=20)
     parser.add_argument("--frequency-docs", type=int, default=5000)
-    parser.add_argument("--corpus-protection-prompts", type=int, default=256)
+    parser.add_argument("--corpus-protection-prompts", type=int, default=8192)
+    parser.add_argument(
+        "--writer-preflight-amplitude-threshold", type=float, default=4.5
+    )
+    parser.add_argument(
+        "--writer-preflight-min-global-fraction", type=float, default=0.95
+    )
+    parser.add_argument(
+        "--writer-preflight-min-record-fraction", type=float, default=0.80
+    )
 
-    parser.add_argument("--detector-steps", type=int, default=600)
+    parser.add_argument("--detector-steps", type=int, default=1000)
     parser.add_argument("--detector-lr", type=float, default=1e-3)
     parser.add_argument("--detector-record-batch", type=int, default=4)
     parser.add_argument("--detector-positive-contexts", type=int, default=2)
     parser.add_argument("--detector-negative-contexts", type=int, default=2)
-    parser.add_argument("--detector-positive-floor", type=float, default=1.0)
+    parser.add_argument(
+        "--detector-response-mode",
+        choices=("absolute_signed_group_activation",),
+        default="absolute_signed_group_activation",
+    )
+    parser.add_argument("--detector-positive-floor", type=float, default=0.25)
     parser.add_argument("--detector-negative-weight", type=float, default=5.0)
     parser.add_argument("--detector-cross-weight", type=float, default=2.0)
     parser.add_argument("--detector-writer-off-weight", type=float, default=10.0)
     parser.add_argument("--detector-consistency-weight", type=float, default=1.0)
     parser.add_argument("--detector-l2", type=float, default=1e-5)
-    parser.add_argument("--detector-relative-cap", type=float, default=0.40)
+    parser.add_argument("--detector-relative-cap", type=float, default=1.0)
     parser.add_argument("--detector-off-abs-max", type=float, default=0.20)
 
-    parser.add_argument("--actuator-steps", type=int, default=1000)
-    parser.add_argument("--actuator-lr", type=float, default=5e-3)
+    parser.add_argument("--actuator-steps", type=int, default=2000)
+    parser.add_argument("--actuator-lr", type=float, default=5e-4)
     parser.add_argument("--actuator-batch-size", type=int, default=4)
     parser.add_argument("--actuator-protected-batch", type=int, default=4)
-    parser.add_argument("--actuator-writer-off-every", type=int, default=4)
+    parser.add_argument("--actuator-writer-off-every", type=int, default=1)
     parser.add_argument("--forget-margin", type=float, default=1.0)
-    parser.add_argument("--margin-weight", type=float, default=100.0)
-    parser.add_argument("--reference-nll-weight", type=float, default=10.0)
+    parser.add_argument("--margin-weight", type=float, default=20.0)
+    parser.add_argument("--reference-nll-weight", type=float, default=50.0)
     parser.add_argument("--reference-nll-tolerance", type=float, default=0.05)
-    parser.add_argument("--protected-kl-weight", type=float, default=10.0)
-    parser.add_argument("--writer-off-nll-weight", type=float, default=10.0)
+    parser.add_argument("--protected-kl-weight", type=float, default=20.0)
+    parser.add_argument("--writer-off-nll-weight", type=float, default=50.0)
     parser.add_argument("--actuator-l2", type=float, default=1e-4)
-    parser.add_argument("--actuator-relative-cap", type=float, default=0.40)
+    parser.add_argument("--actuator-relative-cap", type=float, default=0.50)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--check-every", type=int, default=50)
     parser.add_argument("--cache-batch-size", type=int, default=8)
@@ -139,6 +177,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--min-decoder-necessary-direct-fraction", type=float, default=0.50
     )
     parser.add_argument(
+        "--require-writer-necessity",
+        "--require-within-checkpoint-writer-dependence",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Require the within-checkpoint writer-off intervention to break the "
+            "joint solution. Disabled only for the preregistered no-writer control."
+        ),
+    )
+    parser.add_argument(
         "--gate-policy",
         choices=("strict", "report"),
         default="strict",
@@ -147,6 +195,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
     parser.add_argument("--device-map", choices=("single", "auto"), default="single")
     parser.add_argument("--save-checkpoint", action="store_true")
+    parser.add_argument(
+        "--save-rejected-checkpoint",
+        action="store_true",
+        help=(
+            "Freeze a fixed-budget rejected checkpoint for evaluation. Allowed "
+            "only for the independently trained no-writer control."
+        ),
+    )
     value = parser.parse_args(list(argv) if argv is not None else None)
 
     if int(value.forget_num) <= 0:
@@ -162,6 +218,55 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--neurons-per-record must be positive")
     if not 0.0 < float(value.dormant_fraction) <= 1.0:
         parser.error("--dormant-fraction must lie in (0, 1]")
+    if int(value.selection_protected_prompts) <= 0:
+        parser.error("--selection-protected-prompts must be positive")
+    if (
+        min(
+            int(value.selection_positive_contexts),
+            int(value.selection_negative_contexts),
+        )
+        <= 0
+    ):
+        parser.error("selection positive/negative context counts must be positive")
+    if (
+        not 0
+        <= int(value.selection_min_corpus_prompts)
+        <= int(value.selection_protected_prompts)
+    ):
+        parser.error(
+            "--selection-min-corpus-prompts must lie between zero and the "
+            "protected-prompt budget"
+        )
+    if int(value.corpus_protection_prompts) < int(value.selection_min_corpus_prompts):
+        parser.error(
+            "--corpus-protection-prompts must cover the reserved selection corpus quota"
+        )
+    if float(value.writer_preflight_amplitude_threshold) < 0:
+        parser.error("--writer-preflight-amplitude-threshold must be non-negative")
+    for name in (
+        "writer_preflight_min_global_fraction",
+        "writer_preflight_min_record_fraction",
+    ):
+        if not 0.0 <= float(getattr(value, name)) <= 1.0:
+            parser.error(f"--{name.replace('_', '-')} must lie in [0, 1]")
+    if value.writer_mode == "embedding_keyed":
+        if value.selection_mode == "base_context_contrastive":
+            parser.error(
+                "embedding_keyed mode must use writer_contrastive or dormant_random selection"
+            )
+        if not bool(value.require_writer_necessity):
+            parser.error(
+                "embedding_keyed mode must retain the within-checkpoint writer-dependence gate"
+            )
+    else:
+        if value.selection_mode == "writer_contrastive":
+            parser.error("no-writer control cannot use writer_contrastive selection")
+        if bool(value.require_writer_necessity):
+            parser.error("no-writer control must disable --require-writer-necessity")
+    if bool(value.save_rejected_checkpoint) and value.writer_mode != "none":
+        parser.error(
+            "--save-rejected-checkpoint is restricted to the no-writer control"
+        )
     for name in ("detector_relative_cap", "actuator_relative_cap"):
         if not 0.0 < float(getattr(value, name)) <= 2.0:
             parser.error(f"--{name.replace('_', '-')} must lie in (0, 2]")
@@ -359,6 +464,239 @@ def _unique_prompts(values: Sequence[str]) -> List[str]:
     return compositional_core.ordered_unique([str(value) for value in values])
 
 
+def _round_robin_unique_prompts(
+    groups: Sequence[Sequence[str]],
+    *,
+    limit: int,
+    excluded: Sequence[str] = (),
+) -> List[str]:
+    """Select prompts without letting early records consume a fixed budget."""
+
+    if int(limit) <= 0:
+        return []
+    normalized_groups = [_unique_prompts(group) for group in groups]
+    positions = [0 for _ in normalized_groups]
+    seen = {str(value) for value in excluded}
+    selected: List[str] = []
+    while len(selected) < int(limit):
+        progressed = False
+        for group_index, group in enumerate(normalized_groups):
+            while positions[group_index] < len(group):
+                prompt = str(group[positions[group_index]])
+                positions[group_index] += 1
+                if prompt in seen:
+                    continue
+                seen.add(prompt)
+                selected.append(prompt)
+                progressed = True
+                break
+            if len(selected) >= int(limit):
+                break
+        if not progressed:
+            break
+    return selected
+
+
+def build_selection_protected_prompts(
+    training_groups: Sequence[Sequence[str]],
+    corpus_prompts: Sequence[str],
+    *,
+    total_limit: int,
+    minimum_corpus: int,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Build an auditable, stratified neuron-profile prompt bank.
+
+    Corpus prompts are reserved first, then the training quota is filled in
+    round-robin record order.  Spare capacity is backfilled from either source.
+    This prevents the historical ``all_training + corpus`` truncation from
+    silently deleting the broad-corpus profile or all prompts from later cases.
+    """
+
+    total_limit = int(total_limit)
+    minimum_corpus = int(minimum_corpus)
+    if total_limit <= 0 or not 0 <= minimum_corpus <= total_limit:
+        raise ValueError("invalid protected-prompt quotas")
+    corpus = _unique_prompts(corpus_prompts)
+    if len(corpus) < minimum_corpus:
+        raise RuntimeError(
+            f"only {len(corpus)} unique corpus prompts are available; "
+            f"{minimum_corpus} are required for broad neuron profiling"
+        )
+    reserved_corpus = corpus[:minimum_corpus]
+    training_quota = total_limit - len(reserved_corpus)
+    training = _round_robin_unique_prompts(
+        training_groups,
+        limit=training_quota,
+        excluded=reserved_corpus,
+    )
+    selected = [*reserved_corpus, *training]
+    if len(selected) < total_limit:
+        selected_set = set(selected)
+        selected.extend(
+            prompt for prompt in corpus[minimum_corpus:] if prompt not in selected_set
+        )
+        selected = selected[:total_limit]
+    if len(selected) < total_limit:
+        selected.extend(
+            _round_robin_unique_prompts(
+                training_groups,
+                limit=total_limit - len(selected),
+                excluded=selected,
+            )
+        )
+    selected = _unique_prompts(selected)[:total_limit]
+    corpus_set = set(corpus)
+    training_set = {
+        prompt for group in training_groups for prompt in _unique_prompts(group)
+    }
+    selected_set = set(selected)
+    source_counts = {
+        "corpus": sum(prompt in corpus_set for prompt in selected),
+        "training_only": sum(
+            prompt in training_set and prompt not in corpus_set for prompt in selected
+        ),
+        "unclassified": sum(
+            prompt not in training_set and prompt not in corpus_set
+            for prompt in selected
+        ),
+    }
+    represented_groups = sum(
+        any(prompt in selected_set for prompt in _unique_prompts(group))
+        for group in training_groups
+    )
+    return selected, {
+        "total_limit": total_limit,
+        "minimum_corpus_required": minimum_corpus,
+        "selected_total": len(selected),
+        "full_budget_passed": len(selected) == total_limit,
+        "source_counts": source_counts,
+        "training_groups_total": len(training_groups),
+        "training_groups_represented": represented_groups,
+        "corpus_quota_passed": source_counts["corpus"] >= minimum_corpus,
+        "all_training_groups_represented": represented_groups == len(training_groups),
+    }
+
+
+def activation_tail_profile(
+    activations: torch.Tensor,
+    neuron_ids: Sequence[int],
+    *,
+    activation_threshold: float,
+    down_column_norms: torch.Tensor | None = None,
+) -> Dict[str, Any]:
+    """Summarize how much selected neurons already function on a prompt bank."""
+
+    values = activations.detach().float().cpu()
+    if values.ndim != 2 or values.shape[1] != len(neuron_ids):
+        raise ValueError("activation profile shape does not match selected neurons")
+    if values.shape[0] == 0:
+        raise ValueError("activation profile needs at least one prompt")
+    if not torch.isfinite(values).all():
+        raise ValueError("activation profile contains non-finite values")
+    if float(activation_threshold) < 0:
+        raise ValueError("activation threshold must be non-negative")
+    if down_column_norms is not None:
+        down_norms = down_column_norms.detach().float().cpu().reshape(-1)
+        if down_norms.numel() != len(neuron_ids):
+            raise ValueError("down-column norms do not match selected neurons")
+    else:
+        down_norms = None
+
+    absolute = values.abs()
+    quantile_levels = torch.tensor([0.99, 0.999], dtype=torch.float32)
+    quantiles = torch.quantile(absolute, quantile_levels, dim=0)
+    rms = values.square().mean(dim=0).sqrt()
+    per_neuron: List[Dict[str, Any]] = []
+    for column, neuron_id in enumerate(neuron_ids):
+        row: Dict[str, Any] = {
+            "neuron_id": int(neuron_id),
+            "activation_rms": float(rms[column]),
+            "activation_abs_p99": float(quantiles[0, column]),
+            "activation_abs_p999": float(quantiles[1, column]),
+            "activation_abs_max": float(absolute[:, column].max()),
+            "activation_threshold_exceedance_fraction": float(
+                (absolute[:, column] > float(activation_threshold)).float().mean()
+            ),
+        }
+        if down_norms is not None:
+            norm = float(down_norms[column])
+            row.update(
+                {
+                    "base_down_column_norm": norm,
+                    "base_residual_contribution_rms_bound": norm
+                    * row["activation_rms"],
+                    "base_residual_contribution_abs_p999_bound": norm
+                    * row["activation_abs_p999"],
+                }
+            )
+        per_neuron.append(row)
+
+    return {
+        "prompt_count": int(values.shape[0]),
+        "neuron_count": int(values.shape[1]),
+        "activation_threshold": float(activation_threshold),
+        "activation_rms": _distribution([row["activation_rms"] for row in per_neuron]),
+        "activation_abs_p999": _distribution(
+            [row["activation_abs_p999"] for row in per_neuron]
+        ),
+        "activation_abs_max": _distribution(
+            [row["activation_abs_max"] for row in per_neuron]
+        ),
+        "per_neuron": per_neuron,
+    }
+
+
+def summarize_writer_preflight(
+    amplitude_groups: Sequence[torch.Tensor],
+    *,
+    amplitude_threshold: float,
+    minimum_global_fraction: float,
+    minimum_record_fraction: float,
+) -> Dict[str, Any]:
+    if not amplitude_groups or any(group.numel() == 0 for group in amplitude_groups):
+        raise ValueError("writer preflight needs non-empty amplitudes per record")
+    groups = [group.detach().float().reshape(-1).cpu() for group in amplitude_groups]
+    if not all(torch.isfinite(group).all() for group in groups):
+        raise ValueError("writer preflight contains non-finite amplitudes")
+    per_record = [
+        {
+            "prompt_count": int(group.numel()),
+            "complete_count": int((group >= float(amplitude_threshold)).sum()),
+            "complete_fraction": float(
+                (group >= float(amplitude_threshold)).float().mean()
+            ),
+            "amplitude": _distribution([float(value) for value in group]),
+        }
+        for group in groups
+    ]
+    total = sum(row["prompt_count"] for row in per_record)
+    complete = sum(row["complete_count"] for row in per_record)
+    global_fraction = complete / total
+    checks = {
+        "global_complete_fraction": global_fraction >= float(minimum_global_fraction),
+        "minimum_record_complete_fraction": min(
+            row["complete_fraction"] for row in per_record
+        )
+        >= float(minimum_record_fraction),
+    }
+    return {
+        "amplitude_threshold": float(amplitude_threshold),
+        "prompt_count": total,
+        "complete_count": complete,
+        "global_complete_fraction": global_fraction,
+        "minimum_record_complete_fraction": min(
+            row["complete_fraction"] for row in per_record
+        ),
+        "criterion": {
+            "minimum_global_fraction": float(minimum_global_fraction),
+            "minimum_record_fraction": float(minimum_record_fraction),
+        },
+        "per_record": per_record,
+        "checks": checks,
+        "passed": all(checks.values()),
+    }
+
+
 @torch.no_grad()
 def capture_base_last_token_activations(
     model: torch.nn.Module,
@@ -520,7 +858,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         visible_path, split_path, int(args.seed), int(args.forget_num)
     )
     if split_manifest.get("protocol") != locked_split.PROTOCOL:
-        raise RuntimeError("neuron erasure requires the locked direct-only split")
+        raise RuntimeError("neuron suppression requires the locked direct-only split")
     locked_split.assert_direct_only_training_view(locked_records)
     records = _record_views(locked_records)
     context_manifest = _load_json(context_path)
@@ -552,6 +890,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     case_ids = [int(record["case_id"]) for record in records]
     if [int(value) for value in stage1_state.get("case_ids", [])] != case_ids:
         raise RuntimeError("Stage-1 cases do not match the locked training view")
+    stored_preflight_threshold = stage1_state.get("writer_positive_amplitude_threshold")
+    if stored_preflight_threshold is not None and not math.isclose(
+        float(stored_preflight_threshold),
+        float(args.writer_preflight_amplitude_threshold),
+        abs_tol=1e-12,
+    ):
+        raise RuntimeError(
+            "registered writer preflight threshold differs from the frozen writer"
+        )
     context_sets = _context_sets_by_case(context_manifest, records)
 
     firewall_receipt = {
@@ -632,8 +979,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         int(input_layer.weight.shape[1]),
     ):
         raise RuntimeError("Stage-1 embedding delta has incompatible shape")
+    writer_present = str(args.writer_mode) == "embedding_keyed"
+    applied_embedding_delta = (
+        embedding_delta if writer_present else torch.zeros_like(embedding_delta)
+    )
     embedding_writer = neuron_core.ToggleableEmbeddingDelta(
-        input_layer, selected_embedding_rows, embedding_delta
+        input_layer, selected_embedding_rows, applied_embedding_delta
     )
 
     (
@@ -642,7 +993,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         direct_flags,
     ) = compositional_method.build_prompt_instances(records, context_sets)
     negative_instances = _negative_prompt_instances(records, context_sets)
-    all_training_prompts: List[str] = []
+    training_prompt_groups: List[List[str]] = []
     positive_prompts_by_record: List[List[str]] = []
     negative_prompts_by_record: List[List[str]] = []
     for record in records:
@@ -651,8 +1002,70 @@ def main(argv: Sequence[str] | None = None) -> None:
         negatives = [str(row["prompt"]) for row in context["negative_contexts"]]
         positive_prompts_by_record.append(positives)
         negative_prompts_by_record.append(negatives)
-        all_training_prompts.extend(positives)
-        all_training_prompts.extend(negatives)
+        training_prompt_groups.append([*positives, *negatives])
+
+    if writer_present:
+        marker_map = stage1_state.get("markers")
+        if not isinstance(marker_map, Mapping):
+            raise RuntimeError("Stage-1 state lacks marker directions for preflight")
+        preflight_amplitudes: List[torch.Tensor] = []
+        for position, prompts in enumerate(positive_prompts_by_record):
+            marker = marker_map.get(
+                case_ids[position], marker_map.get(str(case_ids[position]))
+            )
+            if not isinstance(marker, torch.Tensor) or marker.ndim != 1:
+                raise RuntimeError(
+                    f"Stage-1 marker missing for case {case_ids[position]}"
+                )
+            embedding_writer.enabled = False
+            writer_off_hidden = compositional_method.batched_last_hidden_only(
+                model,
+                tok,
+                prompts,
+                device,
+                batch_size=int(args.cache_batch_size),
+            )
+            embedding_writer.enabled = True
+            writer_on_hidden = compositional_method.batched_last_hidden_only(
+                model,
+                tok,
+                prompts,
+                device,
+                batch_size=int(args.cache_batch_size),
+            )
+            preflight_amplitudes.append(
+                (writer_on_hidden - writer_off_hidden) @ marker.detach().float().cpu()
+            )
+        writer_preflight = summarize_writer_preflight(
+            preflight_amplitudes,
+            amplitude_threshold=float(args.writer_preflight_amplitude_threshold),
+            minimum_global_fraction=float(args.writer_preflight_min_global_fraction),
+            minimum_record_fraction=float(args.writer_preflight_min_record_fraction),
+        )
+        for index, row in enumerate(writer_preflight["per_record"]):
+            row["case_id"] = case_ids[index]
+        writer_preflight.update(
+            {
+                "kind": "frozen_writer_training_safe_pre_decoder_preflight",
+                "applicable": True,
+                "official_evaluation_prompts_seen": 0,
+                "used_for_decoder_hyperparameter_selection": False,
+            }
+        )
+    else:
+        writer_preflight = {
+            "kind": "frozen_writer_training_safe_pre_decoder_preflight",
+            "applicable": False,
+            "writer_mode": "none",
+            "passed": True,
+            "official_evaluation_prompts_seen": 0,
+        }
+    gagd.write_json(out_dir / "writer_preflight_report.json", writer_preflight)
+    if not bool(writer_preflight["passed"]):
+        raise SystemExit(
+            "frozen writer failed its training-safe portability preflight; "
+            "decoder construction is refused"
+        )
 
     documents = subject_writer.load_frequency_documents(
         args.wikidata_dir, int(args.frequency_doc_start), int(args.frequency_docs)
@@ -666,14 +1079,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         count=int(args.corpus_protection_prompts),
         seed=int(args.seed) + 1907,
     )
-    protected_prompts = _unique_prompts(
-        [
-            *all_training_prompts,
-            *corpus_prompts,
-        ]
-    )[: int(args.selection_protected_prompts)]
+    protected_prompts, protected_prompt_report = build_selection_protected_prompts(
+        training_prompt_groups,
+        corpus_prompts,
+        total_limit=int(args.selection_protected_prompts),
+        minimum_corpus=int(args.selection_min_corpus_prompts),
+    )
+    if not protected_prompt_report["corpus_quota_passed"]:
+        raise RuntimeError("broad-corpus neuron-selection quota was not met")
+    if not protected_prompt_report["full_budget_passed"]:
+        raise RuntimeError("neuron-selection protected prompt budget was not filled")
+    if not protected_prompt_report["all_training_groups_represented"]:
+        raise RuntimeError("neuron-selection bank omitted one or more record groups")
 
-    print("\nStage 0: embedding-code neuron selection")
+    print(f"\nStage 0: {args.writer_mode} sparse-neuron selection")
     selection_start = time.time()
     embedding_writer.enabled = False
     protected_off = capture_base_last_token_activations(
@@ -686,8 +1105,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     record_writer_on: List[torch.Tensor] = []
     record_writer_off: List[torch.Tensor] = []
+    record_context_negative: List[torch.Tensor] = []
     for position, prompts in enumerate(positive_prompts_by_record):
         selected = prompts[: int(args.selection_positive_contexts)]
+        selected_negative = negative_prompts_by_record[position][
+            : int(args.selection_negative_contexts)
+        ]
         embedding_writer.enabled = False
         off = capture_base_last_token_activations(
             model,
@@ -697,7 +1120,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             device,
             batch_size=int(args.cache_batch_size),
         )
-        embedding_writer.enabled = True
+        embedding_writer.enabled = writer_present
         on = capture_base_last_token_activations(
             model,
             tok,
@@ -708,9 +1131,29 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         record_writer_off.append(off)
         record_writer_on.append(on)
+        embedding_writer.enabled = False
+        context_negative = capture_base_last_token_activations(
+            model,
+            tok,
+            mlp,
+            selected_negative,
+            device,
+            batch_size=int(args.cache_batch_size),
+        )
+        record_context_negative.append(context_negative)
+        displacement_label = (
+            "writer activation displacement"
+            if writer_present
+            else "base positive/negative mean separation"
+        )
+        separation = (
+            float((on - off).abs().max())
+            if writer_present
+            else float((on.mean(dim=0) - context_negative.mean(dim=0)).abs().max())
+        )
         print(
             f"  case {case_ids[position]}: selection contexts={len(selected)}, "
-            f"max writer activation displacement={float((on-off).abs().max()):.4f}"
+            f"max {displacement_label}={separation:.4f}"
         )
     ownership, sign_groups, selection_reports = neuron_core.select_record_owned_neurons(
         record_writer_on,
@@ -720,11 +1163,58 @@ def main(argv: Sequence[str] | None = None) -> None:
         dormant_fraction=float(args.dormant_fraction),
         stability_weight=float(args.selection_stability_weight),
         selection_mode=str(args.selection_mode),
+        context_negative_activations=record_context_negative,
         generator=torch.Generator(device="cpu").manual_seed(int(args.seed) + 4109),
     )
+    # The actuator is multiplied by the absolute SwiGLU activation at runtime;
+    # orient the audit/training statistic by the writer-on (or Base-positive for
+    # the no-writer control) activation itself, not by an unavailable paired
+    # Base displacement.
+    sign_groups = []
+    for record_index, neurons in enumerate(ownership):
+        index = torch.tensor(neurons, dtype=torch.long)
+        means = record_writer_on[record_index].index_select(1, index).mean(dim=0)
+        sign_groups.append(
+            torch.where(means >= 0, torch.ones_like(means), -torch.ones_like(means))
+        )
     selected_neurons, flat_signs_cpu, local_groups = neuron_core.flatten_ownership(
         ownership, sign_groups
     )
+    selected_index = torch.tensor(selected_neurons, dtype=torch.long)
+    selected_protected = protected_off.index_select(1, selected_index)
+    base_down_norms = (
+        mlp.down_proj.weight.detach()
+        .float()
+        .cpu()
+        .index_select(1, selected_index)
+        .norm(dim=0)
+    )
+    corpus_prompt_set = set(corpus_prompts)
+    corpus_mask = torch.tensor(
+        [prompt in corpus_prompt_set for prompt in protected_prompts],
+        dtype=torch.bool,
+    )
+    if int(corpus_mask.sum()) < int(args.selection_min_corpus_prompts):
+        raise RuntimeError("selected activation profile lost its corpus quota")
+    selected_activation_profile = {
+        "all_protected_prompts": activation_tail_profile(
+            selected_protected,
+            selected_neurons,
+            activation_threshold=float(args.detector_off_abs_max),
+            down_column_norms=base_down_norms,
+        ),
+        "broad_corpus_prompts": activation_tail_profile(
+            selected_protected[corpus_mask],
+            selected_neurons,
+            activation_threshold=float(args.detector_off_abs_max),
+            down_column_norms=base_down_norms,
+        ),
+        "interpretation": (
+            "Baseline activation and residual-contribution bounds for every "
+            "candidate ultimately edited. Quietness on the training prompts alone "
+            "is not treated as evidence that a neuron lacks an original function."
+        ),
+    }
     selection_report = {
         "layer": int(args.neuron_layer),
         "zero_based_layer_index": True,
@@ -732,8 +1222,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         "selected_neuron_count": len(selected_neurons),
         "intermediate_size": int(mlp.gate_proj.weight.shape[0]),
         "dormant_fraction": float(args.dormant_fraction),
+        "writer_mode": str(args.writer_mode),
         "selection_mode": str(args.selection_mode),
+        "detector_response_mode": str(args.detector_response_mode),
         "protected_prompt_count": len(protected_prompts),
+        "protected_prompt_bank": protected_prompt_report,
+        "protected_activation_rms": _distribution(
+            [float(value) for value in protected_off.square().mean(dim=0).sqrt()]
+        ),
+        "selected_baseline_activation_profile": selected_activation_profile,
         "ownership": [
             {"case_id": case_ids[index], **row}
             for index, row in enumerate(selection_reports)
@@ -749,20 +1246,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     editor = neuron_core.SparseSwiGLUNeuronEditor(mlp, selected_neurons)
     editor.install(mlp)
     flat_signs = flat_signs_cpu.to(device)
-    base_selected_by_prompt: Dict[str, torch.Tensor] = {}
-    embedding_writer.enabled = False
-    all_prompt_order = _unique_prompts([*all_training_prompts, *corpus_prompts])
-    base_selected = capture_base_last_token_activations(
-        model,
-        tok,
-        mlp,
-        all_prompt_order,
-        device,
-        batch_size=int(args.cache_batch_size),
-    )[:, selected_neurons]
-    for prompt, row in zip(all_prompt_order, base_selected):
-        base_selected_by_prompt[prompt] = row
-    embedding_writer.enabled = True
+    embedding_writer.enabled = writer_present
 
     print("\nStage 1: train sparse nonlinear contextual-code detector")
     editor.write_enabled = False
@@ -805,15 +1289,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                 positive_flags.append(False)
 
         detector_optimizer.zero_grad(set_to_none=True)
-        embedding_writer.enabled = True
+        embedding_writer.enabled = writer_present
         activation = capture_editor_last_token_activations(
             model, tok, editor, prompts, device
         )
-        baseline = torch.stack(
-            [base_selected_by_prompt[prompt] for prompt in prompts]
-        ).to(device)
-        responses = neuron_core.contextual_code_responses(
-            activation, baseline, local_groups, flat_signs
+        responses = neuron_core.signed_group_activations(
+            activation, local_groups, flat_signs
         )
         owner_tensor = torch.tensor(batch_owners, dtype=torch.long, device=device)
         positive_tensor = torch.tensor(positive_flags, dtype=torch.bool, device=device)
@@ -834,18 +1315,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                 )
         consistency = consistency / max(1, len(record_indices))
 
-        embedding_writer.enabled = False
-        off_activation = capture_editor_last_token_activations(
-            model, tok, editor, positive_batch, device
-        )
-        off_baseline = torch.stack(
-            [base_selected_by_prompt[prompt] for prompt in positive_batch]
-        ).to(device)
-        off_response = neuron_core.contextual_code_responses(
-            off_activation, off_baseline, local_groups, flat_signs
-        )
-        writer_off_loss = off_response.square().mean()
-        embedding_writer.enabled = True
+        writer_off_loss = responses.sum() * 0.0
+        if writer_present:
+            embedding_writer.enabled = False
+            off_activation = capture_editor_last_token_activations(
+                model, tok, editor, positive_batch, device
+            )
+            off_response = neuron_core.signed_group_activations(
+                off_activation, local_groups, flat_signs
+            )
+            writer_off_loss = off_response.square().mean()
+        embedding_writer.enabled = writer_present
         l2 = editor.gate_delta.square().mean() + editor.up_delta.square().mean()
         total = (
             detector_loss
@@ -890,7 +1370,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         prompt_groups: Sequence[Sequence[str]], *, writer_enabled: bool
     ) -> List[torch.Tensor]:
         result: List[torch.Tensor] = []
-        embedding_writer.enabled = bool(writer_enabled)
+        embedding_writer.enabled = bool(writer_enabled and writer_present)
         editor.write_enabled = False
         for record_index, prompts in enumerate(prompt_groups):
             rows: List[torch.Tensor] = []
@@ -899,25 +1379,24 @@ def main(argv: Sequence[str] | None = None) -> None:
                 activation = capture_editor_last_token_activations(
                     model, tok, editor, batch, device
                 )
-                baseline = torch.stack(
-                    [base_selected_by_prompt[prompt] for prompt in batch]
-                ).to(device)
-                response = neuron_core.contextual_code_responses(
-                    activation, baseline, local_groups, flat_signs
+                response = neuron_core.signed_group_activations(
+                    activation, local_groups, flat_signs
                 )
                 rows.append(response[:, record_index].detach().cpu())
             result.append(torch.cat(rows) if rows else torch.empty(0))
-        embedding_writer.enabled = True
+        embedding_writer.enabled = writer_present
         return result
 
     positive_detector = record_detector_responses(
-        positive_prompts_by_record, writer_enabled=True
+        positive_prompts_by_record, writer_enabled=writer_present
     )
     negative_detector = record_detector_responses(
-        negative_prompts_by_record, writer_enabled=True
+        negative_prompts_by_record, writer_enabled=writer_present
     )
-    writer_off_detector = record_detector_responses(
-        positive_prompts_by_record, writer_enabled=False
+    writer_off_detector = (
+        record_detector_responses(positive_prompts_by_record, writer_enabled=False)
+        if writer_present
+        else [torch.empty(0) for _ in positive_prompts_by_record]
     )
     detector_gate = neuron_core.detector_gate_report(
         positive_detector,
@@ -925,16 +1404,46 @@ def main(argv: Sequence[str] | None = None) -> None:
         writer_off_detector,
         positive_floor=float(args.detector_positive_floor),
         off_abs_max=float(args.detector_off_abs_max),
+        require_writer_off=writer_present,
     )
-    detector_gate["kind"] = "training_only_embedding_code_detector_gate"
+    detector_gate["kind"] = (
+        "training_only_embedding_code_detector_gate"
+        if writer_present
+        else "training_only_base_context_sparse_mlp_detector_gate"
+    )
+    detector_gate["writer_mode"] = str(args.writer_mode)
     detector_gate["official_evaluation_prompts_seen"] = 0
     gagd.write_json(out_dir / "detector_gate_report.json", detector_gate)
     print(
         f"  detector gate: {detector_gate['passed_records']}/"
         f"{detector_gate['total_records']} records"
     )
+    if writer_present and args.gate_policy == "strict" and not detector_gate["passed"]:
+        rejection = {
+            "schema_version": 1,
+            "kind": "mcf_embedding_keyed_neuron_training_only_rejection",
+            "stage": "sparse_context_detector",
+            "reason": "detector_gate_failed",
+            "writer_mode": str(args.writer_mode),
+            "detector_gate": detector_gate,
+            "actuator_training_started": False,
+            "checkpoint_saved": False,
+            "official_evaluation_allowed": False,
+            "official_evaluation_prompts_seen": 0,
+            "next_action": (
+                "Redesign or retrain the frozen writer/detector under a newly "
+                "registered training-only configuration; do not tune on official probes."
+            ),
+        }
+        gagd.write_json(out_dir / "training_rejection.json", rejection)
+        editor.remove()
+        embedding_writer.remove()
+        raise SystemExit(
+            "embedding-keyed detector failed its locked training-only gate; "
+            "actuator training and official evaluation are refused"
+        )
 
-    print("\nStage 2: train sparse MLP erasure actuator; LM head frozen")
+    print("\nStage 2: train sparse MLP suppression actuator; LM head frozen")
     # Every Stage-2 preservation target is the writer-only model.  Detector
     # gate/up edits are part of the learned MLP eraser and therefore may not be
     # smuggled into the reference baseline.
@@ -942,7 +1451,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     editor.gate_delta.requires_grad_(False)
     editor.up_delta.requires_grad_(False)
     editor.down_delta.requires_grad_(True)
-    embedding_writer.enabled = True
+    embedding_writer.enabled = writer_present
     pre_target_new, pre_target_true = compositional_method.evaluate_instance_nlls(
         model,
         tok,
@@ -1001,7 +1510,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         protected_batch = [protected_for_kl[index] for index in protected_indices]
 
         actuator_optimizer.zero_grad(set_to_none=True)
-        embedding_writer.enabled = True
+        embedding_writer.enabled = writer_present
         current_new, current_true = compositional_method.differentiable_instance_nlls(
             model, tok, positive_batch, device, llama_like=llama_like
         )
@@ -1029,7 +1538,8 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         writer_off_loss = margins.sum() * 0.0
         if (
-            int(args.actuator_writer_off_every) > 0
+            writer_present
+            and int(args.actuator_writer_off_every) > 0
             and step % int(args.actuator_writer_off_every) == 0
         ):
             embedding_writer.enabled = False
@@ -1049,7 +1559,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             writer_off_loss = (off_new - base_off_new.detach()).square().mean() + (
                 off_true - base_off_true.detach()
             ).square().mean()
-            embedding_writer.enabled = True
+            embedding_writer.enabled = writer_present
 
         l2 = editor.down_delta.square().mean()
         total = (
@@ -1106,14 +1616,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
     del actuator_optimizer
 
-    embedding_writer.enabled = True
+    embedding_writer.enabled = writer_present
     editor.enabled = True
     editor.write_enabled = True
 
     # Training-only causal ablations.  Every configuration uses the same fixed
     # learned tensors; none is selected using official evaluation probes.
     def evaluate_ablation(writer: bool, decoder: bool) -> torch.Tensor:
-        embedding_writer.enabled = bool(writer)
+        embedding_writer.enabled = bool(writer and writer_present)
         editor.enabled = bool(decoder)
         return compositional_method.evaluate_instance_margins(
             model,
@@ -1124,11 +1634,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             batch_size=int(args.cache_batch_size),
         )
 
-    full_hook_margins = evaluate_ablation(True, True)
-    embedding_only_margins = evaluate_ablation(True, False)
+    full_hook_margins = evaluate_ablation(writer_present, True)
+    embedding_only_margins = evaluate_ablation(writer_present, False)
     neuron_only_margins = evaluate_ablation(False, True)
     reconstructed_base_margins = evaluate_ablation(False, False)
-    embedding_writer.enabled = True
+    embedding_writer.enabled = writer_present
     editor.enabled = True
     full_direct_failures, full_positive_failures = _failure_counts(
         full_hook_margins, direct_flags, float(args.forget_margin)
@@ -1143,7 +1653,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         reconstructed_base_margins, direct_flags, float(args.forget_margin)
     )
     causal_ablation = {
-        "kind": "locked_training_only_four_way_causal_component_ablation",
+        "kind": "locked_training_only_within_checkpoint_component_intervention",
+        "interpretation_boundary": (
+            "Shows which components the fitted checkpoint relies on; it does not "
+            "establish architectural necessity relative to an independently "
+            "optimized no-writer sparse-MLP control."
+        ),
+        "writer_mode": str(args.writer_mode),
         "configurations": {
             "full_embedding_plus_neuron": {
                 "direct_failures": full_direct_failures,
@@ -1172,8 +1688,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         "decoder_margin_gain": _distribution(
             [float(value) for value in full_hook_margins - embedding_only_margins]
         ),
+        "writer_necessity_applicable": writer_present,
         "writer_is_necessary": bool(
-            neuron_only_direct
+            writer_present
+            and neuron_only_direct
             >= math.ceil(
                 float(args.min_writer_necessary_direct_fraction) * len(records)
             )
@@ -1196,7 +1714,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     base_input_rows = input_layer.weight.index_select(0, input_index).detach().clone()
     directional.materialize_input_delta(
-        input_layer, selected_embedding_rows, embedding_delta
+        input_layer, selected_embedding_rows, applied_embedding_delta
     )
     edited_input_rows = input_layer.weight.index_select(0, input_index).detach().clone()
     base_neuron_weights = neuron_core.SparseNeuronWeights(
@@ -1234,7 +1752,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     model_parameter_count = sum(
         int(parameter.numel()) for parameter in model.parameters()
     )
-    embedding_edited_scalar_count = int(edited_input_rows.numel())
+    embedding_edited_scalar_count = (
+        int(edited_input_rows.numel()) if writer_present else 0
+    )
     neuron_edited_scalar_count = int(
         edited_neuron_weights.gate_rows.numel()
         + edited_neuron_weights.up_rows.numel()
@@ -1254,12 +1774,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     detector_policy_passed = bool(
         detector_gate["passed"] or args.gate_policy == "report"
     )
+    writer_requirement_passed = bool(
+        not args.require_writer_necessity or causal_ablation["writer_is_necessary"]
+    )
     training_passed = bool(
         materialized_direct_failures == 0
         and materialized_positive_failures == 0
         and reference_regression_max <= float(args.reference_nll_tolerance) + 1e-6
         and norm_cap_passed
-        and causal_ablation["writer_is_necessary"]
+        and writer_requirement_passed
         and causal_ablation["decoder_is_necessary"]
         and detector_policy_passed
         and output_head_unchanged
@@ -1268,7 +1791,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     checkpoint_path = out_dir / "checkpoint"
-    checkpoint_saved = bool(args.save_checkpoint and training_passed)
+    rejected_control_checkpoint_saved = bool(
+        args.save_checkpoint
+        and args.save_rejected_checkpoint
+        and not training_passed
+        and not writer_present
+    )
+    checkpoint_saved = bool(
+        args.save_checkpoint and (training_passed or rejected_control_checkpoint_saved)
+    )
     if checkpoint_saved:
         checkpoint_path.mkdir(parents=True, exist_ok=True)
         model.save_pretrained(checkpoint_path)
@@ -1281,10 +1812,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     state_path = out_dir / "embedding_keyed_neuron_state.pt"
     torch.save(
         {
-            "schema_version": 1,
+            "schema_version": 3,
             "method": METHOD,
             "protocol": PROTOCOL,
             "seed": int(args.seed),
+            "experiment_label": str(args.experiment_label),
+            "writer_mode": str(args.writer_mode),
             "case_ids": case_ids,
             "layer": int(args.neuron_layer),
             "selected_embedding_rows": selected_embedding_rows,
@@ -1307,6 +1840,30 @@ def main(argv: Sequence[str] | None = None) -> None:
             "gate_delta": editor.gate_delta.detach().cpu(),
             "up_delta": editor.up_delta.detach().cpu(),
             "down_delta": editor.down_delta.detach().cpu(),
+            "detector_positive_floor": float(args.detector_positive_floor),
+            "detector_off_abs_max": float(args.detector_off_abs_max),
+            "detector_response_mode": str(args.detector_response_mode),
+            "writer_preflight_amplitude_threshold": float(
+                args.writer_preflight_amplitude_threshold
+            ),
+            "writer_configuration": {
+                "row_norm_cap": (
+                    float(stage1_state["row_norm_cap"])
+                    if stage1_state.get("row_norm_cap") is not None
+                    else None
+                ),
+                "row_norm_cap_frequency_alpha": (
+                    float(stage1_state["row_norm_cap_frequency_alpha"])
+                    if stage1_state.get("row_norm_cap_frequency_alpha") is not None
+                    else None
+                ),
+                "max_subject_token_frequency": (
+                    int(stage1_state["max_subject_token_frequency"])
+                    if stage1_state.get("max_subject_token_frequency") is not None
+                    else None
+                ),
+            },
+            "source_stage1_state_sha256": compositional_method.sha256_file(stage1_path),
             "detector_relative_cap": float(args.detector_relative_cap),
             "actuator_relative_cap": float(args.actuator_relative_cap),
             "hook_materialization_tolerance": float(
@@ -1320,10 +1877,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     summary = {
-        "schema_version": 1,
-        "method": METHOD,
+        "schema_version": 3,
+        "method": (
+            METHOD
+            if writer_present
+            else "Matched Retrained Sparse-MLP Conditional Suppression Control"
+        ),
         "protocol": PROTOCOL,
         "seed": int(args.seed),
+        "experiment_label": str(args.experiment_label),
+        "writer_mode": str(args.writer_mode),
         "forget_num": len(records),
         "model_path": str(Path(args.model_path).resolve()),
         "architecture": {
@@ -1339,7 +1902,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             "lm_head_edited": False,
             "lm_head_sha256_before": output_head_digest_before,
             "lm_head_sha256_after": output_head_digest_after,
-            "input_embedding_rows_edited": len(selected_embedding_rows),
+            "input_embedding_rows_loaded_from_frozen_writer": len(
+                selected_embedding_rows
+            ),
+            "input_embedding_rows_edited": (
+                len(selected_embedding_rows) if writer_present else 0
+            ),
             "mlp_layer": int(args.neuron_layer),
             "selected_existing_mlp_neurons": len(selected_neurons),
             "neurons_per_record": int(args.neurons_per_record),
@@ -1355,15 +1923,77 @@ def main(argv: Sequence[str] | None = None) -> None:
                 f"model.layers.{args.neuron_layer}.mlp.up_proj.weight[selected rows]",
                 f"model.layers.{args.neuron_layer}.mlp.down_proj.weight[selected columns]",
             ],
-            "writer": "ordinary global sparse subject embedding-row deltas",
+            "writer_mode": str(args.writer_mode),
+            "writer": (
+                "ordinary global sparse subject embedding-row deltas"
+                if writer_present
+                else "none; selected embedding rows remain bit-identical to Base"
+            ),
             "context_composer": "frozen Transformer layers before the selected MLP",
             "detector": "record-owned sparse existing SwiGLU gate/up rows",
             "actuator": "matching sparse existing SwiGLU down columns",
-            "decoder": "unchanged base LM head",
+            "output_projection": "unchanged base LM head",
+        },
+        "optimization_budget": {
+            "detector_response_mode": str(args.detector_response_mode),
+            "dormant_fraction": float(args.dormant_fraction),
+            "selection_stability_weight": float(args.selection_stability_weight),
+            "selection_positive_contexts": int(args.selection_positive_contexts),
+            "selection_negative_contexts": int(args.selection_negative_contexts),
+            "detector_steps": int(args.detector_steps),
+            "detector_lr": float(args.detector_lr),
+            "detector_record_batch": int(args.detector_record_batch),
+            "detector_positive_contexts": int(args.detector_positive_contexts),
+            "detector_negative_contexts": int(args.detector_negative_contexts),
+            "detector_positive_floor": float(args.detector_positive_floor),
+            "detector_off_abs_max": float(args.detector_off_abs_max),
+            "detector_negative_weight": float(args.detector_negative_weight),
+            "detector_cross_weight": float(args.detector_cross_weight),
+            "detector_consistency_weight": float(args.detector_consistency_weight),
+            "detector_l2": float(args.detector_l2),
+            "detector_relative_cap": float(args.detector_relative_cap),
+            "actuator_steps": int(args.actuator_steps),
+            "actuator_lr": float(args.actuator_lr),
+            "actuator_batch_size": int(args.actuator_batch_size),
+            "actuator_protected_batch": int(args.actuator_protected_batch),
+            "actuator_writer_off_every": int(args.actuator_writer_off_every),
+            "actuator_relative_cap": float(args.actuator_relative_cap),
+            "actuator_l2": float(args.actuator_l2),
+            "neurons_per_record": int(args.neurons_per_record),
+            "selected_existing_mlp_neurons": len(selected_neurons),
+            "mlp_layer": int(args.neuron_layer),
+            "protected_prompt_count": len(protected_prompts),
+            "protected_kl_weight": float(args.protected_kl_weight),
+            "margin_weight": float(args.margin_weight),
+            "reference_nll_weight": float(args.reference_nll_weight),
+            "reference_nll_tolerance": float(args.reference_nll_tolerance),
+            "forget_margin": float(args.forget_margin),
+            "grad_clip": float(args.grad_clip),
+            "kl_topk": int(args.kl_topk),
         },
         "data_firewall": firewall_receipt,
+        "writer_preflight": writer_preflight,
+        "writer_configuration": {
+            "row_norm_cap": (
+                float(stage1_state["row_norm_cap"])
+                if stage1_state.get("row_norm_cap") is not None
+                else None
+            ),
+            "row_norm_cap_frequency_alpha": (
+                float(stage1_state["row_norm_cap_frequency_alpha"])
+                if stage1_state.get("row_norm_cap_frequency_alpha") is not None
+                else None
+            ),
+            "max_subject_token_frequency": (
+                int(stage1_state["max_subject_token_frequency"])
+                if stage1_state.get("max_subject_token_frequency") is not None
+                else None
+            ),
+            "source_stage1_state_sha256": compositional_method.sha256_file(stage1_path),
+        },
         "selection": selection_report,
         "detector": {
+            "response_mode": str(args.detector_response_mode),
             "training_log": detector_log,
             "gate": detector_gate,
             "relative_norm_cap": float(args.detector_relative_cap),
@@ -1388,6 +2018,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         },
         "causal_component_ablation": causal_ablation,
         "acceptance": {
+            "writer_preflight_passed": bool(writer_preflight["passed"]),
             "zero_direct_failures": materialized_direct_failures == 0,
             "zero_training_safe_positive_failures": materialized_positive_failures == 0,
             "reference_nll_regression_within_tolerance": bool(
@@ -1396,6 +2027,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "detector_gate_passed": bool(detector_gate["passed"]),
             "detector_gate_policy_passed": detector_policy_passed,
             "writer_necessary": bool(causal_ablation["writer_is_necessary"]),
+            "writer_necessity_required": bool(args.require_writer_necessity),
+            "writer_requirement_passed": writer_requirement_passed,
             "decoder_necessary": bool(causal_ablation["decoder_is_necessary"]),
             "hard_relative_norm_caps_passed": norm_cap_passed,
             "lm_head_bit_identical": output_head_unchanged,
@@ -1404,15 +2037,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                 <= float(args.hook_materialization_tolerance) + 1e-6
             ),
             "checkpoint_saved": checkpoint_saved,
+            "rejected_control_checkpoint_saved": rejected_control_checkpoint_saved,
             "passed": training_passed,
         },
         "checkpoint": str(checkpoint_path) if checkpoint_saved else None,
         "state": str(state_path),
         "claim_boundary": (
-            "Training establishes a causal embedding-key to sparse-neuron pathway "
-            "only on locked training-safe contexts. Unseen paraphrase, locality, "
-            "PPL, alias, adversarial, latent-probe, and relearning behavior remains "
-            "unknown until separate post-checkpoint evaluation."
+            "This checkpoint is a context-conditional suppression intervention, "
+            "not evidence of weight-level knowledge removal. Training establishes "
+            "only locked-context fit and, when applicable, within-checkpoint key "
+            "dependence. Official paraphrase/locality tails and the independently "
+            "retrained no-writer control remain mandatory post-freeze evidence."
         ),
     }
     gagd.write_json(out_dir / "embedding_keyed_neuron_summary.json", summary)
@@ -1424,9 +2059,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"  minimum training margin               : {float(materialized_margins.min()):+.4f}"
     )
     print(f"  maximum reference NLL regression      : {reference_regression_max:.4f}")
-    print(
-        f"  without embedding writer direct fails : {neuron_only_direct}/{len(records)}"
-    )
+    if writer_present:
+        print(
+            "  within-checkpoint writer-off direct fails: "
+            f"{neuron_only_direct}/{len(records)}"
+        )
+    else:
+        print("  embedding writer                       : absent by construction")
     print(
         f"  without neuron decoder direct fails   : {embedding_only_direct}/{len(records)}"
     )
@@ -1435,8 +2074,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     print("  evaluation probes opened              : 0")
     print("=" * 76)
     if not training_passed:
+        if rejected_control_checkpoint_saved:
+            print(
+                "fixed-budget no-writer control was rejected by training acceptance; "
+                "its frozen checkpoint is retained for mandatory post-freeze evaluation"
+            )
+            print(f"checkpoint: {checkpoint_path}")
+            print(f"summary: {out_dir / 'embedding_keyed_neuron_summary.json'}")
+            return
         raise SystemExit(
-            "embedding-keyed sparse neuron erasure failed its locked training-only "
+            f"{args.writer_mode} sparse-neuron run failed its locked training-only "
             "acceptance; official evaluation is refused"
         )
     print(f"checkpoint: {checkpoint_path}")

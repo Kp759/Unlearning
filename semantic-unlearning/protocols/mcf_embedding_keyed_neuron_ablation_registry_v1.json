@@ -1,45 +1,74 @@
 {
-  "schema_version": 1,
-  "protocol": "mcf_embedding_keyed_sparse_neuron_erasure_v1",
-  "status": "preregistered_before_official_evaluation",
+  "schema_version": 3,
+  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v2",
+  "status": "training_only_v2_revision_frozen_before_v2_checkpoint_evaluation",
+  "development_history": [
+    {
+      "version": "v1",
+      "evidence_opened": "locked training-safe prompts only",
+      "official_evaluation_opened_by_this_failed_run": false,
+      "result": "rejected: layer-8 displacement detector passed 0/50 records; actuator training was unstable and is no longer allowed to run after detector rejection",
+      "changes_motivated": [
+        "audit the absolute neuron activation that actually multiplies down columns instead of an unavailable paired-Base displacement",
+        "move the decoder to the final Transformer MLP where the frozen writer's trained late-layer code is causally available",
+        "use low-activation neurons with a full-row reprogramming budget",
+        "lower the scale-dependent detector floor and stabilize actuator optimization",
+        "fail closed before actuator training when the detector gate fails"
+      ]
+    }
+  ],
+  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the predeclared v2 acceptance thresholds. They are not represented as blind holdout evidence. No official prompt is available to the v2 learner or used for checkpoint selection/retry.",
+  "primary_claim": "Embedding-keyed sparse-neuron context-conditional factual suppression with measured locality",
+  "explicitly_disallowed_primary_claims": [
+    "weight-level knowledge deletion",
+    "certified global locality",
+    "unlearning without latent-recovery and relearning evidence"
+  ],
   "primary_configuration": {
     "forget_num": 50,
-    "neuron_layer": 8,
+    "writer_mode": "embedding_keyed",
+    "neuron_layer": 27,
     "neurons_per_record": 4,
     "selection_mode": "writer_contrastive",
-    "dormant_fraction": 0.35,
+    "dormant_fraction": 0.2,
+    "detector_response_mode": "absolute_signed_group_activation",
     "selection_stability_weight": 1.0,
     "selection_positive_contexts": 8,
-    "selection_protected_prompts": 1024,
+    "selection_negative_contexts": 8,
+    "selection_protected_prompts": 8192,
+    "selection_min_corpus_prompts": 4096,
     "frequency_doc_start": 20,
     "frequency_docs": 5000,
-    "corpus_protection_prompts": 256,
-    "detector_steps": 600,
+    "corpus_protection_prompts": 8192,
+    "writer_preflight_amplitude_threshold": 4.5,
+    "writer_preflight_min_global_fraction": 0.95,
+    "writer_preflight_min_record_fraction": 0.8,
+    "detector_steps": 1000,
     "detector_lr": 0.001,
     "detector_record_batch": 4,
     "detector_positive_contexts": 2,
     "detector_negative_contexts": 2,
-    "detector_positive_floor": 1.0,
+    "detector_positive_floor": 0.25,
     "detector_negative_weight": 5.0,
     "detector_cross_weight": 2.0,
     "detector_writer_off_weight": 10.0,
     "detector_consistency_weight": 1.0,
     "detector_l2": 0.00001,
-    "detector_relative_cap": 0.4,
+    "detector_relative_cap": 1.0,
     "detector_off_abs_max": 0.2,
-    "actuator_steps": 1000,
-    "actuator_lr": 0.005,
+    "actuator_steps": 2000,
+    "actuator_lr": 0.0005,
     "actuator_batch_size": 4,
     "actuator_protected_batch": 4,
-    "actuator_writer_off_every": 4,
+    "actuator_writer_off_every": 1,
     "forget_margin": 1.0,
-    "margin_weight": 100.0,
-    "reference_nll_weight": 10.0,
+    "margin_weight": 20.0,
+    "reference_nll_weight": 50.0,
     "reference_nll_tolerance": 0.05,
-    "protected_kl_weight": 10.0,
-    "writer_off_nll_weight": 10.0,
+    "protected_kl_weight": 20.0,
+    "writer_off_nll_weight": 50.0,
     "actuator_l2": 0.0001,
-    "actuator_relative_cap": 0.4,
+    "actuator_relative_cap": 0.5,
     "grad_clip": 1.0,
     "check_every": 50,
     "cache_batch_size": 8,
@@ -47,19 +76,64 @@
     "hook_materialization_tolerance": 0.05,
     "min_writer_necessary_direct_fraction": 0.5,
     "min_decoder_necessary_direct_fraction": 0.5,
+    "require_writer_necessity": true,
+    "save_rejected_checkpoint": false,
     "gate_policy": "strict"
   },
   "ablation_common_configuration": {
     "gate_policy": "report"
   },
-  "why_50_first": "The first run is a falsification of the embedding-key-to-neuron mechanism. Scaling to 100 is confirmatory only after the 50-record mechanism passes without evaluation-set tuning.",
-  "mandatory_within_checkpoint_causal_ablation": [
-    "full_embedding_plus_neuron",
-    "embedding_only",
-    "neuron_only",
-    "reconstructed_base"
-  ],
+  "decisive_matched_control": {
+    "name": "mlp_only_retrained",
+    "independent_optimization_run": true,
+    "change_only": {
+      "writer_mode": "none",
+      "selection_mode": "base_context_contrastive",
+      "detector_writer_off_weight": 0.0,
+      "writer_off_nll_weight": 0.0,
+      "require_writer_necessity": false,
+      "save_rejected_checkpoint": true,
+      "gate_policy": "strict"
+    },
+    "held_fixed": [
+      "records and training-safe contexts",
+      "seed",
+      "MLP layer",
+      "neurons per record",
+      "dormant fraction",
+      "detector and actuator steps",
+      "detector positive floor and off threshold",
+      "relative norm caps",
+      "optimizer learning rates",
+      "protection prompt bank and KL budget",
+      "post-freeze 100k retain-tail audit"
+    ],
+    "selection_advantage": "The control may optimize neuron choice from base positive-versus-negative context contrast. The shared frozen artifact binds cases and context hashes, but the control applies a bit-exact zero embedding delta and does not use writer-delta values in selection, losses, or optimization.",
+    "decision_rule": "If this independently trained control meets the same forgetting and locality acceptance envelope, embedding-key necessity is falsified. If it does not, the result supports a keyed advantage only under the registered optimization budget and does not prove universal architectural necessity. The joint checkpoint with its writer toggled off is not a substitute for this control."
+  },
+  "mandatory_within_checkpoint_component_intervention": {
+    "configurations": [
+      "full_embedding_plus_neuron",
+      "embedding_only",
+      "neuron_only",
+      "reconstructed_base"
+    ],
+    "interpretation": "Diagnoses reliance of a fitted checkpoint only; it is not an architecture-level necessity proof."
+  },
   "controlled_training_ablations": [
+    {
+      "name": "mlp_only_retrained",
+      "change_only": {
+        "writer_mode": "none",
+        "selection_mode": "base_context_contrastive",
+        "detector_writer_off_weight": 0.0,
+        "writer_off_nll_weight": 0.0,
+        "require_writer_necessity": false,
+        "save_rejected_checkpoint": true,
+        "gate_policy": "strict"
+      },
+      "question": "Can a separately optimized sparse MLP editor match forgetting and locality without an embedding writer?"
+    },
     {
       "name": "random_dormant_neurons",
       "change_only": {"selection_mode": "dormant_random"},
@@ -78,19 +152,80 @@
     {
       "name": "no_writer_off_constraint",
       "change_only": {"detector_writer_off_weight": 0.0, "writer_off_nll_weight": 0.0},
-      "question": "Is explicit key dependence required to prevent a stand-alone MLP edit?"
+      "question": "Does explicit within-checkpoint key dependence prevent the fitted MLP edit from acting alone?"
     }
   ],
   "capacity_ablations": {
     "neurons_per_record": [1, 2, 4, 8],
-    "neuron_layer_zero_based": [4, 8, 12, 16]
+    "neuron_layer_zero_based": [8, 20, 24, 27]
+  },
+  "frozen_writer_portability_audit": {
+    "opened_only_after_all_compared_checkpoints_are_frozen": true,
+    "measurement": "For each official rewrite and paraphrase prefix, reconstruct Base and writer-only states and measure the frozen Stage-1 marker projection Q^T(h_writer-h_base).",
+    "threshold_source": "stage1_writer_report.json criterion.positive_amplitude_min",
+    "expected_amplitude_threshold": 4.5,
+    "threshold_must_match_preregistration_and_frozen_state_when_recorded": true,
+    "minimum_global_complete_fraction": 0.95,
+    "minimum_per_record_complete_fraction": 0.8,
+    "interpretation": "This is an empirical ceiling diagnostic for the claimed key pathway, not a mathematical ceiling on every nonlinear decoder."
+  },
+  "post_freeze_retain_tail_audit": {
+    "minimum_prompt_count": 100000,
+    "prompt_groups": [
+      "official retain rewrites",
+      "official retain paraphrases",
+      "official retain neighborhoods",
+      "official retain attribute prompts",
+      "official retain generation prompts"
+    ],
+    "response_event": "maximum absolute signed mean activation of a record-owned neuron group exceeds detector_off_abs_max; no paired-Base subtraction is used",
+    "effect_events": [
+      "next-token argmax changes",
+      "top-k restricted KL exceeds 0.01",
+      "maximum absolute next-token log-probability change exceeds 0.1"
+    ],
+    "legacy_comparator": {
+      "events": 24,
+      "prompts": 13000,
+      "rate": 0.0018461538461538461,
+      "provenance": "scoped-span retain-auxiliary exact-sequence router audit; used only as a preregistered empirical bar"
+    },
+    "acceptance": {
+      "observed_response_event_rate_at_most_legacy_rate": true,
+      "one_sided_95pct_wilson_upper_at_most_legacy_rate": true,
+      "observed_top1_change_rate_at_most_legacy_rate": true
+    }
+  },
+  "frequency_cap_factorial": {
+    "writer_conditions": [
+      {"name": "frequency_capped", "row_norm_cap": 8.0, "row_norm_cap_frequency_alpha": 0.15, "max_subject_token_frequency": 1000000000},
+      {"name": "uniform_same_cap", "row_norm_cap": 8.0, "row_norm_cap_frequency_alpha": 0.0, "max_subject_token_frequency": 1000000000},
+      {"name": "uniform_raised_cap", "row_norm_cap": 16.0, "row_norm_cap_frequency_alpha": 0.0, "max_subject_token_frequency": 1000000000}
+    ],
+    "decoder_conditions": ["embedding_only", "full_embedding_plus_neuron"],
+    "subject_frequency_strata": {
+      "rare": [0, 99],
+      "medium": [100, 999],
+      "common": [1000, null]
+    },
+    "predeclared_mechanism_test": [
+      "The full gated model with uniform_raised_cap is non-inferior to frequency_capped on retain specificity and PPL under the primary locality margins.",
+      "On common-token subjects, the leakage increase from frequency_capped to uniform_raised_cap is smaller with the decoder on than with embedding_only.",
+      "The common-token forgetting/locality bimodality is reported for every seed and may not be hidden by an aggregate mean."
+    ]
+  },
+  "replication": {
+    "development_seed": 1,
+    "confirmatory_seeds": [2, 3],
+    "all_seeds_reported": true,
+    "same_hyperparameters_across_seeds": true
   },
   "confirmatory_scaling": {
     "forget_num": 100,
-    "condition": "Run only with a separately frozen 100-record Stage-1 writer/context manifest and the primary hyperparameters; do not concatenate, inspect, or tune on official probes."
+    "condition": "Run only with a separately frozen 100-record Stage-1 writer/context manifest and the registered hyperparameters; do not tune on official probes."
   },
   "held_out_evaluation": {
-    "opened_only_after_checkpoint_is_frozen": true,
+    "opened_only_after_primary_and_mlp_only_checkpoints_are_frozen": true,
     "never_used_for_gradient_updates_checkpoint_selection_or_early_stopping": true,
     "sets": [
       "official MCF paraphrases",
@@ -99,7 +234,7 @@
       "official PPL text",
       "aliases and entity descriptions",
       "adversarial elicitation",
-      "latent probes",
+      "latent recovery",
       "relearning attacks"
     ]
   },
@@ -110,8 +245,17 @@
     "max_abs_retain_Eff_Gen_delta": 1.0,
     "max_abs_retain_Spe_delta": 0.2,
     "max_abs_PPL_percent_delta": 5.0,
-    "embedding_writer_causally_necessary": true,
-    "neuron_decoder_causally_necessary": true,
-    "LM_head_unchanged": true
+    "within_checkpoint_writer_dependence": true,
+    "within_checkpoint_neuron_dependence": true,
+    "LM_head_unchanged": true,
+    "matched_mlp_only_control_required": true,
+    "writer_portability_audit_required": true,
+    "retain_tail_audit_required": true
+  },
+  "claim_gate": {
+    "allowed_after_primary_acceptance": "context-conditional factual suppression with measured locality on the evaluated distributions",
+    "latent_recovery_and_relearning_are_mandatory_reported_endpoints": true,
+    "if_latent_or_relearning_recovers_the_fact": "Describe the method as conditional behavior suppression; do not call it knowledge deletion or unlearning.",
+    "stronger_unlearning_language": "Not preregistered as a primary claim and not automatically licensed by passing these diagnostics."
   }
 }

@@ -7,7 +7,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
-#SBATCH --array=0-9
+#SBATCH --array=0-10
 #SBATCH --no-requeue
 #SBATCH --output=slurm_logs/mcf_embedding_keyed_neuron_ablation_%A_%a.out
 #SBATCH --error=slurm_logs/mcf_embedding_keyed_neuron_ablation_%A_%a.err
@@ -37,9 +37,10 @@ case "${SLURM_ARRAY_TASK_ID}" in
   4) LABEL=neurons_per_record_1; CHANGE=(--neurons-per-record 1) ;;
   5) LABEL=neurons_per_record_2; CHANGE=(--neurons-per-record 2) ;;
   6) LABEL=neurons_per_record_8; CHANGE=(--neurons-per-record 8) ;;
-  7) LABEL=layer_4; CHANGE=(--neuron-layer 4) ;;
-  8) LABEL=layer_12; CHANGE=(--neuron-layer 12) ;;
-  9) LABEL=layer_16; CHANGE=(--neuron-layer 16) ;;
+  7) LABEL=layer_8; CHANGE=(--neuron-layer 8) ;;
+  8) LABEL=layer_20; CHANGE=(--neuron-layer 20) ;;
+  9) LABEL=layer_24; CHANGE=(--neuron-layer 24) ;;
+  10) LABEL=mlp_only_retrained; CHANGE=(--writer-mode none --selection-mode base_context_contrastive --detector-writer-off-weight 0 --writer-off-nll-weight 0 --no-require-writer-necessity --save-rejected-checkpoint --gate-policy strict) ;;
   *) echo "unregistered ablation index: ${SLURM_ARRAY_TASK_ID}" >&2; exit 2 ;;
 esac
 
@@ -76,29 +77,37 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --output-dir "${OUTPUT_DIR}" \
   --seed 1 \
   --forget-num 50 \
-  --neuron-layer 8 \
+  --writer-mode embedding_keyed \
+  --neuron-layer 27 \
   --neurons-per-record 4 \
   --selection-mode writer_contrastive \
-  --dormant-fraction 0.35 \
+  --dormant-fraction 0.20 \
+  --selection-positive-contexts 8 \
+  --selection-negative-contexts 8 \
+  --selection-protected-prompts 8192 \
+  --selection-min-corpus-prompts 4096 \
   --wikidata-dir "${WIKIDATA_DIR}" \
-  --detector-steps 600 \
+  --corpus-protection-prompts 8192 \
+  --detector-steps 1000 \
   --detector-lr 0.001 \
-  --detector-positive-floor 1 \
+  --detector-positive-floor 0.25 \
   --detector-negative-weight 5 \
   --detector-cross-weight 2 \
   --detector-writer-off-weight 10 \
   --detector-consistency-weight 1 \
-  --detector-relative-cap 0.40 \
+  --detector-relative-cap 1.0 \
   --detector-off-abs-max 0.20 \
-  --actuator-steps 1000 \
-  --actuator-lr 0.005 \
+  --actuator-steps 2000 \
+  --actuator-lr 0.0005 \
   --forget-margin 1 \
-  --margin-weight 100 \
-  --reference-nll-weight 10 \
+  --margin-weight 20 \
+  --reference-nll-weight 50 \
   --reference-nll-tolerance 0.05 \
-  --protected-kl-weight 10 \
-  --writer-off-nll-weight 10 \
-  --actuator-relative-cap 0.40 \
+  --protected-kl-weight 20 \
+  --writer-off-nll-weight 50 \
+  --actuator-writer-off-every 1 \
+  --actuator-relative-cap 0.50 \
+  --require-writer-necessity \
   --gate-policy report \
   --dtype bf16 \
   --device-map single \
