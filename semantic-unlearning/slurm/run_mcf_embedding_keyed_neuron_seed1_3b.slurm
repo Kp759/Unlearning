@@ -18,17 +18,19 @@ ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_embedding_keyed_neuron_v2_seed1_3b}"
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_embedding_keyed_neuron_v3_seed1_3b}"
 CONTROL_OUTPUT_DIR="${CONTROL_OUTPUT_DIR:-${OUTPUT_DIR}_mlp_only_retrained}"
-V3_OUTPUT_DIR="${V3_OUTPUT_DIR:-outputs/mcf_compositional_marker_v3_seed1_3b}"
+CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_clean_seed1_3b}"
 
 # These are the exact artifacts that produced the frozen Stage-1 writer.  The
 # neuron learner never receives MCF_PATH and cannot open official probes.
-TRAINING_VISIBLE="${TRAINING_VISIBLE:-${V3_OUTPUT_DIR}/protocol/training_visible_target_aware_direct.json}"
-SPLIT_MANIFEST="${SPLIT_MANIFEST:-${V3_OUTPUT_DIR}/protocol/split_manifest.json}"
-CONTEXT_MANIFEST="${CONTEXT_MANIFEST:-${V3_OUTPUT_DIR}/method/context_manifest.json}"
-STAGE1_STATE="${STAGE1_STATE:-${V3_OUTPUT_DIR}/method/stage1_writer.pt}"
-STAGE1_REPORT="${STAGE1_REPORT:-${V3_OUTPUT_DIR}/method/stage1_writer_report.json}"
+TRAINING_VISIBLE="${TRAINING_VISIBLE:-${CLEAN_WRITER_OUTPUT_DIR}/protocol/training_visible_target_aware_direct.json}"
+SPLIT_MANIFEST="${SPLIT_MANIFEST:-${CLEAN_WRITER_OUTPUT_DIR}/protocol/split_manifest.json}"
+CONTEXT_MANIFEST="${CONTEXT_MANIFEST:-${CLEAN_WRITER_OUTPUT_DIR}/method/context_manifest.json}"
+STAGE1_STATE="${STAGE1_STATE:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_writer.pt}"
+STAGE1_REPORT="${STAGE1_REPORT:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_writer_report.json}"
+STAGE1_LOG="${STAGE1_LOG:-${CLEAN_WRITER_OUTPUT_DIR}/method/stage1_writer_log.jsonl}"
+STAGE1_ACCEPTANCE="${STAGE1_ACCEPTANCE:-${CLEAN_WRITER_OUTPUT_DIR}/method/clean_stage1_acceptance.json}"
 REGISTRY="${REGISTRY:-protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json}"
 
 cd "${PROJECT_DIR}"
@@ -38,27 +40,31 @@ export PYTHONUNBUFFERED=1
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
 if [[ -e "${OUTPUT_DIR}" ]]; then
-  echo "output path already exists; refusing to mix v1/v2 artifacts: ${OUTPUT_DIR}" >&2
+  echo "output path already exists; refusing to mix historical/v3 artifacts: ${OUTPUT_DIR}" >&2
   exit 2
 fi
 if [[ -e "${CONTROL_OUTPUT_DIR}" ]]; then
   echo "matched-control path already exists; refusing overwrite: ${CONTROL_OUTPUT_DIR}" >&2
   exit 2
 fi
-for required in "${TRAINING_VISIBLE}" "${SPLIT_MANIFEST}" "${CONTEXT_MANIFEST}" "${STAGE1_STATE}" "${STAGE1_REPORT}" "${REGISTRY}"; do
+for required in "${TRAINING_VISIBLE}" "${SPLIT_MANIFEST}" "${CONTEXT_MANIFEST}" "${STAGE1_STATE}" "${STAGE1_REPORT}" "${STAGE1_LOG}" "${STAGE1_ACCEPTANCE}" "${REGISTRY}"; do
   if [[ ! -e "${required}" ]]; then
     echo "required frozen training artifact is missing: ${required}" >&2
     exit 2
   fi
 done
-EXPECTED_PROTOCOL="mcf_embedding_keyed_sparse_neuron_suppression_v2"
+if ! jq -e '.passed == true and .protocol == "mcf_context_composed_sparse_embedding_writer_v6" and .lineage.from_scratch == true and .lineage.writer_steps == 1200' "${STAGE1_ACCEPTANCE}" >/dev/null; then
+  echo "clean Stage-1 integrity receipt failed: ${STAGE1_ACCEPTANCE}" >&2
+  exit 2
+fi
+EXPECTED_PROTOCOL="mcf_embedding_keyed_sparse_neuron_suppression_v3"
 if ! jq -e --arg expected "${EXPECTED_PROTOCOL}" '.protocol == $expected' "${REGISTRY}" >/dev/null; then
   echo "registry is stale; expected protocol ${EXPECTED_PROTOCOL}: ${REGISTRY}" >&2
   exit 2
 fi
-python -c 'import sys; sys.path.insert(0, "scripts"); import mcf_embedding_keyed_neuron_core as c; assert c.PROTOCOL == "mcf_embedding_keyed_sparse_neuron_suppression_v2", c.PROTOCOL' \
+python -c 'import sys; sys.path.insert(0, "scripts"); import mcf_embedding_keyed_neuron_core as c; assert c.PROTOCOL == "mcf_embedding_keyed_sparse_neuron_suppression_v3", c.PROTOCOL' \
   2>/dev/null || {
-    echo "checkout is stale: sparse-neuron v2 code is not importable" >&2
+    echo "checkout is stale: sparse-neuron v3 code is not importable" >&2
     exit 2
   }
 mkdir -p slurm_logs "${OUTPUT_DIR}/protocol" "${OUTPUT_DIR}/comparison" \
@@ -67,6 +73,8 @@ mkdir -p slurm_logs "${OUTPUT_DIR}/protocol" "${OUTPUT_DIR}/comparison" \
 # Copy only the public preregistration, never an evaluation artifact.
 cp "${REGISTRY}" "${OUTPUT_DIR}/protocol/ablation_registry_v1.json"
 cp "${REGISTRY}" "${CONTROL_OUTPUT_DIR}/protocol/ablation_registry_v1.json"
+cp "${STAGE1_ACCEPTANCE}" "${OUTPUT_DIR}/protocol/clean_stage1_acceptance.json"
+cp "${STAGE1_ACCEPTANCE}" "${CONTROL_OUTPUT_DIR}/protocol/clean_stage1_acceptance.json"
 
 # TRAINING PROCESS. Deliberately no --mcf-path and no evaluation file argument.
 env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
@@ -78,6 +86,8 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --split-manifest "${SPLIT_MANIFEST}" \
   --context-manifest "${CONTEXT_MANIFEST}" \
   --stage1-state "${STAGE1_STATE}" \
+  --stage1-report "${STAGE1_REPORT}" \
+  --stage1-writer-log "${STAGE1_LOG}" \
   --experiment-registry "${REGISTRY}" \
   --experiment-label primary \
   --output-dir "${OUTPUT_DIR}/method" \
@@ -148,6 +158,8 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --split-manifest "${SPLIT_MANIFEST}" \
   --context-manifest "${CONTEXT_MANIFEST}" \
   --stage1-state "${STAGE1_STATE}" \
+  --stage1-report "${STAGE1_REPORT}" \
+  --stage1-writer-log "${STAGE1_LOG}" \
   --experiment-registry "${REGISTRY}" \
   --experiment-label mlp_only_retrained \
   --output-dir "${CONTROL_OUTPUT_DIR}/method" \

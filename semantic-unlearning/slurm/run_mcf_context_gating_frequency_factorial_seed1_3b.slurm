@@ -22,12 +22,11 @@ ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
-V3_OUTPUT_DIR="${V3_OUTPUT_DIR:-outputs/mcf_compositional_marker_v3_seed1_3b}"
+CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_clean_seed1_3b}"
 FACTORIAL_ROOT="${FACTORIAL_ROOT:-outputs/mcf_context_gating_frequency_factorial_seed1_3b}"
 REGISTRY="${REGISTRY:-protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json}"
-TRAINING_VISIBLE="${TRAINING_VISIBLE:-${V3_OUTPUT_DIR}/protocol/training_visible_target_aware_direct.json}"
-SPLIT_MANIFEST="${SPLIT_MANIFEST:-${V3_OUTPUT_DIR}/protocol/split_manifest.json}"
-SURROGATE_ARTIFACT="${SURROGATE_ARTIFACT:-${V3_OUTPUT_DIR}/protocol/robust_prompt_adapter_v7.json}"
+TRAINING_VISIBLE="${TRAINING_VISIBLE:-${CLEAN_WRITER_OUTPUT_DIR}/protocol/training_visible_target_aware_direct.json}"
+SPLIT_MANIFEST="${SPLIT_MANIFEST:-${CLEAN_WRITER_OUTPUT_DIR}/protocol/split_manifest.json}"
 
 case "${SLURM_ARRAY_TASK_ID}" in
   0) CONDITION=frequency_capped; ROW_CAP=8; FREQUENCY_ALPHA=0.15 ;;
@@ -49,7 +48,7 @@ if [[ -e "${WRITER_DIR}/stage1_writer.pt" || -e "${NEURON_DIR}/checkpoint" ]]; t
   echo "factorial output exists; refusing overwrite: ${OUTPUT_DIR}" >&2
   exit 2
 fi
-for required in "${TRAINING_VISIBLE}" "${SPLIT_MANIFEST}" "${SURROGATE_ARTIFACT}" "${REGISTRY}"; do
+for required in "${TRAINING_VISIBLE}" "${SPLIT_MANIFEST}" "${REGISTRY}"; do
   if [[ ! -e "${required}" ]]; then
     echo "required frozen artifact is missing: ${required}" >&2
     exit 2
@@ -68,8 +67,7 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --seed 1 \
   --forget-num 50 \
   --wikidata-dir "${WIKIDATA_DIR}" \
-  --surrogate-prompts-path "${SURROGATE_ARTIFACT}" \
-  --require-semantic-surrogates \
+  --positive-context-policy relation_templates_only_v1 \
   --synthetic-paraphrases-per-record 6 \
   --corpus-context-prefixes 256 \
   --reach-probes 12 \
@@ -97,6 +95,8 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --split-manifest "${SPLIT_MANIFEST}" \
   --context-manifest "${WRITER_DIR}/context_manifest.json" \
   --stage1-state "${WRITER_DIR}/stage1_writer.pt" \
+  --stage1-report "${WRITER_DIR}/stage1_writer_report.json" \
+  --stage1-writer-log "${WRITER_DIR}/stage1_writer_log.jsonl" \
   --experiment-registry "${REGISTRY}" \
   --experiment-label primary \
   --output-dir "${NEURON_DIR}" \

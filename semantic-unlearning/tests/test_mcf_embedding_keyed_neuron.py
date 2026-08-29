@@ -559,6 +559,10 @@ def test_training_cli_exposes_no_original_mcf_or_official_eval_argument():
             "contexts.json",
             "--stage1-state",
             "writer.pt",
+            "--stage1-report",
+            "writer-report.json",
+            "--stage1-writer-log",
+            "writer-log.jsonl",
             "--experiment-registry",
             "registry.json",
             "--output-dir",
@@ -582,6 +586,10 @@ def test_training_cli_exposes_no_original_mcf_or_official_eval_argument():
                 "contexts.json",
                 "--stage1-state",
                 "writer.pt",
+                "--stage1-report",
+                "writer-report.json",
+                "--stage1-writer-log",
+                "writer-log.jsonl",
                 "--experiment-registry",
                 "registry.json",
                 "--output-dir",
@@ -604,6 +612,10 @@ def test_no_writer_cli_requires_matched_control_settings():
         "contexts.json",
         "--stage1-state",
         "writer.pt",
+        "--stage1-report",
+        "writer-report.json",
+        "--stage1-writer-log",
+        "writer-log.jsonl",
         "--experiment-registry",
         "registry.json",
         "--output-dir",
@@ -644,6 +656,102 @@ def test_firewall_rejects_heldout_probe_content_recursively():
         method._validate_firewall(leaked, {"context_manifest_sha256": "abc"})
 
 
+def test_clean_stage1_lineage_requires_from_scratch_training_and_nonempty_log(
+    tmp_path,
+):
+    context = {
+        "positive_context_policy": {
+            "name": method.compositional_method.CLEAN_POSITIVE_CONTEXT_POLICY,
+            "free_form_generated_surrogates_allowed": False,
+            "relation_template_bank_sha256": method.compositional_method.sha256_json(
+                method.synthetic.RELATION_ALTERNATE_TEMPLATES
+            ),
+            "source_prompt_counts": {"external_free_form_surrogate": 0},
+        },
+        "surrogate_receipt": None,
+        "synthetic_coverage": {"generic_fallback_records": 0},
+        "records": [
+            {
+                "positive_prompts": ["Ada works as", "The profession of Ada is"],
+                "positive_prompt_provenance": [
+                    {"prompt": "Ada works as", "source": "canonical_direct"},
+                    {
+                        "prompt": "The profession of Ada is",
+                        "source": ("hand_authored_relation_template_or_corpus_prefix"),
+                    },
+                ],
+            }
+        ],
+    }
+    context_path = tmp_path / "context.json"
+    context_path.write_text(json.dumps(context), encoding="utf-8")
+    context_hash = method.compositional_method.sha256_file(context_path)
+    log_path = tmp_path / "writer.jsonl"
+    log_path.write_text('{"step": 1}\n', encoding="utf-8")
+    log_hash = method.compositional_method.sha256_file(log_path)
+    lineage = {
+        "mode": "from_scratch",
+        "same_context_manifest": True,
+        "resumed_context_manifest_sha256": None,
+        "current_context_manifest_sha256": context_hash,
+        "writer_steps": 1200,
+        "from_scratch": True,
+        "resumed_from": None,
+        "positive_context_policy": (
+            method.compositional_method.CLEAN_POSITIVE_CONTEXT_POLICY
+        ),
+        "writer_log_sha256": log_hash,
+        "writer_log_event_count": 1,
+        "base_model_path": "/models/base",
+        "base_transformer_fingerprint": 123.5,
+        "base_selected_embedding_rows_sha256": "a" * 64,
+    }
+    state = {
+        "protocol": method.compositional_core.PROTOCOL,
+        "context_manifest_sha256": context_hash,
+        "training_lineage": lineage,
+        "writer_log_sha256": log_hash,
+        "writer_log_event_count": 1,
+    }
+    report = {
+        "protocol": method.compositional_core.PROTOCOL,
+        "context_manifest_sha256": context_hash,
+        "positive_context_policy": (
+            method.compositional_method.CLEAN_POSITIVE_CONTEXT_POLICY
+        ),
+        "training_lineage": lineage,
+        "writer_log_sha256": log_hash,
+        "writer_log_event_count": 1,
+    }
+
+    receipt = method._validate_clean_stage1_lineage(
+        context, state, report, context_path, log_path
+    )
+    assert receipt["from_scratch"]
+    assert receipt["writer_log_event_count"] == 1
+
+    bad_provenance = json.loads(json.dumps(context))
+    bad_provenance["records"][0]["positive_prompt_provenance"][1][
+        "source"
+    ] = "external_free_form_surrogate"
+    with pytest.raises(RuntimeError, match="prompt provenance"):
+        method._validate_clean_stage1_lineage(
+            bad_provenance, state, report, context_path, log_path
+        )
+
+    resumed_state = {**state, "training_lineage": {**lineage, "from_scratch": False}}
+    with pytest.raises(RuntimeError, match="trained from Base"):
+        method._validate_clean_stage1_lineage(
+            context, resumed_state, report, context_path, log_path
+        )
+
+    log_path.write_text("", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="log hash"):
+        method._validate_clean_stage1_lineage(
+            context, state, report, context_path, log_path
+        )
+
+
 def test_environment_firewall_rejects_evaluation_paths(monkeypatch):
     method._validate_environment_firewall()
     monkeypatch.setenv("MCF_PATH", "/heldout/multi_counterfact.json")
@@ -664,6 +772,10 @@ def test_primary_configuration_is_bound_to_preregistered_values():
             "contexts.json",
             "--stage1-state",
             "writer.pt",
+            "--stage1-report",
+            "writer-report.json",
+            "--stage1-writer-log",
+            "writer-log.jsonl",
             "--experiment-registry",
             "registry.json",
             "--output-dir",
@@ -672,6 +784,19 @@ def test_primary_configuration_is_bound_to_preregistered_values():
     )
     registry = {
         "protocol": method.PROTOCOL,
+        "stage1_writer_prerequisite": {
+            "protocol": method.compositional_core.PROTOCOL,
+            "positive_context_policy": (
+                method.compositional_method.CLEAN_POSITIVE_CONTEXT_POLICY
+            ),
+            "relation_template_bank_sha256": (
+                method.compositional_method.sha256_json(
+                    method.synthetic.RELATION_ALTERNATE_TEMPLATES
+                )
+            ),
+            "training_origin": "Base model with no resumed Stage-1 state",
+            "writer_steps": 1200,
+        },
         "primary_configuration": {
             "forget_num": 50,
             "neuron_layer": 27,
@@ -707,6 +832,10 @@ def test_repository_registry_binds_primary_and_independent_control():
         "contexts.json",
         "--stage1-state",
         "writer.pt",
+        "--stage1-report",
+        "writer-report.json",
+        "--stage1-writer-log",
+        "writer-log.jsonl",
         "--experiment-registry",
         str(registry_path),
         "--output-dir",
@@ -759,12 +888,18 @@ def test_final_report_requires_metrics_mechanism_and_firewall_to_pass():
             "sidecar": False,
         },
         "data_firewall": {
+            "clean_stage1_writer": {
+                "from_scratch": True,
+                "writer_steps": 1200,
+                "positive_context_policy": "relation_templates_only_v1",
+                "writer_log_event_count": 49,
+            },
             "data_access": {
                 "official_paraphrases_seen": 0,
                 "official_neighborhoods_seen": 0,
                 "benchmark_retain_seen": 0,
                 "official_ppl_seen": False,
-            }
+            },
         },
     }
     result = report.build_report(
@@ -901,7 +1036,15 @@ def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
             "context_manifest_sha256": "context-hash",
             "split_manifest_sha256": "split-hash",
             "stage1_state_sha256": "stage1-hash",
+            "stage1_report_sha256": "stage1-report-hash",
+            "stage1_writer_log_sha256": "stage1-log-hash",
             "experiment_registry_sha256": "registry-hash",
+            "clean_stage1_writer": {
+                "from_scratch": True,
+                "writer_steps": 1200,
+                "positive_context_policy": "relation_templates_only_v1",
+                "writer_log_event_count": 49,
+            },
             "data_access": {
                 "official_paraphrases_seen": 0,
                 "official_neighborhoods_seen": 0,
@@ -924,7 +1067,15 @@ def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
             "context_manifest_sha256": "context-hash",
             "split_manifest_sha256": "split-hash",
             "stage1_state_sha256": "stage1-hash",
+            "stage1_report_sha256": "stage1-report-hash",
+            "stage1_writer_log_sha256": "stage1-log-hash",
             "experiment_registry_sha256": "registry-hash",
+            "clean_stage1_writer": {
+                "from_scratch": True,
+                "writer_steps": 1200,
+                "positive_context_policy": "relation_templates_only_v1",
+                "writer_log_event_count": 49,
+            },
         },
     }
     result = report.build_report(

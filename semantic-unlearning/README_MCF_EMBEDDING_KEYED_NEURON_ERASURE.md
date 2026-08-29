@@ -44,7 +44,7 @@ subtract a paired Base activation that would be unavailable at inference. The
 training floor and off-context threshold are diagnostics, not a fictional
 runtime classifier.
 
-## Training-only v1 rejection and v2 revision
+## Training-only v1/v2 rejections and v3 revision
 
 The first layer-8 feasibility run was rejected before its official evaluation: its
 detector passed 0/50 records, and the subsequently attempted actuator was
@@ -58,8 +58,26 @@ detector failure now stops before actuator training.
 
 This is not described as a blind preregistration: earlier project portability
 and scoped-span results motivated the numerical acceptance bars. The stronger
-firewall claim is that official prompts are unavailable to the v2 learner and
-cannot select or retry its checkpoint.
+firewall claim is that official prompts are unavailable to each registered
+learner and cannot select or retry its checkpoint.
+
+The first v2 attempt then stopped at its writer-portability preflight before
+neuron selection. It passed globally (548/567 prompts, 96.65%) but only 48/50
+records met the 80% record floor. A training-data lineage audit found two
+critical confounds: the nominal V3 writer had resumed the V2 state with zero
+optimization events, and the newer context manifest appended free-form V7
+surrogates that changed the relation or injected unsupported attributes in the
+two failed records. No official evaluation prompt had been opened.
+
+V3 therefore preserves v1 and v2 outputs as failed historical diagnostics and
+requires a new upstream writer. Its positive contexts are uniformly the direct
+prompt, explicit hand-authored relation-ID alternatives, and unrelated-corpus-
+prefix variants. Generic relation fallbacks and external free-form surrogates
+are forbidden. The writer must start from Base, run 1,200 steps, and bind its
+manifest, state, report, and nonempty optimization log by hash. The 4.5, 95%,
+and 80% portability thresholds are unchanged. The writer and decoder also bind
+the resolved Base-model path, frozen-Transformer fingerprint, and SHA-256 of
+the selected Base embedding rows.
 
 ## What changed after mechanism review
 
@@ -219,7 +237,8 @@ alias, adversarial, latent, or relearning input. It reads only:
 1. the locked direct-only training view;
 2. the exact split manifest;
 3. the training-safe context manifest;
-4. the frozen Stage-1 writer state; and
+4. the from-Base, relation-templates-only Stage-1 writer state, report, and
+   nonempty hash-bound optimization log; and
 5. Wikipedia documents 20 onward for selection/protection.
 
 Documents 0:20 remain reserved for official PPL. Relevant hashes and zero-
@@ -235,8 +254,8 @@ run.
 
 The registry is
 `protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json`. The legacy
-filename is retained for launcher compatibility; its current schema is 3 and
-its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v2`.
+filename is retained for launcher compatibility; its current schema is 4 and
+its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3`.
 The paper-level report requires all of the following:
 
 - primary Eff = 0 and Gen = 0;
@@ -259,33 +278,35 @@ separately frozen 100-record writer/context artifact exists.
 
 ## Running the complete seed-1 pipeline
 
-Expected frozen V3 inputs:
+First build the clean Stage-1 writer from Base. This opens no official
+evaluation probes and refuses any existing output path:
 
 ```bash
-export V3_OUTPUT_DIR=outputs/mcf_compositional_marker_v3_seed1_3b
-ls "$V3_OUTPUT_DIR/protocol/training_visible_target_aware_direct.json"
-ls "$V3_OUTPUT_DIR/protocol/split_manifest.json"
-ls "$V3_OUTPUT_DIR/method/context_manifest.json"
-ls "$V3_OUTPUT_DIR/method/stage1_writer.pt"
-ls "$V3_OUTPUT_DIR/method/stage1_writer_report.json"
+## Batch submission
+bash scripts/submit_mcf_compositional_marker_clean_stage1_seed1.sh
+
+## Or, inside an interactive allocation
+mkdir -p slurm_logs
+bash scripts/run_mcf_compositional_marker_clean_stage1_manual.sh \
+  outputs/mcf_compositional_marker_v6_clean_seed1_3b \
+  2>&1 | tee slurm_logs/mcf_compositional_marker_v6_clean_seed1_manual.log
 ```
 
-Submit the proposed model, full retrained control, and all post-freeze audits:
+Only after `method/clean_stage1_acceptance.json` passes, run the proposed model,
+full retrained control, and post-freeze audits:
 
 ```bash
 bash scripts/submit_mcf_embedding_keyed_neuron_seed1.sh
 ```
 
-For an interactive allocation, use the argument-taking wrapper rather than a
-multi-line shell substitution. It refuses stale/missing V3 inputs and existing
-output directories:
+For an interactive allocation, use the v3 argument-taking wrapper. It rejects
+the historical v2/V3 writer lineage and existing output directories:
 
 ```bash
-mkdir -p slurm_logs
-bash scripts/run_mcf_embedding_keyed_neuron_v2_manual.sh \
-  /scratch/yl258/kp759/ul-a8864ff/semantic-unlearning/outputs/mcf_compositional_marker_v3_seed1_3b \
-  outputs/mcf_embedding_keyed_neuron_v2_seed1_3b \
-  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v2_seed1_manual.log
+bash scripts/run_mcf_embedding_keyed_neuron_v3_manual.sh \
+  /scratch/yl258/kp759/ul-a8864ff/semantic-unlearning/outputs/mcf_compositional_marker_v6_clean_seed1_3b \
+  outputs/mcf_embedding_keyed_neuron_v3_seed1_3b \
+  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_seed1_manual.log
 ```
 
 The job is intentionally budgeted for two full training runs. The result report
@@ -319,6 +340,9 @@ python scripts/aggregate_mcf_context_gating_frequency_factorial.py \
   selected-neuron baseline activation/function tails;
 - `method/writer_preflight_report.json`: frozen-writer training-safe coverage
   measured before decoder construction;
+- upstream `method/clean_stage1_acceptance.json`: exact from-Base lineage,
+  relation-template policy, artifact hashes, and nonempty optimization-log
+  receipt;
 - `method/causal_component_ablation.json`: explicitly labeled
   within-checkpoint intervention;
 - `method/embedding_keyed_neuron_state.pt`: exact base/edited sparse weights,

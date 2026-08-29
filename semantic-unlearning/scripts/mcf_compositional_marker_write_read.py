@@ -21,10 +21,10 @@ present.
 Data firewall
 -------------
 This program requires the direct-only locked MCF split.  Its positive contexts
-are the direct prompt, hand-authored relation templates, corpus-prefix variants,
-and (optionally) an independently generated surrogate artifact whose receipt
-declares zero official-probe access.  Its negatives use only other locked
-forget subjects and corruptions of those subjects.  Official CounterFact
+are the direct prompt, hand-authored relation templates, and corpus-prefix
+variants. Free-form surrogates are forbidden in the clean paper protocol and
+remain available only in an explicitly labelled diagnostic mode. Its negatives
+use only other locked forget subjects and corruptions of those subjects. Official CounterFact
 paraphrases, neighborhoods, retain records, and the official PPL prefix are
 never loaded.  Final evaluation is a separate process against the original
 source after the checkpoint is frozen.
@@ -57,6 +57,8 @@ import sure_canonical_core as canonical
 
 METHOD = "Context-Composed Sparse Embedding Writing"
 PROTOCOL = compositional.PROTOCOL
+CLEAN_POSITIVE_CONTEXT_POLICY = "relation_templates_only_v1"
+SURROGATE_POSITIVE_CONTEXT_POLICY = "relation_templates_plus_audited_surrogates_v1"
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -71,11 +73,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     # Training-safe positive contexts.
     p.add_argument("--synthetic-paraphrases-per-record", type=int, default=6)
     p.add_argument(
+        "--positive-context-policy",
+        choices=(
+            CLEAN_POSITIVE_CONTEXT_POLICY,
+            SURROGATE_POSITIVE_CONTEXT_POLICY,
+        ),
+        default=CLEAN_POSITIVE_CONTEXT_POLICY,
+        help=(
+            "relation_templates_only_v1 permits only the canonical direct prompt, "
+            "hand-authored relation-ID templates, and unrelated-corpus-prefix "
+            "variants. The surrogate policy is retained only for explicitly "
+            "labelled diagnostic runs."
+        ),
+    )
+    p.add_argument(
         "--surrogate-prompts-path",
         default="",
         help=(
-            "Optional semantically generated surrogate artifact. It must match "
-            "the locked records and declare zero access to all official probes."
+            "Optional generated surrogate artifact for explicitly labelled "
+            "diagnostic runs. It is forbidden by relation_templates_only_v1."
         ),
     )
     p.add_argument(
@@ -156,7 +172,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--kappa-train-max", type=float, default=0.10)
     p.add_argument("--portability-min", type=float, default=0.50)
     p.add_argument(
-        "--cos-marker-reader-min", type=float, default=0.0,
+        "--cos-marker-reader-min",
+        type=float,
+        default=0.0,
         help=(
             "Diagnostic lower bound after negative-nullspace projection. The first "
             "run showed that forcing cos(v,q) near one preserves base-state leakage; "
@@ -165,7 +183,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--gate-pass-frac", type=float, default=1.0)
     p.add_argument(
-        "--gate-policy", choices=("strict", "report"), default="strict",
+        "--gate-policy",
+        choices=("strict", "report"),
+        default="strict",
         help="strict refuses Stage 2 if the predeclared reader gate fails.",
     )
 
@@ -236,7 +256,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--cache-batch-size", type=int, default=8)
     p.add_argument("--dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
     p.add_argument("--device-map", choices=("single", "auto"), default="single")
-    p.add_argument("--save-checkpoint", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument(
+        "--save-checkpoint", action=argparse.BooleanOptionalAction, default=True
+    )
     a = p.parse_args(list(argv) if argv is not None else None)
 
     positive_ints = (
@@ -261,7 +283,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     if int(a.writer_steps) == 0 and not str(a.resume_stage1_state).strip():
         p.error("--writer-steps 0 requires --resume-stage1-state")
     if int(a.synthetic_paraphrases_per_record) < 0 or int(a.reader_refine_steps) < 0:
-        p.error("synthetic paraphrase and reader-refinement counts must be non-negative")
+        p.error(
+            "synthetic paraphrase and reader-refinement counts must be non-negative"
+        )
     if int(a.stage2_protection_rank) < 0 or int(a.stage2_corpus_protection_prompts) < 0:
         p.error("Stage-2 protection rank/counts must be non-negative")
     if int(a.stage2_residual_rank) <= 0 or int(a.stage2_row_negative_rank) < 0:
@@ -285,6 +309,26 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("--frequency-doc-start must be >=20 to exclude official PPL documents")
     if a.require_semantic_surrogates and not str(a.surrogate_prompts_path).strip():
         p.error("--require-semantic-surrogates needs --surrogate-prompts-path")
+    if a.positive_context_policy == CLEAN_POSITIVE_CONTEXT_POLICY:
+        if str(a.surrogate_prompts_path).strip():
+            p.error("relation_templates_only_v1 forbids --surrogate-prompts-path")
+        if bool(a.require_semantic_surrogates):
+            p.error("relation_templates_only_v1 forbids --require-semantic-surrogates")
+        if int(a.synthetic_paraphrases_per_record) < 4:
+            p.error(
+                "relation_templates_only_v1 requires at least four synthetic "
+                "contexts so every authored relation alternative appears both "
+                "bare and with an unrelated prefix"
+            )
+        if int(a.corpus_context_prefixes) <= 0:
+            p.error(
+                "relation_templates_only_v1 requires positive corpus-context prefixes"
+            )
+    elif not str(a.surrogate_prompts_path).strip():
+        p.error(
+            "relation_templates_plus_audited_surrogates_v1 requires "
+            "--surrogate-prompts-path"
+        )
     fractions = (
         a.gate_pass_frac,
         a.portability_min,
@@ -299,14 +343,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         p.error("--writer-marker-kappa-max must be non-negative")
     if float(a.row_norm_cap) < 0 or float(a.row_norm_cap_frequency_alpha) < 0:
         p.error("writer row-norm cap and frequency alpha must be non-negative")
-    if min(
-        float(a.stage2_margin_weight),
-        float(a.stage2_negative_weight),
-        float(a.stage2_base_positive_weight),
-        float(a.stage2_beta_l2),
-        float(a.stage2_reference_nll_weight),
-        float(a.stage2_reference_nll_tolerance),
-    ) < 0:
+    if (
+        min(
+            float(a.stage2_margin_weight),
+            float(a.stage2_negative_weight),
+            float(a.stage2_base_positive_weight),
+            float(a.stage2_beta_l2),
+            float(a.stage2_reference_nll_weight),
+            float(a.stage2_reference_nll_tolerance),
+        )
+        < 0
+    ):
         p.error("Stage-2 loss weights must be non-negative")
     return a
 
@@ -317,6 +364,73 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def sha256_json(value: Any) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def tensor_sha256(value: torch.Tensor) -> str:
+    tensor = value.detach().contiguous().cpu()
+    return hashlib.sha256(tensor.view(torch.uint8).numpy().tobytes()).hexdigest()
+
+
+def frozen_transformer_fingerprint(model: torch.nn.Module) -> float:
+    return sum(
+        float(parameter.detach().float().abs().sum())
+        for name, parameter in model.named_parameters()
+        if "embed_tokens" not in name and "lm_head" not in name
+    )
+
+
+def validate_stage1_resume_binding(
+    resumed_state: Mapping[str, Any],
+    *,
+    current_context_manifest_sha256: str,
+    writer_steps: int,
+) -> Dict[str, Any]:
+    """Validate whether a Stage-1 state may be reused for this context set.
+
+    Zero-step reuse is an exact replay, not a warm start, and is therefore
+    legal only when the resumed writer is cryptographically bound to the same
+    context manifest. A positive-step cross-context resume is labelled as a
+    warm start; its embedding delta may initialize training, but its old marker
+    vectors must not replace markers selected from the new contexts.
+    """
+
+    stored_hash = str(resumed_state.get("context_manifest_sha256") or "")
+    if not stored_hash:
+        raise RuntimeError(
+            "refusing Stage-1 resume: resumed state lacks context_manifest_sha256"
+        )
+    current_hash = str(current_context_manifest_sha256)
+    same_context = stored_hash == current_hash
+    if int(writer_steps) == 0 and not same_context:
+        raise RuntimeError(
+            "refusing zero-step Stage-1 resume: the resumed writer was not "
+            "trained/bound to this exact context manifest"
+        )
+    return {
+        "mode": (
+            "exact_zero_step_reuse"
+            if int(writer_steps) == 0
+            else (
+                "same_context_continued_training"
+                if same_context
+                else "cross_context_warm_start"
+            )
+        ),
+        "same_context_manifest": bool(same_context),
+        "resumed_context_manifest_sha256": stored_hash,
+        "current_context_manifest_sha256": current_hash,
+        "writer_steps": int(writer_steps),
+    }
 
 
 def _record_views(records: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
@@ -366,9 +480,7 @@ def load_surrogate_prompts(
     robust_adapter = str(data.get("protocol", "")).startswith(
         "mcf_direct_only_robust_prompt_adapter_v"
     )
-    semantic_enabled = bool(
-        semantic.get("enabled", False) or semantic.get("protocol")
-    )
+    semantic_enabled = bool(semantic.get("enabled", False) or semantic.get("protocol"))
     semantic_required = bool(
         semantic.get("required_for_every_surrogate", False) or robust_adapter
     )
@@ -390,22 +502,39 @@ def load_surrogate_prompts(
             raise RuntimeError(f"surrogate case mismatch at position {position}")
         if int(row.get("sampled_position", -1)) != position:
             raise RuntimeError(f"surrogate position mismatch at {position}")
-        if compositional.normalized_key(row.get("subject", "")) != compositional.normalized_key(subject):
+        if compositional.normalized_key(
+            row.get("subject", "")
+        ) != compositional.normalized_key(subject):
             raise RuntimeError(f"surrogate subject mismatch at position {position}")
-        if compositional.normalized_key(row.get("direct_prompt", "")) != compositional.normalized_key(direct):
-            raise RuntimeError(f"surrogate direct-prompt mismatch at position {position}")
+        if compositional.normalized_key(
+            row.get("direct_prompt", "")
+        ) != compositional.normalized_key(direct):
+            raise RuntimeError(
+                f"surrogate direct-prompt mismatch at position {position}"
+            )
         candidates = row.get("surrogate_prompts")
         if not isinstance(candidates, list):
             raise RuntimeError(f"surrogate prompts missing at position {position}")
         if not candidates and row.get("augmentation_status") != "direct_only":
-            raise RuntimeError(f"empty surrogate set is not declared direct_only at {position}")
-        answers = [str(rewrite["target_true"]["str"]), str(rewrite["target_new"]["str"])]
+            raise RuntimeError(
+                f"empty surrogate set is not declared direct_only at {position}"
+            )
+        answers = [
+            str(rewrite["target_true"]["str"]),
+            str(rewrite["target_new"]["str"]),
+        ]
         clean = compositional.ordered_unique([str(x) for x in candidates])
         for candidate in clean:
-            if compositional.normalized_key(subject) not in compositional.normalized_key(candidate):
-                raise RuntimeError(f"surrogate dropped the subject at position {position}")
+            if compositional.normalized_key(
+                subject
+            ) not in compositional.normalized_key(candidate):
+                raise RuntimeError(
+                    f"surrogate dropped the subject at position {position}"
+                )
             if answer_guard.introduced_answer_occurrences(candidate, direct, answers):
-                raise RuntimeError(f"surrogate introduced an answer at position {position}")
+                raise RuntimeError(
+                    f"surrogate introduced an answer at position {position}"
+                )
         prompts_by_record.append(clean)
     return prompts_by_record, {
         "path": str(path.resolve()),
@@ -443,7 +572,10 @@ def forward_last_hidden_logits(
         output = model(**encoded, output_hidden_states=True, use_cache=False)
         positions = encoded["attention_mask"].sum(dim=1) - 1
         rows = torch.arange(len(prompts), device=device)
-        return output.hidden_states[-1][rows, positions, :], output.logits[rows, positions, :]
+        return (
+            output.hidden_states[-1][rows, positions, :],
+            output.logits[rows, positions, :],
+        )
     finally:
         tok.padding_side = old_side
 
@@ -487,7 +619,10 @@ def batched_last_hidden_only(
         rows.append(
             forward_last_hidden_only(
                 model, tok, prompts[start : start + int(batch_size)], device
-            ).detach().float().cpu()
+            )
+            .detach()
+            .float()
+            .cpu()
         )
     return torch.cat(rows, dim=0) if rows else torch.empty((0, 0))
 
@@ -633,7 +768,9 @@ def build_prompt_instances(
                 mcf_repair.MCFPromptInstance(
                     record_index=case_id,
                     sampled_position=position,
-                    prompt_type="direct" if prompt_index == 0 else "training_safe_positive",
+                    prompt_type="direct"
+                    if prompt_index == 0
+                    else "training_safe_positive",
                     prompt_index=prompt_index,
                     prompt=prompt,
                     target_new=str(record["reference"]),
@@ -662,7 +799,9 @@ def differentiable_instance_nlls(
     losses: List[torch.Tensor] = []
     for row, (tokens, prefix_len) in enumerate(zip(target_ids, prefix_lens)):
         pieces = [
-            -F.log_softmax(logits[row, prefix_len + offset - 1, :].float(), dim=-1)[token]
+            -F.log_softmax(logits[row, prefix_len + offset - 1, :].float(), dim=-1)[
+                token
+            ]
             for offset, token in enumerate(tokens)
         ]
         losses.append(torch.stack(pieces).mean())
@@ -757,9 +896,7 @@ def reference_nll_regression_penalty(
         raise ValueError("current and baseline NLL tensors must have equal shape")
     if not math.isfinite(float(tolerance)) or float(tolerance) < 0.0:
         raise ValueError("NLL drift tolerance must be finite and non-negative")
-    return F.relu(
-        current_nll - baseline_nll - float(tolerance)
-    ).square().mean()
+    return F.relu(current_nll - baseline_nll - float(tolerance)).square().mean()
 
 
 def distribution(values: Sequence[float]) -> Dict[str, float]:
@@ -819,18 +956,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     llama_like = canonical.is_llama_like(model, tok)
     hidden_size = int(input_layer.weight.shape[1])
 
-    transformer_fingerprint = sum(
-        float(parameter.detach().float().abs().sum())
-        for name, parameter in model.named_parameters()
-        if "embed_tokens" not in name and "lm_head" not in name
-    )
+    transformer_fingerprint = frozen_transformer_fingerprint(model)
 
     print("\nStage 0: training-safe context construction")
     frequency_documents = subject_writer.load_frequency_documents(
         a.wikidata_dir, int(a.frequency_doc_start), int(a.frequency_docs)
     )
     if int(a.frequency_docs) > 0 and not frequency_documents:
-        raise RuntimeError(f"no disjoint frequency documents loaded from {a.wikidata_dir!r}")
+        raise RuntimeError(
+            f"no disjoint frequency documents loaded from {a.wikidata_dir!r}"
+        )
     token_counts = subject_writer.token_frequency_counts(
         tok, frequency_documents, int(input_layer.weight.shape[0])
     )
@@ -839,6 +974,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         count=int(a.corpus_context_prefixes),
         seed=int(a.seed),
     )
+    if (
+        a.positive_context_policy == CLEAN_POSITIVE_CONTEXT_POLICY
+        and not corpus_prefixes
+    ):
+        raise RuntimeError(
+            "relation_templates_only_v1 requires at least one unrelated "
+            "corpus-derived prefix; formulaic fallback prefixes are forbidden"
+        )
 
     external_surrogates: List[List[str]] = [[] for _ in records]
     surrogate_receipt: Dict[str, Any] | None = None
@@ -852,6 +995,18 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     positives_by_case: Dict[int, List[str]] = {}
     synthetic_coverage = synthetic.coverage_report(locked_records)
+    if (
+        a.positive_context_policy == CLEAN_POSITIVE_CONTEXT_POLICY
+        and int(synthetic_coverage["generic_fallback_records"]) != 0
+    ):
+        raise RuntimeError(
+            "relation_templates_only_v1 requires explicit hand-authored "
+            "coverage for every relation ID; generic fallback is forbidden"
+        )
+    direct_prompt_count = 0
+    relation_template_prompt_count = 0
+    external_surrogate_prompt_count = 0
+    positive_prompt_provenance_by_case: Dict[int, List[Dict[str, str]]] = {}
     for position, (locked, record) in enumerate(zip(locked_records, records)):
         rewrite = locked["requested_rewrite"]
         templates = synthetic.synthetic_prompt_templates(
@@ -862,9 +1017,33 @@ def main(argv: Sequence[str] | None = None) -> None:
             context_prefixes=corpus_prefixes or None,
         )
         generated = [template.format(str(record["subject"])) for template in templates]
-        positives_by_case[int(record["case_id"])] = compositional.ordered_unique(
-            [str(record["direct_prompt"]), *generated, *external_surrogates[position]]
+        direct = str(record["direct_prompt"])
+        relation_prompts = compositional.ordered_unique(generated)
+        external_prompts = compositional.ordered_unique(external_surrogates[position])
+        case_id = int(record["case_id"])
+        positives_by_case[case_id] = compositional.ordered_unique(
+            [direct, *relation_prompts, *external_prompts]
         )
+        source_by_prompt = {compositional.normalized_key(direct): "canonical_direct"}
+        for prompt in relation_prompts:
+            source_by_prompt.setdefault(
+                compositional.normalized_key(prompt),
+                "hand_authored_relation_template_or_corpus_prefix",
+            )
+        for prompt in external_prompts:
+            source_by_prompt.setdefault(
+                compositional.normalized_key(prompt), "external_free_form_surrogate"
+            )
+        positive_prompt_provenance_by_case[case_id] = [
+            {
+                "prompt": prompt,
+                "source": source_by_prompt[compositional.normalized_key(prompt)],
+            }
+            for prompt in positives_by_case[case_id]
+        ]
+        direct_prompt_count += 1
+        relation_template_prompt_count += len(relation_prompts)
+        external_surrogate_prompt_count += len(external_prompts)
 
     direct_live = subject_writer.live_prompt_token_ids(locked_records, tok)
     positive_live: Dict[int, set[int]] = {}
@@ -887,6 +1066,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         int(row["case_id"]): [int(x) for x in row["kept_token_ids"]]
         for row in row_reports
     }
+    selected_row_index = torch.tensor(
+        selected_rows, dtype=torch.long, device=input_layer.weight.device
+    )
+    base_selected_embedding_rows_sha256 = tensor_sha256(
+        input_layer.weight.index_select(0, selected_row_index)
+    )
     context_sets, context_report = compositional.build_compositional_contexts(
         records,
         positives_by_case,
@@ -899,13 +1084,37 @@ def main(argv: Sequence[str] | None = None) -> None:
         max_unrelated=int(a.max_unrelated_negatives),
     )
     context_manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "protocol": PROTOCOL,
         "seed": int(a.seed),
         "source_training_visible_path": str(visible_path),
         "source_training_visible_sha256": sha256_file(visible_path),
         "source_split_manifest": str(manifest_path),
         "source_split_manifest_sha256": sha256_file(manifest_path),
+        "positive_context_policy": {
+            "name": str(a.positive_context_policy),
+            "canonical_direct_required": True,
+            "hand_authored_relation_templates_required": bool(
+                a.positive_context_policy == CLEAN_POSITIVE_CONTEXT_POLICY
+            ),
+            "unrelated_corpus_prefix_variants_required": bool(
+                a.positive_context_policy == CLEAN_POSITIVE_CONTEXT_POLICY
+            ),
+            "free_form_generated_surrogates_allowed": bool(
+                a.positive_context_policy == SURROGATE_POSITIVE_CONTEXT_POLICY
+            ),
+            "relation_template_bank_sha256": sha256_json(
+                synthetic.RELATION_ALTERNATE_TEMPLATES
+            ),
+            "synthetic_paraphrases_per_record": int(a.synthetic_paraphrases_per_record),
+            "source_prompt_counts": {
+                "canonical_direct": int(direct_prompt_count),
+                "hand_authored_relation_template_or_prefix": int(
+                    relation_template_prompt_count
+                ),
+                "external_free_form_surrogate": int(external_surrogate_prompt_count),
+            },
+        },
         "surrogate_receipt": surrogate_receipt,
         "synthetic_coverage": synthetic_coverage,
         "corpus_prefixes": len(corpus_prefixes),
@@ -916,7 +1125,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         "selected_embedding_rows": selected_rows,
         "subject_row_selection": row_reports,
         "summary": context_report,
-        "records": [context_sets[int(record["case_id"])] for record in records],
+        "records": [
+            {
+                **context_sets[int(record["case_id"])],
+                "positive_prompt_provenance": positive_prompt_provenance_by_case[
+                    int(record["case_id"])
+                ],
+            }
+            for record in records
+        ],
         "data_access": {
             "official_paraphrases_seen": 0,
             "official_neighborhoods_seen": 0,
@@ -924,7 +1141,30 @@ def main(argv: Sequence[str] | None = None) -> None:
             "official_ppl_seen": False,
         },
     }
-    gagd.write_json(out_dir / "context_manifest.json", context_manifest)
+    context_manifest_path = out_dir / "context_manifest.json"
+    gagd.write_json(context_manifest_path, context_manifest)
+    context_manifest_sha256 = sha256_file(context_manifest_path)
+
+    resumed_stage1: Dict[str, Any] | None = None
+    resume_path: Path | None = None
+    resume_binding: Dict[str, Any] = {
+        "mode": "from_scratch",
+        "same_context_manifest": True,
+        "resumed_context_manifest_sha256": None,
+        "current_context_manifest_sha256": context_manifest_sha256,
+        "writer_steps": int(a.writer_steps),
+    }
+    if str(a.resume_stage1_state).strip():
+        resume_path = Path(a.resume_stage1_state).resolve()
+        resumed_value = torch.load(resume_path, map_location="cpu", weights_only=False)
+        if not isinstance(resumed_value, Mapping):
+            raise RuntimeError("resumed Stage-1 state must be a mapping")
+        resumed_stage1 = dict(resumed_value)
+        resume_binding = validate_stage1_resume_binding(
+            resumed_stage1,
+            current_context_manifest_sha256=context_manifest_sha256,
+            writer_steps=int(a.writer_steps),
+        )
     print(
         f"  {context_report['positive_prompts']} positives, "
         f"{context_report['negative_prompts']} negatives, "
@@ -946,7 +1186,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     delta_module = canonical.SelectedRowDelta(
-        len(selected_rows), hidden_size, direction_basis=None, device=input_layer.weight.device
+        len(selected_rows),
+        hidden_size,
+        direction_basis=None,
+        device=input_layer.weight.device,
     )
     if delta_module.raw_delta is None:
         raise AssertionError("embedding writer unexpectedly lacks raw deltas")
@@ -969,7 +1212,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             if row["contains_selected_row"]
         ]
         if not collision_negatives:
-            collision_negatives = [row["prompt"] for row in context["negative_contexts"]]
+            collision_negatives = [
+                row["prompt"] for row in context["negative_contexts"]
+            ]
         negatives = collision_negatives[: int(a.reach_negative_contexts)]
         slots = [slot_of[token_id] for token_id in selected_by_case[case_id]]
         positive_reach, negative_reach = multi_context_reachability(
@@ -1006,46 +1251,51 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     marker_bank = torch.stack([record["marker"] for record in records])
     delta_module.raw_delta.detach().zero_()
-    resumed_stage1: Dict[str, Any] | None = None
-    resume_path: Path | None = None
-    if str(a.resume_stage1_state).strip():
-        resume_path = Path(a.resume_stage1_state).resolve()
-        resumed_stage1 = torch.load(
-            resume_path, map_location="cpu", weights_only=False
-        )
+    if resumed_stage1 is not None:
+        assert resume_path is not None
         resume_protocol = str(resumed_stage1.get("protocol") or "")
         compatible_protocols = {
             "mcf_context_composed_sparse_embedding_writer_v2",
             "mcf_context_composed_sparse_embedding_writer_v3",
             "mcf_context_composed_sparse_embedding_writer_v4",
             "mcf_context_composed_sparse_embedding_writer_v5",
+            "mcf_context_composed_sparse_embedding_writer_v5_1",
             PROTOCOL,
         }
         if resume_protocol not in compatible_protocols:
             raise RuntimeError(
                 f"resumed Stage-1 protocol {resume_protocol!r} is incompatible"
             )
+        if int(resumed_stage1.get("seed", -1)) != int(a.seed):
+            raise RuntimeError("resumed Stage-1 seed does not match")
+        if [int(x) for x in resumed_stage1.get("case_ids", [])] != [
+            int(record["case_id"]) for record in records
+        ]:
+            raise RuntimeError("resumed Stage-1 cases do not match")
         if [int(x) for x in resumed_stage1.get("selected_embedding_rows", [])] != [
             int(x) for x in selected_rows
         ]:
             raise RuntimeError("resumed Stage-1 selected embedding rows do not match")
         resumed_delta = resumed_stage1.get("embedding_delta")
-        if not isinstance(resumed_delta, torch.Tensor) or tuple(resumed_delta.shape) != tuple(
-            delta_module.raw_delta.shape
-        ):
+        if not isinstance(resumed_delta, torch.Tensor) or tuple(
+            resumed_delta.shape
+        ) != tuple(delta_module.raw_delta.shape):
             raise RuntimeError("resumed Stage-1 embedding delta has incompatible shape")
-        resumed_markers = resumed_stage1.get("markers")
-        if not isinstance(resumed_markers, Mapping):
-            raise RuntimeError("resumed Stage-1 state lacks its marker map")
-        loaded_markers: List[torch.Tensor] = []
-        for record in records:
-            case_id = int(record["case_id"])
-            marker = resumed_markers.get(case_id, resumed_markers.get(str(case_id)))
-            if not isinstance(marker, torch.Tensor) or tuple(marker.shape) != (hidden_size,):
-                raise RuntimeError(f"resumed marker mismatch for case {case_id}")
-            record["marker"] = marker.float().cpu()
-            loaded_markers.append(record["marker"])
-        marker_bank = torch.stack(loaded_markers)
+        if bool(resume_binding["same_context_manifest"]):
+            resumed_markers = resumed_stage1.get("markers")
+            if not isinstance(resumed_markers, Mapping):
+                raise RuntimeError("resumed Stage-1 state lacks its marker map")
+            loaded_markers: List[torch.Tensor] = []
+            for record in records:
+                case_id = int(record["case_id"])
+                marker = resumed_markers.get(case_id, resumed_markers.get(str(case_id)))
+                if not isinstance(marker, torch.Tensor) or tuple(marker.shape) != (
+                    hidden_size,
+                ):
+                    raise RuntimeError(f"resumed marker mismatch for case {case_id}")
+                record["marker"] = marker.float().cpu()
+                loaded_markers.append(record["marker"])
+            marker_bank = torch.stack(loaded_markers)
         with torch.no_grad():
             delta_module.raw_delta.copy_(
                 resumed_delta.to(
@@ -1053,7 +1303,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     dtype=delta_module.raw_delta.dtype,
                 )
             )
-        print(f"  resumed sparse Stage 1: {resume_path}")
+        print(f"  resumed sparse Stage 1 ({resume_binding['mode']}): {resume_path}")
     print(f"  marker selection wall time: {time.time() - marker_start:.1f}s")
 
     print("\nStage 1: compositional sparse embedding writer")
@@ -1064,12 +1314,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         len(records), int(a.writer_record_batch), int(a.seed) + 447
     )
     row_frequencies = torch.tensor(
-        [float(token_counts[token_id]) for token_id in selected_rows], dtype=torch.float32
+        [float(token_counts[token_id]) for token_id in selected_rows],
+        dtype=torch.float32,
     )
     if float(a.row_norm_cap) > 0:
-        row_caps = float(a.row_norm_cap) / (
-            1.0 + row_frequencies
-        ).pow(float(a.row_norm_cap_frequency_alpha))
+        row_caps = float(a.row_norm_cap) / (1.0 + row_frequencies).pow(
+            float(a.row_norm_cap_frequency_alpha)
+        )
     else:
         row_caps = torch.zeros_like(row_frequencies)
     log_path = out_dir / "stage1_writer_log.jsonl"
@@ -1108,8 +1359,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                         break
                     if prompt not in selected_neg:
                         selected_neg.append(prompt)
-                entries.extend((record_index, "positive", prompt) for prompt in selected_pos)
-                entries.extend((record_index, "negative", prompt) for prompt in selected_neg)
+                entries.extend(
+                    (record_index, "positive", prompt) for prompt in selected_pos
+                )
+                entries.extend(
+                    (record_index, "negative", prompt) for prompt in selected_neg
+                )
 
             optimizer.zero_grad(set_to_none=True)
             prompts = [entry[2] for entry in entries]
@@ -1147,9 +1402,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                     neg_delta = displacement[neg_indices]
                     l_negative = l_negative + (neg_delta @ marker).square().mean()
                     denominator = base_hidden[neg_indices].norm(dim=1).clamp_min(1e-9)
-                    l_state = l_state + (
-                        neg_delta.norm(dim=1) / denominator
-                    ).square().mean()
+                    l_state = (
+                        l_state + (neg_delta.norm(dim=1) / denominator).square().mean()
+                    )
                 peers = torch.cat(
                     [marker_bank[:record_index], marker_bank[record_index + 1 :]], dim=0
                 ).to(device)
@@ -1236,10 +1491,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                     eval_base = torch.stack(
                         [base_cache[prompt]["hidden"] for prompt in eval_prompts]
                     )
-                    amplitudes = (
-                        (eval_hidden - eval_base)
-                        @ marker_bank[record_index].float()
-                    )
+                    amplitudes = (eval_hidden - eval_base) @ marker_bank[
+                        record_index
+                    ].float()
                     per_record_minima.append(float(amplitudes.min()))
                     per_record_medians.append(float(amplitudes.median()))
                     hard_positive_prompts[record_index] = eval_prompts[
@@ -1262,9 +1516,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                         [base_cache[prompt]["hidden"] for prompt in negative_prompts]
                     )
                     negative_amplitudes = (
-                        (negative_hidden - negative_base)
-                        @ marker_bank[record_index].float()
-                    )
+                        negative_hidden - negative_base
+                    ) @ marker_bank[record_index].float()
                     hard_negative_prompts[record_index] = negative_prompts[
                         int(negative_amplitudes.abs().argmax())
                     ]
@@ -1278,8 +1531,23 @@ def main(argv: Sequence[str] | None = None) -> None:
     del optimizer
 
     trained_embedding_delta = delta_module.effective_delta().detach().cpu()
+    writer_log_sha256 = sha256_file(log_path)
+    with log_path.open("r", encoding="utf-8") as log_handle:
+        writer_log_event_count = sum(1 for line in log_handle if line.strip())
+    training_lineage = {
+        **resume_binding,
+        "from_scratch": resume_path is None,
+        "resumed_from": str(resume_path) if resume_path is not None else None,
+        "positive_context_policy": str(a.positive_context_policy),
+        "writer_log_sha256": writer_log_sha256,
+        "writer_log_event_count": int(writer_log_event_count),
+        "base_model_path": str(Path(a.model_path).resolve()),
+        "base_transformer_fingerprint": float(transformer_fingerprint),
+        "base_selected_embedding_rows_sha256": (base_selected_embedding_rows_sha256),
+    }
     torch.save(
         {
+            "schema_version": 2,
             "protocol": PROTOCOL,
             "seed": int(a.seed),
             "case_ids": [int(record["case_id"]) for record in records],
@@ -1287,18 +1555,19 @@ def main(argv: Sequence[str] | None = None) -> None:
             "embedding_delta": trained_embedding_delta,
             "markers": {int(r["case_id"]): r["marker"] for r in records},
             "row_norm_cap": float(a.row_norm_cap),
-            "row_norm_cap_frequency_alpha": float(
-                a.row_norm_cap_frequency_alpha
-            ),
+            "row_norm_cap_frequency_alpha": float(a.row_norm_cap_frequency_alpha),
             "max_subject_token_frequency": int(a.max_subject_token_frequency),
-            "writer_positive_amplitude_threshold": float(
-                a.writer_amplitude_min_frac
-            )
+            "writer_positive_amplitude_threshold": float(a.writer_amplitude_min_frac)
             * float(a.write_alpha),
             "selected_row_frequencies": row_frequencies.detach().cpu(),
             "effective_row_caps": row_caps.detach().cpu(),
-            "context_manifest_sha256": sha256_file(out_dir / "context_manifest.json"),
+            "context_manifest_sha256": context_manifest_sha256,
             "resumed_from": str(resume_path) if resume_path is not None else None,
+            "writer_steps": int(a.writer_steps),
+            "positive_context_policy": str(a.positive_context_policy),
+            "training_lineage": training_lineage,
+            "writer_log_sha256": writer_log_sha256,
+            "writer_log_event_count": int(writer_log_event_count),
         },
         out_dir / "stage1_writer.pt",
     )
@@ -1367,19 +1636,23 @@ def main(argv: Sequence[str] | None = None) -> None:
             }
         )
     writer_report = {
+        "schema_version": 2,
+        "protocol": PROTOCOL,
+        "seed": int(a.seed),
+        "context_manifest_sha256": context_manifest_sha256,
+        "positive_context_policy": str(a.positive_context_policy),
+        "training_lineage": training_lineage,
+        "writer_log_sha256": writer_log_sha256,
+        "writer_log_event_count": int(writer_log_event_count),
         "write_alpha": float(a.write_alpha),
         "writer_configuration": {
             "row_norm_cap": float(a.row_norm_cap),
-            "row_norm_cap_frequency_alpha": float(
-                a.row_norm_cap_frequency_alpha
-            ),
+            "row_norm_cap_frequency_alpha": float(a.row_norm_cap_frequency_alpha),
             "max_subject_token_frequency": int(a.max_subject_token_frequency),
             "selected_row_frequency": distribution(
                 [float(value) for value in row_frequencies]
             ),
-            "effective_row_cap": distribution(
-                [float(value) for value in row_caps]
-            ),
+            "effective_row_cap": distribution([float(value) for value in row_caps]),
         },
         "criterion": {
             "positive_amplitude_min": (
@@ -1396,9 +1669,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "negative_marker_abs_max": distribution(
             [row["negative_marker_abs_max"] for row in writer_reports]
         ),
-        "marker_kappa": distribution(
-            [row["marker_kappa"] for row in writer_reports]
-        ),
+        "marker_kappa": distribution([row["marker_kappa"] for row in writer_reports]),
         "negative_state_drift_max": distribution(
             [row["negative_state_drift_max"] for row in writer_reports]
         ),
@@ -1431,6 +1702,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "selected_embedding_rows": len(selected_rows),
             "embedding_delta_norm": float(trained_embedding_delta.norm()),
             "writer_selectivity": writer_report,
+            "positive_context_policy": context_manifest["positive_context_policy"],
+            "training_lineage": training_lineage,
             "context_manifest": str(out_dir / "context_manifest.json"),
             "stage1_state": str(out_dir / "stage1_writer.pt"),
             "data_firewall": context_manifest["data_access"],
@@ -1638,12 +1911,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     output_row_index = torch.tensor(
         selected_output_rows, dtype=torch.long, device=output_layer.weight.device
     )
-    base_selected_output_rows = output_layer.weight.index_select(
-        0, output_row_index
-    ).detach().clone()
-    output_slot = {
-        token_id: slot for slot, token_id in enumerate(selected_output_rows)
-    }
+    base_selected_output_rows = (
+        output_layer.weight.index_select(0, output_row_index).detach().clone()
+    )
+    output_slot = {token_id: slot for slot, token_id in enumerate(selected_output_rows)}
     base_output_row_norms = base_selected_output_rows.float().norm(dim=1)
     if bool((base_output_row_norms <= 1e-12).any()):
         raise RuntimeError("selected LM-head row has zero base norm")
@@ -1652,10 +1923,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     # geometry is removed first; each output token then gets its own bounded
     # basis made only from paired writer residuals for that token.
     base_positive_rows_cpu = torch.cat(
-        [
-            torch.cat(base_positive_state_groups[i], dim=0)
-            for i in range(len(records))
-        ],
+        [torch.cat(base_positive_state_groups[i], dim=0) for i in range(len(records))],
         dim=0,
     ).float()
     common_protection_rows_cpu = base_positive_rows_cpu
@@ -1664,14 +1932,16 @@ def main(argv: Sequence[str] | None = None) -> None:
             [common_protection_rows_cpu, corpus_protection_rows.float()], dim=0
         )
     if common_protection_rows_cpu.shape[0] > int(a.stage2_protection_states):
-        indices = torch.linspace(
-            0,
-            common_protection_rows_cpu.shape[0] - 1,
-            steps=int(a.stage2_protection_states),
-        ).round().long()
-        common_protection_rows_cpu = common_protection_rows_cpu.index_select(
-            0, indices
+        indices = (
+            torch.linspace(
+                0,
+                common_protection_rows_cpu.shape[0] - 1,
+                steps=int(a.stage2_protection_states),
+            )
+            .round()
+            .long()
         )
+        common_protection_rows_cpu = common_protection_rows_cpu.index_select(0, indices)
     if int(a.stage2_protection_rank) > 0:
         common_protection_basis = compositional.orthonormal_row_basis(
             common_protection_rows_cpu.to(output_layer.weight.device),
@@ -1705,9 +1975,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         token_id: set() for token_id in selected_output_rows
     }
     for position, record in enumerate(records):
-        prompts = list(
-            context_sets[int(record["case_id"])]["positive_prompts"]
-        )
+        prompts = list(context_sets[int(record["case_id"])]["positive_prompts"])
         answer_rows = answer_rows_by_record[position]
         for prompt in prompts:
             for offset, token_id in enumerate(answer_rows):
@@ -1742,9 +2010,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             writer_off_groups = base_positive_state_groups[position]
             if len(edited_groups) != len(writer_off_groups):
                 raise AssertionError("edited/writer-off positive groups diverged")
-            for edited_group, writer_off_group in zip(
-                edited_groups, writer_off_groups
-            ):
+            for edited_group, writer_off_group in zip(edited_groups, writer_off_groups):
                 residual_parts.extend(
                     (edited_group[offset] - writer_off_group[offset]).unsqueeze(0)
                     for offset in offsets
@@ -1752,9 +2018,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
             negative_prompts = [
                 row["prompt"]
-                for row in context_sets[int(record["case_id"])][
-                    "negative_contexts"
-                ]
+                for row in context_sets[int(record["case_id"])]["negative_contexts"]
             ]
             owned_negative_groups = negative_state_groups[position]
             if len(negative_prompts) != len(owned_negative_groups):
@@ -1803,9 +2067,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"safe energy {basis_report['safe_residual_energy_fraction']:.4f}"
         )
 
-    residual_basis_bank = residual_basis_bank_cpu.to(
-        output_layer.weight.device
-    )
+    residual_basis_bank = residual_basis_bank_cpu.to(output_layer.weight.device)
     output_coefficients = torch.nn.Parameter(
         torch.zeros(
             (len(selected_output_rows), int(a.stage2_residual_rank)),
@@ -1815,9 +2077,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     def raw_output_delta() -> torch.Tensor:
-        return compositional.row_basis_deltas(
-            output_coefficients, residual_basis_bank
-        )
+        return compositional.row_basis_deltas(output_coefficients, residual_basis_bank)
 
     def current_output_delta() -> torch.Tensor:
         return compositional.materialized_row_delta_ste(
@@ -1830,9 +2090,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     stage2_optimizer = torch.optim.AdamW(
         [output_coefficients], lr=float(a.stage2_lr), weight_decay=0.0
     )
-    common_protection_rows = common_protection_rows_cpu.to(
-        output_layer.weight.device
-    )
+    common_protection_rows = common_protection_rows_cpu.to(output_layer.weight.device)
     base_positive_rows = base_positive_rows_cpu.to(output_layer.weight.device)
     row_negative_states = [
         rows.to(output_layer.weight.device) for rows in row_negative_states_cpu
@@ -1874,10 +2132,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             if per_row_negative_losses
             else delta_rows.sum() * 0.0
         )
-        relative_row_norms = (
-            delta_rows.float().norm(dim=1)
-            / base_output_row_norms.to(delta_rows).clamp_min(1e-30)
-        )
+        relative_row_norms = delta_rows.float().norm(dim=1) / base_output_row_norms.to(
+            delta_rows
+        ).clamp_min(1e-30)
         output_l2 = relative_row_norms.square().mean()
         loss = (
             float(a.stage2_margin_weight) * hinge
@@ -1898,7 +2155,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             maximum_relative_cap,
         )
 
-        if step == 1 or step % int(a.stage2_check_every) == 0 or step == int(a.stage2_steps):
+        if (
+            step == 1
+            or step % int(a.stage2_check_every) == 0
+            or step == int(a.stage2_steps)
+        ):
             full_target_new_nll, full_target_true_nll = evaluate_instance_nlls(
                 model,
                 tok,
@@ -1908,9 +2169,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 batch_size=int(a.stage2_batch_size),
             )
             full = full_target_true_nll - full_target_new_nll
-            full_reference_nll_drift = (
-                full_target_new_nll - pre_target_new_nll
-            )
+            full_reference_nll_drift = full_target_new_nll - pre_target_new_nll
             full_reference_nll_regression_max = max(
                 0.0, float(full_reference_nll_drift.max())
             )
@@ -1939,9 +2198,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "positive_failures": failures,
                 "direct_failures": direct_failures,
                 "minimum_margin": float(full.min()),
-                "reference_nll_regression_max": (
-                    full_reference_nll_regression_max
-                ),
+                "reference_nll_regression_max": (full_reference_nll_regression_max),
                 "reference_nll_abs_drift_max": full_reference_nll_abs_drift_max,
                 "reference_nll_signed_drift": distribution(
                     [float(x) for x in full_reference_nll_drift]
@@ -1984,25 +2241,18 @@ def main(argv: Sequence[str] | None = None) -> None:
             batch_size=int(a.stage2_batch_size),
         )
         margins = candidate_target_true_nll - candidate_target_new_nll
-        reference_nll_drift = (
-            candidate_target_new_nll - pre_target_new_nll
-        )
-        reference_nll_regression_max = max(
-            0.0, float(reference_nll_drift.max())
-        )
-        reference_nll_abs_drift_max = float(
-            reference_nll_drift.abs().max()
-        )
+        reference_nll_drift = candidate_target_new_nll - pre_target_new_nll
+        reference_nll_regression_max = max(0.0, float(reference_nll_drift.max()))
+        reference_nll_abs_drift_max = float(reference_nll_drift.abs().max())
         direct_failures = sum(
             int(direct_flags[i] and float(margins[i]) < float(a.forget_margin) - 1e-6)
             for i in range(len(margins))
         )
         all_failures = int((margins < float(a.forget_margin) - 1e-6).sum())
         candidate_delta = current_output_delta().detach()
-        relative_norms = (
-            candidate_delta.float().norm(dim=1)
-            / base_output_row_norms.to(candidate_delta).clamp_min(1e-30)
-        )
+        relative_norms = candidate_delta.float().norm(dim=1) / base_output_row_norms.to(
+            candidate_delta
+        ).clamp_min(1e-30)
         cap_reports.append(
             {
                 "relative_cap": float(relative_cap),
@@ -2048,19 +2298,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                 -float(pair[1]["minimum_margin"]),
             ),
         )
-    selected_relative_cap = float(
-        cap_reports[selected_cap_index]["relative_cap"]
-    )
+    selected_relative_cap = float(cap_reports[selected_cap_index]["relative_cap"])
     with torch.no_grad():
         output_coefficients.copy_(cap_candidates[selected_cap_index])
         final_output_delta = current_output_delta().detach().cpu()
         final_raw_output_delta = raw_output_delta().detach().cpu()
-        final_output_rows = (
-            base_selected_output_rows
-            + final_raw_output_delta.to(
-                device=base_selected_output_rows.device,
-                dtype=base_selected_output_rows.dtype,
-            )
+        final_output_rows = base_selected_output_rows + final_raw_output_delta.to(
+            device=base_selected_output_rows.device,
+            dtype=base_selected_output_rows.dtype,
         )
     hooked_final_margins = evaluate_instance_margins(
         model,
@@ -2079,16 +2324,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     input_row_index = torch.tensor(
         selected_rows, dtype=torch.long, device=input_layer.weight.device
     )
-    base_selected_input_rows = input_layer.weight.index_select(
-        0, input_row_index
-    ).detach().clone()
+    base_selected_input_rows = (
+        input_layer.weight.index_select(0, input_row_index).detach().clone()
+    )
     directional.materialize_input_delta(
         input_layer, selected_rows, trained_embedding_delta
     )
     with torch.no_grad():
-        output_layer.weight.index_copy_(
-            0, output_row_index, final_output_rows
-        )
+        output_layer.weight.index_copy_(0, output_row_index, final_output_rows)
     materialized_target_new_nll, materialized_target_true_nll = evaluate_instance_nlls(
         model,
         tok,
@@ -2097,30 +2340,22 @@ def main(argv: Sequence[str] | None = None) -> None:
         llama_like=llama_like,
         batch_size=int(a.stage2_batch_size),
     )
-    materialized_margins = (
-        materialized_target_true_nll - materialized_target_new_nll
-    )
-    margin_drift = float(
-        (materialized_margins - hooked_final_margins).abs().max()
-    )
-    final_reference_nll_drift = (
-        materialized_target_new_nll - pre_target_new_nll
-    )
+    materialized_margins = materialized_target_true_nll - materialized_target_new_nll
+    margin_drift = float((materialized_margins - hooked_final_margins).abs().max())
+    final_reference_nll_drift = materialized_target_new_nll - pre_target_new_nll
     final_reference_nll_regression_max = max(
         0.0, float(final_reference_nll_drift.max())
     )
-    final_reference_nll_abs_drift_max = float(
-        final_reference_nll_drift.abs().max()
-    )
+    final_reference_nll_abs_drift_max = float(final_reference_nll_drift.abs().max())
 
     # Causal writer ablation: leave the learned output rows in place but
     # restore the original subject input rows. If this output-only model still
     # satisfies the forget constraints, the flexible LM-head solve bypassed
     # the proposed context-composed embedding code. Always restore the edited
     # input rows before serialization.
-    edited_selected_input_rows = input_layer.weight.index_select(
-        0, input_row_index
-    ).detach().clone()
+    edited_selected_input_rows = (
+        input_layer.weight.index_select(0, input_row_index).detach().clone()
+    )
     with torch.no_grad():
         input_layer.weight.index_copy_(0, input_row_index, base_selected_input_rows)
     try:
@@ -2153,9 +2388,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "direct_failures_without_writer": output_only_direct_failures,
         "positive_failures_without_writer": output_only_positive_failures,
         "minimum_margin_without_writer": float(output_only_margins.min()),
-        "margin_gain_from_writer": distribution(
-            [float(x) for x in causal_writer_gain]
-        ),
+        "margin_gain_from_writer": distribution([float(x) for x in causal_writer_gain]),
         "writer_is_necessary_for_at_least_one_positive": bool(
             output_only_positive_failures > 0
         ),
@@ -2185,13 +2418,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     output_row_betas, output_row_readers = compositional.factorize_output_rows(
         actual_output_delta
     )
-    actual_relative_output_row_norms = (
-        actual_output_delta.norm(dim=1)
-        / base_selected_output_rows.detach().float().cpu().norm(dim=1).clamp_min(1e-30)
-    )
+    actual_relative_output_row_norms = actual_output_delta.norm(
+        dim=1
+    ) / base_selected_output_rows.detach().float().cpu().norm(dim=1).clamp_min(1e-30)
     output_row_cap_passed = bool(
-        float(actual_relative_output_row_norms.max())
-        <= selected_relative_cap + 1e-6
+        float(actual_relative_output_row_norms.max()) <= selected_relative_cap + 1e-6
     )
 
     # Every jointly learned sparse row has the exact decomposition
@@ -2236,9 +2467,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 {
                     "token_id": int(token_id),
                     "beta": beta,
-                    "relative_row_norm": float(
-                        actual_relative_output_row_norms[slot]
-                    ),
+                    "relative_row_norm": float(actual_relative_output_row_norms[slot]),
                     "residual_basis": basis_report_by_token[int(token_id)],
                     "active": False,
                     "passed": True,
@@ -2251,8 +2480,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         displacement_response = writer_displacement @ output_row_readers[slot]
         positive_response = positive_states @ output_row_readers[slot]
         writer_response_fraction = (
-            displacement_response.abs()
-            / positive_response.abs().clamp_min(1e-9)
+            displacement_response.abs() / positive_response.abs().clamp_min(1e-9)
         )
         metrics = compositional.reader_metrics(
             output_row_readers[slot], positive_states, protected_cpu
@@ -2266,9 +2494,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             {
                 "token_id": int(token_id),
                 "beta": beta,
-                "relative_row_norm": float(
-                    actual_relative_output_row_norms[slot]
-                ),
+                "relative_row_norm": float(actual_relative_output_row_norms[slot]),
                 "residual_basis": basis_report_by_token[int(token_id)],
                 "active": True,
                 "passed": passed,
@@ -2307,7 +2533,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     }
     gagd.write_json(out_dir / "output_reader_gate_report.json", output_reader_gate)
     direct_failures = sum(
-        int(direct_flags[i] and float(materialized_margins[i]) < float(a.forget_margin) - 1e-6)
+        int(
+            direct_flags[i]
+            and float(materialized_margins[i]) < float(a.forget_margin) - 1e-6
+        )
         for i in range(len(materialized_margins))
     )
     positive_failures = int(
@@ -2325,11 +2554,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         output_reader_gate["passed"] or a.gate_policy == "report"
     )
 
-    post_transformer_fingerprint = sum(
-        float(parameter.detach().float().abs().sum())
-        for name, parameter in model.named_parameters()
-        if "embed_tokens" not in name and "lm_head" not in name
-    )
+    post_transformer_fingerprint = frozen_transformer_fingerprint(model)
     transformer_absdiff = abs(post_transformer_fingerprint - transformer_fingerprint)
     if transformer_absdiff > 1e-3:
         raise RuntimeError("a frozen Transformer parameter changed")
@@ -2352,9 +2577,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "selected_embedding_rows": selected_rows,
             "embedding_delta": trained_embedding_delta,
             "actual_embedding_delta": actual_embedding_delta,
-            "base_selected_embedding_rows": (
-                base_selected_input_rows.detach().cpu()
-            ),
+            "base_selected_embedding_rows": (base_selected_input_rows.detach().cpu()),
             "edited_selected_embedding_rows": (
                 edited_selected_input_rows.detach().cpu()
             ),
@@ -2375,9 +2598,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "edited_selected_output_rows": (
                 output_layer.weight.index_select(0, output_row_index).detach().cpu()
             ),
-            "context_manifest_sha256": sha256_file(
-                out_dir / "context_manifest.json"
-            ),
+            "context_manifest_sha256": sha256_file(out_dir / "context_manifest.json"),
         },
         out_dir / "compositional_marker_state.pt",
     )
@@ -2419,6 +2640,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "steps": int(a.writer_steps),
             "resumed": resume_path is not None,
             "resumed_from": str(resume_path) if resume_path is not None else None,
+            "positive_context_policy": str(a.positive_context_policy),
+            "training_lineage": training_lineage,
             "selected_embedding_rows": selected_rows,
             "embedding_delta_norm": float(trained_embedding_delta.norm()),
             "write_alpha": float(a.write_alpha),
@@ -2441,9 +2664,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 a.stage2_base_positive_weight
             ),
             "reference_nll_weight": float(a.stage2_reference_nll_weight),
-            "reference_nll_tolerance": float(
-                a.stage2_reference_nll_tolerance
-            ),
+            "reference_nll_tolerance": float(a.stage2_reference_nll_tolerance),
             "reference_nll_drift": distribution(
                 [float(x) for x in final_reference_nll_drift]
             ),
@@ -2511,7 +2732,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     print("\n" + "=" * 72)
     print(f"  direct training failures             : {direct_failures}")
     print(f"  all training-safe positive failures  : {positive_failures}")
-    print(f"  minimum training margin              : {float(materialized_margins.min()):+.4f}")
+    print(
+        f"  minimum training margin              : {float(materialized_margins.min()):+.4f}"
+    )
     print(
         "  maximum reference NLL regression     : "
         f"{final_reference_nll_regression_max:.4f}"

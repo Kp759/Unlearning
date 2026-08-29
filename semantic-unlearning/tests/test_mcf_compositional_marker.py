@@ -41,7 +41,11 @@ class WordTokenizer:
 
     def __call__(self, text, *, add_special_tokens=False, **_kwargs):
         words = re.findall(r"[A-Za-z]+", str(text).lower())
-        return {"input_ids": [self.vocab.setdefault(word, len(self.vocab) + 1) for word in words]}
+        return {
+            "input_ids": [
+                self.vocab.setdefault(word, len(self.vocab) + 1) for word in words
+            ]
+        }
 
 
 class TensorBatch(dict):
@@ -137,14 +141,18 @@ def test_context_builder_makes_shared_subword_and_leave_one_out_negatives():
 
     first = contexts[1]
     assert first["positive_prompts"][0] == "Gautier de Coincy speaks"
-    shared = [x for x in first["negative_contexts"] if x["kind"] == "shared_subword_subject"]
+    shared = [
+        x for x in first["negative_contexts"] if x["kind"] == "shared_subword_subject"
+    ]
     assert {x["source_subject"] for x in shared} == {
         "Melchior de Vogue",
         "Charles de Gaulle",
     }
     assert all(2 in x["overlap_token_ids"] for x in shared)
 
-    leave_one = [x for x in first["negative_contexts"] if x["kind"] == "leave_one_component_out"]
+    leave_one = [
+        x for x in first["negative_contexts"] if x["kind"] == "leave_one_component_out"
+    ]
     assert len(leave_one) == 3
     assert all("gautier de coincy" not in x["prompt"].casefold() for x in leave_one)
     assert report["official_paraphrases_seen"] == 0
@@ -161,7 +169,10 @@ def test_context_builder_rejects_a_positive_without_the_complete_subject():
     with pytest.raises(ValueError, match="complete subject"):
         core.build_compositional_contexts(
             records,
-            {1: ["Gautier de Coincy speaks", "Coincy speaks"], 2: ["Melchior de Vogue speaks"]},
+            {
+                1: ["Gautier de Coincy speaks", "Coincy speaks"],
+                2: ["Melchior de Vogue speaks"],
+            },
             {1: [1, 2, 3], 2: [4, 2, 5]},
             tok,
             seed=1,
@@ -320,9 +331,7 @@ def test_monotone_beta_initializer_covers_joint_shared_row_constraints():
     )
     required = torch.tensor([4.0, 3.0, 5.0])
 
-    beta, report = core.monotone_cover_betas(
-        response, required, safety_factor=1.25
-    )
+    beta, report = core.monotone_cover_betas(response, required, safety_factor=1.25)
 
     retained = response.clamp_min(0.0)
     assert torch.all(retained @ beta >= required * 1.25 - 1e-4)
@@ -381,6 +390,91 @@ def test_stage1_zero_steps_requires_a_resume_state():
     args = method.parse_args([*common, "--resume-stage1-state", "/stage1.pt"])
     assert args.writer_steps == 0
     assert args.resume_stage1_state == "/stage1.pt"
+
+
+def test_zero_step_resume_requires_the_exact_context_manifest_hash():
+    state = {"context_manifest_sha256": "old-context"}
+    with pytest.raises(RuntimeError, match="refusing zero-step Stage-1 resume"):
+        method.validate_stage1_resume_binding(
+            state,
+            current_context_manifest_sha256="new-context",
+            writer_steps=0,
+        )
+
+    exact = method.validate_stage1_resume_binding(
+        state,
+        current_context_manifest_sha256="old-context",
+        writer_steps=0,
+    )
+    assert exact["mode"] == "exact_zero_step_reuse"
+    assert exact["same_context_manifest"]
+
+    warm = method.validate_stage1_resume_binding(
+        state,
+        current_context_manifest_sha256="new-context",
+        writer_steps=1200,
+    )
+    assert warm["mode"] == "cross_context_warm_start"
+    assert not warm["same_context_manifest"]
+
+
+def test_clean_context_policy_forbids_free_form_surrogates():
+    common = [
+        "--model-path",
+        "/model",
+        "--training-visible-path",
+        "/locked.json",
+        "--split-manifest",
+        "/manifest.json",
+        "--output-dir",
+        "/out",
+    ]
+    args = method.parse_args(common)
+    assert args.positive_context_policy == method.CLEAN_POSITIVE_CONTEXT_POLICY
+    with pytest.raises(SystemExit):
+        method.parse_args([*common, "--surrogate-prompts-path", "/free-form-v7.json"])
+    with pytest.raises(SystemExit):
+        method.parse_args([*common, "--synthetic-paraphrases-per-record", "3"])
+
+    diagnostic = method.parse_args(
+        [
+            *common,
+            "--positive-context-policy",
+            method.SURROGATE_POSITIVE_CONTEXT_POLICY,
+            "--surrogate-prompts-path",
+            "/free-form-v7.json",
+        ]
+    )
+    assert diagnostic.surrogate_prompts_path == "/free-form-v7.json"
+
+
+def test_clean_relation_templates_preserve_the_two_audited_failure_relations():
+    language = method.synthetic.synthetic_prompt_templates(
+        relation_id="P364",
+        canonical_prompt="The language of {} was",
+        case_id=14801,
+        count=6,
+        context_prefixes=["An unrelated corpus sentence."],
+    )
+    instrument = method.synthetic.synthetic_prompt_templates(
+        relation_id="P1303",
+        canonical_prompt="{} plays",
+        case_id=17256,
+        count=6,
+        context_prefixes=["An unrelated corpus sentence."],
+    )
+
+    assert all("{}" in prompt for prompt in language + instrument)
+    assert all(
+        bad not in " ".join(language).casefold()
+        for bad in ("protagonist", "author", "caretaker in the novel", "spoken by")
+    )
+    assert all(
+        bad not in " ".join(instrument).casefold()
+        for bad in ("bass", "jazz bassist", "known for his")
+    )
+    assert "original language" in " ".join(language).casefold()
+    assert "instrument" in " ".join(instrument).casefold()
 
 
 def test_multi_context_reachability_moves_only_prompts_containing_selected_row():
@@ -495,12 +589,8 @@ def test_reference_nll_constraint_penalizes_regression_but_allows_improvement():
     increased = torch.tensor([2.0, 2.2, 2.0], requires_grad=True)
     decreased = torch.tensor([2.0, 1.8, 2.0], requires_grad=True)
 
-    increase_loss = method.reference_nll_regression_penalty(
-        increased, baseline, 0.05
-    )
-    decrease_loss = method.reference_nll_regression_penalty(
-        decreased, baseline, 0.05
-    )
+    increase_loss = method.reference_nll_regression_penalty(increased, baseline, 0.05)
+    decrease_loss = method.reference_nll_regression_penalty(decreased, baseline, 0.05)
 
     assert float(increase_loss) > 0.0
     assert float(decrease_loss) == 0.0
@@ -524,9 +614,7 @@ def test_protected_subspace_projection_removes_only_registered_span():
 def test_residual_reader_basis_stays_in_writer_span_and_rejects_protection():
     common = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
     negatives = torch.tensor([[0.0, 2.0, 0.0, 0.0]])
-    residuals = torch.tensor(
-        [[3.0, 4.0, 5.0, 0.0], [2.0, -3.0, 4.0, 0.0]]
-    )
+    residuals = torch.tensor([[3.0, 4.0, 5.0, 0.0], [2.0, -3.0, 4.0, 0.0]])
 
     basis, report = core.residual_reader_basis(
         residuals,
@@ -681,10 +769,7 @@ def test_beta_frontier_relative_norm_and_ppl_safe_selection():
     ]
 
     assert torch.allclose(ratios, torch.tensor([0.1, 0.5]))
-    assert (
-        beta_frontier.choose_largest_ppl_safe_scale(rows, limit_percent=5.0)
-        == 0.1
-    )
+    assert beta_frontier.choose_largest_ppl_safe_scale(rows, limit_percent=5.0) == 0.1
 
 
 def test_surrogate_loader_accepts_audited_robust_adapter_direct_only_rows(tmp_path):

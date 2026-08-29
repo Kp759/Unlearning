@@ -77,6 +77,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--split-manifest", required=True)
     parser.add_argument("--context-manifest", required=True)
     parser.add_argument("--stage1-state", required=True)
+    parser.add_argument("--stage1-report", required=True)
+    parser.add_argument("--stage1-writer-log", required=True)
     parser.add_argument("--experiment-registry", required=True)
     parser.add_argument("--experiment-label", default="primary")
     parser.add_argument("--output-dir", required=True)
@@ -302,6 +304,22 @@ def _validate_experiment_registry(
 ) -> None:
     if registry.get("protocol") != PROTOCOL:
         raise RuntimeError("experiment registry protocol mismatch")
+    writer_prerequisite = registry.get("stage1_writer_prerequisite")
+    if not isinstance(writer_prerequisite, Mapping):
+        raise RuntimeError("registry lacks the clean Stage-1 writer prerequisite")
+    expected_template_hash = compositional_method.sha256_json(
+        synthetic.RELATION_ALTERNATE_TEMPLATES
+    )
+    expected_writer_prerequisite = {
+        "protocol": compositional_core.PROTOCOL,
+        "positive_context_policy": compositional_method.CLEAN_POSITIVE_CONTEXT_POLICY,
+        "relation_template_bank_sha256": expected_template_hash,
+        "training_origin": "Base model with no resumed Stage-1 state",
+        "writer_steps": 1200,
+    }
+    for key, expected_value in expected_writer_prerequisite.items():
+        if writer_prerequisite.get(key) != expected_value:
+            raise RuntimeError(f"registry clean-writer prerequisite mismatch: {key}")
     label = str(args.experiment_label)
     if label == "primary":
         expected = registry.get("primary_configuration")
@@ -423,6 +441,151 @@ def _validate_firewall(
     stored_hash = str(stage1_state.get("context_manifest_sha256") or "")
     if not stored_hash:
         raise RuntimeError("Stage-1 state lacks its exact context-manifest hash")
+
+
+def _validate_clean_stage1_lineage(
+    context_manifest: Mapping[str, Any],
+    stage1_state: Mapping[str, Any],
+    stage1_report: Mapping[str, Any],
+    context_path: Path,
+    stage1_log_path: Path,
+) -> Dict[str, Any]:
+    """Require a fresh, relation-preserving Stage-1 writer artifact."""
+
+    policy = context_manifest.get("positive_context_policy")
+    if not isinstance(policy, Mapping):
+        raise RuntimeError("context manifest lacks its positive-context policy")
+    expected_policy = compositional_method.CLEAN_POSITIVE_CONTEXT_POLICY
+    if str(policy.get("name") or "") != expected_policy:
+        raise RuntimeError(
+            "neuron suppression requires the clean relation-templates-only "
+            f"writer policy {expected_policy!r}"
+        )
+    if bool(policy.get("free_form_generated_surrogates_allowed")):
+        raise RuntimeError(
+            "clean writer policy unexpectedly allows free-form surrogates"
+        )
+    expected_template_hash = compositional_method.sha256_json(
+        synthetic.RELATION_ALTERNATE_TEMPLATES
+    )
+    if str(policy.get("relation_template_bank_sha256") or "") != expected_template_hash:
+        raise RuntimeError("clean writer relation-template bank hash is stale")
+    counts = policy.get("source_prompt_counts")
+    if (
+        not isinstance(counts, Mapping)
+        or int(counts.get("external_free_form_surrogate", -1)) != 0
+    ):
+        raise RuntimeError("clean writer contains external free-form surrogate prompts")
+    if context_manifest.get("surrogate_receipt") is not None:
+        raise RuntimeError("clean writer context manifest contains a surrogate receipt")
+    coverage = context_manifest.get("synthetic_coverage")
+    if (
+        not isinstance(coverage, Mapping)
+        or int(coverage.get("generic_fallback_records", -1)) != 0
+    ):
+        raise RuntimeError(
+            "clean writer lacks explicit hand-authored relation coverage for every record"
+        )
+    rows = context_manifest.get("records")
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError("clean writer context manifest has no records")
+    allowed_sources = {
+        "canonical_direct",
+        "hand_authored_relation_template_or_corpus_prefix",
+    }
+    for row in rows:
+        if not isinstance(row, Mapping):
+            raise RuntimeError("clean writer context record is invalid")
+        positives = row.get("positive_prompts")
+        provenance = row.get("positive_prompt_provenance")
+        if (
+            not isinstance(positives, list)
+            or not isinstance(provenance, list)
+            or len(provenance) != len(positives)
+        ):
+            raise RuntimeError("clean writer prompt provenance is incomplete")
+        for index, (prompt, source_row) in enumerate(zip(positives, provenance)):
+            if (
+                not isinstance(source_row, Mapping)
+                or str(source_row.get("prompt") or "") != str(prompt)
+                or str(source_row.get("source") or "") not in allowed_sources
+            ):
+                raise RuntimeError("clean writer prompt provenance is invalid")
+            if index == 0 and source_row.get("source") != "canonical_direct":
+                raise RuntimeError("clean writer direct prompt is not first")
+
+    if str(stage1_state.get("protocol") or "") != compositional_core.PROTOCOL:
+        raise RuntimeError("Stage-1 writer protocol is stale or incompatible")
+    lineage = stage1_state.get("training_lineage")
+    if not isinstance(lineage, Mapping):
+        raise RuntimeError("Stage-1 state lacks a training-lineage receipt")
+    if (
+        not bool(lineage.get("from_scratch"))
+        or str(lineage.get("mode") or "") != "from_scratch"
+        or lineage.get("resumed_from") is not None
+        or int(lineage.get("writer_steps", 0)) != 1200
+    ):
+        raise RuntimeError(
+            "Stage-1 writer must be trained from Base for exactly 1,200 steps"
+        )
+    context_hash = compositional_method.sha256_file(context_path)
+    if str(lineage.get("current_context_manifest_sha256") or "") != context_hash:
+        raise RuntimeError(
+            "Stage-1 lineage is not bound to the current context manifest"
+        )
+    if str(lineage.get("positive_context_policy") or "") != expected_policy:
+        raise RuntimeError("Stage-1 lineage records a different context policy")
+    base_model_path = str(lineage.get("base_model_path") or "")
+    base_transformer_fingerprint = float(
+        lineage.get("base_transformer_fingerprint", float("nan"))
+    )
+    base_selected_rows_sha256 = str(
+        lineage.get("base_selected_embedding_rows_sha256") or ""
+    )
+    if (
+        not base_model_path
+        or not math.isfinite(base_transformer_fingerprint)
+        or len(base_selected_rows_sha256) != 64
+    ):
+        raise RuntimeError("Stage-1 lineage lacks its Base-model binding")
+
+    if str(stage1_report.get("protocol") or "") != compositional_core.PROTOCOL:
+        raise RuntimeError("Stage-1 writer report protocol mismatch")
+    if str(stage1_report.get("context_manifest_sha256") or "") != context_hash:
+        raise RuntimeError("Stage-1 report is not bound to the context manifest")
+    if str(stage1_report.get("positive_context_policy") or "") != expected_policy:
+        raise RuntimeError("Stage-1 report records a different context policy")
+    report_lineage = stage1_report.get("training_lineage")
+    if not isinstance(report_lineage, Mapping) or dict(report_lineage) != dict(lineage):
+        raise RuntimeError("Stage-1 state/report lineage receipts differ")
+
+    if not stage1_log_path.is_file():
+        raise RuntimeError("Stage-1 writer log is missing")
+    log_sha256 = compositional_method.sha256_file(stage1_log_path)
+    expected_log_sha256 = str(stage1_state.get("writer_log_sha256") or "")
+    if not expected_log_sha256 or log_sha256 != expected_log_sha256:
+        raise RuntimeError("Stage-1 writer log hash does not match its state")
+    if str(stage1_report.get("writer_log_sha256") or "") != log_sha256:
+        raise RuntimeError("Stage-1 writer log hash does not match its report")
+    with stage1_log_path.open("r", encoding="utf-8") as log_handle:
+        log_events = sum(1 for line in log_handle if line.strip())
+    expected_events = int(stage1_state.get("writer_log_event_count", -1))
+    if log_events <= 0 or log_events != expected_events:
+        raise RuntimeError("Stage-1 writer log is empty or has an invalid event count")
+    if int(stage1_report.get("writer_log_event_count", -1)) != log_events:
+        raise RuntimeError("Stage-1 writer report log-event count mismatch")
+    return {
+        "positive_context_policy": expected_policy,
+        "protocol": compositional_core.PROTOCOL,
+        "from_scratch": True,
+        "writer_steps": int(lineage["writer_steps"]),
+        "context_manifest_sha256": context_hash,
+        "writer_log_sha256": log_sha256,
+        "writer_log_event_count": log_events,
+        "base_model_path": base_model_path,
+        "base_transformer_fingerprint": base_transformer_fingerprint,
+        "base_selected_embedding_rows_sha256": base_selected_rows_sha256,
+    }
 
 
 def _context_sets_by_case(
@@ -847,8 +1010,18 @@ def main(argv: Sequence[str] | None = None) -> None:
     split_path = Path(args.split_manifest).resolve()
     context_path = Path(args.context_manifest).resolve()
     stage1_path = Path(args.stage1_state).resolve()
+    stage1_report_path = Path(args.stage1_report).resolve()
+    stage1_log_path = Path(args.stage1_writer_log).resolve()
     registry_path = Path(args.experiment_registry).resolve()
-    for path in (visible_path, split_path, context_path, stage1_path, registry_path):
+    for path in (
+        visible_path,
+        split_path,
+        context_path,
+        stage1_path,
+        stage1_report_path,
+        stage1_log_path,
+        registry_path,
+    ):
         if not path.exists():
             raise FileNotFoundError(path)
     experiment_registry = _load_json(registry_path)
@@ -865,6 +1038,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     stage1_state = torch.load(stage1_path, map_location="cpu", weights_only=False)
     if not isinstance(stage1_state, Mapping):
         raise RuntimeError("Stage-1 writer state must be a mapping")
+    stage1_report = _load_json(stage1_report_path)
     _validate_firewall(context_manifest, stage1_state)
     if compositional_method.sha256_file(context_path) != str(
         stage1_state["context_manifest_sha256"]
@@ -872,6 +1046,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise RuntimeError(
             "Stage-1 writer and training-safe context manifest hashes differ"
         )
+    clean_writer_receipt = _validate_clean_stage1_lineage(
+        context_manifest,
+        stage1_state,
+        stage1_report,
+        context_path,
+        stage1_log_path,
+    )
+    if str(Path(args.model_path).resolve()) != str(
+        clean_writer_receipt["base_model_path"]
+    ):
+        raise RuntimeError("decoder Base-model path differs from Stage-1 lineage")
     visible_sha256 = compositional_method.sha256_file(visible_path)
     split_sha256 = compositional_method.sha256_file(split_path)
     if (
@@ -915,6 +1100,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         "context_manifest_sha256": compositional_method.sha256_file(context_path),
         "stage1_state_path": str(stage1_path),
         "stage1_state_sha256": compositional_method.sha256_file(stage1_path),
+        "stage1_report_path": str(stage1_report_path),
+        "stage1_report_sha256": compositional_method.sha256_file(stage1_report_path),
+        "stage1_writer_log_path": str(stage1_log_path),
+        "stage1_writer_log_sha256": compositional_method.sha256_file(stage1_log_path),
+        "clean_stage1_writer": clean_writer_receipt,
         "experiment_label": str(args.experiment_label),
         "experiment_registry_path": str(registry_path),
         "experiment_registry_sha256": compositional_method.sha256_file(registry_path),
@@ -933,7 +1123,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         ],
         "used_for_checkpoint_selection": [
             "locked direct forget prompts",
-            "training-safe synthetic/surrogate positives",
+            "training-safe hand-authored relation-template and corpus-prefix positives",
             "training-visible compositional negatives",
             "disjoint Wikipedia protection prefixes",
         ],
@@ -979,6 +1169,30 @@ def main(argv: Sequence[str] | None = None) -> None:
         int(input_layer.weight.shape[1]),
     ):
         raise RuntimeError("Stage-1 embedding delta has incompatible shape")
+    observed_transformer_fingerprint = (
+        compositional_method.frozen_transformer_fingerprint(model)
+    )
+    if not math.isclose(
+        observed_transformer_fingerprint,
+        float(clean_writer_receipt["base_transformer_fingerprint"]),
+        rel_tol=1e-12,
+        abs_tol=1e-3,
+    ):
+        raise RuntimeError("decoder Transformer differs from Stage-1 Base model")
+    selected_row_index = torch.tensor(
+        selected_embedding_rows,
+        dtype=torch.long,
+        device=input_layer.weight.device,
+    )
+    observed_selected_rows_sha256 = compositional_method.tensor_sha256(
+        input_layer.weight.index_select(0, selected_row_index)
+    )
+    if observed_selected_rows_sha256 != str(
+        clean_writer_receipt["base_selected_embedding_rows_sha256"]
+    ):
+        raise RuntimeError(
+            "decoder Base embedding rows differ from Stage-1 writer lineage"
+        )
     writer_present = str(args.writer_mode) == "embedding_keyed"
     applied_embedding_delta = (
         embedding_delta if writer_present else torch.zeros_like(embedding_delta)

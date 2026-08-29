@@ -1,7 +1,7 @@
 {
-  "schema_version": 3,
-  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v2",
-  "status": "training_only_v2_revision_frozen_before_v2_checkpoint_evaluation",
+  "schema_version": 4,
+  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3",
+  "status": "training_only_v3_revision_frozen_before_clean_writer_or_v3_checkpoint_evaluation",
   "development_history": [
     {
       "version": "v1",
@@ -15,9 +15,53 @@
         "lower the scale-dependent detector floor and stabilize actuator optimization",
         "fail closed before actuator training when the detector gate fails"
       ]
+    },
+    {
+      "version": "v2",
+      "evidence_opened": "locked training-safe prompts only",
+      "official_evaluation_opened_by_this_failed_run": false,
+      "result": "rejected by the preregistered writer-portability preflight before neuron selection: 548/567 prompts passed (96.65% global) but only 48/50 records met the 80% per-record floor",
+      "failed_record_ids": [14801, 17256],
+      "training_data_audit": {
+        "severity": "critical protocol-lineage defect",
+        "stale_writer_context_mismatch": "the purported V3 writer resumed the V2 Stage-1 state with writer_steps=0; stage1_writer_log.jsonl contained zero events",
+        "invalid_positive_augmentation": "the V3 context manifest appended V7 free-form surrogates, including relation-changing or unsupported-attribute prompts in both failed records",
+        "interpretation": "protocol-invalid diagnostic, not evidence of broad frozen-writer collapse"
+      },
+      "changes_motivated": [
+        "train a new writer from Base with positive optimization steps",
+        "permit only canonical direct prompts, hand-authored relation-ID alternatives, and unrelated-corpus-prefix variants",
+        "forbid generic relation fallbacks and all free-form surrogate prompts in the paper path",
+        "bind the context manifest, writer state, report, and nonempty optimization log by hash",
+        "refuse zero-step resume unless the prior and current context-manifest hashes are identical"
+      ]
     }
   ],
-  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the predeclared v2 acceptance thresholds. They are not represented as blind holdout evidence. No official prompt is available to the v2 learner or used for checkpoint selection/retry.",
+  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1 and v2 runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the v3 learner or used for checkpoint selection/retry.",
+  "stage1_writer_prerequisite": {
+    "protocol": "mcf_context_composed_sparse_embedding_writer_v6",
+    "positive_context_policy": "relation_templates_only_v1",
+    "relation_template_bank_sha256": "72437131c32a949d175b7d42deb3098c9e91ac2e941613239dbe7b351bc72bdd",
+    "training_origin": "Base model with no resumed Stage-1 state",
+    "base_model_binding": [
+      "resolved model path",
+      "frozen-Transformer parameter fingerprint",
+      "SHA-256 of selected Base embedding rows"
+    ],
+    "writer_steps": 1200,
+    "canonical_direct_prompt_per_record": true,
+    "hand_authored_relation_id_templates_required_for_every_record": true,
+    "unrelated_corpus_prefix_variants_required": true,
+    "generic_relation_fallback_records": 0,
+    "external_free_form_surrogate_prompts": 0,
+    "nonempty_hash_bound_writer_log_required": true,
+    "zero_step_cross_manifest_resume_forbidden": true,
+    "unchanged_portability_acceptance": {
+      "amplitude_threshold": 4.5,
+      "minimum_global_fraction": 0.95,
+      "minimum_per_record_fraction": 0.8
+    }
+  },
   "primary_claim": "Embedding-keyed sparse-neuron context-conditional factual suppression with measured locality",
   "explicitly_disallowed_primary_claims": [
     "weight-level knowledge deletion",
@@ -197,6 +241,8 @@
     }
   },
   "frequency_cap_factorial": {
+    "positive_context_policy": "relation_templates_only_v1",
+    "writer_training_origin": "from Base independently in every condition",
     "writer_conditions": [
       {"name": "frequency_capped", "row_norm_cap": 8.0, "row_norm_cap_frequency_alpha": 0.15, "max_subject_token_frequency": 1000000000},
       {"name": "uniform_same_cap", "row_norm_cap": 8.0, "row_norm_cap_frequency_alpha": 0.0, "max_subject_token_frequency": 1000000000},

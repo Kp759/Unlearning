@@ -12,7 +12,7 @@ from typing import Any, Dict, Mapping, Sequence
 
 
 METRICS = ("Eff", "Gen", "Spe", "Spe_success")
-EXPECTED_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v2"
+EXPECTED_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3"
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -246,6 +246,14 @@ def _training_binding_match(
             first_firewall.get("stage1_state_sha256"),
             second_firewall.get("stage1_state_sha256"),
         ),
+        "stage1_report_sha256": (
+            first_firewall.get("stage1_report_sha256"),
+            second_firewall.get("stage1_report_sha256"),
+        ),
+        "stage1_writer_log_sha256": (
+            first_firewall.get("stage1_writer_log_sha256"),
+            second_firewall.get("stage1_writer_log_sha256"),
+        ),
         "experiment_registry_sha256": (
             first_firewall.get("experiment_registry_sha256"),
             second_firewall.get("experiment_registry_sha256"),
@@ -460,6 +468,9 @@ def build_report(
     data_access = (
         firewall.get("data_access", {}) if isinstance(firewall, Mapping) else {}
     )
+    clean_stage1 = (
+        firewall.get("clean_stage1_writer", {}) if isinstance(firewall, Mapping) else {}
+    )
     checks: Dict[str, bool] = {
         **metric_checks,
         "locked_training_acceptance": bool(method_acceptance.get("passed")),
@@ -485,6 +496,14 @@ def build_report(
             "benchmark_retain_seen": 0,
             "official_ppl_seen": False,
         },
+        "clean_from_scratch_stage1_writer": bool(
+            isinstance(clean_stage1, Mapping)
+            and clean_stage1.get("from_scratch") is True
+            and int(clean_stage1.get("writer_steps", 0)) == 1200
+            and clean_stage1.get("positive_context_policy")
+            == "relation_templates_only_v1"
+            and int(clean_stage1.get("writer_log_event_count", 0)) > 0
+        ),
     }
 
     matched_control: Dict[str, Any] = {"supplied": False}
@@ -572,8 +591,8 @@ def build_report(
         }
 
     evidence_checks = {
-        "primary_protocol_is_v2": method.get("protocol") == EXPECTED_PROTOCOL,
-        "matched_control_protocol_is_v2": bool(
+        "primary_protocol_is_v3": method.get("protocol") == EXPECTED_PROTOCOL,
+        "matched_control_protocol_is_v3": bool(
             mlp_only_method is not None
             and mlp_only_method.get("protocol") == EXPECTED_PROTOCOL
         ),

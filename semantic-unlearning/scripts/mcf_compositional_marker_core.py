@@ -27,7 +27,7 @@ import torch
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v5_1"
+PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v6"
 
 
 def normalize_text(value: Any) -> str:
@@ -76,7 +76,9 @@ def _donor_words(records: Sequence[Mapping[str, Any]], own_subject: str) -> List
         subject = normalize_text(record["subject"])
         if normalized_key(subject) == own:
             continue
-        values.extend(part for part in subject.split(" ") if normalized_key(part) != own)
+        values.extend(
+            part for part in subject.split(" ") if normalized_key(part) != own
+        )
     return ordered_unique(values) or ["X"]
 
 
@@ -181,7 +183,12 @@ def build_compositional_contexts(
             prompt = _format_prompt(template, str(other["subject"]))
             overlap = selected & set(_flat_token_ids(tokenizer, prompt))
             (shared if overlap else unrelated).append(other)
-        shared.sort(key=lambda x: (-len(selected & set(x["subject_token_ids"])), int(x["case_id"])))
+        shared.sort(
+            key=lambda x: (
+                -len(selected & set(x["subject_token_ids"])),
+                int(x["case_id"]),
+            )
+        )
         unrelated.sort(key=lambda x: int(x["case_id"]))
         for other in shared[: int(max_shared_subjects)]:
             add_negative(
@@ -210,7 +217,9 @@ def build_compositional_contexts(
         fragments: List[str] = []
         if len(words) > 1:
             fragments.extend(words)
-            fragments.extend(" ".join(words[start : start + 2]) for start in range(len(words) - 1))
+            fragments.extend(
+                " ".join(words[start : start + 2]) for start in range(len(words) - 1)
+            )
         for fragment in ordered_unique(fragments)[: int(max_fragments)]:
             if normalized_key(fragment) != subject_key:
                 add_negative(
@@ -268,7 +277,9 @@ def build_compositional_contexts(
     return result, report
 
 
-def orthonormal_row_basis(rows: torch.Tensor, max_rank: int | None = None) -> torch.Tensor:
+def orthonormal_row_basis(
+    rows: torch.Tensor, max_rank: int | None = None
+) -> torch.Tensor:
     if rows.ndim != 2:
         raise ValueError("rows must be a matrix")
     if rows.numel() == 0:
@@ -317,7 +328,9 @@ def residual_reader_basis(
     if row_negative_states.ndim != 2 or row_negative_states.shape[1] != hidden:
         raise ValueError("row-negative states have incompatible shape")
     if int(residual_rank) <= 0 or int(row_negative_rank) < 0:
-        raise ValueError("residual rank must be positive and negative rank non-negative")
+        raise ValueError(
+            "residual rank must be positive and negative rank non-negative"
+        )
 
     common = common_protected_basis.float()
     negatives = row_negative_states.float()
@@ -329,14 +342,14 @@ def residual_reader_basis(
     else:
         negative_basis = residuals.new_empty((0, hidden), dtype=torch.float32)
     protected = (
-        torch.cat([common, negative_basis], dim=0)
-        if negative_basis.numel()
-        else common
+        torch.cat([common, negative_basis], dim=0) if negative_basis.numel() else common
     )
     safe_residuals = project_out(residuals.float(), protected)
     basis = orthonormal_row_basis(safe_residuals, max_rank=int(residual_rank))
     if not basis.shape[0]:
-        raise RuntimeError("writer residual has no component outside protected geometry")
+        raise RuntimeError(
+            "writer residual has no component outside protected geometry"
+        )
 
     total_energy = residuals.float().square().sum().clamp_min(1e-30)
     safe_energy = safe_residuals.square().sum()
@@ -400,7 +413,9 @@ def clamp_basis_coefficients_(
         "max_norm": float(after.max()) if after.numel() else 0.0,
         "max_relative_norm": float(
             (after / base_row_norms.to(after).clamp_min(1e-30)).max()
-        ) if after.numel() else 0.0,
+        )
+        if after.numel()
+        else 0.0,
     }
 
 
@@ -412,9 +427,9 @@ def materialized_row_delta_ste(
     if raw_delta.shape != base_rows.shape or raw_delta.ndim != 2:
         raise ValueError("raw delta and base rows must have equal matrix shapes")
     base = base_rows.to(device=raw_delta.device)
-    materialized = (
-        base + raw_delta.to(dtype=base.dtype)
-    ).to(dtype=base.dtype).float() - base.float()
+    materialized = (base + raw_delta.to(dtype=base.dtype)).to(
+        dtype=base.dtype
+    ).float() - base.float()
     return raw_delta + (materialized - raw_delta).detach()
 
 
@@ -504,7 +519,9 @@ def select_contrastive_marker(
     residual = project_out(positive_reach.float(), forbidden)
     basis = orthonormal_row_basis(residual, max_rank=int(max_rank))
     if basis.shape[0] == 0:
-        raise RuntimeError("no positive reachable direction survives the forbidden basis")
+        raise RuntimeError(
+            "no positive reachable direction survives the forbidden basis"
+        )
 
     z_pos = positive_reach.float() @ basis.T
     z_neg = negative_reach.float() @ basis.T
@@ -614,7 +631,10 @@ def distributional_reader(
     if marker.ndim != 1:
         raise ValueError("marker must be one-dimensional")
     hidden = marker.shape[0]
-    if positive_states.ndim != 2 or positive_states.shape != (positive_states.shape[0], hidden):
+    if positive_states.ndim != 2 or positive_states.shape != (
+        positive_states.shape[0],
+        hidden,
+    ):
         raise ValueError("positive_states has incompatible shape")
     if positive_states.shape[0] == 0:
         raise ValueError("positive_states must not be empty")
@@ -658,13 +678,17 @@ def distributional_reader(
     def matvec(vector: torch.Tensor) -> torch.Tensor:
         result = (float(ridge) + float(anchor_weight)) * vector
         if neg.shape[0] and float(negative_weight) > 0:
-            result = result + float(negative_weight) * (
-                neg.T @ (neg @ vector)
-            ) / neg.shape[0]
+            result = (
+                result
+                + float(negative_weight) * (neg.T @ (neg @ vector)) / neg.shape[0]
+            )
         if centered.shape[0] > 1 and float(consistency_weight) > 0:
-            result = result + float(consistency_weight) * (
-                centered.T @ (centered @ vector)
-            ) / centered.shape[0]
+            result = (
+                result
+                + float(consistency_weight)
+                * (centered.T @ (centered @ vector))
+                / centered.shape[0]
+            )
         return result
 
     rhs = residual_mu + float(anchor_weight) * residual_marker
@@ -673,7 +697,9 @@ def distributional_reader(
     if float(initial.norm()) < 1e-10:
         initial = residual_mu
     if float(initial.norm()) < 1e-10:
-        raise RuntimeError("positive states have no direction outside the negative span")
+        raise RuntimeError(
+            "positive states have no direction outside the negative span"
+        )
     q = F.normalize(initial, dim=0, eps=1e-12)
     if float((pos @ q).mean()) < 0:
         q = -q
@@ -696,7 +722,9 @@ def distributional_reader(
             pos_scores = pos @ unit
             hinge = F.relu(float(positive_floor) - pos_scores).square().mean()
             consistency = pos_scores.var(unbiased=False)
-            negative = (neg @ unit).square().mean() if neg.shape[0] else unit.sum() * 0.0
+            negative = (
+                (neg @ unit).square().mean() if neg.shape[0] else unit.sum() * 0.0
+            )
             anchor = 1.0 - torch.dot(unit, v)
             loss = (
                 200.0 * hinge
@@ -708,9 +736,7 @@ def distributional_reader(
             with torch.no_grad():
                 momentum.mul_(0.9).add_(gradient)
                 updated = parameter - float(refine_lr) * momentum
-                updated = project_out(
-                    updated.unsqueeze(0), negative_basis
-                ).squeeze(0)
+                updated = project_out(updated.unsqueeze(0), negative_basis).squeeze(0)
                 updated = F.normalize(updated, dim=0, eps=1e-12)
             parameter = updated.detach().requires_grad_(True)
         q = F.normalize(parameter.detach(), dim=0, eps=1e-12)
@@ -769,12 +795,16 @@ def directional_row_deltas(
         raise ValueError("betas must contain one value per reader")
     if len(answer_rows_by_record) != readers.shape[0]:
         raise ValueError("answer_rows_by_record must contain one row list per reader")
-    row_slot = {int(token_id): slot for slot, token_id in enumerate(selected_output_rows)}
+    row_slot = {
+        int(token_id): slot for slot, token_id in enumerate(selected_output_rows)
+    }
     membership = readers.new_zeros((len(selected_output_rows), readers.shape[0]))
     for record_index, token_ids in enumerate(answer_rows_by_record):
         for token_id in set(int(x) for x in token_ids):
             if token_id not in row_slot:
-                raise ValueError(f"answer token {token_id} missing from selected output rows")
+                raise ValueError(
+                    f"answer token {token_id} missing from selected output rows"
+                )
             membership[row_slot[token_id], record_index] = 1.0
     return -((membership * betas.unsqueeze(0)) @ readers)
 
@@ -815,7 +845,10 @@ def monotone_cover_betas(
     """
     if response.ndim != 2:
         raise ValueError("response must be [instances, readers]")
-    if required_margin_gain.ndim != 1 or required_margin_gain.shape[0] != response.shape[0]:
+    if (
+        required_margin_gain.ndim != 1
+        or required_margin_gain.shape[0] != response.shape[0]
+    ):
         raise ValueError("required-margin vector has incompatible shape")
     if not math.isfinite(float(safety_factor)) or float(safety_factor) < 1.0:
         raise ValueError("safety_factor must be finite and >=1")

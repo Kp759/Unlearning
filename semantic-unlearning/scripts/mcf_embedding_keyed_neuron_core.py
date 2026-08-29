@@ -28,7 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v2"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
