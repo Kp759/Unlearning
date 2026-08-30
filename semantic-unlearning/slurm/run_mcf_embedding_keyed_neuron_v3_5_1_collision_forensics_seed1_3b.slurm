@@ -89,11 +89,11 @@ if ! jq -e '
     "all_negative_gates_zero": true,
     "all_writer_off_gates_zero": false
   } and
-  .aggregate.positive_owner.n == 346 and .aggregate.positive_owner.min == 1 and
-  .aggregate.positive_cross.n == 16954 and .aggregate.positive_cross.max == 0 and
-  .aggregate.negative.n == 23250 and .aggregate.negative.max == 0 and
-  .aggregate.writer_off.n == 17300 and
-  .aggregate.writer_off.max == 0.5735465884208679 and
+  .aggregate.positive_owner_gate.n == 346 and .aggregate.positive_owner_gate.min == 1 and
+  .aggregate.positive_cross_gate.n == 16954 and .aggregate.positive_cross_gate.max == 0 and
+  .aggregate.negative_gate.n == 23250 and .aggregate.negative_gate.max == 0 and
+  .aggregate.writer_off_gate.n == 17300 and
+  .aggregate.writer_off_gate.max == 0.5735465884208679 and
   ([.per_record[] | select(.writer_off_gate_abs_max > 0.000001)] | length) == 1 and
   ([.per_record[] | select(.writer_off_gate_abs_max > 0.000001)][0].case_id) == 10803 and
   .passed == false and .official_evaluation_prompts_seen == 0

@@ -1531,10 +1531,10 @@ def test_frozen_v3_5_rejection_binds_exactly_one_unresolved_gate_cell(tmp_path):
                 "all_writer_off_gates_zero": False,
             },
             "aggregate": {
-                "positive_owner": {"n": 346, "min": 1.0},
-                "positive_cross": {"n": 16954, "max": 0.0},
-                "negative": {"n": 23250, "max": 0.0},
-                "writer_off": {
+                "positive_owner_gate": {"n": 346, "min": 1.0},
+                "positive_cross_gate": {"n": 16954, "max": 0.0},
+                "negative_gate": {"n": 23250, "max": 0.0},
+                "writer_off_gate": {
                     "n": 17300,
                     "mean": gate_max / 17300,
                     "max": gate_max,
@@ -1578,7 +1578,7 @@ def test_frozen_v3_5_rejection_binds_exactly_one_unresolved_gate_cell(tmp_path):
     assert receipt["observed"]["writer_off_source_case_id"] == 10803
     assert "detector_group" not in receipt["observed"]
 
-    artifacts["isolated_threshold_gate_report.json"]["aggregate"]["writer_off"][
+    artifacts["isolated_threshold_gate_report.json"]["aggregate"]["writer_off_gate"][
         "mean"
     ] = (2 * gate_max / 17300)
     (method_dir / "isolated_threshold_gate_report.json").write_text(

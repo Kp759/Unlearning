@@ -1639,10 +1639,10 @@ def validate_frozen_v3_5_rejection(
     gate_rows = gate.get("per_record")
     checks_payload = threshold.get("checks", {})
     aggregate = threshold.get("aggregate", {})
-    writer_off = aggregate.get("writer_off", {})
-    positive_owner = aggregate.get("positive_owner", {})
-    positive_cross = aggregate.get("positive_cross", {})
-    negative = aggregate.get("negative", {})
+    writer_off = aggregate.get("writer_off_gate", {})
+    positive_owner = aggregate.get("positive_owner_gate", {})
+    positive_cross = aggregate.get("positive_cross_gate", {})
+    negative = aggregate.get("negative_gate", {})
     threshold_rows = threshold.get("per_record")
     failing_writer_off_rows = (
         [
