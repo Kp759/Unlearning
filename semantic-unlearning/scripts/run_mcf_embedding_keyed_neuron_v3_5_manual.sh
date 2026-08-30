@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "V3.4 is a preserved training-only rejection and cannot run from the V3.5 checkout." >&2
-echo "Use run_mcf_embedding_keyed_neuron_v3_5_manual.sh with the preserved V3.2 and V3.4 outputs." >&2
-exit 2
-
 if [[ $# -ne 4 ]]; then
-  echo "usage: $0 CLEAN_WRITER_OUTPUT_DIR REJECTED_V3_2_OUTPUT_DIR REJECTED_V3_3_OUTPUT_DIR OUTPUT_DIR" >&2
+  echo "usage: $0 CLEAN_WRITER_OUTPUT_DIR REJECTED_V3_2_OUTPUT_DIR REJECTED_V3_4_OUTPUT_DIR OUTPUT_DIR" >&2
   exit 2
 fi
 
 CLEAN_WRITER_DIR="$1"
 FROZEN_V3_2_DIR="$2"
-FROZEN_V3_3_DIR="$3"
+FROZEN_V3_4_DIR="$3"
 RUN_OUTPUT_DIR="$4"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
 for required in \
   "${CLEAN_WRITER_DIR}/protocol/training_visible_target_aware_direct.json" \
   "${CLEAN_WRITER_DIR}/protocol/split_manifest.json" \
@@ -32,20 +29,20 @@ do
   fi
 done
 
-for source in "${FROZEN_V3_2_DIR}" "${FROZEN_V3_3_DIR}"; do
+for source in "${FROZEN_V3_2_DIR}" "${FROZEN_V3_4_DIR}"; do
   if [[ ! -d "${source}" ]]; then
     echo "required frozen source directory is missing: ${source}" >&2
     exit 2
   fi
 done
 if [[ -e "${RUN_OUTPUT_DIR}" ]]; then
-  echo "output path already exists; choose a fresh V3.4 directory: ${RUN_OUTPUT_DIR}" >&2
+  echo "output path already exists; choose a fresh V3.5 directory: ${RUN_OUTPUT_DIR}" >&2
   exit 2
 fi
 
 export PROJECT_DIR="${PROJECT_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd -P)}"
 export CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_DIR}"
 export FROZEN_V3_2_OUTPUT_DIR="${FROZEN_V3_2_DIR}"
-export FROZEN_V3_3_OUTPUT_DIR="${FROZEN_V3_3_DIR}"
+export FROZEN_V3_4_OUTPUT_DIR="${FROZEN_V3_4_DIR}"
 export OUTPUT_DIR="${RUN_OUTPUT_DIR}"
-exec bash "${PROJECT_DIR}/slurm/run_mcf_embedding_keyed_neuron_v3_4_cap_sweep_seed1_3b.slurm"
+exec bash "${PROJECT_DIR}/slurm/run_mcf_embedding_keyed_neuron_v3_5_isolated_threshold_seed1_3b.slurm"

@@ -7,14 +7,19 @@ auditable pieces that can be tested without loading a language model:
 
 * greedy selection of record-owned neurons whose activations respond to the
   frozen sparse embedding writer but remain quiet on writer-off contexts;
-* an exact sparse parameterization of existing SwiGLU ``gate_proj`` and
-  ``up_proj`` rows plus ``down_proj`` columns;
+* the historical exact sparse parameterization of existing SwiGLU rows and
+  columns, retained for lineage and unit tests;
+* V3.5's isolated thresholded residual branch, which reads frozen selected
+  gate/up features while leaving the ordinary Base MLP path untouched;
 * contextual code responses and detector-gate metrics;
 * hard relative-norm projection and materialization/restoration helpers.
 
-No tokenizer expansion, subject-string lookup, inference-time router, sidecar,
-LoRA, or LM-head edit is implemented here.  The selected neurons are ordinary
-model parameters after materialization.
+No tokenizer expansion, subject-string lookup, retrieval cache, LoRA, or
+LM-head edit is implemented here. V3.5 deliberately introduces an internal
+activation threshold and explicit sparse residual branch. That branch is a
+training-only architecture test and cannot be represented as an ordinary
+replacement of the selected model rows/columns; ``materialize`` therefore
+refuses it instead of making a false existing-weight claim.
 """
 
 from __future__ import annotations
@@ -28,7 +33,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_4"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
@@ -559,12 +564,12 @@ def actuator_cap_sweep_decision(
         min(structurally_selective) if structurally_selective else None
     )
     conclusion = (
-        "fixed_200_neuron_layer_27_actuator_insufficient_within_tested_norm_budget"
+        "isolated_threshold_branch_not_positive_reachable_at_registered_cap"
         if selected is None
         else (
-            "positive_reachability_found_but_structural_writer_off_selectivity_failed"
+            "isolated_positive_reachability_without_writer_off_selectivity"
             if selected_structural is None
-            else "positive_reachability_and_unoptimized_structural_selectivity_found"
+            else "isolated_positive_reachability_and_writer_off_selectivity_passed"
         )
     )
     return {
@@ -777,15 +782,16 @@ def sparse_neuron_weights(
 
 
 class SparseSwiGLUNeuronEditor(nn.Module):
-    """Differentiable exact-real sparse edits to existing SwiGLU neurons.
+    """Sparse SwiGLU feature editor with legacy and isolated residual modes.
 
-    A forward hook replaces only the contribution of selected neurons:
+    The legacy mode replaces only the selected-neuron contribution:
 
     ``base_selected_contribution -> edited_selected_contribution``.
 
-    In exact arithmetic this is identical to materializing the corresponding
-    projection rows/columns.  The end-to-end experiment verifies native-dtype
-    hook/materialization parity before a checkpoint may be saved.
+    V3.5 instead leaves the Base MLP output untouched, evaluates imported
+    detector features as a passive readout, and adds a threshold-gated residual
+    through ``down_delta``. Only the legacy mode is materializable into the
+    original projection rows/columns.
     """
 
     def __init__(self, mlp: nn.Module, neuron_ids: Sequence[int]) -> None:
@@ -807,6 +813,18 @@ class SparseSwiGLUNeuronEditor(nn.Module):
         self.write_enabled = True
         self.capture_activations = False
         self.last_edited_activations: torch.Tensor | None = None
+        self.residual_mode = "replace_selected_neuron_contribution"
+        self.threshold_gate_off_boundary = 0.0
+        self.threshold_gate_on_boundary = 1.0
+        self.threshold_local_groups: List[List[int]] = []
+        self.register_buffer(
+            "threshold_flat_signs",
+            torch.empty(0, dtype=torch.float32, device=device),
+        )
+        self.register_buffer(
+            "threshold_neuron_owners",
+            torch.empty(0, dtype=torch.long, device=device),
+        )
         self._act_fn = mlp.act_fn
         self._handle: Any = None
 
@@ -838,6 +856,99 @@ class SparseSwiGLUNeuronEditor(nn.Module):
         edited_up = F.linear(x, self.base_up_rows + self.up_delta)
         return self._act_fn(edited_gate) * edited_up
 
+    def configure_isolated_threshold_residual(
+        self,
+        local_groups: Sequence[Sequence[int]],
+        flat_signs: torch.Tensor,
+        *,
+        off_boundary: float,
+        on_boundary: float,
+    ) -> None:
+        """Make detector rows a passive readout for an additive residual branch.
+
+        The ordinary MLP output remains untouched.  The edited detector
+        activations produce one signed response per record; a clipped linear
+        threshold converts the registered off/on certificate gap into a gate in
+        ``[0, 1]``.  Only ``gate * activation * down_delta`` is added to the
+        residual stream, so an exact-zero ``down_delta`` is an algebraic identity
+        regardless of the imported gate/up tensors.
+        """
+
+        if not math.isfinite(float(off_boundary)) or not math.isfinite(
+            float(on_boundary)
+        ):
+            raise ValueError("threshold-gate boundaries must be finite")
+        if float(on_boundary) <= float(off_boundary):
+            raise ValueError("threshold-gate on boundary must exceed off boundary")
+        groups = [[int(value) for value in group] for group in local_groups]
+        if not groups or any(not group for group in groups):
+            raise ValueError("threshold gate requires nonempty record groups")
+        flattened = [value for group in groups for value in group]
+        expected = list(range(len(self.neuron_ids)))
+        if sorted(flattened) != expected or len(set(flattened)) != len(expected):
+            raise ValueError(
+                "threshold groups must partition every selected neuron exactly once"
+            )
+        signs = flat_signs.detach().float().reshape(-1)
+        if int(signs.numel()) != len(self.neuron_ids):
+            raise ValueError("threshold signs must cover every selected neuron")
+        if not bool(torch.isfinite(signs).all()) or not bool(
+            torch.all(signs.abs().eq(1.0))
+        ):
+            raise ValueError("threshold signs must be finite values in {-1, +1}")
+        owners = torch.empty(len(self.neuron_ids), dtype=torch.long)
+        for owner, group in enumerate(groups):
+            owners[torch.tensor(group, dtype=torch.long)] = int(owner)
+        self.threshold_local_groups = groups
+        self.threshold_flat_signs = signs.to(self.base_gate_rows.device)
+        self.threshold_neuron_owners = owners.to(self.base_gate_rows.device)
+        self.threshold_gate_off_boundary = float(off_boundary)
+        self.threshold_gate_on_boundary = float(on_boundary)
+        self.residual_mode = "isolated_thresholded_residual"
+
+    def thresholded_group_gates_from_activations(
+        self, edited_activation: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Return signed group responses and their clipped certificate gates."""
+
+        if self.residual_mode != "isolated_thresholded_residual":
+            raise RuntimeError("isolated threshold residual mode is not configured")
+        if int(edited_activation.shape[-1]) != len(self.neuron_ids):
+            raise ValueError("edited activations do not cover the selected neurons")
+        leading_shape = edited_activation.shape[:-1]
+        flat = edited_activation.reshape(-1, len(self.neuron_ids))
+        responses = signed_group_activations(
+            flat,
+            self.threshold_local_groups,
+            self.threshold_flat_signs,
+        )
+        width = self.threshold_gate_on_boundary - self.threshold_gate_off_boundary
+        gates = ((responses - self.threshold_gate_off_boundary) / width).clamp(
+            min=0.0, max=1.0
+        )
+        group_count = len(self.threshold_local_groups)
+        return (
+            responses.reshape(*leading_shape, group_count),
+            gates.reshape(*leading_shape, group_count),
+        )
+
+    def isolated_actuator_features_from_activations(
+        self, edited_activation: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Gate each selected activation by its record's thresholded response."""
+
+        responses, gates = self.thresholded_group_gates_from_activations(
+            edited_activation
+        )
+        expanded = gates.index_select(-1, self.threshold_neuron_owners.to(gates.device))
+        return edited_activation * expanded, responses, gates
+
+    def isolated_actuator_features(
+        self, hidden: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        edited_activation = self.edited_selected_activations(hidden)
+        return self.isolated_actuator_features_from_activations(edited_activation)
+
     def _hook(
         self, _module: nn.Module, inputs: Any, output: torch.Tensor
     ) -> torch.Tensor:
@@ -845,6 +956,21 @@ class SparseSwiGLUNeuronEditor(nn.Module):
             self.last_edited_activations = None
             return output
         hidden = inputs[0]
+        if self.residual_mode == "isolated_thresholded_residual":
+            edited_activation = self.edited_selected_activations(hidden)
+            if self.capture_activations:
+                self.last_edited_activations = edited_activation
+            else:
+                self.last_edited_activations = None
+            if not self.write_enabled:
+                return output
+            (
+                actuator_features,
+                _responses,
+                _gates,
+            ) = self.isolated_actuator_features_from_activations(edited_activation)
+            correction = F.linear(actuator_features, self.down_delta)
+            return output + correction.to(dtype=output.dtype)
         base_activation, edited_activation = self.selected_activations(hidden)
         if self.capture_activations:
             self.last_edited_activations = edited_activation
@@ -950,6 +1076,11 @@ class SparseSwiGLUNeuronEditor(nn.Module):
 
     @torch.no_grad()
     def materialize(self, mlp: nn.Module) -> SparseNeuronWeights:
+        if self.residual_mode == "isolated_thresholded_residual":
+            raise RuntimeError(
+                "the isolated thresholded residual is an explicit internal branch "
+                "and cannot be represented by replacing existing SwiGLU rows"
+            )
         ids = torch.tensor(
             self.neuron_ids, dtype=torch.long, device=mlp.gate_proj.weight.device
         )

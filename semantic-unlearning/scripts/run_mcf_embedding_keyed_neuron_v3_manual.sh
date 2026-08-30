@@ -2,4 +2,4 @@
 set -euo pipefail
 
 echo "run_mcf_embedding_keyed_neuron_v3_manual.sh is a compatibility alias for V3.4" >&2
-exec bash "$(dirname "$0")/run_mcf_embedding_keyed_neuron_v3_4_manual.sh" "$@"
+exec bash "$(dirname "$0")/run_mcf_embedding_keyed_neuron_v3_5_manual.sh" "$@"

@@ -1,11 +1,10 @@
-# Embedding-Keyed Sparse-Neuron Conditional Suppression
+# Embedding-Keyed Contextual Residual Suppression
 
 This experiment tests a narrow mechanism claim:
 
 > A frozen sparse embedding writer can create context-composed information that
-> an equally sparse set of existing nonlinear MLP neurons uses to suppress a
-> factual answer more locally than either an embedding-only edit or an
-> independently trained sparse-MLP editor.
+> a sparse downstream contextual branch can use to suppress a factual answer
+> without asking highly shared embedding or LM-head rows to carry the erasure.
 
 The primary claim is **context-conditional factual suppression with measured
 locality on declared distributions**. The protocol does not call the mechanism
@@ -23,28 +22,29 @@ frozen sparse deltas on existing embedding rows
 frozen Transformer blocks compose token + relation + context
         |
         v
-record-owned existing SwiGLU neurons at final block MLP layer 27
-  selected gate_proj/up_proj rows = nonlinear contextual detector
-  matching down_proj columns      = suppression actuator
+exact frozen V3.2 layer-27 gate/up features (4 per record)
+        |
+        v
+clipped internal gate maps the registered response gap
+  <= 0.200001 -> 0; >= 0.249999 -> 1
+        |
+        v
+isolated sparse residual through learned down_delta at cap 1.50
+  Base MLP path and original down columns remain untouched
         |
         v
 frozen later Transformer blocks + bit-identical LM head
 ```
 
-There is no tokenizer expansion, string matcher, retrieval cache, runtime
-router, sidecar, adapter, LoRA, constant logit bias, or LM-head edit. After
-training, all changes are ordinary weight values in existing embedding rows and
-existing MLP rows/columns.
+There is no tokenizer expansion, subject-string matcher, retrieval cache,
+external router, adapter, LoRA, constant logit bias, or LM-head edit. V3.5 does
+contain a declared **internal activation gate** and explicit additive residual
+branch. It is therefore not described as an ordinary existing-neuron weight
+materialization. The exact-zero actuator is algebraically identical to Base,
+even when imported detector features fire, and all feasibility weights are
+discarded before any checkpoint or official evaluation can exist.
 
-The implementation does **not** contain a scalar runtime gate of the form
-`g = a^T h - tau`. Its auditable detector statistic is the signed mean
-absolute activation of each record-owned neuron group—the continuous quantity
-that actually multiplies its edited down-projection columns. It does not
-subtract a paired Base activation that would be unavailable at inference. The
-training floor and off-context threshold are diagnostics, not a fictional
-runtime classifier.
-
-## Training-only rejections and the V3.4 actuator-cap sweep
+## Training-only rejections through V3.5
 
 The first layer-8 feasibility run was rejected before its official evaluation: its
 detector passed 0/50 records, and the subsequently attempted actuator was
@@ -189,6 +189,81 @@ V3.4 never runs the preservation objective, saves a checkpoint, or opens
 official evaluation—even if a cap is reachable. If no cap through 2.0 passes,
 the registered conclusion is that the fixed 200-neuron layer-27 actuator is
 insufficient within the tested norm budget.
+
+The completed V3.4 sweep isolated the actual bottleneck. Cap 1.50 was the
+smallest positive-reachable value: its loss reached zero with 34/200 columns
+saturated, while cap 2.00 reached the same objective without saturation. Thus
+four features per record have enough positive-only actuator capacity. However,
+the frozen detector's writer-on/off response ratio was only 2.1545 at p10 and
+3.2468 at the median. More decisively, writer-off target NLL moved by 0.25 even
+with `down_delta` bit-exact zero—five times the 0.05 tolerance. The reason is
+structural: V3.4 replaced gate/up activations, and those activations still
+flowed through the selected neurons' original Base down columns.
+
+V3.5 fixes that specific mechanism rather than increasing rank, steps, or cap:
+
+1. the entire ordinary Base MLP output stays untouched;
+2. the exact frozen V3.2 gate/up tensors are evaluated only as detector
+   features;
+3. the registered 0.20/0.25 certificate gap becomes an explicit clipped
+   internal gate with a `1e-6` guard;
+4. only `gate * detector_activation * down_delta` is added as a separate
+   residual; and
+5. positive-only feasibility is rerun at the already-established smallest cap
+   1.50 for exactly 100 globally balanced updates.
+
+Before fitting, V3.5 requires all owner-positive gates to be one and all
+writer-off, negative, and cross-record gates to be zero on the complete cached
+training context set. It then audits exact-zero identity on both writer-on and
+writer-off NLLs. A separate decomposition temporarily zeros the 200 original
+Base down columns with Base gate/up and writer off, measures all 346 positives,
+and restores the columns bit-exactly. That decomposition is diagnostic only;
+it cannot reselect neurons or change acceptance. The fitted residual is also
+audited through full forward passes because last-token detector certificates
+alone do not constrain gates at every earlier sequence position.
+
+V3.5 remains training-only. Every fitted `down_delta` is discarded; full
+preservation training, checkpoint creation, and official evaluation are
+prohibited regardless of the outcome. A passing V3.5 result licenses a newly
+preregistered V3.6 preservation experiment, not retrospective evaluation.
+
+## Development-retain shared-row exposure
+
+A separate audit consumed 9,438 first-half development-retain records after
+excluding all 1,000 reserved official-retain IDs. These records must never be
+described later as blind evaluation. The audit found:
+
+- 198/234 (84.6%) embedding rows actually edited by V6.2 also occur in the
+  development-retain prompts;
+- 5,762/9,438 (61.05%) development-retain prompts contain at least one actual
+  edited row;
+- 199/236 (84.3%) forget-subject token IDs are reused; and
+- 49/50 forget subjects contain an actually edited row seen in development
+  retain.
+
+This establishes shared-parameter exposure, not causal retain degradation.
+It motivates the architectural boundary: the embedding edit may be a small
+marker, but token identity cannot itself decide which fact to erase. None of
+the development IDs, overlap counts, token frequencies, or edit norms enters
+V3.5 selection, optimization, acceptance, or retry.
+
+The reproducible follow-up also measures whether the largest actual row edits
+land on the most reused tokens:
+
+```bash
+python scripts/audit_mcf_embedding_writer_shared_row_exposure.py \
+  --model-path "$MODEL_PATH" \
+  --mcf-path data/multi_counterfact.json \
+  --split-manifest "$WRITER/protocol/split_manifest.json" \
+  --writer-state "$WRITER/method/stage1_writer.pt" \
+  --output "$AUDIT_DIR/development_retain_shared_row_exposure_v2.json"
+```
+
+It reports Pearson correlation against raw and `log1p` prompt frequency,
+Spearman correlation, per-row edit norms, and the largest
+frequency-times-norm exposures. `--historical-lm-head-state` optionally runs
+the analogous old LM-head-row analysis, explicitly labeled as a lexical proxy
+rather than a behavioral exposure metric.
 
 To add the case-ID binding to the preserved historical V3 rejection without
 changing its gate JSON:
@@ -398,8 +473,14 @@ alias, adversarial, latent, or relearning input. It reads only:
 4. the from-Base, relation-templates-only Stage-1 writer state, report, and
    nonempty hash-bound optimization log; and
 5. the hash-bound training-only artifacts from the rejected V3.2 run whose
-   detector passed 50/50 records; and
-6. Wikipedia documents 20 onward for selection/protection.
+   detector passed 50/50 records;
+6. the hash-bound V3.4 reachability-pass/selectivity-reject artifacts; and
+7. Wikipedia documents 20 onward for selection/protection.
+
+The separate 9,438-record development overlap audit reads the original MCF
+source, but the learner does not receive its path, records, token frequencies,
+or per-row results. Only its already-observed aggregate evidence is recorded in
+the public registry as architecture motivation.
 
 Documents 0:20 remain reserved for official PPL. Relevant hashes and zero-
 access receipts are checked. The main launcher freezes and reload-verifies both
@@ -414,9 +495,9 @@ run.
 
 The registry is
 `protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json`. The legacy
-filename is retained for launcher compatibility; its current schema is 10 and
-its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_4`.
-V3.4 itself is incapable of reaching paper-level acceptance because it saves
+filename is retained for launcher compatibility; its current schema is 11 and
+its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_5`.
+V3.5 itself is incapable of reaching paper-level acceptance because it saves
 no checkpoint and opens no official prompts. The future checkpoint protocol
 still requires all of the following:
 
@@ -438,7 +519,7 @@ The registry fixes seed 1 as development and seeds 2 and 3 as confirmatory with
 unchanged hyperparameters. A 100-record run is confirmatory only after a
 separately frozen 100-record writer/context artifact exists.
 
-## Running the V3.4 training-only sweep
+## Running the V3.5 training-only architecture test
 
 First build the clean Stage-1 writer from Base. This opens no official
 evaluation probes and refuses any existing output path:
@@ -454,21 +535,21 @@ bash scripts/run_mcf_compositional_marker_clean_stage1_manual.sh \
   2>&1 | tee slurm_logs/mcf_compositional_marker_v6_2_clean_seed1_manual.log
 ```
 
-V3.4 additionally requires the preserved V3.2 detector source and the exact
-V3.3 rejected output. The wrapper rejects an existing output directory:
+V3.5 requires the preserved V3.2 detector source and the exact V3.4 rejected
+output. The wrapper rejects an existing output directory:
 
 ```bash
-bash scripts/run_mcf_embedding_keyed_neuron_v3_4_manual.sh \
+bash scripts/run_mcf_embedding_keyed_neuron_v3_5_manual.sh \
   outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
   outputs/mcf_embedding_keyed_neuron_v3_2_seed1_3b_aws_v6_2 \
-  outputs/mcf_embedding_keyed_neuron_v3_3_seed1_3b_aws_v6_2 \
   outputs/mcf_embedding_keyed_neuron_v3_4_seed1_3b_aws_v6_2 \
-  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_4_seed1_aws_v6_2.log
+  outputs/mcf_embedding_keyed_neuron_v3_5_seed1_3b_aws_v6_2 \
+  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_5_seed1_aws_v6_2.log
 ```
 
-The historical V3.3 full-training and ablation launchers are intentionally
-disabled in this checkout. Reproducing V3.3 requires commit
-`e1ec6ba1ade3746f65384bb847f77f3dc53b818f`.
+The historical V3.4 and earlier launchers are intentionally disabled in this
+checkout. Reproducing V3.4 requires commit
+`34194ea3b06df8bad6d1a6d0acc6675442899426`.
 
 ## Important outputs
 
@@ -482,29 +563,31 @@ disabled in this checkout. Reproducing V3.3 requires commit
   only console-print checkpoints (zero new updates for the frozen V3.2 import);
 - `method/frozen_v3_2_detector_import.json`: hashes and lineage checks proving
   that only the passed V3.2 gate/up detector tensors were imported;
-- `method/frozen_v3_3_rejection_import.json`: hashes and exact metric checks
-  binding the preserved 50/50-detector, failed-actuator V3.3 run;
+- `method/frozen_v3_4_rejection_import.json`: hashes and exact metric checks
+  binding the preserved positive-reachable/selectivity-rejected V3.4 run;
 - `method/frozen_detector_selectivity_audit.json`: paired activation ratios at
   group, individual-neuron, owned-vector, and all-selected-vector levels;
-- `method/frozen_detector_zero_actuator_behavior_audit.json`: fresh writer-off
-  behavioral audit with the imported detector active and `down_delta` exactly
-  zero, before any cap-specific fit;
+- `method/isolated_threshold_gate_report.json`: full cached-context owner,
+  cross-record, negative, and writer-off 0/1 gate certificate;
+- `method/isolated_zero_actuator_identity_audit.json`: fresh writer-on and
+  writer-off behavioral identity audit at bit-exact-zero `down_delta`;
+- `method/selected_base_down_zeroing_audit.json`: diagnostic decomposition of
+  the original 200 Base down columns with a bit-exact restoration receipt;
 - `method/detector_endpoint_audit.json`: hashes and consistency checks binding
-  the frozen source certificate to the fresh V3.4 replay;
+  the frozen source certificate to the fresh V3.5 replay;
 - `method/detector_gate_case_report.tsv`: record-index to MCF case-ID binding
   with positive, negative, writer-off, and pass/fail values;
 - upstream `method/clean_stage1_acceptance.json`: exact from-Base lineage,
   relation-template policy, artifact hashes, nonempty optimization log, and
   passed training-safe 4.5 / 95% / 80% portability replay;
-- `method/actuator_cap_{0p50,0p75,1p00,1p50,2p00}_training_log.jsonl`:
-  incrementally durable logs for every one of the 500 sweep updates;
-- `method/actuator_cap_*_feasibility.json`: fresh behavioral audit, per-record
-  margins, all per-column norm ratios, saturation count, exact residual-write
-  selectivity, and fitted-weight discard receipt for each cap;
-- `method/actuator_norm_cap_reachability_sweep.json`: complete cap table,
-  smallest-passing-cap decision, separate structural-selectivity result, and
-  fail-closed conclusion; and
-- `method/training_only_sweep_completion.json`: final receipt proving that full
+- `method/actuator_cap_1p50_training_log.jsonl`: incrementally durable log for
+  all 100 fixed-cap updates;
+- `method/actuator_cap_1p50_feasibility.json`: fresh behavioral audit,
+  per-record margins, all per-column norm ratios, exact residual-write
+  selectivity, and fitted-weight discard receipt;
+- `method/isolated_threshold_actuator_feasibility.json`: positive reachability,
+  writer-off structural selectivity, lineage, and fail-closed conclusion; and
+- `method/training_only_v3_5_completion.json`: final receipt proving that full
   preservation training, checkpoint saving, and official evaluation did not
   occur.
 

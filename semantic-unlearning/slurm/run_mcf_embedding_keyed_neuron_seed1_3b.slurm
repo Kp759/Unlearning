@@ -13,8 +13,8 @@
 
 set -euo pipefail
 
-echo "This is the preserved V3.3 full-training launcher and is disabled in the V3.4 checkout." >&2
-echo "Use slurm/run_mcf_embedding_keyed_neuron_v3_4_cap_sweep_seed1_3b.slurm." >&2
+echo "This is the preserved V3.3 full-training launcher and is disabled in the V3.5 checkout." >&2
+echo "Use slurm/run_mcf_embedding_keyed_neuron_v3_5_isolated_threshold_seed1_3b.slurm." >&2
 exit 2
 
 PROJECT_DIR="${PROJECT_DIR:-/scratch/yl258/kp759/Unlearning/semantic-unlearning}"

@@ -7,17 +7,22 @@ Architecture
     ordinary sparse subject embedding-row deltas (frozen Stage 1)
         -> frozen early Transformer layers
         -> record-specific contextual activation code
-        -> sparse existing SwiGLU detector/actuator neurons
+        -> frozen sparse SwiGLU detector features
+        -> registered internal response threshold
+        -> isolated sparse residual actuator
         -> frozen remaining Transformer
         -> exactly unchanged LM head
 
-For each edit, a disjoint group of existing low-activation MLP neurons is
+For each edit, a disjoint group of existing low-activation MLP features was
 selected using only training-safe writer-on versus writer-off activations.
-``gate_proj``/``up_proj`` rows learn to detect the complete embedding-induced
-contextual code. The matching ``down_proj`` columns learn a suppression residual.
-All edits are materialized into ordinary model weights; there is no tokenizer
-expansion, string matcher, retrieval cache, runtime router, sidecar, adapter,
-LoRA, logit bias, or LM-head update.
+V3.5 imports the exact V3.2 detector tensors, but does not replace the Base MLP
+contribution. It maps the locked 0.20/0.25 detector-certificate gap to a clipped
+internal gate and adds a separate sparse residual. Consequently, an exact-zero
+actuator is algebraically identical to Base even when detector features fire.
+This is an explicit internal residual branch—not an ordinary existing-weight
+materialization—and the training-only run discards all fitted weights. There is
+no tokenizer expansion, subject-string matcher, retrieval cache, external
+router, adapter, LoRA, logit bias, or LM-head update.
 
 Data firewall
 -------------
@@ -25,9 +30,12 @@ Data firewall
 This learner has deliberately no ``--mcf-path`` argument.  It accepts only a
 locked direct-forget training view, an audited training-safe context manifest,
 and a frozen Stage-1 writer whose stored manifest hash must match exactly.
-Official paraphrases, neighborhoods, retain prompts, PPL text, aliases, and
-adversarial attacks are unavailable to this process.  They may be opened only
-by separate post-checkpoint evaluation processes.
+Official paraphrases, neighborhoods, reserved retain prompts, PPL text,
+aliases, and adversarial attacks are unavailable to this process. A separate
+9,438-record development-retain overlap audit is registered only as consumed
+architecture-motivation evidence; none of its records or statistics enters
+selection, optimization, acceptance, or retry. Official probes may be opened
+only by a separately preregistered post-feasibility process.
 """
 
 from __future__ import annotations
@@ -57,10 +65,11 @@ import mcf_synthetic_paraphrase_templates as synthetic
 import sure_canonical_core as canonical
 
 
-METHOD = "Embedding-Keyed Sparse-Neuron Conditional Suppression"
+METHOD = "Embedding-Keyed Sparse Contextual Residual Suppression"
 PROTOCOL = neuron_core.PROTOCOL
 FROZEN_DETECTOR_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_2"
 FROZEN_V3_3_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_3"
+FROZEN_V3_4_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_4"
 FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES = (
     "MCF_PATH",
     "OFFICIAL_MCF_PATH",
@@ -146,7 +155,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--detector-initialization",
         choices=("frozen_v3_2", "train"),
         default="train",
-        help=("V3.4 primary runs import the exact passed V3.2 gate/up tensors."),
+        help=("V3.5 imports the exact passed V3.2 gate/up tensors as a readout."),
     )
     parser.add_argument(
         "--frozen-v3-2-run-dir",
@@ -159,7 +168,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--frozen-v3-3-run-dir",
         help=(
             "Rejected V3.3 output root whose detector-pass/actuator-feasibility "
-            "failure is hash-bound into the V3.4 training-only sweep."
+            "failure is a historical V3.4 input only; V3.5 imports V3.4 directly."
+        ),
+    )
+    parser.add_argument(
+        "--frozen-v3-4-run-dir",
+        help=(
+            "Rejected V3.4 output root whose cap-1.5 reachability and structural "
+            "selectivity failure are hash-bound into the V3.5 architecture test."
         ),
     )
     parser.add_argument(
@@ -228,20 +244,44 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     parser.add_argument("--actuator-feasibility-steps", type=int, default=100)
     parser.add_argument(
+        "--training-only-isolated-threshold-feasibility",
         "--training-only-actuator-cap-sweep",
+        dest="training_only_isolated_threshold_feasibility",
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "Run V3.4 independent positive-only actuator fits at every registered "
-            "relative-norm cap, discard every fit, and return before full training."
+            "Run the V3.5 fixed-cap positive-only fit through the isolated "
+            "thresholded residual branch, discard it, and return before full training."
         ),
     )
     parser.add_argument(
         "--actuator-feasibility-caps",
         nargs="+",
         type=float,
-        default=[0.50, 0.75, 1.00, 1.50, 2.00],
-        help="Ordered V3.4 down-column relative-norm caps.",
+        default=[1.50],
+        help="V3.5 locks the isolated residual feasibility test to cap 1.50.",
+    )
+    parser.add_argument(
+        "--actuator-architecture",
+        choices=(
+            "replace_selected_neuron_contribution",
+            "isolated_thresholded_residual",
+        ),
+        default="isolated_thresholded_residual",
+        help=(
+            "V3.5 leaves the ordinary MLP output untouched and adds only a "
+            "threshold-gated residual driven by the frozen V3.2 detector."
+        ),
+    )
+    parser.add_argument(
+        "--threshold-gate-numerical-guard",
+        type=float,
+        default=1e-6,
+        help=(
+            "Moves the runtime off boundary above 0.20 and the on boundary below "
+            "0.25 so the registered detector comparison tolerance maps to exact "
+            "clipped gate endpoints."
+        ),
     )
     parser.add_argument(
         "--detector-selectivity-ratio-epsilon",
@@ -394,13 +434,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         or float(value.detector_selectivity_warning_ratio) <= 0.0
     ):
         parser.error("--detector-selectivity-warning-ratio must be finite and positive")
-    if value.training_only_actuator_cap_sweep:
+    if value.training_only_isolated_threshold_feasibility:
         if int(value.actuator_steps) != 0:
+            parser.error("V3.5 training-only feasibility requires --actuator-steps 0")
+        if value.actuator_architecture != "isolated_thresholded_residual":
             parser.error(
-                "the training-only actuator cap sweep requires --actuator-steps 0"
+                "V3.5 training-only feasibility requires the isolated thresholded "
+                "residual architecture"
             )
+        if caps != [1.5]:
+            parser.error("V3.5 fixes --actuator-feasibility-caps to exactly 1.50")
     elif int(value.actuator_steps) <= 0:
-        parser.error("--actuator-steps must be positive outside the cap sweep")
+        parser.error("--actuator-steps must be positive outside feasibility mode")
     if int(value.actuator_batch_size) <= 0:
         parser.error("--actuator-batch-size must be positive")
     if int(value.actuator_protected_batch) <= 0:
@@ -466,22 +511,32 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error(
             "--save-rejected-checkpoint is restricted to the no-writer control"
         )
-    if value.training_only_actuator_cap_sweep:
+    if value.training_only_isolated_threshold_feasibility:
         if value.experiment_label != "primary":
-            parser.error("the actuator cap sweep is restricted to the primary run")
+            parser.error("V3.5 feasibility is restricted to the primary run")
         if value.writer_mode != "embedding_keyed":
-            parser.error("the actuator cap sweep requires the embedding writer")
+            parser.error("V3.5 feasibility requires the embedding writer")
         if value.detector_initialization != "frozen_v3_2":
-            parser.error("the actuator cap sweep requires the frozen V3.2 detector")
-        if not str(value.frozen_v3_3_run_dir or "").strip():
-            parser.error("--frozen-v3-3-run-dir is required for the V3.4 sweep")
+            parser.error("V3.5 feasibility requires the frozen V3.2 detector")
+        if not str(value.frozen_v3_4_run_dir or "").strip():
+            parser.error("--frozen-v3-4-run-dir is required for V3.5")
+        if value.frozen_v3_3_run_dir:
+            parser.error("V3.5 imports the hash-bound V3.4 result, not V3.3 directly")
         if value.save_checkpoint or value.save_rejected_checkpoint:
-            parser.error("the training-only actuator cap sweep cannot save checkpoints")
-    elif value.frozen_v3_3_run_dir:
+            parser.error("V3.5 training-only feasibility cannot save checkpoints")
+    elif value.frozen_v3_3_run_dir or value.frozen_v3_4_run_dir:
         parser.error(
-            "--frozen-v3-3-run-dir is only valid with "
-            "--training-only-actuator-cap-sweep"
+            "frozen V3.3/V3.4 run directories are only valid with the "
+            "training-only V3.5 feasibility mode"
         )
+    guard = float(value.threshold_gate_numerical_guard)
+    if not math.isfinite(guard) or guard < 0.0:
+        parser.error("--threshold-gate-numerical-guard must be finite and non-negative")
+    if (
+        float(value.detector_positive_floor) - guard
+        <= float(value.detector_off_abs_max) + guard
+    ):
+        parser.error("threshold-gate guard closes the registered detector gap")
     for name in ("detector_relative_cap", "actuator_relative_cap"):
         if not 0.0 < float(getattr(value, name)) <= 2.0:
             parser.error(f"--{name.replace('_', '-')} must lie in (0, 2]")
@@ -563,9 +618,39 @@ def _validate_experiment_registry(
     for key, expected_value in expected_writer_prerequisite.items():
         if writer_prerequisite.get(key) != expected_value:
             raise RuntimeError(f"registry clean-writer prerequisite mismatch: {key}")
+    exposure_audit = registry.get("development_retain_shared_row_exposure_audit")
+    expected_exposure_audit = {
+        "data_role": "consumed_development_evidence_not_blind_evaluation",
+        "source_writer_protocol": compositional_core.PROTOCOL,
+        "forget_records": 50,
+        "reserved_official_retain_records_excluded": 1000,
+        "development_retain_records_consumed": 9438,
+        "forget_records_with_subject_word_overlap": 43,
+        "unique_forget_subject_words": 110,
+        "unique_forget_subject_words_reused": 65,
+        "development_prompts_with_forget_subject_word": 4298,
+        "forget_records_with_subject_subtoken_overlap": 50,
+        "unique_forget_subject_token_ids": 236,
+        "unique_forget_subject_token_ids_reused": 199,
+        "development_prompts_with_forget_subject_subtoken": 5763,
+        "actual_edited_embedding_rows": 234,
+        "actual_edited_embedding_rows_reused": 198,
+        "development_prompts_with_actual_edited_row": 5762,
+        "forget_subjects_with_reused_actual_edited_row": 49,
+        "official_evaluation_prompts_seen": 0,
+    }
+    if not isinstance(exposure_audit, Mapping):
+        raise RuntimeError("registry lacks the consumed development exposure audit")
+    for key, expected_value in expected_exposure_audit.items():
+        if exposure_audit.get(key) != expected_value:
+            raise RuntimeError(f"registry development exposure audit mismatch: {key}")
+    if "not_blind_evaluation" not in str(exposure_audit.get("data_role", "")):
+        raise RuntimeError(
+            "development-retain exposure audit lost its consumed-data label"
+        )
     detector_revision = registry.get("detector_training_revision")
     expected_detector_revision = {
-        "version": "v3.4_frozen_v3_2_primary",
+        "version": "v3.5_frozen_v3_2_readout",
         "primary_initialization": "frozen_v3_2",
         "source_protocol": FROZEN_DETECTOR_PROTOCOL,
         "source_training_revision": "v3.2",
@@ -621,71 +706,84 @@ def _validate_experiment_registry(
         "official_evaluation_prompts_seen": 0,
     }
     if not isinstance(detector_revision, Mapping):
-        raise RuntimeError("registry lacks the V3.4 detector lineage revision")
+        raise RuntimeError("registry lacks the V3.5 detector lineage revision")
     for key, expected_value in expected_detector_revision.items():
         if detector_revision.get(key) != expected_value:
-            raise RuntimeError(f"registry V3.4 detector revision mismatch: {key}")
+            raise RuntimeError(f"registry V3.5 detector revision mismatch: {key}")
 
     actuator_revision = registry.get("actuator_training_revision")
     expected_actuator_revision = {
-        "version": "v3.4",
-        "mode": "training_only_norm_cap_reachability_sweep",
+        "version": "v3.5",
+        "mode": "training_only_isolated_thresholded_residual_feasibility",
         "frozen_training_contexts": {
             "writer_on_positive": 346,
             "writer_on_negative": 465,
             "writer_off_positive": 346,
         },
-        "source_v3_3_rejection": {
-            "protocol": FROZEN_V3_3_PROTOCOL,
+        "source_v3_4_rejection": {
+            "protocol": FROZEN_V3_4_PROTOCOL,
             "artifact_hash_receipt_required": True,
             "detector_passed_records": 50,
             "detector_total_records": 50,
-            "cap": 0.5,
-            "cap_saturated_by_step": 15,
-            "direct_failures": 40,
-            "positive_failures": 300,
-            "positive_contexts": 346,
-            "minimum_margin": -8.75,
-            "reference_nll_regression_max": 2.375,
-            "writer_off_nll_abs_max": 4.8125,
-            "full_actuator_training_started": False,
+            "owned_response_ratio_p10": 2.1545,
+            "owned_response_ratio_median": 3.2468,
+            "smallest_positive_reachable_cap": 1.5,
+            "cap_1_5_saturated_columns": 34,
+            "selected_columns": 200,
+            "zero_actuator_writer_off_nll_abs_max": 0.25,
+            "mechanism_readiness_passed": False,
+            "full_preservation_objective_started": False,
+            "checkpoint_saved": False,
             "official_evaluation_prompts_seen": 0,
         },
-        "frozen_detector_selectivity_audit": {
-            "performed_before_any_actuator_fit": True,
-            "paired_contexts": 346,
-            "metrics": [
-                "owned_signed_group_response",
-                "owned_neuron_abs_activation",
-                "owned_activation_vector_l2",
-                "all_selected_activation_vector_l2",
-            ],
-            "ratio_denominator_epsilon": 1e-8,
-            "p10_warning_ratio": 100.0,
-            "warning_is_acceptance_gate": False,
-            "zero_actuator_behavior_audit_before_any_fit": True,
-            "heuristic_behavior_ratio_reference": 195.0,
-            "heuristic_reference_derivation": (
-                "(1.0 - -8.75) / 0.05 from the V3.3 worst margin and unchanged "
-                "writer-off NLL tolerance"
+        "architecture": {
+            "base_mlp_path": "bit_exact_untouched",
+            "frozen_detector_role": "read_only_activation_feature_extractor",
+            "residual_formula": (
+                "BaseMLP(h) + threshold_gate(r(h)) * detector_activation(h) @ "
+                "down_delta.T"
             ),
-            "causal_limit": (
-                "activation ratios do not mathematically equal downstream NLL gain; "
-                "direct writer-off NLL is audited after every fitted cap"
+            "off_boundary": 0.200001,
+            "on_boundary": 0.249999,
+            "threshold_gate": (
+                "clip((response - off_boundary) / (on_boundary - off_boundary), 0, 1)"
+            ),
+            "threshold_gate_scope": (
+                "one registered record group per four selected detector features"
+            ),
+            "negative_and_cross_groups_gate_to_zero_required": True,
+            "writer_off_groups_gate_to_zero_required": True,
+            "owner_positive_group_gate_to_one_required": True,
+            "down_delta_exact_zero_is_algebraic_identity": True,
+            "original_base_down_columns_modified": False,
+            "ordinary_existing_weight_materialization": False,
+            "explicit_internal_residual_branch": True,
+            "claim_boundary": (
+                "V3.5 tests a sparse internal contextual branch; it is not represented "
+                "as an ordinary existing-neuron weight edit"
             ),
         },
-        "feasibility_sweep": {
-            "relative_norm_caps": [0.5, 0.75, 1.0, 1.5, 2.0],
-            "all_caps_run_independently": True,
-            "initial_down_delta_per_cap": "bit_exact_zero",
-            "optimizer_state_per_cap": "fresh_independent_adamw",
-            "optimizer_updates_per_cap": 100,
-            "total_optimizer_updates": 500,
+        "selected_base_down_zeroing_audit": {
+            "performed_before_any_actuator_fit": True,
+            "writer": "off",
+            "gate_up": "unaltered Base tensors",
+            "temporarily_zeroed_columns": 200,
+            "measure": (
+                "absolute target-token NLL drift on all 346 training-safe positive contexts"
+            ),
+            "restoration": "bit_exact_required",
+            "used_for_neuron_reselection": False,
+            "used_for_acceptance": False,
+        },
+        "feasibility": {
+            "relative_norm_caps": [1.5],
+            "initial_down_delta": "bit_exact_zero",
+            "optimizer_state": "fresh_adamw",
+            "optimizer_updates": 100,
             "learning_rate": 5e-4,
             "records_per_optimizer_update": 50,
             "positive_contexts_per_optimizer_update": 346,
-            "positive_context_exposures_per_cap": 34600,
-            "total_positive_context_exposures": 173000,
+            "positive_context_exposures": 34600,
             "context_microbatch_capacity": 4,
             "tail_k": 2,
             "objective": (
@@ -695,52 +793,35 @@ def _validate_experiment_registry(
             "gradient_clip_frequency": "once_per_optimizer_update",
             "norm_projection_frequency": "once_per_optimizer_update",
             "complete_incremental_training_log_required": True,
-            "fresh_full_context_audit_per_cap": True,
-            "audit_fields": [
-                "direct_failures",
-                "positive_failures",
-                "minimum_margin",
-                "median_margin",
-                "per_record_minimum_margins",
-                "per_column_relative_norms",
-                "saturated_column_count",
-                "writer_off_nll_abs_max",
-                "exact_actuator_residual_write_on_off_ratio",
-            ],
-            "positive_reachability_selection_rule": (
-                "smallest tested cap with direct_failures == 0 and "
-                "positive_failures == 0"
+            "fresh_full_context_audit_required": True,
+            "threshold_gate_full_context_certificate_required": True,
+            "zero_actuator_identity_abs_tolerance": 1e-6,
+            "positive_reachability_rule": (
+                "direct_failures == 0 and positive_failures == 0"
             ),
             "writer_off_structural_selectivity_tolerance": 0.05,
-            "writer_off_structural_selectivity_is_positive_cap_selection_rule": False,
             "mechanism_readiness_rule": (
-                "positive reachability plus unoptimized writer-off NLL drift "
-                "within 0.05 at the same tested cap"
-            ),
-            "structural_failure_action": (
-                "record a training-only mechanism rejection and redesign the detector "
-                "before any full preservation objective"
+                "positive reachability plus writer-off NLL drift within 0.05 at cap 1.50"
             ),
             "every_fitted_down_delta_discarded": True,
             "full_preservation_objective_started": False,
             "checkpoint_saved": False,
             "failure_action": (
-                "if no cap through 2.0 passes, conclude that the fixed 200-neuron "
-                "layer-27 actuator is insufficient within the tested norm budget"
+                "fail closed and redesign the branch before any full preservation objective"
             ),
             "official_evaluation_allowed": False,
         },
         "official_evaluation_prompts_seen": 0,
     }
     if not isinstance(actuator_revision, Mapping):
-        raise RuntimeError("registry lacks the V3.4 actuator-training revision")
+        raise RuntimeError("registry lacks the V3.5 actuator-training revision")
     for key, expected_value in expected_actuator_revision.items():
         if actuator_revision.get(key) != expected_value:
-            raise RuntimeError(f"registry V3.4 actuator revision mismatch: {key}")
+            raise RuntimeError(f"registry V3.5 actuator revision mismatch: {key}")
     ownership_binding = registry.get("selected_neuron_ownership_binding")
     expected_ownership_binding = {
         "scope": "primary_embedding_keyed_configuration",
-        "source_runs": ["v3", "v3.1", "v3.2", "v3.3"],
+        "source_runs": ["v3", "v3.1", "v3.2", "v3.3", "v3.4"],
         "jq_projection": "[.ownership[].selected_neurons]",
         "jq_compact_sha256": (
             "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
@@ -753,10 +834,10 @@ def _validate_experiment_registry(
         "required": True,
     }
     if not isinstance(ownership_binding, Mapping):
-        raise RuntimeError("registry lacks the V3.4 selected-neuron binding")
+        raise RuntimeError("registry lacks the V3.5 selected-neuron binding")
     for key, expected_value in expected_ownership_binding.items():
         if ownership_binding.get(key) != expected_value:
-            raise RuntimeError(f"registry V3.4 neuron binding mismatch: {key}")
+            raise RuntimeError(f"registry V3.5 neuron binding mismatch: {key}")
     label = str(args.experiment_label)
     if label == "primary":
         expected = registry.get("primary_configuration")
@@ -1289,6 +1370,185 @@ def validate_frozen_v3_3_rejection(
                 audit["reference_nll_regression_max"]
             ),
             "writer_off_nll_abs_max": float(audit["writer_off_nll_abs_max"]),
+        },
+        "checks": checks,
+        "passed": True,
+        "official_evaluation_prompts_seen": 0,
+    }
+
+
+def validate_frozen_v3_4_rejection(
+    run_dir: Path,
+    *,
+    case_ids: Sequence[int],
+    ownership_sha256: str,
+) -> Dict[str, Any]:
+    """Hash-bind the V3.4 reachability-pass/selectivity-fail result."""
+
+    root = Path(run_dir).resolve()
+    method_dir = root / "method" if (root / "method").is_dir() else root
+    paths = {
+        "gate": method_dir / "detector_gate_report.json",
+        "endpoint_audit": method_dir / "detector_endpoint_audit.json",
+        "selection": method_dir / "neuron_selection_report.json",
+        "sweep": method_dir / "actuator_norm_cap_reachability_sweep.json",
+        "selectivity": method_dir / "frozen_detector_selectivity_audit.json",
+        "zero_actuator": (
+            method_dir / "frozen_detector_zero_actuator_behavior_audit.json"
+        ),
+        "completion": method_dir / "training_only_sweep_completion.json",
+        "rejection": method_dir / "training_rejection.json",
+        "firewall": method_dir / "training_firewall_receipt.json",
+    }
+    for name, path in paths.items():
+        if not path.is_file():
+            raise FileNotFoundError(f"frozen V3.4 rejection lacks {name}: {path}")
+
+    gate = _load_json(paths["gate"])
+    endpoint = _load_json(paths["endpoint_audit"])
+    selection = _load_json(paths["selection"])
+    sweep = _load_json(paths["sweep"])
+    selectivity = _load_json(paths["selectivity"])
+    zero_actuator = _load_json(paths["zero_actuator"])
+    completion = _load_json(paths["completion"])
+    rejection = _load_json(paths["rejection"])
+    firewall = _load_json(paths["firewall"])
+    gate_rows = gate.get("per_record")
+    response_ratio = (
+        selectivity.get("aggregate", {})
+        .get("owned_signed_group_response", {})
+        .get("writer_on_to_off_ratio", {})
+    )
+    cap_rows = sweep.get("cap_artifacts")
+    cap_150 = (
+        next(
+            (
+                row
+                for row in cap_rows
+                if isinstance(row, Mapping)
+                and math.isclose(float(row.get("cap", float("nan"))), 1.5)
+            ),
+            None,
+        )
+        if isinstance(cap_rows, list)
+        else None
+    )
+    checks = {
+        "gate_protocol": gate.get("protocol") == FROZEN_V3_4_PROTOCOL,
+        "endpoint_protocol": endpoint.get("protocol") == FROZEN_V3_4_PROTOCOL,
+        "sweep_protocol": sweep.get("protocol") == FROZEN_V3_4_PROTOCOL,
+        "selectivity_protocol": selectivity.get("protocol") == FROZEN_V3_4_PROTOCOL,
+        "zero_actuator_protocol": zero_actuator.get("protocol") == FROZEN_V3_4_PROTOCOL,
+        "completion_protocol": completion.get("protocol") == FROZEN_V3_4_PROTOCOL,
+        "gate_passed": bool(gate.get("passed"))
+        and int(gate.get("passed_records", -1)) == len(case_ids)
+        and int(gate.get("total_records", -1)) == len(case_ids),
+        "case_ids": bool(
+            isinstance(gate_rows, list)
+            and [int(row.get("case_id", -1)) for row in gate_rows]
+            == [int(value) for value in case_ids]
+        ),
+        "ownership": str(
+            selection.get("selected_neuron_ownership_jq_compact_sha256") or ""
+        )
+        == str(ownership_sha256),
+        "registered_caps": sweep.get("caps_preregistered")
+        == [0.5, 0.75, 1.0, 1.5, 2.0],
+        "completed_caps": sweep.get("caps_completed") == [0.5, 0.75, 1.0, 1.5, 2.0],
+        "positive_reachability": sweep.get("positive_reachability_passed") is True
+        and math.isclose(
+            float(sweep.get("selected_smallest_positive_reachable_cap", float("nan"))),
+            1.5,
+            abs_tol=1e-12,
+        )
+        and isinstance(cap_150, Mapping)
+        and cap_150.get("positive_reachable") is True
+        and int(cap_150.get("down_saturated_columns", -1)) == 34,
+        "structural_rejection": sweep.get("mechanism_readiness_passed") is False
+        and sweep.get("structural_selectivity_diagnostic", {}).get("passed") is False
+        and sweep.get("conclusion")
+        == "positive_reachability_found_but_structural_writer_off_selectivity_failed",
+        "zero_actuator_drift": math.isclose(
+            float(zero_actuator.get("writer_off_nll_abs_max", float("nan"))),
+            0.25,
+            abs_tol=1e-12,
+        )
+        and zero_actuator.get("writer_off_preservation_passed") is False,
+        "weak_response_ratio": bool(
+            isinstance(response_ratio, Mapping)
+            and round(float(response_ratio.get("p10", float("nan"))), 4) == 2.1545
+            and round(float(response_ratio.get("median", float("nan"))), 4) == 3.2468
+        ),
+        "all_weights_discarded": sweep.get("all_fitted_weights_discarded") is True,
+        "detector_unchanged": sweep.get("frozen_detector_tensors_unchanged") is True,
+        "full_training_not_started": sweep.get("full_preservation_objective_started")
+        is False,
+        "checkpoint_not_saved": sweep.get("checkpoint_saved") is False,
+        "completion_matches": completion.get("positive_reachability_passed") is True
+        and completion.get("mechanism_readiness_passed") is False
+        and math.isclose(
+            float(
+                completion.get("selected_smallest_positive_reachable_cap", float("nan"))
+            ),
+            1.5,
+            abs_tol=1e-12,
+        ),
+        "rejection_reason": rejection.get("stage")
+        == "actuator_norm_cap_reachability_sweep"
+        and rejection.get("reason")
+        == "positive_reachability_without_structural_writer_off_selectivity",
+        "official_refused": sweep.get("official_evaluation_allowed") is False
+        and completion.get("official_evaluation_allowed") is False
+        and rejection.get("official_evaluation_allowed") is False,
+        "official_prompts_zero": all(
+            payload.get("official_evaluation_prompts_seen") == 0
+            for payload in (
+                gate,
+                endpoint,
+                sweep,
+                selectivity,
+                zero_actuator,
+                completion,
+                rejection,
+            )
+        ),
+        "firewall_official_prompts_zero": all(
+            (
+                firewall.get("data_access", {}).get("official_paraphrases_seen") == 0,
+                firewall.get("data_access", {}).get("official_neighborhoods_seen") == 0,
+                firewall.get("data_access", {}).get("benchmark_retain_seen") == 0,
+                firewall.get("data_access", {}).get("official_ppl_seen") is False,
+            )
+        ),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise RuntimeError(
+            "frozen V3.4 rejection lineage failed: " + ", ".join(sorted(failed))
+        )
+    return {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_frozen_v3_4_rejection_import",
+        "source_run_dir": str(root),
+        "source_method_dir": str(method_dir),
+        "source_protocol": FROZEN_V3_4_PROTOCOL,
+        "target_protocol": PROTOCOL,
+        "source_artifacts": {
+            name: {"path": str(path), "sha256": compositional_method.sha256_file(path)}
+            for name, path in paths.items()
+        },
+        "observed": {
+            "detector_passed_records": int(gate["passed_records"]),
+            "detector_total_records": int(gate["total_records"]),
+            "response_ratio_p10": float(response_ratio["p10"]),
+            "response_ratio_median": float(response_ratio["median"]),
+            "zero_actuator_writer_off_nll_abs_max": float(
+                zero_actuator["writer_off_nll_abs_max"]
+            ),
+            "selected_smallest_positive_reachable_cap": float(
+                sweep["selected_smallest_positive_reachable_cap"]
+            ),
+            "mechanism_readiness_passed": bool(sweep["mechanism_readiness_passed"]),
         },
         "checks": checks,
         "passed": True,
@@ -2357,6 +2617,12 @@ def _replace_embedding_rows(
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
+    if not args.training_only_isolated_threshold_feasibility:
+        raise RuntimeError(
+            "V3.5 is restricted to the training-only isolated-threshold "
+            "feasibility path; full training and checkpoint materialization require "
+            "a separately preregistered successor protocol"
+        )
     _validate_environment_firewall()
     gagd.set_seed(int(args.seed))
     gagd.require_cuda_if_needed(args.device_map)
@@ -2526,6 +2792,18 @@ def main(argv: Sequence[str] | None = None) -> None:
             if args.frozen_v3_2_run_dir
             else None
         ),
+        "frozen_v3_4_run_dir": (
+            str(Path(args.frozen_v3_4_run_dir).resolve())
+            if args.frozen_v3_4_run_dir
+            else None
+        ),
+        "development_retain_shared_row_exposure": {
+            "registered_as_consumed_architecture_motivation": True,
+            "development_records": 9438,
+            "official_retain_records_excluded": 1000,
+            "audit_file_or_raw_development_records_available_to_learner": False,
+            "used_for_selection_optimization_acceptance_or_retry": False,
+        },
         "experiment_registry_path": str(registry_path),
         "experiment_registry_sha256": compositional_method.sha256_file(registry_path),
         "official_evaluation_file_argument_exists": False,
@@ -2928,8 +3206,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     gagd.write_json(out_dir / "neuron_selection_report.json", selection_report)
     if not ownership_binding_passed:
         raise RuntimeError(
-            "V3.4 primary neuron ownership differs from the registered V3/V3.1/"
-            "V3.2/V3.3 "
+            "V3.5 primary neuron ownership differs from the registered V3 through "
+            "V3.4 "
             f"selection: observed {ownership_sha256}, expected "
             f"{expected_ownership_sha256}"
         )
@@ -2939,12 +3217,20 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     editor = neuron_core.SparseSwiGLUNeuronEditor(mlp, selected_neurons)
+    if str(args.actuator_architecture) == "isolated_thresholded_residual":
+        guard = float(args.threshold_gate_numerical_guard)
+        editor.configure_isolated_threshold_residual(
+            local_groups,
+            flat_signs_cpu,
+            off_boundary=float(args.detector_off_abs_max) + guard,
+            on_boundary=float(args.detector_positive_floor) - guard,
+        )
     editor.install(mlp)
     flat_signs = flat_signs_cpu.to(device)
     embedding_writer.enabled = writer_present
     frozen_detector_import: Dict[str, Any] | None = None
     frozen_detector_source_gate: Dict[str, Any] | None = None
-    frozen_v3_3_rejection: Dict[str, Any] | None = None
+    frozen_v3_4_rejection: Dict[str, Any] | None = None
     if str(args.detector_initialization) == "frozen_v3_2":
         (
             frozen_detector_import,
@@ -2968,18 +3254,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(
             "  imported exact V3.2 detector gate/up tensors; down_delta reset to zero"
         )
-    if args.training_only_actuator_cap_sweep:
-        frozen_v3_3_rejection = validate_frozen_v3_3_rejection(
-            Path(args.frozen_v3_3_run_dir),
+    if args.training_only_isolated_threshold_feasibility:
+        frozen_v3_4_rejection = validate_frozen_v3_4_rejection(
+            Path(args.frozen_v3_4_run_dir),
             case_ids=case_ids,
             ownership_sha256=ownership_sha256,
         )
         gagd.write_json(
-            out_dir / "frozen_v3_3_rejection_import.json", frozen_v3_3_rejection
+            out_dir / "frozen_v3_4_rejection_import.json", frozen_v3_4_rejection
         )
-        firewall_receipt["frozen_v3_3_rejection_import"] = frozen_v3_3_rejection
+        firewall_receipt["frozen_v3_4_rejection_import"] = frozen_v3_4_rejection
         gagd.write_json(out_dir / "training_firewall_receipt.json", firewall_receipt)
-        print("  hash-bound preserved V3.3 detector-pass/actuator-reject outcome")
+        print(
+            "  hash-bound preserved V3.4 reachability-pass/selectivity-reject outcome"
+        )
 
     print("\nStage 1: cache frozen layer-input states for detector training")
     editor.write_enabled = False
@@ -3337,6 +3625,115 @@ def main(argv: Sequence[str] | None = None) -> None:
         }
 
     @torch.no_grad()
+    def isolated_threshold_gate_report() -> Dict[str, Any]:
+        """Certify that the frozen response gap becomes a real branch gate."""
+
+        if editor.residual_mode != "isolated_thresholded_residual":
+            raise RuntimeError("threshold gate report requires the V3.5 architecture")
+
+        def gates_from_responses(responses: torch.Tensor) -> torch.Tensor:
+            width = float(editor.threshold_gate_on_boundary) - float(
+                editor.threshold_gate_off_boundary
+            )
+            return (
+                (responses - float(editor.threshold_gate_off_boundary)) / width
+            ).clamp(min=0.0, max=1.0)
+
+        per_record: List[Dict[str, Any]] = []
+        positive_owner_parts: List[torch.Tensor] = []
+        positive_cross_parts: List[torch.Tensor] = []
+        negative_parts: List[torch.Tensor] = []
+        writer_off_parts: List[torch.Tensor] = []
+        for record_index in range(len(records)):
+            positive_response = (
+                cached_detector_responses(positive_hidden_cache[record_index])
+                .detach()
+                .cpu()
+            )
+            negative_response = (
+                cached_detector_responses(negative_hidden_cache[record_index])
+                .detach()
+                .cpu()
+            )
+            off_response = (
+                cached_detector_responses(writer_off_hidden_cache[record_index])
+                .detach()
+                .cpu()
+            )
+            positive_gate = gates_from_responses(positive_response)
+            negative_gate = gates_from_responses(negative_response)
+            off_gate = gates_from_responses(off_response)
+            owner_positive = positive_gate[:, record_index]
+            nonowner_mask = torch.ones(len(records), dtype=torch.bool)
+            nonowner_mask[record_index] = False
+            positive_cross = positive_gate[:, nonowner_mask]
+            positive_owner_parts.append(owner_positive.reshape(-1))
+            positive_cross_parts.append(positive_cross.reshape(-1))
+            negative_parts.append(negative_gate.reshape(-1))
+            writer_off_parts.append(off_gate.reshape(-1))
+            per_record.append(
+                {
+                    "record_index": record_index,
+                    "case_id": int(case_ids[record_index]),
+                    "positive_contexts": int(owner_positive.numel()),
+                    "positive_owner_gate_min": float(owner_positive.min()),
+                    "positive_owner_gate_median": float(owner_positive.median()),
+                    "positive_cross_gate_abs_max": float(positive_cross.abs().max()),
+                    "negative_gate_abs_max": float(negative_gate.abs().max()),
+                    "writer_off_gate_abs_max": float(off_gate.abs().max()),
+                }
+            )
+        positive_owner = torch.cat(positive_owner_parts)
+        positive_cross = torch.cat(positive_cross_parts)
+        negative = torch.cat(negative_parts)
+        writer_off = torch.cat(writer_off_parts)
+        endpoint_tolerance = 1e-6
+        checks = {
+            "all_positive_owner_gates_one": bool(
+                float(positive_owner.min()) >= 1.0 - endpoint_tolerance
+            ),
+            "all_positive_cross_gates_zero": bool(
+                float(positive_cross.abs().max()) <= endpoint_tolerance
+            ),
+            "all_negative_gates_zero": bool(
+                float(negative.abs().max()) <= endpoint_tolerance
+            ),
+            "all_writer_off_gates_zero": bool(
+                float(writer_off.abs().max()) <= endpoint_tolerance
+            ),
+        }
+        return {
+            "schema_version": 1,
+            "kind": "mcf_embedding_keyed_neuron_isolated_threshold_gate",
+            "protocol": PROTOCOL,
+            "architecture": str(args.actuator_architecture),
+            "definition": (
+                "clip((signed_group_response - off_boundary) / "
+                "(on_boundary - off_boundary), 0, 1)"
+            ),
+            "boundaries": {
+                "registered_detector_off_abs_max": float(args.detector_off_abs_max),
+                "registered_detector_positive_floor": float(
+                    args.detector_positive_floor
+                ),
+                "numerical_guard": float(args.threshold_gate_numerical_guard),
+                "runtime_off_boundary": float(editor.threshold_gate_off_boundary),
+                "runtime_on_boundary": float(editor.threshold_gate_on_boundary),
+                "endpoint_tolerance": endpoint_tolerance,
+            },
+            "aggregate": {
+                "positive_owner_gate": _distribution(positive_owner.tolist()),
+                "positive_cross_gate": _distribution(positive_cross.tolist()),
+                "negative_gate": _distribution(negative.tolist()),
+                "writer_off_gate": _distribution(writer_off.tolist()),
+            },
+            "checks": checks,
+            "passed": all(checks.values()),
+            "per_record": per_record,
+            "official_evaluation_prompts_seen": 0,
+        }
+
+    @torch.no_grad()
     def full_cached_detector_gate(*, phase: str, optimizer_step: int) -> Dict[str, Any]:
         phase_contracts = {
             "pre_update": (
@@ -3606,7 +4003,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         if not frozen_detector_replay["passed"]:
             raise RuntimeError(
-                "fresh V3.4 detector certificate differs from frozen V3.2 source"
+                "fresh V3.5 detector certificate differs from frozen V3.2 source"
             )
         detector_gate["frozen_v3_2_source_replay"] = frozen_detector_replay
     detector_gate_path = out_dir / "detector_gate_report.json"
@@ -3731,7 +4128,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
 
     detector_selectivity: Dict[str, Any] | None = None
-    if args.training_only_actuator_cap_sweep:
+    threshold_gate: Dict[str, Any] | None = None
+    if args.training_only_isolated_threshold_feasibility:
         detector_selectivity = frozen_detector_selectivity_audit()
         gagd.write_json(
             out_dir / "frozen_detector_selectivity_audit.json",
@@ -3745,12 +4143,42 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"p10={float(response_ratio['p10']):.4f}, "
             f"median={float(response_ratio['median']):.4f}"
         )
+        threshold_gate = isolated_threshold_gate_report()
+        gagd.write_json(out_dir / "isolated_threshold_gate_report.json", threshold_gate)
+        print(
+            "  isolated threshold gate: "
+            f"positive_min={float(threshold_gate['aggregate']['positive_owner_gate']['min']):.6f}, "
+            f"writer_off_max={float(threshold_gate['aggregate']['writer_off_gate']['max']):.6f}, "
+            f"passed={bool(threshold_gate['passed'])}"
+        )
+        if not threshold_gate["passed"]:
+            gagd.write_json(
+                out_dir / "training_rejection.json",
+                {
+                    "schema_version": 1,
+                    "kind": "mcf_embedding_keyed_neuron_training_only_rejection",
+                    "protocol": PROTOCOL,
+                    "stage": "isolated_threshold_gate",
+                    "reason": "frozen_detector_gap_did_not_map_to_exact_branch_gate",
+                    "threshold_gate": threshold_gate,
+                    "actuator_training_started": False,
+                    "checkpoint_saved": False,
+                    "official_evaluation_allowed": False,
+                    "official_evaluation_prompts_seen": 0,
+                },
+            )
+            editor.remove()
+            embedding_writer.remove()
+            raise SystemExit(
+                "isolated threshold gate failed before actuator training; "
+                "official evaluation remains refused"
+            )
 
     print(
         "\nStage 2: "
         + (
             "training-only actuator reachability diagnostics; LM head frozen"
-            if args.training_only_actuator_cap_sweep
+            if args.training_only_isolated_threshold_feasibility
             else "train sparse MLP suppression actuator; LM head frozen"
         )
     )
@@ -3770,7 +4198,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         llama_like=llama_like,
         batch_size=int(args.cache_batch_size),
     )
-    if not args.training_only_actuator_cap_sweep:
+    if not args.training_only_isolated_threshold_feasibility:
         (
             pre_negative_new,
             pre_negative_true,
@@ -3823,6 +4251,87 @@ def main(argv: Sequence[str] | None = None) -> None:
         llama_like=llama_like,
         batch_size=int(args.cache_batch_size),
     )
+    selected_ids_device = torch.tensor(
+        selected_neurons,
+        dtype=torch.long,
+        device=mlp.down_proj.weight.device,
+    )
+    base_selected_down = (
+        mlp.down_proj.weight.detach().index_select(1, selected_ids_device).clone()
+    )
+    base_selected_down_sha256 = _tensor_digest(base_selected_down)
+    editor.enabled = False
+    try:
+        with torch.no_grad():
+            mlp.down_proj.weight.index_fill_(1, selected_ids_device, 0.0)
+        zeroed_down_new, zeroed_down_true = compositional_method.evaluate_instance_nlls(
+            model,
+            tok,
+            positive_instances,
+            device,
+            llama_like=llama_like,
+            batch_size=int(args.cache_batch_size),
+        )
+    finally:
+        with torch.no_grad():
+            mlp.down_proj.weight.index_copy_(
+                1,
+                selected_ids_device,
+                base_selected_down.to(mlp.down_proj.weight.dtype),
+            )
+        editor.enabled = True
+    restored_selected_down = mlp.down_proj.weight.detach().index_select(
+        1, selected_ids_device
+    )
+    if _tensor_digest(restored_selected_down) != base_selected_down_sha256:
+        raise RuntimeError("selected Base down columns were not restored bit-exactly")
+    zeroing_new_drift = (zeroed_down_new - pre_writer_off_new).abs()
+    zeroing_true_drift = (zeroed_down_true - pre_writer_off_true).abs()
+    zeroing_per_record: List[Dict[str, Any]] = []
+    for record_index, indices in enumerate(positive_indices_by_record):
+        record_drift = torch.cat(
+            (zeroing_new_drift[indices], zeroing_true_drift[indices])
+        )
+        zeroing_per_record.append(
+            {
+                "record_index": record_index,
+                "case_id": int(case_ids[record_index]),
+                "positive_contexts": len(indices),
+                "nll_abs_max": float(record_drift.max()),
+                "nll_abs_median": float(record_drift.median()),
+            }
+        )
+    base_down_zeroing_audit = {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_selected_base_down_zeroing_audit",
+        "protocol": PROTOCOL,
+        "parameter_state": (
+            "writer off; Base gate/up unchanged; selected original down columns "
+            "temporarily zero; isolated residual disabled"
+        ),
+        "selected_columns": len(selected_neurons),
+        "base_selected_down_sha256_before": base_selected_down_sha256,
+        "base_selected_down_sha256_after_restore": _tensor_digest(
+            restored_selected_down
+        ),
+        "restored_bit_exact": True,
+        "nll_abs_max": max(
+            float(zeroing_new_drift.max()), float(zeroing_true_drift.max())
+        ),
+        "new_target_nll_abs": _distribution(zeroing_new_drift.tolist()),
+        "true_target_nll_abs": _distribution(zeroing_true_drift.tolist()),
+        "per_record": zeroing_per_record,
+        "used_for_hyperparameter_selection": False,
+        "official_evaluation_prompts_seen": 0,
+    }
+    gagd.write_json(
+        out_dir / "selected_base_down_zeroing_audit.json",
+        base_down_zeroing_audit,
+    )
+    print(
+        "  selected-Base-down zeroing audit: "
+        f"max |ΔNLL|={float(base_down_zeroing_audit['nll_abs_max']):.4f}"
+    )
     editor.write_enabled = True
     embedding_writer.enabled = writer_present
 
@@ -3850,7 +4359,11 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     def actuator_optimization_metadata() -> Dict[str, Any]:
         return {
-            "revision": "v3.3",
+            "revision": (
+                "v3.5_isolated_thresholded_residual"
+                if args.training_only_isolated_threshold_feasibility
+                else "historical_v3.3_full_objective"
+            ),
             "initial_down_delta": "exact_zero",
             "feasibility_optimizer_steps": int(args.actuator_feasibility_steps),
             "full_optimizer_steps": int(args.actuator_steps),
@@ -3916,6 +4429,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         margins = current_true - current_new
         direct_failure, positive_failure = _failure_counts(
             margins, direct_flags, float(args.forget_margin)
+        )
+        writer_on_abs_max = max(
+            float((current_new - pre_target_new).abs().max()),
+            float((current_true - pre_target_true).abs().max()),
         )
         reference_regression_max = max(0.0, float((current_new - pre_target_new).max()))
         embedding_writer.enabled = False
@@ -3984,6 +4501,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "forget_margin": float(args.forget_margin),
                 "reference_nll_regression_max": float(args.reference_nll_tolerance),
                 "writer_off_nll_abs_max": float(args.actuator_writer_off_nll_tolerance),
+                "zero_actuator_identity_abs_max": 1e-6,
             },
             "direct_failures": int(direct_failure),
             "positive_failures": int(positive_failure),
@@ -3991,6 +4509,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "minimum_margin": float(margins.min()),
             "median_margin": float(margins.median()),
             "reference_nll_regression_max": reference_regression_max,
+            "writer_on_nll_abs_max": writer_on_abs_max,
             "writer_off_nll_abs_max": writer_off_abs_max,
             "positive_passed": bool(direct_failure == 0 and positive_failure == 0),
             "reference_preservation_passed": reference_passed,
@@ -4021,16 +4540,21 @@ def main(argv: Sequence[str] | None = None) -> None:
         ):
             if on_activation.shape != off_activation.shape:
                 raise RuntimeError("actuator residual audit lost on/off prompt pairing")
-            on_write = (
-                F.linear(on_activation.to(device=device), editor.down_delta)
-                .float()
-                .cpu()
-            )
-            off_write = (
-                F.linear(off_activation.to(device=device), editor.down_delta)
-                .float()
-                .cpu()
-            )
+            on_device = on_activation.to(device=device)
+            off_device = off_activation.to(device=device)
+            if editor.residual_mode == "isolated_thresholded_residual":
+                (
+                    on_device,
+                    _on_response,
+                    _on_gate,
+                ) = editor.isolated_actuator_features_from_activations(on_device)
+                (
+                    off_device,
+                    _off_response,
+                    _off_gate,
+                ) = editor.isolated_actuator_features_from_activations(off_device)
+            on_write = F.linear(on_device, editor.down_delta).float().cpu()
+            off_write = F.linear(off_device, editor.down_delta).float().cpu()
             on_norm = on_write.norm(dim=1)
             off_norm = off_write.norm(dim=1)
             on_norm_parts.append(on_norm)
@@ -4049,8 +4573,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         return {
             "kind": "mcf_embedding_keyed_neuron_actuator_residual_write_selectivity",
             "definition": (
-                "L2 norm of edited_selected_activation @ down_delta.T at the "
-                "selected layer output"
+                "L2 norm of the exact actuator feature @ down_delta.T at the "
+                "selected layer output; V3.5 actuator features include the "
+                "record-level clipped threshold gate"
             ),
             "aggregate": aggregate,
             "per_record": per_record,
@@ -4090,27 +4615,54 @@ def main(argv: Sequence[str] | None = None) -> None:
             ]
         return result
 
-    if args.training_only_actuator_cap_sweep:
-        if detector_selectivity is None or frozen_v3_3_rejection is None:
-            raise RuntimeError("V3.4 sweep lacks its detector/V3.3 lineage audits")
+    if args.training_only_isolated_threshold_feasibility:
+        if (
+            detector_selectivity is None
+            or threshold_gate is None
+            or frozen_v3_4_rejection is None
+        ):
+            raise RuntimeError("V3.5 feasibility lacks its gate/V3.4 lineage audits")
         caps = [float(cap) for cap in args.actuator_feasibility_caps]
         with torch.no_grad():
             editor.down_delta.zero_()
         initial_audit = full_actuator_audit(
             phase="norm_cap_sweep_initial", optimizer_step=0
         )
-        initial_audit_path = (
-            out_dir / "frozen_detector_zero_actuator_behavior_audit.json"
-        )
+        initial_audit_path = out_dir / "isolated_zero_actuator_identity_audit.json"
         gagd.write_json(
             initial_audit_path,
             initial_audit,
         )
+        identity_abs_max = max(
+            float(initial_audit["writer_on_nll_abs_max"]),
+            float(initial_audit["writer_off_nll_abs_max"]),
+        )
+        if identity_abs_max > 1e-6:
+            gagd.write_json(
+                out_dir / "training_rejection.json",
+                {
+                    "schema_version": 1,
+                    "kind": "mcf_embedding_keyed_neuron_training_only_rejection",
+                    "protocol": PROTOCOL,
+                    "stage": "isolated_zero_actuator_identity",
+                    "reason": "isolated_branch_was_not_behaviorally_identical_at_zero",
+                    "identity_nll_abs_max": identity_abs_max,
+                    "initial_audit": initial_audit,
+                    "actuator_training_started": False,
+                    "checkpoint_saved": False,
+                    "official_evaluation_allowed": False,
+                    "official_evaluation_prompts_seen": 0,
+                },
+            )
+            editor.remove()
+            embedding_writer.remove()
+            raise SystemExit(
+                "isolated residual failed its exact-zero identity audit; actuator "
+                "training and official evaluation remain refused"
+            )
         frozen_gate_delta_sha256 = _tensor_digest(editor.gate_delta)
         frozen_up_delta_sha256 = _tensor_digest(editor.up_delta)
-        print(
-            "\nStage 2a: independent positive-only actuator norm-cap reachability sweep"
-        )
+        print("\nStage 2a: fixed-cap isolated threshold-residual feasibility")
         cap_reports: List[Dict[str, Any]] = []
         cap_artifacts: List[Dict[str, Any]] = []
         for cap in caps:
@@ -4211,6 +4763,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "schema_version": 1,
                 "kind": "mcf_embedding_keyed_neuron_actuator_cap_feasibility_fit",
                 "protocol": PROTOCOL,
+                "architecture": str(args.actuator_architecture),
                 "cap": cap,
                 "initial_down_delta": "exact_zero",
                 "optimizer_state": "fresh_independent_adamw",
@@ -4291,9 +4844,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         ]
         sweep = {
             "schema_version": 1,
-            "kind": "mcf_embedding_keyed_neuron_actuator_norm_cap_reachability_sweep",
+            "kind": "mcf_embedding_keyed_neuron_isolated_threshold_feasibility",
             "protocol": PROTOCOL,
             "mode": "training_only",
+            "architecture": str(args.actuator_architecture),
             "caps_preregistered": caps,
             "caps_completed": [float(row["cap"]) for row in cap_artifacts],
             "complete": len(cap_artifacts) == len(caps),
@@ -4321,9 +4875,16 @@ def main(argv: Sequence[str] | None = None) -> None:
                 and decision["structural_selectivity_passed"]
             ),
             "mechanism_readiness_rule": (
-                "positive reachability plus unoptimized writer-off NLL drift "
-                "within 0.05 at the same tested cap"
+                "positive reachability plus exact writer-off NLL drift within "
+                "0.05 behind the isolated threshold gate at cap 1.50"
             ),
+            "isolated_threshold_gate": {
+                "path": str(out_dir / "isolated_threshold_gate_report.json"),
+                "sha256": compositional_method.sha256_file(
+                    out_dir / "isolated_threshold_gate_report.json"
+                ),
+                "passed": bool(threshold_gate["passed"]),
+            },
             "frozen_detector_selectivity_audit": {
                 "path": str(out_dir / "frozen_detector_selectivity_audit.json"),
                 "sha256": compositional_method.sha256_file(
@@ -4333,23 +4894,36 @@ def main(argv: Sequence[str] | None = None) -> None:
                     detector_selectivity["any_p10_below_heuristic_warning"]
                 ),
             },
-            "frozen_detector_zero_actuator_behavior_audit": {
+            "isolated_zero_actuator_identity_audit": {
                 "path": str(initial_audit_path),
                 "sha256": compositional_method.sha256_file(initial_audit_path),
                 "down_delta": "bit_exact_zero",
+                "writer_on_nll_abs_max": float(initial_audit["writer_on_nll_abs_max"]),
                 "writer_off_nll_abs_max": float(
                     initial_audit["writer_off_nll_abs_max"]
                 ),
+                "identity_nll_abs_max": identity_abs_max,
+                "identity_passed": bool(identity_abs_max <= 1e-6),
                 "writer_off_preservation_passed": bool(
                     initial_audit["writer_off_preservation_passed"]
                 ),
             },
-            "frozen_v3_3_rejection_import": {
-                "path": str(out_dir / "frozen_v3_3_rejection_import.json"),
+            "selected_base_down_zeroing_audit": {
+                "path": str(out_dir / "selected_base_down_zeroing_audit.json"),
                 "sha256": compositional_method.sha256_file(
-                    out_dir / "frozen_v3_3_rejection_import.json"
+                    out_dir / "selected_base_down_zeroing_audit.json"
                 ),
-                "passed": bool(frozen_v3_3_rejection["passed"]),
+                "nll_abs_max": float(base_down_zeroing_audit["nll_abs_max"]),
+                "restored_bit_exact": bool(
+                    base_down_zeroing_audit["restored_bit_exact"]
+                ),
+            },
+            "frozen_v3_4_rejection_import": {
+                "path": str(out_dir / "frozen_v3_4_rejection_import.json"),
+                "sha256": compositional_method.sha256_file(
+                    out_dir / "frozen_v3_4_rejection_import.json"
+                ),
+                "passed": bool(frozen_v3_4_rejection["passed"]),
             },
             "initial_audit": initial_audit,
             "cap_artifacts": cap_artifacts,
@@ -4366,11 +4940,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             "official_evaluation_allowed": False,
             "official_evaluation_prompts_seen": 0,
         }
-        sweep_path = out_dir / "actuator_norm_cap_reachability_sweep.json"
+        sweep_path = out_dir / "isolated_threshold_actuator_feasibility.json"
         gagd.write_json(sweep_path, sweep)
         completion = {
             "schema_version": 1,
-            "kind": "mcf_embedding_keyed_neuron_training_only_sweep_completion",
+            "kind": "mcf_embedding_keyed_neuron_v3_5_training_only_completion",
             "protocol": PROTOCOL,
             "sweep_path": str(sweep_path),
             "sweep_sha256": compositional_method.sha256_file(sweep_path),
@@ -4386,14 +4960,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             "official_evaluation_allowed": False,
             "official_evaluation_prompts_seen": 0,
         }
-        gagd.write_json(out_dir / "training_only_sweep_completion.json", completion)
+        gagd.write_json(out_dir / "training_only_v3_5_completion.json", completion)
         if not completion["mechanism_readiness_passed"]:
             gagd.write_json(
                 out_dir / "training_rejection.json",
                 {
                     **completion,
                     "kind": "mcf_embedding_keyed_neuron_training_only_rejection",
-                    "stage": "actuator_norm_cap_reachability_sweep",
+                    "stage": "isolated_threshold_actuator_feasibility",
                     "reason": (
                         "no_tested_cap_reached_all_positive_margins"
                         if selected_cap is None
@@ -4405,7 +4979,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         embedding_writer.remove()
         if selected_cap is None:
             print(
-                "no cap through 2.00 reached the locked positive certificate; "
+                "the isolated branch at cap 1.50 did not reach the positive certificate; "
                 "full training and official evaluation remain refused"
             )
         elif selected_structural_cap is None:
@@ -4416,8 +4990,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         else:
             print(
-                f"smallest positive-reachable cap: {selected_cap:.2f}; "
-                "all fitted weights discarded and official evaluation remains refused"
+                f"isolated branch passed positive and writer-off feasibility at "
+                f"cap {selected_cap:.2f}; all fitted weights discarded and official "
+                "evaluation remains refused"
             )
         return
 

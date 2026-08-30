@@ -17,6 +17,7 @@ import mcf_embedding_keyed_neuron_erasure as method
 import audit_mcf_embedding_keyed_neuron_retain_tail as tail_audit
 import audit_mcf_embedding_keyed_neuron_latent_recovery as latent_audit
 import audit_mcf_embedding_keyed_neuron_relearning as relearning_audit
+import audit_mcf_embedding_writer_shared_row_exposure as exposure_audit
 import audit_mcf_frozen_writer_portability as portability_audit
 import aggregate_mcf_context_gating_frequency_factorial as frequency_aggregate
 import report_mcf_embedding_keyed_neuron_result as report
@@ -96,9 +97,32 @@ def _clean_stage1_acceptance_summary():
     }
 
 
+def _development_exposure_audit():
+    return {
+        "data_role": "consumed_development_evidence_not_blind_evaluation",
+        "source_writer_protocol": method.compositional_core.PROTOCOL,
+        "forget_records": 50,
+        "reserved_official_retain_records_excluded": 1000,
+        "development_retain_records_consumed": 9438,
+        "forget_records_with_subject_word_overlap": 43,
+        "unique_forget_subject_words": 110,
+        "unique_forget_subject_words_reused": 65,
+        "development_prompts_with_forget_subject_word": 4298,
+        "forget_records_with_subject_subtoken_overlap": 50,
+        "unique_forget_subject_token_ids": 236,
+        "unique_forget_subject_token_ids_reused": 199,
+        "development_prompts_with_forget_subject_subtoken": 5763,
+        "actual_edited_embedding_rows": 234,
+        "actual_edited_embedding_rows_reused": 198,
+        "development_prompts_with_actual_edited_row": 5762,
+        "forget_subjects_with_reused_actual_edited_row": 49,
+        "official_evaluation_prompts_seen": 0,
+    }
+
+
 def _detector_training_revision():
     return {
-        "version": "v3.4_frozen_v3_2_primary",
+        "version": "v3.5_frozen_v3_2_readout",
         "primary_initialization": "frozen_v3_2",
         "source_protocol": method.FROZEN_DETECTOR_PROTOCOL,
         "source_training_revision": "v3.2",
@@ -157,64 +181,77 @@ def _detector_training_revision():
 
 def _actuator_training_revision():
     return {
-        "version": "v3.4",
-        "mode": "training_only_norm_cap_reachability_sweep",
+        "version": "v3.5",
+        "mode": "training_only_isolated_thresholded_residual_feasibility",
         "frozen_training_contexts": {
             "writer_on_positive": 346,
             "writer_on_negative": 465,
             "writer_off_positive": 346,
         },
-        "source_v3_3_rejection": {
-            "protocol": method.FROZEN_V3_3_PROTOCOL,
+        "source_v3_4_rejection": {
+            "protocol": method.FROZEN_V3_4_PROTOCOL,
             "artifact_hash_receipt_required": True,
             "detector_passed_records": 50,
             "detector_total_records": 50,
-            "cap": 0.5,
-            "cap_saturated_by_step": 15,
-            "direct_failures": 40,
-            "positive_failures": 300,
-            "positive_contexts": 346,
-            "minimum_margin": -8.75,
-            "reference_nll_regression_max": 2.375,
-            "writer_off_nll_abs_max": 4.8125,
-            "full_actuator_training_started": False,
+            "owned_response_ratio_p10": 2.1545,
+            "owned_response_ratio_median": 3.2468,
+            "smallest_positive_reachable_cap": 1.5,
+            "cap_1_5_saturated_columns": 34,
+            "selected_columns": 200,
+            "zero_actuator_writer_off_nll_abs_max": 0.25,
+            "mechanism_readiness_passed": False,
+            "full_preservation_objective_started": False,
+            "checkpoint_saved": False,
             "official_evaluation_prompts_seen": 0,
         },
-        "frozen_detector_selectivity_audit": {
-            "performed_before_any_actuator_fit": True,
-            "paired_contexts": 346,
-            "metrics": [
-                "owned_signed_group_response",
-                "owned_neuron_abs_activation",
-                "owned_activation_vector_l2",
-                "all_selected_activation_vector_l2",
-            ],
-            "ratio_denominator_epsilon": 1e-8,
-            "p10_warning_ratio": 100.0,
-            "warning_is_acceptance_gate": False,
-            "zero_actuator_behavior_audit_before_any_fit": True,
-            "heuristic_behavior_ratio_reference": 195.0,
-            "heuristic_reference_derivation": (
-                "(1.0 - -8.75) / 0.05 from the V3.3 worst margin and unchanged "
-                "writer-off NLL tolerance"
+        "architecture": {
+            "base_mlp_path": "bit_exact_untouched",
+            "frozen_detector_role": "read_only_activation_feature_extractor",
+            "residual_formula": (
+                "BaseMLP(h) + threshold_gate(r(h)) * detector_activation(h) @ "
+                "down_delta.T"
             ),
-            "causal_limit": (
-                "activation ratios do not mathematically equal downstream NLL gain; "
-                "direct writer-off NLL is audited after every fitted cap"
+            "off_boundary": 0.200001,
+            "on_boundary": 0.249999,
+            "threshold_gate": (
+                "clip((response - off_boundary) / (on_boundary - off_boundary), 0, 1)"
+            ),
+            "threshold_gate_scope": (
+                "one registered record group per four selected detector features"
+            ),
+            "negative_and_cross_groups_gate_to_zero_required": True,
+            "writer_off_groups_gate_to_zero_required": True,
+            "owner_positive_group_gate_to_one_required": True,
+            "down_delta_exact_zero_is_algebraic_identity": True,
+            "original_base_down_columns_modified": False,
+            "ordinary_existing_weight_materialization": False,
+            "explicit_internal_residual_branch": True,
+            "claim_boundary": (
+                "V3.5 tests a sparse internal contextual branch; it is not represented "
+                "as an ordinary existing-neuron weight edit"
             ),
         },
-        "feasibility_sweep": {
-            "relative_norm_caps": [0.5, 0.75, 1.0, 1.5, 2.0],
-            "all_caps_run_independently": True,
-            "initial_down_delta_per_cap": "bit_exact_zero",
-            "optimizer_state_per_cap": "fresh_independent_adamw",
-            "optimizer_updates_per_cap": 100,
-            "total_optimizer_updates": 500,
+        "selected_base_down_zeroing_audit": {
+            "performed_before_any_actuator_fit": True,
+            "writer": "off",
+            "gate_up": "unaltered Base tensors",
+            "temporarily_zeroed_columns": 200,
+            "measure": (
+                "absolute target-token NLL drift on all 346 training-safe positive contexts"
+            ),
+            "restoration": "bit_exact_required",
+            "used_for_neuron_reselection": False,
+            "used_for_acceptance": False,
+        },
+        "feasibility": {
+            "relative_norm_caps": [1.5],
+            "initial_down_delta": "bit_exact_zero",
+            "optimizer_state": "fresh_adamw",
+            "optimizer_updates": 100,
             "learning_rate": 0.0005,
             "records_per_optimizer_update": 50,
             "positive_contexts_per_optimizer_update": 346,
-            "positive_context_exposures_per_cap": 34600,
-            "total_positive_context_exposures": 173000,
+            "positive_context_exposures": 34600,
             "context_microbatch_capacity": 4,
             "tail_k": 2,
             "objective": (
@@ -224,38 +261,21 @@ def _actuator_training_revision():
             "gradient_clip_frequency": "once_per_optimizer_update",
             "norm_projection_frequency": "once_per_optimizer_update",
             "complete_incremental_training_log_required": True,
-            "fresh_full_context_audit_per_cap": True,
-            "audit_fields": [
-                "direct_failures",
-                "positive_failures",
-                "minimum_margin",
-                "median_margin",
-                "per_record_minimum_margins",
-                "per_column_relative_norms",
-                "saturated_column_count",
-                "writer_off_nll_abs_max",
-                "exact_actuator_residual_write_on_off_ratio",
-            ],
-            "positive_reachability_selection_rule": (
-                "smallest tested cap with direct_failures == 0 and "
-                "positive_failures == 0"
+            "fresh_full_context_audit_required": True,
+            "threshold_gate_full_context_certificate_required": True,
+            "zero_actuator_identity_abs_tolerance": 1e-6,
+            "positive_reachability_rule": (
+                "direct_failures == 0 and positive_failures == 0"
             ),
             "writer_off_structural_selectivity_tolerance": 0.05,
-            "writer_off_structural_selectivity_is_positive_cap_selection_rule": False,
             "mechanism_readiness_rule": (
-                "positive reachability plus unoptimized writer-off NLL drift "
-                "within 0.05 at the same tested cap"
-            ),
-            "structural_failure_action": (
-                "record a training-only mechanism rejection and redesign the detector "
-                "before any full preservation objective"
+                "positive reachability plus writer-off NLL drift within 0.05 at cap 1.50"
             ),
             "every_fitted_down_delta_discarded": True,
             "full_preservation_objective_started": False,
             "checkpoint_saved": False,
             "failure_action": (
-                "if no cap through 2.0 passes, conclude that the fixed 200-neuron "
-                "layer-27 actuator is insufficient within the tested norm budget"
+                "fail closed and redesign the branch before any full preservation objective"
             ),
             "official_evaluation_allowed": False,
         },
@@ -324,6 +344,164 @@ def test_record_owned_neuron_selection_is_disjoint_and_writer_sensitive():
     assert set(ownership[1]) == {2, 3}
     assert signs[0].tolist() == [1.0, -1.0]
     assert len(reports) == 2
+
+
+def test_shared_row_exposure_audit_statistics_handle_ties_and_delta_sources():
+    assert exposure_audit.average_ranks([1.0, 1.0, 3.0]) == [1.5, 1.5, 3.0]
+    correlation = exposure_audit.correlation_report([0, 2, 4], [1.0, 2.0, 3.0])
+    assert correlation["pearson_frequency_vs_norm"] == pytest.approx(1.0)
+    assert correlation["spearman_frequency_vs_norm"] == pytest.approx(1.0)
+
+    direct, source = exposure_audit.tensor_from_state(
+        {"embedding_delta": torch.tensor([[1.0, 2.0]])},
+        direct_keys=("embedding_delta",),
+        edited_key="edited",
+        base_key="base",
+    )
+    assert source == "embedding_delta"
+    assert torch.equal(direct, torch.tensor([[1.0, 2.0]]))
+
+    paired, source = exposure_audit.tensor_from_state(
+        {
+            "edited": torch.tensor([[3.0, 5.0]]),
+            "base": torch.tensor([[1.0, 2.0]]),
+        },
+        direct_keys=("missing",),
+        edited_key="edited",
+        base_key="base",
+    )
+    assert source == "edited-base"
+    assert torch.equal(paired, torch.tensor([[2.0, 3.0]]))
+
+
+def test_shared_row_exposure_materializes_only_direct_prompt_and_subject_words():
+    record = {
+        "requested_rewrite": {
+            "prompt": "{} was born in",
+            "subject": "John Smith",
+        }
+    }
+    assert exposure_audit.materialize_prompt(record) == "John Smith was born in"
+    assert exposure_audit.words("John Smith's Airport") == {
+        "john",
+        "smith",
+        "s",
+        "airport",
+    }
+
+
+def test_shared_row_exposure_main_excludes_reserved_retain_and_marks_dev_consumed(
+    tmp_path, monkeypatch
+):
+    class FakeTokenizer:
+        vocabulary = {
+            "Reserved": 9,
+            "John": 1,
+            "works": 2,
+            "at": 3,
+            "Alpha": 4,
+            "Other": 5,
+            "place": 6,
+            "was": 7,
+            "born": 8,
+        }
+
+        def __call__(self, value, add_special_tokens=False):
+            del add_special_tokens
+            return {"input_ids": [self.vocabulary[token] for token in value.split()]}
+
+        def convert_ids_to_tokens(self, token_id):
+            return next(
+                (
+                    token
+                    for token, value in self.vocabulary.items()
+                    if value == token_id
+                ),
+                f"tok-{token_id}",
+            )
+
+        def decode(self, ids, **_kwargs):
+            return self.convert_ids_to_tokens(ids[0])
+
+    monkeypatch.setattr(
+        exposure_audit.AutoTokenizer,
+        "from_pretrained",
+        lambda *_args, **_kwargs: FakeTokenizer(),
+    )
+
+    def record(prompt, person):
+        return {"requested_rewrite": {"prompt": prompt, "subject": person}}
+
+    raw = [
+        record("Reserved {}", "John"),
+        record("{} works at Alpha", "John"),
+        record("Other place", "Nobody"),
+        record("Other place", "Nobody"),
+        record("{} was born", "John"),
+        record("Other place", "Nobody"),
+    ]
+    mcf = tmp_path / "mcf.json"
+    split = tmp_path / "split.json"
+    state = tmp_path / "writer.pt"
+    output = tmp_path / "audit.json"
+    mcf.write_text(json.dumps(raw), encoding="utf-8")
+    split.write_text(
+        json.dumps(
+            {
+                "protocol": exposure_audit.LOCKED_SPLIT_PROTOCOL,
+                "source_sha256": exposure_audit.sha256_file(mcf),
+                "seed": 1,
+                "sampling": {
+                    "forget_num": 1,
+                    "retain_eval_num": 1,
+                    "forget_case_ids": [4],
+                    "retain_eval_case_ids": [0],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    torch.save(
+        {
+            "protocol": exposure_audit.V6_2_WRITER_PROTOCOL,
+            "seed": 1,
+            "case_ids": [4],
+            "selected_embedding_rows": [1, 42],
+            "embedding_delta": torch.tensor([[3.0, 4.0], [0.0, 2.0]]),
+        },
+        state,
+    )
+
+    exposure_audit.main(
+        [
+            "--model-path",
+            "fake-model",
+            "--mcf-path",
+            str(mcf),
+            "--split-manifest",
+            str(split),
+            "--writer-state",
+            str(state),
+            "--output",
+            str(output),
+            "--top-k",
+            "2",
+        ]
+    )
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["data_firewall"]["development_retain_case_ids"] == [1, 2]
+    assert report["data_firewall"]["reserved_official_retain_prompts_materialized"] == 0
+    assert report["data_firewall"][
+        "development_ids_must_never_be_described_as_blind_evaluation"
+    ]
+    assert report["actual_embedding_row_overlap"]["selected_rows_reused"] == 1
+    assert (
+        report["actual_embedding_row_overlap"]["development_prompts_with_selected_row"]
+        == 1
+    )
+    assert report["embedding_row_norm_frequency_analysis"]["per_row"][0][
+        "delta_l2_norm"
+    ] == pytest.approx(5.0)
 
 
 def test_dormant_random_selection_is_deterministic_and_disjoint():
@@ -580,6 +758,91 @@ def test_sparse_swiglu_write_can_be_disabled_while_capturing_detector():
     assert editor.last_edited_activations.shape == (2, 3, 2)
 
 
+def test_isolated_threshold_residual_is_exact_identity_at_zero_actuator():
+    torch.manual_seed(31)
+    mlp = TinySwiGLU()
+    hidden = torch.randn(2, 3, 5)
+    expected = mlp(hidden).detach()
+    editor = core.SparseSwiGLUNeuronEditor(mlp, [0, 2])
+    with torch.no_grad():
+        editor.gate_delta.normal_(std=0.4)
+        editor.up_delta.normal_(std=0.4)
+        editor.down_delta.zero_()
+    editor.configure_isolated_threshold_residual(
+        [[0], [1]],
+        torch.ones(2),
+        off_boundary=0.20,
+        on_boundary=0.25,
+    )
+    editor.install(mlp)
+    actual = mlp(hidden).detach()
+    editor.remove()
+
+    assert torch.equal(actual, expected)
+    with pytest.raises(RuntimeError, match="explicit internal branch"):
+        editor.materialize(mlp)
+
+
+def test_isolated_threshold_residual_writes_without_mutating_base_mlp_weights():
+    mlp = TinySwiGLU()
+    selected = torch.tensor([0, 2])
+    with torch.no_grad():
+        mlp.gate_proj.weight.index_fill_(0, selected, 0.0)
+        mlp.up_proj.weight.index_fill_(0, selected, 0.0)
+    hidden = torch.ones(1, 2, 5)
+    base_output = mlp(hidden).detach()
+    base_state = {
+        name: parameter.detach().clone() for name, parameter in mlp.named_parameters()
+    }
+    editor = core.SparseSwiGLUNeuronEditor(mlp, selected.tolist())
+    with torch.no_grad():
+        editor.gate_delta.fill_(1.0)
+        editor.up_delta.fill_(1.0)
+        editor.down_delta.fill_(0.1)
+    editor.gate_delta.requires_grad_(False)
+    editor.up_delta.requires_grad_(False)
+    editor.configure_isolated_threshold_residual(
+        [[0], [1]], torch.ones(2), off_boundary=0.20, on_boundary=0.25
+    )
+    editor.install(mlp)
+    edited_output = mlp(hidden)
+    edited_output.sum().backward()
+    editor.remove()
+
+    assert not torch.equal(edited_output.detach(), base_output)
+    assert editor.down_delta.grad is not None
+    assert float(editor.down_delta.grad.abs().sum()) > 0.0
+    for name, parameter in mlp.named_parameters():
+        assert torch.equal(parameter.detach(), base_state[name])
+
+
+def test_isolated_threshold_gate_maps_certificate_gap_to_zero_and_one():
+    mlp = TinySwiGLU()
+    editor = core.SparseSwiGLUNeuronEditor(mlp, [0, 2, 4, 6])
+    editor.configure_isolated_threshold_residual(
+        [[0, 1], [2, 3]],
+        torch.ones(4),
+        off_boundary=0.20,
+        on_boundary=0.25,
+    )
+    activations = torch.tensor(
+        [
+            [0.10, 0.30, 0.25, 0.25],
+            [0.15, 0.15, 0.30, 0.30],
+        ]
+    )
+    features, responses, gates = editor.isolated_actuator_features_from_activations(
+        activations
+    )
+
+    assert torch.allclose(responses, torch.tensor([[0.20, 0.25], [0.15, 0.30]]))
+    assert torch.allclose(
+        gates, torch.tensor([[0.0, 1.0], [0.0, 1.0]]), atol=1e-6, rtol=0.0
+    )
+    assert torch.equal(features[:, :2], torch.zeros(2, 2))
+    assert torch.allclose(features[:, 2:], activations[:, 2:], atol=1e-6, rtol=0.0)
+
+
 def test_detector_cache_captures_exact_mlp_input_last_token_in_batches():
     class Encoded(dict):
         def to(self, device):
@@ -829,7 +1092,9 @@ def test_cap_sweep_selects_smallest_positive_reachable_cap_separately_from_leaka
         ]
     )
     assert failed["selected_smallest_positive_reachable_cap"] is None
-    assert failed["conclusion"].startswith("fixed_200_neuron_layer_27")
+    assert failed["conclusion"] == (
+        "isolated_threshold_branch_not_positive_reachable_at_registered_cap"
+    )
 
 
 def test_actuator_reference_and_writer_off_losses_have_tolerance_bands():
@@ -1077,6 +1342,117 @@ def test_frozen_v3_3_rejection_is_hash_bound_and_metric_exact(tmp_path):
     with pytest.raises(RuntimeError, match="writer_off_drift"):
         method.validate_frozen_v3_3_rejection(
             tmp_path / "v3_3", case_ids=case_ids, ownership_sha256=ownership_hash
+        )
+
+
+def test_frozen_v3_4_rejection_binds_reachability_and_selectivity(tmp_path):
+    method_dir = tmp_path / "v3_4" / "method"
+    method_dir.mkdir(parents=True)
+    ownership_hash = "b" * 64
+    case_ids = [10472, 14801]
+    zero_official = {"official_evaluation_prompts_seen": 0}
+    artifacts = {
+        "detector_gate_report.json": {
+            "protocol": method.FROZEN_V3_4_PROTOCOL,
+            "passed": True,
+            "passed_records": 2,
+            "total_records": 2,
+            "per_record": [{"case_id": value} for value in case_ids],
+            **zero_official,
+        },
+        "detector_endpoint_audit.json": {
+            "protocol": method.FROZEN_V3_4_PROTOCOL,
+            **zero_official,
+        },
+        "neuron_selection_report.json": {
+            "selected_neuron_ownership_jq_compact_sha256": ownership_hash,
+        },
+        "actuator_norm_cap_reachability_sweep.json": {
+            "protocol": method.FROZEN_V3_4_PROTOCOL,
+            "caps_preregistered": [0.5, 0.75, 1.0, 1.5, 2.0],
+            "caps_completed": [0.5, 0.75, 1.0, 1.5, 2.0],
+            "cap_artifacts": [
+                {
+                    "cap": cap,
+                    "positive_reachable": cap >= 1.5,
+                    "down_saturated_columns": 34 if cap == 1.5 else 0,
+                }
+                for cap in (0.5, 0.75, 1.0, 1.5, 2.0)
+            ],
+            "positive_reachability_passed": True,
+            "selected_smallest_positive_reachable_cap": 1.5,
+            "mechanism_readiness_passed": False,
+            "structural_selectivity_diagnostic": {"passed": False},
+            "conclusion": (
+                "positive_reachability_found_but_structural_writer_off_selectivity_failed"
+            ),
+            "all_fitted_weights_discarded": True,
+            "frozen_detector_tensors_unchanged": True,
+            "full_preservation_objective_started": False,
+            "checkpoint_saved": False,
+            "official_evaluation_allowed": False,
+            **zero_official,
+        },
+        "frozen_detector_selectivity_audit.json": {
+            "protocol": method.FROZEN_V3_4_PROTOCOL,
+            "aggregate": {
+                "owned_signed_group_response": {
+                    "writer_on_to_off_ratio": {"p10": 2.1545, "median": 3.2468}
+                }
+            },
+            **zero_official,
+        },
+        "frozen_detector_zero_actuator_behavior_audit.json": {
+            "protocol": method.FROZEN_V3_4_PROTOCOL,
+            "writer_off_nll_abs_max": 0.25,
+            "writer_off_preservation_passed": False,
+            **zero_official,
+        },
+        "training_only_sweep_completion.json": {
+            "protocol": method.FROZEN_V3_4_PROTOCOL,
+            "positive_reachability_passed": True,
+            "selected_smallest_positive_reachable_cap": 1.5,
+            "mechanism_readiness_passed": False,
+            "official_evaluation_allowed": False,
+            **zero_official,
+        },
+        "training_rejection.json": {
+            "stage": "actuator_norm_cap_reachability_sweep",
+            "reason": (
+                "positive_reachability_without_structural_writer_off_selectivity"
+            ),
+            "official_evaluation_allowed": False,
+            **zero_official,
+        },
+        "training_firewall_receipt.json": {
+            "data_access": {
+                "official_paraphrases_seen": 0,
+                "official_neighborhoods_seen": 0,
+                "benchmark_retain_seen": 0,
+                "official_ppl_seen": False,
+            }
+        },
+    }
+    for name, payload in artifacts.items():
+        (method_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    receipt = method.validate_frozen_v3_4_rejection(
+        tmp_path / "v3_4", case_ids=case_ids, ownership_sha256=ownership_hash
+    )
+    assert receipt["passed"]
+    assert receipt["observed"]["selected_smallest_positive_reachable_cap"] == 1.5
+    assert receipt["observed"]["zero_actuator_writer_off_nll_abs_max"] == 0.25
+
+    artifacts["frozen_detector_zero_actuator_behavior_audit.json"][
+        "writer_off_nll_abs_max"
+    ] = 0.20
+    (method_dir / "frozen_detector_zero_actuator_behavior_audit.json").write_text(
+        json.dumps(artifacts["frozen_detector_zero_actuator_behavior_audit.json"]),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="zero_actuator_drift"):
+        method.validate_frozen_v3_4_rejection(
+            tmp_path / "v3_4", case_ids=case_ids, ownership_sha256=ownership_hash
         )
 
 
@@ -1547,9 +1923,11 @@ def test_training_cli_exposes_no_original_mcf_or_official_eval_argument():
     assert args.detector_training_off_abs_max == pytest.approx(0.15)
     assert args.detector_certificate_abs_tolerance == pytest.approx(1e-7)
     assert args.detector_initialization == "train"
-    assert not args.training_only_actuator_cap_sweep
+    assert not args.training_only_isolated_threshold_feasibility
     assert args.actuator_feasibility_steps == 100
-    assert args.actuator_feasibility_caps == [0.5, 0.75, 1.0, 1.5, 2.0]
+    assert args.actuator_feasibility_caps == [1.5]
+    assert args.actuator_architecture == "isolated_thresholded_residual"
+    assert args.threshold_gate_numerical_guard == pytest.approx(1e-6)
     assert args.detector_selectivity_ratio_epsilon == pytest.approx(1e-8)
     assert args.detector_selectivity_warning_ratio == pytest.approx(100.0)
     assert args.actuator_steps == 100
@@ -1896,11 +2274,12 @@ def test_primary_configuration_is_bound_to_preregistered_values():
             "writer_objective": "mean_plus_worst_k_squared_shortfall",
             "cross_record_parameter_sharing_audit_required": True,
         },
+        "development_retain_shared_row_exposure_audit": (_development_exposure_audit()),
         "detector_training_revision": _detector_training_revision(),
         "actuator_training_revision": _actuator_training_revision(),
         "selected_neuron_ownership_binding": {
             "scope": "primary_embedding_keyed_configuration",
-            "source_runs": ["v3", "v3.1", "v3.2", "v3.3"],
+            "source_runs": ["v3", "v3.1", "v3.2", "v3.3", "v3.4"],
             "jq_projection": "[.ownership[].selected_neurons]",
             "jq_compact_sha256": (
                 "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
@@ -1932,30 +2311,25 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         method._validate_experiment_registry(registry, args)
 
 
-def test_repository_registry_binds_v3_4_training_only_cap_sweep():
+def test_repository_registry_binds_v3_5_isolated_threshold_feasibility():
     registry_path = (
         Path(__file__).resolve().parents[1]
         / "protocols"
         / "mcf_embedding_keyed_neuron_ablation_registry_v1.json"
     )
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert registry["schema_version"] == 10
+    assert registry["schema_version"] == 11
     assert registry["protocol"] == core.PROTOCOL
     assert registry["development_history"][-1]["version"] == (
-        "v8_embedding_keyed_actuator_v3_3_positive_only"
+        "v9_embedding_keyed_actuator_v3_4_cap_sweep"
     )
     assert registry["development_history"][-1]["detector_gate"]["passed_records"] == 50
-    assert (
-        registry["development_history"][-1]["actuator_feasibility"]["direct_failures"]
-        == 40
-    )
-    assert (
-        registry["development_history"][-1]["actuator_feasibility"]["positive_failures"]
-        == 300
-    )
-    assert registry["development_history"][-1]["actuator_feasibility"][
-        "writer_off_nll_abs_max"
-    ] == pytest.approx(4.8125)
+    assert registry["development_history"][-1]["actuator_reachability"][
+        "smallest_positive_reachable_cap"
+    ] == pytest.approx(1.5)
+    assert registry["development_history"][-1]["structural_selectivity"][
+        "zero_actuator_writer_off_nll_abs_max"
+    ] == pytest.approx(0.25)
     assert not registry["development_history"][-1][
         "official_evaluation_opened_by_this_failed_run"
     ]
@@ -1976,14 +2350,13 @@ def test_repository_registry_binds_v3_4_training_only_cap_sweep():
         "frozen_v3_2"
     )
     assert registry["primary_configuration"]["actuator_feasibility_steps"] == 100
-    assert registry["primary_configuration"]["training_only_actuator_cap_sweep"]
-    assert registry["primary_configuration"]["actuator_feasibility_caps"] == [
-        0.5,
-        0.75,
-        1.0,
-        1.5,
-        2.0,
+    assert registry["primary_configuration"][
+        "training_only_isolated_threshold_feasibility"
     ]
+    assert registry["primary_configuration"]["actuator_feasibility_caps"] == [1.5]
+    assert registry["primary_configuration"]["actuator_architecture"] == (
+        "isolated_thresholded_residual"
+    )
     assert registry["primary_configuration"]["actuator_steps"] == 0
     assert registry["primary_configuration"]["actuator_protected_batch"] == 80
     common = [
@@ -2017,9 +2390,11 @@ def test_repository_registry_binds_v3_4_training_only_cap_sweep():
             "frozen_v3_2",
             "--frozen-v3-2-run-dir",
             "rejected-v3.2",
-            "--frozen-v3-3-run-dir",
-            "rejected-v3.3",
-            "--training-only-actuator-cap-sweep",
+            "--frozen-v3-4-run-dir",
+            "rejected-v3.4",
+            "--training-only-isolated-threshold-feasibility",
+            "--actuator-relative-cap",
+            "1.5",
             "--actuator-steps",
             "0",
         ]
@@ -2027,22 +2402,32 @@ def test_repository_registry_binds_v3_4_training_only_cap_sweep():
     method._validate_experiment_registry(registry, primary)
 
 
-def test_v3_4_launcher_cannot_open_official_eval_or_save_checkpoint():
+def test_v3_5_launcher_cannot_open_official_eval_or_save_checkpoint():
     root = Path(__file__).resolve().parents[1]
     launcher = (
-        root / "slurm" / "run_mcf_embedding_keyed_neuron_v3_4_cap_sweep_seed1_3b.slurm"
+        root
+        / "slurm"
+        / "run_mcf_embedding_keyed_neuron_v3_5_isolated_threshold_seed1_3b.slurm"
     ).read_text(encoding="utf-8")
-    assert "--training-only-actuator-cap-sweep" in launcher
-    assert "--actuator-feasibility-caps 0.50 0.75 1.00 1.50 2.00" in launcher
+    assert "--training-only-isolated-threshold-feasibility" in launcher
+    assert "--actuator-feasibility-caps 1.50" in launcher
+    assert "--actuator-architecture isolated_thresholded_residual" in launcher
+    assert "--threshold-gate-numerical-guard 1e-6" in launcher
     assert "--actuator-steps 0" in launcher
-    assert "--frozen-v3-3-run-dir" in launcher
+    assert "--frozen-v3-4-run-dir" in launcher
     assert "frozen_detector_selectivity_audit.json" in launcher
-    assert "frozen_detector_zero_actuator_behavior_audit.json" in launcher
-    assert "training_only_sweep_completion.json" in launcher
+    assert "isolated_zero_actuator_identity_audit.json" in launcher
+    assert "selected_base_down_zeroing_audit.json" in launcher
+    assert "training_only_v3_5_completion.json" in launcher
     assert "env -u MCF_PATH" in launcher
     assert "--save-checkpoint" not in launcher
     assert "mcf_zero_unlearn_official_eval.py" not in launcher
     assert "official_evaluation_allowed == false" in launcher
+    submit = (
+        root / "scripts" / "submit_mcf_embedding_keyed_neuron_seed1.sh"
+    ).read_text(encoding="utf-8")
+    assert "mcf_embedding_keyed_neuron_v3_5_${JOB_ID}.out" in submit
+    assert "mcf_embedding_keyed_neuron_v3_4_${JOB_ID}.out" not in submit
 
 
 def test_final_report_requires_metrics_mechanism_and_firewall_to_pass():

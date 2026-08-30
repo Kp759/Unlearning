@@ -1,7 +1,7 @@
 {
-  "schema_version": 10,
-  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_4",
-  "status": "training_only_actuator_v3_4_norm_cap_reachability_sweep_preregistered_after_v3_3_positive_only_rejection_before_any_official_evaluation",
+  "schema_version": 11,
+  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5",
+  "status": "training_only_v3_5_isolated_thresholded_residual_preregistered_after_v3_4_reachability_pass_selectivity_rejection_before_any_official_evaluation",
   "development_history": [
     {
       "version": "v1",
@@ -273,9 +273,77 @@
         "record per-column norm geometry and exact actuator residual-write selectivity at every cap",
         "discard all sweep weights and prohibit the preservation objective, checkpoint saving, and official evaluation"
       ]
+    },
+    {
+      "version": "v9_embedding_keyed_actuator_v3_4_cap_sweep",
+      "evidence_opened": "locked semantically valid training-safe prompts only",
+      "official_evaluation_opened_by_this_failed_run": false,
+      "official_evaluation_prompts_seen": 0,
+      "checkpoint_saved": false,
+      "detector_gate": {
+        "passed_records": 50,
+        "total_records": 50,
+        "passed": true,
+        "writer_on_off_response_ratio_p10": 2.1545,
+        "writer_on_off_response_ratio_median": 3.2468
+      },
+      "actuator_reachability": {
+        "caps": [0.5, 0.75, 1.0, 1.5, 2.0],
+        "smallest_positive_reachable_cap": 1.5,
+        "cap_1_5_final_saturated_columns": 34,
+        "selected_columns": 200,
+        "cap_2_0_final_max_relative_norm": 1.8568,
+        "positive_reachability_passed": true
+      },
+      "structural_selectivity": {
+        "zero_actuator_writer_off_nll_abs_max": 0.25,
+        "writer_off_nll_tolerance": 0.05,
+        "jointly_passing_cap": null,
+        "mechanism_readiness_passed": false
+      },
+      "result": "positive reachability passed first at cap 1.50, but no positive-reachable fit preserved writer-off behavior; all fitted tensors were discarded and full training and official evaluation were refused",
+      "interpretation": [
+        "four selected neurons per record at layer 27 have sufficient positive-only capacity under the frozen V3.2 detector",
+        "the weak 2-3x raw response ratio is a preference rather than a behaviorally isolated gate",
+        "the 0.25 writer-off NLL drift with bit-exact-zero down_delta proves that replacing gate/up activations already writes through the selected neurons' original Base down columns"
+      ],
+      "changes_motivated": [
+        "leave the entire ordinary Base MLP contribution untouched",
+        "use the frozen detector only as a readout for an explicit additive residual branch",
+        "map the registered 0.20/0.25 response gap to an internal clipped 0/1 threshold gate",
+        "lock the V3.5 positive-only feasibility cap to 1.50",
+        "audit temporary zeroing of the 200 original Base down columns and restore them bit-exactly",
+        "require exact-zero actuator identity, positive reachability, and writer-off NLL drift within 0.05 before any full preservation objective"
+      ]
     }
   ],
-  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, detector V3, detector V3.1, V3.2 actuator, and V3.3 actuator runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer, V3.2 source run, V3.3 learner, or V3.4 sweep or used for checkpoint selection/retry.",
+  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, detector V3, detector V3.1, V3.2 actuator, V3.3 actuator, and V3.4 cap-sweep runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer, V3.2 source run, V3.3 learner, V3.4 sweep, or V3.5 architecture test or used for checkpoint selection/retry.",
+  "development_retain_shared_row_exposure_audit": {
+    "data_role": "consumed_development_evidence_not_blind_evaluation",
+    "source_writer_protocol": "mcf_context_composed_sparse_embedding_writer_v6_2",
+    "forget_records": 50,
+    "reserved_official_retain_records_excluded": 1000,
+    "development_retain_records_consumed": 9438,
+    "forget_records_with_subject_word_overlap": 43,
+    "unique_forget_subject_words": 110,
+    "unique_forget_subject_words_reused": 65,
+    "development_prompts_with_forget_subject_word": 4298,
+    "forget_records_with_subject_subtoken_overlap": 50,
+    "unique_forget_subject_token_ids": 236,
+    "unique_forget_subject_token_ids_reused": 199,
+    "development_prompts_with_forget_subject_subtoken": 5763,
+    "actual_edited_embedding_rows": 234,
+    "actual_edited_embedding_rows_reused": 198,
+    "development_prompts_with_actual_edited_row": 5762,
+    "forget_subjects_with_reused_actual_edited_row": 49,
+    "official_evaluation_prompts_seen": 0,
+    "learner_usage": "architecture motivation and reporting only; no development record, frequency, overlap, or norm statistic enters V3.5 selection, optimization, acceptance, or retry",
+    "causal_limit": "the audit establishes shared-parameter exposure, not that overlap itself causes retain degradation",
+    "architecture_implication": "shared embedding rows may carry a sparse marker, but the behavioral erasure must be conditioned downstream on context-composed hidden state",
+    "norm_frequency_followup_script": "scripts/audit_mcf_embedding_writer_shared_row_exposure.py",
+    "norm_frequency_result_status": "implemented_but_not_observed_before_v3_5_preregistration",
+    "required_followup": "run the implemented norm-frequency audit and optionally repeat it for historical LM-head rows without reclassifying these records as blind evaluation"
+  },
   "stage1_writer_prerequisite": {
     "protocol": "mcf_context_composed_sparse_embedding_writer_v6_2",
     "positive_context_policy": "relation_templates_only_v1",
@@ -322,7 +390,7 @@
     }
   },
   "detector_training_revision": {
-    "version": "v3.4_frozen_v3_2_primary",
+    "version": "v3.5_frozen_v3_2_readout",
     "primary_initialization": "frozen_v3_2",
     "source_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_2",
     "source_training_revision": "v3.2",
@@ -378,58 +446,65 @@
     "official_evaluation_prompts_seen": 0
   },
   "actuator_training_revision": {
-    "version": "v3.4",
-    "mode": "training_only_norm_cap_reachability_sweep",
+    "version": "v3.5",
+    "mode": "training_only_isolated_thresholded_residual_feasibility",
     "frozen_training_contexts": {
       "writer_on_positive": 346,
       "writer_on_negative": 465,
       "writer_off_positive": 346
     },
-    "source_v3_3_rejection": {
-      "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_3",
+    "source_v3_4_rejection": {
+      "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_4",
       "artifact_hash_receipt_required": true,
       "detector_passed_records": 50,
       "detector_total_records": 50,
-      "cap": 0.5,
-      "cap_saturated_by_step": 15,
-      "direct_failures": 40,
-      "positive_failures": 300,
-      "positive_contexts": 346,
-      "minimum_margin": -8.75,
-      "reference_nll_regression_max": 2.375,
-      "writer_off_nll_abs_max": 4.8125,
-      "full_actuator_training_started": false,
+      "owned_response_ratio_p10": 2.1545,
+      "owned_response_ratio_median": 3.2468,
+      "smallest_positive_reachable_cap": 1.5,
+      "cap_1_5_saturated_columns": 34,
+      "selected_columns": 200,
+      "zero_actuator_writer_off_nll_abs_max": 0.25,
+      "mechanism_readiness_passed": false,
+      "full_preservation_objective_started": false,
+      "checkpoint_saved": false,
       "official_evaluation_prompts_seen": 0
     },
-    "frozen_detector_selectivity_audit": {
-      "performed_before_any_actuator_fit": true,
-      "paired_contexts": 346,
-      "metrics": [
-        "owned_signed_group_response",
-        "owned_neuron_abs_activation",
-        "owned_activation_vector_l2",
-        "all_selected_activation_vector_l2"
-      ],
-      "ratio_denominator_epsilon": 1e-8,
-      "p10_warning_ratio": 100.0,
-      "warning_is_acceptance_gate": false,
-      "zero_actuator_behavior_audit_before_any_fit": true,
-      "heuristic_behavior_ratio_reference": 195.0,
-      "heuristic_reference_derivation": "(1.0 - -8.75) / 0.05 from the V3.3 worst margin and unchanged writer-off NLL tolerance",
-      "causal_limit": "activation ratios do not mathematically equal downstream NLL gain; direct writer-off NLL is audited after every fitted cap"
+    "architecture": {
+      "base_mlp_path": "bit_exact_untouched",
+      "frozen_detector_role": "read_only_activation_feature_extractor",
+      "residual_formula": "BaseMLP(h) + threshold_gate(r(h)) * detector_activation(h) @ down_delta.T",
+      "off_boundary": 0.200001,
+      "on_boundary": 0.249999,
+      "threshold_gate": "clip((response - off_boundary) / (on_boundary - off_boundary), 0, 1)",
+      "threshold_gate_scope": "one registered record group per four selected detector features",
+      "negative_and_cross_groups_gate_to_zero_required": true,
+      "writer_off_groups_gate_to_zero_required": true,
+      "owner_positive_group_gate_to_one_required": true,
+      "down_delta_exact_zero_is_algebraic_identity": true,
+      "original_base_down_columns_modified": false,
+      "ordinary_existing_weight_materialization": false,
+      "explicit_internal_residual_branch": true,
+      "claim_boundary": "V3.5 tests a sparse internal contextual branch; it is not represented as an ordinary existing-neuron weight edit"
     },
-    "feasibility_sweep": {
-      "relative_norm_caps": [0.5, 0.75, 1.0, 1.5, 2.0],
-      "all_caps_run_independently": true,
-      "initial_down_delta_per_cap": "bit_exact_zero",
-      "optimizer_state_per_cap": "fresh_independent_adamw",
-      "optimizer_updates_per_cap": 100,
-      "total_optimizer_updates": 500,
+    "selected_base_down_zeroing_audit": {
+      "performed_before_any_actuator_fit": true,
+      "writer": "off",
+      "gate_up": "unaltered Base tensors",
+      "temporarily_zeroed_columns": 200,
+      "measure": "absolute target-token NLL drift on all 346 training-safe positive contexts",
+      "restoration": "bit_exact_required",
+      "used_for_neuron_reselection": false,
+      "used_for_acceptance": false
+    },
+    "feasibility": {
+      "relative_norm_caps": [1.5],
+      "initial_down_delta": "bit_exact_zero",
+      "optimizer_state": "fresh_adamw",
+      "optimizer_updates": 100,
       "learning_rate": 0.0005,
       "records_per_optimizer_update": 50,
       "positive_contexts_per_optimizer_update": 346,
-      "positive_context_exposures_per_cap": 34600,
-      "total_positive_context_exposures": 173000,
+      "positive_context_exposures": 34600,
       "context_microbatch_capacity": 4,
       "tail_k": 2,
       "objective": "equal_record_mean_plus_worst_two_squared_margin_shortfall_only",
@@ -437,34 +512,23 @@
       "gradient_clip_frequency": "once_per_optimizer_update",
       "norm_projection_frequency": "once_per_optimizer_update",
       "complete_incremental_training_log_required": true,
-      "fresh_full_context_audit_per_cap": true,
-      "audit_fields": [
-        "direct_failures",
-        "positive_failures",
-        "minimum_margin",
-        "median_margin",
-        "per_record_minimum_margins",
-        "per_column_relative_norms",
-        "saturated_column_count",
-        "writer_off_nll_abs_max",
-        "exact_actuator_residual_write_on_off_ratio"
-      ],
-      "positive_reachability_selection_rule": "smallest tested cap with direct_failures == 0 and positive_failures == 0",
+      "fresh_full_context_audit_required": true,
+      "threshold_gate_full_context_certificate_required": true,
+      "zero_actuator_identity_abs_tolerance": 0.000001,
+      "positive_reachability_rule": "direct_failures == 0 and positive_failures == 0",
       "writer_off_structural_selectivity_tolerance": 0.05,
-      "writer_off_structural_selectivity_is_positive_cap_selection_rule": false,
-      "mechanism_readiness_rule": "positive reachability plus unoptimized writer-off NLL drift within 0.05 at the same tested cap",
-      "structural_failure_action": "record a training-only mechanism rejection and redesign the detector before any full preservation objective",
+      "mechanism_readiness_rule": "positive reachability plus writer-off NLL drift within 0.05 at cap 1.50",
       "every_fitted_down_delta_discarded": true,
       "full_preservation_objective_started": false,
       "checkpoint_saved": false,
-      "failure_action": "if no cap through 2.0 passes, conclude that the fixed 200-neuron layer-27 actuator is insufficient within the tested norm budget",
+      "failure_action": "fail closed and redesign the branch before any full preservation objective",
       "official_evaluation_allowed": false
     },
     "official_evaluation_prompts_seen": 0
   },
   "selected_neuron_ownership_binding": {
     "scope": "primary_embedding_keyed_configuration",
-    "source_runs": ["v3", "v3.1", "v3.2", "v3.3"],
+    "source_runs": ["v3", "v3.1", "v3.2", "v3.3", "v3.4"],
     "jq_projection": "[.ownership[].selected_neurons]",
     "jq_compact_sha256": "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1",
     "writer_configuration": {
@@ -483,13 +547,14 @@
     "allowed_interim_description": "V6.1 is consistent with cross-record interference; V6.2 tests a globally balanced optimizer and is an engineering improvement experiment"
   },
   "primary_claim": "Embedding-keyed sparse-neuron context-conditional factual suppression with measured locality",
-  "v3_4_scope": {
+  "v3_5_scope": {
     "training_only": true,
-    "actuator_reachability_and_structural_selectivity_diagnostic_only": true,
+    "isolated_thresholded_residual_feasibility_only": true,
     "full_preservation_training_prohibited": true,
     "checkpoint_creation_prohibited": true,
     "official_evaluation_prohibited": true,
-    "downstream_checkpoint_controls_and_official_audits": "deferred to a separately preregistered post-sweep protocol"
+    "ordinary_existing_weight_materialization_claimed": false,
+    "downstream_checkpoint_controls_and_official_audits": "deferred to a separately preregistered post-feasibility protocol"
   },
   "explicitly_disallowed_primary_claims": [
     "weight-level knowledge deletion",
@@ -533,9 +598,11 @@
     "detector_off_abs_max": 0.2,
     "detector_training_off_abs_max": 0.15,
     "detector_certificate_abs_tolerance": 1e-7,
-    "training_only_actuator_cap_sweep": true,
+    "training_only_isolated_threshold_feasibility": true,
     "actuator_feasibility_steps": 100,
-    "actuator_feasibility_caps": [0.5, 0.75, 1.0, 1.5, 2.0],
+    "actuator_feasibility_caps": [1.5],
+    "actuator_architecture": "isolated_thresholded_residual",
+    "threshold_gate_numerical_guard": 0.000001,
     "detector_selectivity_ratio_epsilon": 1e-8,
     "detector_selectivity_warning_ratio": 100.0,
     "actuator_steps": 0,
@@ -554,7 +621,7 @@
     "writer_off_nll_weight": 50.0,
     "actuator_writer_off_nll_tolerance": 0.05,
     "actuator_l2": 0.0001,
-    "actuator_relative_cap": 0.5,
+    "actuator_relative_cap": 1.5,
     "grad_clip": 1.0,
     "check_every": 5,
     "cache_batch_size": 8,
