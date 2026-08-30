@@ -11,6 +11,8 @@ auditable pieces that can be tested without loading a language model:
   columns, retained for lineage and unit tests;
 * V3.5's isolated thresholded residual branch, which reads selected
   gate/up features while leaving the ordinary Base MLP path untouched;
+* V3.5.5's separate threshold-gated actuator bank, whose frozen Base
+  activations are disjoint from the four-neuron detector groups;
 * contextual code responses and detector-gate metrics;
 * hard relative-norm projection and materialization/restoration helpers.
 
@@ -33,7 +35,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_4"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_5"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
@@ -223,6 +225,111 @@ def flatten_ownership(
         local_groups.append(list(range(start, start + len(ids))))
         seen.update(ids)
     return flat, torch.cat(flat_signs), local_groups
+
+
+def select_nested_record_actuator_neurons(
+    positive_activations: Sequence[torch.Tensor],
+    base_down_column_norms: torch.Tensor,
+    *,
+    widths: Sequence[int],
+    excluded_neurons: Sequence[int] = (),
+) -> Tuple[Dict[int, List[List[int]]], List[Dict[str, Any]]]:
+    """Select nested, disjoint actuator features using positive contexts only.
+
+    The contextual detector already decides whether a record is active, so an
+    actuator feature does not need to be dormant or writer-selective.  It needs
+    a stable signed activation on every registered positive context and enough
+    Base down-column norm to make the unchanged relative cap meaningful.
+
+    For each record, candidates are oriented by their mean activation and
+    scored by ``min(oriented_activation) * ||base_down_column||``.  A positive
+    robust floor therefore certifies a consistent sign across all contexts.
+    Records are processed in their registered order, selected neurons are
+    globally disjoint, and detector neurons are excluded.  The maximum-width
+    ranking is selected once; smaller widths are strict prefixes so the width
+    sweep changes only actuator capacity rather than candidate identity.
+    """
+
+    normalized_widths = sorted({int(width) for width in widths})
+    if not normalized_widths or normalized_widths[0] <= 0:
+        raise ValueError("actuator widths must contain positive integers")
+    if not positive_activations:
+        raise ValueError("actuator selection requires positive activations")
+    norms = base_down_column_norms.detach().float().reshape(-1).cpu()
+    if norms.numel() == 0 or not bool(torch.isfinite(norms).all()):
+        raise ValueError("base down-column norms must be finite and nonempty")
+    intermediate = int(norms.numel())
+    unavailable = torch.zeros(intermediate, dtype=torch.bool)
+    for neuron in excluded_neurons:
+        neuron = int(neuron)
+        if neuron < 0 or neuron >= intermediate:
+            raise ValueError(f"excluded neuron {neuron} is out of range")
+        unavailable[neuron] = True
+
+    maximum_width = normalized_widths[-1]
+    maximum_groups: List[List[int]] = []
+    reports: List[Dict[str, Any]] = []
+    for record_index, value in enumerate(positive_activations):
+        activations = _as_float_matrix(
+            value, f"positive_activations[{record_index}]"
+        ).cpu()
+        if int(activations.shape[1]) != intermediate or activations.shape[0] == 0:
+            raise ValueError("actuator positive activations have incompatible shape")
+        mean = activations.mean(dim=0)
+        signs = torch.where(mean >= 0, torch.ones_like(mean), -torch.ones_like(mean))
+        oriented = activations * signs.unsqueeze(0)
+        robust_floor = oriented.min(dim=0).values
+        stability = activations.std(dim=0, unbiased=False)
+        score = robust_floor.clamp_min(0.0) * norms
+        eligible = (
+            ~unavailable
+            & torch.isfinite(score)
+            & torch.isfinite(robust_floor)
+            & robust_floor.gt(0.0)
+            & norms.gt(0.0)
+        )
+        candidate_count = int(eligible.sum())
+        if candidate_count < maximum_width:
+            raise RuntimeError(
+                f"record {record_index} has only {candidate_count} unused "
+                f"sign-stable actuator candidates, needs {maximum_width}"
+            )
+        masked = score.masked_fill(~eligible, float("-inf"))
+        # stable=True makes neuron id the deterministic tie-break because the
+        # input order is the ascending model neuron index.
+        order = torch.argsort(masked, descending=True, stable=True)
+        chosen = order[:maximum_width]
+        unavailable[chosen] = True
+        chosen_ids = [int(value) for value in chosen.tolist()]
+        maximum_groups.append(chosen_ids)
+        reports.append(
+            {
+                "record_index": record_index,
+                "candidate_count": candidate_count,
+                "maximum_width": maximum_width,
+                "maximum_width_neurons_ranked": chosen_ids,
+                "selection_score": [float(score[index]) for index in chosen],
+                "positive_oriented_activation_floor": [
+                    float(robust_floor[index]) for index in chosen
+                ],
+                "positive_activation_mean": [float(mean[index]) for index in chosen],
+                "positive_activation_std": [
+                    float(stability[index]) for index in chosen
+                ],
+                "base_down_column_norm": [float(norms[index]) for index in chosen],
+            }
+        )
+
+    by_width = {
+        width: [group[:width] for group in maximum_groups]
+        for width in normalized_widths
+    }
+    flattened = [
+        neuron for group in maximum_groups for neuron in group
+    ]
+    if len(flattened) != len(set(flattened)):
+        raise RuntimeError("actuator selection lost global disjointness")
+    return by_width, reports
 
 
 def contextual_code_responses(
@@ -1325,6 +1432,220 @@ class SparseSwiGLUNeuronEditor(nn.Module):
             1, ids, edited.down_columns.to(mlp.down_proj.weight.dtype)
         )
         return sparse_neuron_weights(mlp, self.neuron_ids)
+
+
+class SparseThresholdGatedActuatorBank(nn.Module):
+    """Separate frozen-feature actuator bank controlled by a detector gate.
+
+    The detector rows are copied as passive float32 readout buffers.  The
+    actuator gate/up rows are unmodified Base rows from a disjoint set of MLP
+    neurons.  The ordinary MLP output is never replaced: the only behavioral
+    term is
+
+    ``F.linear(base_actuator_activation * expanded_record_gate, down_delta)``.
+
+    Consequently an exact-zero ``down_delta`` is an algebraic identity and a
+    zero record gate suppresses the actuator regardless of feature magnitude.
+    """
+
+    def __init__(
+        self,
+        mlp: nn.Module,
+        actuator_neuron_ids: Sequence[int],
+        actuator_owner_indices: Sequence[int],
+        *,
+        detector_gate_rows: torch.Tensor,
+        detector_up_rows: torch.Tensor,
+        detector_local_groups: Sequence[Sequence[int]],
+        detector_flat_signs: torch.Tensor,
+        off_boundary: float,
+        on_boundary: float,
+    ) -> None:
+        super().__init__()
+        ids = [int(value) for value in actuator_neuron_ids]
+        owners = [int(value) for value in actuator_owner_indices]
+        if not ids or len(ids) != len(owners):
+            raise ValueError("actuator ids and owners must be equal nonempty lists")
+        if len(ids) != len(set(ids)):
+            raise ValueError("actuator neuron ids must be disjoint")
+        if min(owners) < 0:
+            raise ValueError("actuator owner indices must be non-negative")
+        groups = [[int(value) for value in group] for group in detector_local_groups]
+        if not groups or any(not group for group in groups):
+            raise ValueError("detector groups must be nonempty")
+        detector_count = sum(len(group) for group in groups)
+        flattened = [value for group in groups for value in group]
+        if sorted(flattened) != list(range(detector_count)):
+            raise ValueError("detector groups must partition detector features")
+        if max(owners) >= len(groups):
+            raise ValueError("actuator owner exceeds detector record count")
+        if not math.isfinite(float(off_boundary)) or not math.isfinite(
+            float(on_boundary)
+        ) or float(on_boundary) <= float(off_boundary):
+            raise ValueError("invalid detector threshold boundaries")
+
+        device = mlp.gate_proj.weight.device
+        model_ids = torch.tensor(ids, dtype=torch.long, device=device)
+        base_gate = mlp.gate_proj.weight.detach().index_select(0, model_ids)
+        base_up = mlp.up_proj.weight.detach().index_select(0, model_ids)
+        base_down = mlp.down_proj.weight.detach().index_select(1, model_ids)
+        detector_gate = detector_gate_rows.detach().float()
+        detector_up = detector_up_rows.detach().float()
+        signs = detector_flat_signs.detach().float().reshape(-1)
+        if detector_gate.shape != detector_up.shape or detector_gate.ndim != 2:
+            raise ValueError("detector gate/up rows must be equal matrices")
+        if int(detector_gate.shape[0]) != detector_count:
+            raise ValueError("detector rows do not match detector groups")
+        if int(signs.numel()) != detector_count or not bool(
+            torch.all(signs.abs().eq(1.0))
+        ):
+            raise ValueError("detector signs must cover all rows with +/-1")
+
+        self.actuator_neuron_ids = ids
+        self.detector_local_groups = groups
+        self.off_boundary = float(off_boundary)
+        self.on_boundary = float(on_boundary)
+        self.enabled = True
+        self.write_enabled = True
+        self._act_fn = mlp.act_fn
+        self._handle: Any = None
+        self.register_buffer("base_gate_rows", base_gate.float().to(device))
+        self.register_buffer("base_up_rows", base_up.float().to(device))
+        self.register_buffer("base_down_columns", base_down.float().to(device))
+        self.register_buffer(
+            "actuator_owner_indices",
+            torch.tensor(owners, dtype=torch.long, device=device),
+        )
+        self.register_buffer("detector_gate_rows", detector_gate.to(device))
+        self.register_buffer("detector_up_rows", detector_up.to(device))
+        self.register_buffer("detector_flat_signs", signs.to(device))
+        self.down_delta = nn.Parameter(torch.zeros_like(self.base_down_columns))
+
+    def detector_responses_and_gates(
+        self, hidden: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        x = hidden.float()
+        detector_activation = self._act_fn(
+            F.linear(x, self.detector_gate_rows)
+        ) * F.linear(x, self.detector_up_rows)
+        leading_shape = detector_activation.shape[:-1]
+        responses = signed_group_activations(
+            detector_activation.reshape(-1, detector_activation.shape[-1]),
+            self.detector_local_groups,
+            self.detector_flat_signs,
+        )
+        width = self.on_boundary - self.off_boundary
+        gates = ((responses - self.off_boundary) / width).clamp(0.0, 1.0)
+        group_count = len(self.detector_local_groups)
+        return (
+            responses.reshape(*leading_shape, group_count),
+            gates.reshape(*leading_shape, group_count),
+        )
+
+    def actuator_features(
+        self, hidden: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        x = hidden.float()
+        activation = self._act_fn(F.linear(x, self.base_gate_rows)) * F.linear(
+            x, self.base_up_rows
+        )
+        responses, gates = self.detector_responses_and_gates(x)
+        expanded = gates.index_select(
+            -1, self.actuator_owner_indices.to(gates.device)
+        )
+        return activation * expanded, responses, gates
+
+    def _hook(
+        self, _module: nn.Module, inputs: Any, output: torch.Tensor
+    ) -> torch.Tensor:
+        if not self.enabled or not self.write_enabled:
+            return output
+        features, _responses, _gates = self.actuator_features(inputs[0])
+        correction = F.linear(features, self.down_delta)
+        return output + correction.to(dtype=output.dtype)
+
+    def install(self, mlp: nn.Module) -> Any:
+        if self._handle is not None:
+            raise RuntimeError("actuator bank hook is already installed")
+        self._handle = mlp.register_forward_hook(self._hook)
+        return self._handle
+
+    def remove(self) -> None:
+        if self._handle is not None:
+            self._handle.remove()
+            self._handle = None
+
+    @torch.no_grad()
+    def zero_(self) -> None:
+        self.down_delta.zero_()
+
+    def down_relative_norms(self) -> torch.Tensor:
+        return self.down_delta.detach().norm(dim=0) / self.base_down_columns.norm(
+            dim=0
+        ).clamp_min(1e-12)
+
+    @torch.no_grad()
+    def clamp_down_relative_(self, cap: float) -> None:
+        base = self.base_down_columns.norm(dim=0).clamp_min(1e-12)
+        current = self.down_delta.norm(dim=0)
+        scale = torch.minimum(
+            torch.ones_like(current),
+            float(cap) * base / current.clamp_min(1e-12),
+        )
+        self.down_delta.mul_(scale.unsqueeze(0))
+
+    @torch.no_grad()
+    def clamp_group_frobenius_(self, absolute_budgets: torch.Tensor) -> None:
+        budgets = absolute_budgets.detach().float().reshape(-1).to(
+            self.down_delta.device
+        )
+        record_count = len(self.detector_local_groups)
+        if int(budgets.numel()) != record_count or not bool(
+            torch.isfinite(budgets).all() & budgets.gt(0.0).all()
+        ):
+            raise ValueError("group budgets must be positive and cover all records")
+        for owner in range(record_count):
+            indices = (self.actuator_owner_indices == owner).nonzero(
+                as_tuple=False
+            ).reshape(-1)
+            if int(indices.numel()) == 0:
+                raise ValueError("every detector record must own actuator features")
+            group = self.down_delta.index_select(1, indices)
+            norm = group.norm()
+            scale = torch.minimum(
+                torch.ones_like(norm), budgets[owner] / norm.clamp_min(1e-12)
+            )
+            self.down_delta.index_copy_(1, indices, group * scale)
+
+    def group_frobenius_norms(self) -> torch.Tensor:
+        values = []
+        for owner in range(len(self.detector_local_groups)):
+            indices = (self.actuator_owner_indices == owner).nonzero(
+                as_tuple=False
+            ).reshape(-1)
+            values.append(self.down_delta.detach().index_select(1, indices).norm())
+        return torch.stack(values)
+
+    def base_group_frobenius_norms(self) -> torch.Tensor:
+        values = []
+        for owner in range(len(self.detector_local_groups)):
+            indices = (self.actuator_owner_indices == owner).nonzero(
+                as_tuple=False
+            ).reshape(-1)
+            values.append(self.base_down_columns.index_select(1, indices).norm())
+        return torch.stack(values)
+
+    def relative_norm_report(self) -> Dict[str, float]:
+        relative = self.down_relative_norms()
+        groups = self.group_frobenius_norms()
+        return {
+            "down_max_relative_norm": float(relative.max()),
+            "down_mean_relative_norm": float(relative.mean()),
+            "down_median_relative_norm": float(relative.median()),
+            "group_frobenius_max": float(groups.max()),
+            "group_frobenius_mean": float(groups.mean()),
+            "group_frobenius_median": float(groups.median()),
+        }
 
 
 @torch.no_grad()

@@ -15,20 +15,22 @@ Architecture
 
 For each edit, a disjoint group of existing low-activation MLP features was
 selected using only training-safe writer-on versus writer-off activations.
-V3.5.4 imports the exact V3.2 detector and the fixed 0.20/0.25 boundary, then
+V3.5.5 deterministically replays the exact V3.5.4 detector and fixed 0.20/0.25
+boundary, then
 retains the canonical prompt-role labels introduced by V3.5.3. Exact duplicate
 prompts share one canonical hidden state and one multi-label target: every
 record for which that prompt is registered positive stays active even when the
 same prompt appears as another record's relative negative. Every other
-writer-on label and every writer-off label remains inactive. V3.5.4 removes
+writer-on label and every writer-off label remains inactive. V3.5.4 removed
 V3.5.3's complete-update global tails from optimization while retaining the
 equal-record mean plus per-record worst-two objectives that repaired writer-off
 isolation in V3.5.2. It also records a non-optimizing component-gradient audit
 before the first update. A fresh all-cell
-multi-label certificate must pass before the isolated cap-1.50 actuator
-feasibility fit can start. The ordinary Base MLP contribution stays untouched,
-every feasibility fit is discarded, and official evaluation remains
-unavailable.
+multi-label certificate and exact V3.5.4 tensor hashes must pass before
+V3.5.5 constructs a separate nested 4/8/16-neuron actuator bank. Detector and
+actuator features are disjoint, the ordinary Base MLP contribution stays
+untouched, native cap-1.50 fits and matched width-4 group-budget controls are
+discarded, and official evaluation remains unavailable.
 
 Data firewall
 -------------
@@ -80,6 +82,7 @@ FROZEN_V3_5_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5"
 FROZEN_V3_5_1_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_1"
 FROZEN_V3_5_2_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_2"
 FROZEN_V3_5_3_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_3"
+FROZEN_V3_5_4_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_4"
 FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES = (
     "MCF_PATH",
     "OFFICIAL_MCF_PATH",
@@ -220,6 +223,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--frozen-v3-5-4-run-dir",
+        help=(
+            "Rejected V3.5.4 output whose exact 50/50 detector tensor hashes and "
+            "cap-1.50 four-feature actuator failure license the width sweep."
+        ),
+    )
+    parser.add_argument(
         "--detector-record-batch",
         type=int,
         default=4,
@@ -295,15 +305,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--actuator-feasibility-steps", type=int, default=100)
     parser.add_argument(
         "--training-only-multilabel-detector-repair-feasibility",
+        "--training-only-actuator-width-sweep",
         "--training-only-global-writer-off-repair-feasibility",
         "--training-only-isolated-threshold-feasibility",
         "--training-only-actuator-cap-sweep",
-        dest="training_only_isolated_threshold_feasibility",
+        dest="training_only_actuator_width_sweep",
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "Run the V3.5.4 balanced canonical multi-label detector repair followed, only "
-            "after a perfect all-cell gate, by discarded cap-1.50 feasibility."
+            "Replay and hash-bind the V3.5.4 balanced multi-label detector, then "
+            "run discarded separate-actuator width feasibility fits."
         ),
     )
     parser.add_argument(
@@ -311,18 +322,26 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         nargs="+",
         type=float,
         default=[1.50],
-        help="V3.5.4 retests only the previously selected cap 1.50.",
+        help="V3.5.5 keeps the native per-column cap fixed at 1.50.",
+    )
+    parser.add_argument(
+        "--actuator-feasibility-widths",
+        nargs="+",
+        type=int,
+        default=[4, 8, 16],
+        help="Nested per-record actuator-bank widths for V3.5.5.",
     )
     parser.add_argument(
         "--actuator-architecture",
         choices=(
             "replace_selected_neuron_contribution",
             "isolated_thresholded_residual",
+            "separate_threshold_gated_actuator_bank",
         ),
-        default="isolated_thresholded_residual",
+        default="separate_threshold_gated_actuator_bank",
         help=(
-            "V3.5.4 leaves the ordinary MLP output untouched and fits only the "
-            "explicit threshold-gated residual."
+            "V3.5.5 leaves the ordinary MLP output untouched and fits only a "
+            "separate frozen-feature threshold-gated residual bank."
         ),
     )
     parser.add_argument(
@@ -479,6 +498,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--actuator-feasibility-caps must contain positive finite caps")
     if caps != sorted(set(caps)):
         parser.error("--actuator-feasibility-caps must be strictly increasing")
+    widths = [int(width) for width in value.actuator_feasibility_widths]
+    if not widths or any(width <= 0 for width in widths):
+        parser.error("--actuator-feasibility-widths must contain positive integers")
+    if widths != sorted(set(widths)):
+        parser.error("--actuator-feasibility-widths must be strictly increasing")
     if (
         not math.isfinite(float(value.detector_selectivity_ratio_epsilon))
         or float(value.detector_selectivity_ratio_epsilon) <= 0.0
@@ -489,23 +513,29 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         or float(value.detector_selectivity_warning_ratio) <= 0.0
     ):
         parser.error("--detector-selectivity-warning-ratio must be finite and positive")
-    if value.training_only_isolated_threshold_feasibility:
+    if value.training_only_actuator_width_sweep:
         if int(value.detector_steps) != 100:
-            parser.error("V3.5.4 requires exactly 100 detector repair updates")
+            parser.error(
+                "V3.5.5 requires exactly 100 deterministic detector replay updates"
+            )
         if float(value.detector_global_tail_weight) != 0.0:
             parser.error(
-                "V3.5.4 requires --detector-global-tail-weight 0 so complete-update "
+                "V3.5.5 requires --detector-global-tail-weight 0 so complete-update "
                 "extrema are diagnostic only"
             )
         if int(value.actuator_steps) != 0:
-            parser.error("V3.5.4 feasibility requires --actuator-steps 0")
-        if value.actuator_architecture != "isolated_thresholded_residual":
+            parser.error("V3.5.5 feasibility requires --actuator-steps 0")
+        if value.actuator_architecture != "separate_threshold_gated_actuator_bank":
             parser.error(
-                "V3.5.4 feasibility requires the isolated thresholded "
-                "residual architecture"
+                "V3.5.5 feasibility requires the separate threshold-gated "
+                "actuator-bank architecture"
             )
         if caps != [1.5]:
-            parser.error("V3.5.4 retains --actuator-feasibility-caps at exactly 1.50")
+            parser.error(
+                "V3.5.5 retains --actuator-feasibility-caps at exactly 1.50"
+            )
+        if widths != [4, 8, 16]:
+            parser.error("V3.5.5 requires actuator widths exactly 4 8 16")
     elif int(value.actuator_steps) <= 0:
         parser.error("--actuator-steps must be positive outside feasibility mode")
     if int(value.actuator_batch_size) <= 0:
@@ -573,29 +603,31 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error(
             "--save-rejected-checkpoint is restricted to the no-writer control"
         )
-    if value.training_only_isolated_threshold_feasibility:
+    if value.training_only_actuator_width_sweep:
         if value.experiment_label != "primary":
-            parser.error("V3.5.4 repair is restricted to the primary run")
+            parser.error("V3.5.5 width sweep is restricted to the primary run")
         if value.writer_mode != "embedding_keyed":
-            parser.error("V3.5.4 repair requires the embedding writer")
+            parser.error("V3.5.5 width sweep requires the embedding writer")
         if value.detector_initialization != "frozen_v3_2":
-            parser.error("V3.5.4 repair requires the frozen V3.2 detector")
+            parser.error("V3.5.5 replay requires the frozen V3.2 detector")
         if not str(value.frozen_v3_4_run_dir or "").strip():
-            parser.error("--frozen-v3-4-run-dir is required for V3.5.4")
+            parser.error("--frozen-v3-4-run-dir is required for V3.5.5")
         if not str(value.frozen_v3_5_run_dir or "").strip():
-            parser.error("--frozen-v3-5-run-dir is required for V3.5.4")
+            parser.error("--frozen-v3-5-run-dir is required for V3.5.5")
         if not str(value.frozen_v3_5_1_run_dir or "").strip():
-            parser.error("--frozen-v3-5-1-run-dir is required for V3.5.4")
+            parser.error("--frozen-v3-5-1-run-dir is required for V3.5.5")
         if not str(value.frozen_v3_5_2_run_dir or "").strip():
-            parser.error("--frozen-v3-5-2-run-dir is required for V3.5.4")
+            parser.error("--frozen-v3-5-2-run-dir is required for V3.5.5")
         if not str(value.frozen_v3_5_3_run_dir or "").strip():
-            parser.error("--frozen-v3-5-3-run-dir is required for V3.5.4")
+            parser.error("--frozen-v3-5-3-run-dir is required for V3.5.5")
+        if not str(value.frozen_v3_5_4_run_dir or "").strip():
+            parser.error("--frozen-v3-5-4-run-dir is required for V3.5.5")
         if value.frozen_v3_3_run_dir:
             parser.error(
-                "V3.5.4 imports V3.4/V3.5/V3.5.1/V3.5.2/V3.5.3, not V3.3 directly"
+                "V3.5.5 imports V3.4 through V3.5.4, not V3.3 directly"
             )
         if value.save_checkpoint or value.save_rejected_checkpoint:
-            parser.error("V3.5.4 training-only feasibility cannot save checkpoints")
+            parser.error("V3.5.5 training-only feasibility cannot save checkpoints")
     elif (
         value.frozen_v3_3_run_dir
         or value.frozen_v3_4_run_dir
@@ -603,10 +635,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         or value.frozen_v3_5_1_run_dir
         or value.frozen_v3_5_2_run_dir
         or value.frozen_v3_5_3_run_dir
+        or value.frozen_v3_5_4_run_dir
     ):
         parser.error(
-            "frozen V3.3/V3.4/V3.5/V3.5.1/V3.5.2/V3.5.3 run directories are only "
-            "valid with the training-only V3.5.4 repair-feasibility mode"
+            "frozen V3.3 through V3.5.4 run directories are only valid with the "
+            "training-only V3.5.5 width-sweep mode"
         )
     guard = float(value.threshold_gate_numerical_guard)
     if not math.isfinite(guard) or guard < 0.0:
@@ -830,6 +863,36 @@ def _validate_experiment_registry(
     for key, expected_value in expected_balanced_scope.items():
         if balanced_scope.get(key) != expected_value:
             raise RuntimeError(f"registry V3.5.4 repair scope mismatch: {key}")
+    width_scope = registry.get("v3_5_5_scope")
+    expected_width_scope = {
+        "training_only": True,
+        "source_v3_5_4_rejection_hash_bound": True,
+        "source_v3_5_4_detector_passed_records": 50,
+        "source_v3_5_4_detector_total_records": 50,
+        "source_v3_5_4_actuator_cap": 1.5,
+        "source_v3_5_4_actuator_columns": 200,
+        "source_v3_5_4_saturated_columns": 147,
+        "source_v3_5_4_positive_reachability_passed": False,
+        "exact_detector_tensor_replay_required": True,
+        "detector_neurons_per_record": 4,
+        "actuator_widths_per_record": [4, 8, 16],
+        "detector_actuator_neurons_disjoint": True,
+        "nested_actuator_prefixes": True,
+        "native_per_column_relative_cap": 1.5,
+        "matched_width4_group_budget_controls": [8, 16],
+        "matched_controls_used_for_width_selection": False,
+        "optimizer_updates_per_arm": 100,
+        "smallest_native_passing_width_selected": True,
+        "every_fitted_actuator_discarded": True,
+        "full_preservation_training_prohibited": True,
+        "checkpoint_creation_prohibited": True,
+        "official_evaluation_prohibited": True,
+    }
+    if not isinstance(width_scope, Mapping):
+        raise RuntimeError("registry lacks the V3.5.5 actuator-width scope")
+    for key, expected_value in expected_width_scope.items():
+        if width_scope.get(key) != expected_value:
+            raise RuntimeError(f"registry V3.5.5 width scope mismatch: {key}")
     detector_revision = registry.get("detector_training_revision")
     expected_detector_revision = {
         "version": "v3.5.4_canonical_multilabel_balanced_tail_repair",
@@ -939,88 +1002,64 @@ def _validate_experiment_registry(
 
     actuator_revision = registry.get("actuator_training_revision")
     expected_actuator_revision = {
-        "version": "v3.5.4",
-        "mode": "discarded_fixed_cap_feasibility_after_multilabel_gate",
-        "source_v3_5_protocol": FROZEN_V3_5_PROTOCOL,
-        "source_v3_5_1_protocol": FROZEN_V3_5_1_PROTOCOL,
-        "source_v3_5_2_protocol": FROZEN_V3_5_2_PROTOCOL,
-        "source_v3_5_3_protocol": FROZEN_V3_5_3_PROTOCOL,
-        "historical_v3_5_plan_retested_after_multilabel_detector_repair": True,
+        "version": "v3.5.5",
+        "mode": "discarded_separate_actuator_width_sweep",
+        "source_v3_5_4_protocol": FROZEN_V3_5_4_PROTOCOL,
+        "source_v3_5_4_artifact_hash_receipt_required": True,
+        "source_v3_5_4_detector_tensor_hash_replay_required": True,
         "optimizer_constructed_this_run": True,
-        "optimizer_updates_this_run": 100,
+        "optimizer_updates_per_arm": 100,
         "frozen_training_contexts": {
             "writer_on_positive": 346,
             "writer_on_negative": 465,
             "writer_off_positive": 346,
         },
-        "source_v3_4_rejection": {
-            "protocol": FROZEN_V3_4_PROTOCOL,
-            "artifact_hash_receipt_required": True,
+        "source_v3_5_4_rejection": {
             "detector_passed_records": 50,
             "detector_total_records": 50,
-            "owned_response_ratio_p10": 2.1545,
-            "owned_response_ratio_median": 3.2468,
-            "smallest_positive_reachable_cap": 1.5,
-            "cap_1_5_saturated_columns": 34,
+            "threshold_gate_passed": True,
+            "positive_owner_gate_min": 1.0,
+            "writer_off_gate_max": 0.0,
+            "actuator_width": 4,
+            "relative_norm_cap": 1.5,
+            "saturated_columns": 147,
             "selected_columns": 200,
-            "zero_actuator_writer_off_nll_abs_max": 0.25,
-            "mechanism_readiness_passed": False,
-            "full_preservation_objective_started": False,
-            "checkpoint_saved": False,
-            "official_evaluation_prompts_seen": 0,
+            "positive_reachability_passed": False,
         },
         "architecture": {
             "base_mlp_path": "bit_exact_untouched",
-            "frozen_detector_role": (
-                "V3.2 initialization followed by V3.5.4 balanced canonical "
-                "multi-label repair"
-            ),
+            "frozen_detector_features_per_record": 4,
+            "actuator_features_per_record": [4, 8, 16],
+            "detector_actuator_feature_sets_disjoint": True,
+            "actuator_feature_sets_nested": True,
+            "actuator_gate_up_rows": "frozen_unmodified_Base_rows",
             "residual_formula": (
-                "BaseMLP(h) + threshold_gate(r(h)) * detector_activation(h) @ "
-                "down_delta.T"
+                "BaseMLP(h) + threshold_gate_r(h) * BaseActuatorFeatures_r(h) @ "
+                "down_delta_r.T"
             ),
             "off_boundary": 0.200001,
             "on_boundary": 0.249999,
             "threshold_gate": (
                 "clip((response - off_boundary) / (on_boundary - off_boundary), 0, 1)"
             ),
-            "threshold_gate_scope": (
-                "one registered record group per four selected detector features"
-            ),
-            "inactive_prompt_labels_gate_to_zero_required": True,
-            "active_prompt_labels_gate_to_one_required": True,
-            "writer_off_groups_gate_to_zero_required": True,
-            "owner_positive_group_gate_to_one_required": True,
             "down_delta_exact_zero_is_algebraic_identity": True,
             "original_base_down_columns_modified": False,
             "ordinary_existing_weight_materialization": False,
-            "explicit_internal_residual_branch": True,
-            "claim_boundary": (
-                "V3.5 tests a sparse internal contextual branch; it is not represented "
-                "as an ordinary existing-neuron weight edit"
-            ),
-        },
-        "selected_base_down_zeroing_audit": {
-            "performed_before_any_actuator_fit": True,
-            "writer": "off",
-            "gate_up": "unaltered Base tensors",
-            "temporarily_zeroed_columns": 200,
-            "measure": (
-                "absolute target-token NLL drift on all 346 training-safe positive contexts"
-            ),
-            "restoration": "bit_exact_required",
-            "used_for_neuron_reselection": False,
-            "used_for_acceptance": False,
         },
         "feasibility": {
-            "relative_norm_caps": [1.5],
+            "native_actuator_widths": [4, 8, 16],
+            "native_per_column_relative_cap": 1.5,
+            "matched_width4_group_budget_control_widths": [8, 16],
+            "matched_controls_used_for_selection": False,
+            "selection_rule": (
+                "smallest native width with zero direct and positive failures"
+            ),
             "initial_down_delta": "bit_exact_zero",
-            "optimizer_state": "fresh_adamw",
-            "optimizer_updates": 100,
+            "optimizer_state": "fresh_independent_adamw_per_arm",
+            "optimizer_updates_per_arm": 100,
             "learning_rate": 5e-4,
             "records_per_optimizer_update": 50,
             "positive_contexts_per_optimizer_update": 346,
-            "positive_context_exposures": 34600,
             "context_microbatch_capacity": 4,
             "tail_k": 2,
             "objective": (
@@ -1031,21 +1070,14 @@ def _validate_experiment_registry(
             "norm_projection_frequency": "once_per_optimizer_update",
             "complete_incremental_training_log_required": True,
             "fresh_full_context_audit_required": True,
-            "threshold_gate_full_context_certificate_required": True,
             "zero_actuator_identity_abs_tolerance": 1e-6,
             "positive_reachability_rule": (
                 "direct_failures == 0 and positive_failures == 0"
             ),
             "writer_off_structural_selectivity_tolerance": 0.05,
-            "mechanism_readiness_rule": (
-                "positive reachability plus writer-off NLL drift within 0.05 at cap 1.50"
-            ),
             "every_fitted_down_delta_discarded": True,
             "full_preservation_objective_started": False,
             "checkpoint_saved": False,
-            "failure_action": (
-                "fail closed and redesign the branch before any full preservation objective"
-            ),
             "official_evaluation_allowed": False,
         },
         "official_evaluation_prompts_seen": 0,
@@ -1068,6 +1100,7 @@ def _validate_experiment_registry(
             "v3.5.1",
             "v3.5.2",
             "v3.5.3",
+            "v3.5.4",
         ],
         "jq_projection": "[.ownership[].selected_neurons]",
         "jq_compact_sha256": (
@@ -2395,6 +2428,138 @@ def validate_frozen_v3_5_3_rejection(
     }
 
 
+def validate_frozen_v3_5_4_rejection(
+    run_dir: Path,
+    *,
+    ownership_sha256: str,
+) -> Dict[str, Any]:
+    """Bind V3.5.4's exact detector pass and isolated width-four rejection."""
+
+    root = Path(run_dir).resolve()
+    method_dir = root / "method" if (root / "method").is_dir() else root
+    paths = {
+        "selection": method_dir / "neuron_selection_report.json",
+        "detector_gate": method_dir / "detector_gate_report.json",
+        "threshold_gate": method_dir / "isolated_threshold_gate_report.json",
+        "cap_fit": method_dir / "actuator_cap_1p50_feasibility.json",
+        "sweep": method_dir / "v3_5_4_multilabel_actuator_feasibility.json",
+        "completion": method_dir / "training_only_v3_5_4_completion.json",
+        "rejection": method_dir / "training_rejection.json",
+        "firewall": method_dir / "training_firewall_receipt.json",
+    }
+    for name, path in paths.items():
+        if not path.is_file():
+            raise FileNotFoundError(f"frozen V3.5.4 rejection lacks {name}: {path}")
+
+    selection = _load_json(paths["selection"])
+    detector_gate = _load_json(paths["detector_gate"])
+    threshold_gate = _load_json(paths["threshold_gate"])
+    cap_fit = _load_json(paths["cap_fit"])
+    sweep = _load_json(paths["sweep"])
+    completion = _load_json(paths["completion"])
+    rejection = _load_json(paths["rejection"])
+    firewall = _load_json(paths["firewall"])
+    tensor_receipt = cap_fit.get("frozen_detector_tensors", {})
+    gate_sha256 = str(tensor_receipt.get("gate_delta_sha256") or "")
+    up_sha256 = str(tensor_receipt.get("up_delta_sha256") or "")
+    final_audit = cap_fit.get("final_audit", {})
+    geometry = cap_fit.get("down_norm_geometry", {})
+    checks = {
+        "protocol": all(
+            payload.get("protocol") == FROZEN_V3_5_4_PROTOCOL
+            for payload in (
+                detector_gate,
+                threshold_gate,
+                cap_fit,
+                sweep,
+                completion,
+            )
+        ),
+        "ownership": str(
+            selection.get("selected_neuron_ownership_jq_compact_sha256") or ""
+        )
+        == str(ownership_sha256),
+        "detector_50_of_50": detector_gate.get("passed_records") == 50
+        and detector_gate.get("total_records") == 50
+        and detector_gate.get("passed") is True,
+        "threshold_gate_perfect": threshold_gate.get("passed") is True
+        and threshold_gate.get("checks", {}).get(
+            "all_positive_owner_gates_one"
+        )
+        is True
+        and threshold_gate.get("checks", {}).get("all_writer_off_gates_zero")
+        is True,
+        "detector_hashes_recorded": len(gate_sha256) == 64
+        and len(up_sha256) == 64
+        and tensor_receipt.get("unchanged") is True,
+        "cap_1_5_rejected": math.isclose(
+            float(cap_fit.get("cap", float("nan"))), 1.5, abs_tol=1e-12
+        )
+        and cap_fit.get("positive_reachable") is False
+        and int(final_audit.get("positive_failures", 0)) > 0,
+        "cap_geometry_matches_observed_run": int(
+            geometry.get("selected_columns", -1)
+        )
+        == 200
+        and int(geometry.get("saturated_columns", -1)) == 147,
+        "weights_discarded": cap_fit.get("fitted_weights_discarded") is True
+        and cap_fit.get("down_delta_after_discard") == "bit_exact_zero"
+        and sweep.get("all_fitted_weights_discarded") is True,
+        "completion_rejected": completion.get("positive_reachability_passed")
+        is False
+        and completion.get("mechanism_readiness_passed") is False
+        and completion.get("conclusion")
+        == "isolated_threshold_branch_not_positive_reachable_at_registered_cap",
+        "no_full_training_or_checkpoint": completion.get(
+            "full_preservation_objective_started"
+        )
+        is False
+        and completion.get("checkpoint_saved") is False
+        and rejection.get("official_evaluation_allowed") is False,
+        "official_prompts_zero": all(
+            payload.get("official_evaluation_prompts_seen") == 0
+            for payload in (threshold_gate, cap_fit, sweep, completion, rejection)
+        ),
+        "firewall_official_prompts_zero": all(
+            (
+                firewall.get("data_access", {}).get("official_paraphrases_seen") == 0,
+                firewall.get("data_access", {}).get("official_neighborhoods_seen")
+                == 0,
+                firewall.get("data_access", {}).get("benchmark_retain_seen") == 0,
+                firewall.get("data_access", {}).get("official_ppl_seen") is False,
+            )
+        ),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise RuntimeError(
+            "frozen V3.5.4 rejection lineage failed: " + ", ".join(sorted(failed))
+        )
+    return {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_frozen_v3_5_4_rejection_import",
+        "source_run_dir": str(root),
+        "source_method_dir": str(method_dir),
+        "source_protocol": FROZEN_V3_5_4_PROTOCOL,
+        "target_protocol": PROTOCOL,
+        "source_artifacts": {
+            name: {"path": str(path), "sha256": compositional_method.sha256_file(path)}
+            for name, path in paths.items()
+        },
+        "detector_gate_delta_sha256": gate_sha256,
+        "detector_up_delta_sha256": up_sha256,
+        "detector_passed_records": 50,
+        "detector_total_records": 50,
+        "actuator_width": 4,
+        "actuator_cap": 1.5,
+        "actuator_saturated_columns": 147,
+        "positive_reachability_passed": False,
+        "checks": checks,
+        "passed": True,
+        "official_evaluation_prompts_seen": 0,
+    }
+
+
 def _resolve_swiglu_mlp(model: torch.nn.Module, layer_index: int) -> torch.nn.Module:
     backbone = getattr(model, "model", None)
     layers = getattr(backbone, "layers", None)
@@ -3639,12 +3804,11 @@ def _replace_embedding_rows(
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
-    if not args.training_only_isolated_threshold_feasibility:
+    if not args.training_only_actuator_width_sweep:
         raise RuntimeError(
-            "V3.5.4 is restricted to the training-only balanced canonical multi-label "
-            "detector repair and discarded actuator-feasibility fit; checkpoint "
-            "materialization and official evaluation require a separately "
-            "preregistered successor"
+            "V3.5.5 is restricted to exact V3.5.4 detector replay and a "
+            "training-only discarded actuator-width sweep; checkpoint materialization "
+            "and official evaluation require a separately preregistered successor"
         )
     _validate_environment_firewall()
     gagd.set_seed(int(args.seed))
@@ -4260,7 +4424,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     editor = neuron_core.SparseSwiGLUNeuronEditor(mlp, selected_neurons)
-    if str(args.actuator_architecture) == "isolated_thresholded_residual":
+    if str(args.actuator_architecture) in {
+        "isolated_thresholded_residual",
+        "separate_threshold_gated_actuator_bank",
+    }:
         guard = float(args.threshold_gate_numerical_guard)
         editor.configure_isolated_threshold_residual(
             local_groups,
@@ -4278,6 +4445,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     frozen_v3_5_1_forensics: Dict[str, Any] | None = None
     frozen_v3_5_2_rejection: Dict[str, Any] | None = None
     frozen_v3_5_3_rejection: Dict[str, Any] | None = None
+    frozen_v3_5_4_rejection: Dict[str, Any] | None = None
     if str(args.detector_initialization) == "frozen_v3_2":
         (
             frozen_detector_import,
@@ -4301,7 +4469,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(
             "  imported exact V3.2 detector gate/up tensors; down_delta reset to zero"
         )
-    if args.training_only_isolated_threshold_feasibility:
+    if args.training_only_actuator_width_sweep:
         frozen_v3_4_rejection = validate_frozen_v3_4_rejection(
             Path(args.frozen_v3_4_run_dir),
             case_ids=case_ids,
@@ -4373,6 +4541,22 @@ def main(argv: Sequence[str] | None = None) -> None:
             "  hash-bound V3.5.3 rejection: 29/50 owner positives passed while "
             "negative and writer-off certificates stayed clean"
         )
+        frozen_v3_5_4_rejection = validate_frozen_v3_5_4_rejection(
+            Path(args.frozen_v3_5_4_run_dir),
+            ownership_sha256=ownership_sha256,
+        )
+        gagd.write_json(
+            out_dir / "frozen_v3_5_4_rejection_import.json",
+            frozen_v3_5_4_rejection,
+        )
+        firewall_receipt["frozen_v3_5_4_rejection_import"] = (
+            frozen_v3_5_4_rejection
+        )
+        gagd.write_json(out_dir / "training_firewall_receipt.json", firewall_receipt)
+        print(
+            "  hash-bound V3.5.4 result: detector 50/50 PASS; separate isolated "
+            "width-four actuator cap 1.50 REJECTED with 147/200 columns saturated"
+        )
 
     print("\nStage 1: build canonical multi-label prompt semantics")
     prompt_labels = build_multilabel_prompt_manifest(
@@ -4436,7 +4620,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     editor.write_enabled = False
     detector_trainable = bool(
         str(args.detector_initialization) == "train"
-        or args.training_only_isolated_threshold_feasibility
+        or args.training_only_actuator_width_sweep
     )
     editor.gate_delta.requires_grad_(detector_trainable)
     editor.up_delta.requires_grad_(detector_trainable)
@@ -4619,7 +4803,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         int(args.detector_steps)
         if (
             str(args.detector_initialization) == "train"
-            or args.training_only_isolated_threshold_feasibility
+            or args.training_only_actuator_width_sweep
         )
         else 0
     )
@@ -4628,7 +4812,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         initialization = str(args.detector_initialization)
         if (
             initialization == "frozen_v3_2"
-            and args.training_only_isolated_threshold_feasibility
+            and args.training_only_actuator_width_sweep
         ):
             revision = "v3.5.4_canonical_multilabel_balanced_tail_repair"
         elif initialization == "frozen_v3_2":
@@ -4658,11 +4842,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
             "writer_off_objective": (
                 "all_detector_groups_equal_source_record_mean_plus_worst_k"
-                if args.training_only_isolated_threshold_feasibility
+                if args.training_only_actuator_width_sweep
                 else "historical_source_owner_only_objective"
             ),
             "writer_off_groups_per_context": (
-                len(records) if args.training_only_isolated_threshold_feasibility else 1
+                len(records) if args.training_only_actuator_width_sweep else 1
             ),
             "global_tail_weight": float(args.detector_global_tail_weight),
             "global_tail_terms": "diagnostic_only_not_optimized",
@@ -5633,7 +5817,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "\nStage 1: "
         + (
             "repair imported detector with canonical multi-label isolation"
-            if args.training_only_isolated_threshold_feasibility
+            if args.training_only_actuator_width_sweep
             else "certify imported frozen sparse contextual-code detector"
             if str(args.detector_initialization) == "frozen_v3_2"
             else "train globally balanced sparse contextual-code detector"
@@ -5818,7 +6002,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             + float(args.detector_writer_off_weight) * writer_off_loss
             + float(args.detector_l2) * l2
         )
-        if step == 1 and args.training_only_isolated_threshold_feasibility:
+        if step == 1 and args.training_only_actuator_width_sweep:
             parameters = (editor.gate_delta, editor.up_delta)
             optimizer_state_entries_before = len(detector_optimizer.state)
             if optimizer_state_entries_before != 0:
@@ -6046,7 +6230,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if len(detector_log) != detector_optimizer_steps_this_run:
         raise RuntimeError("complete detector training log lost optimizer steps")
     if (
-        args.training_only_isolated_threshold_feasibility
+        args.training_only_actuator_width_sweep
         and detector_gradient_balance_audit is None
     ):
         raise RuntimeError("V3.5.4 requires the first-update gradient-balance audit")
@@ -6170,9 +6354,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             }
             if detector_gradient_balance_audit is not None
             else {
-                "required": bool(args.training_only_isolated_threshold_feasibility),
+                "required": bool(args.training_only_actuator_width_sweep),
                 "complete": not bool(
-                    args.training_only_isolated_threshold_feasibility
+                    args.training_only_actuator_width_sweep
                 ),
             }
         ),
@@ -6188,7 +6372,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             and post_projection_matches_final
             and (
                 detector_gradient_balance_audit is not None
-                or not args.training_only_isolated_threshold_feasibility
+                or not args.training_only_actuator_width_sweep
             )
         ),
         "official_evaluation_prompts_seen": 0,
@@ -6251,7 +6435,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     detector_selectivity: Dict[str, Any] | None = None
     threshold_gate: Dict[str, Any] | None = None
-    if args.training_only_isolated_threshold_feasibility:
+    if args.training_only_actuator_width_sweep:
         detector_selectivity = detector_selectivity_audit()
         gagd.write_json(
             out_dir / "repaired_detector_selectivity_audit.json",
@@ -6266,7 +6450,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"median={float(response_ratio['median']):.4f}"
         )
         threshold_gate = multilabel_threshold_gate_report(
-            phase="v3.5.4_final_multilabel_isolation_certificate",
+            phase="v3.5.5_exact_v3.5.4_detector_replay_certificate",
             optimizer_step=detector_optimizer_steps_this_run,
         )
         gagd.write_json(out_dir / "isolated_threshold_gate_report.json", threshold_gate)
@@ -6371,17 +6555,76 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "actuator training; "
                 "official evaluation remains refused"
             )
+        if frozen_v3_5_4_rejection is None:
+            raise RuntimeError("V3.5.5 lacks the frozen V3.5.4 tensor receipt")
+        observed_gate_sha256 = _tensor_digest(editor.gate_delta)
+        observed_up_sha256 = _tensor_digest(editor.up_delta)
+        detector_replay_receipt = {
+            "schema_version": 1,
+            "kind": "mcf_embedding_keyed_neuron_v3_5_4_exact_detector_replay",
+            "protocol": PROTOCOL,
+            "source_protocol": FROZEN_V3_5_4_PROTOCOL,
+            "optimizer_updates_replayed": detector_optimizer_steps_this_run,
+            "expected_gate_delta_sha256": frozen_v3_5_4_rejection[
+                "detector_gate_delta_sha256"
+            ],
+            "observed_gate_delta_sha256": observed_gate_sha256,
+            "expected_up_delta_sha256": frozen_v3_5_4_rejection[
+                "detector_up_delta_sha256"
+            ],
+            "observed_up_delta_sha256": observed_up_sha256,
+            "gate_delta_bit_exact": bool(
+                observed_gate_sha256
+                == frozen_v3_5_4_rejection["detector_gate_delta_sha256"]
+            ),
+            "up_delta_bit_exact": bool(
+                observed_up_sha256
+                == frozen_v3_5_4_rejection["detector_up_delta_sha256"]
+            ),
+            "all_cell_gate_passed": bool(threshold_gate["passed"]),
+            "official_evaluation_prompts_seen": 0,
+        }
+        detector_replay_receipt["passed"] = bool(
+            detector_replay_receipt["gate_delta_bit_exact"]
+            and detector_replay_receipt["up_delta_bit_exact"]
+            and detector_replay_receipt["all_cell_gate_passed"]
+        )
+        detector_replay_path = out_dir / "exact_v3_5_4_detector_replay.json"
+        gagd.write_json(detector_replay_path, detector_replay_receipt)
+        if not detector_replay_receipt["passed"]:
+            gagd.write_json(
+                out_dir / "training_rejection.json",
+                {
+                    "schema_version": 1,
+                    "kind": "mcf_embedding_keyed_neuron_training_only_rejection",
+                    "protocol": PROTOCOL,
+                    "stage": "exact_v3_5_4_detector_replay",
+                    "reason": "replayed_detector_tensors_differ_from_frozen_v3_5_4",
+                    "detector_replay_receipt": detector_replay_receipt,
+                    "actuator_training_started": False,
+                    "checkpoint_saved": False,
+                    "official_evaluation_allowed": False,
+                    "official_evaluation_prompts_seen": 0,
+                },
+            )
+            editor.remove()
+            embedding_writer.remove()
+            raise SystemExit(
+                "V3.5.4 detector replay was not bit-exact; actuator construction "
+                "and official evaluation remain refused"
+            )
+        print("  exact V3.5.4 detector tensor hashes reproduced bit-for-bit")
 
     print(
         "\nStage 2: "
         + (
             "training-only actuator reachability diagnostics; LM head frozen"
-            if args.training_only_isolated_threshold_feasibility
+            if args.training_only_actuator_width_sweep
             else "train sparse MLP suppression actuator; LM head frozen"
         )
     )
-    # Every Stage-2 preservation target is the writer-only model.  Detector
-    # gate/up edits are part of the learned MLP eraser and therefore may not be
+    # Every Stage-2 preservation target is the writer-only model.  The frozen
+    # detector is a read-only branch input in V3.5.5 and therefore may not be
     # smuggled into the reference baseline.
     editor.enabled = False
     editor.gate_delta.requires_grad_(False)
@@ -6396,7 +6639,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         llama_like=llama_like,
         batch_size=int(args.cache_batch_size),
     )
-    if not args.training_only_isolated_threshold_feasibility:
+    if not args.training_only_actuator_width_sweep:
         (
             pre_negative_new,
             pre_negative_true,
@@ -6556,29 +6799,42 @@ def main(argv: Sequence[str] | None = None) -> None:
         return torch.cat(new_rows), torch.cat(true_rows)
 
     def actuator_optimization_metadata() -> Dict[str, Any]:
+        width_sweep = bool(args.training_only_actuator_width_sweep)
         return {
             "revision": (
-                "v3.5.4_balanced_multilabel_detector_isolated_thresholded_residual"
-                if args.training_only_isolated_threshold_feasibility
+                "v3.5.5_exact_detector_replay_separate_actuator_width_sweep"
+                if width_sweep
                 else "historical_v3.3_full_objective"
             ),
             "initial_down_delta": "exact_zero",
             "feasibility_optimizer_steps": int(args.actuator_feasibility_steps),
             "full_optimizer_steps": int(args.actuator_steps),
-            "update_coverage": "all_records_all_contexts_accumulated",
+            "update_coverage": (
+                "all_records_all_positive_contexts_accumulated"
+                if width_sweep
+                else "all_records_all_contexts_accumulated"
+            ),
             "records_per_optimizer_update": len(records),
             "positive_contexts_per_optimizer_update": len(positive_instances),
-            "negative_contexts_per_optimizer_update": len(negative_instances),
-            "writer_off_contexts_per_optimizer_update": (
-                len(positive_instances) if writer_present else 0
+            "negative_contexts_per_optimizer_update": (
+                0 if width_sweep else len(negative_instances)
             ),
-            "protected_contexts_per_optimizer_update": min(
-                int(args.actuator_protected_batch), len(protected_for_kl)
+            "writer_off_contexts_per_optimizer_update": (
+                0
+                if width_sweep
+                else (len(positive_instances) if writer_present else 0)
+            ),
+            "protected_contexts_per_optimizer_update": (
+                0
+                if width_sweep
+                else min(int(args.actuator_protected_batch), len(protected_for_kl))
             ),
             "context_microbatch_capacity": int(args.actuator_batch_size),
             "tail_k": int(args.actuator_tail_k),
             "gradient_normalization": (
-                "equal_record_mean_plus_global_protected_prompt_mean"
+                "equal_record_mean_plus_per_record_worst_k"
+                if width_sweep
+                else "equal_record_mean_plus_global_protected_prompt_mean"
             ),
             "forget_margin": float(args.forget_margin),
             "reference_nll_tolerance": float(args.reference_nll_tolerance),
@@ -6813,7 +7069,652 @@ def main(argv: Sequence[str] | None = None) -> None:
             ]
         return result
 
-    if args.training_only_isolated_threshold_feasibility:
+    if (
+        args.training_only_actuator_width_sweep
+        and str(args.actuator_architecture)
+        == "separate_threshold_gated_actuator_bank"
+    ):
+        if (
+            detector_selectivity is None
+            or threshold_gate is None
+            or frozen_v3_5_4_rejection is None
+        ):
+            raise RuntimeError(
+                "V3.5.5 width sweep lacks its perfect gate or frozen V3.5.4 lineage"
+            )
+        detector_replay_path = out_dir / "exact_v3_5_4_detector_replay.json"
+        detector_replay_receipt = _load_json(detector_replay_path)
+        if detector_replay_receipt.get("passed") is not True:
+            raise RuntimeError("V3.5.5 actuator bank lacks an exact detector replay")
+
+        widths = [int(width) for width in args.actuator_feasibility_widths]
+        cap = float(args.actuator_feasibility_caps[0])
+        base_down_norms_all = mlp.down_proj.weight.detach().float().cpu().norm(dim=0)
+        actuator_ownership_by_width, actuator_selection_rows = (
+            neuron_core.select_nested_record_actuator_neurons(
+                record_writer_on,
+                base_down_norms_all,
+                widths=widths,
+                excluded_neurons=selected_neurons,
+            )
+        )
+        maximum_width = max(widths)
+        maximum_ownership = actuator_ownership_by_width[maximum_width]
+        flat_maximum = [neuron for group in maximum_ownership for neuron in group]
+        detector_actuator_overlap = sorted(set(selected_neurons).intersection(flat_maximum))
+        if detector_actuator_overlap:
+            raise RuntimeError("detector and actuator neuron banks overlap")
+        selection_payload = {
+            "schema_version": 1,
+            "kind": "mcf_embedding_keyed_neuron_nested_actuator_bank_selection",
+            "protocol": PROTOCOL,
+            "layer": int(args.neuron_layer),
+            "detector_neurons_per_record": int(args.neurons_per_record),
+            "detector_neuron_count": len(selected_neurons),
+            "actuator_widths": widths,
+            "maximum_actuator_neurons_per_record": maximum_width,
+            "maximum_actuator_neuron_count": len(flat_maximum),
+            "nested_prefixes": True,
+            "globally_disjoint_within_maximum_bank": len(flat_maximum)
+            == len(set(flat_maximum)),
+            "detector_actuator_disjoint": not detector_actuator_overlap,
+            "selection_inputs": (
+                "all training-safe writer-on positive Base SwiGLU activations and "
+                "frozen Base down-column norms"
+            ),
+            "selection_score": (
+                "minimum sign-oriented positive activation across contexts times "
+                "Base down-column L2 norm"
+            ),
+            "ownership_by_width": {
+                str(width): [
+                    {
+                        "record_index": record_index,
+                        "case_id": int(case_ids[record_index]),
+                        "selected_neurons": group,
+                    }
+                    for record_index, group in enumerate(
+                        actuator_ownership_by_width[width]
+                    )
+                ]
+                for width in widths
+            },
+            "maximum_width_selection_reports": [
+                {"case_id": int(case_ids[index]), **row}
+                for index, row in enumerate(actuator_selection_rows)
+            ],
+            "official_evaluation_prompts_seen": 0,
+        }
+        actuator_selection_path = out_dir / "actuator_neuron_selection_report.json"
+        gagd.write_json(actuator_selection_path, selection_payload)
+        print(
+            "  selected nested, detector-disjoint actuator banks at widths "
+            + "/".join(str(width) for width in widths)
+            + f" ({len(flat_maximum)} maximum-bank features)"
+        )
+
+        detector_gate_rows = (editor.base_gate_rows + editor.gate_delta).detach()
+        detector_up_rows = (editor.base_up_rows + editor.up_delta).detach()
+        frozen_gate_delta_sha256 = _tensor_digest(editor.gate_delta)
+        frozen_up_delta_sha256 = _tensor_digest(editor.up_delta)
+        editor.down_delta.requires_grad_(False)
+        editor.write_enabled = False
+        editor.enabled = False
+
+        width4_groups = actuator_ownership_by_width[widths[0]]
+        width4_absolute_group_budgets = []
+        base_down_cpu = mlp.down_proj.weight.detach().float().cpu()
+        for group in width4_groups:
+            index = torch.tensor(group, dtype=torch.long)
+            width4_absolute_group_budgets.append(
+                cap * float(base_down_cpu.index_select(1, index).norm())
+            )
+        width4_absolute_group_budgets_tensor = torch.tensor(
+            width4_absolute_group_budgets, dtype=torch.float32
+        )
+
+        @torch.no_grad()
+        def full_bank_audit(
+            bank: neuron_core.SparseThresholdGatedActuatorBank,
+            *,
+            phase: str,
+            optimizer_step: int,
+            width: int,
+            budget_regime: str,
+        ) -> Dict[str, Any]:
+            bank.enabled = True
+            bank.write_enabled = True
+            embedding_writer.enabled = writer_present
+            current_new, current_true = compositional_method.evaluate_instance_nlls(
+                model,
+                tok,
+                positive_instances,
+                device,
+                llama_like=llama_like,
+                batch_size=int(args.cache_batch_size),
+            )
+            margins = current_true - current_new
+            direct_failure, positive_failure = _failure_counts(
+                margins, direct_flags, float(args.forget_margin)
+            )
+            writer_on_abs_max = max(
+                float((current_new - pre_target_new).abs().max()),
+                float((current_true - pre_target_true).abs().max()),
+            )
+            reference_regression_max = max(
+                0.0, float((current_new - pre_target_new).max())
+            )
+            embedding_writer.enabled = False
+            off_new, off_true = compositional_method.evaluate_instance_nlls(
+                model,
+                tok,
+                positive_instances,
+                device,
+                llama_like=llama_like,
+                batch_size=int(args.cache_batch_size),
+            )
+            writer_off_abs_max = max(
+                float((off_new - pre_writer_off_new).abs().max()),
+                float((off_true - pre_writer_off_true).abs().max()),
+            )
+            embedding_writer.enabled = writer_present
+            relative = bank.down_relative_norms().float().cpu()
+            group_norms = bank.group_frobenius_norms().float().cpu()
+            group_budget_ratio = group_norms / width4_absolute_group_budgets_tensor
+            saturated = relative >= cap - 1e-6
+            per_record: List[Dict[str, Any]] = []
+            for record_index, indices in enumerate(positive_indices_by_record):
+                record_margins = margins[indices]
+                direct_indices = [index for index in indices if direct_flags[index]]
+                if len(direct_indices) != 1:
+                    raise RuntimeError("every record must have exactly one direct context")
+                writer_off_drift = torch.cat(
+                    (
+                        (off_new[indices] - pre_writer_off_new[indices]).abs(),
+                        (off_true[indices] - pre_writer_off_true[indices]).abs(),
+                    )
+                )
+                owner_mask = bank.actuator_owner_indices.detach().cpu().eq(record_index)
+                per_record.append(
+                    {
+                        "record_index": record_index,
+                        "case_id": int(case_ids[record_index]),
+                        "positive_contexts": len(indices),
+                        "direct_margin": float(margins[direct_indices[0]]),
+                        "positive_min": float(record_margins.min()),
+                        "positive_median": float(record_margins.median()),
+                        "positive_failures": int(
+                            (record_margins < float(args.forget_margin) - 1e-6).sum()
+                        ),
+                        "writer_off_nll_abs_max": float(writer_off_drift.max()),
+                        "saturated_columns": int(saturated[owner_mask].sum()),
+                        "actuator_columns": int(owner_mask.sum()),
+                        "group_frobenius_norm": float(group_norms[record_index]),
+                        "matched_width4_budget": float(
+                            width4_absolute_group_budgets_tensor[record_index]
+                        ),
+                        "group_to_width4_budget_ratio": float(
+                            group_budget_ratio[record_index]
+                        ),
+                    }
+                )
+            writer_off_passed = bool(
+                writer_off_abs_max
+                <= float(args.actuator_writer_off_nll_tolerance) + 1e-6
+            )
+            positive_passed = bool(direct_failure == 0 and positive_failure == 0)
+            return {
+                "schema_version": 1,
+                "kind": "mcf_embedding_keyed_neuron_actuator_bank_audit",
+                "protocol": PROTOCOL,
+                "phase": phase,
+                "optimizer_step": int(optimizer_step),
+                "actuator_width": int(width),
+                "budget_regime": budget_regime,
+                "criterion": {
+                    "forget_margin": float(args.forget_margin),
+                    "per_column_relative_cap": cap,
+                    "writer_off_nll_abs_max": float(
+                        args.actuator_writer_off_nll_tolerance
+                    ),
+                    "zero_actuator_identity_abs_max": 1e-6,
+                },
+                "direct_failures": int(direct_failure),
+                "positive_failures": int(positive_failure),
+                "positive_contexts": len(positive_instances),
+                "minimum_margin": float(margins.min()),
+                "median_margin": float(margins.median()),
+                "writer_on_nll_abs_max": writer_on_abs_max,
+                "reference_nll_regression_max": reference_regression_max,
+                "writer_off_nll_abs_max": writer_off_abs_max,
+                "positive_passed": positive_passed,
+                "writer_off_preservation_passed": writer_off_passed,
+                "passed": bool(positive_passed and writer_off_passed),
+                "norms": {
+                    "down_relative_norm": _distribution(relative.tolist()),
+                    "saturated_columns": int(saturated.sum()),
+                    "selected_columns": int(relative.numel()),
+                    "saturated_fraction": float(saturated.float().mean()),
+                    "group_frobenius_norm": _distribution(group_norms.tolist()),
+                    "group_to_width4_budget_ratio": _distribution(
+                        group_budget_ratio.tolist()
+                    ),
+                },
+                "per_record": per_record,
+                "official_evaluation_prompts_seen": 0,
+            }
+
+        arm_specs: List[Tuple[int, str]] = []
+        for width in widths:
+            arm_specs.append((width, "native_per_column_cap"))
+            if width > widths[0]:
+                arm_specs.append((width, "matched_width4_group_budget_control"))
+        arm_reports: List[Dict[str, Any]] = []
+        arm_artifacts: List[Dict[str, Any]] = []
+        identity_artifacts: List[Dict[str, Any]] = []
+        print("\nStage 2a: separate threshold-gated actuator width sweep")
+        for width, budget_regime in arm_specs:
+            ownership_for_width = actuator_ownership_by_width[width]
+            flat_actuator_ids = [
+                neuron for group in ownership_for_width for neuron in group
+            ]
+            actuator_owners = [
+                record_index
+                for record_index, group in enumerate(ownership_for_width)
+                for _ in group
+            ]
+            bank = neuron_core.SparseThresholdGatedActuatorBank(
+                mlp,
+                flat_actuator_ids,
+                actuator_owners,
+                detector_gate_rows=detector_gate_rows,
+                detector_up_rows=detector_up_rows,
+                detector_local_groups=local_groups,
+                detector_flat_signs=flat_signs_cpu,
+                off_boundary=float(args.detector_off_abs_max)
+                + float(args.threshold_gate_numerical_guard),
+                on_boundary=float(args.detector_positive_floor)
+                - float(args.threshold_gate_numerical_guard),
+            )
+            bank.install(mlp)
+            bank.zero_()
+            identity_audit = full_bank_audit(
+                bank,
+                phase="zero_actuator_identity",
+                optimizer_step=0,
+                width=width,
+                budget_regime=budget_regime,
+            )
+            identity_abs_max = max(
+                float(identity_audit["writer_on_nll_abs_max"]),
+                float(identity_audit["writer_off_nll_abs_max"]),
+            )
+            identity_slug = (
+                f"width_{width:02d}_{budget_regime}_zero_identity.json"
+            )
+            identity_path = out_dir / identity_slug
+            gagd.write_json(identity_path, identity_audit)
+            identity_artifacts.append(
+                {
+                    "width": width,
+                    "budget_regime": budget_regime,
+                    "path": str(identity_path),
+                    "sha256": compositional_method.sha256_file(identity_path),
+                    "identity_nll_abs_max": identity_abs_max,
+                    "passed": bool(identity_abs_max <= 1e-6),
+                }
+            )
+            if identity_abs_max > 1e-6:
+                bank.remove()
+                gagd.write_json(
+                    out_dir / "training_rejection.json",
+                    {
+                        "schema_version": 1,
+                        "kind": "mcf_embedding_keyed_neuron_training_only_rejection",
+                        "protocol": PROTOCOL,
+                        "stage": "separate_actuator_zero_identity",
+                        "reason": "separate_actuator_bank_not_identity_at_zero",
+                        "width": width,
+                        "budget_regime": budget_regime,
+                        "identity_nll_abs_max": identity_abs_max,
+                        "actuator_training_started": False,
+                        "checkpoint_saved": False,
+                        "official_evaluation_allowed": False,
+                        "official_evaluation_prompts_seen": 0,
+                    },
+                )
+                editor.remove()
+                embedding_writer.remove()
+                raise SystemExit(
+                    "separate actuator bank failed its exact-zero identity audit; "
+                    "official evaluation remains refused"
+                )
+
+            optimizer = torch.optim.AdamW(
+                [bank.down_delta], lr=float(args.actuator_lr), weight_decay=0.0
+            )
+            training_log: List[Dict[str, Any]] = []
+            arm_slug = f"width_{width:02d}_{budget_regime}"
+            log_path = out_dir / f"actuator_{arm_slug}_training_log.jsonl"
+            with log_path.open("x", encoding="utf-8") as log_handle:
+                for step in range(1, int(args.actuator_feasibility_steps) + 1):
+                    optimizer.zero_grad(set_to_none=True)
+                    accumulated_margin = 0.0
+                    embedding_writer.enabled = writer_present
+                    for indices in positive_indices_by_record:
+                        current_new, current_true = differentiable_group_nlls(
+                            positive_instances, indices
+                        )
+                        record_loss, _pieces = (
+                            neuron_core.actuator_positive_margin_objective(
+                                current_true - current_new,
+                                margin_floor=float(args.forget_margin),
+                                tail_k=int(args.actuator_tail_k),
+                            )
+                        )
+                        (record_loss / len(records)).backward()
+                        accumulated_margin += (
+                            float(record_loss.detach()) / len(records)
+                        )
+                    if float(args.grad_clip) > 0:
+                        torch.nn.utils.clip_grad_norm_(
+                            [bank.down_delta], float(args.grad_clip)
+                        )
+                    optimizer.step()
+                    bank.clamp_down_relative_(cap)
+                    if budget_regime == "matched_width4_group_budget_control":
+                        bank.clamp_group_frobenius_(
+                            width4_absolute_group_budgets_tensor
+                        )
+                    relative = bank.down_relative_norms().float().cpu()
+                    group_norms = bank.group_frobenius_norms().float().cpu()
+                    saturated = relative >= cap - 1e-6
+                    row = {
+                        "step": step,
+                        "positive_margin_loss": accumulated_margin,
+                        "actuator_width": width,
+                        "budget_regime": budget_regime,
+                        "records_per_optimizer_update": len(records),
+                        "positive_contexts_per_optimizer_update": len(
+                            positive_instances
+                        ),
+                        "down_max_relative_norm": float(relative.max()),
+                        "down_median_relative_norm": float(relative.median()),
+                        "down_mean_relative_norm": float(relative.mean()),
+                        "down_saturated_columns": int(saturated.sum()),
+                        "group_frobenius_max": float(group_norms.max()),
+                        "group_to_width4_budget_max": float(
+                            (
+                                group_norms
+                                / width4_absolute_group_budgets_tensor
+                            ).max()
+                        ),
+                    }
+                    training_log.append(row)
+                    log_handle.write(json.dumps(row, sort_keys=True) + "\n")
+                    log_handle.flush()
+                    if (
+                        step == 1
+                        or step % max(1, int(args.check_every)) == 0
+                        or step == int(args.actuator_feasibility_steps)
+                    ):
+                        print(
+                            f"  width {width:>2} {budget_regime} step {step:>3}: "
+                            f"margin {accumulated_margin:.4f}, down max "
+                            f"{row['down_max_relative_norm']:.4f}, saturated "
+                            f"{row['down_saturated_columns']}/{len(flat_actuator_ids)}"
+                        )
+            del optimizer
+            final_audit = full_bank_audit(
+                bank,
+                phase="final_fresh_full_context_audit",
+                optimizer_step=int(args.actuator_feasibility_steps),
+                width=width,
+                budget_regime=budget_regime,
+            )
+            detector_unchanged = bool(
+                _tensor_digest(editor.gate_delta) == frozen_gate_delta_sha256
+                and _tensor_digest(editor.up_delta) == frozen_up_delta_sha256
+            )
+            if not detector_unchanged:
+                bank.remove()
+                raise RuntimeError("actuator width sweep changed frozen detector tensors")
+            positive_reachable = bool(final_audit["positive_passed"])
+            writer_off_passed = bool(
+                final_audit["writer_off_preservation_passed"]
+            )
+            fitted_digest = _tensor_digest(bank.down_delta)
+            best_step = min(
+                training_log, key=lambda row: row["positive_margin_loss"]
+            )
+            report = {
+                "schema_version": 1,
+                "kind": "mcf_embedding_keyed_neuron_actuator_width_feasibility_fit",
+                "protocol": PROTOCOL,
+                "architecture": str(args.actuator_architecture),
+                "actuator_width": width,
+                "actuator_columns": len(flat_actuator_ids),
+                "per_column_relative_cap": cap,
+                "budget_regime": budget_regime,
+                "selection_driving_arm": budget_regime == "native_per_column_cap",
+                "initial_down_delta": "exact_zero",
+                "optimizer_state": "fresh_independent_adamw",
+                "optimizer_steps_expected": int(args.actuator_feasibility_steps),
+                "optimizer_steps_recorded": len(training_log),
+                "objective": (
+                    "equal_record_mean_plus_worst_two_squared_margin_shortfall_only"
+                ),
+                "forget_margin": float(args.forget_margin),
+                "learning_rate": float(args.actuator_lr),
+                "best_logged_step": best_step,
+                "incremental_training_log": {
+                    "path": str(log_path),
+                    "sha256": compositional_method.sha256_file(log_path),
+                    "rows": len(training_log),
+                },
+                "final_audit": final_audit,
+                "positive_reachable": positive_reachable,
+                "writer_off_structural_selectivity_passed": writer_off_passed,
+                "joint_positive_and_structural_selectivity_passed": bool(
+                    positive_reachable and writer_off_passed
+                ),
+                "frozen_detector_tensors_unchanged": detector_unchanged,
+                "fitted_down_delta_sha256_before_discard": fitted_digest,
+                "full_preservation_objective_started": False,
+                "checkpoint_saved": False,
+                "official_evaluation_allowed": False,
+                "official_evaluation_prompts_seen": 0,
+            }
+            bank.zero_()
+            if int(torch.count_nonzero(bank.down_delta)) != 0:
+                bank.remove()
+                raise RuntimeError("actuator-bank fitted weights were not discarded")
+            report["fitted_weights_discarded"] = True
+            report["down_delta_after_discard"] = "bit_exact_zero"
+            report_path = out_dir / f"actuator_{arm_slug}_feasibility.json"
+            gagd.write_json(report_path, report)
+            arm_reports.append(report)
+            arm_artifacts.append(
+                {
+                    "actuator_width": width,
+                    "actuator_columns": len(flat_actuator_ids),
+                    "budget_regime": budget_regime,
+                    "selection_driving_arm": report["selection_driving_arm"],
+                    "path": str(report_path),
+                    "sha256": compositional_method.sha256_file(report_path),
+                    "positive_reachable": positive_reachable,
+                    "writer_off_structural_selectivity_passed": writer_off_passed,
+                    "direct_failures": int(final_audit["direct_failures"]),
+                    "positive_failures": int(final_audit["positive_failures"]),
+                    "minimum_margin": float(final_audit["minimum_margin"]),
+                    "median_margin": float(final_audit["median_margin"]),
+                    "writer_off_nll_abs_max": float(
+                        final_audit["writer_off_nll_abs_max"]
+                    ),
+                    "saturated_columns": int(
+                        final_audit["norms"]["saturated_columns"]
+                    ),
+                }
+            )
+            bank.remove()
+
+        native_arms = sorted(
+            (
+                row
+                for row in arm_artifacts
+                if row["budget_regime"] == "native_per_column_cap"
+            ),
+            key=lambda row: int(row["actuator_width"]),
+        )
+        positive_widths = [
+            int(row["actuator_width"])
+            for row in native_arms
+            if row["positive_reachable"]
+        ]
+        mechanism_widths = [
+            int(row["actuator_width"])
+            for row in native_arms
+            if row["positive_reachable"]
+            and row["writer_off_structural_selectivity_passed"]
+        ]
+        selected_positive_width = min(positive_widths) if positive_widths else None
+        selected_mechanism_width = (
+            min(mechanism_widths) if mechanism_widths else None
+        )
+        matched_controls = [
+            row
+            for row in arm_artifacts
+            if row["budget_regime"] == "matched_width4_group_budget_control"
+        ]
+        conclusion = (
+            "separate_actuator_width_sweep_passed"
+            if selected_mechanism_width is not None
+            else (
+                "positive_reachability_without_writer_off_selectivity"
+                if selected_positive_width is not None
+                else "separate_actuator_width_16_not_positive_reachable_at_cap_1_5"
+            )
+        )
+        sweep = {
+            "schema_version": 1,
+            "kind": "mcf_embedding_keyed_neuron_v3_5_5_actuator_width_feasibility",
+            "protocol": PROTOCOL,
+            "mode": "training_only",
+            "architecture": str(args.actuator_architecture),
+            "frozen_detector_protocol": FROZEN_V3_5_4_PROTOCOL,
+            "frozen_detector_replay": {
+                "path": str(detector_replay_path),
+                "sha256": compositional_method.sha256_file(detector_replay_path),
+                "passed": True,
+            },
+            "actuator_widths_preregistered": widths,
+            "arms_preregistered": [
+                {"actuator_width": width, "budget_regime": regime}
+                for width, regime in arm_specs
+            ],
+            "arms_completed": [
+                {
+                    "actuator_width": int(row["actuator_width"]),
+                    "budget_regime": str(row["budget_regime"]),
+                }
+                for row in arm_artifacts
+            ],
+            "complete": len(arm_artifacts) == len(arm_specs),
+            "native_per_column_cap": cap,
+            "native_selection_rule": (
+                "smallest width with direct_failures == 0 and positive_failures "
+                "== 0; matched-budget controls are diagnostic only"
+            ),
+            "selected_smallest_positive_reachable_width": selected_positive_width,
+            "selected_smallest_mechanism_ready_width": selected_mechanism_width,
+            "positive_reachability_passed": selected_positive_width is not None,
+            "structural_selectivity_passed": selected_mechanism_width is not None,
+            "mechanism_readiness_passed": selected_mechanism_width is not None,
+            "matched_total_norm_control": {
+                "reference": "width_4_native_per_column_cap_absolute_group_budget",
+                "absolute_group_budgets": width4_absolute_group_budgets,
+                "controls": matched_controls,
+                "used_for_width_selection": False,
+            },
+            "actuator_selection": {
+                "path": str(actuator_selection_path),
+                "sha256": compositional_method.sha256_file(
+                    actuator_selection_path
+                ),
+                "detector_actuator_disjoint": True,
+                "nested_prefixes": True,
+            },
+            "zero_identity_artifacts": identity_artifacts,
+            "arm_artifacts": arm_artifacts,
+            "all_fitted_weights_discarded": all(
+                bool(report["fitted_weights_discarded"])
+                for report in arm_reports
+            ),
+            "frozen_detector_tensors_unchanged": all(
+                bool(report["frozen_detector_tensors_unchanged"])
+                for report in arm_reports
+            ),
+            "conclusion": conclusion,
+            "full_preservation_objective_started": False,
+            "checkpoint_saved": False,
+            "official_evaluation_allowed": False,
+            "official_evaluation_prompts_seen": 0,
+        }
+        sweep_path = out_dir / "v3_5_5_actuator_width_feasibility.json"
+        gagd.write_json(sweep_path, sweep)
+        completion = {
+            "schema_version": 1,
+            "kind": "mcf_embedding_keyed_neuron_v3_5_5_training_only_completion",
+            "protocol": PROTOCOL,
+            "sweep_path": str(sweep_path),
+            "sweep_sha256": compositional_method.sha256_file(sweep_path),
+            "selected_smallest_positive_reachable_width": selected_positive_width,
+            "selected_smallest_mechanism_ready_width": selected_mechanism_width,
+            "positive_reachability_passed": bool(
+                sweep["positive_reachability_passed"]
+            ),
+            "structural_selectivity_passed": bool(
+                sweep["structural_selectivity_passed"]
+            ),
+            "mechanism_readiness_passed": bool(
+                sweep["mechanism_readiness_passed"]
+            ),
+            "conclusion": conclusion,
+            "full_preservation_objective_started": False,
+            "checkpoint_saved": False,
+            "official_evaluation_allowed": False,
+            "official_evaluation_prompts_seen": 0,
+        }
+        completion_path = out_dir / "training_only_v3_5_5_completion.json"
+        gagd.write_json(completion_path, completion)
+        if not completion["mechanism_readiness_passed"]:
+            gagd.write_json(
+                out_dir / "training_rejection.json",
+                {
+                    **completion,
+                    "kind": "mcf_embedding_keyed_neuron_training_only_rejection",
+                    "stage": "separate_actuator_width_feasibility",
+                    "reason": conclusion,
+                },
+            )
+        editor.remove()
+        embedding_writer.remove()
+        if selected_mechanism_width is None:
+            print(
+                "no separate actuator width through 16 passed positive plus "
+                "writer-off feasibility at cap 1.50; full training and official "
+                "evaluation remain refused"
+            )
+        else:
+            print(
+                f"smallest mechanism-ready actuator width: "
+                f"{selected_mechanism_width}; all fitted weights discarded and "
+                "official evaluation remains refused pending a separately "
+                "registered full preservation run"
+            )
+        return
+
+    if args.training_only_actuator_width_sweep:
         if (
             detector_selectivity is None
             or threshold_gate is None

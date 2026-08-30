@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "V3.5.1 is preserved as the read-only collision-forensics run." >&2
-echo "Use run_mcf_embedding_keyed_neuron_v3_5_4_manual.sh with its completed output and the rejected V3.5.2/V3.5.3 runs." >&2
+echo "Use run_mcf_embedding_keyed_neuron_v3_5_5_manual.sh with its completed output and preserved V3.5.2 through V3.5.4 runs." >&2
 echo "To reproduce V3.5.1 exactly, use historical commit 72aae4087490c18bab2d7f727c53c7d3331a01e3." >&2
 exit 2
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "V3.5.2 is preserved as the duplicate-prompt label-contradiction rejection." >&2
-echo "Use run_mcf_embedding_keyed_neuron_v3_5_4_manual.sh with this rejected V3.5.2 output and the rejected V3.5.3 output." >&2
+echo "Use run_mcf_embedding_keyed_neuron_v3_5_5_manual.sh with this rejection and the preserved V3.5.3/V3.5.4 outputs." >&2
 echo "To reproduce V3.5.2 exactly, use historical commit be48b9bc2319c9ca55a3b9413f7e7e75c952b839." >&2
 exit 2
 
