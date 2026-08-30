@@ -2295,11 +2295,16 @@ def test_frozen_v3_5_4_rejection_binds_exact_detector_and_width_four_limit(
             **zero_official,
         },
         "isolated_threshold_gate_report.json": {
+            "schema_version": 3,
+            "kind": "mcf_embedding_keyed_neuron_multilabel_global_isolation_gate",
             "protocol": protocol,
             "passed": True,
             "checks": {
-                "all_positive_owner_gates_one": True,
-                "all_writer_off_gates_zero": True,
+                "all_positive_source_owners_active": True,
+                "all_writer_on_active_labels_one": True,
+                "all_writer_on_inactive_labels_zero": True,
+                "all_source_negative_owners_zero": True,
+                "all_writer_off_labels_zero": True,
             },
             **zero_official,
         },
@@ -2359,6 +2364,25 @@ def test_frozen_v3_5_4_rejection_binds_exact_detector_and_width_four_limit(
     assert receipt["passed"]
     assert receipt["detector_gate_delta_sha256"] == "a" * 64
     assert receipt["actuator_saturated_columns"] == 147
+
+    artifacts["isolated_threshold_gate_report.json"]["checks"][
+        "all_writer_on_inactive_labels_zero"
+    ] = False
+    (method_dir / "isolated_threshold_gate_report.json").write_text(
+        json.dumps(artifacts["isolated_threshold_gate_report.json"]),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="threshold_gate_perfect"):
+        method.validate_frozen_v3_5_4_rejection(
+            tmp_path / "v3_5_4", ownership_sha256=ownership_hash
+        )
+    artifacts["isolated_threshold_gate_report.json"]["checks"][
+        "all_writer_on_inactive_labels_zero"
+    ] = True
+    (method_dir / "isolated_threshold_gate_report.json").write_text(
+        json.dumps(artifacts["isolated_threshold_gate_report.json"]),
+        encoding="utf-8",
+    )
 
     artifacts["actuator_cap_1p50_feasibility.json"]["down_norm_geometry"][
         "saturated_columns"

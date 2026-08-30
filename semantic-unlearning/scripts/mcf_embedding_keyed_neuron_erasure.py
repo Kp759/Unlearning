@@ -2464,6 +2464,14 @@ def validate_frozen_v3_5_4_rejection(
     up_sha256 = str(tensor_receipt.get("up_delta_sha256") or "")
     final_audit = cap_fit.get("final_audit", {})
     geometry = cap_fit.get("down_norm_geometry", {})
+    threshold_checks = threshold_gate.get("checks", {})
+    required_threshold_checks = (
+        "all_positive_source_owners_active",
+        "all_writer_on_active_labels_one",
+        "all_writer_on_inactive_labels_zero",
+        "all_source_negative_owners_zero",
+        "all_writer_off_labels_zero",
+    )
     checks = {
         "protocol": all(
             payload.get("protocol") == FROZEN_V3_5_4_PROTOCOL
@@ -2482,13 +2490,14 @@ def validate_frozen_v3_5_4_rejection(
         "detector_50_of_50": detector_gate.get("passed_records") == 50
         and detector_gate.get("total_records") == 50
         and detector_gate.get("passed") is True,
+        "threshold_gate_schema": threshold_gate.get("schema_version") == 3
+        and threshold_gate.get("kind")
+        == "mcf_embedding_keyed_neuron_multilabel_global_isolation_gate",
         "threshold_gate_perfect": threshold_gate.get("passed") is True
-        and threshold_gate.get("checks", {}).get(
-            "all_positive_owner_gates_one"
-        )
-        is True
-        and threshold_gate.get("checks", {}).get("all_writer_off_gates_zero")
-        is True,
+        and all(
+            threshold_checks.get(name) is True
+            for name in required_threshold_checks
+        ),
         "detector_hashes_recorded": len(gate_sha256) == 64
         and len(up_sha256) == 64
         and tensor_receipt.get("unchanged") is True,

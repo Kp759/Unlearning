@@ -81,6 +81,21 @@ if ! jq -e '
   echo "frozen V3.5.4 source is not the registered actuator rejection" >&2
   exit 2
 fi
+if ! jq -e '
+  .schema_version == 3 and
+  .kind == "mcf_embedding_keyed_neuron_multilabel_global_isolation_gate" and
+  .protocol == "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_4" and
+  .passed == true and
+  .checks.all_positive_source_owners_active == true and
+  .checks.all_writer_on_active_labels_one == true and
+  .checks.all_writer_on_inactive_labels_zero == true and
+  .checks.all_source_negative_owners_zero == true and
+  .checks.all_writer_off_labels_zero == true and
+  .official_evaluation_prompts_seen == 0
+' "${FROZEN_V3_5_4_METHOD_DIR}/isolated_threshold_gate_report.json" >/dev/null; then
+  echo "frozen V3.5.4 source lacks its passed all-cell multi-label gate" >&2
+  exit 2
+fi
 if ! jq -e '.protocol == "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_5" and .schema_version == 16' "${REGISTRY}" >/dev/null; then
   echo "registry is stale; expected V3.5.5: ${REGISTRY}" >&2
   exit 2
