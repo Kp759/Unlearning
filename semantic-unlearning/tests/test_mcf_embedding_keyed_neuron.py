@@ -238,6 +238,30 @@ def _v3_5_5_width_scope():
     }
 
 
+def _v3_6_full_scope():
+    return {
+        "training_only": True,
+        "source_v3_5_5_success_hash_bound": True,
+        "exact_v3_5_4_detector_tensor_replay_required": True,
+        "exact_v3_5_5_width16_selection_replay_required": True,
+        "detector_neurons_per_record": 4,
+        "actuator_neurons_per_record": 16,
+        "detector_actuator_neurons_disjoint": True,
+        "neuron_layer": 27,
+        "native_per_column_relative_cap": 1.5,
+        "positive_warm_start_max_updates": 100,
+        "positive_warm_start_check_every": 5,
+        "positive_warm_start_first_passing_audit_selected": True,
+        "warm_start_optimizer_state_retained": True,
+        "full_preservation_optimizer_updates": 200,
+        "all_records_and_contexts_per_update": True,
+        "complete_protected_bank_final_audit_required": True,
+        "candidate_checkpoint_requires_every_training_gate": True,
+        "rejected_checkpoint_creation_prohibited": True,
+        "official_evaluation_prohibited_in_learner": True,
+    }
+
+
 def _detector_training_revision():
     return {
         "version": "v3.5.4_canonical_multilabel_balanced_tail_repair",
@@ -343,36 +367,36 @@ def _detector_training_revision():
 
 def _actuator_training_revision():
     return {
-        "version": "v3.5.5",
-        "mode": "discarded_separate_actuator_width_sweep",
-        "source_v3_5_4_protocol": method.FROZEN_V3_5_4_PROTOCOL,
-        "source_v3_5_4_artifact_hash_receipt_required": True,
-        "source_v3_5_4_detector_tensor_hash_replay_required": True,
-        "optimizer_constructed_this_run": True,
-        "optimizer_updates_per_arm": 100,
+        "version": "v3.6",
+        "mode": "training_only_width16_warm_start_then_full_preservation",
+        "source_v3_5_5_protocol": method.FROZEN_V3_5_5_PROTOCOL,
+        "source_v3_5_5_success_hash_receipt_required": True,
+        "source_v3_5_5_detector_tensor_replay_required": True,
+        "source_v3_5_5_width16_selection_replay_required": True,
         "frozen_training_contexts": {
             "writer_on_positive": 346,
             "writer_on_negative": 465,
             "writer_off_positive": 346,
         },
-        "source_v3_5_4_rejection": {
-            "detector_passed_records": 50,
-            "detector_total_records": 50,
-            "threshold_gate_passed": True,
-            "positive_owner_gate_min": 1.0,
-            "writer_off_gate_max": 0.0,
-            "actuator_width": 4,
-            "relative_norm_cap": 1.5,
-            "saturated_columns": 147,
-            "selected_columns": 200,
-            "positive_reachability_passed": False,
+        "source_v3_5_5_success": {
+            "selected_smallest_positive_reachable_width": 16,
+            "selected_smallest_mechanism_ready_width": 16,
+            "native_per_column_relative_cap": 1.5,
+            "native_width16_positive_reachable": True,
+            "native_width16_writer_off_structural_selectivity_passed": True,
+            "native_width16_actuator_columns": 800,
+            "native_width16_saturated_columns": 34,
+            "matched_width4_group_budget_width16_positive_reachable": False,
+            "every_fitted_actuator_discarded": True,
+            "full_preservation_objective_started": False,
+            "official_evaluation_prompts_seen": 0,
         },
         "architecture": {
             "base_mlp_path": "bit_exact_untouched",
             "frozen_detector_features_per_record": 4,
-            "actuator_features_per_record": [4, 8, 16],
+            "actuator_features_per_record": 16,
             "detector_actuator_feature_sets_disjoint": True,
-            "actuator_feature_sets_nested": True,
+            "actuator_selection": "exact_v3_5_5_nested_width16_prefix",
             "actuator_gate_up_rows": "frozen_unmodified_Base_rows",
             "residual_formula": (
                 "BaseMLP(h) + threshold_gate_r(h) * BaseActuatorFeatures_r(h) @ "
@@ -387,17 +411,15 @@ def _actuator_training_revision():
             "original_base_down_columns_modified": False,
             "ordinary_existing_weight_materialization": False,
         },
-        "feasibility": {
-            "native_actuator_widths": [4, 8, 16],
-            "native_per_column_relative_cap": 1.5,
-            "matched_width4_group_budget_control_widths": [8, 16],
-            "matched_controls_used_for_selection": False,
-            "selection_rule": (
-                "smallest native width with zero direct and positive failures"
-            ),
+        "positive_warm_start": {
             "initial_down_delta": "bit_exact_zero",
-            "optimizer_state": "fresh_independent_adamw_per_arm",
-            "optimizer_updates_per_arm": 100,
+            "optimizer_state": "fresh_adamw_retained_into_full_preservation",
+            "maximum_optimizer_updates": 100,
+            "audit_every": 5,
+            "stopping_rule": (
+                "first fresh full-context audit with direct_failures == 0 and "
+                "positive_failures == 0"
+            ),
             "learning_rate": 5e-4,
             "records_per_optimizer_update": 50,
             "positive_contexts_per_optimizer_update": 346,
@@ -412,13 +434,37 @@ def _actuator_training_revision():
             "complete_incremental_training_log_required": True,
             "fresh_full_context_audit_required": True,
             "zero_actuator_identity_abs_tolerance": 1e-6,
-            "positive_reachability_rule": (
-                "direct_failures == 0 and positive_failures == 0"
+            "native_per_column_relative_cap": 1.5,
+        },
+        "full_preservation": {
+            "optimizer_updates": 200,
+            "optimizer_state_reinitialized_after_warm_start": False,
+            "records_per_optimizer_update": 50,
+            "positive_contexts_per_optimizer_update": 346,
+            "negative_contexts_per_optimizer_update": 465,
+            "writer_off_contexts_per_optimizer_update": 346,
+            "protected_contexts_per_optimizer_update": 80,
+            "protected_prompt_bank": 8192,
+            "protected_sampling_seed_offset": 78103,
+            "positive_margin_weight": 20.0,
+            "positive_reference_nll_weight": 50.0,
+            "negative_preservation_weight": 1.0,
+            "negative_preservation_objective": (
+                "equal-record mean-plus-worst-two squared absolute NLL drift "
+                "excess above the fixed 0.05 acceptance band"
             ),
-            "writer_off_structural_selectivity_tolerance": 0.05,
-            "every_fitted_down_delta_discarded": True,
-            "full_preservation_objective_started": False,
-            "checkpoint_saved": False,
+            "writer_off_weight": 50.0,
+            "protected_kl_weight": 20.0,
+            "actuator_l2": 1e-4,
+            "forget_margin": 1.0,
+            "reference_nll_regression_max": 0.05,
+            "negative_nll_abs_max": 0.05,
+            "writer_off_nll_abs_max": 0.05,
+            "protected_kl_mean_max": 0.05,
+            "protected_kl_absolute_max": 0.5,
+            "native_per_column_relative_cap": 1.5,
+            "candidate_saved_only_if_all_training_gates_pass": True,
+            "rejected_checkpoint_saved": False,
             "official_evaluation_allowed": False,
         },
         "official_evaluation_prompts_seen": 0,
@@ -1458,6 +1504,38 @@ def test_actuator_positive_objective_is_mean_plus_worst_two_shortfall():
     assert loss == pytest.approx((1.0 + 0.25) / 3.0 + (1.0 + 0.25) / 2.0)
 
 
+def test_actuator_negative_preservation_uses_registered_drift_band():
+    baseline_new = torch.tensor([1.0, 2.0])
+    baseline_true = torch.tensor([3.0, 4.0])
+    inside, _ = core.actuator_negative_preservation_objective(
+        baseline_new + torch.tensor([0.04, -0.05]),
+        baseline_true + torch.tensor([-0.02, 0.01]),
+        baseline_new,
+        baseline_true,
+        tolerance=0.05,
+        tail_k=2,
+    )
+    outside, _ = core.actuator_negative_preservation_objective(
+        baseline_new + torch.tensor([0.07, 0.0]),
+        baseline_true,
+        baseline_new,
+        baseline_true,
+        tolerance=0.05,
+        tail_k=2,
+    )
+    assert float(inside) == pytest.approx(0.0, abs=1e-12)
+    assert float(outside) > 0.0
+    with pytest.raises(ValueError, match="non-negative"):
+        core.actuator_negative_preservation_objective(
+            baseline_new,
+            baseline_true,
+            baseline_new,
+            baseline_true,
+            tolerance=-0.01,
+            tail_k=2,
+        )
+
+
 def test_paired_on_off_ratios_expose_activation_leakage():
     ratios = core.paired_on_off_ratios(
         torch.tensor([2.0, 1.0]),
@@ -2397,6 +2475,120 @@ def test_frozen_v3_5_4_rejection_binds_exact_detector_and_width_four_limit(
         )
 
 
+def test_frozen_v3_5_5_success_binds_width16_selection_and_controls(tmp_path):
+    method_dir = tmp_path / "v3_5_5" / "method"
+    method_dir.mkdir(parents=True)
+    protocol = method.FROZEN_V3_5_5_PROTOCOL
+    zero_official = {"official_evaluation_prompts_seen": 0}
+    ownership = [list(range(index * 16, (index + 1) * 16)) for index in range(50)]
+    arm_rows = [
+        {
+            "actuator_width": 4,
+            "budget_regime": "native_per_column_cap",
+            "positive_reachable": False,
+        },
+        {
+            "actuator_width": 8,
+            "budget_regime": "native_per_column_cap",
+            "positive_reachable": False,
+        },
+        {
+            "actuator_width": 8,
+            "budget_regime": "matched_width4_group_budget_control",
+            "positive_reachable": False,
+        },
+        {
+            "actuator_width": 16,
+            "actuator_columns": 800,
+            "budget_regime": "native_per_column_cap",
+            "positive_reachable": True,
+            "writer_off_structural_selectivity_passed": True,
+            "saturated_columns": 34,
+        },
+        {
+            "actuator_width": 16,
+            "budget_regime": "matched_width4_group_budget_control",
+            "positive_reachable": False,
+        },
+    ]
+    artifacts = {
+        "actuator_neuron_selection_report.json": {
+            "protocol": protocol,
+            "actuator_widths": [4, 8, 16],
+            "maximum_actuator_neurons_per_record": 16,
+            "maximum_actuator_neuron_count": 800,
+            "nested_prefixes": True,
+            "detector_actuator_disjoint": True,
+            "ownership_by_width": {
+                "16": [
+                    {"record_index": index, "selected_neurons": group}
+                    for index, group in enumerate(ownership)
+                ]
+            },
+            **zero_official,
+        },
+        "exact_v3_5_4_detector_replay.json": {
+            "protocol": protocol,
+            "passed": True,
+            "gate_delta_bit_exact": True,
+            "up_delta_bit_exact": True,
+            "all_cell_gate_passed": True,
+            "observed_gate_delta_sha256": "a" * 64,
+            "observed_up_delta_sha256": "b" * 64,
+            **zero_official,
+        },
+        "v3_5_5_actuator_width_feasibility.json": {
+            "protocol": protocol,
+            "native_per_column_cap": 1.5,
+            "arm_artifacts": arm_rows,
+            "selected_smallest_positive_reachable_width": 16,
+            "selected_smallest_mechanism_ready_width": 16,
+            "positive_reachability_passed": True,
+            "structural_selectivity_passed": True,
+            "mechanism_readiness_passed": True,
+            "conclusion": "separate_actuator_width_sweep_passed",
+            "all_fitted_weights_discarded": True,
+            "frozen_detector_tensors_unchanged": True,
+            **zero_official,
+        },
+        "training_only_v3_5_5_completion.json": {
+            "protocol": protocol,
+            "selected_smallest_mechanism_ready_width": 16,
+            "mechanism_readiness_passed": True,
+            "full_preservation_objective_started": False,
+            "checkpoint_saved": False,
+            "official_evaluation_allowed": False,
+            **zero_official,
+        },
+        "training_firewall_receipt.json": {
+            "data_access": {
+                "official_paraphrases_seen": 0,
+                "official_neighborhoods_seen": 0,
+                "benchmark_retain_seen": 0,
+                "official_ppl_seen": False,
+            }
+        },
+    }
+    for name, payload in artifacts.items():
+        (method_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    receipt = method.validate_frozen_v3_5_5_success(tmp_path / "v3_5_5")
+    assert receipt["passed"]
+    assert receipt["selected_actuator_width"] == 16
+    assert len(receipt["width16_ownership"]) == 50
+    assert len(receipt["width16_ownership_sha256"]) == 64
+
+    artifacts["v3_5_5_actuator_width_feasibility.json"]["arm_artifacts"][3][
+        "positive_reachable"
+    ] = False
+    (method_dir / "v3_5_5_actuator_width_feasibility.json").write_text(
+        json.dumps(artifacts["v3_5_5_actuator_width_feasibility.json"]),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="native_width_outcomes"):
+        method.validate_frozen_v3_5_5_success(tmp_path / "v3_5_5")
+
+
 def test_detector_gate_case_tsv_binds_locked_record_order():
     gate = core.detector_gate_report(
         [torch.tensor([1.2])],
@@ -3222,6 +3414,7 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         "v3_5_3_scope": _v3_5_3_multilabel_scope(),
         "v3_5_4_scope": _v3_5_4_balanced_scope(),
         "v3_5_5_scope": _v3_5_5_width_scope(),
+        "v3_6_scope": _v3_6_full_scope(),
         "detector_training_revision": _detector_training_revision(),
         "actuator_training_revision": _actuator_training_revision(),
         "selected_neuron_ownership_binding": {
@@ -3269,17 +3462,17 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         method._validate_experiment_registry(registry, args)
 
 
-def test_repository_registry_binds_v3_5_5_separate_actuator_width_sweep():
+def test_repository_registry_binds_v3_6_width16_full_preservation():
     registry_path = (
         Path(__file__).resolve().parents[1]
         / "protocols"
         / "mcf_embedding_keyed_neuron_ablation_registry_v1.json"
     )
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert registry["schema_version"] == 16
+    assert registry["schema_version"] == 17
     assert registry["protocol"] == core.PROTOCOL
     assert registry["development_history"][-1]["version"] == (
-        "v14_embedding_keyed_gate_v3_5_4_detector_pass_actuator_budget_rejection"
+        "v15_embedding_keyed_gate_v3_5_5_width16_mechanism_readiness"
     )
     contradiction = next(
         row["contradictory_prompt"]
@@ -3292,21 +3485,16 @@ def test_repository_registry_binds_v3_5_5_separate_actuator_width_sweep():
     assert contradiction["negative_source_context_index"] == 4
     assert contradiction["positive_detector_case_id"] == 10472
     assert contradiction["negative_detector_case_id"] == 10472
-    assert not registry["development_history"][-1][
-        "official_evaluation_opened_by_this_failed_run"
-    ]
     latest = registry["development_history"][-1]
-    assert latest["detector_gate"] == {
-        "passed_records": 50,
-        "total_records": 50,
-        "passed": True,
-        "positive_owner_gate_min": 1.0,
-        "writer_off_gate_max": 0.0,
-        "owned_response_ratio_p10": 2.5555,
-        "owned_response_ratio_median": 3.623,
-    }
-    assert latest["actuator_feasibility"]["saturated_columns"] == 147
-    assert not latest["actuator_feasibility"]["positive_reachability_passed"]
+    assert not latest["official_evaluation_opened_by_this_run"]
+    assert latest["actuator_width_sweep"][
+        "selected_smallest_mechanism_ready_width"
+    ] == 16
+    assert latest["actuator_width_sweep"]["native_width16_final_shortfall"] == 0.0
+    assert latest["actuator_width_sweep"]["native_width16_saturated_columns"] == 34
+    assert not latest["actuator_width_sweep"][
+        "matched_width4_group_budget_width16_positive_reachable"
+    ]
     assert (
         registry["selected_neuron_ownership_binding"]["jq_compact_sha256"]
         == "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
@@ -3326,9 +3514,10 @@ def test_repository_registry_binds_v3_5_5_separate_actuator_width_sweep():
     assert registry["primary_configuration"]["detector_steps"] == 100
     assert registry["primary_configuration"]["detector_global_tail_weight"] == 0
     assert registry["primary_configuration"]["actuator_feasibility_steps"] == 100
-    assert registry["primary_configuration"][
+    assert not registry["primary_configuration"][
         "training_only_actuator_width_sweep"
     ]
+    assert registry["primary_configuration"]["training_only_full_preservation"]
     assert registry["primary_configuration"]["actuator_feasibility_caps"] == [1.5]
     assert registry["primary_configuration"]["actuator_feasibility_widths"] == [
         4,
@@ -3338,8 +3527,12 @@ def test_repository_registry_binds_v3_5_5_separate_actuator_width_sweep():
     assert registry["primary_configuration"]["actuator_architecture"] == (
         "separate_threshold_gated_actuator_bank"
     )
-    assert registry["primary_configuration"]["actuator_steps"] == 0
+    assert registry["primary_configuration"]["actuator_steps"] == 200
     assert registry["primary_configuration"]["actuator_protected_batch"] == 80
+    assert registry["primary_configuration"]["negative_nll_tolerance"] == 0.05
+    assert registry["primary_configuration"]["protected_kl_mean_tolerance"] == 0.05
+    assert registry["primary_configuration"]["protected_kl_max_tolerance"] == 0.5
+    assert registry["primary_configuration"]["save_checkpoint"]
     common = [
         "--model-path",
         "model",
@@ -3383,11 +3576,13 @@ def test_repository_registry_binds_v3_5_5_separate_actuator_width_sweep():
             "rejected-v3.5.3",
             "--frozen-v3-5-4-run-dir",
             "rejected-v3.5.4",
+            "--frozen-v3-5-5-run-dir",
+            "passed-v3.5.5",
             "--detector-steps",
             "100",
             "--detector-global-tail-weight",
             "0",
-            "--training-only-actuator-width-sweep",
+            "--training-only-full-preservation",
             "--actuator-feasibility-widths",
             "4",
             "8",
@@ -3397,7 +3592,8 @@ def test_repository_registry_binds_v3_5_5_separate_actuator_width_sweep():
             "--actuator-relative-cap",
             "1.5",
             "--actuator-steps",
-            "0",
+            "200",
+            "--save-checkpoint",
         ]
     )
     method._validate_experiment_registry(registry, primary)
@@ -3443,11 +3639,43 @@ def test_v3_5_5_launcher_sweeps_disjoint_actuator_widths_and_discards_fits():
     assert "--save-checkpoint" not in launcher
     assert "mcf_zero_unlearn_official_eval.py" not in launcher
     assert "official_evaluation_allowed == false" in launcher
+def test_v3_6_launcher_freezes_width16_and_runs_training_only_preservation():
+    root = Path(__file__).resolve().parents[1]
+    manual = (
+        root / "scripts" / "run_mcf_embedding_keyed_neuron_v3_6_manual.sh"
+    ).read_text(encoding="utf-8")
+    assert "[[ $# -ne 10 ]]" in manual
+    assert "FROZEN_V3_5_5_OUTPUT_DIR" in manual
+    assert "run_mcf_embedding_keyed_neuron_v3_6_full_preservation" in manual
+    launcher = (
+        root
+        / "slurm"
+        / "run_mcf_embedding_keyed_neuron_v3_6_full_preservation_seed1_3b.slurm"
+    ).read_text(encoding="utf-8")
+    assert "--training-only-full-preservation" in launcher
+    assert "--frozen-v3-5-5-run-dir" in launcher
+    assert "--actuator-feasibility-widths 4 8 16" in launcher
+    assert "--actuator-feasibility-caps 1.50" in launcher
+    assert "--actuator-steps 200" in launcher
+    assert "--actuator-relative-cap 1.50" in launcher
+    assert "--negative-nll-tolerance 0.05" in launcher
+    assert "--protected-kl-mean-tolerance 0.05" in launcher
+    assert "--protected-kl-max-tolerance 0.50" in launcher
+    assert "--save-checkpoint" in launcher
+    assert "exact_v3_5_5_width16_selection_replay.json" in launcher
+    assert "v3_6_zero_actuator_identity_audit.json" in launcher
+    assert "v3_6_positive_warm_start.json" in launcher
+    assert "v3_6_full_preservation_training.json" in launcher
+    assert "v3_6_candidate_state.pt" in launcher
+    assert "eligible_for_separate_official_evaluation == true" in launcher
+    assert "official_evaluation_allowed_in_this_process == false" in launcher
+    assert "env -u MCF_PATH" in launcher
+    assert "mcf_zero_unlearn_official_eval.py" not in launcher
     submit = (
         root / "scripts" / "submit_mcf_embedding_keyed_neuron_seed1.sh"
     ).read_text(encoding="utf-8")
-    assert "mcf_embedding_keyed_neuron_v3_5_5_${JOB_ID}.out" in submit
-    assert "mcf_embedding_keyed_neuron_v3_5_4_${JOB_ID}.out" not in submit
+    assert "run_mcf_embedding_keyed_neuron_v3_6_full_preservation" in submit
+    assert "mcf_embedding_keyed_neuron_v3_6_${JOB_ID}.out" in submit
 
 
 def test_final_report_requires_metrics_mechanism_and_firewall_to_pass():

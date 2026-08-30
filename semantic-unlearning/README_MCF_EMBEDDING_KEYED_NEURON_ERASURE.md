@@ -61,9 +61,11 @@ V3.5.4 preserved the corrected labels, removed global tails from optimization,
 and reached a 50/50 detector plus an exact all-cell threshold gate. Its
 four-feature actuator remained cap-bound: 147/200 columns saturated at 1.50 and
 the positive certificate was not reached. V3.5.5 therefore freezes that exact
-detector and changes only actuator rank through nested, detector-disjoint banks
-of 4, 8, and 16 Base features per record. Every feasibility fit is discarded;
-the protocol still cannot save or evaluate a checkpoint.
+detector and varies actuator width through nested, detector-disjoint banks of
+4, 8, and 16 Base features per record while retaining the 1.50 per-column cap.
+Because width also changes the available aggregate norm budget, this is not
+described as a pure rank intervention. Every feasibility fit is discarded; the
+protocol still cannot save or evaluate a checkpoint.
 
 ## Training-only development through V3.5.5
 
@@ -380,6 +382,12 @@ aggregate norm budget and cannot select the width. Every arm starts at exact
 zero with fresh optimizer state, runs exactly 100 all-record/all-positive
 updates, receives a fresh full-context audit, and is then discarded.
 
+The native width-16 arm was the smallest arm to reach every positive margin,
+ending with zero shortfall and 34/800 saturated columns. The matched width-4
+aggregate-budget controls at widths 8 and 16 both failed. The licensed V3.6
+configuration is therefore the combined width-16, cap-1.50-per-column design;
+the V3.5.5 evidence does not attribute the gain to actuator rank alone.
+
 ## Development-retain shared-row exposure
 
 A separate audit consumed 9,438 first-half development-retain records after
@@ -633,7 +641,8 @@ alias, adversarial, latent, or relearning input. It reads only:
 9. the hash-bound V3.5.2 duplicate-prompt contradiction;
 10. the hash-bound V3.5.3 positive-collapse rejection;
 11. the hash-bound V3.5.4 detector-pass/actuator-reachability rejection; and
-12. Wikipedia documents 20 onward for deterministic ownership and actuator-bank
+12. the hash-bound V3.5.5 discarded-fit width-16 mechanism-readiness pass; and
+13. Wikipedia documents 20 onward for deterministic ownership, actuator-bank
     replay.
 
 The separate 9,438-record development overlap audit reads the original MCF
@@ -641,12 +650,14 @@ source, but the learner does not receive its path, records, token frequencies,
 or per-row results. Only its already-observed aggregate evidence is recorded in
 the public registry as architecture motivation. It does not select the V3.5.1
 collision, alter its diagnosis, enter the V3.5.2, V3.5.3, or V3.5.4 repair
-loss, or select any V3.5.5 actuator feature or width.
+loss, select any V3.5.5 actuator feature or width, or enter the V3.6
+preservation objective.
 
 Documents 0:20 remain reserved for official PPL. Relevant hashes and zero-
-access receipts are checked. The main launcher freezes and reload-verifies both
-the proposed and no-writer checkpoints before a separate process opens the
-original MCF file.
+access receipts are checked. V3.6 can freeze one training-only candidate state
+only after every registered learner-side gate passes. A separate, future
+hash-bound process must reload that candidate before it may open the original
+MCF file.
 
 Official results can reject a frozen configuration, but cannot choose a retry,
 hyperparameter, neuron, threshold, or checkpoint inside the same registered
@@ -656,12 +667,14 @@ run.
 
 The registry is
 `protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json`. The legacy
-filename is retained for launcher compatibility; its current schema is 16 and
-its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_5_5`.
-V3.5.5 itself is incapable of reaching paper-level acceptance because it
-discards every fitted actuator arm, saves no checkpoint, and opens no official
-prompts. The future
-checkpoint protocol still requires all of the following:
+filename is retained for launcher compatibility; its current schema is 17 and
+its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_6`.
+V3.5.5 was incapable of reaching paper-level acceptance because it discarded
+every fitted actuator arm, saved no checkpoint, and opened no official prompts.
+V3.6 freezes the exact detector and selected width-16 bank, trains only on
+registered training-safe evidence, and saves a candidate state only if every
+forgetting and preservation gate passes. It still cannot open official prompts.
+The later official checkpoint protocol requires all of the following:
 
 - primary Eff = 0 and Gen = 0;
 - forget and retain specificity inside the declared 0.2-point margins;
@@ -681,7 +694,7 @@ The registry fixes seed 1 as development and seeds 2 and 3 as confirmatory with
 unchanged hyperparameters. A 100-record run is confirmatory only after a
 separately frozen 100-record writer/context artifact exists.
 
-## Running the V3.5.5 separate actuator-width feasibility sweep
+## Running V3.6 width-16 full preservation
 
 First build the clean Stage-1 writer from Base. This opens no official
 evaluation probes and refuses any existing output path:
@@ -697,13 +710,14 @@ bash scripts/run_mcf_compositional_marker_clean_stage1_manual.sh \
   2>&1 | tee slurm_logs/mcf_compositional_marker_v6_2_clean_seed1_manual.log
 ```
 
-V3.5.5 requires the preserved V3.2 detector source, exact V3.4 and V3.5
-rejections, the completed V3.5.1 forensic output, the exact rejected V3.5.2 and
-V3.5.3 runs, and the completed V3.5.4 detector-pass/actuator-reject output. The
-wrapper rejects an existing output directory:
+V3.6 requires all preserved V3.5.5 inputs plus the completed V3.5.5
+mechanism-readiness output. It reconstructs the exact detector and selected
+width-16 actuator bank, starts the actuator from bit-exact zero, retains the
+positive-warm-start optimizer state, and runs 200 globally balanced full-
+preservation updates. The wrapper rejects an existing output directory:
 
 ```bash
-bash scripts/run_mcf_embedding_keyed_neuron_v3_5_5_manual.sh \
+bash scripts/run_mcf_embedding_keyed_neuron_v3_6_manual.sh \
   outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
   outputs/mcf_embedding_keyed_neuron_v3_2_seed1_3b_aws_v6_2 \
   outputs/mcf_embedding_keyed_neuron_v3_4_seed1_3b_aws_v6_2 \
@@ -713,10 +727,13 @@ bash scripts/run_mcf_embedding_keyed_neuron_v3_5_5_manual.sh \
   outputs/mcf_embedding_keyed_neuron_v3_5_3_seed1_3b_aws_v6_2 \
   outputs/mcf_embedding_keyed_neuron_v3_5_4_seed1_3b_aws_v6_2 \
   outputs/mcf_embedding_keyed_neuron_v3_5_5_seed1_3b_aws_v6_2 \
-  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_5_5_seed1_aws_v6_2.log
+  outputs/mcf_embedding_keyed_neuron_v3_6_seed1_3b_aws_v6_2 \
+  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_6_seed1_aws_v6_2.log
 ```
 
-The V3.5.4 and earlier launchers are historical, not the current experiment.
+V3.5.5 and earlier launchers are historical, not the current experiment.
+Reproducing V3.5.5 requires commit
+`15f8000f0f4bd7599c93d799efcceff8faa6cdcc`.
 Reproducing V3.5.4 requires commit
 `51b674cd2c666e78045c216a4ea5e6a8ce2b80fd`.
 Reproducing V3.5.3 requires commit
@@ -778,7 +795,22 @@ Reproducing V3.5.3 requires commit
 - `method/v3_5_5_actuator_width_feasibility.json`: width selection, matched
   controls, artifact hashes, full-context audits, and discard receipts; and
 - `method/training_only_v3_5_5_completion.json`: final receipt proving that full
-  preservation, checkpoint creation, and official evaluation did not occur.
+  preservation, checkpoint creation, and official evaluation did not occur;
+- `method/frozen_v3_5_5_success_import.json`: source hashes and exact width-16
+  success checks licensing V3.6;
+- `method/exact_v3_5_5_width16_selection_replay.json`: bit-exact ownership
+  replay for the 800 detector-disjoint actuator features;
+- `method/v3_6_zero_actuator_identity_audit.json`: proof that the separate
+  residual is behaviorally identical at exact-zero down delta;
+- `method/v3_6_positive_warm_start.json`: criterion-stopped all-positive warm
+  start with a complete incremental log;
+- `method/v3_6_full_preservation_training.json`: all-context coverage,
+  forgetting/locality gates, protected KL, causal checks, frozen tensor checks,
+  and full training-log receipt;
+- `method/v3_6_actuator_endpoint_audit.json`: pre-update, post-Adam,
+  post-projection, and final-fresh replay binding; and
+- `method/training_only_v3_6_completion.json`: fail-closed candidate decision.
+  `method/v3_6_candidate_state.pt` exists only when that decision passes.
 
 ## Publication boundary
 

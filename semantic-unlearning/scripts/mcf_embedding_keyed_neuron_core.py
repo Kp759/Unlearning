@@ -11,7 +11,7 @@ auditable pieces that can be tested without loading a language model:
   columns, retained for lineage and unit tests;
 * V3.5's isolated thresholded residual branch, which reads selected
   gate/up features while leaving the ordinary Base MLP path untouched;
-* V3.5.5's separate threshold-gated actuator bank, whose frozen Base
+* V3.6's separate threshold-gated actuator bank, whose frozen Base
   activations are disjoint from the four-neuron detector groups;
 * contextual code responses and detector-gate metrics;
 * hard relative-norm projection and materialization/restoration helpers.
@@ -35,7 +35,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_5"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_6"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
@@ -976,9 +976,10 @@ def actuator_negative_preservation_objective(
     baseline_new_nll: torch.Tensor,
     baseline_true_nll: torch.Tensor,
     *,
+    tolerance: float = 0.0,
     tail_k: int,
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-    """Equal-record mean-plus-tail preservation for compositional negatives."""
+    """Tail-penalize negative-context NLL drift outside a registered band."""
 
     if not (
         current_new_nll.shape
@@ -987,10 +988,16 @@ def actuator_negative_preservation_objective(
         == baseline_true_nll.shape
     ):
         raise ValueError("negative current and baseline NLL tensors must match")
+    if float(tolerance) < 0:
+        raise ValueError("negative NLL tolerance must be non-negative")
     violations = torch.cat(
         (
-            (current_new_nll - baseline_new_nll).square(),
-            (current_true_nll - baseline_true_nll).square(),
+            F.relu(
+                (current_new_nll - baseline_new_nll).abs() - float(tolerance)
+            ).square(),
+            F.relu(
+                (current_true_nll - baseline_true_nll).abs() - float(tolerance)
+            ).square(),
         )
     )
     return mean_plus_tail_squared_loss(violations, tail_k=int(tail_k))
