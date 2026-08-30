@@ -120,16 +120,44 @@ def _development_exposure_audit():
     }
 
 
+def _v3_5_1_forensic_scope():
+    return {
+        "training_only": True,
+        "forensic_replay_only": True,
+        "source_v3_5_rejection_hash_bound": True,
+        "expected_writer_off_gate_cells": 17300,
+        "expected_nonzero_writer_off_gate_cells": 1,
+        "expected_source_case_id": 10803,
+        "raw_signed_response_matrix_required": True,
+        "source_context_index_and_provenance_required": True,
+        "detector_group_and_owner_status_required": True,
+        "threshold_calibration_prohibited": True,
+        "detector_optimizer_construction_prohibited": True,
+        "actuator_optimizer_construction_prohibited": True,
+        "full_preservation_training_prohibited": True,
+        "checkpoint_creation_prohibited": True,
+        "official_evaluation_prohibited": True,
+        "ordinary_existing_weight_materialization_claimed": False,
+        "downstream_architecture_change_checkpoint_controls_and_official_audits": (
+            "deferred until the collision is identified and a separate fix is "
+            "preregistered"
+        ),
+    }
+
+
 def _detector_training_revision():
     return {
-        "version": "v3.5_frozen_v3_2_readout",
+        "version": "v3.5.1_forensic_frozen_v3_2_readout",
+        "mode": "read_only_single_collision_replay",
         "primary_initialization": "frozen_v3_2",
+        "source_v3_5_protocol": method.FROZEN_V3_5_PROTOCOL,
         "source_protocol": method.FROZEN_DETECTOR_PROTOCOL,
         "source_training_revision": "v3.2",
         "source_gate_passed_records": 50,
         "source_gate_total_records": 50,
         "source_gate_passed": True,
         "source_optimizer_updates": 1000,
+        "optimizer_constructed_this_run": False,
         "optimizer_updates_this_run": 0,
         "imported_tensors": ["gate_delta", "up_delta"],
         "source_down_delta_imported": False,
@@ -181,8 +209,12 @@ def _detector_training_revision():
 
 def _actuator_training_revision():
     return {
-        "version": "v3.5",
-        "mode": "training_only_isolated_thresholded_residual_feasibility",
+        "version": "v3.5.1",
+        "mode": "read_only_single_collision_forensics_no_fit",
+        "source_v3_5_protocol": method.FROZEN_V3_5_PROTOCOL,
+        "historical_v3_5_plan_below_not_executed_by_v3_5_1": True,
+        "optimizer_constructed_this_run": False,
+        "optimizer_updates_this_run": 0,
         "frozen_training_contexts": {
             "writer_on_positive": 346,
             "writer_on_negative": 465,
@@ -1456,6 +1488,109 @@ def test_frozen_v3_4_rejection_binds_reachability_and_selectivity(tmp_path):
         )
 
 
+def test_frozen_v3_5_rejection_binds_exactly_one_unresolved_gate_cell(tmp_path):
+    method_dir = tmp_path / "v3_5" / "method"
+    method_dir.mkdir(parents=True)
+    ownership_hash = "c" * 64
+    case_ids = [10803, *range(20000, 20049)]
+    gate_max = 0.5735465884208679
+    zero_official = {"official_evaluation_prompts_seen": 0}
+    threshold_rows = [
+        {
+            "case_id": case_id,
+            "writer_off_gate_abs_max": gate_max if index == 0 else 0.0,
+        }
+        for index, case_id in enumerate(case_ids)
+    ]
+    artifacts = {
+        "detector_gate_report.json": {
+            "protocol": method.FROZEN_V3_5_PROTOCOL,
+            "passed": True,
+            "passed_records": 50,
+            "total_records": 50,
+            "per_record": [{"case_id": value} for value in case_ids],
+            **zero_official,
+        },
+        "detector_endpoint_audit.json": {
+            "protocol": method.FROZEN_V3_5_PROTOCOL,
+            **zero_official,
+        },
+        "neuron_selection_report.json": {
+            "selected_neuron_ownership_jq_compact_sha256": ownership_hash,
+        },
+        "isolated_threshold_gate_report.json": {
+            "protocol": method.FROZEN_V3_5_PROTOCOL,
+            "boundaries": {
+                "runtime_off_boundary": 0.200001,
+                "runtime_on_boundary": 0.249999,
+            },
+            "checks": {
+                "all_positive_owner_gates_one": True,
+                "all_positive_cross_gates_zero": True,
+                "all_negative_gates_zero": True,
+                "all_writer_off_gates_zero": False,
+            },
+            "aggregate": {
+                "positive_owner": {"n": 346, "min": 1.0},
+                "positive_cross": {"n": 16954, "max": 0.0},
+                "negative": {"n": 23250, "max": 0.0},
+                "writer_off": {
+                    "n": 17300,
+                    "mean": gate_max / 17300,
+                    "max": gate_max,
+                },
+            },
+            "per_record": threshold_rows,
+            "passed": False,
+            **zero_official,
+        },
+        "frozen_detector_selectivity_audit.json": {
+            "protocol": method.FROZEN_V3_5_PROTOCOL,
+            **zero_official,
+        },
+        "frozen_v3_2_detector_import.json": {"passed": True, **zero_official},
+        "frozen_v3_4_rejection_import.json": {"passed": True, **zero_official},
+        "training_rejection.json": {
+            "stage": "isolated_threshold_gate",
+            "reason": "frozen_detector_gap_did_not_map_to_exact_branch_gate",
+            "actuator_training_started": False,
+            "checkpoint_saved": False,
+            "official_evaluation_allowed": False,
+            **zero_official,
+        },
+        "training_firewall_receipt.json": {
+            "data_access": {
+                "official_paraphrases_seen": 0,
+                "official_neighborhoods_seen": 0,
+                "benchmark_retain_seen": 0,
+                "official_ppl_seen": False,
+            }
+        },
+    }
+    for name, payload in artifacts.items():
+        (method_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    receipt = method.validate_frozen_v3_5_rejection(
+        tmp_path / "v3_5", case_ids=case_ids, ownership_sha256=ownership_hash
+    )
+    assert receipt["passed"]
+    assert receipt["observed"]["nonzero_writer_off_gate_cells"] == 1
+    assert receipt["observed"]["writer_off_source_case_id"] == 10803
+    assert "detector_group" not in receipt["observed"]
+
+    artifacts["isolated_threshold_gate_report.json"]["aggregate"]["writer_off"][
+        "mean"
+    ] = (2 * gate_max / 17300)
+    (method_dir / "isolated_threshold_gate_report.json").write_text(
+        json.dumps(artifacts["isolated_threshold_gate_report.json"]),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="writer_off_single_cell"):
+        method.validate_frozen_v3_5_rejection(
+            tmp_path / "v3_5", case_ids=case_ids, ownership_sha256=ownership_hash
+        )
+
+
 def test_detector_gate_case_tsv_binds_locked_record_order():
     gate = core.detector_gate_report(
         [torch.tensor([1.2])],
@@ -2275,6 +2410,7 @@ def test_primary_configuration_is_bound_to_preregistered_values():
             "cross_record_parameter_sharing_audit_required": True,
         },
         "development_retain_shared_row_exposure_audit": (_development_exposure_audit()),
+        "v3_5_1_scope": _v3_5_1_forensic_scope(),
         "detector_training_revision": _detector_training_revision(),
         "actuator_training_revision": _actuator_training_revision(),
         "selected_neuron_ownership_binding": {
@@ -2311,25 +2447,36 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         method._validate_experiment_registry(registry, args)
 
 
-def test_repository_registry_binds_v3_5_isolated_threshold_feasibility():
+def test_repository_registry_binds_v3_5_1_single_collision_forensics():
     registry_path = (
         Path(__file__).resolve().parents[1]
         / "protocols"
         / "mcf_embedding_keyed_neuron_ablation_registry_v1.json"
     )
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert registry["schema_version"] == 11
+    assert registry["schema_version"] == 12
     assert registry["protocol"] == core.PROTOCOL
     assert registry["development_history"][-1]["version"] == (
-        "v9_embedding_keyed_actuator_v3_4_cap_sweep"
+        "v10_embedding_keyed_gate_v3_5_single_collision"
     )
-    assert registry["development_history"][-1]["detector_gate"]["passed_records"] == 50
-    assert registry["development_history"][-1]["actuator_reachability"][
-        "smallest_positive_reachable_cap"
-    ] == pytest.approx(1.5)
-    assert registry["development_history"][-1]["structural_selectivity"][
-        "zero_actuator_writer_off_nll_abs_max"
-    ] == pytest.approx(0.25)
+    assert (
+        registry["development_history"][-1]["owner_wise_detector_gate"][
+            "passed_records"
+        ]
+        == 50
+    )
+    assert (
+        registry["development_history"][-1]["isolated_threshold_gate"][
+            "writer_off_zero"
+        ]
+        == "17299/17300"
+    )
+    assert (
+        registry["development_history"][-1]["isolated_threshold_gate"][
+            "owner_status_before_forensics"
+        ]
+        == "unresolved"
+    )
     assert not registry["development_history"][-1][
         "official_evaluation_opened_by_this_failed_run"
     ]
@@ -2349,6 +2496,7 @@ def test_repository_registry_binds_v3_5_isolated_threshold_feasibility():
     assert registry["primary_configuration"]["detector_initialization"] == (
         "frozen_v3_2"
     )
+    assert registry["primary_configuration"]["detector_steps"] == 0
     assert registry["primary_configuration"]["actuator_feasibility_steps"] == 100
     assert registry["primary_configuration"][
         "training_only_isolated_threshold_feasibility"
@@ -2392,6 +2540,10 @@ def test_repository_registry_binds_v3_5_isolated_threshold_feasibility():
             "rejected-v3.2",
             "--frozen-v3-4-run-dir",
             "rejected-v3.4",
+            "--frozen-v3-5-run-dir",
+            "rejected-v3.5",
+            "--detector-steps",
+            "0",
             "--training-only-isolated-threshold-feasibility",
             "--actuator-relative-cap",
             "1.5",
@@ -2402,12 +2554,12 @@ def test_repository_registry_binds_v3_5_isolated_threshold_feasibility():
     method._validate_experiment_registry(registry, primary)
 
 
-def test_v3_5_launcher_cannot_open_official_eval_or_save_checkpoint():
+def test_v3_5_1_launcher_is_forensic_only_and_cannot_open_official_eval():
     root = Path(__file__).resolve().parents[1]
     launcher = (
         root
         / "slurm"
-        / "run_mcf_embedding_keyed_neuron_v3_5_isolated_threshold_seed1_3b.slurm"
+        / "run_mcf_embedding_keyed_neuron_v3_5_1_collision_forensics_seed1_3b.slurm"
     ).read_text(encoding="utf-8")
     assert "--training-only-isolated-threshold-feasibility" in launcher
     assert "--actuator-feasibility-caps 1.50" in launcher
@@ -2415,10 +2567,12 @@ def test_v3_5_launcher_cannot_open_official_eval_or_save_checkpoint():
     assert "--threshold-gate-numerical-guard 1e-6" in launcher
     assert "--actuator-steps 0" in launcher
     assert "--frozen-v3-4-run-dir" in launcher
-    assert "frozen_detector_selectivity_audit.json" in launcher
-    assert "isolated_zero_actuator_identity_audit.json" in launcher
-    assert "selected_base_down_zeroing_audit.json" in launcher
-    assert "training_only_v3_5_completion.json" in launcher
+    assert "--frozen-v3-5-run-dir" in launcher
+    assert "--detector-steps 0" in launcher
+    assert "v3_5_collision_forensics.json" in launcher
+    assert "training_only_v3_5_1_completion.json" in launcher
+    assert "detector_optimizer_constructed == false" in launcher
+    assert "actuator_optimizer_constructed == false" in launcher
     assert "env -u MCF_PATH" in launcher
     assert "--save-checkpoint" not in launcher
     assert "mcf_zero_unlearn_official_eval.py" not in launcher
@@ -2426,8 +2580,8 @@ def test_v3_5_launcher_cannot_open_official_eval_or_save_checkpoint():
     submit = (
         root / "scripts" / "submit_mcf_embedding_keyed_neuron_seed1.sh"
     ).read_text(encoding="utf-8")
-    assert "mcf_embedding_keyed_neuron_v3_5_${JOB_ID}.out" in submit
-    assert "mcf_embedding_keyed_neuron_v3_4_${JOB_ID}.out" not in submit
+    assert "mcf_embedding_keyed_neuron_v3_5_1_${JOB_ID}.out" in submit
+    assert "mcf_embedding_keyed_neuron_v3_5_${JOB_ID}.out" not in submit
 
 
 def test_final_report_requires_metrics_mechanism_and_firewall_to_pass():

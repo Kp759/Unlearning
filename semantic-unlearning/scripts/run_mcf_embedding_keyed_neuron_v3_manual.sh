@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "run_mcf_embedding_keyed_neuron_v3_manual.sh is a compatibility alias for V3.4" >&2
-exec bash "$(dirname "$0")/run_mcf_embedding_keyed_neuron_v3_5_manual.sh" "$@"
+echo "V3 is preserved as a failed historical protocol and cannot run from this checkout." >&2
+echo "Use run_mcf_embedding_keyed_neuron_v3_5_1_manual.sh for the registered forensic replay." >&2
+exit 2

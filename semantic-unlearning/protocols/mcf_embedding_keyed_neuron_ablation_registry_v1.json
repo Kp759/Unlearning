@@ -1,7 +1,7 @@
 {
-  "schema_version": 11,
-  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5",
-  "status": "training_only_v3_5_isolated_thresholded_residual_preregistered_after_v3_4_reachability_pass_selectivity_rejection_before_any_official_evaluation",
+  "schema_version": 12,
+  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_1",
+  "status": "training_only_v3_5_1_single_collision_forensics_preregistered_after_v3_5_gate_rejection_before_any_optimizer_or_official_evaluation",
   "development_history": [
     {
       "version": "v1",
@@ -315,9 +315,47 @@
         "audit temporary zeroing of the 200 original Base down columns and restore them bit-exactly",
         "require exact-zero actuator identity, positive reachability, and writer-off NLL drift within 0.05 before any full preservation objective"
       ]
+    },
+    {
+      "version": "v10_embedding_keyed_gate_v3_5_single_collision",
+      "evidence_opened": "locked semantically valid training-safe prompts only",
+      "official_evaluation_opened_by_this_failed_run": false,
+      "official_evaluation_prompts_seen": 0,
+      "checkpoint_saved": false,
+      "detector_optimizer_updates": 0,
+      "actuator_training_started": false,
+      "owner_wise_detector_gate": {
+        "passed_records": 50,
+        "total_records": 50,
+        "passed": true,
+        "source": "exact frozen V3.2 gate/up tensors"
+      },
+      "isolated_threshold_gate": {
+        "positive_owner_one": "346/346",
+        "positive_cross_zero": "16954/16954",
+        "negative_zero": "23250/23250",
+        "writer_off_zero": "17299/17300",
+        "single_nonzero_writer_off_gate": 0.5735465884208679,
+        "source_case_id": 10803,
+        "offending_context_index_before_forensics": null,
+        "offending_detector_group_before_forensics": null,
+        "owner_status_before_forensics": "unresolved"
+      },
+      "result": "rejected before actuator optimization because exactly one of 17300 writer-off branch-gate cells was nonzero; the aggregate artifact did not identify its context or detector group",
+      "interpretation": [
+        "the observed branch-gate rejection is single-cell and does not by itself establish broad detector cross-talk",
+        "the V3.5 aggregate cannot establish whether the source record's owner detector or another record's detector fired",
+        "clipped zero gates do not establish raw-response margin below the 0.20 boundary"
+      ],
+      "changes_motivated": [
+        "replay the exact frozen tensors and training-safe cached context construction without fitting any parameter",
+        "record raw signed response, source context index and provenance, detector group and case ID, and owner/non-owner status for every violating cell",
+        "keep the 0.20/0.25 boundaries unchanged and prohibit threshold calibration",
+        "stop before constructing either optimizer and keep official evaluation unavailable"
+      ]
     }
   ],
-  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, detector V3, detector V3.1, V3.2 actuator, V3.3 actuator, and V3.4 cap-sweep runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer, V3.2 source run, V3.3 learner, V3.4 sweep, or V3.5 architecture test or used for checkpoint selection/retry.",
+  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, detector V3, detector V3.1, V3.2 actuator, V3.3 actuator, V3.4 cap-sweep, and V3.5 isolated-gate runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer, V3.2 source run, V3.3 learner, V3.4 sweep, V3.5 architecture test, or V3.5.1 forensic replay or used for checkpoint selection/retry.",
   "development_retain_shared_row_exposure_audit": {
     "data_role": "consumed_development_evidence_not_blind_evaluation",
     "source_writer_protocol": "mcf_context_composed_sparse_embedding_writer_v6_2",
@@ -337,7 +375,7 @@
     "development_prompts_with_actual_edited_row": 5762,
     "forget_subjects_with_reused_actual_edited_row": 49,
     "official_evaluation_prompts_seen": 0,
-    "learner_usage": "architecture motivation and reporting only; no development record, frequency, overlap, or norm statistic enters V3.5 selection, optimization, acceptance, or retry",
+    "learner_usage": "architecture motivation and reporting only; no development record, frequency, overlap, or norm statistic enters V3.5 selection, optimization, acceptance, or retry, or the V3.5.1 forensic replay",
     "causal_limit": "the audit establishes shared-parameter exposure, not that overlap itself causes retain degradation",
     "architecture_implication": "shared embedding rows may carry a sparse marker, but the behavioral erasure must be conditioned downstream on context-composed hidden state",
     "norm_frequency_followup_script": "scripts/audit_mcf_embedding_writer_shared_row_exposure.py",
@@ -390,14 +428,17 @@
     }
   },
   "detector_training_revision": {
-    "version": "v3.5_frozen_v3_2_readout",
+    "version": "v3.5.1_forensic_frozen_v3_2_readout",
+    "mode": "read_only_single_collision_replay",
     "primary_initialization": "frozen_v3_2",
+    "source_v3_5_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5",
     "source_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_2",
     "source_training_revision": "v3.2",
     "source_gate_passed_records": 50,
     "source_gate_total_records": 50,
     "source_gate_passed": true,
     "source_optimizer_updates": 1000,
+    "optimizer_constructed_this_run": false,
     "optimizer_updates_this_run": 0,
     "imported_tensors": ["gate_delta", "up_delta"],
     "source_down_delta_imported": false,
@@ -446,8 +487,12 @@
     "official_evaluation_prompts_seen": 0
   },
   "actuator_training_revision": {
-    "version": "v3.5",
-    "mode": "training_only_isolated_thresholded_residual_feasibility",
+    "version": "v3.5.1",
+    "mode": "read_only_single_collision_forensics_no_fit",
+    "source_v3_5_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5",
+    "historical_v3_5_plan_below_not_executed_by_v3_5_1": true,
+    "optimizer_constructed_this_run": false,
+    "optimizer_updates_this_run": 0,
     "frozen_training_contexts": {
       "writer_on_positive": 346,
       "writer_on_negative": 465,
@@ -547,14 +592,24 @@
     "allowed_interim_description": "V6.1 is consistent with cross-record interference; V6.2 tests a globally balanced optimizer and is an engineering improvement experiment"
   },
   "primary_claim": "Embedding-keyed sparse-neuron context-conditional factual suppression with measured locality",
-  "v3_5_scope": {
+  "v3_5_1_scope": {
     "training_only": true,
-    "isolated_thresholded_residual_feasibility_only": true,
+    "forensic_replay_only": true,
+    "source_v3_5_rejection_hash_bound": true,
+    "expected_writer_off_gate_cells": 17300,
+    "expected_nonzero_writer_off_gate_cells": 1,
+    "expected_source_case_id": 10803,
+    "raw_signed_response_matrix_required": true,
+    "source_context_index_and_provenance_required": true,
+    "detector_group_and_owner_status_required": true,
+    "threshold_calibration_prohibited": true,
+    "detector_optimizer_construction_prohibited": true,
+    "actuator_optimizer_construction_prohibited": true,
     "full_preservation_training_prohibited": true,
     "checkpoint_creation_prohibited": true,
     "official_evaluation_prohibited": true,
     "ordinary_existing_weight_materialization_claimed": false,
-    "downstream_checkpoint_controls_and_official_audits": "deferred to a separately preregistered post-feasibility protocol"
+    "downstream_architecture_change_checkpoint_controls_and_official_audits": "deferred until the collision is identified and a separate fix is preregistered"
   },
   "explicitly_disallowed_primary_claims": [
     "weight-level knowledge deletion",
@@ -580,7 +635,7 @@
     "writer_preflight_amplitude_threshold": 4.5,
     "writer_preflight_min_global_fraction": 0.95,
     "writer_preflight_min_record_fraction": 0.8,
-    "detector_steps": 1000,
+    "detector_steps": 0,
     "detector_initialization": "frozen_v3_2",
     "detector_lr": 0.001,
     "detector_record_batch": 4,

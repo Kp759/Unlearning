@@ -15,14 +15,13 @@ Architecture
 
 For each edit, a disjoint group of existing low-activation MLP features was
 selected using only training-safe writer-on versus writer-off activations.
-V3.5 imports the exact V3.2 detector tensors, but does not replace the Base MLP
-contribution. It maps the locked 0.20/0.25 detector-certificate gap to a clipped
-internal gate and adds a separate sparse residual. Consequently, an exact-zero
-actuator is algebraically identical to Base even when detector features fire.
-This is an explicit internal residual branch—not an ordinary existing-weight
-materialization—and the training-only run discards all fitted weights. There is
-no tokenizer expansion, subject-string matcher, retrieval cache, external
-router, adapter, LoRA, logit bias, or LM-head update.
+V3.5.1 is a forensic replay of the rejected V3.5 gate, not a new fit. It imports
+the exact V3.2 detector and fixed 0.20/0.25 boundary, reproduces the lone
+writer-off collision, and records its source context, detector group, raw
+signed response, and owner/non-owner status. It stops before constructing an
+optimizer or training an actuator. The ordinary Base MLP contribution stays
+untouched and no threshold, detector tensor, actuator tensor, or official
+evaluation input can change.
 
 Data firewall
 -------------
@@ -70,6 +69,7 @@ PROTOCOL = neuron_core.PROTOCOL
 FROZEN_DETECTOR_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_2"
 FROZEN_V3_3_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_3"
 FROZEN_V3_4_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_4"
+FROZEN_V3_5_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5"
 FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES = (
     "MCF_PATH",
     "OFFICIAL_MCF_PATH",
@@ -155,7 +155,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--detector-initialization",
         choices=("frozen_v3_2", "train"),
         default="train",
-        help=("V3.5 imports the exact passed V3.2 gate/up tensors as a readout."),
+        help=("V3.5.1 imports the exact passed V3.2 gate/up tensors read-only."),
     )
     parser.add_argument(
         "--frozen-v3-2-run-dir",
@@ -176,6 +176,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help=(
             "Rejected V3.4 output root whose cap-1.5 reachability and structural "
             "selectivity failure are hash-bound into the V3.5 architecture test."
+        ),
+    )
+    parser.add_argument(
+        "--frozen-v3-5-run-dir",
+        help=(
+            "Rejected V3.5 output root whose single unresolved writer-off gate "
+            "collision is hash-bound into the V3.5.1 forensic replay."
         ),
     )
     parser.add_argument(
@@ -250,8 +257,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "Run the V3.5 fixed-cap positive-only fit through the isolated "
-            "thresholded residual branch, discard it, and return before full training."
+            "Run the V3.5.1 collision-forensics replay and return before detector "
+            "or actuator optimization."
         ),
     )
     parser.add_argument(
@@ -259,7 +266,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         nargs="+",
         type=float,
         default=[1.50],
-        help="V3.5 locks the isolated residual feasibility test to cap 1.50.",
+        help="Historical fixed cap retained in metadata; V3.5.1 never fits it.",
     )
     parser.add_argument(
         "--actuator-architecture",
@@ -269,8 +276,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
         default="isolated_thresholded_residual",
         help=(
-            "V3.5 leaves the ordinary MLP output untouched and adds only a "
-            "threshold-gated residual driven by the frozen V3.2 detector."
+            "V3.5.1 leaves the ordinary MLP output untouched while replaying the "
+            "frozen detector gate."
         ),
     )
     parser.add_argument(
@@ -406,13 +413,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--detector-steps must be non-negative")
     if value.detector_initialization == "frozen_v3_2":
         if value.writer_mode != "embedding_keyed":
-            parser.error("frozen_v3_2 detector initialization requires the writer")
+            parser.error("V3.2 detector initialization requires the writer")
         if not str(value.frozen_v3_2_run_dir or "").strip():
-            parser.error(
-                "--frozen-v3-2-run-dir is required for frozen_v3_2 initialization"
-            )
+            parser.error("--frozen-v3-2-run-dir is required for V3.2 initialization")
     elif value.frozen_v3_2_run_dir:
-        parser.error("--frozen-v3-2-run-dir is only valid with frozen_v3_2")
+        parser.error("--frozen-v3-2-run-dir is only valid with V3.2 initialization")
     if int(value.detector_record_batch) <= 0:
         parser.error("--detector-record-batch must be positive")
     if int(value.detector_tail_k) <= 0:
@@ -436,14 +441,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--detector-selectivity-warning-ratio must be finite and positive")
     if value.training_only_isolated_threshold_feasibility:
         if int(value.actuator_steps) != 0:
-            parser.error("V3.5 training-only feasibility requires --actuator-steps 0")
+            parser.error("V3.5.1 collision forensics requires --actuator-steps 0")
         if value.actuator_architecture != "isolated_thresholded_residual":
             parser.error(
-                "V3.5 training-only feasibility requires the isolated thresholded "
+                "V3.5.1 collision forensics requires the isolated thresholded "
                 "residual architecture"
             )
         if caps != [1.5]:
-            parser.error("V3.5 fixes --actuator-feasibility-caps to exactly 1.50")
+            parser.error("V3.5.1 retains --actuator-feasibility-caps at exactly 1.50")
     elif int(value.actuator_steps) <= 0:
         parser.error("--actuator-steps must be positive outside feasibility mode")
     if int(value.actuator_batch_size) <= 0:
@@ -513,21 +518,27 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         )
     if value.training_only_isolated_threshold_feasibility:
         if value.experiment_label != "primary":
-            parser.error("V3.5 feasibility is restricted to the primary run")
+            parser.error("V3.5.1 forensics is restricted to the primary run")
         if value.writer_mode != "embedding_keyed":
-            parser.error("V3.5 feasibility requires the embedding writer")
+            parser.error("V3.5.1 forensics requires the embedding writer")
         if value.detector_initialization != "frozen_v3_2":
-            parser.error("V3.5 feasibility requires the frozen V3.2 detector")
+            parser.error("V3.5.1 forensics requires the frozen V3.2 detector")
         if not str(value.frozen_v3_4_run_dir or "").strip():
-            parser.error("--frozen-v3-4-run-dir is required for V3.5")
+            parser.error("--frozen-v3-4-run-dir is required for V3.5.1")
+        if not str(value.frozen_v3_5_run_dir or "").strip():
+            parser.error("--frozen-v3-5-run-dir is required for V3.5.1")
         if value.frozen_v3_3_run_dir:
-            parser.error("V3.5 imports the hash-bound V3.4 result, not V3.3 directly")
+            parser.error("V3.5.1 imports V3.4/V3.5, not V3.3 directly")
         if value.save_checkpoint or value.save_rejected_checkpoint:
-            parser.error("V3.5 training-only feasibility cannot save checkpoints")
-    elif value.frozen_v3_3_run_dir or value.frozen_v3_4_run_dir:
+            parser.error("V3.5.1 collision forensics cannot save checkpoints")
+    elif (
+        value.frozen_v3_3_run_dir
+        or value.frozen_v3_4_run_dir
+        or value.frozen_v3_5_run_dir
+    ):
         parser.error(
-            "frozen V3.3/V3.4 run directories are only valid with the "
-            "training-only V3.5 feasibility mode"
+            "frozen V3.3/V3.4/V3.5 run directories are only valid with the "
+            "training-only V3.5.1 collision-forensics mode"
         )
     guard = float(value.threshold_gate_numerical_guard)
     if not math.isfinite(guard) or guard < 0.0:
@@ -648,16 +659,47 @@ def _validate_experiment_registry(
         raise RuntimeError(
             "development-retain exposure audit lost its consumed-data label"
         )
+    forensic_scope = registry.get("v3_5_1_scope")
+    expected_forensic_scope = {
+        "training_only": True,
+        "forensic_replay_only": True,
+        "source_v3_5_rejection_hash_bound": True,
+        "expected_writer_off_gate_cells": 17300,
+        "expected_nonzero_writer_off_gate_cells": 1,
+        "expected_source_case_id": 10803,
+        "raw_signed_response_matrix_required": True,
+        "source_context_index_and_provenance_required": True,
+        "detector_group_and_owner_status_required": True,
+        "threshold_calibration_prohibited": True,
+        "detector_optimizer_construction_prohibited": True,
+        "actuator_optimizer_construction_prohibited": True,
+        "full_preservation_training_prohibited": True,
+        "checkpoint_creation_prohibited": True,
+        "official_evaluation_prohibited": True,
+        "ordinary_existing_weight_materialization_claimed": False,
+        "downstream_architecture_change_checkpoint_controls_and_official_audits": (
+            "deferred until the collision is identified and a separate fix is "
+            "preregistered"
+        ),
+    }
+    if not isinstance(forensic_scope, Mapping):
+        raise RuntimeError("registry lacks the V3.5.1 forensic-only scope")
+    for key, expected_value in expected_forensic_scope.items():
+        if forensic_scope.get(key) != expected_value:
+            raise RuntimeError(f"registry V3.5.1 forensic scope mismatch: {key}")
     detector_revision = registry.get("detector_training_revision")
     expected_detector_revision = {
-        "version": "v3.5_frozen_v3_2_readout",
+        "version": "v3.5.1_forensic_frozen_v3_2_readout",
+        "mode": "read_only_single_collision_replay",
         "primary_initialization": "frozen_v3_2",
+        "source_v3_5_protocol": FROZEN_V3_5_PROTOCOL,
         "source_protocol": FROZEN_DETECTOR_PROTOCOL,
         "source_training_revision": "v3.2",
         "source_gate_passed_records": 50,
         "source_gate_total_records": 50,
         "source_gate_passed": True,
         "source_optimizer_updates": 1000,
+        "optimizer_constructed_this_run": False,
         "optimizer_updates_this_run": 0,
         "imported_tensors": ["gate_delta", "up_delta"],
         "source_down_delta_imported": False,
@@ -713,8 +755,12 @@ def _validate_experiment_registry(
 
     actuator_revision = registry.get("actuator_training_revision")
     expected_actuator_revision = {
-        "version": "v3.5",
-        "mode": "training_only_isolated_thresholded_residual_feasibility",
+        "version": "v3.5.1",
+        "mode": "read_only_single_collision_forensics_no_fit",
+        "source_v3_5_protocol": FROZEN_V3_5_PROTOCOL,
+        "historical_v3_5_plan_below_not_executed_by_v3_5_1": True,
+        "optimizer_constructed_this_run": False,
+        "optimizer_updates_this_run": 0,
         "frozen_training_contexts": {
             "writer_on_positive": 346,
             "writer_on_negative": 465,
@@ -1549,6 +1595,182 @@ def validate_frozen_v3_4_rejection(
                 sweep["selected_smallest_positive_reachable_cap"]
             ),
             "mechanism_readiness_passed": bool(sweep["mechanism_readiness_passed"]),
+        },
+        "checks": checks,
+        "passed": True,
+        "official_evaluation_prompts_seen": 0,
+    }
+
+
+def validate_frozen_v3_5_rejection(
+    run_dir: Path,
+    *,
+    case_ids: Sequence[int],
+    ownership_sha256: str,
+) -> Dict[str, Any]:
+    """Hash-bind the single-cell global writer-off rejection from V3.5."""
+
+    root = Path(run_dir).resolve()
+    method_dir = root / "method" if (root / "method").is_dir() else root
+    paths = {
+        "gate": method_dir / "detector_gate_report.json",
+        "endpoint_audit": method_dir / "detector_endpoint_audit.json",
+        "selection": method_dir / "neuron_selection_report.json",
+        "threshold_gate": method_dir / "isolated_threshold_gate_report.json",
+        "selectivity": method_dir / "frozen_detector_selectivity_audit.json",
+        "v3_2_import": method_dir / "frozen_v3_2_detector_import.json",
+        "v3_4_import": method_dir / "frozen_v3_4_rejection_import.json",
+        "rejection": method_dir / "training_rejection.json",
+        "firewall": method_dir / "training_firewall_receipt.json",
+    }
+    for name, path in paths.items():
+        if not path.is_file():
+            raise FileNotFoundError(f"frozen V3.5 rejection lacks {name}: {path}")
+
+    gate = _load_json(paths["gate"])
+    endpoint = _load_json(paths["endpoint_audit"])
+    selection = _load_json(paths["selection"])
+    threshold = _load_json(paths["threshold_gate"])
+    selectivity = _load_json(paths["selectivity"])
+    v3_2_import = _load_json(paths["v3_2_import"])
+    v3_4_import = _load_json(paths["v3_4_import"])
+    rejection = _load_json(paths["rejection"])
+    firewall = _load_json(paths["firewall"])
+    gate_rows = gate.get("per_record")
+    checks_payload = threshold.get("checks", {})
+    aggregate = threshold.get("aggregate", {})
+    writer_off = aggregate.get("writer_off", {})
+    positive_owner = aggregate.get("positive_owner", {})
+    positive_cross = aggregate.get("positive_cross", {})
+    negative = aggregate.get("negative", {})
+    threshold_rows = threshold.get("per_record")
+    failing_writer_off_rows = (
+        [
+            row
+            for row in threshold_rows
+            if isinstance(row, Mapping)
+            and float(row.get("writer_off_gate_abs_max", 0.0)) > 1e-6
+        ]
+        if isinstance(threshold_rows, list)
+        else []
+    )
+    writer_off_count = int(writer_off.get("n", -1))
+    writer_off_max = float(writer_off.get("max", float("nan")))
+    writer_off_sum = float(writer_off.get("mean", float("nan"))) * writer_off_count
+    checks = {
+        "gate_protocol": gate.get("protocol") == FROZEN_V3_5_PROTOCOL,
+        "endpoint_protocol": endpoint.get("protocol") == FROZEN_V3_5_PROTOCOL,
+        "threshold_protocol": threshold.get("protocol") == FROZEN_V3_5_PROTOCOL,
+        "selectivity_protocol": selectivity.get("protocol") == FROZEN_V3_5_PROTOCOL,
+        "gate_passed": bool(gate.get("passed"))
+        and int(gate.get("passed_records", -1)) == len(case_ids)
+        and int(gate.get("total_records", -1)) == len(case_ids),
+        "case_ids": bool(
+            isinstance(gate_rows, list)
+            and [int(row.get("case_id", -1)) for row in gate_rows]
+            == [int(value) for value in case_ids]
+        ),
+        "ownership": str(
+            selection.get("selected_neuron_ownership_jq_compact_sha256") or ""
+        )
+        == str(ownership_sha256),
+        "threshold_boundaries": math.isclose(
+            float(
+                threshold.get("boundaries", {}).get(
+                    "runtime_off_boundary", float("nan")
+                )
+            ),
+            0.200001,
+            abs_tol=1e-12,
+        )
+        and math.isclose(
+            float(
+                threshold.get("boundaries", {}).get("runtime_on_boundary", float("nan"))
+            ),
+            0.249999,
+            abs_tol=1e-12,
+        ),
+        "only_writer_off_check_failed": checks_payload
+        == {
+            "all_positive_owner_gates_one": True,
+            "all_positive_cross_gates_zero": True,
+            "all_negative_gates_zero": True,
+            "all_writer_off_gates_zero": False,
+        },
+        "positive_owner_all_one": int(positive_owner.get("n", -1)) == 346
+        and math.isclose(float(positive_owner.get("min", float("nan"))), 1.0),
+        "positive_cross_all_zero": int(positive_cross.get("n", -1)) == 16954
+        and math.isclose(float(positive_cross.get("max", float("nan"))), 0.0),
+        "negative_all_zero": int(negative.get("n", -1)) == 23250
+        and math.isclose(float(negative.get("max", float("nan"))), 0.0),
+        "writer_off_single_cell": writer_off_count == 17300
+        and math.isclose(
+            writer_off_max,
+            0.5735465884208679,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+        and math.isclose(
+            writer_off_sum,
+            writer_off_max,
+            rel_tol=0.0,
+            abs_tol=1e-10,
+        ),
+        "single_source_record": len(failing_writer_off_rows) == 1
+        and int(failing_writer_off_rows[0].get("case_id", -1)) == 10803,
+        "threshold_rejected": threshold.get("passed") is False,
+        "v3_2_import": v3_2_import.get("passed") is True,
+        "v3_4_import": v3_4_import.get("passed") is True,
+        "rejection_reason": rejection.get("stage") == "isolated_threshold_gate"
+        and rejection.get("reason")
+        == "frozen_detector_gap_did_not_map_to_exact_branch_gate",
+        "actuator_not_started": rejection.get("actuator_training_started") is False,
+        "checkpoint_not_saved": rejection.get("checkpoint_saved") is False,
+        "official_refused": rejection.get("official_evaluation_allowed") is False,
+        "official_prompts_zero": all(
+            payload.get("official_evaluation_prompts_seen") == 0
+            for payload in (
+                gate,
+                endpoint,
+                threshold,
+                selectivity,
+                v3_2_import,
+                v3_4_import,
+                rejection,
+            )
+        ),
+        "firewall_official_prompts_zero": all(
+            (
+                firewall.get("data_access", {}).get("official_paraphrases_seen") == 0,
+                firewall.get("data_access", {}).get("official_neighborhoods_seen") == 0,
+                firewall.get("data_access", {}).get("benchmark_retain_seen") == 0,
+                firewall.get("data_access", {}).get("official_ppl_seen") is False,
+            )
+        ),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise RuntimeError(
+            "frozen V3.5 rejection lineage failed: " + ", ".join(sorted(failed))
+        )
+    return {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_frozen_v3_5_rejection_import",
+        "source_run_dir": str(root),
+        "source_method_dir": str(method_dir),
+        "source_protocol": FROZEN_V3_5_PROTOCOL,
+        "target_protocol": PROTOCOL,
+        "source_artifacts": {
+            name: {"path": str(path), "sha256": compositional_method.sha256_file(path)}
+            for name, path in paths.items()
+        },
+        "observed": {
+            "detector_passed_records": int(gate["passed_records"]),
+            "writer_off_gate_cells": writer_off_count,
+            "nonzero_writer_off_gate_cells": 1,
+            "writer_off_gate_max": writer_off_max,
+            "writer_off_source_case_id": 10803,
+            "actuator_training_started": False,
         },
         "checks": checks,
         "passed": True,
@@ -2619,9 +2841,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     if not args.training_only_isolated_threshold_feasibility:
         raise RuntimeError(
-            "V3.5 is restricted to the training-only isolated-threshold "
-            "feasibility path; full training and checkpoint materialization require "
-            "a separately preregistered successor protocol"
+            "V3.5.1 is restricted to the training-only collision-forensics replay; "
+            "detector or actuator optimization, checkpoint materialization, and "
+            "official evaluation require a separately preregistered successor"
         )
     _validate_environment_firewall()
     gagd.set_seed(int(args.seed))
@@ -2797,6 +3019,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             if args.frozen_v3_4_run_dir
             else None
         ),
+        "frozen_v3_5_run_dir": (
+            str(Path(args.frozen_v3_5_run_dir).resolve())
+            if args.frozen_v3_5_run_dir
+            else None
+        ),
         "development_retain_shared_row_exposure": {
             "registered_as_consumed_architecture_motivation": True,
             "development_records": 9438,
@@ -2825,7 +3052,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             "training-visible compositional negatives",
             "disjoint Wikipedia protection prefixes",
             *(
-                ["hash-bound passed V3.2 training-only detector tensors"]
+                [
+                    "hash-bound passed V3.2 training-only detector tensors",
+                    "hash-bound V3.5 single-cell global writer-off rejection",
+                ]
                 if str(args.detector_initialization) == "frozen_v3_2"
                 else []
             ),
@@ -3206,8 +3436,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     gagd.write_json(out_dir / "neuron_selection_report.json", selection_report)
     if not ownership_binding_passed:
         raise RuntimeError(
-            "V3.5 primary neuron ownership differs from the registered V3 through "
-            "V3.4 "
+            "V3.5.1 primary neuron ownership differs from the registered V3 through "
+            "V3.5 "
             f"selection: observed {ownership_sha256}, expected "
             f"{expected_ownership_sha256}"
         )
@@ -3231,6 +3461,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     frozen_detector_import: Dict[str, Any] | None = None
     frozen_detector_source_gate: Dict[str, Any] | None = None
     frozen_v3_4_rejection: Dict[str, Any] | None = None
+    frozen_v3_5_rejection: Dict[str, Any] | None = None
     if str(args.detector_initialization) == "frozen_v3_2":
         (
             frozen_detector_import,
@@ -3268,8 +3499,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(
             "  hash-bound preserved V3.4 reachability-pass/selectivity-reject outcome"
         )
+        frozen_v3_5_rejection = validate_frozen_v3_5_rejection(
+            Path(args.frozen_v3_5_run_dir),
+            case_ids=case_ids,
+            ownership_sha256=ownership_sha256,
+        )
+        gagd.write_json(
+            out_dir / "frozen_v3_5_rejection_import.json", frozen_v3_5_rejection
+        )
+        firewall_receipt["frozen_v3_5_rejection_import"] = frozen_v3_5_rejection
+        gagd.write_json(out_dir / "training_firewall_receipt.json", firewall_receipt)
+        print("  hash-bound preserved V3.5 single-cell writer-off gate rejection")
 
-    print("\nStage 1: cache frozen layer-input states for detector training")
+    print("\nStage 1: cache frozen layer-input states for collision forensics")
     editor.write_enabled = False
     detector_trainable = str(args.detector_initialization) == "train"
     editor.gate_delta.requires_grad_(detector_trainable)
@@ -3401,13 +3643,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     def detector_optimization_metadata() -> Dict[str, Any]:
+        initialization = str(args.detector_initialization)
+        if initialization == "frozen_v3_2":
+            revision = "v3.5.1_forensic_frozen_v3.2_replay"
+        else:
+            revision = "control_training"
         return {
-            "revision": (
-                "v3.2_frozen_import"
-                if str(args.detector_initialization) == "frozen_v3_2"
-                else "v3.3_control_training"
-            ),
-            "initialization": str(args.detector_initialization),
+            "revision": revision,
+            "initialization": initialization,
             "update_coverage": "all_records_accumulated",
             "records_per_optimizer_update": len(records),
             "record_microbatch_capacity": int(args.detector_record_batch),
@@ -3418,7 +3661,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             "positive_objective": "mean_plus_worst_k_squared_shortfall",
             "negative_objective": "mean_plus_worst_k_squared_gate_excess",
             "cross_objective": "mean_plus_worst_k_squared_gate_excess",
-            "writer_off_objective": "mean_plus_worst_k_squared_gate_excess",
+            "writer_off_objective": "historical_source_owner_only_objective",
+            "writer_off_groups_per_context_in_forensic_replay": len(records),
+            "forensic_replay_only": initialization == "frozen_v3_2",
+            "optimizer_constructed": False if initialization == "frozen_v3_2" else True,
             "training_positive_floor": float(args.detector_training_positive_floor),
             "training_off_abs_max": float(args.detector_training_off_abs_max),
             "certificate_positive_floor": float(args.detector_positive_floor),
@@ -3426,11 +3672,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "certificate_abs_tolerance": float(args.detector_certificate_abs_tolerance),
             "certificate_thresholds_unchanged_from_v3_1": True,
             "gradient_normalization": "equal_record_mean",
-            "source_optimizer_steps": (
-                int(args.detector_steps)
-                if str(args.detector_initialization) == "frozen_v3_2"
-                else 0
-            ),
+            "source_optimizer_steps": 1000 if initialization == "frozen_v3_2" else 0,
             "optimizer_steps_this_run": detector_optimizer_steps_this_run,
             "record_exposures_this_run": detector_optimizer_steps_this_run
             * len(records),
@@ -3625,11 +3867,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         }
 
     @torch.no_grad()
-    def isolated_threshold_gate_report() -> Dict[str, Any]:
-        """Certify that the frozen response gap becomes a real branch gate."""
+    def isolated_threshold_gate_report(
+        *, phase: str, optimizer_step: int
+    ) -> Dict[str, Any]:
+        """Certify response bounds and runtime gates over every detector cell."""
 
         if editor.residual_mode != "isolated_thresholded_residual":
-            raise RuntimeError("threshold gate report requires the V3.5 architecture")
+            raise RuntimeError("threshold gate report requires the V3.5.1 architecture")
 
         def gates_from_responses(responses: torch.Tensor) -> torch.Tensor:
             width = float(editor.threshold_gate_on_boundary) - float(
@@ -3639,11 +3883,100 @@ def main(argv: Sequence[str] | None = None) -> None:
                 (responses - float(editor.threshold_gate_off_boundary)) / width
             ).clamp(min=0.0, max=1.0)
 
+        endpoint_tolerance = 1e-6
+        certificate_tolerance = float(args.detector_certificate_abs_tolerance)
+        off_limit = float(args.detector_off_abs_max) + certificate_tolerance
+        positive_limit = float(args.detector_positive_floor) - certificate_tolerance
         per_record: List[Dict[str, Any]] = []
-        positive_owner_parts: List[torch.Tensor] = []
-        positive_cross_parts: List[torch.Tensor] = []
-        negative_parts: List[torch.Tensor] = []
-        writer_off_parts: List[torch.Tensor] = []
+        response_parts: Dict[str, List[torch.Tensor]] = {
+            "positive_owner": [],
+            "positive_cross": [],
+            "negative": [],
+            "writer_off": [],
+        }
+        gate_parts: Dict[str, List[torch.Tensor]] = {
+            name: [] for name in response_parts
+        }
+        violations: Dict[str, List[Dict[str, Any]]] = {
+            name: [] for name in response_parts
+        }
+        raw_response_matrices: List[Dict[str, Any]] = []
+
+        def prompt_digest(category: str, source: int, context: int) -> str:
+            prompts = (
+                negative_prompts_by_record
+                if category == "negative"
+                else positive_prompts_by_record
+            )
+            return hashlib.sha256(
+                str(prompts[source][context]).encode("utf-8")
+            ).hexdigest()
+
+        def context_provenance(
+            category: str, source: int, context: int
+        ) -> Dict[str, Any]:
+            record_context = context_sets[int(case_ids[source])]
+            if category == "negative":
+                rows = record_context.get("negative_contexts", [])
+            else:
+                rows = record_context.get("positive_prompt_provenance", [])
+            if not isinstance(rows, list) or context >= len(rows):
+                return {"available": False}
+            row = rows[context]
+            if not isinstance(row, Mapping):
+                return {"available": False}
+            return {
+                "available": True,
+                **{
+                    str(key): value
+                    for key, value in row.items()
+                    if str(key) != "prompt"
+                },
+            }
+
+        def append_off_violations(
+            *,
+            category: str,
+            source_record: int,
+            responses: torch.Tensor,
+            gates: torch.Tensor,
+            detector_indices: Sequence[int],
+        ) -> None:
+            response_bad = responses.abs().gt(off_limit)
+            gate_bad = gates.abs().gt(endpoint_tolerance)
+            bad = response_bad | gate_bad
+            for context_index, local_group_index in torch.nonzero(
+                bad, as_tuple=False
+            ).tolist():
+                detector_group = int(detector_indices[local_group_index])
+                violations[category].append(
+                    {
+                        "source_record_index": int(source_record),
+                        "source_case_id": int(case_ids[source_record]),
+                        "source_context_index": int(context_index),
+                        "source_prompt_sha256": prompt_digest(
+                            category, source_record, context_index
+                        ),
+                        "source_context_provenance": context_provenance(
+                            category, source_record, context_index
+                        ),
+                        "detector_group_index": detector_group,
+                        "detector_case_id": int(case_ids[detector_group]),
+                        "owner_group": detector_group == int(source_record),
+                        "response": float(responses[context_index, local_group_index]),
+                        "response_abs": float(
+                            responses[context_index, local_group_index].abs()
+                        ),
+                        "gate": float(gates[context_index, local_group_index]),
+                        "response_certificate_violation": bool(
+                            response_bad[context_index, local_group_index]
+                        ),
+                        "gate_endpoint_violation": bool(
+                            gate_bad[context_index, local_group_index]
+                        ),
+                    }
+                )
+
         for record_index in range(len(records)):
             positive_response = (
                 cached_detector_responses(positive_hidden_cache[record_index])
@@ -3663,70 +3996,192 @@ def main(argv: Sequence[str] | None = None) -> None:
             positive_gate = gates_from_responses(positive_response)
             negative_gate = gates_from_responses(negative_response)
             off_gate = gates_from_responses(off_response)
-            owner_positive = positive_gate[:, record_index]
-            nonowner_mask = torch.ones(len(records), dtype=torch.bool)
-            nonowner_mask[record_index] = False
-            positive_cross = positive_gate[:, nonowner_mask]
-            positive_owner_parts.append(owner_positive.reshape(-1))
-            positive_cross_parts.append(positive_cross.reshape(-1))
-            negative_parts.append(negative_gate.reshape(-1))
-            writer_off_parts.append(off_gate.reshape(-1))
+            owner_positive_response = positive_response[:, record_index]
+            owner_positive_gate = positive_gate[:, record_index]
+            nonowner_indices = [
+                index for index in range(len(records)) if index != record_index
+            ]
+            nonowner_index = torch.tensor(nonowner_indices, dtype=torch.long)
+            positive_cross_response = positive_response.index_select(1, nonowner_index)
+            positive_cross_gate = positive_gate.index_select(1, nonowner_index)
+            response_parts["positive_owner"].append(owner_positive_response.reshape(-1))
+            response_parts["positive_cross"].append(positive_cross_response.reshape(-1))
+            response_parts["negative"].append(negative_response.reshape(-1))
+            response_parts["writer_off"].append(off_response.reshape(-1))
+            gate_parts["positive_owner"].append(owner_positive_gate.reshape(-1))
+            gate_parts["positive_cross"].append(positive_cross_gate.reshape(-1))
+            gate_parts["negative"].append(negative_gate.reshape(-1))
+            gate_parts["writer_off"].append(off_gate.reshape(-1))
+
+            owner_bad = owner_positive_response.lt(
+                positive_limit
+            ) | owner_positive_gate.lt(1.0 - endpoint_tolerance)
+            for context_index in (
+                torch.nonzero(owner_bad, as_tuple=False).reshape(-1).tolist()
+            ):
+                violations["positive_owner"].append(
+                    {
+                        "source_record_index": record_index,
+                        "source_case_id": int(case_ids[record_index]),
+                        "source_context_index": int(context_index),
+                        "source_prompt_sha256": prompt_digest(
+                            "positive_owner", record_index, context_index
+                        ),
+                        "source_context_provenance": context_provenance(
+                            "positive_owner", record_index, context_index
+                        ),
+                        "detector_group_index": record_index,
+                        "detector_case_id": int(case_ids[record_index]),
+                        "owner_group": True,
+                        "response": float(owner_positive_response[context_index]),
+                        "response_abs": float(
+                            owner_positive_response[context_index].abs()
+                        ),
+                        "gate": float(owner_positive_gate[context_index]),
+                        "response_certificate_violation": bool(
+                            owner_positive_response[context_index] < positive_limit
+                        ),
+                        "gate_endpoint_violation": bool(
+                            owner_positive_gate[context_index]
+                            < 1.0 - endpoint_tolerance
+                        ),
+                    }
+                )
+            append_off_violations(
+                category="positive_cross",
+                source_record=record_index,
+                responses=positive_cross_response,
+                gates=positive_cross_gate,
+                detector_indices=nonowner_indices,
+            )
+            append_off_violations(
+                category="negative",
+                source_record=record_index,
+                responses=negative_response,
+                gates=negative_gate,
+                detector_indices=list(range(len(records))),
+            )
+            append_off_violations(
+                category="writer_off",
+                source_record=record_index,
+                responses=off_response,
+                gates=off_gate,
+                detector_indices=list(range(len(records))),
+            )
+            raw_response_matrices.append(
+                {
+                    "source_record_index": record_index,
+                    "source_case_id": int(case_ids[record_index]),
+                    "detector_group_case_ids": [int(value) for value in case_ids],
+                    "positive": positive_response.tolist(),
+                    "negative": negative_response.tolist(),
+                    "writer_off": off_response.tolist(),
+                }
+            )
             per_record.append(
                 {
                     "record_index": record_index,
                     "case_id": int(case_ids[record_index]),
-                    "positive_contexts": int(owner_positive.numel()),
-                    "positive_owner_gate_min": float(owner_positive.min()),
-                    "positive_owner_gate_median": float(owner_positive.median()),
-                    "positive_cross_gate_abs_max": float(positive_cross.abs().max()),
+                    "positive_contexts": int(owner_positive_gate.numel()),
+                    "positive_owner_response_min": float(owner_positive_response.min()),
+                    "positive_owner_gate_min": float(owner_positive_gate.min()),
+                    "positive_owner_gate_median": float(owner_positive_gate.median()),
+                    "positive_cross_response_abs_max": float(
+                        positive_cross_response.abs().max()
+                    ),
+                    "positive_cross_gate_abs_max": float(
+                        positive_cross_gate.abs().max()
+                    ),
+                    "negative_response_abs_max": float(negative_response.abs().max()),
                     "negative_gate_abs_max": float(negative_gate.abs().max()),
+                    "writer_off_response_abs_max": float(off_response.abs().max()),
                     "writer_off_gate_abs_max": float(off_gate.abs().max()),
                 }
             )
-        positive_owner = torch.cat(positive_owner_parts)
-        positive_cross = torch.cat(positive_cross_parts)
-        negative = torch.cat(negative_parts)
-        writer_off = torch.cat(writer_off_parts)
-        endpoint_tolerance = 1e-6
+
+        responses = {name: torch.cat(parts) for name, parts in response_parts.items()}
+        gates = {name: torch.cat(parts) for name, parts in gate_parts.items()}
+        response_violation_counts = {
+            name: sum(bool(row["response_certificate_violation"]) for row in rows)
+            for name, rows in violations.items()
+        }
+        gate_violation_counts = {
+            name: sum(bool(row["gate_endpoint_violation"]) for row in rows)
+            for name, rows in violations.items()
+        }
+        writer_off_gate_violations = [
+            row
+            for row in violations["writer_off"]
+            if bool(row["gate_endpoint_violation"])
+        ]
+        writer_off_gate_argmax = (
+            max(writer_off_gate_violations, key=lambda row: abs(float(row["gate"])))
+            if writer_off_gate_violations
+            else None
+        )
         checks = {
+            "all_positive_owner_responses_certified": not violations["positive_owner"],
+            "all_positive_cross_responses_certified": not violations["positive_cross"],
+            "all_negative_responses_certified": not violations["negative"],
+            "all_writer_off_responses_certified": not violations["writer_off"],
             "all_positive_owner_gates_one": bool(
-                float(positive_owner.min()) >= 1.0 - endpoint_tolerance
+                float(gates["positive_owner"].min()) >= 1.0 - endpoint_tolerance
             ),
             "all_positive_cross_gates_zero": bool(
-                float(positive_cross.abs().max()) <= endpoint_tolerance
+                float(gates["positive_cross"].abs().max()) <= endpoint_tolerance
             ),
             "all_negative_gates_zero": bool(
-                float(negative.abs().max()) <= endpoint_tolerance
+                float(gates["negative"].abs().max()) <= endpoint_tolerance
             ),
             "all_writer_off_gates_zero": bool(
-                float(writer_off.abs().max()) <= endpoint_tolerance
+                float(gates["writer_off"].abs().max()) <= endpoint_tolerance
             ),
         }
         return {
-            "schema_version": 1,
-            "kind": "mcf_embedding_keyed_neuron_isolated_threshold_gate",
+            "schema_version": 2,
+            "kind": "mcf_embedding_keyed_neuron_global_isolation_gate",
             "protocol": PROTOCOL,
+            "phase": str(phase),
+            "optimizer_step": int(optimizer_step),
             "architecture": str(args.actuator_architecture),
             "definition": (
                 "clip((signed_group_response - off_boundary) / "
                 "(on_boundary - off_boundary), 0, 1)"
+            ),
+            "certificate_scope": (
+                "owner positive plus every non-owner positive, every negative group, "
+                "and every writer-off group"
+            ),
+            "threshold_calibration": (
+                "none; global 0.20/0.25 boundaries inherited unchanged from V3.5"
             ),
             "boundaries": {
                 "registered_detector_off_abs_max": float(args.detector_off_abs_max),
                 "registered_detector_positive_floor": float(
                     args.detector_positive_floor
                 ),
+                "certificate_abs_tolerance": certificate_tolerance,
                 "numerical_guard": float(args.threshold_gate_numerical_guard),
                 "runtime_off_boundary": float(editor.threshold_gate_off_boundary),
                 "runtime_on_boundary": float(editor.threshold_gate_on_boundary),
                 "endpoint_tolerance": endpoint_tolerance,
             },
             "aggregate": {
-                "positive_owner_gate": _distribution(positive_owner.tolist()),
-                "positive_cross_gate": _distribution(positive_cross.tolist()),
-                "negative_gate": _distribution(negative.tolist()),
-                "writer_off_gate": _distribution(writer_off.tolist()),
+                **{
+                    f"{name}_response": _distribution(value.tolist())
+                    for name, value in responses.items()
+                },
+                **{
+                    f"{name}_gate": _distribution(value.tolist())
+                    for name, value in gates.items()
+                },
             },
+            "violation_counts": {name: len(rows) for name, rows in violations.items()},
+            "response_certificate_violation_counts": response_violation_counts,
+            "gate_endpoint_violation_counts": gate_violation_counts,
+            "violating_cells": violations,
+            "writer_off_gate_argmax_cell": writer_off_gate_argmax,
+            "raw_signed_response_matrices_by_source_record": raw_response_matrices,
             "checks": checks,
             "passed": all(checks.values()),
             "per_record": per_record,
@@ -3790,6 +4245,290 @@ def main(argv: Sequence[str] | None = None) -> None:
         for row, case_id in zip(gate["per_record"], case_ids):
             row["case_id"] = int(case_id)
         return gate
+
+    print("\nStage 1: replay frozen V3.5 gate and identify its exact collision")
+    if frozen_detector_source_gate is None or frozen_v3_5_rejection is None:
+        raise RuntimeError("V3.5.1 forensics requires frozen V3.2 and V3.5 receipts")
+
+    detector_gate = full_cached_detector_gate(
+        phase="final_fresh_full_context_certificate",
+        optimizer_step=0,
+    )
+    frozen_detector_replay = compare_detector_gate_replays(
+        frozen_detector_source_gate,
+        detector_gate,
+        abs_tolerance=FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE,
+    )
+    if not frozen_detector_replay["passed"]:
+        raise RuntimeError(
+            "V3.5.1 owner-wise detector replay differs from frozen V3.2 source"
+        )
+    detector_gate["frozen_v3_2_source_replay"] = frozen_detector_replay
+    detector_gate_path = out_dir / "detector_gate_report.json"
+    gagd.write_json(detector_gate_path, detector_gate)
+
+    detector_training_log = {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_detector_forensic_no_training_log",
+        "protocol": PROTOCOL,
+        "revision": detector_optimization_metadata()["revision"],
+        "optimizer_constructed": False,
+        "optimizer_steps_expected": 0,
+        "optimizer_steps_recorded": 0,
+        "records": [],
+        "complete": True,
+        "official_evaluation_prompts_seen": 0,
+    }
+    detector_training_log_path = out_dir / "detector_training_log.json"
+    gagd.write_json(detector_training_log_path, detector_training_log)
+    endpoint_audit = {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_detector_endpoint_audit",
+        "protocol": PROTOCOL,
+        "optimizer_step": 0,
+        "optimizer_constructed": False,
+        "phase_audits_not_applicable_for_frozen_forensic_replay": True,
+        "final_fresh_full_context_certificate": {
+            "path": str(detector_gate_path),
+            "sha256": compositional_method.sha256_file(detector_gate_path),
+            "passed_records": int(detector_gate["passed_records"]),
+            "total_records": int(detector_gate["total_records"]),
+            "passed": bool(detector_gate["passed"]),
+        },
+        "frozen_v3_2_source_replay": frozen_detector_replay,
+        "frozen_v3_2_import": frozen_detector_import,
+        "complete": True,
+        "official_evaluation_prompts_seen": 0,
+    }
+    gagd.write_json(out_dir / "detector_endpoint_audit.json", endpoint_audit)
+
+    global_gate = isolated_threshold_gate_report(
+        phase="v3.5.1_forensic_replay",
+        optimizer_step=0,
+    )
+    global_gate_path = out_dir / "isolated_threshold_gate_report.json"
+    gagd.write_json(global_gate_path, global_gate)
+    gate_violation_counts = global_gate["gate_endpoint_violation_counts"]
+    expected_gate_violation_counts = {
+        "positive_owner": 0,
+        "positive_cross": 0,
+        "negative": 0,
+        "writer_off": 1,
+    }
+    writer_off_gate_cells = [
+        row
+        for row in global_gate["violating_cells"]["writer_off"]
+        if bool(row["gate_endpoint_violation"])
+    ]
+    historical = frozen_v3_5_rejection["observed"]
+    writer_off_gate_summary = global_gate["aggregate"]["writer_off_gate"]
+    historical_replay = {
+        "gate_violation_counts_match": gate_violation_counts
+        == expected_gate_violation_counts,
+        "writer_off_gate_cell_count_match": int(writer_off_gate_summary["n"])
+        == int(historical["writer_off_gate_cells"]),
+        "single_writer_off_gate_collision_reproduced": len(writer_off_gate_cells)
+        == int(historical["nonzero_writer_off_gate_cells"])
+        == 1,
+        "writer_off_gate_max_abs_delta": abs(
+            float(writer_off_gate_summary["max"])
+            - float(historical["writer_off_gate_max"])
+        ),
+        "writer_off_source_case_match": bool(
+            writer_off_gate_cells
+            and int(writer_off_gate_cells[0]["source_case_id"])
+            == int(historical["writer_off_source_case_id"])
+        ),
+    }
+    historical_replay["passed"] = bool(
+        historical_replay["gate_violation_counts_match"]
+        and historical_replay["writer_off_gate_cell_count_match"]
+        and historical_replay["single_writer_off_gate_collision_reproduced"]
+        and float(historical_replay["writer_off_gate_max_abs_delta"])
+        <= FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE
+        and historical_replay["writer_off_source_case_match"]
+    )
+    if not historical_replay["passed"]:
+        raise RuntimeError("V3.5.1 did not exactly reproduce the frozen V3.5 collision")
+
+    collision = dict(writer_off_gate_cells[0])
+    source_index = int(collision["source_record_index"])
+    source_context_index = int(collision["source_context_index"])
+    detector_group_index = int(collision["detector_group_index"])
+    historical_inferred_response = float(editor.threshold_gate_off_boundary) + float(
+        historical["writer_off_gate_max"]
+    ) * (
+        float(editor.threshold_gate_on_boundary)
+        - float(editor.threshold_gate_off_boundary)
+    )
+    historical_replay.update(
+        {
+            "historical_gate_inferred_raw_response": historical_inferred_response,
+            "fresh_raw_response_abs_delta": abs(
+                float(collision["response"]) - historical_inferred_response
+            ),
+        }
+    )
+    historical_replay["fresh_raw_response_matches_inverted_historical_gate"] = bool(
+        float(historical_replay["fresh_raw_response_abs_delta"])
+        <= FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE
+    )
+    if not historical_replay["fresh_raw_response_matches_inverted_historical_gate"]:
+        raise RuntimeError(
+            "V3.5.1 raw response does not reproduce the inverted V3.5 gate value"
+        )
+    source_prompt = str(positive_prompts_by_record[source_index][source_context_index])
+    exact_positive_duplicates: List[Dict[str, int]] = []
+    exact_negative_duplicates: List[Dict[str, int]] = []
+    for record_index, prompts in enumerate(positive_prompts_by_record):
+        for context_index, prompt in enumerate(prompts):
+            if str(prompt) == source_prompt:
+                exact_positive_duplicates.append(
+                    {
+                        "record_index": int(record_index),
+                        "case_id": int(case_ids[record_index]),
+                        "context_index": int(context_index),
+                    }
+                )
+    for record_index, prompts in enumerate(negative_prompts_by_record):
+        for context_index, prompt in enumerate(prompts):
+            if str(prompt) == source_prompt:
+                exact_negative_duplicates.append(
+                    {
+                        "record_index": int(record_index),
+                        "case_id": int(case_ids[record_index]),
+                        "context_index": int(context_index),
+                    }
+                )
+    source_owner_gate_row = detector_gate["per_record"][source_index]
+    collision_classification = (
+        "source_owner_fired_without_embedding_writer"
+        if bool(collision["owner_group"])
+        else "cross_record_detector_fired_without_embedding_writer"
+    )
+    collision.update(
+        {
+            "source_prompt": source_prompt,
+            "source_prompt_role": (
+                "writer-off replay of the same registered training-safe positive"
+            ),
+            "source_prompt_exact_positive_locations": exact_positive_duplicates,
+            "source_prompt_exact_negative_locations": exact_negative_duplicates,
+            "source_owner_certificate_writer_off_abs_max": float(
+                source_owner_gate_row["writer_off_abs_max"]
+            ),
+            "collision_classification": collision_classification,
+        }
+    )
+    ownerwise_consistency = bool(
+        (not collision["owner_group"])
+        or math.isclose(
+            float(collision["response_abs"]),
+            float(source_owner_gate_row["writer_off_abs_max"]),
+            rel_tol=0.0,
+            abs_tol=FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE,
+        )
+    )
+    if not ownerwise_consistency:
+        collision_classification = "owner_group_indexing_inconsistency"
+        collision["collision_classification"] = collision_classification
+
+    forensic_report = {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_v3_5_single_collision_forensics",
+        "protocol": PROTOCOL,
+        "mode": "read_only_training_safe_forensic_replay",
+        "fixed_inputs": {
+            "writer": "exact V6.2",
+            "detector": "exact frozen V3.2 gate/up tensors",
+            "selected_neurons": len(selected_neurons),
+            "ownership_sha256": ownership_sha256,
+            "threshold_calibration": "none",
+            "registered_off_boundary": float(args.detector_off_abs_max),
+            "registered_positive_floor": float(args.detector_positive_floor),
+            "runtime_off_boundary": float(editor.threshold_gate_off_boundary),
+            "runtime_on_boundary": float(editor.threshold_gate_on_boundary),
+        },
+        "historical_v3_5_replay": historical_replay,
+        "global_gate_report": {
+            "path": str(global_gate_path),
+            "sha256": compositional_method.sha256_file(global_gate_path),
+            "gate_endpoint_violation_counts": gate_violation_counts,
+            "response_certificate_violation_counts": global_gate[
+                "response_certificate_violation_counts"
+            ],
+        },
+        "single_writer_off_collision": collision,
+        "ownerwise_certificate_consistent": ownerwise_consistency,
+        "diagnosis": collision_classification,
+        "detector_optimizer_constructed": False,
+        "detector_optimizer_updates": 0,
+        "actuator_optimizer_constructed": False,
+        "actuator_training_started": False,
+        "checkpoint_saved": False,
+        "official_evaluation_allowed": False,
+        "official_evaluation_prompts_seen": 0,
+    }
+    forensic_path = out_dir / "v3_5_collision_forensics.json"
+    gagd.write_json(forensic_path, forensic_report)
+    completion = {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_v3_5_1_forensic_completion",
+        "protocol": PROTOCOL,
+        "complete": True,
+        "result": "single_v3_5_writer_off_collision_identified",
+        "diagnosis": collision_classification,
+        "source_case_id": int(collision["source_case_id"]),
+        "source_context_index": source_context_index,
+        "detector_case_id": int(collision["detector_case_id"]),
+        "detector_group_index": detector_group_index,
+        "owner_group": bool(collision["owner_group"]),
+        "raw_signed_response": float(collision["response"]),
+        "runtime_gate": float(collision["gate"]),
+        "forensic_report": {
+            "path": str(forensic_path),
+            "sha256": compositional_method.sha256_file(forensic_path),
+        },
+        "threshold_changed": False,
+        "detector_tensors_changed": False,
+        "actuator_tensors_changed": False,
+        "detector_optimizer_constructed": False,
+        "actuator_optimizer_constructed": False,
+        "checkpoint_saved": False,
+        "official_evaluation_allowed": False,
+        "official_evaluation_prompts_seen": 0,
+    }
+    gagd.write_json(out_dir / "training_only_v3_5_1_completion.json", completion)
+    gagd.write_json(
+        out_dir / "training_rejection.json",
+        {
+            "schema_version": 1,
+            "kind": "mcf_embedding_keyed_neuron_training_only_rejection",
+            "protocol": PROTOCOL,
+            "stage": "v3.5_collision_forensics",
+            "reason": "v3.5_architecture_remains_rejected_pending_preregistered_fix",
+            "diagnosis": collision_classification,
+            "forensic_report_path": str(forensic_path),
+            "actuator_training_started": False,
+            "checkpoint_saved": False,
+            "official_evaluation_allowed": False,
+            "official_evaluation_prompts_seen": 0,
+        },
+    )
+    print(
+        "  collision: source case "
+        f"{collision['source_case_id']} context {source_context_index}, detector "
+        f"case {collision['detector_case_id']} (owner={collision['owner_group']}), "
+        f"response={float(collision['response']):+.8f}, "
+        f"gate={float(collision['gate']):.8f}"
+    )
+    print(
+        "V3.5.1 forensics complete; no optimizer was constructed and official "
+        "evaluation remains refused"
+    )
+    editor.remove()
+    embedding_writer.remove()
+    return
 
     print(
         "\nStage 1: "
@@ -4143,7 +4882,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"p10={float(response_ratio['p10']):.4f}, "
             f"median={float(response_ratio['median']):.4f}"
         )
-        threshold_gate = isolated_threshold_gate_report()
+        threshold_gate = isolated_threshold_gate_report(
+            phase="legacy_unreachable_post_detector_training",
+            optimizer_step=detector_optimizer_steps_this_run,
+        )
         gagd.write_json(out_dir / "isolated_threshold_gate_report.json", threshold_gate)
         print(
             "  isolated threshold gate: "
