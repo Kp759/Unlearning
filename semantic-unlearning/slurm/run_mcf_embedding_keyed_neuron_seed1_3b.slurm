@@ -18,9 +18,10 @@ ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"
 WIKIDATA_DIR="${WIKIDATA_DIR:-/scratch/yl258/kp759/datasets/wikipedia_sure_50020}"
 MCF_PATH="${MCF_PATH:-data/multi_counterfact.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_embedding_keyed_neuron_v3_2_seed1_3b}"
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/mcf_embedding_keyed_neuron_v3_3_seed1_3b}"
 CONTROL_OUTPUT_DIR="${CONTROL_OUTPUT_DIR:-${OUTPUT_DIR}_mlp_only_retrained}"
 CLEAN_WRITER_OUTPUT_DIR="${CLEAN_WRITER_OUTPUT_DIR:-outputs/mcf_compositional_marker_v6_2_clean_seed1_3b}"
+FROZEN_V3_2_OUTPUT_DIR="${FROZEN_V3_2_OUTPUT_DIR:-outputs/mcf_embedding_keyed_neuron_v3_2_seed1_3b}"
 
 # These are the exact artifacts that produced the frozen Stage-1 writer.  The
 # neuron learner never receives MCF_PATH and cannot open official probes.
@@ -42,7 +43,7 @@ export PYTHONUNBUFFERED=1
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
 if [[ -e "${OUTPUT_DIR}" ]]; then
-  echo "output path already exists; refusing to mix historical/V3.2 artifacts: ${OUTPUT_DIR}" >&2
+  echo "output path already exists; refusing to mix historical/V3.3 artifacts: ${OUTPUT_DIR}" >&2
   exit 2
 fi
 if [[ -e "${CONTROL_OUTPUT_DIR}" ]]; then
@@ -55,6 +56,42 @@ for required in "${TRAINING_VISIBLE}" "${SPLIT_MANIFEST}" "${CONTEXT_MANIFEST}" 
     exit 2
   fi
 done
+if [[ -d "${FROZEN_V3_2_OUTPUT_DIR}/method" ]]; then
+  FROZEN_V3_2_METHOD_DIR="${FROZEN_V3_2_OUTPUT_DIR}/method"
+else
+  FROZEN_V3_2_METHOD_DIR="${FROZEN_V3_2_OUTPUT_DIR}"
+fi
+for required in \
+  "${FROZEN_V3_2_METHOD_DIR}/embedding_keyed_neuron_state.pt" \
+  "${FROZEN_V3_2_METHOD_DIR}/detector_gate_report.json" \
+  "${FROZEN_V3_2_METHOD_DIR}/detector_endpoint_audit.json" \
+  "${FROZEN_V3_2_METHOD_DIR}/neuron_selection_report.json" \
+  "${FROZEN_V3_2_METHOD_DIR}/embedding_keyed_neuron_summary.json" \
+  "${FROZEN_V3_2_METHOD_DIR}/training_firewall_receipt.json"
+do
+  if [[ ! -f "${required}" ]]; then
+    echo "required frozen V3.2 detector artifact is missing: ${required}" >&2
+    exit 2
+  fi
+done
+if ! jq -e '
+  .protocol == "mcf_embedding_keyed_sparse_neuron_suppression_v3_2" and
+  .passed == true and
+  .passed_records == 50 and
+  .total_records == 50 and
+  .official_evaluation_prompts_seen == 0
+' "${FROZEN_V3_2_METHOD_DIR}/detector_gate_report.json" >/dev/null; then
+  echo "frozen V3.2 source did not pass its 50/50 training-only detector gate" >&2
+  exit 2
+fi
+if ! jq -e '
+  .protocol == "mcf_embedding_keyed_sparse_neuron_suppression_v3_2" and
+  .acceptance.detector_gate_passed == true and
+  .acceptance.passed == false
+' "${FROZEN_V3_2_METHOD_DIR}/embedding_keyed_neuron_summary.json" >/dev/null; then
+  echo "frozen V3.2 source is not the preserved detector-pass/actuator-reject run" >&2
+  exit 2
+fi
 if ! jq -e '
   .kind == "mcf_clean_stage1_writer_acceptance" and
   .passed == true and
@@ -77,14 +114,14 @@ if ! jq -e '
   echo "clean Stage-1 integrity/portability acceptance failed: ${STAGE1_ACCEPTANCE}" >&2
   exit 2
 fi
-EXPECTED_PROTOCOL="mcf_embedding_keyed_sparse_neuron_suppression_v3_2"
+EXPECTED_PROTOCOL="mcf_embedding_keyed_sparse_neuron_suppression_v3_3"
 if ! jq -e --arg expected "${EXPECTED_PROTOCOL}" '.protocol == $expected' "${REGISTRY}" >/dev/null; then
   echo "registry is stale; expected protocol ${EXPECTED_PROTOCOL}: ${REGISTRY}" >&2
   exit 2
 fi
-python -c 'import sys; sys.path.insert(0, "scripts"); import mcf_embedding_keyed_neuron_core as c; assert c.PROTOCOL == "mcf_embedding_keyed_sparse_neuron_suppression_v3_2", c.PROTOCOL' \
+python -c 'import sys; sys.path.insert(0, "scripts"); import mcf_embedding_keyed_neuron_core as c; assert c.PROTOCOL == "mcf_embedding_keyed_sparse_neuron_suppression_v3_3", c.PROTOCOL' \
   2>/dev/null || {
-    echo "checkout is stale: sparse-neuron V3.2 code is not importable" >&2
+    echo "checkout is stale: sparse-neuron V3.3 code is not importable" >&2
     exit 2
   }
 mkdir -p slurm_logs "${OUTPUT_DIR}/protocol" "${OUTPUT_DIR}/comparison" \
@@ -127,6 +164,8 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --wikidata-dir "${WIKIDATA_DIR}" \
   --corpus-protection-prompts 8192 \
   --detector-steps 1000 \
+  --detector-initialization frozen_v3_2 \
+  --frozen-v3-2-run-dir "${FROZEN_V3_2_OUTPUT_DIR}" \
   --detector-lr 0.001 \
   --detector-record-batch 4 \
   --detector-positive-contexts all \
@@ -142,16 +181,24 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --detector-off-abs-max 0.20 \
   --detector-training-off-abs-max 0.15 \
   --detector-certificate-abs-tolerance 1e-7 \
-  --actuator-steps 2000 \
+  --actuator-feasibility-steps 100 \
+  --actuator-steps 100 \
   --actuator-lr 0.0005 \
+  --actuator-batch-size 4 \
+  --actuator-protected-batch 80 \
+  --actuator-positive-contexts all \
+  --actuator-negative-contexts all \
+  --actuator-tail-k 2 \
   --forget-margin 1 \
   --margin-weight 20 \
   --reference-nll-weight 50 \
   --reference-nll-tolerance 0.05 \
   --protected-kl-weight 20 \
   --writer-off-nll-weight 50 \
+  --actuator-writer-off-nll-tolerance 0.05 \
   --actuator-writer-off-every 1 \
   --actuator-relative-cap 0.50 \
+  --check-every 5 \
   --require-writer-necessity \
   --gate-policy strict \
   --dtype bf16 \
@@ -208,6 +255,7 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --wikidata-dir "${WIKIDATA_DIR}" \
   --corpus-protection-prompts 8192 \
   --detector-steps 1000 \
+  --detector-initialization train \
   --detector-lr 0.001 \
   --detector-record-batch 4 \
   --detector-positive-contexts all \
@@ -223,16 +271,24 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --detector-off-abs-max 0.20 \
   --detector-training-off-abs-max 0.15 \
   --detector-certificate-abs-tolerance 1e-7 \
-  --actuator-steps 2000 \
+  --actuator-feasibility-steps 100 \
+  --actuator-steps 100 \
   --actuator-lr 0.0005 \
+  --actuator-batch-size 4 \
+  --actuator-protected-batch 80 \
+  --actuator-positive-contexts all \
+  --actuator-negative-contexts all \
+  --actuator-tail-k 2 \
   --forget-margin 1 \
   --margin-weight 20 \
   --reference-nll-weight 50 \
   --reference-nll-tolerance 0.05 \
   --protected-kl-weight 20 \
   --writer-off-nll-weight 0 \
+  --actuator-writer-off-nll-tolerance 0.05 \
   --actuator-writer-off-every 1 \
   --actuator-relative-cap 0.50 \
+  --check-every 5 \
   --no-require-writer-necessity \
   --gate-policy strict \
   --dtype bf16 \

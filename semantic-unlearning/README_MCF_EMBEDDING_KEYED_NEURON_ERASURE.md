@@ -44,7 +44,7 @@ subtract a paired Base activation that would be unavailable at inference. The
 training floor and off-context threshold are diagnostics, not a fictional
 runtime classifier.
 
-## Training-only rejections and the V3.2 safety-margin revision
+## Training-only rejections and the V3.3 actuator revision
 
 The first layer-8 feasibility run was rejected before its official evaluation: its
 detector passed 0/50 records, and the subsequently attempted actuator was
@@ -125,9 +125,38 @@ all registered before its run:
   and in a fresh final replay; and
 - all 1,000 detector optimizer-step rows saved to a complete JSON log.
 
-V3.2 still fails closed unless all 50 records pass the unchanged scientific
-certificate. A rejection leaves both actuator training and official evaluation
-unavailable.
+V3.2 passed that unchanged detector certificate for all 50 records, so the
+actuator was allowed to start. The actuator then failed decisively after its
+registered 2,000 stochastic updates: 41/50 materialized direct contexts and
+294/346 positives still failed, minimum margin was -9.8281, and maximum
+reference-NLL regression was 0.6484 against a 0.05 tolerance. Turning off the
+neuron decoder also produced 41 direct failures, so the learned down columns
+did not improve the writer-only direct-failure count. Official evaluation saw
+zero prompts and no checkpoint was saved.
+
+V3.3 redesigns only Stage 2 and imports the exact passed V3.2 `gate_delta` and
+`up_delta` tensors. It hash-binds the rejected V3.2 source, replays the fresh
+50/50 detector certificate with a separately registered `1e-5` cross-process
+replay tolerance, refuses to import the failed `down_delta`, and starts the
+actuator at exact zero under the unchanged 0.50 relative norm cap. The fresh
+scientific detector certificate itself retains its stricter `1e-7` comparison
+tolerance.
+
+Before the full objective, V3.3 runs a registered 100-update positive-only
+capacity diagnostic. Every update accumulates all 50 records and all 346
+positive contexts, using an equal-record prompt mean plus worst-two squared
+margin shortfall. The learned diagnostic weights are always discarded. If the
+diagnostic does not reach zero direct and zero all-positive failures, V3.3
+refuses full training, checkpoint saving, and official evaluation.
+
+If feasibility passes, the full actuator restarts from exact zero for 100
+global updates. Each update includes all 346 positives, all 465 compositional
+negatives, all 346 writer-off positives, and a deterministic 80-prompt
+protected sample. Positive, reference, negative, and writer-off losses use
+equal-record mean-plus-worst-two reductions. Writer-off drift is penalized only
+beyond the existing 0.05 NLL tolerance. Gradient clipping, Adam, and the norm
+projection each occur once per global update. Every update and the final
+pre-Adam, post-Adam, post-projection, and fresh full-context audits are saved.
 
 To add the case-ID binding to the preserved historical V3 rejection without
 changing its gate JSON:
@@ -336,7 +365,9 @@ alias, adversarial, latent, or relearning input. It reads only:
 3. the training-safe context manifest;
 4. the from-Base, relation-templates-only Stage-1 writer state, report, and
    nonempty hash-bound optimization log; and
-5. Wikipedia documents 20 onward for selection/protection.
+5. the hash-bound training-only artifacts from the rejected V3.2 run whose
+   detector passed 50/50 records; and
+6. Wikipedia documents 20 onward for selection/protection.
 
 Documents 0:20 remain reserved for official PPL. Relevant hashes and zero-
 access receipts are checked. The main launcher freezes and reload-verifies both
@@ -351,8 +382,8 @@ run.
 
 The registry is
 `protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json`. The legacy
-filename is retained for launcher compatibility; its current schema is 8 and
-its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_2`.
+filename is retained for launcher compatibility; its current schema is 9 and
+its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_3`.
 The paper-level report requires all of the following:
 
 - primary Eff = 0 and Gen = 0;
@@ -396,14 +427,16 @@ full retrained control, and post-freeze audits:
 bash scripts/submit_mcf_embedding_keyed_neuron_seed1.sh
 ```
 
-For an interactive allocation, use the V3.2 argument-taking wrapper. It rejects
-the historical writer lineage and existing output directories:
+For an interactive allocation, use the V3.3 argument-taking wrapper. It
+requires both the clean V6.2 writer and the preserved rejected V3.2 run, and it
+rejects existing output directories:
 
 ```bash
-bash scripts/run_mcf_embedding_keyed_neuron_v3_2_manual.sh \
+bash scripts/run_mcf_embedding_keyed_neuron_v3_3_manual.sh \
   /scratch/yl258/kp759/ul-a8864ff/semantic-unlearning/outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
   outputs/mcf_embedding_keyed_neuron_v3_2_seed1_3b \
-  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_2_seed1_manual.log
+  outputs/mcf_embedding_keyed_neuron_v3_3_seed1_3b \
+  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_3_seed1_manual.log
 ```
 
 The job is intentionally budgeted for two full training runs. The result report
@@ -440,11 +473,11 @@ python scripts/aggregate_mcf_context_gating_frequency_factorial.py \
 - `method/detector_hidden_cache_report.json`: all-record/all-context cache
   coverage and the exact cached-computation contract;
 - `method/detector_training_log.json`: every detector optimizer update, not
-  only console-print checkpoints;
-- `method/detector_step_1000_{pre_update,post_adam,post_projection}_gate.json`:
-  full-context certificates at the final optimizer boundaries;
+  only console-print checkpoints (zero new updates for the frozen V3.2 import);
+- `method/frozen_v3_2_detector_import.json`: hashes and lineage checks proving
+  that only the passed V3.2 gate/up detector tensors were imported;
 - `method/detector_endpoint_audit.json`: hashes and consistency checks binding
-  those endpoint certificates to the fresh final gate;
+  the frozen source certificate to the fresh V3.3 replay;
 - `method/detector_gate_case_report.tsv`: record-index to MCF case-ID binding
   with positive, negative, writer-off, and pass/fail values;
 - upstream `method/clean_stage1_acceptance.json`: exact from-Base lineage,
@@ -452,6 +485,14 @@ python scripts/aggregate_mcf_context_gating_frequency_factorial.py \
   passed training-safe 4.5 / 95% / 80% portability replay;
 - `method/causal_component_ablation.json`: explicitly labeled
   within-checkpoint intervention;
+- `method/actuator_positive_only_feasibility.json`: all 100 capacity-diagnostic
+  rows, its fresh all-positive audit, and the discard-before-full-training
+  receipt;
+- `method/actuator_training_log.json`: all 100 globally balanced Stage-2
+  optimizer updates;
+- `method/actuator_step_100_{pre_update,post_adam,post_projection}_audit.json`
+  and `method/actuator_endpoint_audit.json`: final optimizer-boundary audits
+  and their replay binding;
 - `method/embedding_keyed_neuron_state.pt`: exact base/edited sparse weights,
   ownership, signs, thresholds, and writer mode;
 - sibling `*_mlp_only_retrained/method/...`: independently trained control;

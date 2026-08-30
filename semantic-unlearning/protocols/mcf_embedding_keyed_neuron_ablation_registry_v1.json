@@ -1,7 +1,7 @@
 {
-  "schema_version": 8,
-  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_2",
-  "status": "training_only_detector_v3_2_safety_margin_revision_preregistered_after_v3_1_rejection_before_actuator_or_official_evaluation",
+  "schema_version": 9,
+  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_3",
+  "status": "training_only_actuator_v3_3_global_all_context_revision_preregistered_after_v3_2_actuator_rejection_before_any_official_evaluation",
   "development_history": [
     {
       "version": "v1",
@@ -172,9 +172,67 @@
         "persist all 1000 detector optimizer-step log rows",
         "require the exact V3/V3.1 selected-neuron ownership hash for the V3.2 primary run"
       ]
+    },
+    {
+      "version": "v7_embedding_keyed_detector_v3_2_actuator",
+      "evidence_opened": "locked semantically valid training-safe prompts only",
+      "official_evaluation_opened_by_this_failed_run": false,
+      "official_evaluation_prompts_seen": 0,
+      "checkpoint_saved": false,
+      "actuator_training_started": true,
+      "result": "the V3.2 detector passed 50/50 records, but the locked Stage-2 actuator acceptance failed after 2000 stochastic record-local updates; official evaluation was refused",
+      "selected_neuron_ownership": {
+        "same_as_v3_and_v3_1": true,
+        "layer": 27,
+        "neurons_per_record": 4,
+        "selected_neuron_count": 200,
+        "jq_projection": "[.ownership[].selected_neurons]",
+        "jq_compact_sha256": "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
+      },
+      "detector_gate": {
+        "passed_records": 50,
+        "total_records": 50,
+        "passed": true,
+        "criterion": {
+          "positive_floor": 0.25,
+          "negative_abs_max": 0.2,
+          "writer_off_abs_max": 0.2,
+          "comparison_abs_tolerance": 1e-7
+        }
+      },
+      "actuator_acceptance": {
+        "materialized_direct_failures": 41,
+        "materialized_positive_failures": 294,
+        "positive_contexts": 346,
+        "minimum_training_margin": -9.8281,
+        "maximum_reference_nll_regression": 0.6484,
+        "reference_nll_regression_tolerance": 0.05,
+        "within_checkpoint_writer_off_direct_failures": 45,
+        "without_neuron_decoder_direct_failures": 41,
+        "lm_head_bit_identical": true
+      },
+      "optimization_audit": {
+        "optimizer_updates": 2000,
+        "positive_contexts_sampled_per_update": 4,
+        "negative_contexts_sampled_per_update": 4,
+        "protected_contexts_sampled_per_update": 4,
+        "positive_certificate_contexts": 346,
+        "audit_direct_failure_range": [39, 42],
+        "interpretation": "the fitted sparse actuator never improved the direct-failure count relative to the writer-only model; stochastic four-context updates and zero-seeking writer-off preservation were mismatched to the all-record/all-positive certificate"
+      },
+      "changes_motivated": [
+        "import the exact passed V3.2 gate/up detector tensors and reset down_delta to exact zero",
+        "run a fixed-budget positive-only all-record/all-positive feasibility diagnostic under the unchanged 0.50 relative down-column cap",
+        "discard feasibility weights before the full objective so the diagnostic cannot warm-start the primary fit",
+        "accumulate every record and every positive, negative, and writer-off training context before each actuator Adam update",
+        "use equal-record mean plus worst-two positive-margin, reference-regression, negative-preservation, and writer-off tail objectives",
+        "penalize writer-off NLL drift only beyond the existing 0.05 training tolerance",
+        "persist every optimizer step and full-context pre-Adam, post-Adam, post-projection, and final fresh audits",
+        "retain the V6.2 writer, exact 200-neuron ownership, detector, layer, norm caps, LM-head freeze, and official-evaluation firewall"
+      ]
     }
   ],
-  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, detector V3, and detector V3.1 runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer or V3.2 learner or used for checkpoint selection/retry.",
+  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, detector V3, detector V3.1, and V3.2 actuator runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer, V3.2 source run, or V3.3 learner or used for checkpoint selection/retry.",
   "stage1_writer_prerequisite": {
     "protocol": "mcf_context_composed_sparse_embedding_writer_v6_2",
     "positive_context_policy": "relation_templates_only_v1",
@@ -221,7 +279,23 @@
     }
   },
   "detector_training_revision": {
-    "version": "v3.2",
+    "version": "v3.3_frozen_v3_2_primary",
+    "primary_initialization": "frozen_v3_2",
+    "source_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_2",
+    "source_training_revision": "v3.2",
+    "source_gate_passed_records": 50,
+    "source_gate_total_records": 50,
+    "source_gate_passed": true,
+    "source_optimizer_updates": 1000,
+    "optimizer_updates_this_run": 0,
+    "imported_tensors": ["gate_delta", "up_delta"],
+    "source_down_delta_imported": false,
+    "current_down_delta_reset_to_zero": true,
+    "exact_source_artifact_hash_receipt_required": true,
+    "fresh_full_context_source_replay_required": true,
+    "source_replay_abs_tolerance": 0.00001,
+    "controls_initialization": "train",
+    "control_optimizer_updates": 1000,
     "training_input": "cached_selected_layer_mlp_input_hidden_states",
     "cache_dtype": "float32",
     "cache_device": "cpu",
@@ -233,7 +307,7 @@
     "update_coverage": "all_records_accumulated",
     "record_microbatch_argument": "detector_record_batch",
     "records_per_optimizer_update": 50,
-    "optimizer_updates": 1000,
+    "optimizer_updates_total_per_detector": 1000,
     "record_exposures": 50000,
     "positive_context_mode": "all",
     "negative_context_mode": "all",
@@ -260,9 +334,68 @@
     "complete_training_log_required": true,
     "official_evaluation_prompts_seen": 0
   },
+  "actuator_training_revision": {
+    "version": "v3.3",
+    "initial_down_delta": "exact_zero",
+    "feasibility": {
+      "optimizer_updates": 100,
+      "records_per_optimizer_update": 50,
+      "positive_contexts_per_optimizer_update": 346,
+      "positive_context_exposures": 34600,
+      "objective": "equal_record_mean_plus_worst_two_squared_margin_shortfall_only",
+      "relative_norm_cap": 0.5,
+      "pass_condition": "zero direct failures and zero failures over all 346 positives",
+      "learned_weights_discarded_before_full_training": true,
+      "failure_action": "refuse full actuator training, checkpoint saving, and official evaluation"
+    },
+    "full_training": {
+      "optimizer_updates": 100,
+      "records_per_optimizer_update": 50,
+      "positive_context_mode": "all",
+      "negative_context_mode": "all",
+      "writer_off_context_mode": "all",
+      "positive_contexts_per_optimizer_update": 346,
+      "negative_contexts_per_optimizer_update": 465,
+      "writer_off_contexts_per_optimizer_update": 346,
+      "protected_contexts_per_optimizer_update": 80,
+      "protected_sampling_seed": "seed + 78103",
+      "positive_context_exposures": 34600,
+      "negative_context_exposures": 46500,
+      "writer_off_context_exposures": 34600,
+      "protected_context_exposures": 8000,
+      "context_microbatch_capacity": 4,
+      "tail_k": 2,
+      "gradient_normalization": "equal_record_mean_plus_global_protected_prompt_mean",
+      "positive_objective": "mean_plus_worst_k_squared_margin_shortfall",
+      "reference_objective": "mean_plus_worst_k_squared_regression_excess_above_tolerance",
+      "negative_objective": "mean_plus_worst_k_squared_nll_drift",
+      "writer_off_objective": "mean_plus_worst_k_squared_abs_nll_drift_excess_above_tolerance",
+      "forget_margin": 1.0,
+      "reference_nll_tolerance": 0.05,
+      "writer_off_nll_tolerance": 0.05,
+      "margin_weight": 20.0,
+      "reference_nll_weight": 50.0,
+      "negative_nll_weight": 1.0,
+      "protected_kl_weight": 20.0,
+      "writer_off_nll_weight": 50.0,
+      "learning_rate": 0.0005,
+      "relative_norm_cap": 0.5,
+      "gradient_clip_frequency": "once_per_optimizer_update",
+      "norm_projection_frequency": "once_per_optimizer_update"
+    },
+    "endpoint_audit_phases": [
+      "pre_update",
+      "post_adam",
+      "post_projection",
+      "final_fresh_full_context_audit"
+    ],
+    "complete_feasibility_log_required": true,
+    "complete_full_training_log_required": true,
+    "official_evaluation_prompts_seen": 0
+  },
   "selected_neuron_ownership_binding": {
     "scope": "primary_embedding_keyed_configuration",
-    "source_runs": ["v3", "v3.1"],
+    "source_runs": ["v3", "v3.1", "v3.2"],
     "jq_projection": "[.ownership[].selected_neurons]",
     "jq_compact_sha256": "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1",
     "writer_configuration": {
@@ -306,6 +439,7 @@
     "writer_preflight_min_global_fraction": 0.95,
     "writer_preflight_min_record_fraction": 0.8,
     "detector_steps": 1000,
+    "detector_initialization": "frozen_v3_2",
     "detector_lr": 0.001,
     "detector_record_batch": 4,
     "detector_positive_contexts": "all",
@@ -322,10 +456,14 @@
     "detector_off_abs_max": 0.2,
     "detector_training_off_abs_max": 0.15,
     "detector_certificate_abs_tolerance": 1e-7,
-    "actuator_steps": 2000,
+    "actuator_feasibility_steps": 100,
+    "actuator_steps": 100,
     "actuator_lr": 0.0005,
     "actuator_batch_size": 4,
-    "actuator_protected_batch": 4,
+    "actuator_protected_batch": 80,
+    "actuator_positive_contexts": "all",
+    "actuator_negative_contexts": "all",
+    "actuator_tail_k": 2,
     "actuator_writer_off_every": 1,
     "forget_margin": 1.0,
     "margin_weight": 20.0,
@@ -333,10 +471,11 @@
     "reference_nll_tolerance": 0.05,
     "protected_kl_weight": 20.0,
     "writer_off_nll_weight": 50.0,
+    "actuator_writer_off_nll_tolerance": 0.05,
     "actuator_l2": 0.0001,
     "actuator_relative_cap": 0.5,
     "grad_clip": 1.0,
-    "check_every": 50,
+    "check_every": 5,
     "cache_batch_size": 8,
     "kl_topk": 64,
     "hook_materialization_tolerance": 0.05,
@@ -347,6 +486,7 @@
     "gate_policy": "strict"
   },
   "ablation_common_configuration": {
+    "detector_initialization": "train",
     "gate_policy": "report"
   },
   "decisive_matched_control": {

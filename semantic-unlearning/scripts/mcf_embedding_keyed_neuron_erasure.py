@@ -59,6 +59,7 @@ import sure_canonical_core as canonical
 
 METHOD = "Embedding-Keyed Sparse-Neuron Conditional Suppression"
 PROTOCOL = neuron_core.PROTOCOL
+FROZEN_DETECTOR_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_2"
 FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES = (
     "MCF_PATH",
     "OFFICIAL_MCF_PATH",
@@ -69,6 +70,7 @@ FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES = (
     "ADVERSARIAL_EVAL_PATH",
 )
 COUNT_DERIVED_FRACTION_ABS_TOLERANCE = 1e-7
+FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE = 1e-5
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -140,6 +142,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--detector-steps", type=int, default=1000)
     parser.add_argument("--detector-lr", type=float, default=1e-3)
     parser.add_argument(
+        "--detector-initialization",
+        choices=("frozen_v3_2", "train"),
+        default="train",
+        help=(
+            "V3.3 primary runs import the exact passed V3.2 gate/up tensors. "
+            "Registered controls and structural ablations train their own detector."
+        ),
+    )
+    parser.add_argument(
+        "--frozen-v3-2-run-dir",
+        help=(
+            "Rejected V3.2 output root containing method/embedding_keyed_neuron_state.pt "
+            "and its training-only detector receipts."
+        ),
+    )
+    parser.add_argument(
         "--detector-record-batch",
         type=int,
         default=4,
@@ -203,10 +221,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Preregistered numerical comparison tolerance for the detector gate.",
     )
 
-    parser.add_argument("--actuator-steps", type=int, default=2000)
+    parser.add_argument("--actuator-feasibility-steps", type=int, default=100)
+    parser.add_argument("--actuator-steps", type=int, default=100)
     parser.add_argument("--actuator-lr", type=float, default=5e-4)
-    parser.add_argument("--actuator-batch-size", type=int, default=4)
-    parser.add_argument("--actuator-protected-batch", type=int, default=4)
+    parser.add_argument(
+        "--actuator-batch-size",
+        type=int,
+        default=4,
+        help="Context microbatch capacity inside an all-record optimizer update.",
+    )
+    parser.add_argument(
+        "--actuator-protected-batch",
+        type=int,
+        default=80,
+        help="Deterministic protected-prompt sample per global optimizer update.",
+    )
+    parser.add_argument("--actuator-positive-contexts", choices=("all",), default="all")
+    parser.add_argument("--actuator-negative-contexts", choices=("all",), default="all")
+    parser.add_argument("--actuator-tail-k", type=int, default=2)
     parser.add_argument("--actuator-writer-off-every", type=int, default=1)
     parser.add_argument("--forget-margin", type=float, default=1.0)
     parser.add_argument("--margin-weight", type=float, default=20.0)
@@ -214,10 +246,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--reference-nll-tolerance", type=float, default=0.05)
     parser.add_argument("--protected-kl-weight", type=float, default=20.0)
     parser.add_argument("--writer-off-nll-weight", type=float, default=50.0)
+    parser.add_argument("--actuator-writer-off-nll-tolerance", type=float, default=0.05)
     parser.add_argument("--actuator-l2", type=float, default=1e-4)
     parser.add_argument("--actuator-relative-cap", type=float, default=0.50)
     parser.add_argument("--grad-clip", type=float, default=1.0)
-    parser.add_argument("--check-every", type=int, default=50)
+    parser.add_argument("--check-every", type=int, default=5)
     parser.add_argument("--cache-batch-size", type=int, default=8)
     parser.add_argument("--kl-topk", type=int, default=64)
     parser.add_argument("--hook-materialization-tolerance", type=float, default=0.05)
@@ -295,10 +328,31 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         )
     if int(value.detector_steps) < 0:
         parser.error("--detector-steps must be non-negative")
+    if value.detector_initialization == "frozen_v3_2":
+        if value.writer_mode != "embedding_keyed":
+            parser.error("frozen_v3_2 detector initialization requires the writer")
+        if not str(value.frozen_v3_2_run_dir or "").strip():
+            parser.error(
+                "--frozen-v3-2-run-dir is required for frozen_v3_2 initialization"
+            )
+    elif value.frozen_v3_2_run_dir:
+        parser.error("--frozen-v3-2-run-dir is only valid with frozen_v3_2")
     if int(value.detector_record_batch) <= 0:
         parser.error("--detector-record-batch must be positive")
     if int(value.detector_tail_k) <= 0:
         parser.error("--detector-tail-k must be positive")
+    if int(value.actuator_feasibility_steps) <= 0:
+        parser.error("--actuator-feasibility-steps must be positive")
+    if int(value.actuator_steps) <= 0:
+        parser.error("--actuator-steps must be positive")
+    if int(value.actuator_batch_size) <= 0:
+        parser.error("--actuator-batch-size must be positive")
+    if int(value.actuator_protected_batch) <= 0:
+        parser.error("--actuator-protected-batch must be positive")
+    if int(value.actuator_tail_k) <= 0:
+        parser.error("--actuator-tail-k must be positive")
+    if float(value.actuator_writer_off_nll_tolerance) < 0:
+        parser.error("--actuator-writer-off-nll-tolerance must be non-negative")
     if float(value.detector_positive_floor) < 0:
         parser.error("--detector-positive-floor must be non-negative")
     if float(value.detector_training_positive_floor) < float(
@@ -439,7 +493,23 @@ def _validate_experiment_registry(
             raise RuntimeError(f"registry clean-writer prerequisite mismatch: {key}")
     detector_revision = registry.get("detector_training_revision")
     expected_detector_revision = {
-        "version": "v3.2",
+        "version": "v3.3_frozen_v3_2_primary",
+        "primary_initialization": "frozen_v3_2",
+        "source_protocol": FROZEN_DETECTOR_PROTOCOL,
+        "source_training_revision": "v3.2",
+        "source_gate_passed_records": 50,
+        "source_gate_total_records": 50,
+        "source_gate_passed": True,
+        "source_optimizer_updates": 1000,
+        "optimizer_updates_this_run": 0,
+        "imported_tensors": ["gate_delta", "up_delta"],
+        "source_down_delta_imported": False,
+        "current_down_delta_reset_to_zero": True,
+        "exact_source_artifact_hash_receipt_required": True,
+        "fresh_full_context_source_replay_required": True,
+        "source_replay_abs_tolerance": FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE,
+        "controls_initialization": "train",
+        "control_optimizer_updates": 1000,
         "training_input": "cached_selected_layer_mlp_input_hidden_states",
         "cache_dtype": "float32",
         "cache_device": "cpu",
@@ -451,7 +521,7 @@ def _validate_experiment_registry(
         "update_coverage": "all_records_accumulated",
         "record_microbatch_argument": "detector_record_batch",
         "records_per_optimizer_update": 50,
-        "optimizer_updates": 1000,
+        "optimizer_updates_total_per_detector": 1000,
         "record_exposures": 50000,
         "positive_context_mode": "all",
         "negative_context_mode": "all",
@@ -479,14 +549,93 @@ def _validate_experiment_registry(
         "official_evaluation_prompts_seen": 0,
     }
     if not isinstance(detector_revision, Mapping):
-        raise RuntimeError("registry lacks the V3.2 detector-training revision")
+        raise RuntimeError("registry lacks the V3.3 detector lineage revision")
     for key, expected_value in expected_detector_revision.items():
         if detector_revision.get(key) != expected_value:
-            raise RuntimeError(f"registry V3.2 detector revision mismatch: {key}")
+            raise RuntimeError(f"registry V3.3 detector revision mismatch: {key}")
+
+    actuator_revision = registry.get("actuator_training_revision")
+    expected_actuator_revision = {
+        "version": "v3.3",
+        "initial_down_delta": "exact_zero",
+        "feasibility": {
+            "optimizer_updates": 100,
+            "records_per_optimizer_update": 50,
+            "positive_contexts_per_optimizer_update": 346,
+            "positive_context_exposures": 34600,
+            "objective": (
+                "equal_record_mean_plus_worst_two_squared_margin_shortfall_only"
+            ),
+            "relative_norm_cap": 0.5,
+            "pass_condition": (
+                "zero direct failures and zero failures over all 346 positives"
+            ),
+            "learned_weights_discarded_before_full_training": True,
+            "failure_action": (
+                "refuse full actuator training, checkpoint saving, and official "
+                "evaluation"
+            ),
+        },
+        "full_training": {
+            "optimizer_updates": 100,
+            "records_per_optimizer_update": 50,
+            "positive_context_mode": "all",
+            "negative_context_mode": "all",
+            "writer_off_context_mode": "all",
+            "positive_contexts_per_optimizer_update": 346,
+            "negative_contexts_per_optimizer_update": 465,
+            "writer_off_contexts_per_optimizer_update": 346,
+            "protected_contexts_per_optimizer_update": 80,
+            "protected_sampling_seed": "seed + 78103",
+            "positive_context_exposures": 34600,
+            "negative_context_exposures": 46500,
+            "writer_off_context_exposures": 34600,
+            "protected_context_exposures": 8000,
+            "context_microbatch_capacity": 4,
+            "tail_k": 2,
+            "gradient_normalization": (
+                "equal_record_mean_plus_global_protected_prompt_mean"
+            ),
+            "positive_objective": ("mean_plus_worst_k_squared_margin_shortfall"),
+            "reference_objective": (
+                "mean_plus_worst_k_squared_regression_excess_above_tolerance"
+            ),
+            "negative_objective": "mean_plus_worst_k_squared_nll_drift",
+            "writer_off_objective": (
+                "mean_plus_worst_k_squared_abs_nll_drift_excess_above_tolerance"
+            ),
+            "forget_margin": 1.0,
+            "reference_nll_tolerance": 0.05,
+            "writer_off_nll_tolerance": 0.05,
+            "margin_weight": 20.0,
+            "reference_nll_weight": 50.0,
+            "negative_nll_weight": 1.0,
+            "protected_kl_weight": 20.0,
+            "writer_off_nll_weight": 50.0,
+            "learning_rate": 5e-4,
+            "relative_norm_cap": 0.5,
+            "gradient_clip_frequency": "once_per_optimizer_update",
+            "norm_projection_frequency": "once_per_optimizer_update",
+        },
+        "endpoint_audit_phases": [
+            "pre_update",
+            "post_adam",
+            "post_projection",
+            "final_fresh_full_context_audit",
+        ],
+        "complete_feasibility_log_required": True,
+        "complete_full_training_log_required": True,
+        "official_evaluation_prompts_seen": 0,
+    }
+    if not isinstance(actuator_revision, Mapping):
+        raise RuntimeError("registry lacks the V3.3 actuator-training revision")
+    for key, expected_value in expected_actuator_revision.items():
+        if actuator_revision.get(key) != expected_value:
+            raise RuntimeError(f"registry V3.3 actuator revision mismatch: {key}")
     ownership_binding = registry.get("selected_neuron_ownership_binding")
     expected_ownership_binding = {
         "scope": "primary_embedding_keyed_configuration",
-        "source_runs": ["v3", "v3.1"],
+        "source_runs": ["v3", "v3.1", "v3.2"],
         "jq_projection": "[.ownership[].selected_neurons]",
         "jq_compact_sha256": (
             "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
@@ -499,10 +648,10 @@ def _validate_experiment_registry(
         "required": True,
     }
     if not isinstance(ownership_binding, Mapping):
-        raise RuntimeError("registry lacks the V3.2 selected-neuron binding")
+        raise RuntimeError("registry lacks the V3.3 selected-neuron binding")
     for key, expected_value in expected_ownership_binding.items():
         if ownership_binding.get(key) != expected_value:
-            raise RuntimeError(f"registry V3.2 neuron binding mismatch: {key}")
+            raise RuntimeError(f"registry V3.3 neuron binding mismatch: {key}")
     label = str(args.experiment_label)
     if label == "primary":
         expected = registry.get("primary_configuration")
@@ -630,6 +779,272 @@ def compare_detector_gate_replays(
             and metric_abs_max <= float(abs_tolerance)
         ),
     }
+
+
+def compare_actuator_audits(
+    first: Mapping[str, Any],
+    second: Mapping[str, Any],
+    *,
+    abs_tolerance: float,
+) -> Dict[str, Any]:
+    """Compare two full-context audits of the same actuator parameter state."""
+
+    if float(abs_tolerance) < 0:
+        raise ValueError("abs_tolerance must be non-negative")
+    count_keys = ("direct_failures", "positive_failures", "positive_contexts")
+    metric_keys = (
+        "minimum_margin",
+        "reference_nll_regression_max",
+        "writer_off_nll_abs_max",
+    )
+    counts_match = all(first.get(key) == second.get(key) for key in count_keys)
+    metric_abs_max = 0.0
+    metrics_present = True
+    for key in metric_keys:
+        if key not in first or key not in second:
+            metrics_present = False
+            metric_abs_max = float("inf")
+            break
+        metric_abs_max = max(
+            metric_abs_max, abs(float(first[key]) - float(second[key]))
+        )
+
+    first_rows = first.get("per_record")
+    second_rows = second.get("per_record")
+    per_record_metric_keys = (
+        "direct_margin",
+        "positive_min",
+        "reference_nll_regression_max",
+        "writer_off_nll_abs_max",
+    )
+    record_binding_match = bool(
+        isinstance(first_rows, list)
+        and isinstance(second_rows, list)
+        and len(first_rows) == len(second_rows)
+        and all(
+            int(left.get("record_index", -1)) == int(right.get("record_index", -2))
+            and int(left.get("case_id", -1)) == int(right.get("case_id", -2))
+            for left, right in zip(first_rows, second_rows)
+        )
+    )
+    per_record_metrics_match = record_binding_match
+    if record_binding_match:
+        for left, right in zip(first_rows, second_rows):
+            if left.get("positive_contexts") != right.get(
+                "positive_contexts"
+            ) or left.get("positive_failures") != right.get("positive_failures"):
+                per_record_metrics_match = False
+                break
+            for key in per_record_metric_keys:
+                if key not in left or key not in right:
+                    per_record_metrics_match = False
+                    metric_abs_max = float("inf")
+                    break
+                metric_abs_max = max(
+                    metric_abs_max, abs(float(left[key]) - float(right[key]))
+                )
+            if not per_record_metrics_match:
+                break
+    passed = bool(
+        counts_match
+        and metrics_present
+        and record_binding_match
+        and per_record_metrics_match
+        and metric_abs_max <= float(abs_tolerance)
+    )
+    return {
+        "counts_match": counts_match,
+        "record_binding_match": record_binding_match,
+        "per_record_metrics_match": per_record_metrics_match,
+        "metrics_present": metrics_present,
+        "metric_abs_max": metric_abs_max,
+        "abs_tolerance": float(abs_tolerance),
+        "passed": passed,
+    }
+
+
+def import_frozen_v3_2_detector(
+    run_dir: Path,
+    *,
+    stage1_path: Path,
+    case_ids: Sequence[int],
+    layer: int,
+    ownership: Sequence[Sequence[int]],
+    selected_neurons: Sequence[int],
+    flat_signs: torch.Tensor,
+    output_head_sha256: str,
+    editor: neuron_core.SparseSwiGLUNeuronEditor,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Load the exact V3.2 gate/up tensors while discarding its failed actuator."""
+
+    root = Path(run_dir).resolve()
+    method_dir = root / "method" if (root / "method").is_dir() else root
+    paths = {
+        "state": method_dir / "embedding_keyed_neuron_state.pt",
+        "gate": method_dir / "detector_gate_report.json",
+        "endpoint_audit": method_dir / "detector_endpoint_audit.json",
+        "selection": method_dir / "neuron_selection_report.json",
+        "summary": method_dir / "embedding_keyed_neuron_summary.json",
+        "firewall": method_dir / "training_firewall_receipt.json",
+    }
+    for name, path in paths.items():
+        if not path.is_file():
+            raise FileNotFoundError(f"frozen V3.2 detector lacks {name}: {path}")
+
+    state = torch.load(paths["state"], map_location="cpu", weights_only=False)
+    if not isinstance(state, Mapping):
+        raise RuntimeError("frozen V3.2 detector state must be a mapping")
+    gate = _load_json(paths["gate"])
+    endpoint = _load_json(paths["endpoint_audit"])
+    selection = _load_json(paths["selection"])
+    summary = _load_json(paths["summary"])
+    firewall = _load_json(paths["firewall"])
+
+    expected_ownership = [list(map(int, group)) for group in ownership]
+    expected_selected = [int(neuron) for neuron in selected_neurons]
+    expected_hash = selected_neuron_ownership_jq_compact_sha256(expected_ownership)
+    gate_criterion = gate.get("criterion", {})
+    checks = {
+        "state_protocol": state.get("protocol") == FROZEN_DETECTOR_PROTOCOL,
+        "summary_protocol": summary.get("protocol") == FROZEN_DETECTOR_PROTOCOL,
+        "gate_protocol": gate.get("protocol") == FROZEN_DETECTOR_PROTOCOL,
+        "detector_revision": state.get("detector_training_revision") == "v3.2",
+        "case_ids": [int(value) for value in state.get("case_ids", [])]
+        == [int(value) for value in case_ids],
+        "layer": int(state.get("layer", -1)) == int(layer),
+        "selected_neurons": [int(value) for value in state.get("selected_neurons", [])]
+        == expected_selected,
+        "ownership": state.get("ownership") == expected_ownership,
+        "ownership_hash": str(
+            state.get("selected_neuron_ownership_jq_compact_sha256") or ""
+        )
+        == expected_hash,
+        "selection_hash": str(
+            selection.get("selected_neuron_ownership_jq_compact_sha256") or ""
+        )
+        == expected_hash,
+        "source_writer": str(state.get("source_stage1_state_sha256") or "")
+        == compositional_method.sha256_file(stage1_path),
+        "output_head": str(state.get("output_head_sha256") or "")
+        == str(output_head_sha256),
+        "detector_gate": bool(gate.get("passed"))
+        and int(gate.get("passed_records", -1)) == len(case_ids)
+        and int(gate.get("total_records", -1)) == len(case_ids),
+        "detector_gate_criterion": bool(
+            isinstance(gate_criterion, Mapping)
+            and math.isclose(
+                float(gate_criterion.get("positive_floor", float("nan"))),
+                0.25,
+                abs_tol=1e-12,
+            )
+            and math.isclose(
+                float(gate_criterion.get("negative_abs_max", float("nan"))),
+                0.20,
+                abs_tol=1e-12,
+            )
+            and math.isclose(
+                float(gate_criterion.get("writer_off_abs_max", float("nan"))),
+                0.20,
+                abs_tol=1e-12,
+            )
+            and math.isclose(
+                float(gate_criterion.get("comparison_abs_tolerance", float("nan"))),
+                1e-7,
+                abs_tol=1e-12,
+            )
+            and gate_criterion.get("writer_off_required") is True
+        ),
+        "endpoint_audit": bool(endpoint.get("complete")),
+        "summary_detector_gate": bool(
+            summary.get("acceptance", {}).get("detector_gate_passed")
+        ),
+        "source_run_rejected": summary.get("acceptance", {}).get("passed") is False,
+        "source_checkpoint_not_saved": (
+            summary.get("acceptance", {}).get("checkpoint_saved") is False
+        ),
+        "official_gate_prompts_zero": gate.get("official_evaluation_prompts_seen") == 0,
+        "official_endpoint_prompts_zero": endpoint.get(
+            "official_evaluation_prompts_seen"
+        )
+        == 0,
+        "firewall_official_prompts_zero": all(
+            (
+                firewall.get("data_access", {}).get("official_paraphrases_seen") == 0,
+                firewall.get("data_access", {}).get("official_neighborhoods_seen") == 0,
+                firewall.get("data_access", {}).get("benchmark_retain_seen") == 0,
+                firewall.get("data_access", {}).get("official_ppl_seen") is False,
+            )
+        ),
+    }
+    source_signs = state.get("flat_signs")
+    checks["flat_signs"] = bool(
+        isinstance(source_signs, torch.Tensor)
+        and source_signs.shape == flat_signs.shape
+        and torch.equal(
+            source_signs.detach().float().cpu(), flat_signs.detach().float().cpu()
+        )
+    )
+    gate_delta = state.get("gate_delta")
+    up_delta = state.get("up_delta")
+    source_base = state.get("base_neuron_weights")
+    checks["base_neuron_weights"] = bool(
+        isinstance(source_base, Mapping)
+        and all(
+            isinstance(source_base.get(name), torch.Tensor)
+            and source_base[name].shape == expected.shape
+            and torch.equal(
+                source_base[name].detach().float().cpu(),
+                expected.detach().float().cpu(),
+            )
+            for name, expected in (
+                ("gate_rows", editor.base_gate_rows),
+                ("up_rows", editor.base_up_rows),
+                ("down_columns", editor.base_down_columns),
+            )
+        )
+    )
+    checks["gate_delta"] = bool(
+        isinstance(gate_delta, torch.Tensor)
+        and gate_delta.shape == editor.gate_delta.shape
+        and torch.isfinite(gate_delta.float()).all()
+    )
+    checks["up_delta"] = bool(
+        isinstance(up_delta, torch.Tensor)
+        and up_delta.shape == editor.up_delta.shape
+        and torch.isfinite(up_delta.float()).all()
+    )
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise RuntimeError(
+            "frozen V3.2 detector lineage failed: " + ", ".join(sorted(failed))
+        )
+
+    with torch.no_grad():
+        editor.gate_delta.copy_(gate_delta.to(editor.gate_delta.device).float())
+        editor.up_delta.copy_(up_delta.to(editor.up_delta.device).float())
+        editor.down_delta.zero_()
+
+    receipt = {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_frozen_v3_2_detector_import",
+        "source_run_dir": str(root),
+        "source_method_dir": str(method_dir),
+        "source_protocol": FROZEN_DETECTOR_PROTOCOL,
+        "target_protocol": PROTOCOL,
+        "case_ids": [int(value) for value in case_ids],
+        "layer": int(layer),
+        "selected_neuron_ownership_jq_compact_sha256": expected_hash,
+        "source_artifacts": {
+            name: {"path": str(path), "sha256": compositional_method.sha256_file(path)}
+            for name, path in paths.items()
+        },
+        "checks": checks,
+        "down_delta_imported": False,
+        "down_delta_reset_to_zero": True,
+        "passed": True,
+        "official_evaluation_prompts_seen": 0,
+    }
+    return receipt, gate
 
 
 def _resolve_swiglu_mlp(model: torch.nn.Module, layer_index: int) -> torch.nn.Module:
@@ -1561,9 +1976,7 @@ def capture_mlp_input_last_token_hidden_states(
             captured.clear()
             backbone(**encoded, use_cache=False, return_dict=True)
             if len(captured) != 1:
-                raise RuntimeError(
-                    f"expected one MLP input, captured {len(captured)}"
-                )
+                raise RuntimeError(f"expected one MLP input, captured {len(captured)}")
             hidden = captured[0]
             positions = encoded["attention_mask"].sum(dim=1) - 1
             batch_rows = torch.arange(len(batch), device=device)
@@ -1698,7 +2111,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     _validate_environment_firewall()
     gagd.set_seed(int(args.seed))
     gagd.require_cuda_if_needed(args.device_map)
-    py_rng = random.Random(int(args.seed) + 78103)
+    actuator_rng_seed = int(args.seed) + 78103
+    actuator_rng = random.Random(actuator_rng_seed)
     out_dir = gagd.resolve_output_path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1857,6 +2271,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         "clean_stage1_writer": clean_writer_receipt,
         "clean_stage1_acceptance": clean_acceptance_receipt,
         "experiment_label": str(args.experiment_label),
+        "detector_initialization": str(args.detector_initialization),
+        "frozen_v3_2_run_dir": (
+            str(Path(args.frozen_v3_2_run_dir).resolve())
+            if args.frozen_v3_2_run_dir
+            else None
+        ),
         "experiment_registry_path": str(registry_path),
         "experiment_registry_sha256": compositional_method.sha256_file(registry_path),
         "official_evaluation_file_argument_exists": False,
@@ -1877,6 +2297,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             "training-safe hand-authored relation-template and corpus-prefix positives",
             "training-visible compositional negatives",
             "disjoint Wikipedia protection prefixes",
+            *(
+                ["hash-bound passed V3.2 training-only detector tensors"]
+                if str(args.detector_initialization) == "frozen_v3_2"
+                else []
+            ),
         ],
         "ppl_corpus_partition": {
             "official_evaluation_document_interval": [0, 20],
@@ -1954,10 +2379,42 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     (
         positive_instances,
-        _owners,
+        positive_owners,
         direct_flags,
     ) = compositional_method.build_prompt_instances(records, context_sets)
     negative_instances = _negative_prompt_instances(records, context_sets)
+    positive_indices_by_record = [list() for _ in records]
+    negative_indices_by_record = [list() for _ in records]
+    for index, owner in enumerate(positive_owners):
+        positive_indices_by_record[int(owner)].append(index)
+    for index, instance in enumerate(negative_instances):
+        negative_indices_by_record[int(instance.sampled_position)].append(index)
+    if any(not indices for indices in positive_indices_by_record):
+        raise RuntimeError("every record needs positive actuator contexts")
+    if any(not indices for indices in negative_indices_by_record):
+        raise RuntimeError("every record needs negative actuator contexts")
+    registered_actuator = experiment_registry.get("actuator_training_revision", {})
+    registered_full_actuator = (
+        registered_actuator.get("full_training", {})
+        if isinstance(registered_actuator, Mapping)
+        else {}
+    )
+    expected_positive_contexts = int(
+        registered_full_actuator.get("positive_contexts_per_optimizer_update", -1)
+    )
+    expected_negative_contexts = int(
+        registered_full_actuator.get("negative_contexts_per_optimizer_update", -1)
+    )
+    if len(positive_instances) != expected_positive_contexts:
+        raise RuntimeError(
+            "training-safe positive count differs from the V3.3 actuator registry: "
+            f"{len(positive_instances)} != {expected_positive_contexts}"
+        )
+    if len(negative_instances) != expected_negative_contexts:
+        raise RuntimeError(
+            "training-safe negative count differs from the V3.3 actuator registry: "
+            f"{len(negative_instances)} != {expected_negative_contexts}"
+        )
     training_prompt_groups: List[List[str]] = []
     positive_prompts_by_record: List[List[str]] = []
     negative_prompts_by_record: List[List[str]] = []
@@ -2211,7 +2668,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     gagd.write_json(out_dir / "neuron_selection_report.json", selection_report)
     if not ownership_binding_passed:
         raise RuntimeError(
-            "V3.2 primary neuron ownership differs from the registered V3/V3.1 "
+            "V3.3 primary neuron ownership differs from the registered V3/V3.1/V3.2 "
             f"selection: observed {ownership_sha256}, expected "
             f"{expected_ownership_sha256}"
         )
@@ -2224,11 +2681,37 @@ def main(argv: Sequence[str] | None = None) -> None:
     editor.install(mlp)
     flat_signs = flat_signs_cpu.to(device)
     embedding_writer.enabled = writer_present
+    frozen_detector_import: Dict[str, Any] | None = None
+    frozen_detector_source_gate: Dict[str, Any] | None = None
+    if str(args.detector_initialization) == "frozen_v3_2":
+        (
+            frozen_detector_import,
+            frozen_detector_source_gate,
+        ) = import_frozen_v3_2_detector(
+            Path(args.frozen_v3_2_run_dir),
+            stage1_path=stage1_path,
+            case_ids=case_ids,
+            layer=int(args.neuron_layer),
+            ownership=ownership,
+            selected_neurons=selected_neurons,
+            flat_signs=flat_signs_cpu,
+            output_head_sha256=output_head_digest_before,
+            editor=editor,
+        )
+        gagd.write_json(
+            out_dir / "frozen_v3_2_detector_import.json", frozen_detector_import
+        )
+        firewall_receipt["frozen_v3_2_detector_import"] = frozen_detector_import
+        gagd.write_json(out_dir / "training_firewall_receipt.json", firewall_receipt)
+        print(
+            "  imported exact V3.2 detector gate/up tensors; down_delta reset to zero"
+        )
 
     print("\nStage 1: cache frozen layer-input states for detector training")
     editor.write_enabled = False
-    editor.gate_delta.requires_grad_(True)
-    editor.up_delta.requires_grad_(True)
+    detector_trainable = str(args.detector_initialization) == "train"
+    editor.gate_delta.requires_grad_(detector_trainable)
+    editor.up_delta.requires_grad_(detector_trainable)
     editor.down_delta.requires_grad_(False)
     embedding_writer.enabled = writer_present
     positive_hidden_cache = capture_grouped_mlp_input_hidden_states(
@@ -2349,10 +2832,20 @@ def main(argv: Sequence[str] | None = None) -> None:
     detector_microbatches = math.ceil(
         len(records) / max(1, int(args.detector_record_batch))
     )
+    detector_optimizer_steps_this_run = (
+        0
+        if str(args.detector_initialization) == "frozen_v3_2"
+        else int(args.detector_steps)
+    )
 
     def detector_optimization_metadata() -> Dict[str, Any]:
         return {
-            "revision": "v3.2",
+            "revision": (
+                "v3.2_frozen_import"
+                if str(args.detector_initialization) == "frozen_v3_2"
+                else "v3.3_control_training"
+            ),
+            "initialization": str(args.detector_initialization),
             "update_coverage": "all_records_accumulated",
             "records_per_optimizer_update": len(records),
             "record_microbatch_capacity": int(args.detector_record_batch),
@@ -2371,8 +2864,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             "certificate_abs_tolerance": float(args.detector_certificate_abs_tolerance),
             "certificate_thresholds_unchanged_from_v3_1": True,
             "gradient_normalization": "equal_record_mean",
-            "optimizer_steps": int(args.detector_steps),
-            "record_exposures": int(args.detector_steps) * len(records),
+            "source_optimizer_steps": (
+                int(args.detector_steps)
+                if str(args.detector_initialization) == "frozen_v3_2"
+                else 0
+            ),
+            "optimizer_steps_this_run": detector_optimizer_steps_this_run,
+            "record_exposures_this_run": detector_optimizer_steps_this_run
+            * len(records),
             "gradient_clip_frequency": "once_per_optimizer_update",
             "norm_projection_frequency": "once_per_optimizer_update",
             "endpoint_audit_phases": [
@@ -2457,7 +2956,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             row["case_id"] = int(case_id)
         return gate
 
-    print("\nStage 1: train globally balanced sparse contextual-code detector")
+    print(
+        "\nStage 1: "
+        + (
+            "certify imported frozen sparse contextual-code detector"
+            if str(args.detector_initialization) == "frozen_v3_2"
+            else "train globally balanced sparse contextual-code detector"
+        )
+    )
     detector_optimizer = torch.optim.AdamW(
         [editor.gate_delta, editor.up_delta],
         lr=float(args.detector_lr),
@@ -2466,7 +2972,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     detector_log: List[Dict[str, Any]] = []
     endpoint_gate_reports: Dict[str, Dict[str, Any]] = {}
     endpoint_gate_paths: Dict[str, Path] = {}
-    for step in range(1, int(args.detector_steps) + 1):
+    for step in range(1, detector_optimizer_steps_this_run + 1):
         detector_optimizer.zero_grad(set_to_none=True)
         accumulated = {
             "write": 0.0,
@@ -2576,7 +3082,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         if not math.isfinite(total_value):
             raise FloatingPointError(f"non-finite detector loss at step {step}")
-        if step == int(args.detector_steps):
+        if step == detector_optimizer_steps_this_run:
             phase = "pre_update"
             endpoint_gate_reports[phase] = full_cached_detector_gate(
                 phase=phase, optimizer_step=step
@@ -2590,7 +3096,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 [editor.gate_delta, editor.up_delta], float(args.grad_clip)
             )
         detector_optimizer.step()
-        if step == int(args.detector_steps):
+        if step == detector_optimizer_steps_this_run:
             phase = "post_adam"
             endpoint_gate_reports[phase] = full_cached_detector_gate(
                 phase=phase, optimizer_step=step
@@ -2603,7 +3109,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             detector_cap=float(args.detector_relative_cap),
             actuator_cap=float(args.actuator_relative_cap),
         )
-        if step == int(args.detector_steps):
+        if step == detector_optimizer_steps_this_run:
             phase = "post_projection"
             endpoint_gate_reports[phase] = full_cached_detector_gate(
                 phase=phase, optimizer_step=step
@@ -2625,22 +3131,22 @@ def main(argv: Sequence[str] | None = None) -> None:
             "norm_measurement_phase": "post_projection",
         }
         detector_log.append(row)
-        if step == 1 or step % 25 == 0 or step == int(args.detector_steps):
+        if step == 1 or step % 25 == 0 or step == detector_optimizer_steps_this_run:
             print(
                 f"  step {step:>4}: loss {row['loss']:.4f}, "
                 f"write {row['write']:.4f}, off {row['writer_off']:.4f}, "
                 f"cross {row['cross']:.4f}"
             )
-    if len(detector_log) != int(args.detector_steps):
+    if len(detector_log) != detector_optimizer_steps_this_run:
         raise RuntimeError("complete detector training log lost optimizer steps")
     detector_training_log_report = {
         "schema_version": 1,
         "kind": "mcf_embedding_keyed_neuron_complete_detector_training_log",
         "protocol": PROTOCOL,
-        "revision": "v3.2",
-        "optimizer_steps_expected": int(args.detector_steps),
+        "revision": detector_optimization_metadata()["revision"],
+        "optimizer_steps_expected": detector_optimizer_steps_this_run,
         "optimizer_steps_recorded": len(detector_log),
-        "complete": len(detector_log) == int(args.detector_steps),
+        "complete": len(detector_log) == detector_optimizer_steps_this_run,
         "optimization": detector_optimization_metadata(),
         "records": detector_log,
         "official_evaluation_prompts_seen": 0,
@@ -2651,13 +3157,25 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     detector_gate = full_cached_detector_gate(
         phase="final_fresh_full_context_certificate",
-        optimizer_step=int(args.detector_steps),
+        optimizer_step=detector_optimizer_steps_this_run,
     )
+    frozen_detector_replay: Dict[str, Any] | None = None
+    if frozen_detector_source_gate is not None:
+        frozen_detector_replay = compare_detector_gate_replays(
+            frozen_detector_source_gate,
+            detector_gate,
+            abs_tolerance=FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE,
+        )
+        if not frozen_detector_replay["passed"]:
+            raise RuntimeError(
+                "fresh V3.3 detector certificate differs from frozen V3.2 source"
+            )
+        detector_gate["frozen_v3_2_source_replay"] = frozen_detector_replay
     detector_gate_path = out_dir / "detector_gate_report.json"
     gagd.write_json(detector_gate_path, detector_gate)
     endpoint_phases = ("pre_update", "post_adam", "post_projection")
     endpoint_complete = bool(
-        int(args.detector_steps) == 0
+        detector_optimizer_steps_this_run == 0
         or all(phase in endpoint_gate_reports for phase in endpoint_phases)
     )
     endpoint_replay = (
@@ -2666,7 +3184,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             detector_gate,
             abs_tolerance=float(args.detector_certificate_abs_tolerance),
         )
-        if int(args.detector_steps) > 0
+        if detector_optimizer_steps_this_run > 0
         else {
             "record_count_match": True,
             "record_binding_match": True,
@@ -2680,10 +3198,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         "schema_version": 1,
         "kind": "mcf_embedding_keyed_neuron_detector_endpoint_audit",
         "protocol": PROTOCOL,
-        "optimizer_step": int(args.detector_steps),
+        "optimizer_step": detector_optimizer_steps_this_run,
         "phases_required": list(endpoint_phases),
-        "phase_audits_not_applicable_for_zero_step_control": bool(
-            int(args.detector_steps) == 0
+        "phase_audits_not_applicable_for_frozen_import": bool(
+            detector_optimizer_steps_this_run == 0
         ),
         "artifacts": {
             phase: {
@@ -2713,6 +3231,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             post_projection_matches_final
         ),
         "post_projection_final_replay": endpoint_replay,
+        "frozen_v3_2_source_replay": frozen_detector_replay,
+        "frozen_v3_2_import": frozen_detector_import,
         "complete": bool(endpoint_complete and post_projection_matches_final),
         "official_evaluation_prompts_seen": 0,
     }
@@ -2803,6 +3323,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             *corpus_prompts,
         ]
     )
+    registered_protected_per_update = int(
+        registered_full_actuator.get("protected_contexts_per_optimizer_update", -1)
+    )
+    if len(protected_for_kl) < registered_protected_per_update:
+        raise RuntimeError(
+            "protected prompt bank cannot supply the registered V3.3 actuator "
+            f"batch: {len(protected_for_kl)} < {registered_protected_per_update}"
+        )
     writer_only_cache = compositional_method.cache_prompt_baselines(
         model,
         tok,
@@ -2814,136 +3342,556 @@ def main(argv: Sequence[str] | None = None) -> None:
     editor.enabled = True
     editor.write_enabled = True
 
-    actuator_optimizer = torch.optim.AdamW(
-        [editor.down_delta], lr=float(args.actuator_lr), weight_decay=0.0
+    # Writer-off preservation is measured against a frozen Base-without-writer
+    # baseline once.  V3.2 recomputed this baseline every stochastic step and
+    # then drove all drift to exactly zero; V3.3 uses the registered 0.05 band.
+    embedding_writer.enabled = False
+    editor.write_enabled = False
+    (
+        pre_writer_off_new,
+        pre_writer_off_true,
+    ) = compositional_method.evaluate_instance_nlls(
+        model,
+        tok,
+        positive_instances,
+        device,
+        llama_like=llama_like,
+        batch_size=int(args.cache_batch_size),
     )
-    actuator_log: List[Dict[str, float]] = []
-    positive_order = list(range(len(positive_instances)))
-    negative_order = list(range(len(negative_instances)))
-    protected_order = list(range(len(protected_for_kl)))
-    for step in range(1, int(args.actuator_steps) + 1):
-        positive_indices = py_rng.sample(
-            positive_order,
-            min(int(args.actuator_batch_size), len(positive_order)),
-        )
-        negative_indices = py_rng.sample(
-            negative_order,
-            min(int(args.actuator_batch_size), len(negative_order)),
-        )
-        protected_indices = py_rng.sample(
-            protected_order,
-            min(int(args.actuator_protected_batch), len(protected_order)),
-        )
-        positive_batch = [positive_instances[index] for index in positive_indices]
-        negative_batch = [negative_instances[index] for index in negative_indices]
-        protected_batch = [protected_for_kl[index] for index in protected_indices]
+    editor.write_enabled = True
+    embedding_writer.enabled = writer_present
 
-        actuator_optimizer.zero_grad(set_to_none=True)
+    def differentiable_group_nlls(
+        instances: Sequence[mcf_repair.MCFPromptInstance],
+        indices: Sequence[int],
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        new_rows: List[torch.Tensor] = []
+        true_rows: List[torch.Tensor] = []
+        for start in range(0, len(indices), int(args.actuator_batch_size)):
+            chunk = list(indices[start : start + int(args.actuator_batch_size)])
+            (
+                current_new,
+                current_true,
+            ) = compositional_method.differentiable_instance_nlls(
+                model,
+                tok,
+                [instances[index] for index in chunk],
+                device,
+                llama_like=llama_like,
+            )
+            new_rows.append(current_new)
+            true_rows.append(current_true)
+        return torch.cat(new_rows), torch.cat(true_rows)
+
+    def actuator_optimization_metadata() -> Dict[str, Any]:
+        return {
+            "revision": "v3.3",
+            "initial_down_delta": "exact_zero",
+            "feasibility_optimizer_steps": int(args.actuator_feasibility_steps),
+            "full_optimizer_steps": int(args.actuator_steps),
+            "update_coverage": "all_records_all_contexts_accumulated",
+            "records_per_optimizer_update": len(records),
+            "positive_contexts_per_optimizer_update": len(positive_instances),
+            "negative_contexts_per_optimizer_update": len(negative_instances),
+            "writer_off_contexts_per_optimizer_update": (
+                len(positive_instances) if writer_present else 0
+            ),
+            "protected_contexts_per_optimizer_update": min(
+                int(args.actuator_protected_batch), len(protected_for_kl)
+            ),
+            "context_microbatch_capacity": int(args.actuator_batch_size),
+            "tail_k": int(args.actuator_tail_k),
+            "gradient_normalization": (
+                "equal_record_mean_plus_global_protected_prompt_mean"
+            ),
+            "forget_margin": float(args.forget_margin),
+            "reference_nll_tolerance": float(args.reference_nll_tolerance),
+            "writer_off_nll_tolerance": float(args.actuator_writer_off_nll_tolerance),
+            "relative_norm_cap": float(args.actuator_relative_cap),
+            "protected_sampling_seed": actuator_rng_seed,
+            "gradient_clip_frequency": "once_per_optimizer_update",
+            "norm_projection_frequency": "once_per_optimizer_update",
+        }
+
+    @torch.no_grad()
+    def full_actuator_audit(*, phase: str, optimizer_step: int) -> Dict[str, Any]:
+        phase_contracts = {
+            "positive_only_feasibility_final": (
+                "after the last feasibility Adam step and norm projection"
+            ),
+            "training_check": "after the current Adam step and norm projection",
+            "pre_update": (
+                "after final-step gradient accumulation and before clipping or Adam"
+            ),
+            "post_adam": (
+                "after final-step clipping and Adam and before norm projection"
+            ),
+            "post_projection": "after final-step Adam and norm projection",
+            "final_fresh_full_context_audit": (
+                "fresh replay after full actuator optimization is complete"
+            ),
+        }
+        editor.enabled = True
+        editor.write_enabled = True
         embedding_writer.enabled = writer_present
-        current_new, current_true = compositional_method.differentiable_instance_nlls(
-            model, tok, positive_batch, device, llama_like=llama_like
+        current_new, current_true = compositional_method.evaluate_instance_nlls(
+            model,
+            tok,
+            positive_instances,
+            device,
+            llama_like=llama_like,
+            batch_size=int(args.cache_batch_size),
         )
         margins = current_true - current_new
-        margin_loss = F.relu(float(args.forget_margin) - margins).square().mean()
-        reference_loss = compositional_method.reference_nll_regression_penalty(
-            current_new,
-            pre_target_new[positive_indices].to(device),
-            float(args.reference_nll_tolerance),
+        direct_failure, positive_failure = _failure_counts(
+            margins, direct_flags, float(args.forget_margin)
         )
-        negative_new, negative_true = compositional_method.differentiable_instance_nlls(
-            model, tok, negative_batch, device, llama_like=llama_like
+        reference_regression_max = max(0.0, float((current_new - pre_target_new).max()))
+        embedding_writer.enabled = False
+        off_new, off_true = compositional_method.evaluate_instance_nlls(
+            model,
+            tok,
+            positive_instances,
+            device,
+            llama_like=llama_like,
+            batch_size=int(args.cache_batch_size),
         )
-        negative_preservation = (
-            negative_new - pre_negative_new[negative_indices].to(device)
-        ).square().mean() + (
-            negative_true - pre_negative_true[negative_indices].to(device)
-        ).square().mean()
-        _hidden, protected_logits = compositional_method.forward_last_hidden_logits(
-            model, tok, protected_batch, device
+        writer_off_abs_max = max(
+            float((off_new - pre_writer_off_new).abs().max()),
+            float((off_true - pre_writer_off_true).abs().max()),
         )
-        protected_kl = _topk_kl(
-            protected_logits, protected_batch, writer_only_cache, device
-        )
-
-        writer_off_loss = margins.sum() * 0.0
-        if (
-            writer_present
-            and int(args.actuator_writer_off_every) > 0
-            and step % int(args.actuator_writer_off_every) == 0
-        ):
-            embedding_writer.enabled = False
-            off_new, off_true = compositional_method.differentiable_instance_nlls(
-                model, tok, positive_batch, device, llama_like=llama_like
+        embedding_writer.enabled = writer_present
+        norms = editor.relative_norm_report()
+        per_record: List[Dict[str, Any]] = []
+        for record_index, indices in enumerate(positive_indices_by_record):
+            record_margins = margins[indices]
+            direct_indices = [index for index in indices if direct_flags[index]]
+            if len(direct_indices) != 1:
+                raise RuntimeError("every record must have exactly one direct context")
+            reference_regression = current_new[indices] - pre_target_new[indices]
+            writer_off_drift = torch.cat(
+                (
+                    (off_new[indices] - pre_writer_off_new[indices]).abs(),
+                    (off_true[indices] - pre_writer_off_true[indices]).abs(),
+                )
             )
-            # With the contextual key removed, the neuron edit must preserve
-            # the writer-off behavior rather than becoming a stand-alone MLP edit.
-            editor.write_enabled = False
-            (
-                base_off_new,
-                base_off_true,
-            ) = compositional_method.differentiable_instance_nlls(
-                model, tok, positive_batch, device, llama_like=llama_like
+            per_record.append(
+                {
+                    "record_index": record_index,
+                    "case_id": int(case_ids[record_index]),
+                    "positive_contexts": len(indices),
+                    "direct_margin": float(margins[direct_indices[0]]),
+                    "positive_min": float(record_margins.min()),
+                    "positive_failures": int(
+                        (record_margins < float(args.forget_margin) - 1e-6).sum()
+                    ),
+                    "reference_nll_regression_max": max(
+                        0.0, float(reference_regression.max())
+                    ),
+                    "writer_off_nll_abs_max": float(writer_off_drift.max()),
+                }
             )
-            editor.write_enabled = True
-            writer_off_loss = (off_new - base_off_new.detach()).square().mean() + (
-                off_true - base_off_true.detach()
-            ).square().mean()
-            embedding_writer.enabled = writer_present
-
-        l2 = editor.down_delta.square().mean()
-        total = (
-            float(args.margin_weight) * margin_loss
-            + float(args.reference_nll_weight) * reference_loss
-            + negative_preservation
-            + float(args.protected_kl_weight) * protected_kl
-            + float(args.writer_off_nll_weight) * writer_off_loss
-            + float(args.actuator_l2) * l2
+        reference_passed = bool(
+            reference_regression_max <= float(args.reference_nll_tolerance) + 1e-6
         )
-        if not torch.isfinite(total):
-            raise FloatingPointError(f"non-finite actuator loss at step {step}")
-        total.backward()
+        writer_off_passed = bool(
+            not writer_present
+            or writer_off_abs_max
+            <= float(args.actuator_writer_off_nll_tolerance) + 1e-6
+        )
+        return {
+            "schema_version": 1,
+            "kind": "mcf_embedding_keyed_neuron_training_only_actuator_audit",
+            "protocol": PROTOCOL,
+            "phase": str(phase),
+            "parameter_state": phase_contracts.get(
+                str(phase), "training-only full-context audit"
+            ),
+            "optimizer_step": int(optimizer_step),
+            "criterion": {
+                "forget_margin": float(args.forget_margin),
+                "reference_nll_regression_max": float(args.reference_nll_tolerance),
+                "writer_off_nll_abs_max": float(args.actuator_writer_off_nll_tolerance),
+            },
+            "direct_failures": int(direct_failure),
+            "positive_failures": int(positive_failure),
+            "positive_contexts": len(positive_instances),
+            "minimum_margin": float(margins.min()),
+            "reference_nll_regression_max": reference_regression_max,
+            "writer_off_nll_abs_max": writer_off_abs_max,
+            "positive_passed": bool(direct_failure == 0 and positive_failure == 0),
+            "reference_preservation_passed": reference_passed,
+            "writer_off_preservation_applicable": writer_present,
+            "writer_off_preservation_passed": writer_off_passed,
+            "passed": bool(
+                direct_failure == 0
+                and positive_failure == 0
+                and reference_passed
+                and writer_off_passed
+            ),
+            "per_record": per_record,
+            "norms": norms,
+            "official_evaluation_prompts_seen": 0,
+        }
+
+    # Fixed-budget positive-only reachability test under the unchanged cap.
+    # Its learned down columns are always discarded before the full objective.
+    with torch.no_grad():
+        editor.down_delta.zero_()
+    feasibility_optimizer = torch.optim.AdamW(
+        [editor.down_delta], lr=float(args.actuator_lr), weight_decay=0.0
+    )
+    feasibility_log: List[Dict[str, Any]] = []
+    print("\nStage 2a: positive-only all-record actuator feasibility at unchanged cap")
+    for step in range(1, int(args.actuator_feasibility_steps) + 1):
+        feasibility_optimizer.zero_grad(set_to_none=True)
+        accumulated_margin = 0.0
+        embedding_writer.enabled = writer_present
+        for indices in positive_indices_by_record:
+            current_new, current_true = differentiable_group_nlls(
+                positive_instances, indices
+            )
+            record_loss, _pieces = neuron_core.actuator_positive_margin_objective(
+                current_true - current_new,
+                margin_floor=float(args.forget_margin),
+                tail_k=int(args.actuator_tail_k),
+            )
+            (record_loss / len(records)).backward()
+            accumulated_margin += float(record_loss.detach()) / len(records)
         if float(args.grad_clip) > 0:
             torch.nn.utils.clip_grad_norm_([editor.down_delta], float(args.grad_clip))
-        actuator_optimizer.step()
+        feasibility_optimizer.step()
         cap = editor.clamp_relative_(
             detector_cap=float(args.detector_relative_cap),
             actuator_cap=float(args.actuator_relative_cap),
         )
-        if step == 1 or step % 25 == 0 or step == int(args.actuator_steps):
-            row = {
-                "step": step,
-                "loss": float(total.detach()),
-                "margin": float(margin_loss.detach()),
-                "reference": float(reference_loss.detach()),
-                "negative_preservation": float(negative_preservation.detach()),
-                "protected_kl": float(protected_kl.detach()),
-                "writer_off": float(writer_off_loss.detach()),
-                "down_max_relative_norm": cap["down_max_relative_norm"],
-            }
-            actuator_log.append(row)
+        row = {
+            "step": step,
+            "positive_margin_loss": accumulated_margin,
+            "records_per_optimizer_update": len(records),
+            "positive_contexts_per_optimizer_update": len(positive_instances),
+            "down_max_relative_norm": cap["down_max_relative_norm"],
+        }
+        feasibility_log.append(row)
+        if (
+            step == 1
+            or step % max(1, int(args.check_every)) == 0
+            or step == int(args.actuator_feasibility_steps)
+        ):
             print(
-                f"  step {step:>4}: loss {row['loss']:.4f}, "
-                f"margin {row['margin']:.4f}, KL {row['protected_kl']:.4f}, "
-                f"writer-off {row['writer_off']:.4f}"
+                f"  feasibility step {step:>3}: margin {accumulated_margin:.4f}, "
+                f"down cap {row['down_max_relative_norm']:.4f}"
             )
-        if int(args.check_every) > 0 and step % int(args.check_every) == 0:
-            current_margins = compositional_method.evaluate_instance_margins(
-                model,
-                tok,
-                positive_instances,
-                device,
-                llama_like=llama_like,
-                batch_size=int(args.cache_batch_size),
+    del feasibility_optimizer
+    feasibility_audit = full_actuator_audit(
+        phase="positive_only_feasibility_final",
+        optimizer_step=int(args.actuator_feasibility_steps),
+    )
+    feasibility_log_complete = len(feasibility_log) == int(
+        args.actuator_feasibility_steps
+    )
+    feasibility_passed = bool(
+        feasibility_log_complete
+        and feasibility_audit["direct_failures"] == 0
+        and feasibility_audit["positive_failures"] == 0
+        and feasibility_audit["norms"]["down_max_relative_norm"]
+        <= float(args.actuator_relative_cap) + 1e-6
+    )
+    feasibility_report = {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_positive_only_actuator_feasibility",
+        "protocol": PROTOCOL,
+        "objective": ("equal_record_mean_plus_worst_two_squared_margin_shortfall_only"),
+        "optimizer_steps_expected": int(args.actuator_feasibility_steps),
+        "optimizer_steps_recorded": len(feasibility_log),
+        "complete": feasibility_log_complete,
+        "tail_k": int(args.actuator_tail_k),
+        "relative_norm_cap": float(args.actuator_relative_cap),
+        "initial_down_delta": "exact_zero",
+        "optimization": actuator_optimization_metadata(),
+        "learned_weights_used_to_initialize_full_training": False,
+        "complete_training_log": feasibility_log,
+        "final_audit": feasibility_audit,
+        "passed": feasibility_passed,
+        "official_evaluation_prompts_seen": 0,
+    }
+    gagd.write_json(
+        out_dir / "actuator_positive_only_feasibility.json", feasibility_report
+    )
+    with torch.no_grad():
+        editor.down_delta.zero_()
+    if not feasibility_passed:
+        rejection = {
+            "schema_version": 1,
+            "kind": "mcf_embedding_keyed_neuron_training_only_rejection",
+            "stage": "positive_only_actuator_feasibility",
+            "reason": "unchanged_cap_positive_only_feasibility_failed",
+            "detector_gate": detector_gate,
+            "actuator_positive_only_feasibility": feasibility_report,
+            "full_actuator_training_started": False,
+            "checkpoint_saved": False,
+            "official_evaluation_allowed": False,
+            "official_evaluation_prompts_seen": 0,
+            "next_action": (
+                "Treat the unchanged-cap sparse down-column actuator as a failed "
+                "fixed-budget feasibility test; do not tune on official probes."
+            ),
+        }
+        gagd.write_json(out_dir / "training_rejection.json", rejection)
+        editor.remove()
+        embedding_writer.remove()
+        raise SystemExit(
+            "positive-only actuator feasibility failed at the unchanged cap; "
+            "full actuator training and official evaluation are refused"
+        )
+
+    print("\nStage 2b: globally balanced sparse MLP suppression actuator")
+    actuator_optimizer = torch.optim.AdamW(
+        [editor.down_delta], lr=float(args.actuator_lr), weight_decay=0.0
+    )
+    actuator_log: List[Dict[str, Any]] = []
+    actuator_endpoint_reports: Dict[str, Dict[str, Any]] = {}
+    actuator_endpoint_paths: Dict[str, Path] = {}
+    protected_order = list(range(len(protected_for_kl)))
+    for step in range(1, int(args.actuator_steps) + 1):
+        actuator_optimizer.zero_grad(set_to_none=True)
+        accumulated = {
+            "margin": 0.0,
+            "reference": 0.0,
+            "negative_preservation": 0.0,
+            "writer_off": 0.0,
+            "protected_kl": 0.0,
+        }
+        for record_index in range(len(records)):
+            positive_indices = positive_indices_by_record[record_index]
+            negative_indices = negative_indices_by_record[record_index]
+            embedding_writer.enabled = writer_present
+            current_new, current_true = differentiable_group_nlls(
+                positive_instances, positive_indices
             )
-            direct_failure, positive_failure = _failure_counts(
-                current_margins, direct_flags, float(args.forget_margin)
+            margin_loss, _ = neuron_core.actuator_positive_margin_objective(
+                current_true - current_new,
+                margin_floor=float(args.forget_margin),
+                tail_k=int(args.actuator_tail_k),
             )
+            reference_loss, _ = neuron_core.actuator_reference_regression_objective(
+                current_new,
+                pre_target_new[positive_indices].to(device),
+                tolerance=float(args.reference_nll_tolerance),
+                tail_k=int(args.actuator_tail_k),
+            )
+            writer_off_loss = margin_loss * 0.0
+            if (
+                writer_present
+                and int(args.actuator_writer_off_every) > 0
+                and step % int(args.actuator_writer_off_every) == 0
+            ):
+                embedding_writer.enabled = False
+                off_new, off_true = differentiable_group_nlls(
+                    positive_instances, positive_indices
+                )
+                writer_off_loss, _ = neuron_core.actuator_writer_off_objective(
+                    off_new,
+                    off_true,
+                    pre_writer_off_new[positive_indices].to(device),
+                    pre_writer_off_true[positive_indices].to(device),
+                    tolerance=float(args.actuator_writer_off_nll_tolerance),
+                    tail_k=int(args.actuator_tail_k),
+                )
+                embedding_writer.enabled = writer_present
+            negative_new, negative_true = differentiable_group_nlls(
+                negative_instances, negative_indices
+            )
+            (
+                negative_preservation,
+                _,
+            ) = neuron_core.actuator_negative_preservation_objective(
+                negative_new,
+                negative_true,
+                pre_negative_new[negative_indices].to(device),
+                pre_negative_true[negative_indices].to(device),
+                tail_k=int(args.actuator_tail_k),
+            )
+            record_total = (
+                float(args.margin_weight) * margin_loss
+                + float(args.reference_nll_weight) * reference_loss
+                + negative_preservation
+                + float(args.writer_off_nll_weight) * writer_off_loss
+            ) / len(records)
+            if not torch.isfinite(record_total):
+                raise FloatingPointError(
+                    f"non-finite record actuator loss at step {step}"
+                )
+            record_total.backward()
+            accumulated["margin"] += float(margin_loss.detach()) / len(records)
+            accumulated["reference"] += float(reference_loss.detach()) / len(records)
+            accumulated["negative_preservation"] += float(
+                negative_preservation.detach()
+            ) / len(records)
+            accumulated["writer_off"] += float(writer_off_loss.detach()) / len(records)
+
+        protected_indices = actuator_rng.sample(
+            protected_order,
+            min(int(args.actuator_protected_batch), len(protected_order)),
+        )
+        for start in range(0, len(protected_indices), int(args.actuator_batch_size)):
+            chunk_indices = protected_indices[
+                start : start + int(args.actuator_batch_size)
+            ]
+            protected_batch = [protected_for_kl[index] for index in chunk_indices]
+            _hidden, protected_logits = compositional_method.forward_last_hidden_logits(
+                model, tok, protected_batch, device
+            )
+            chunk_kl = _topk_kl(
+                protected_logits, protected_batch, writer_only_cache, device
+            )
+            chunk_scale = len(chunk_indices) / len(protected_indices)
+            (float(args.protected_kl_weight) * chunk_scale * chunk_kl).backward()
+            accumulated["protected_kl"] += chunk_scale * float(chunk_kl.detach())
+
+        l2 = editor.down_delta.square().mean()
+        (float(args.actuator_l2) * l2).backward()
+        total_value = (
+            float(args.margin_weight) * accumulated["margin"]
+            + float(args.reference_nll_weight) * accumulated["reference"]
+            + accumulated["negative_preservation"]
+            + float(args.writer_off_nll_weight) * accumulated["writer_off"]
+            + float(args.protected_kl_weight) * accumulated["protected_kl"]
+            + float(args.actuator_l2) * float(l2.detach())
+        )
+        if not math.isfinite(total_value):
+            raise FloatingPointError(f"non-finite actuator loss at step {step}")
+        if step == int(args.actuator_steps):
+            phase = "pre_update"
+            actuator_endpoint_reports[phase] = full_actuator_audit(
+                phase=phase, optimizer_step=step
+            )
+            actuator_endpoint_paths[phase] = (
+                out_dir / f"actuator_step_{step}_pre_update_audit.json"
+            )
+            gagd.write_json(
+                actuator_endpoint_paths[phase], actuator_endpoint_reports[phase]
+            )
+        if float(args.grad_clip) > 0:
+            torch.nn.utils.clip_grad_norm_([editor.down_delta], float(args.grad_clip))
+        actuator_optimizer.step()
+        if step == int(args.actuator_steps):
+            phase = "post_adam"
+            actuator_endpoint_reports[phase] = full_actuator_audit(
+                phase=phase, optimizer_step=step
+            )
+            actuator_endpoint_paths[phase] = (
+                out_dir / f"actuator_step_{step}_post_adam_audit.json"
+            )
+            gagd.write_json(
+                actuator_endpoint_paths[phase], actuator_endpoint_reports[phase]
+            )
+        cap = editor.clamp_relative_(
+            detector_cap=float(args.detector_relative_cap),
+            actuator_cap=float(args.actuator_relative_cap),
+        )
+        if step == int(args.actuator_steps):
+            phase = "post_projection"
+            actuator_endpoint_reports[phase] = full_actuator_audit(
+                phase=phase, optimizer_step=step
+            )
+            actuator_endpoint_paths[phase] = (
+                out_dir / f"actuator_step_{step}_post_projection_audit.json"
+            )
+            gagd.write_json(
+                actuator_endpoint_paths[phase], actuator_endpoint_reports[phase]
+            )
+        row = {
+            "step": step,
+            "loss": total_value,
+            **accumulated,
+            "l2": float(l2.detach()),
+            "records_per_optimizer_update": len(records),
+            "positive_contexts_per_optimizer_update": len(positive_instances),
+            "negative_contexts_per_optimizer_update": len(negative_instances),
+            "writer_off_contexts_per_optimizer_update": (
+                len(positive_instances) if writer_present else 0
+            ),
+            "protected_contexts_per_optimizer_update": len(protected_indices),
+            "down_max_relative_norm": cap["down_max_relative_norm"],
+            "loss_measurement_phase": "pre_update",
+            "norm_measurement_phase": "post_projection",
+        }
+        actuator_log.append(row)
+        if (
+            step == 1
+            or step % max(1, int(args.check_every)) == 0
+            or step == int(args.actuator_steps)
+        ):
+            audit = full_actuator_audit(phase="training_check", optimizer_step=step)
             print(
-                f"    training audit: direct fail {direct_failure}, "
-                f"all-positive fail {positive_failure}, "
-                f"min margin {float(current_margins.min()):+.4f}"
+                f"  step {step:>3}: loss {row['loss']:.4f}, "
+                f"margin {row['margin']:.4f}, off {row['writer_off']:.4f}; "
+                f"direct fail {audit['direct_failures']}, "
+                f"all-positive fail {audit['positive_failures']}, "
+                f"min margin {audit['minimum_margin']:+.4f}"
             )
     del actuator_optimizer
+    actuator_training_log_report = {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_complete_actuator_training_log",
+        "protocol": PROTOCOL,
+        "revision": "v3.3",
+        "protected_sampling_seed": actuator_rng_seed,
+        "optimization": actuator_optimization_metadata(),
+        "optimizer_steps_expected": int(args.actuator_steps),
+        "optimizer_steps_recorded": len(actuator_log),
+        "complete": len(actuator_log) == int(args.actuator_steps),
+        "records": actuator_log,
+        "official_evaluation_prompts_seen": 0,
+    }
+    actuator_training_log_path = out_dir / "actuator_training_log.json"
+    gagd.write_json(actuator_training_log_path, actuator_training_log_report)
+    final_actuator_audit = full_actuator_audit(
+        phase="final_fresh_full_context_audit",
+        optimizer_step=int(args.actuator_steps),
+    )
+    final_actuator_audit_path = out_dir / "actuator_final_audit.json"
+    gagd.write_json(final_actuator_audit_path, final_actuator_audit)
+    endpoint_replay = compare_actuator_audits(
+        actuator_endpoint_reports["post_projection"],
+        final_actuator_audit,
+        abs_tolerance=1e-6,
+    )
+    actuator_endpoint_audit = {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_actuator_endpoint_audit",
+        "protocol": PROTOCOL,
+        "optimizer_step": int(args.actuator_steps),
+        "artifacts": {
+            phase: {
+                "path": str(actuator_endpoint_paths[phase]),
+                "sha256": compositional_method.sha256_file(
+                    actuator_endpoint_paths[phase]
+                ),
+            }
+            for phase in ("pre_update", "post_adam", "post_projection")
+        },
+        "final_fresh_full_context_audit": {
+            "path": str(final_actuator_audit_path),
+            "sha256": compositional_method.sha256_file(final_actuator_audit_path),
+        },
+        "complete_training_log": {
+            "path": str(actuator_training_log_path),
+            "sha256": compositional_method.sha256_file(actuator_training_log_path),
+            "complete": bool(actuator_training_log_report["complete"]),
+        },
+        "post_projection_matches_final": bool(endpoint_replay["passed"]),
+        "post_projection_final_replay": endpoint_replay,
+        "official_evaluation_prompts_seen": 0,
+    }
+    actuator_endpoint_audit["complete"] = bool(
+        actuator_training_log_report["complete"]
+        and actuator_endpoint_audit["post_projection_matches_final"]
+    )
+    if not actuator_endpoint_audit["complete"]:
+        raise RuntimeError("actuator endpoint audit is incomplete or inconsistent")
+    gagd.write_json(out_dir / "actuator_endpoint_audit.json", actuator_endpoint_audit)
 
     embedding_writer.enabled = writer_present
     editor.enabled = True
@@ -3072,6 +4020,29 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     reference_drift = materialized_target_new - pre_target_new
     reference_regression_max = max(0.0, float(reference_drift.max()))
+    materialized_writer_off_nll_abs_max = 0.0
+    if writer_present:
+        _replace_embedding_rows(input_layer, selected_embedding_rows, base_input_rows)
+        try:
+            (
+                materialized_writer_off_new,
+                materialized_writer_off_true,
+            ) = compositional_method.evaluate_instance_nlls(
+                model,
+                tok,
+                positive_instances,
+                device,
+                llama_like=llama_like,
+                batch_size=int(args.cache_batch_size),
+            )
+        finally:
+            _replace_embedding_rows(
+                input_layer, selected_embedding_rows, edited_input_rows
+            )
+        materialized_writer_off_nll_abs_max = max(
+            float((materialized_writer_off_new - pre_writer_off_new).abs().max()),
+            float((materialized_writer_off_true - pre_writer_off_true).abs().max()),
+        )
     output_head_digest_after = _tensor_digest(output_layer.weight)
     output_head_unchanged = output_head_digest_before == output_head_digest_after
     if not output_head_unchanged:
@@ -3106,14 +4077,34 @@ def main(argv: Sequence[str] | None = None) -> None:
     writer_requirement_passed = bool(
         not args.require_writer_necessity or causal_ablation["writer_is_necessary"]
     )
+    writer_off_preservation_passed = bool(
+        not writer_present
+        or materialized_writer_off_nll_abs_max
+        <= float(args.actuator_writer_off_nll_tolerance) + 1e-6
+    )
+    frozen_detector_lineage_passed = bool(
+        str(args.detector_initialization) != "frozen_v3_2"
+        or (
+            frozen_detector_import is not None
+            and frozen_detector_import.get("passed") is True
+            and frozen_detector_replay is not None
+            and frozen_detector_replay.get("passed") is True
+        )
+    )
     training_passed = bool(
-        materialized_direct_failures == 0
+        feasibility_passed
+        and materialized_direct_failures == 0
         and materialized_positive_failures == 0
         and reference_regression_max <= float(args.reference_nll_tolerance) + 1e-6
+        and writer_off_preservation_passed
         and norm_cap_passed
         and writer_requirement_passed
         and causal_ablation["decoder_is_necessary"]
         and detector_policy_passed
+        and endpoint_audit["complete"]
+        and actuator_endpoint_audit["complete"]
+        and final_actuator_audit["passed"]
+        and frozen_detector_lineage_passed
         and output_head_unchanged
         and hook_materialization_drift
         <= float(args.hook_materialization_tolerance) + 1e-6
@@ -3141,7 +4132,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     state_path = out_dir / "embedding_keyed_neuron_state.pt"
     torch.save(
         {
-            "schema_version": 4,
+            "schema_version": 5,
             "method": METHOD,
             "protocol": PROTOCOL,
             "seed": int(args.seed),
@@ -3180,9 +4171,42 @@ def main(argv: Sequence[str] | None = None) -> None:
                 args.detector_certificate_abs_tolerance
             ),
             "detector_response_mode": str(args.detector_response_mode),
-            "detector_training_revision": "v3.2",
+            "detector_training_revision": detector_optimization_metadata()["revision"],
+            "detector_initialization": str(args.detector_initialization),
+            "detector_optimizer_steps_this_run": detector_optimizer_steps_this_run,
+            "frozen_v3_2_detector_import": frozen_detector_import,
             "detector_tail_k": int(args.detector_tail_k),
             "detector_update_coverage": "all_records_accumulated",
+            "actuator_training_revision": "v3.3",
+            "actuator_feasibility_steps": int(args.actuator_feasibility_steps),
+            "actuator_steps": int(args.actuator_steps),
+            "actuator_tail_k": int(args.actuator_tail_k),
+            "actuator_update_coverage": "all_records_all_contexts_accumulated",
+            "actuator_writer_off_nll_tolerance": float(
+                args.actuator_writer_off_nll_tolerance
+            ),
+            "training_audit_artifacts": {
+                "detector_gate_report_sha256": compositional_method.sha256_file(
+                    detector_gate_path
+                ),
+                "detector_endpoint_audit_sha256": compositional_method.sha256_file(
+                    out_dir / "detector_endpoint_audit.json"
+                ),
+                "actuator_positive_only_feasibility_sha256": (
+                    compositional_method.sha256_file(
+                        out_dir / "actuator_positive_only_feasibility.json"
+                    )
+                ),
+                "actuator_training_log_sha256": compositional_method.sha256_file(
+                    actuator_training_log_path
+                ),
+                "actuator_final_audit_sha256": compositional_method.sha256_file(
+                    final_actuator_audit_path
+                ),
+                "actuator_endpoint_audit_sha256": compositional_method.sha256_file(
+                    out_dir / "actuator_endpoint_audit.json"
+                ),
+            },
             "writer_preflight_amplitude_threshold": float(
                 args.writer_preflight_amplitude_threshold
             ),
@@ -3217,7 +4241,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     summary = {
-        "schema_version": 4,
+        "schema_version": 5,
         "method": (
             METHOD
             if writer_present
@@ -3281,6 +4305,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             "selection_positive_contexts": int(args.selection_positive_contexts),
             "selection_negative_contexts": int(args.selection_negative_contexts),
             "detector_steps": int(args.detector_steps),
+            "detector_initialization": str(args.detector_initialization),
+            "detector_optimizer_steps_this_run": detector_optimizer_steps_this_run,
+            "detector_optimizer_steps_source": (
+                int(args.detector_steps)
+                if str(args.detector_initialization) == "frozen_v3_2"
+                else 0
+            ),
             "detector_lr": float(args.detector_lr),
             "detector_record_batch": int(args.detector_record_batch),
             "detector_record_batch_semantics": (
@@ -3293,18 +4324,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             "detector_positive_contexts": str(args.detector_positive_contexts),
             "detector_negative_contexts": str(args.detector_negative_contexts),
             "detector_tail_k": int(args.detector_tail_k),
-            "detector_positive_objective": (
-                "mean_plus_worst_k_squared_shortfall"
-            ),
-            "detector_negative_objective": (
-                "mean_plus_worst_k_squared_gate_excess"
-            ),
-            "detector_cross_objective": (
-                "mean_plus_worst_k_squared_gate_excess"
-            ),
-            "detector_writer_off_objective": (
-                "mean_plus_worst_k_squared_gate_excess"
-            ),
+            "detector_positive_objective": ("mean_plus_worst_k_squared_shortfall"),
+            "detector_negative_objective": ("mean_plus_worst_k_squared_gate_excess"),
+            "detector_cross_objective": ("mean_plus_worst_k_squared_gate_excess"),
+            "detector_writer_off_objective": ("mean_plus_worst_k_squared_gate_excess"),
             "detector_gradient_normalization": "equal_record_mean",
             "detector_cached_mlp_inputs": True,
             "detector_positive_floor": float(args.detector_positive_floor),
@@ -3321,17 +4344,82 @@ def main(argv: Sequence[str] | None = None) -> None:
             "detector_consistency_weight": float(args.detector_consistency_weight),
             "detector_l2": float(args.detector_l2),
             "detector_relative_cap": float(args.detector_relative_cap),
+            "actuator_training_revision": "v3.3",
+            "actuator_feasibility_steps": int(args.actuator_feasibility_steps),
+            "actuator_feasibility_initialization": "exact_zero_down_delta",
+            "actuator_feasibility_objective": (
+                "equal_record_mean_plus_worst_two_squared_margin_shortfall_only"
+            ),
+            "actuator_feasibility_positive_exposures": (
+                int(args.actuator_feasibility_steps) * len(positive_instances)
+            ),
             "actuator_steps": int(args.actuator_steps),
             "actuator_lr": float(args.actuator_lr),
             "actuator_batch_size": int(args.actuator_batch_size),
+            "actuator_batch_size_semantics": (
+                "context_microbatch_capacity_inside_global_update"
+            ),
             "actuator_protected_batch": int(args.actuator_protected_batch),
+            "actuator_protected_sampling_seed": actuator_rng_seed,
+            "actuator_update_coverage": "all_records_all_contexts_accumulated",
+            "actuator_records_per_optimizer_update": len(records),
+            "actuator_positive_contexts": str(args.actuator_positive_contexts),
+            "actuator_negative_contexts": str(args.actuator_negative_contexts),
+            "actuator_positive_contexts_per_optimizer_update": len(positive_instances),
+            "actuator_negative_contexts_per_optimizer_update": len(negative_instances),
+            "actuator_writer_off_contexts_per_optimizer_update": (
+                len(positive_instances) if writer_present else 0
+            ),
+            "actuator_positive_context_exposures": (
+                int(args.actuator_steps) * len(positive_instances)
+            ),
+            "actuator_negative_context_exposures": (
+                int(args.actuator_steps) * len(negative_instances)
+            ),
+            "actuator_writer_off_context_exposures": (
+                int(args.actuator_steps) * len(positive_instances)
+                if writer_present
+                else 0
+            ),
+            "actuator_protected_context_exposures": (
+                int(args.actuator_steps)
+                * min(int(args.actuator_protected_batch), len(protected_for_kl))
+            ),
+            "actuator_tail_k": int(args.actuator_tail_k),
+            "actuator_positive_objective": (
+                "equal_record_mean_plus_worst_k_squared_margin_shortfall"
+            ),
+            "actuator_reference_objective": (
+                "equal_record_mean_plus_worst_k_squared_excess_above_tolerance"
+            ),
+            "actuator_negative_objective": (
+                "equal_record_mean_plus_worst_k_squared_nll_drift"
+            ),
+            "actuator_writer_off_objective": (
+                "equal_record_mean_plus_worst_k_squared_abs_nll_drift_excess"
+            ),
+            "actuator_gradient_normalization": (
+                "equal_record_mean_plus_global_protected_prompt_mean"
+            ),
+            "actuator_gradient_clip_frequency": "once_per_optimizer_update",
+            "actuator_norm_projection_frequency": "once_per_optimizer_update",
+            "actuator_complete_training_log_required": True,
+            "actuator_endpoint_audit_phases": [
+                "pre_update",
+                "post_adam",
+                "post_projection",
+                "final_fresh_full_context_audit",
+            ],
             "actuator_writer_off_every": int(args.actuator_writer_off_every),
+            "actuator_writer_off_nll_tolerance": float(
+                args.actuator_writer_off_nll_tolerance
+            ),
             "actuator_relative_cap": float(args.actuator_relative_cap),
             "actuator_l2": float(args.actuator_l2),
             "neurons_per_record": int(args.neurons_per_record),
             "selected_existing_mlp_neurons": len(selected_neurons),
             "mlp_layer": int(args.neuron_layer),
-            "protected_prompt_count": len(protected_prompts),
+            "protected_prompt_count": len(protected_for_kl),
             "protected_kl_weight": float(args.protected_kl_weight),
             "margin_weight": float(args.margin_weight),
             "reference_nll_weight": float(args.reference_nll_weight),
@@ -3363,7 +4451,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         "selection": selection_report,
         "detector": {
             "response_mode": str(args.detector_response_mode),
-            "training_revision": "v3.2",
+            "training_revision": detector_optimization_metadata()["revision"],
+            "initialization": str(args.detector_initialization),
+            "frozen_v3_2_import": frozen_detector_import,
+            "frozen_v3_2_source_replay": frozen_detector_replay,
             "hidden_cache": detector_cache_report,
             "training_log": detector_log,
             "complete_training_log": detector_training_log_report,
@@ -3372,7 +4463,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             "relative_norm_cap": float(args.detector_relative_cap),
         },
         "actuator": {
+            "training_revision": "v3.3",
+            "positive_only_feasibility": feasibility_report,
             "training_log": actuator_log,
+            "complete_training_log": actuator_training_log_report,
+            "endpoint_audit": actuator_endpoint_audit,
+            "final_full_context_audit": final_actuator_audit,
             "relative_norm_cap": float(args.actuator_relative_cap),
             "norms": norm_report,
             "forget_margin": float(args.forget_margin),
@@ -3381,6 +4477,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 [float(value) for value in reference_drift]
             ),
             "reference_nll_regression_max": reference_regression_max,
+            "writer_off_nll_tolerance": float(args.actuator_writer_off_nll_tolerance),
+            "materialized_writer_off_nll_abs_max": (
+                materialized_writer_off_nll_abs_max if writer_present else None
+            ),
             "hook_to_materialized_margin_abs_max": hook_materialization_drift,
             "hook_materialization_tolerance": float(
                 args.hook_materialization_tolerance
@@ -3392,10 +4492,23 @@ def main(argv: Sequence[str] | None = None) -> None:
         "causal_component_ablation": causal_ablation,
         "acceptance": {
             "writer_preflight_passed": bool(writer_preflight["passed"]),
+            "positive_only_actuator_feasibility_passed": feasibility_passed,
+            "detector_endpoint_audit_complete": bool(endpoint_audit["complete"]),
+            "actuator_endpoint_audit_complete": bool(
+                actuator_endpoint_audit["complete"]
+            ),
+            "final_full_context_actuator_audit_passed": bool(
+                final_actuator_audit["passed"]
+            ),
+            "frozen_detector_lineage_passed": frozen_detector_lineage_passed,
             "zero_direct_failures": materialized_direct_failures == 0,
             "zero_training_safe_positive_failures": materialized_positive_failures == 0,
             "reference_nll_regression_within_tolerance": bool(
                 reference_regression_max <= float(args.reference_nll_tolerance) + 1e-6
+            ),
+            "writer_off_nll_preservation_applicable": writer_present,
+            "writer_off_nll_preservation_within_tolerance": (
+                writer_off_preservation_passed
             ),
             "detector_gate_passed": bool(detector_gate["passed"]),
             "detector_gate_policy_passed": detector_policy_passed,
@@ -3434,6 +4547,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"  maximum reference NLL regression      : {reference_regression_max:.4f}")
     if writer_present:
         print(
+            "  maximum writer-off NLL drift          : "
+            f"{materialized_writer_off_nll_abs_max:.4f}"
+        )
+        print(
             "  within-checkpoint writer-off direct fails: "
             f"{neuron_only_direct}/{len(records)}"
         )
@@ -3447,6 +4564,33 @@ def main(argv: Sequence[str] | None = None) -> None:
     print("  evaluation probes opened              : 0")
     print("=" * 76)
     if not training_passed:
+        gagd.write_json(
+            out_dir / "training_rejection.json",
+            {
+                "schema_version": 1,
+                "kind": "mcf_embedding_keyed_neuron_training_only_rejection",
+                "protocol": PROTOCOL,
+                "stage": "materialized_actuator_acceptance",
+                "reason": "locked_training_only_acceptance_failed",
+                "detector_gate": detector_gate,
+                "actuator_positive_only_feasibility": feasibility_report,
+                "actuator_final_audit": final_actuator_audit,
+                "actuator_endpoint_audit": actuator_endpoint_audit,
+                "materialized": {
+                    "direct_failures": materialized_direct_failures,
+                    "positive_failures": materialized_positive_failures,
+                    "minimum_margin": float(materialized_margins.min()),
+                    "reference_nll_regression_max": reference_regression_max,
+                    "writer_off_nll_abs_max": (
+                        materialized_writer_off_nll_abs_max if writer_present else None
+                    ),
+                },
+                "acceptance": summary["acceptance"],
+                "checkpoint_saved": checkpoint_saved,
+                "official_evaluation_allowed": rejected_control_checkpoint_saved,
+                "official_evaluation_prompts_seen": 0,
+            },
+        )
         if rejected_control_checkpoint_saved:
             print(
                 "fixed-budget no-writer control was rejected by training acceptance; "

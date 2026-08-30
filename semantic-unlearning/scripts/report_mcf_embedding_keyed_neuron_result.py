@@ -12,7 +12,7 @@ from typing import Any, Dict, Mapping, Sequence
 
 
 METRICS = ("Eff", "Gen", "Spe", "Spe_success")
-EXPECTED_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_2"
+EXPECTED_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_3"
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -154,11 +154,38 @@ def _budget_match(
         "detector_consistency_weight",
         "detector_l2",
         "detector_relative_cap",
+        "actuator_training_revision",
+        "actuator_feasibility_steps",
+        "actuator_feasibility_initialization",
+        "actuator_feasibility_objective",
+        "actuator_feasibility_positive_exposures",
         "actuator_steps",
         "actuator_lr",
         "actuator_batch_size",
+        "actuator_batch_size_semantics",
         "actuator_protected_batch",
+        "actuator_protected_sampling_seed",
+        "actuator_update_coverage",
+        "actuator_records_per_optimizer_update",
+        "actuator_positive_contexts",
+        "actuator_negative_contexts",
+        "actuator_positive_contexts_per_optimizer_update",
+        "actuator_negative_contexts_per_optimizer_update",
+        "actuator_positive_context_exposures",
+        "actuator_negative_context_exposures",
+        "actuator_protected_context_exposures",
+        "actuator_tail_k",
+        "actuator_positive_objective",
+        "actuator_reference_objective",
+        "actuator_negative_objective",
+        "actuator_writer_off_objective",
+        "actuator_gradient_normalization",
+        "actuator_gradient_clip_frequency",
+        "actuator_norm_projection_frequency",
+        "actuator_complete_training_log_required",
+        "actuator_endpoint_audit_phases",
         "actuator_writer_off_every",
+        "actuator_writer_off_nll_tolerance",
         "actuator_relative_cap",
         "actuator_l2",
         "neurons_per_record",
@@ -643,8 +670,8 @@ def build_report(
         }
 
     evidence_checks = {
-        "primary_protocol_is_v3_2": method.get("protocol") == EXPECTED_PROTOCOL,
-        "matched_control_protocol_is_v3_2": bool(
+        "primary_protocol_is_v3_3": method.get("protocol") == EXPECTED_PROTOCOL,
+        "matched_control_protocol_is_v3_3": bool(
             mlp_only_method is not None
             and mlp_only_method.get("protocol") == EXPECTED_PROTOCOL
         ),

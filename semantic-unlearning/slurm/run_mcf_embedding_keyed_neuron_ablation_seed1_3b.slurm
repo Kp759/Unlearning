@@ -4,7 +4,7 @@
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
 #SBATCH --gres=gpu:1
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
 #SBATCH --array=0-10
@@ -98,6 +98,7 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --wikidata-dir "${WIKIDATA_DIR}" \
   --corpus-protection-prompts 8192 \
   --detector-steps 1000 \
+  --detector-initialization train \
   --detector-lr 0.001 \
   --detector-record-batch 4 \
   --detector-positive-contexts all \
@@ -113,16 +114,24 @@ env -u MCF_PATH -u OFFICIAL_MCF_PATH -u OFFICIAL_EVAL_PATH \
   --detector-off-abs-max 0.20 \
   --detector-training-off-abs-max 0.15 \
   --detector-certificate-abs-tolerance 1e-7 \
-  --actuator-steps 2000 \
+  --actuator-feasibility-steps 100 \
+  --actuator-steps 100 \
   --actuator-lr 0.0005 \
+  --actuator-batch-size 4 \
+  --actuator-protected-batch 80 \
+  --actuator-positive-contexts all \
+  --actuator-negative-contexts all \
+  --actuator-tail-k 2 \
   --forget-margin 1 \
   --margin-weight 20 \
   --reference-nll-weight 50 \
   --reference-nll-tolerance 0.05 \
   --protected-kl-weight 20 \
   --writer-off-nll-weight 50 \
+  --actuator-writer-off-nll-tolerance 0.05 \
   --actuator-writer-off-every 1 \
   --actuator-relative-cap 0.50 \
+  --check-every 5 \
   --require-writer-necessity \
   --gate-policy report \
   --dtype bf16 \

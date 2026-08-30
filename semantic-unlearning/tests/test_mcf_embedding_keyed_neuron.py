@@ -98,7 +98,23 @@ def _clean_stage1_acceptance_summary():
 
 def _detector_training_revision():
     return {
-        "version": "v3.2",
+        "version": "v3.3_frozen_v3_2_primary",
+        "primary_initialization": "frozen_v3_2",
+        "source_protocol": method.FROZEN_DETECTOR_PROTOCOL,
+        "source_training_revision": "v3.2",
+        "source_gate_passed_records": 50,
+        "source_gate_total_records": 50,
+        "source_gate_passed": True,
+        "source_optimizer_updates": 1000,
+        "optimizer_updates_this_run": 0,
+        "imported_tensors": ["gate_delta", "up_delta"],
+        "source_down_delta_imported": False,
+        "current_down_delta_reset_to_zero": True,
+        "exact_source_artifact_hash_receipt_required": True,
+        "fresh_full_context_source_replay_required": True,
+        "source_replay_abs_tolerance": (method.FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE),
+        "controls_initialization": "train",
+        "control_optimizer_updates": 1000,
         "training_input": "cached_selected_layer_mlp_input_hidden_states",
         "cache_dtype": "float32",
         "cache_device": "cpu",
@@ -110,7 +126,7 @@ def _detector_training_revision():
         "update_coverage": "all_records_accumulated",
         "record_microbatch_argument": "detector_record_batch",
         "records_per_optimizer_update": 50,
-        "optimizer_updates": 1000,
+        "optimizer_updates_total_per_detector": 1000,
         "record_exposures": 50000,
         "positive_context_mode": "all",
         "negative_context_mode": "all",
@@ -135,6 +151,81 @@ def _detector_training_revision():
             "final_fresh_full_context_certificate",
         ],
         "complete_training_log_required": True,
+        "official_evaluation_prompts_seen": 0,
+    }
+
+
+def _actuator_training_revision():
+    return {
+        "version": "v3.3",
+        "initial_down_delta": "exact_zero",
+        "feasibility": {
+            "optimizer_updates": 100,
+            "records_per_optimizer_update": 50,
+            "positive_contexts_per_optimizer_update": 346,
+            "positive_context_exposures": 34600,
+            "objective": (
+                "equal_record_mean_plus_worst_two_squared_margin_shortfall_only"
+            ),
+            "relative_norm_cap": 0.5,
+            "pass_condition": (
+                "zero direct failures and zero failures over all 346 positives"
+            ),
+            "learned_weights_discarded_before_full_training": True,
+            "failure_action": (
+                "refuse full actuator training, checkpoint saving, and official "
+                "evaluation"
+            ),
+        },
+        "full_training": {
+            "optimizer_updates": 100,
+            "records_per_optimizer_update": 50,
+            "positive_context_mode": "all",
+            "negative_context_mode": "all",
+            "writer_off_context_mode": "all",
+            "positive_contexts_per_optimizer_update": 346,
+            "negative_contexts_per_optimizer_update": 465,
+            "writer_off_contexts_per_optimizer_update": 346,
+            "protected_contexts_per_optimizer_update": 80,
+            "protected_sampling_seed": "seed + 78103",
+            "positive_context_exposures": 34600,
+            "negative_context_exposures": 46500,
+            "writer_off_context_exposures": 34600,
+            "protected_context_exposures": 8000,
+            "context_microbatch_capacity": 4,
+            "tail_k": 2,
+            "gradient_normalization": (
+                "equal_record_mean_plus_global_protected_prompt_mean"
+            ),
+            "positive_objective": "mean_plus_worst_k_squared_margin_shortfall",
+            "reference_objective": (
+                "mean_plus_worst_k_squared_regression_excess_above_tolerance"
+            ),
+            "negative_objective": "mean_plus_worst_k_squared_nll_drift",
+            "writer_off_objective": (
+                "mean_plus_worst_k_squared_abs_nll_drift_excess_above_tolerance"
+            ),
+            "forget_margin": 1.0,
+            "reference_nll_tolerance": 0.05,
+            "writer_off_nll_tolerance": 0.05,
+            "margin_weight": 20.0,
+            "reference_nll_weight": 50.0,
+            "negative_nll_weight": 1.0,
+            "protected_kl_weight": 20.0,
+            "writer_off_nll_weight": 50.0,
+            "learning_rate": 0.0005,
+            "relative_norm_cap": 0.5,
+            "gradient_clip_frequency": "once_per_optimizer_update",
+            "norm_projection_frequency": "once_per_optimizer_update",
+        },
+        "endpoint_audit_phases": [
+            "pre_update",
+            "post_adam",
+            "post_projection",
+            "final_fresh_full_context_audit",
+        ],
+        "complete_feasibility_log_required": True,
+        "complete_full_training_log_required": True,
         "official_evaluation_prompts_seen": 0,
     }
 
@@ -503,9 +594,11 @@ def test_detector_cache_captures_exact_mlp_input_last_token_in_batches():
     assert torch.equal(
         hidden,
         torch.tensor(
-            [[1.0, 2.0, 3.0, 4.0, 5.0],
-             [3.0, 4.0, 5.0, 6.0, 7.0],
-             [2.0, 3.0, 4.0, 5.0, 6.0]]
+            [
+                [1.0, 2.0, 3.0, 4.0, 5.0],
+                [3.0, 4.0, 5.0, 6.0, 7.0],
+                [2.0, 3.0, 4.0, 5.0, 6.0],
+            ]
         ),
     )
     assert tok.padding_side == "left"
@@ -627,6 +720,179 @@ def test_detector_endpoint_replay_comparison_binds_metrics_and_record_order():
     assert not method.compare_detector_gate_replays(first, second, abs_tolerance=1e-7)[
         "passed"
     ]
+
+
+def test_actuator_positive_objective_is_mean_plus_worst_two_shortfall():
+    loss, pieces = core.actuator_positive_margin_objective(
+        torch.tensor([0.0, 0.5, 1.5]), margin_floor=1.0, tail_k=2
+    )
+    assert pieces["mean"] == pytest.approx((1.0 + 0.25) / 3.0)
+    assert pieces["tail"] == pytest.approx((1.0 + 0.25) / 2.0)
+    assert loss == pytest.approx((1.0 + 0.25) / 3.0 + (1.0 + 0.25) / 2.0)
+
+
+def test_actuator_reference_and_writer_off_losses_have_tolerance_bands():
+    reference_loss, _ = core.actuator_reference_regression_objective(
+        torch.tensor([1.04, 1.20]),
+        torch.tensor([1.00, 1.00]),
+        tolerance=0.05,
+        tail_k=2,
+    )
+    assert reference_loss == pytest.approx(2.0 * 0.15**2 / 2.0)
+
+    writer_off_loss, _ = core.actuator_writer_off_objective(
+        torch.tensor([1.04, 1.20]),
+        torch.tensor([2.00, 1.90]),
+        torch.tensor([1.00, 1.00]),
+        torch.tensor([2.00, 2.00]),
+        tolerance=0.05,
+        tail_k=2,
+    )
+    # Squared violations are [0, .15^2, 0, .05^2].
+    assert writer_off_loss == pytest.approx(0.00625 + 0.0125)
+
+
+def test_actuator_endpoint_replay_uses_tolerance_and_record_binding():
+    first = {
+        "direct_failures": 0,
+        "positive_failures": 0,
+        "positive_contexts": 2,
+        "minimum_margin": 1.01,
+        "reference_nll_regression_max": 0.01,
+        "writer_off_nll_abs_max": 0.02,
+        "per_record": [
+            {
+                "record_index": 0,
+                "case_id": 10472,
+                "positive_contexts": 1,
+                "positive_failures": 0,
+                "direct_margin": 1.01,
+                "positive_min": 1.01,
+                "reference_nll_regression_max": 0.01,
+                "writer_off_nll_abs_max": 0.02,
+            },
+            {
+                "record_index": 1,
+                "case_id": 14801,
+                "positive_contexts": 1,
+                "positive_failures": 0,
+                "direct_margin": 1.02,
+                "positive_min": 1.02,
+                "reference_nll_regression_max": 0.0,
+                "writer_off_nll_abs_max": 0.01,
+            },
+        ],
+    }
+    second = json.loads(json.dumps(first))
+    second["minimum_margin"] += 5e-7
+    replay = method.compare_actuator_audits(first, second, abs_tolerance=1e-6)
+    assert replay["passed"]
+
+    second["per_record"][1]["case_id"] = 999
+    assert not method.compare_actuator_audits(first, second, abs_tolerance=1e-6)[
+        "passed"
+    ]
+
+
+def test_frozen_v3_2_import_loads_only_passed_detector_tensors(tmp_path):
+    mlp = TinySwiGLU(hidden=5, intermediate=7)
+    editor = core.SparseSwiGLUNeuronEditor(mlp, [0, 1])
+    ownership = [[0], [1]]
+    ownership_hash = method.selected_neuron_ownership_jq_compact_sha256(ownership)
+    signs = torch.tensor([1.0, -1.0])
+    source_gate = torch.full_like(editor.gate_delta, 0.25)
+    source_up = torch.full_like(editor.up_delta, -0.125)
+
+    stage1_path = tmp_path / "stage1.pt"
+    stage1_path.write_bytes(b"frozen-writer")
+    method_dir = tmp_path / "source" / "method"
+    method_dir.mkdir(parents=True)
+    torch.save(
+        {
+            "protocol": method.FROZEN_DETECTOR_PROTOCOL,
+            "detector_training_revision": "v3.2",
+            "case_ids": [10472, 14801],
+            "layer": 27,
+            "selected_neurons": [0, 1],
+            "ownership": ownership,
+            "selected_neuron_ownership_jq_compact_sha256": ownership_hash,
+            "source_stage1_state_sha256": method.compositional_method.sha256_file(
+                stage1_path
+            ),
+            "output_head_sha256": "head-sha256",
+            "flat_signs": signs,
+            "base_neuron_weights": {
+                "gate_rows": editor.base_gate_rows.detach().clone(),
+                "up_rows": editor.base_up_rows.detach().clone(),
+                "down_columns": editor.base_down_columns.detach().clone(),
+            },
+            "gate_delta": source_gate,
+            "up_delta": source_up,
+            "down_delta": torch.full_like(editor.down_delta, 9.0),
+        },
+        method_dir / "embedding_keyed_neuron_state.pt",
+    )
+    artifacts = {
+        "detector_gate_report.json": {
+            "protocol": method.FROZEN_DETECTOR_PROTOCOL,
+            "passed": True,
+            "passed_records": 2,
+            "total_records": 2,
+            "criterion": {
+                "positive_floor": 0.25,
+                "negative_abs_max": 0.20,
+                "writer_off_abs_max": 0.20,
+                "comparison_abs_tolerance": 1e-7,
+                "writer_off_required": True,
+            },
+            "official_evaluation_prompts_seen": 0,
+        },
+        "detector_endpoint_audit.json": {
+            "complete": True,
+            "official_evaluation_prompts_seen": 0,
+        },
+        "neuron_selection_report.json": {
+            "selected_neuron_ownership_jq_compact_sha256": ownership_hash,
+        },
+        "embedding_keyed_neuron_summary.json": {
+            "protocol": method.FROZEN_DETECTOR_PROTOCOL,
+            "acceptance": {
+                "detector_gate_passed": True,
+                "checkpoint_saved": False,
+                "passed": False,
+            },
+        },
+        "training_firewall_receipt.json": {
+            "data_access": {
+                "official_paraphrases_seen": 0,
+                "official_neighborhoods_seen": 0,
+                "benchmark_retain_seen": 0,
+                "official_ppl_seen": False,
+            }
+        },
+    }
+    for name, payload in artifacts.items():
+        (method_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    with torch.no_grad():
+        editor.down_delta.fill_(3.0)
+    receipt, gate = method.import_frozen_v3_2_detector(
+        tmp_path / "source",
+        stage1_path=stage1_path,
+        case_ids=[10472, 14801],
+        layer=27,
+        ownership=ownership,
+        selected_neurons=[0, 1],
+        flat_signs=signs,
+        output_head_sha256="head-sha256",
+        editor=editor,
+    )
+
+    assert receipt["passed"]
+    assert gate["passed"]
+    assert torch.equal(editor.gate_delta, source_gate)
+    assert torch.equal(editor.up_delta, source_up)
+    assert torch.count_nonzero(editor.down_delta) == 0
 
 
 def test_detector_gate_case_tsv_binds_locked_record_order():
@@ -1095,6 +1361,14 @@ def test_training_cli_exposes_no_original_mcf_or_official_eval_argument():
     assert args.detector_training_positive_floor == pytest.approx(0.30)
     assert args.detector_training_off_abs_max == pytest.approx(0.15)
     assert args.detector_certificate_abs_tolerance == pytest.approx(1e-7)
+    assert args.detector_initialization == "train"
+    assert args.actuator_feasibility_steps == 100
+    assert args.actuator_steps == 100
+    assert args.actuator_protected_batch == 80
+    assert args.actuator_positive_contexts == "all"
+    assert args.actuator_negative_contexts == "all"
+    assert args.actuator_tail_k == 2
+    assert args.actuator_writer_off_nll_tolerance == pytest.approx(0.05)
 
     with pytest.raises(SystemExit):
         method.parse_args(
@@ -1434,9 +1708,10 @@ def test_primary_configuration_is_bound_to_preregistered_values():
             "cross_record_parameter_sharing_audit_required": True,
         },
         "detector_training_revision": _detector_training_revision(),
+        "actuator_training_revision": _actuator_training_revision(),
         "selected_neuron_ownership_binding": {
             "scope": "primary_embedding_keyed_configuration",
-            "source_runs": ["v3", "v3.1"],
+            "source_runs": ["v3", "v3.1", "v3.2"],
             "jq_projection": "[.ownership[].selected_neurons]",
             "jq_compact_sha256": (
                 "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
@@ -1475,12 +1750,18 @@ def test_repository_registry_binds_primary_and_independent_control():
         / "mcf_embedding_keyed_neuron_ablation_registry_v1.json"
     )
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert registry["schema_version"] == 8
+    assert registry["schema_version"] == 9
     assert registry["protocol"] == core.PROTOCOL
     assert registry["development_history"][-1]["version"] == (
-        "v6_embedding_keyed_detector_v3_1"
+        "v7_embedding_keyed_detector_v3_2_actuator"
     )
-    assert registry["development_history"][-1]["detector_gate"]["passed_records"] == 45
+    assert registry["development_history"][-1]["detector_gate"]["passed_records"] == 50
+    assert (
+        registry["development_history"][-1]["actuator_acceptance"][
+            "materialized_direct_failures"
+        ]
+        == 41
+    )
     assert not registry["development_history"][-1][
         "official_evaluation_opened_by_this_failed_run"
     ]
@@ -1497,6 +1778,12 @@ def test_repository_registry_binds_primary_and_independent_control():
     assert registry["primary_configuration"][
         "detector_certificate_abs_tolerance"
     ] == pytest.approx(1e-7)
+    assert registry["primary_configuration"]["detector_initialization"] == (
+        "frozen_v3_2"
+    )
+    assert registry["primary_configuration"]["actuator_feasibility_steps"] == 100
+    assert registry["primary_configuration"]["actuator_steps"] == 100
+    assert registry["primary_configuration"]["actuator_protected_batch"] == 80
     common = [
         "--model-path",
         "model",
@@ -1521,7 +1808,15 @@ def test_repository_registry_binds_primary_and_independent_control():
         "--output-dir",
         "out",
     ]
-    primary = method.parse_args(common)
+    primary = method.parse_args(
+        [
+            *common,
+            "--detector-initialization",
+            "frozen_v3_2",
+            "--frozen-v3-2-run-dir",
+            "rejected-v3.2",
+        ]
+    )
     method._validate_experiment_registry(registry, primary)
 
     control = method.parse_args(
@@ -1675,9 +1970,7 @@ def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
         "detector_positive_objective": "mean_plus_worst_k_squared_shortfall",
         "detector_negative_objective": "mean_plus_worst_k_squared_gate_excess",
         "detector_cross_objective": "mean_plus_worst_k_squared_gate_excess",
-        "detector_writer_off_objective": (
-            "mean_plus_worst_k_squared_gate_excess"
-        ),
+        "detector_writer_off_objective": ("mean_plus_worst_k_squared_gate_excess"),
         "detector_gradient_normalization": "equal_record_mean",
         "detector_cached_mlp_inputs": True,
         "detector_positive_floor": 0.25,
@@ -1690,11 +1983,59 @@ def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
         "detector_consistency_weight": 1.0,
         "detector_l2": 0.00001,
         "detector_relative_cap": 1.0,
-        "actuator_steps": 2000,
+        "actuator_training_revision": "v3.3",
+        "actuator_feasibility_steps": 100,
+        "actuator_feasibility_initialization": "exact_zero_down_delta",
+        "actuator_feasibility_objective": (
+            "equal_record_mean_plus_worst_two_squared_margin_shortfall_only"
+        ),
+        "actuator_feasibility_positive_exposures": 34600,
+        "actuator_steps": 100,
         "actuator_lr": 0.0005,
         "actuator_batch_size": 4,
-        "actuator_protected_batch": 4,
+        "actuator_batch_size_semantics": (
+            "context_microbatch_capacity_inside_global_update"
+        ),
+        "actuator_protected_batch": 80,
+        "actuator_protected_sampling_seed": 78104,
+        "actuator_update_coverage": "all_records_all_contexts_accumulated",
+        "actuator_records_per_optimizer_update": 50,
+        "actuator_positive_contexts": "all",
+        "actuator_negative_contexts": "all",
+        "actuator_positive_contexts_per_optimizer_update": 346,
+        "actuator_negative_contexts_per_optimizer_update": 465,
+        "actuator_writer_off_contexts_per_optimizer_update": 346,
+        "actuator_positive_context_exposures": 34600,
+        "actuator_negative_context_exposures": 46500,
+        "actuator_writer_off_context_exposures": 34600,
+        "actuator_protected_context_exposures": 8000,
+        "actuator_tail_k": 2,
+        "actuator_positive_objective": (
+            "equal_record_mean_plus_worst_k_squared_margin_shortfall"
+        ),
+        "actuator_reference_objective": (
+            "equal_record_mean_plus_worst_k_squared_excess_above_tolerance"
+        ),
+        "actuator_negative_objective": (
+            "equal_record_mean_plus_worst_k_squared_nll_drift"
+        ),
+        "actuator_writer_off_objective": (
+            "equal_record_mean_plus_worst_k_squared_abs_nll_drift_excess"
+        ),
+        "actuator_gradient_normalization": (
+            "equal_record_mean_plus_global_protected_prompt_mean"
+        ),
+        "actuator_gradient_clip_frequency": "once_per_optimizer_update",
+        "actuator_norm_projection_frequency": "once_per_optimizer_update",
+        "actuator_complete_training_log_required": True,
+        "actuator_endpoint_audit_phases": [
+            "pre_update",
+            "post_adam",
+            "post_projection",
+            "final_fresh_full_context_audit",
+        ],
         "actuator_writer_off_every": 1,
+        "actuator_writer_off_nll_tolerance": 0.05,
         "actuator_relative_cap": 0.5,
         "actuator_l2": 0.0001,
         "neurons_per_record": 4,

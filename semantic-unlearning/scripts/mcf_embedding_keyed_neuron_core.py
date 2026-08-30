@@ -28,7 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_2"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_3"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
@@ -458,6 +458,120 @@ def detector_writer_off_objective(
         "writer_off_mean": torch.stack(means).mean(),
         "writer_off_tail": torch.stack(tails).mean(),
     }
+
+
+def mean_plus_tail_squared_loss(
+    squared_violations: torch.Tensor,
+    *,
+    tail_k: int,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Reduce one record's squared violations by mean plus worst-``k`` mean."""
+
+    values = squared_violations.reshape(-1)
+    if values.numel() == 0:
+        raise ValueError("tail-aware loss requires at least one value")
+    if int(tail_k) <= 0:
+        raise ValueError("tail_k must be positive")
+    if not torch.isfinite(values).all():
+        raise ValueError("tail-aware loss received non-finite values")
+    mean = values.mean()
+    count = min(int(tail_k), int(values.numel()))
+    tail = values.topk(count).values.mean()
+    return mean + tail, {"mean": mean, "tail": tail}
+
+
+def actuator_positive_margin_objective(
+    margins: torch.Tensor,
+    *,
+    margin_floor: float,
+    tail_k: int,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Gate-align a single record's actuator loss to its worst positive margins."""
+
+    if float(margin_floor) < 0:
+        raise ValueError("margin_floor must be non-negative")
+    return mean_plus_tail_squared_loss(
+        F.relu(float(margin_floor) - margins).square(),
+        tail_k=int(tail_k),
+    )
+
+
+def actuator_reference_regression_objective(
+    current_nll: torch.Tensor,
+    baseline_nll: torch.Tensor,
+    *,
+    tolerance: float,
+    tail_k: int,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Penalize a record's reference-NLL regressions only beyond tolerance."""
+
+    if current_nll.shape != baseline_nll.shape:
+        raise ValueError("current and baseline reference NLLs must match")
+    if float(tolerance) < 0:
+        raise ValueError("reference NLL tolerance must be non-negative")
+    return mean_plus_tail_squared_loss(
+        F.relu(current_nll - baseline_nll - float(tolerance)).square(),
+        tail_k=int(tail_k),
+    )
+
+
+def actuator_writer_off_objective(
+    current_new_nll: torch.Tensor,
+    current_true_nll: torch.Tensor,
+    baseline_new_nll: torch.Tensor,
+    baseline_true_nll: torch.Tensor,
+    *,
+    tolerance: float,
+    tail_k: int,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Tail-penalize writer-off NLL drift only outside a registered band."""
+
+    if not (
+        current_new_nll.shape
+        == current_true_nll.shape
+        == baseline_new_nll.shape
+        == baseline_true_nll.shape
+    ):
+        raise ValueError("writer-off current and baseline NLL tensors must match")
+    if float(tolerance) < 0:
+        raise ValueError("writer-off NLL tolerance must be non-negative")
+    violations = torch.cat(
+        (
+            F.relu(
+                (current_new_nll - baseline_new_nll).abs() - float(tolerance)
+            ).square(),
+            F.relu(
+                (current_true_nll - baseline_true_nll).abs() - float(tolerance)
+            ).square(),
+        )
+    )
+    return mean_plus_tail_squared_loss(violations, tail_k=int(tail_k))
+
+
+def actuator_negative_preservation_objective(
+    current_new_nll: torch.Tensor,
+    current_true_nll: torch.Tensor,
+    baseline_new_nll: torch.Tensor,
+    baseline_true_nll: torch.Tensor,
+    *,
+    tail_k: int,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Equal-record mean-plus-tail preservation for compositional negatives."""
+
+    if not (
+        current_new_nll.shape
+        == current_true_nll.shape
+        == baseline_new_nll.shape
+        == baseline_true_nll.shape
+    ):
+        raise ValueError("negative current and baseline NLL tensors must match")
+    violations = torch.cat(
+        (
+            (current_new_nll - baseline_new_nll).square(),
+            (current_true_nll - baseline_true_nll).square(),
+        )
+    )
+    return mean_plus_tail_squared_loss(violations, tail_k=int(tail_k))
 
 
 def detector_gate_report(
