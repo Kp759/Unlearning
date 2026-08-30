@@ -33,7 +33,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_2"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_3"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
@@ -415,6 +415,166 @@ def detector_objective(
     }
 
 
+def detector_multilabel_objective(
+    responses: torch.Tensor,
+    source_owners: torch.Tensor,
+    positive_occurrences: torch.Tensor,
+    active_mask: torch.Tensor,
+    *,
+    positive_target: float,
+    off_target_abs_max: float,
+    tail_k: int,
+    negative_weight: float,
+    cross_weight: float,
+    global_tail_weight: float,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Train a detector against canonical prompt-level active label sets.
+
+    A prompt can be positive for one record while appearing as a record-relative
+    negative for another.  Such a prompt is not globally negative: every group
+    in ``active_mask`` must respond positively and every inactive group must
+    remain quiet.  The source owner is used only to retain equal-record
+    weighting and to distinguish the source-owner negative term from other
+    inactive cells.
+
+    Per-record mean-plus-tail reductions preserve balanced optimization.  A
+    second worst-``tail_k`` reduction over the complete update aligns training
+    with the certificate's global extrema, preventing one record from being
+    diluted by the other records.
+    """
+    if responses.ndim != 2:
+        raise ValueError("responses must be [batch, records]")
+    batch, records = responses.shape
+    if source_owners.shape != (batch,):
+        raise ValueError("source_owners must match response batch")
+    if positive_occurrences.shape != (batch,):
+        raise ValueError("positive_occurrences must match response batch")
+    if active_mask.shape != responses.shape or active_mask.dtype != torch.bool:
+        raise ValueError("active_mask must be a Boolean response-shaped tensor")
+    if batch == 0 or records == 0:
+        raise ValueError("multilabel detector objective requires non-empty responses")
+    if bool((source_owners < 0).any()) or bool((source_owners >= records).any()):
+        raise ValueError("source owner index out of range")
+    if float(positive_target) < 0 or float(off_target_abs_max) < 0:
+        raise ValueError("detector training targets must be non-negative")
+    if int(tail_k) <= 0:
+        raise ValueError("tail_k must be positive")
+    if float(global_tail_weight) < 0:
+        raise ValueError("global_tail_weight must be non-negative")
+
+    rows = torch.arange(batch, device=responses.device)
+    owner_cells = torch.zeros_like(active_mask)
+    owner_cells[rows, source_owners] = True
+    owner_positive = owner_cells & positive_occurrences[:, None]
+    if not bool((active_mask & owner_positive).eq(owner_positive).all()):
+        raise ValueError("every positive occurrence must activate its source owner")
+    owner_negative = owner_cells & ~positive_occurrences[:, None]
+    if bool((active_mask & owner_negative).any()):
+        raise ValueError("a source-relative negative cannot activate its source owner")
+
+    active_violations = F.relu(float(positive_target) - responses[active_mask]).square()
+    negative_violations = F.relu(
+        responses[owner_negative].abs() - float(off_target_abs_max)
+    ).square()
+    inactive_cross_mask = ~active_mask & ~owner_negative
+    cross_violations = F.relu(
+        responses[inactive_cross_mask].abs() - float(off_target_abs_max)
+    ).square()
+
+    def reduce_values(
+        values: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        flat = values.reshape(-1)
+        if flat.numel() == 0:
+            zero = responses.sum() * 0.0
+            return zero, zero, zero
+        mean = flat.mean()
+        count = min(int(tail_k), int(flat.numel()))
+        tail = flat.topk(count).values.mean()
+        return mean + tail, mean, tail
+
+    per_record: Dict[str, List[torch.Tensor]] = {
+        "write": [],
+        "write_mean": [],
+        "write_tail": [],
+        "negative": [],
+        "negative_mean": [],
+        "negative_tail": [],
+        "cross": [],
+        "cross_mean": [],
+        "cross_tail": [],
+        "consistency": [],
+    }
+    for record_id_tensor in source_owners.unique(sorted=True):
+        record_id = int(record_id_tensor.item())
+        record_rows = source_owners.eq(record_id)
+        record_matrix = responses[record_rows]
+        record_active = active_mask[record_rows]
+        record_positive = positive_occurrences[record_rows]
+        local_rows = torch.arange(int(record_matrix.shape[0]), device=responses.device)
+        local_owner = torch.zeros_like(record_active)
+        local_owner[local_rows, record_id] = True
+        local_owner_negative = local_owner & ~record_positive[:, None]
+        local_cross = ~record_active & ~local_owner_negative
+
+        write, write_mean, write_tail = reduce_values(
+            F.relu(float(positive_target) - record_matrix[record_active]).square()
+        )
+        negative, negative_mean, negative_tail = reduce_values(
+            F.relu(
+                record_matrix[local_owner_negative].abs() - float(off_target_abs_max)
+            ).square()
+        )
+        cross, cross_mean, cross_tail = reduce_values(
+            F.relu(
+                record_matrix[local_cross].abs() - float(off_target_abs_max)
+            ).square()
+        )
+        per_record["write"].append(write)
+        per_record["write_mean"].append(write_mean)
+        per_record["write_tail"].append(write_tail)
+        per_record["negative"].append(negative)
+        per_record["negative_mean"].append(negative_mean)
+        per_record["negative_tail"].append(negative_tail)
+        per_record["cross"].append(cross)
+        per_record["cross_mean"].append(cross_mean)
+        per_record["cross_tail"].append(cross_tail)
+
+        owned_positive_values = record_matrix[record_positive, record_id]
+        per_record["consistency"].append(
+            owned_positive_values.var(unbiased=False)
+            if owned_positive_values.numel() > 1
+            else responses.sum() * 0.0
+        )
+
+    global_write_tail = reduce_values(active_violations)[2]
+    global_negative_tail = reduce_values(negative_violations)[2]
+    global_cross_tail = reduce_values(cross_violations)[2]
+    write_base = torch.stack(per_record["write"]).mean()
+    negative_base = torch.stack(per_record["negative"]).mean()
+    cross_base = torch.stack(per_record["cross"]).mean()
+    write = write_base + float(global_tail_weight) * global_write_tail
+    negative = negative_base + float(global_tail_weight) * global_negative_tail
+    cross = cross_base + float(global_tail_weight) * global_cross_tail
+    consistency = torch.stack(per_record["consistency"]).mean()
+    total = write + float(negative_weight) * negative + float(cross_weight) * cross
+    return total, {
+        "write": write,
+        "write_mean": torch.stack(per_record["write_mean"]).mean(),
+        "write_tail": torch.stack(per_record["write_tail"]).mean(),
+        "write_global_tail": global_write_tail,
+        "negative": negative,
+        "negative_mean": torch.stack(per_record["negative_mean"]).mean(),
+        "negative_tail": torch.stack(per_record["negative_tail"]).mean(),
+        "negative_global_tail": global_negative_tail,
+        "cross": cross,
+        "cross_mean": torch.stack(per_record["cross_mean"]).mean(),
+        "cross_tail": torch.stack(per_record["cross_tail"]).mean(),
+        "cross_global_tail": global_cross_tail,
+        "consistency": consistency,
+    }
+
+
 def detector_writer_off_objective(
     responses: torch.Tensor,
     owners: torch.Tensor,
@@ -471,6 +631,7 @@ def detector_global_writer_off_objective(
     *,
     off_target_abs_max: float,
     tail_k: int,
+    global_tail_weight: float = 0.0,
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
     """Penalize certificate-breaking writer-off responses in every group.
 
@@ -484,7 +645,9 @@ def detector_global_writer_off_objective(
     Each source record contributes equally.  Within a source record, all
     ``context x detector-group`` cells contribute to the mean and its worst
     ``tail_k`` excesses, so a single cross-record collision cannot be diluted
-    by the other 49 groups or by records with more contexts.
+    by the other 49 groups or by records with more contexts.  An optional
+    complete-update tail adds direct pressure on the global certificate
+    extrema without changing the equal-record base reduction.
     """
     if responses.ndim != 2:
         raise ValueError("responses must be [batch, records]")
@@ -499,6 +662,8 @@ def detector_global_writer_off_objective(
         raise ValueError("off_target_abs_max must be non-negative")
     if int(tail_k) <= 0:
         raise ValueError("tail_k must be positive")
+    if float(global_tail_weight) < 0:
+        raise ValueError("global_tail_weight must be non-negative")
 
     totals: List[torch.Tensor] = []
     means: List[torch.Tensor] = []
@@ -516,9 +681,16 @@ def detector_global_writer_off_objective(
         totals.append(mean + tail)
         means.append(mean)
         tails.append(tail)
-    return torch.stack(totals).mean(), {
+    global_values = (
+        F.relu(responses.abs() - float(off_target_abs_max)).square().reshape(-1)
+    )
+    global_count = min(int(tail_k), int(global_values.numel()))
+    global_tail = global_values.topk(global_count).values.mean()
+    total = torch.stack(totals).mean() + float(global_tail_weight) * global_tail
+    return total, {
         "writer_off_mean": torch.stack(means).mean(),
         "writer_off_tail": torch.stack(tails).mean(),
+        "writer_off_global_tail": global_tail,
     }
 
 

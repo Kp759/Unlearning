@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "V3.5 is preserved as a single-cell threshold-gate rejection and cannot run from this checkout." >&2
-echo "Use run_mcf_embedding_keyed_neuron_v3_5_2_manual.sh with the completed V3.5.1 forensics." >&2
+echo "Use run_mcf_embedding_keyed_neuron_v3_5_3_manual.sh with the completed V3.5.1 forensics and rejected V3.5.2 output." >&2
 exit 2
 
 if [[ $# -ne 4 ]]; then

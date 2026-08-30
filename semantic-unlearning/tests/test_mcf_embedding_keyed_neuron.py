@@ -164,13 +164,38 @@ def _v3_5_2_repair_scope():
     }
 
 
+def _v3_5_3_multilabel_scope():
+    return {
+        "training_only": True,
+        "source_v3_5_2_rejection_hash_bound": True,
+        "duplicate_prompt_sha256": (
+            "9a4070c81368070d9ee1383958c18109bf7af90ee59042b3132b7a51e9d6ca38"
+        ),
+        "positive_source_case_id": 10472,
+        "positive_source_context_index": 1,
+        "negative_source_case_id": 19763,
+        "negative_source_context_index": 4,
+        "shared_detector_case_id": 10472,
+        "repair_targets_prompt_identity_directly": False,
+        "same_record_positive_negative_conflicts_allowed": False,
+        "canonical_hidden_reuse_required": True,
+        "global_worst_two_weight": 1.0,
+        "detector_repair_optimizer_updates": 100,
+        "multilabel_gate_required_before_actuator_feasibility": True,
+        "full_preservation_training_prohibited": True,
+        "checkpoint_creation_prohibited": True,
+        "official_evaluation_prohibited": True,
+    }
+
+
 def _detector_training_revision():
     return {
-        "version": "v3.5.2_global_writer_off_all_group_repair",
-        "mode": "training_only_all_record_all_context_repair",
+        "version": "v3.5.3_canonical_multilabel_global_tail_repair",
+        "mode": "training_only_canonical_prompt_multilabel_repair",
         "primary_initialization": "frozen_v3_2",
         "source_v3_5_protocol": method.FROZEN_V3_5_PROTOCOL,
         "source_v3_5_1_protocol": method.FROZEN_V3_5_1_PROTOCOL,
+        "source_v3_5_2_protocol": method.FROZEN_V3_5_2_PROTOCOL,
         "source_protocol": method.FROZEN_DETECTOR_PROTOCOL,
         "source_training_revision": "v3.2",
         "source_gate_passed_records": 50,
@@ -187,7 +212,9 @@ def _detector_training_revision():
         "source_replay_abs_tolerance": (method.FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE),
         "controls_initialization": "train",
         "control_optimizer_updates": 1000,
-        "training_input": "cached_selected_layer_mlp_input_hidden_states",
+        "training_input": (
+            "canonical_exact_prompt_cached_selected_layer_mlp_input_hidden_states"
+        ),
         "cache_dtype": "float32",
         "cache_device": "cpu",
         "cache_scope": [
@@ -195,6 +222,15 @@ def _detector_training_revision():
             "writer_on_negative",
             "writer_off_positive",
         ],
+        "duplicate_prompt_policy": (
+            "one bit-identical hidden-state representative reused across every "
+            "source-role occurrence"
+        ),
+        "prompt_label_semantics": (
+            "active groups are every record for which the exact prompt is "
+            "registered positive; source-relative negative roles leave those "
+            "labels active"
+        ),
         "update_coverage": "all_records_accumulated",
         "record_microbatch_argument": "detector_record_batch",
         "records_per_optimizer_update": 50,
@@ -203,20 +239,33 @@ def _detector_training_revision():
         "positive_context_mode": "all",
         "negative_context_mode": "all",
         "tail_k": 2,
-        "positive_objective": "mean_plus_worst_k_squared_shortfall",
-        "negative_objective": "mean_plus_worst_k_squared_gate_excess",
-        "cross_objective": "mean_plus_worst_k_squared_gate_excess",
+        "positive_objective": (
+            "active_label_equal_record_mean_plus_worst_k_plus_global_worst_k_"
+            "squared_shortfall"
+        ),
+        "negative_objective": (
+            "source_owner_equal_record_mean_plus_worst_k_plus_global_worst_k_"
+            "squared_excess"
+        ),
+        "cross_objective": (
+            "inactive_label_equal_record_mean_plus_worst_k_plus_global_worst_k_"
+            "squared_excess"
+        ),
         "writer_off_objective": (
-            "all_detector_groups_equal_source_record_mean_plus_worst_k_squared_excess"
+            "all_detector_groups_equal_source_record_mean_plus_worst_k_plus_"
+            "global_worst_k_squared_excess"
         ),
         "writer_off_groups_per_context": 50,
+        "global_tail_weight": 1.0,
         "training_positive_floor": 0.30,
         "training_off_abs_max": 0.15,
         "certificate_positive_floor": 0.25,
         "certificate_off_abs_max": 0.20,
         "certificate_abs_tolerance": 1e-7,
         "certificate_thresholds_unchanged_from_v3_1": True,
-        "gradient_normalization": "equal_record_mean",
+        "gradient_normalization": (
+            "equal_record_mean_plus_complete_update_global_tail"
+        ),
         "gradient_clip_frequency": "once_per_optimizer_update",
         "norm_projection_frequency": "once_per_optimizer_update",
         "endpoint_audit_phases": [
@@ -232,11 +281,12 @@ def _detector_training_revision():
 
 def _actuator_training_revision():
     return {
-        "version": "v3.5.2",
-        "mode": "discarded_fixed_cap_feasibility_after_global_gate",
+        "version": "v3.5.3",
+        "mode": "discarded_fixed_cap_feasibility_after_multilabel_gate",
         "source_v3_5_protocol": method.FROZEN_V3_5_PROTOCOL,
         "source_v3_5_1_protocol": method.FROZEN_V3_5_1_PROTOCOL,
-        "historical_v3_5_plan_retested_after_detector_repair": True,
+        "source_v3_5_2_protocol": method.FROZEN_V3_5_2_PROTOCOL,
+        "historical_v3_5_plan_retested_after_multilabel_detector_repair": True,
         "optimizer_constructed_this_run": True,
         "optimizer_updates_this_run": 100,
         "frozen_training_contexts": {
@@ -263,7 +313,7 @@ def _actuator_training_revision():
         "architecture": {
             "base_mlp_path": "bit_exact_untouched",
             "frozen_detector_role": (
-                "V3.2 initialization followed by V3.5.2 all-group writer-off repair"
+                "V3.2 initialization followed by V3.5.3 canonical multi-label repair"
             ),
             "residual_formula": (
                 "BaseMLP(h) + threshold_gate(r(h)) * detector_activation(h) @ "
@@ -277,7 +327,8 @@ def _actuator_training_revision():
             "threshold_gate_scope": (
                 "one registered record group per four selected detector features"
             ),
-            "negative_and_cross_groups_gate_to_zero_required": True,
+            "inactive_prompt_labels_gate_to_zero_required": True,
+            "active_prompt_labels_gate_to_one_required": True,
             "writer_off_groups_gate_to_zero_required": True,
             "owner_positive_group_gate_to_one_required": True,
             "down_delta_exact_zero_is_algebraic_identity": True,
@@ -767,6 +818,106 @@ def test_global_writer_off_loss_equal_weights_source_records():
     assert pieces["writer_off_mean"] == pytest.approx((0.005 + 0.01 / 6.0) / 2)
     assert pieces["writer_off_tail"] == pytest.approx(0.01)
     assert loss == pytest.approx((0.015 + (0.01 / 6.0 + 0.01)) / 2)
+
+
+def test_multilabel_detector_keeps_valid_label_active_in_negative_source_role():
+    responses = torch.tensor([[0.30, 0.00], [0.30, 0.00], [0.00, 0.30]])
+    owners = torch.tensor([0, 1, 1])
+    positive_occurrences = torch.tensor([True, False, True])
+    active = torch.tensor([[True, False], [True, False], [False, True]])
+
+    multilabel_loss, pieces = core.detector_multilabel_objective(
+        responses,
+        owners,
+        positive_occurrences,
+        active,
+        positive_target=0.30,
+        off_target_abs_max=0.15,
+        tail_k=2,
+        negative_weight=5.0,
+        cross_weight=2.0,
+        global_tail_weight=1.0,
+    )
+    contradictory_old_loss, _ = core.detector_objective(
+        responses,
+        owners,
+        positive_occurrences,
+        positive_target=0.30,
+        off_target_abs_max=0.15,
+        tail_k=2,
+        negative_weight=5.0,
+        cross_weight=2.0,
+    )
+
+    assert multilabel_loss == pytest.approx(0.0)
+    assert pieces["write_global_tail"] == pytest.approx(0.0)
+    assert pieces["negative_global_tail"] == pytest.approx(0.0)
+    assert contradictory_old_loss > 0.0
+
+
+def test_multilabel_manifest_preserves_roles_and_canonicalizes_duplicate_state():
+    positives = [["shared prompt"], ["record one positive"]]
+    negatives = [["record zero negative"], ["shared prompt"]]
+    manifest = method.build_multilabel_prompt_manifest(positives, negatives, [10, 20])
+    shared = manifest["report"]["role_overlap_entries"][0]
+    assert shared["active_group_indices"] == [0]
+    assert shared["active_case_ids"] == [10]
+    assert shared["negative_occurrences"] == [
+        {
+            "source_record_index": 1,
+            "source_case_id": 20,
+            "source_context_index": 0,
+        }
+    ]
+    assert manifest["active_mask"][
+        manifest["prompt_to_index"]["shared prompt"]
+    ].tolist() == [True, False]
+
+    prompt_groups = [*positives, *negatives]
+    hidden_groups = [
+        torch.tensor([[1.0, 2.0]]),
+        torch.tensor([[3.0, 4.0]]),
+        torch.tensor([[5.0, 6.0]]),
+        torch.tensor([[9.0, 9.0]]),
+    ]
+    canonical, audit = method.canonicalize_grouped_hidden_states(
+        prompt_groups,
+        hidden_groups,
+        canonical_prompts=manifest["canonical_prompts"],
+        prompt_to_index=manifest["prompt_to_index"],
+    )
+    assert torch.equal(canonical[0][0], canonical[3][0])
+    assert torch.equal(canonical[0][0], torch.tensor([1.0, 2.0]))
+    assert audit["precanonicalization_duplicate_hidden_abs_max"] == pytest.approx(8.0)
+    assert audit["postcanonicalization_duplicate_hidden_abs_max"] == 0.0
+    assert audit["duplicate_occurrences_reused"] == 1
+
+
+def test_multilabel_manifest_rejects_same_record_role_contradiction():
+    with pytest.raises(RuntimeError, match="same record"):
+        method.build_multilabel_prompt_manifest([["same"]], [["same"]], [10])
+
+
+def test_global_writer_off_tail_adds_complete_update_extreme():
+    responses = torch.zeros(100, 2)
+    responses[0, 1] = 0.40
+    owners = torch.tensor([0] * 50 + [1] * 50)
+    base, _ = core.detector_global_writer_off_objective(
+        responses,
+        owners,
+        off_target_abs_max=0.15,
+        tail_k=2,
+        global_tail_weight=0.0,
+    )
+    tailed, pieces = core.detector_global_writer_off_objective(
+        responses,
+        owners,
+        off_target_abs_max=0.15,
+        tail_k=2,
+        global_tail_weight=1.0,
+    )
+    assert pieces["writer_off_global_tail"] > 0.0
+    assert tailed - base == pytest.approx(pieces["writer_off_global_tail"])
 
 
 def test_detector_training_targets_are_separate_from_certificate_thresholds():
@@ -1756,6 +1907,121 @@ def test_frozen_v3_5_1_forensics_binds_exact_nonowner_collision(tmp_path):
         )
 
 
+def test_frozen_v3_5_2_rejection_binds_duplicate_prompt_contradiction(tmp_path):
+    method_dir = tmp_path / "v3_5_2" / "method"
+    method_dir.mkdir(parents=True)
+    ownership_hash = "e" * 64
+    prompt_hash = "9a4070c81368070d9ee1383958c18109bf7af90ee59042b3132b7a51e9d6ca38"
+    positive = {
+        "source_record_index": 16,
+        "source_case_id": 10472,
+        "source_context_index": 1,
+        "source_prompt_sha256": prompt_hash,
+        "detector_group_index": 16,
+        "detector_case_id": 10472,
+        "owner_group": True,
+        "response": 0.22039906680583954,
+    }
+    negative = {
+        "source_record_index": 1,
+        "source_case_id": 19763,
+        "source_context_index": 4,
+        "source_prompt_sha256": prompt_hash,
+        "detector_group_index": 16,
+        "detector_case_id": 10472,
+        "owner_group": False,
+        "response": 0.21156451106071472,
+    }
+    zero_official = {"official_evaluation_prompts_seen": 0}
+    artifacts = {
+        "neuron_selection_report.json": {
+            "selected_neuron_ownership_jq_compact_sha256": ownership_hash,
+        },
+        "detector_gate_report.json": {
+            "protocol": method.FROZEN_V3_5_2_PROTOCOL,
+            "passed_records": 49,
+            "total_records": 50,
+            "failure_counts": {"positive": 1, "negative": 0, "writer_off": 0},
+            **zero_official,
+        },
+        "detector_step_100_post_projection_global_isolation_gate.json": {
+            "protocol": method.FROZEN_V3_5_2_PROTOCOL,
+            "gate_endpoint_violation_counts": {
+                "positive_owner": 1,
+                "positive_cross": 0,
+                "negative": 1,
+                "writer_off": 0,
+            },
+            "response_certificate_violation_counts": {
+                "positive_owner": 1,
+                "positive_cross": 0,
+                "negative": 1,
+                "writer_off": 0,
+            },
+            "violating_cells": {
+                "positive_owner": [positive],
+                "positive_cross": [],
+                "negative": [negative],
+                "writer_off": [],
+            },
+            "aggregate": {"writer_off_response": {"min": -0.148, "max": 0.149}},
+            **zero_official,
+        },
+        "detector_training_log.json": {
+            "protocol": method.FROZEN_V3_5_2_PROTOCOL,
+            "optimizer_steps_expected": 100,
+            "optimizer_steps_recorded": 100,
+            "complete": True,
+            **zero_official,
+        },
+        "detector_endpoint_audit.json": {
+            "complete": True,
+            **zero_official,
+        },
+        "training_rejection.json": {
+            "stage": "sparse_context_detector",
+            "actuator_training_started": False,
+            "official_evaluation_allowed": False,
+            **zero_official,
+        },
+        "training_firewall_receipt.json": {
+            "data_access": {
+                "official_paraphrases_seen": 0,
+                "official_neighborhoods_seen": 0,
+                "benchmark_retain_seen": 0,
+                "official_ppl_seen": False,
+            }
+        },
+    }
+    for name, payload in artifacts.items():
+        (method_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    receipt = method.validate_frozen_v3_5_2_rejection(
+        tmp_path / "v3_5_2", ownership_sha256=ownership_hash
+    )
+    assert receipt["passed"]
+    assert receipt["duplicate_prompt_sha256"] == prompt_hash
+    assert receipt["writer_off_repair_succeeded"]
+    assert receipt["positive_cell"]["source_case_id"] == 10472
+    assert receipt["negative_cell"]["source_case_id"] == 19763
+
+    artifacts["detector_step_100_post_projection_global_isolation_gate.json"][
+        "violating_cells"
+    ]["negative"][0]["source_prompt_sha256"] = "bad"
+    (
+        method_dir / "detector_step_100_post_projection_global_isolation_gate.json"
+    ).write_text(
+        json.dumps(
+            artifacts["detector_step_100_post_projection_global_isolation_gate.json"]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="single_negative_cell|same_exact_prompt"):
+        method.validate_frozen_v3_5_2_rejection(
+            tmp_path / "v3_5_2", ownership_sha256=ownership_hash
+        )
+
+
 def test_detector_gate_case_tsv_binds_locked_record_order():
     gate = core.detector_gate_report(
         [torch.tensor([1.2])],
@@ -2577,6 +2843,7 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         "development_retain_shared_row_exposure_audit": (_development_exposure_audit()),
         "v3_5_1_scope": _v3_5_1_forensic_scope(),
         "v3_5_2_scope": _v3_5_2_repair_scope(),
+        "v3_5_3_scope": _v3_5_3_multilabel_scope(),
         "detector_training_revision": _detector_training_revision(),
         "actuator_training_revision": _actuator_training_revision(),
         "selected_neuron_ownership_binding": {
@@ -2589,6 +2856,7 @@ def test_primary_configuration_is_bound_to_preregistered_values():
                 "v3.4",
                 "v3.5",
                 "v3.5.1",
+                "v3.5.2",
             ],
             "jq_projection": "[.ownership[].selected_neurons]",
             "jq_compact_sha256": (
@@ -2621,24 +2889,25 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         method._validate_experiment_registry(registry, args)
 
 
-def test_repository_registry_binds_v3_5_2_global_writer_off_repair():
+def test_repository_registry_binds_v3_5_3_canonical_multilabel_repair():
     registry_path = (
         Path(__file__).resolve().parents[1]
         / "protocols"
         / "mcf_embedding_keyed_neuron_ablation_registry_v1.json"
     )
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert registry["schema_version"] == 13
+    assert registry["schema_version"] == 14
     assert registry["protocol"] == core.PROTOCOL
     assert registry["development_history"][-1]["version"] == (
-        "v11_embedding_keyed_gate_v3_5_1_forensics"
+        "v12_embedding_keyed_gate_v3_5_2_duplicate_prompt_contradiction"
     )
-    collision = registry["development_history"][-1]["collision"]
-    assert collision["source_case_id"] == 10803
-    assert collision["source_context_index"] == 4
-    assert collision["detector_case_id"] == 17353
-    assert collision["detector_group_index"] == 30
-    assert collision["owner_group"] is False
+    contradiction = registry["development_history"][-1]["contradictory_prompt"]
+    assert contradiction["positive_source_case_id"] == 10472
+    assert contradiction["positive_source_context_index"] == 1
+    assert contradiction["negative_source_case_id"] == 19763
+    assert contradiction["negative_source_context_index"] == 4
+    assert contradiction["positive_detector_case_id"] == 10472
+    assert contradiction["negative_detector_case_id"] == 10472
     assert not registry["development_history"][-1][
         "official_evaluation_opened_by_this_failed_run"
     ]
@@ -2659,6 +2928,7 @@ def test_repository_registry_binds_v3_5_2_global_writer_off_repair():
         "frozen_v3_2"
     )
     assert registry["primary_configuration"]["detector_steps"] == 100
+    assert registry["primary_configuration"]["detector_global_tail_weight"] == 1
     assert registry["primary_configuration"]["actuator_feasibility_steps"] == 100
     assert registry["primary_configuration"][
         "training_only_isolated_threshold_feasibility"
@@ -2706,9 +2976,11 @@ def test_repository_registry_binds_v3_5_2_global_writer_off_repair():
             "rejected-v3.5",
             "--frozen-v3-5-1-run-dir",
             "forensic-v3.5.1",
+            "--frozen-v3-5-2-run-dir",
+            "rejected-v3.5.2",
             "--detector-steps",
             "100",
-            "--training-only-global-writer-off-repair-feasibility",
+            "--training-only-multilabel-detector-repair-feasibility",
             "--actuator-relative-cap",
             "1.5",
             "--actuator-steps",
@@ -2718,14 +2990,20 @@ def test_repository_registry_binds_v3_5_2_global_writer_off_repair():
     method._validate_experiment_registry(registry, primary)
 
 
-def test_v3_5_2_launcher_repairs_global_writer_off_then_discards_actuator():
+def test_v3_5_3_launcher_repairs_multilabels_then_discards_actuator():
     root = Path(__file__).resolve().parents[1]
+    manual = (
+        root / "scripts" / "run_mcf_embedding_keyed_neuron_v3_5_3_manual.sh"
+    ).read_text(encoding="utf-8")
+    assert "[[ $# -ne 7 ]]" in manual
+    assert "FROZEN_V3_5_2_OUTPUT_DIR" in manual
+    assert "run_mcf_embedding_keyed_neuron_v3_5_3_multilabel_repair" in manual
     launcher = (
         root
         / "slurm"
-        / "run_mcf_embedding_keyed_neuron_v3_5_2_global_writer_off_repair_seed1_3b.slurm"
+        / "run_mcf_embedding_keyed_neuron_v3_5_3_multilabel_repair_seed1_3b.slurm"
     ).read_text(encoding="utf-8")
-    assert "--training-only-global-writer-off-repair-feasibility" in launcher
+    assert "--training-only-multilabel-detector-repair-feasibility" in launcher
     assert "--actuator-feasibility-caps 1.50" in launcher
     assert "--actuator-architecture isolated_thresholded_residual" in launcher
     assert "--threshold-gate-numerical-guard 1e-6" in launcher
@@ -2733,10 +3011,14 @@ def test_v3_5_2_launcher_repairs_global_writer_off_then_discards_actuator():
     assert "--frozen-v3-4-run-dir" in launcher
     assert "--frozen-v3-5-run-dir" in launcher
     assert "--frozen-v3-5-1-run-dir" in launcher
+    assert "--frozen-v3-5-2-run-dir" in launcher
     assert "--detector-steps 100" in launcher
-    assert "v3_5_2_repair_actuator_feasibility.json" in launcher
-    assert "training_only_v3_5_2_completion.json" in launcher
+    assert "--detector-global-tail-weight 1" in launcher
+    assert "multilabel_prompt_manifest.json" in launcher
+    assert "v3_5_3_multilabel_actuator_feasibility.json" in launcher
+    assert "training_only_v3_5_3_completion.json" in launcher
     assert "writer_off_groups_per_context == 50" in launcher
+    assert "canonical_exact_prompt_multilabel" in launcher
     assert "all_fitted_weights_discarded == true" in launcher
     assert "env -u MCF_PATH" in launcher
     assert "--save-checkpoint" not in launcher
@@ -2745,8 +3027,8 @@ def test_v3_5_2_launcher_repairs_global_writer_off_then_discards_actuator():
     submit = (
         root / "scripts" / "submit_mcf_embedding_keyed_neuron_seed1.sh"
     ).read_text(encoding="utf-8")
-    assert "mcf_embedding_keyed_neuron_v3_5_2_${JOB_ID}.out" in submit
-    assert "mcf_embedding_keyed_neuron_v3_5_1_${JOB_ID}.out" not in submit
+    assert "mcf_embedding_keyed_neuron_v3_5_3_${JOB_ID}.out" in submit
+    assert "mcf_embedding_keyed_neuron_v3_5_2_${JOB_ID}.out" not in submit
 
 
 def test_final_report_requires_metrics_mechanism_and_firewall_to_pass():

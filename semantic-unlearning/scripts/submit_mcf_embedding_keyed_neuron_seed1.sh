@@ -4,6 +4,6 @@ set -euo pipefail
 export PROJECT_DIR="${PROJECT_DIR:-$(pwd -P)}"
 mkdir -p slurm_logs
 
-JOB_ID="$(sbatch --parsable slurm/run_mcf_embedding_keyed_neuron_v3_5_2_global_writer_off_repair_seed1_3b.slurm)"
-echo "embedding_keyed_neuron_v3_5_2_global_writer_off_repair_job=${JOB_ID}"
-echo "log=slurm_logs/mcf_embedding_keyed_neuron_v3_5_2_${JOB_ID}.out"
+JOB_ID="$(sbatch --parsable slurm/run_mcf_embedding_keyed_neuron_v3_5_3_multilabel_repair_seed1_3b.slurm)"
+echo "embedding_keyed_neuron_v3_5_3_multilabel_repair_job=${JOB_ID}"
+echo "log=slurm_logs/mcf_embedding_keyed_neuron_v3_5_3_${JOB_ID}.out"
