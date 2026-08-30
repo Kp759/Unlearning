@@ -33,7 +33,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_3"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_4"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
@@ -437,10 +437,11 @@ def detector_multilabel_objective(
     weighting and to distinguish the source-owner negative term from other
     inactive cells.
 
-    Per-record mean-plus-tail reductions preserve balanced optimization.  A
-    second worst-``tail_k`` reduction over the complete update aligns training
-    with the certificate's global extrema, preventing one record from being
-    diluted by the other records.
+    Per-record mean-plus-tail reductions preserve balanced optimization.  The
+    optional complete-update tail is retained only for historical V3.5.3
+    replay and diagnostics.  V3.5.4 locks ``global_tail_weight`` to zero after
+    V3.5.3 showed that highly weighted off-context extrema could dominate the
+    single clipped update and collapse otherwise valid positive responses.
     """
     if responses.ndim != 2:
         raise ValueError("responses must be [batch, records]")

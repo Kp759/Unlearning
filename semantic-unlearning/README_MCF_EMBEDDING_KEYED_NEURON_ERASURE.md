@@ -28,7 +28,7 @@ V3.2-initialized layer-27 gate/up features (4 per record)
 canonical exact-prompt multi-label targets
         |
         v
-100-update globally tailed detector repair
+100-update equal-record, per-record-tailed detector repair
         |
         v
 clipped internal gate maps the registered response gap
@@ -50,11 +50,14 @@ weight materialization. V3.5 failed its complete cached-context branch-gate
 certificate before fitting the residual. V3.5.1 diagnosed its exact lone
 collision without constructing an optimizer. V3.5.2 repaired writer-off scope
 but exposed one exact prompt carrying mutually contradictory role-relative
-labels. V3.5.3 removes that contradiction through canonical multi-label prompt
-semantics and reruns discarded cap-1.50 feasibility; it still cannot save or
-evaluate a checkpoint.
+labels. V3.5.3 removed that contradiction through canonical multi-label prompt
+semantics, but its complete-update global tails collapsed valid positives to a
+29/50 owner gate while negative and writer-off certificates stayed clean. V3.5.4 preserves
+the corrected labels, removes global tails from optimization, retains every
+per-record worst-two term, and records a first-update gradient-balance audit.
+It still cannot save or evaluate a checkpoint.
 
-## Training-only development through V3.5.3
+## Training-only development through V3.5.4
 
 The first layer-8 feasibility run was rejected before its official evaluation: its
 detector passed 0/50 records, and the subsequently attempted actuator was
@@ -327,8 +330,22 @@ tuning a threshold:
 5. every active label trains toward 0.30, every inactive writer-on label and
    every writer-off label trains within 0.15, while the scientific 0.25/0.20
    certificate remains unchanged; and
-6. equal-record mean-plus-worst-two losses gain an additional complete-update
-   worst-two term so a single global extreme cannot be diluted.
+6. V3.5.3 added complete-update worst-two terms to all components.
+
+That last change was not benign. With the existing component coefficients, the
+positive, inactive-cross, source-negative, and writer-off global tails entered
+the one clipped update at effective weights 1, 2, 5, and 10. V3.5.3 retained
+clean negative and writer-off certificates but only 29/50 owner-positive
+records passed—a broad quiet-solution signature rather than a label-semantics
+failure.
+
+V3.5.4 changes only the loss geometry implicated by that result. Canonical
+hidden reuse and multi-label targets are unchanged. Complete-update tails are
+still reported as diagnostics but have optimization weight zero. Equal-record
+means and per-record worst-two losses remain active for positives, owner
+negatives, inactive cross-labels, and every writer-off detector group. A
+non-optimizing step-1 gradient audit records each weighted component norm
+before the ordinary total backward pass.
 
 The known prompt and case IDs only hash-bind the V3.5.2 diagnosis. They never
 index or upweight the repair loss. The mandatory post-repair certificate now
@@ -354,7 +371,7 @@ This establishes shared-parameter exposure, not causal retain degradation.
 It motivates the architectural boundary: the embedding edit may be a small
 marker, but token identity cannot itself decide which fact to erase. None of
 the development IDs, overlap counts, token frequencies, or edit norms enters
-V3.5/V3.5.2/V3.5.3 selection, optimization, acceptance, or retry.
+V3.5/V3.5.2/V3.5.3/V3.5.4 selection, optimization, acceptance, or retry.
 
 The reproducible follow-up also measures whether the largest actual row edits
 land on the most reused tokens:
@@ -593,7 +610,7 @@ The separate 9,438-record development overlap audit reads the original MCF
 source, but the learner does not receive its path, records, token frequencies,
 or per-row results. Only its already-observed aggregate evidence is recorded in
 the public registry as architecture motivation. It does not select the V3.5.1
-collision, alter its diagnosis, or enter the V3.5.2 or V3.5.3 repair loss.
+collision, alter its diagnosis, or enter the V3.5.2, V3.5.3, or V3.5.4 repair loss.
 
 Documents 0:20 remain reserved for official PPL. Relevant hashes and zero-
 access receipts are checked. The main launcher freezes and reload-verifies both
@@ -608,9 +625,9 @@ run.
 
 The registry is
 `protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json`. The legacy
-filename is retained for launcher compatibility; its current schema is 14 and
-its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_5_3`.
-V3.5.3 itself is incapable of reaching paper-level acceptance because it
+filename is retained for launcher compatibility; its current schema is 15 and
+its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_5_4`.
+V3.5.4 itself is incapable of reaching paper-level acceptance because it
 discards every fitted actuator, saves no checkpoint, and opens no official
 prompts. The future
 checkpoint protocol still requires all of the following:
@@ -633,7 +650,7 @@ The registry fixes seed 1 as development and seeds 2 and 3 as confirmatory with
 unchanged hyperparameters. A 100-record run is confirmatory only after a
 separately frozen 100-record writer/context artifact exists.
 
-## Running the V3.5.3 multi-label repair and discarded feasibility fit
+## Running the V3.5.4 balanced multi-label repair and discarded feasibility fit
 
 First build the clean Stage-1 writer from Base. This opens no official
 evaluation probes and refuses any existing output path:
@@ -649,12 +666,12 @@ bash scripts/run_mcf_compositional_marker_clean_stage1_manual.sh \
   2>&1 | tee slurm_logs/mcf_compositional_marker_v6_2_clean_seed1_manual.log
 ```
 
-V3.5.3 requires the preserved V3.2 detector source, exact V3.4 and V3.5
-rejections, the completed V3.5.1 forensic output, and the exact rejected V3.5.2
-run. The wrapper rejects an existing output directory:
+V3.5.4 requires the preserved V3.2 detector source, exact V3.4 and V3.5
+rejections, the completed V3.5.1 forensic output, and the exact rejected
+V3.5.2 and V3.5.3 runs. The wrapper rejects an existing output directory:
 
 ```bash
-bash scripts/run_mcf_embedding_keyed_neuron_v3_5_3_manual.sh \
+bash scripts/run_mcf_embedding_keyed_neuron_v3_5_4_manual.sh \
   outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
   outputs/mcf_embedding_keyed_neuron_v3_2_seed1_3b_aws_v6_2 \
   outputs/mcf_embedding_keyed_neuron_v3_4_seed1_3b_aws_v6_2 \
@@ -662,11 +679,13 @@ bash scripts/run_mcf_embedding_keyed_neuron_v3_5_3_manual.sh \
   outputs/mcf_embedding_keyed_neuron_v3_5_1_seed1_3b_aws_v6_2 \
   outputs/mcf_embedding_keyed_neuron_v3_5_2_seed1_3b_aws_v6_2 \
   outputs/mcf_embedding_keyed_neuron_v3_5_3_seed1_3b_aws_v6_2 \
-  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_5_3_seed1_aws_v6_2.log
+  outputs/mcf_embedding_keyed_neuron_v3_5_4_seed1_3b_aws_v6_2 \
+  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_5_4_seed1_aws_v6_2.log
 ```
 
-The V3.5.2 and earlier launchers are historical, not the current experiment.
-Reproducing V3.5.2 requires commit
+The V3.5.3 and earlier launchers are historical, not the current experiment.
+Reproducing V3.5.3 requires commit
+`b603c1ac74677e4a43cb506ae779f75f5a41ef11`; reproducing V3.5.2 requires commit
 `be48b9bc2319c9ca55a3b9413f7e7e75c952b839`; reproducing V3.5.1 requires commit
 `72aae4087490c18bab2d7f727c53c7d3331a01e3`; reproducing V3.5 requires commit
 `7cd132a8af22887cdb9e195100a6a261688eef44`.
@@ -682,8 +701,10 @@ Reproducing V3.5.2 requires commit
 - `method/detector_initial_import_gate.json`: fresh confirmation that the
   pre-repair tensors exactly replay the frozen V3.2 certificate;
 - `method/detector_training_log.json`: all 100 globally accumulated repair
-  updates, canonical multi-label loss contract, and complete-update worst-two
-  terms;
+  updates and the canonical multi-label, equal-record/per-record-tail contract;
+- `method/detector_gradient_balance_audit.json`: non-optimizing step-1 raw and
+  weighted component-gradient norms proving that the audit did not mutate
+  gradients or optimizer state;
 - `method/frozen_v3_2_detector_import.json`: hashes and lineage checks proving
   that only the passed V3.2 gate/up detector tensors were imported;
 - `method/frozen_v3_4_rejection_import.json`: hashes and exact metric checks
@@ -694,6 +715,8 @@ Reproducing V3.5.2 requires commit
   binding the diagnosed 10803-context-4 to 17353-group-30 collision;
 - `method/frozen_v3_5_2_rejection_import.json`: hashes and exact coordinates
   binding the shared-prompt positive/negative contradiction;
+- `method/frozen_v3_5_3_rejection_import.json`: hashes and checks binding the
+29/50 positive-collapse result with clean negative/writer-off certificates;
 - `method/multilabel_prompt_manifest.json`: canonical prompt identities,
   active detector label sets, every preserved source-role occurrence, and the
   zero same-record-conflict receipt;
@@ -709,9 +732,9 @@ Reproducing V3.5.2 requires commit
   passed training-safe 4.5 / 95% / 80% portability replay;
 - `method/isolated_threshold_gate_report.json`: the mandatory fresh all-cell
   post-repair branch certificate;
-- `method/v3_5_3_multilabel_actuator_feasibility.json`: the discarded cap-1.50
+- `method/v3_5_4_multilabel_actuator_feasibility.json`: the discarded cap-1.50
   reachability/selectivity fit; and
-- `method/training_only_v3_5_3_completion.json`: final receipt proving that full
+- `method/training_only_v3_5_4_completion.json`: final receipt proving that full
   preservation, checkpoint creation, and official evaluation did not occur.
 
 ## Publication boundary

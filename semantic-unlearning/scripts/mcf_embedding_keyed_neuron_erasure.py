@@ -15,14 +15,16 @@ Architecture
 
 For each edit, a disjoint group of existing low-activation MLP features was
 selected using only training-safe writer-on versus writer-off activations.
-V3.5.3 imports the exact V3.2 detector and the fixed 0.20/0.25 boundary, then
-repairs the contradictory prompt-role labels exposed by V3.5.2. Exact duplicate
+V3.5.4 imports the exact V3.2 detector and the fixed 0.20/0.25 boundary, then
+retains the canonical prompt-role labels introduced by V3.5.3. Exact duplicate
 prompts share one canonical hidden state and one multi-label target: every
 record for which that prompt is registered positive stays active even when the
 same prompt appears as another record's relative negative. Every other
-writer-on label and every writer-off label remains inactive. The repair is
-globally balanced and identity-agnostic, with a complete-update worst-two tail;
-it does not target the observed prompt or case pair directly. A fresh all-cell
+writer-on label and every writer-off label remains inactive. V3.5.4 removes
+V3.5.3's complete-update global tails from optimization while retaining the
+equal-record mean plus per-record worst-two objectives that repaired writer-off
+isolation in V3.5.2. It also records a non-optimizing component-gradient audit
+before the first update. A fresh all-cell
 multi-label certificate must pass before the isolated cap-1.50 actuator
 feasibility fit can start. The ordinary Base MLP contribution stays untouched,
 every feasibility fit is discarded, and official evaluation remains
@@ -77,6 +79,7 @@ FROZEN_V3_4_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_4"
 FROZEN_V3_5_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5"
 FROZEN_V3_5_1_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_1"
 FROZEN_V3_5_2_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_2"
+FROZEN_V3_5_3_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_3"
 FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES = (
     "MCF_PATH",
     "OFFICIAL_MCF_PATH",
@@ -163,7 +166,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=("frozen_v3_2", "train"),
         default="train",
         help=(
-            "V3.5.3 imports the exact passed V3.2 gate/up tensors as the repair "
+            "V3.5.4 imports the exact passed V3.2 gate/up tensors as the repair "
             "initialization."
         ),
     )
@@ -210,6 +213,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--frozen-v3-5-3-run-dir",
+        help=(
+            "Rejected V3.5.3 output whose 29/50 positive collapse under "
+            "complete-update global tails licenses the balanced V3.5.4 repair."
+        ),
+    )
+    parser.add_argument(
         "--detector-record-batch",
         type=int,
         default=4,
@@ -234,10 +244,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--detector-global-tail-weight",
         type=float,
-        default=1.0,
+        default=0.0,
         help=(
-            "Weight of the worst-two loss over the complete all-record update, "
-            "in addition to equal-record mean-plus-tail reductions."
+            "Historical complete-update worst-two weight. V3.5.4 locks this to "
+            "zero; global extrema remain audited but are not optimized."
         ),
     )
     parser.add_argument(
@@ -292,7 +302,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "Run the V3.5.3 canonical multi-label detector repair followed, only "
+            "Run the V3.5.4 balanced canonical multi-label detector repair followed, only "
             "after a perfect all-cell gate, by discarded cap-1.50 feasibility."
         ),
     )
@@ -301,7 +311,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         nargs="+",
         type=float,
         default=[1.50],
-        help="V3.5.3 retests only the previously selected cap 1.50.",
+        help="V3.5.4 retests only the previously selected cap 1.50.",
     )
     parser.add_argument(
         "--actuator-architecture",
@@ -311,7 +321,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
         default="isolated_thresholded_residual",
         help=(
-            "V3.5.3 leaves the ordinary MLP output untouched and fits only the "
+            "V3.5.4 leaves the ordinary MLP output untouched and fits only the "
             "explicit threshold-gated residual."
         ),
     )
@@ -481,16 +491,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--detector-selectivity-warning-ratio must be finite and positive")
     if value.training_only_isolated_threshold_feasibility:
         if int(value.detector_steps) != 100:
-            parser.error("V3.5.3 requires exactly 100 detector repair updates")
+            parser.error("V3.5.4 requires exactly 100 detector repair updates")
+        if float(value.detector_global_tail_weight) != 0.0:
+            parser.error(
+                "V3.5.4 requires --detector-global-tail-weight 0 so complete-update "
+                "extrema are diagnostic only"
+            )
         if int(value.actuator_steps) != 0:
-            parser.error("V3.5.3 feasibility requires --actuator-steps 0")
+            parser.error("V3.5.4 feasibility requires --actuator-steps 0")
         if value.actuator_architecture != "isolated_thresholded_residual":
             parser.error(
-                "V3.5.3 feasibility requires the isolated thresholded "
+                "V3.5.4 feasibility requires the isolated thresholded "
                 "residual architecture"
             )
         if caps != [1.5]:
-            parser.error("V3.5.3 retains --actuator-feasibility-caps at exactly 1.50")
+            parser.error("V3.5.4 retains --actuator-feasibility-caps at exactly 1.50")
     elif int(value.actuator_steps) <= 0:
         parser.error("--actuator-steps must be positive outside feasibility mode")
     if int(value.actuator_batch_size) <= 0:
@@ -560,33 +575,38 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         )
     if value.training_only_isolated_threshold_feasibility:
         if value.experiment_label != "primary":
-            parser.error("V3.5.3 repair is restricted to the primary run")
+            parser.error("V3.5.4 repair is restricted to the primary run")
         if value.writer_mode != "embedding_keyed":
-            parser.error("V3.5.3 repair requires the embedding writer")
+            parser.error("V3.5.4 repair requires the embedding writer")
         if value.detector_initialization != "frozen_v3_2":
-            parser.error("V3.5.3 repair requires the frozen V3.2 detector")
+            parser.error("V3.5.4 repair requires the frozen V3.2 detector")
         if not str(value.frozen_v3_4_run_dir or "").strip():
-            parser.error("--frozen-v3-4-run-dir is required for V3.5.3")
+            parser.error("--frozen-v3-4-run-dir is required for V3.5.4")
         if not str(value.frozen_v3_5_run_dir or "").strip():
-            parser.error("--frozen-v3-5-run-dir is required for V3.5.3")
+            parser.error("--frozen-v3-5-run-dir is required for V3.5.4")
         if not str(value.frozen_v3_5_1_run_dir or "").strip():
-            parser.error("--frozen-v3-5-1-run-dir is required for V3.5.3")
+            parser.error("--frozen-v3-5-1-run-dir is required for V3.5.4")
         if not str(value.frozen_v3_5_2_run_dir or "").strip():
-            parser.error("--frozen-v3-5-2-run-dir is required for V3.5.3")
+            parser.error("--frozen-v3-5-2-run-dir is required for V3.5.4")
+        if not str(value.frozen_v3_5_3_run_dir or "").strip():
+            parser.error("--frozen-v3-5-3-run-dir is required for V3.5.4")
         if value.frozen_v3_3_run_dir:
-            parser.error("V3.5.3 imports V3.4/V3.5/V3.5.1/V3.5.2, not V3.3 directly")
+            parser.error(
+                "V3.5.4 imports V3.4/V3.5/V3.5.1/V3.5.2/V3.5.3, not V3.3 directly"
+            )
         if value.save_checkpoint or value.save_rejected_checkpoint:
-            parser.error("V3.5.3 training-only feasibility cannot save checkpoints")
+            parser.error("V3.5.4 training-only feasibility cannot save checkpoints")
     elif (
         value.frozen_v3_3_run_dir
         or value.frozen_v3_4_run_dir
         or value.frozen_v3_5_run_dir
         or value.frozen_v3_5_1_run_dir
         or value.frozen_v3_5_2_run_dir
+        or value.frozen_v3_5_3_run_dir
     ):
         parser.error(
-            "frozen V3.3/V3.4/V3.5/V3.5.1/V3.5.2 run directories are only valid "
-            "with the training-only V3.5.3 repair-feasibility mode"
+            "frozen V3.3/V3.4/V3.5/V3.5.1/V3.5.2/V3.5.3 run directories are only "
+            "valid with the training-only V3.5.4 repair-feasibility mode"
         )
     guard = float(value.threshold_gate_numerical_guard)
     if not math.isfinite(guard) or guard < 0.0:
@@ -784,14 +804,44 @@ def _validate_experiment_registry(
     for key, expected_value in expected_multilabel_scope.items():
         if multilabel_scope.get(key) != expected_value:
             raise RuntimeError(f"registry V3.5.3 repair scope mismatch: {key}")
+    balanced_scope = registry.get("v3_5_4_scope")
+    expected_balanced_scope = {
+        "training_only": True,
+        "source_v3_5_3_rejection_hash_bound": True,
+        "source_v3_5_3_owner_gate_passed_records": 29,
+        "source_v3_5_3_owner_gate_total_records": 50,
+        "source_v3_5_3_positive_failures": 21,
+        "source_v3_5_3_negative_failures": 0,
+        "source_v3_5_3_writer_off_failures": 0,
+        "canonical_hidden_reuse_required": True,
+        "canonical_multilabel_semantics_unchanged": True,
+        "complete_update_global_tail_optimization_weight": 0.0,
+        "per_record_worst_two_retained": True,
+        "all_writer_off_groups_per_context": 50,
+        "first_update_component_gradient_audit_required": True,
+        "detector_repair_optimizer_updates": 100,
+        "multilabel_gate_required_before_actuator_feasibility": True,
+        "full_preservation_training_prohibited": True,
+        "checkpoint_creation_prohibited": True,
+        "official_evaluation_prohibited": True,
+    }
+    if not isinstance(balanced_scope, Mapping):
+        raise RuntimeError("registry lacks the V3.5.4 balanced repair scope")
+    for key, expected_value in expected_balanced_scope.items():
+        if balanced_scope.get(key) != expected_value:
+            raise RuntimeError(f"registry V3.5.4 repair scope mismatch: {key}")
     detector_revision = registry.get("detector_training_revision")
     expected_detector_revision = {
-        "version": "v3.5.3_canonical_multilabel_global_tail_repair",
-        "mode": "training_only_canonical_prompt_multilabel_repair",
+        "version": "v3.5.4_canonical_multilabel_balanced_tail_repair",
+        "mode": "training_only_canonical_prompt_multilabel_balanced_repair",
         "primary_initialization": "frozen_v3_2",
         "source_v3_5_protocol": FROZEN_V3_5_PROTOCOL,
         "source_v3_5_1_protocol": FROZEN_V3_5_1_PROTOCOL,
         "source_v3_5_2_protocol": FROZEN_V3_5_2_PROTOCOL,
+        "source_v3_5_3_protocol": FROZEN_V3_5_3_PROTOCOL,
+        "source_v3_5_3_owner_gate_passed_records": 29,
+        "source_v3_5_3_owner_gate_total_records": 50,
+        "source_v3_5_3_positive_failures": 21,
         "source_protocol": FROZEN_DETECTOR_PROTOCOL,
         "source_training_revision": "v3.2",
         "source_gate_passed_records": 50,
@@ -836,32 +886,40 @@ def _validate_experiment_registry(
         "negative_context_mode": "all",
         "tail_k": 2,
         "positive_objective": (
-            "active_label_equal_record_mean_plus_worst_k_plus_global_worst_k_"
-            "squared_shortfall"
+            "active_label_equal_record_mean_plus_worst_k_squared_shortfall"
         ),
         "negative_objective": (
-            "source_owner_equal_record_mean_plus_worst_k_plus_global_worst_k_"
-            "squared_excess"
+            "source_owner_equal_record_mean_plus_worst_k_squared_excess"
         ),
         "cross_objective": (
-            "inactive_label_equal_record_mean_plus_worst_k_plus_global_worst_k_"
-            "squared_excess"
+            "inactive_label_equal_record_mean_plus_worst_k_squared_excess"
         ),
         "writer_off_objective": (
-            "all_detector_groups_equal_source_record_mean_plus_worst_k_plus_"
-            "global_worst_k_squared_excess"
+            "all_detector_groups_equal_source_record_mean_plus_worst_k_squared_excess"
         ),
         "writer_off_groups_per_context": 50,
-        "global_tail_weight": 1.0,
+        "global_tail_weight": 0.0,
+        "global_tail_terms": "diagnostic_only_not_optimized",
         "training_positive_floor": 0.30,
         "training_off_abs_max": 0.15,
         "certificate_positive_floor": 0.25,
         "certificate_off_abs_max": 0.20,
         "certificate_abs_tolerance": 1e-7,
         "certificate_thresholds_unchanged_from_v3_1": True,
-        "gradient_normalization": (
-            "equal_record_mean_plus_complete_update_global_tail"
-        ),
+        "gradient_normalization": "equal_record_mean_plus_per_record_worst_k",
+        "gradient_balance_audit": {
+            "optimizer_step": 1,
+            "parameter_grad_buffers_mutated": False,
+            "components": [
+                "positive_write",
+                "source_negative",
+                "inactive_cross",
+                "writer_off_all_groups",
+                "positive_consistency",
+                "parameter_l2",
+                "total",
+            ],
+        },
         "gradient_clip_frequency": "once_per_optimizer_update",
         "norm_projection_frequency": "once_per_optimizer_update",
         "endpoint_audit_phases": [
@@ -881,11 +939,12 @@ def _validate_experiment_registry(
 
     actuator_revision = registry.get("actuator_training_revision")
     expected_actuator_revision = {
-        "version": "v3.5.3",
+        "version": "v3.5.4",
         "mode": "discarded_fixed_cap_feasibility_after_multilabel_gate",
         "source_v3_5_protocol": FROZEN_V3_5_PROTOCOL,
         "source_v3_5_1_protocol": FROZEN_V3_5_1_PROTOCOL,
         "source_v3_5_2_protocol": FROZEN_V3_5_2_PROTOCOL,
+        "source_v3_5_3_protocol": FROZEN_V3_5_3_PROTOCOL,
         "historical_v3_5_plan_retested_after_multilabel_detector_repair": True,
         "optimizer_constructed_this_run": True,
         "optimizer_updates_this_run": 100,
@@ -913,7 +972,8 @@ def _validate_experiment_registry(
         "architecture": {
             "base_mlp_path": "bit_exact_untouched",
             "frozen_detector_role": (
-                "V3.2 initialization followed by V3.5.3 canonical multi-label repair"
+                "V3.2 initialization followed by V3.5.4 balanced canonical "
+                "multi-label repair"
             ),
             "residual_formula": (
                 "BaseMLP(h) + threshold_gate(r(h)) * detector_activation(h) @ "
@@ -1007,6 +1067,7 @@ def _validate_experiment_registry(
             "v3.5",
             "v3.5.1",
             "v3.5.2",
+            "v3.5.3",
         ],
         "jq_projection": "[.ownership[].selected_neurons]",
         "jq_compact_sha256": (
@@ -2199,6 +2260,135 @@ def validate_frozen_v3_5_2_rejection(
         "positive_cell": dict(positive_cells[0]),
         "negative_cell": dict(negative_cells[0]),
         "writer_off_repair_succeeded": True,
+        "checks": checks,
+        "passed": True,
+        "official_evaluation_prompts_seen": 0,
+    }
+
+
+def validate_frozen_v3_5_3_rejection(
+    run_dir: Path,
+    *,
+    ownership_sha256: str,
+) -> Dict[str, Any]:
+    """Bind V3.5.3's positive collapse under complete-update global tails."""
+
+    root = Path(run_dir).resolve()
+    method_dir = root / "method" if (root / "method").is_dir() else root
+    paths = {
+        "selection": method_dir / "neuron_selection_report.json",
+        "prompt_manifest": method_dir / "multilabel_prompt_manifest.json",
+        "owner_gate": method_dir / "detector_gate_report.json",
+        "global_gate": (
+            method_dir / "detector_step_100_post_projection_global_isolation_gate.json"
+        ),
+        "training_log": method_dir / "detector_training_log.json",
+        "endpoint": method_dir / "detector_endpoint_audit.json",
+        "rejection": method_dir / "training_rejection.json",
+        "firewall": method_dir / "training_firewall_receipt.json",
+    }
+    for name, path in paths.items():
+        if not path.is_file():
+            raise FileNotFoundError(f"frozen V3.5.3 rejection lacks {name}: {path}")
+
+    selection = _load_json(paths["selection"])
+    prompt_manifest = _load_json(paths["prompt_manifest"])
+    owner_gate = _load_json(paths["owner_gate"])
+    global_gate = _load_json(paths["global_gate"])
+    training_log = _load_json(paths["training_log"])
+    endpoint = _load_json(paths["endpoint"])
+    rejection = _load_json(paths["rejection"])
+    firewall = _load_json(paths["firewall"])
+    global_counts = global_gate.get("response_certificate_violation_counts", {})
+    checks = {
+        "protocol": all(
+            payload.get("protocol") == FROZEN_V3_5_3_PROTOCOL
+            for payload in (
+                prompt_manifest,
+                owner_gate,
+                global_gate,
+                training_log,
+                endpoint,
+            )
+        ),
+        "ownership": str(
+            selection.get("selected_neuron_ownership_jq_compact_sha256") or ""
+        )
+        == str(ownership_sha256),
+        "owner_gate_29_of_50": owner_gate.get("passed_records") == 29
+        and owner_gate.get("total_records") == 50
+        and owner_gate.get("passed") is False
+        and owner_gate.get("failure_counts")
+        == {"positive": 21, "negative": 0, "writer_off": 0},
+        "canonical_multilabel_semantics": prompt_manifest.get(
+            "frozen_v3_5_2_duplicate_prompt_reproduced"
+        )
+        is True
+        and prompt_manifest.get("same_record_positive_negative_conflicts") == 0,
+        "negative_and_writer_off_certificate_clean": all(
+            int(global_counts.get(name, -1)) == 0
+            for name in (
+                "source_negative_owner",
+                "writer_off",
+            )
+        ),
+        "positive_certificate_failed": int(
+            global_counts.get("positive_owner", 0)
+        )
+        > 0
+        or int(global_counts.get("writer_on_active", 0)) > 0,
+        "global_tail_optimization_enabled": training_log.get("optimization", {}).get(
+            "global_tail_weight"
+        )
+        == 1.0,
+        "training_complete": training_log.get("optimizer_steps_expected") == 100
+        and training_log.get("optimizer_steps_recorded") == 100
+        and training_log.get("complete") is True,
+        "endpoint_complete": endpoint.get("complete") is True,
+        "rejection_preserved": rejection.get("stage") == "sparse_context_detector"
+        and rejection.get("actuator_training_started") is False
+        and rejection.get("official_evaluation_allowed") is False,
+        "official_prompts_zero": all(
+            payload.get("official_evaluation_prompts_seen") == 0
+            for payload in (
+                prompt_manifest,
+                owner_gate,
+                global_gate,
+                training_log,
+                endpoint,
+                rejection,
+            )
+        ),
+        "firewall_official_prompts_zero": all(
+            (
+                firewall.get("data_access", {}).get("official_paraphrases_seen") == 0,
+                firewall.get("data_access", {}).get("official_neighborhoods_seen")
+                == 0,
+                firewall.get("data_access", {}).get("benchmark_retain_seen") == 0,
+                firewall.get("data_access", {}).get("official_ppl_seen") is False,
+            )
+        ),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise RuntimeError(
+            "frozen V3.5.3 rejection lineage failed: " + ", ".join(sorted(failed))
+        )
+    return {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_frozen_v3_5_3_rejection_import",
+        "source_run_dir": str(root),
+        "source_method_dir": str(method_dir),
+        "source_protocol": FROZEN_V3_5_3_PROTOCOL,
+        "target_protocol": PROTOCOL,
+        "source_artifacts": {
+            name: {"path": str(path), "sha256": compositional_method.sha256_file(path)}
+            for name, path in paths.items()
+        },
+        "diagnosis": "global_tail_weighting_collapsed_valid_positive_responses",
+        "owner_gate_passed_records": 29,
+        "owner_gate_total_records": 50,
+        "negative_and_writer_off_certificate_clean": True,
         "checks": checks,
         "passed": True,
         "official_evaluation_prompts_seen": 0,
@@ -3451,7 +3641,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     if not args.training_only_isolated_threshold_feasibility:
         raise RuntimeError(
-            "V3.5.3 is restricted to the training-only canonical multi-label "
+            "V3.5.4 is restricted to the training-only balanced canonical multi-label "
             "detector repair and discarded actuator-feasibility fit; checkpoint "
             "materialization and official evaluation require a separately "
             "preregistered successor"
@@ -4059,8 +4249,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     gagd.write_json(out_dir / "neuron_selection_report.json", selection_report)
     if not ownership_binding_passed:
         raise RuntimeError(
-            "V3.5.3 primary neuron ownership differs from the registered V3 through "
-            "V3.5.2 "
+            "V3.5.4 primary neuron ownership differs from the registered V3 through "
+            "V3.5.3 "
             f"selection: observed {ownership_sha256}, expected "
             f"{expected_ownership_sha256}"
         )
@@ -4087,6 +4277,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     frozen_v3_5_rejection: Dict[str, Any] | None = None
     frozen_v3_5_1_forensics: Dict[str, Any] | None = None
     frozen_v3_5_2_rejection: Dict[str, Any] | None = None
+    frozen_v3_5_3_rejection: Dict[str, Any] | None = None
     if str(args.detector_initialization) == "frozen_v3_2":
         (
             frozen_detector_import,
@@ -4165,6 +4356,22 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(
             "  hash-bound V3.5.2 contradiction: one exact prompt is positive for "
             "case 10472 and record-relative negative for case 19763"
+        )
+        frozen_v3_5_3_rejection = validate_frozen_v3_5_3_rejection(
+            Path(args.frozen_v3_5_3_run_dir),
+            ownership_sha256=ownership_sha256,
+        )
+        gagd.write_json(
+            out_dir / "frozen_v3_5_3_rejection_import.json",
+            frozen_v3_5_3_rejection,
+        )
+        firewall_receipt["frozen_v3_5_3_rejection_import"] = (
+            frozen_v3_5_3_rejection
+        )
+        gagd.write_json(out_dir / "training_firewall_receipt.json", firewall_receipt)
+        print(
+            "  hash-bound V3.5.3 rejection: 29/50 owner positives passed while "
+            "negative and writer-off certificates stayed clean"
         )
 
     print("\nStage 1: build canonical multi-label prompt semantics")
@@ -4423,7 +4630,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             initialization == "frozen_v3_2"
             and args.training_only_isolated_threshold_feasibility
         ):
-            revision = "v3.5.3_canonical_multilabel_global_tail_repair"
+            revision = "v3.5.4_canonical_multilabel_balanced_tail_repair"
         elif initialization == "frozen_v3_2":
             revision = "frozen_v3.2_replay"
         else:
@@ -4441,16 +4648,16 @@ def main(argv: Sequence[str] | None = None) -> None:
             "prompt_label_semantics": "canonical_exact_prompt_multilabel",
             "duplicate_hidden_state_policy": "bit_identical_canonical_reuse",
             "positive_objective": (
-                "active_label_equal_record_mean_plus_worst_k_plus_global_worst_k"
+                "active_label_equal_record_mean_plus_worst_k"
             ),
             "negative_objective": (
-                "source_owner_equal_record_mean_plus_worst_k_plus_global_worst_k"
+                "source_owner_equal_record_mean_plus_worst_k"
             ),
             "cross_objective": (
-                "inactive_label_equal_record_mean_plus_worst_k_plus_global_worst_k"
+                "inactive_label_equal_record_mean_plus_worst_k"
             ),
             "writer_off_objective": (
-                "all_detector_groups_equal_source_record_mean_plus_worst_k_plus_global_worst_k"
+                "all_detector_groups_equal_source_record_mean_plus_worst_k"
                 if args.training_only_isolated_threshold_feasibility
                 else "historical_source_owner_only_objective"
             ),
@@ -4458,6 +4665,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 len(records) if args.training_only_isolated_threshold_feasibility else 1
             ),
             "global_tail_weight": float(args.detector_global_tail_weight),
+            "global_tail_terms": "diagnostic_only_not_optimized",
             "forensic_replay_only": False,
             "optimizer_constructed": detector_optimizer_steps_this_run > 0,
             "training_positive_floor": float(args.detector_training_positive_floor),
@@ -4467,7 +4675,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "certificate_abs_tolerance": float(args.detector_certificate_abs_tolerance),
             "certificate_thresholds_unchanged_from_v3_1": True,
             "gradient_normalization": (
-                "equal_record_mean_plus_complete_update_global_tail"
+                "equal_record_mean_plus_per_record_worst_k"
             ),
             "source_optimizer_steps": 1000 if initialization == "frozen_v3_2" else 0,
             "optimizer_steps_this_run": detector_optimizer_steps_this_run,
@@ -4647,8 +4855,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "kind": "mcf_embedding_keyed_neuron_repaired_detector_selectivity_audit",
             "protocol": PROTOCOL,
             "parameter_state": (
-                "V3.2-initialized gate/up after the registered V3.5.3 canonical "
-                "multi-label repair; exact-zero down_delta"
+                "V3.2-initialized gate/up after the registered V3.5.4 balanced "
+                "canonical multi-label repair; exact-zero down_delta"
             ),
             "paired_contexts": len(positive_instances),
             "record_count": len(records),
@@ -5449,7 +5657,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         if not initial_frozen_detector_replay["passed"]:
             raise RuntimeError(
-                "V3.5.3 legacy-cache initial detector state differs from frozen "
+                "V3.5.4 legacy-cache initial detector state differs from frozen "
                 "V3.2 source"
             )
         initial_detector_gate[
@@ -5458,7 +5666,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         initial_detector_gate_path = out_dir / "detector_initial_import_gate.json"
         gagd.write_json(initial_detector_gate_path, initial_detector_gate)
         initial_global_isolation_gate = multilabel_threshold_gate_report(
-            phase="v3.5.3_pre_repair_multilabel_isolation",
+            phase="v3.5.4_pre_repair_multilabel_isolation",
             optimizer_step=0,
         )
         initial_global_isolation_gate_path = (
@@ -5505,6 +5713,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         weight_decay=0.0,
     )
     detector_log: List[Dict[str, Any]] = []
+    detector_gradient_balance_audit: Dict[str, Any] | None = None
     endpoint_gate_reports: Dict[str, Dict[str, Any]] = {}
     endpoint_gate_paths: Dict[str, Path] = {}
     global_post_projection_gate: Dict[str, Any] | None = None
@@ -5609,6 +5818,155 @@ def main(argv: Sequence[str] | None = None) -> None:
             + float(args.detector_writer_off_weight) * writer_off_loss
             + float(args.detector_l2) * l2
         )
+        if step == 1 and args.training_only_isolated_threshold_feasibility:
+            parameters = (editor.gate_delta, editor.up_delta)
+            optimizer_state_entries_before = len(detector_optimizer.state)
+            if optimizer_state_entries_before != 0:
+                raise RuntimeError(
+                    "first-update gradient audit expected a fresh optimizer state"
+                )
+            if any(parameter.grad is not None for parameter in parameters):
+                raise RuntimeError(
+                    "gradient-balance audit requires empty parameter grad buffers"
+                )
+
+            def gradient_norm_and_alignment(
+                objective: torch.Tensor,
+                total_gradients: Sequence[torch.Tensor | None],
+                total_norm: float,
+            ) -> Tuple[float, float | None]:
+                gradients = torch.autograd.grad(
+                    objective,
+                    parameters,
+                    retain_graph=True,
+                    allow_unused=True,
+                )
+                norm_square = 0.0
+                dot = 0.0
+                for gradient, total_gradient in zip(gradients, total_gradients):
+                    if gradient is None:
+                        continue
+                    gradient_float = gradient.detach().float()
+                    norm_square += float(gradient_float.square().sum())
+                    if total_gradient is not None:
+                        dot += float(
+                            (gradient_float * total_gradient.detach().float()).sum()
+                        )
+                norm = math.sqrt(max(0.0, norm_square))
+                cosine = (
+                    dot / (norm * total_norm)
+                    if norm > 0.0 and total_norm > 0.0
+                    else None
+                )
+                return norm, cosine
+
+            total_gradients = torch.autograd.grad(
+                total_loss,
+                parameters,
+                retain_graph=True,
+                allow_unused=True,
+            )
+            total_norm = math.sqrt(
+                sum(
+                    float(gradient.detach().float().square().sum())
+                    for gradient in total_gradients
+                    if gradient is not None
+                )
+            )
+            component_specs = {
+                "positive_write": (pieces["write"], 1.0),
+                "source_negative": (
+                    pieces["negative"],
+                    float(args.detector_negative_weight),
+                ),
+                "inactive_cross": (
+                    pieces["cross"],
+                    float(args.detector_cross_weight),
+                ),
+                "writer_off_all_groups": (
+                    writer_off_loss,
+                    float(args.detector_writer_off_weight),
+                ),
+                "positive_consistency": (
+                    pieces["consistency"],
+                    float(args.detector_consistency_weight),
+                ),
+                "parameter_l2": (l2, float(args.detector_l2)),
+            }
+            component_rows: Dict[str, Any] = {}
+            weighted_off_norm_sum = 0.0
+            for name, (objective, coefficient) in component_specs.items():
+                raw_norm, cosine = gradient_norm_and_alignment(
+                    objective,
+                    total_gradients,
+                    total_norm,
+                )
+                weighted_norm = abs(float(coefficient)) * raw_norm
+                component_rows[name] = {
+                    "unweighted_objective_value": float(objective.detach()),
+                    "optimization_coefficient": float(coefficient),
+                    "weighted_objective_value": float(
+                        (float(coefficient) * objective).detach()
+                    ),
+                    "unweighted_gradient_l2_norm": raw_norm,
+                    "weighted_gradient_l2_norm": weighted_norm,
+                    "unweighted_gradient_cosine_with_total": cosine,
+                }
+                if name in {
+                    "source_negative",
+                    "inactive_cross",
+                    "writer_off_all_groups",
+                }:
+                    weighted_off_norm_sum += weighted_norm
+            component_rows["total"] = {
+                "unweighted_objective_value": float(total_loss.detach()),
+                "optimization_coefficient": 1.0,
+                "weighted_objective_value": float(total_loss.detach()),
+                "unweighted_gradient_l2_norm": total_norm,
+                "weighted_gradient_l2_norm": total_norm,
+                "unweighted_gradient_cosine_with_total": (
+                    1.0 if total_norm > 0.0 else None
+                ),
+            }
+            positive_norm = float(
+                component_rows["positive_write"]["weighted_gradient_l2_norm"]
+            )
+            optimizer_state_entries_after = len(detector_optimizer.state)
+            detector_gradient_balance_audit = {
+                "schema_version": 1,
+                "kind": "mcf_embedding_keyed_neuron_detector_gradient_balance_audit",
+                "protocol": PROTOCOL,
+                "optimizer_step": 1,
+                "measurement_phase": "before_total_backward_gradient_clip_and_adam",
+                "global_tail_optimization_weight": float(
+                    args.detector_global_tail_weight
+                ),
+                "global_tail_terms": "diagnostic_only_not_optimized",
+                "total_gradient_l2_norm": total_norm,
+                "components": component_rows,
+                "weighted_off_component_norm_sum_upper_bound": (
+                    weighted_off_norm_sum
+                ),
+                "positive_to_weighted_off_norm_sum_ratio": (
+                    positive_norm / weighted_off_norm_sum
+                    if weighted_off_norm_sum > 0.0
+                    else None
+                ),
+                "parameter_grad_buffers_mutated": any(
+                    parameter.grad is not None for parameter in parameters
+                ),
+                "optimizer_state_entries_before": optimizer_state_entries_before,
+                "optimizer_state_entries_after": optimizer_state_entries_after,
+                "optimizer_state_mutated": (
+                    optimizer_state_entries_before != optimizer_state_entries_after
+                ),
+                "used_for_optimization": False,
+                "official_evaluation_prompts_seen": 0,
+            }
+            if detector_gradient_balance_audit["parameter_grad_buffers_mutated"]:
+                raise RuntimeError("gradient-balance audit mutated parameter gradients")
+            if detector_gradient_balance_audit["optimizer_state_mutated"]:
+                raise RuntimeError("gradient-balance audit mutated optimizer state")
         total_loss.backward()
         accumulated = {name: float(value.detach()) for name, value in pieces.items()}
         accumulated["writer_off"] = float(writer_off_loss.detach())
@@ -5687,6 +6045,17 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
     if len(detector_log) != detector_optimizer_steps_this_run:
         raise RuntimeError("complete detector training log lost optimizer steps")
+    if (
+        args.training_only_isolated_threshold_feasibility
+        and detector_gradient_balance_audit is None
+    ):
+        raise RuntimeError("V3.5.4 requires the first-update gradient-balance audit")
+    detector_gradient_balance_path = out_dir / "detector_gradient_balance_audit.json"
+    if detector_gradient_balance_audit is not None:
+        gagd.write_json(
+            detector_gradient_balance_path,
+            detector_gradient_balance_audit,
+        )
     detector_training_log_report = {
         "schema_version": 1,
         "kind": "mcf_embedding_keyed_neuron_complete_detector_training_log",
@@ -5696,6 +6065,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         "optimizer_steps_recorded": len(detector_log),
         "complete": len(detector_log) == detector_optimizer_steps_this_run,
         "optimization": detector_optimization_metadata(),
+        "gradient_balance_audit": (
+            {
+                "path": str(detector_gradient_balance_path),
+                "sha256": compositional_method.sha256_file(
+                    detector_gradient_balance_path
+                ),
+                "optimizer_step": 1,
+                "used_for_optimization": False,
+            }
+            if detector_gradient_balance_audit is not None
+            else None
+        ),
         "records": detector_log,
         "official_evaluation_prompts_seen": 0,
     }
@@ -5775,6 +6156,26 @@ def main(argv: Sequence[str] | None = None) -> None:
             "optimizer_steps_recorded": len(detector_log),
             "complete": bool(detector_training_log_report["complete"]),
         },
+        "gradient_balance_audit": (
+            {
+                "path": str(detector_gradient_balance_path),
+                "sha256": compositional_method.sha256_file(
+                    detector_gradient_balance_path
+                ),
+                "optimizer_step": 1,
+                "parameter_grad_buffers_mutated": False,
+                "optimizer_state_mutated": False,
+                "used_for_optimization": False,
+                "complete": True,
+            }
+            if detector_gradient_balance_audit is not None
+            else {
+                "required": bool(args.training_only_isolated_threshold_feasibility),
+                "complete": not bool(
+                    args.training_only_isolated_threshold_feasibility
+                ),
+            }
+        ),
         "post_projection_matches_final_fresh_certificate": (
             post_projection_matches_final
         ),
@@ -5782,7 +6183,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         "initial_frozen_v3_2_source_replay": frozen_detector_replay,
         "source_to_repaired_detector_delta": source_to_repaired_detector_delta,
         "frozen_v3_2_import": frozen_detector_import,
-        "complete": bool(endpoint_complete and post_projection_matches_final),
+        "complete": bool(
+            endpoint_complete
+            and post_projection_matches_final
+            and (
+                detector_gradient_balance_audit is not None
+                or not args.training_only_isolated_threshold_feasibility
+            )
+        ),
         "official_evaluation_prompts_seen": 0,
     }
     if not endpoint_audit["complete"]:
@@ -5858,7 +6266,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"median={float(response_ratio['median']):.4f}"
         )
         threshold_gate = multilabel_threshold_gate_report(
-            phase="v3.5.3_final_multilabel_isolation_certificate",
+            phase="v3.5.4_final_multilabel_isolation_certificate",
             optimizer_step=detector_optimizer_steps_this_run,
         )
         gagd.write_json(out_dir / "isolated_threshold_gate_report.json", threshold_gate)
@@ -5868,7 +6276,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             or global_post_projection_gate is None
             or global_post_projection_gate_path is None
         ):
-            raise RuntimeError("V3.5.3 multi-label endpoint audit is incomplete")
+            raise RuntimeError("V3.5.4 multi-label endpoint audit is incomplete")
 
         def global_gate_state_digest(report: Mapping[str, Any]) -> str:
             return compositional_method.sha256_json(
@@ -5931,7 +6339,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         gagd.write_json(out_dir / "detector_endpoint_audit.json", endpoint_audit)
         if not endpoint_audit["complete"]:
             raise RuntimeError(
-                "V3.5.3 post-projection multi-label gate differs from final fresh "
+                "V3.5.4 post-projection multi-label gate differs from final fresh "
                 "replay"
             )
         print(
@@ -6150,7 +6558,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     def actuator_optimization_metadata() -> Dict[str, Any]:
         return {
             "revision": (
-                "v3.5.3_multilabel_detector_isolated_thresholded_residual"
+                "v3.5.4_balanced_multilabel_detector_isolated_thresholded_residual"
                 if args.training_only_isolated_threshold_feasibility
                 else "historical_v3.3_full_objective"
             ),
@@ -6412,10 +6820,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             or frozen_v3_4_rejection is None
             or frozen_v3_5_1_forensics is None
             or frozen_v3_5_2_rejection is None
+            or frozen_v3_5_3_rejection is None
         ):
             raise RuntimeError(
-                "V3.5.3 feasibility lacks its gate and V3.4/V3.5.1/V3.5.2 "
-                "lineage audits"
+                "V3.5.4 feasibility lacks its gate and V3.4/V3.5.1/V3.5.2/"
+                "V3.5.3 lineage audits"
             )
         caps = [float(cap) for cap in args.actuator_feasibility_caps]
         with torch.no_grad():
@@ -6639,7 +7048,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         ]
         sweep = {
             "schema_version": 1,
-            "kind": "mcf_embedding_keyed_neuron_v3_5_3_multilabel_repair_feasibility",
+            "kind": "mcf_embedding_keyed_neuron_v3_5_4_balanced_multilabel_repair_feasibility",
             "protocol": PROTOCOL,
             "mode": "training_only",
             "architecture": str(args.actuator_architecture),
@@ -6689,6 +7098,31 @@ def main(argv: Sequence[str] | None = None) -> None:
                 ),
                 "same_record_conflicts": int(
                     prompt_label_report["same_record_positive_negative_conflicts"]
+                ),
+            },
+            "detector_gradient_balance_audit": {
+                "path": str(detector_gradient_balance_path),
+                "sha256": compositional_method.sha256_file(
+                    detector_gradient_balance_path
+                ),
+                "optimizer_step": int(
+                    detector_gradient_balance_audit["optimizer_step"]
+                ),
+                "global_tail_optimization_weight": float(
+                    detector_gradient_balance_audit[
+                        "global_tail_optimization_weight"
+                    ]
+                ),
+                "parameter_grad_buffers_mutated": bool(
+                    detector_gradient_balance_audit[
+                        "parameter_grad_buffers_mutated"
+                    ]
+                ),
+                "optimizer_state_mutated": bool(
+                    detector_gradient_balance_audit["optimizer_state_mutated"]
+                ),
+                "used_for_optimization": bool(
+                    detector_gradient_balance_audit["used_for_optimization"]
                 ),
             },
             "repaired_detector_selectivity_audit": {
@@ -6754,6 +7188,25 @@ def main(argv: Sequence[str] | None = None) -> None:
                 ),
                 "passed": bool(frozen_v3_5_2_rejection["passed"]),
             },
+            "frozen_v3_5_3_rejection_import": {
+                "path": str(out_dir / "frozen_v3_5_3_rejection_import.json"),
+                "sha256": compositional_method.sha256_file(
+                    out_dir / "frozen_v3_5_3_rejection_import.json"
+                ),
+                "diagnosis": frozen_v3_5_3_rejection["diagnosis"],
+                "owner_gate_passed_records": int(
+                    frozen_v3_5_3_rejection["owner_gate_passed_records"]
+                ),
+                "owner_gate_total_records": int(
+                    frozen_v3_5_3_rejection["owner_gate_total_records"]
+                ),
+                "negative_and_writer_off_certificate_clean": bool(
+                    frozen_v3_5_3_rejection[
+                        "negative_and_writer_off_certificate_clean"
+                    ]
+                ),
+                "passed": bool(frozen_v3_5_3_rejection["passed"]),
+            },
             "initial_audit": initial_audit,
             "cap_artifacts": cap_artifacts,
             "conclusion": decision["conclusion"],
@@ -6769,11 +7222,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             "official_evaluation_allowed": False,
             "official_evaluation_prompts_seen": 0,
         }
-        sweep_path = out_dir / "v3_5_3_multilabel_actuator_feasibility.json"
+        sweep_path = out_dir / "v3_5_4_multilabel_actuator_feasibility.json"
         gagd.write_json(sweep_path, sweep)
         completion = {
             "schema_version": 1,
-            "kind": "mcf_embedding_keyed_neuron_v3_5_3_training_only_completion",
+            "kind": "mcf_embedding_keyed_neuron_v3_5_4_training_only_completion",
             "protocol": PROTOCOL,
             "sweep_path": str(sweep_path),
             "sweep_sha256": compositional_method.sha256_file(sweep_path),
@@ -6789,7 +7242,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "official_evaluation_allowed": False,
             "official_evaluation_prompts_seen": 0,
         }
-        gagd.write_json(out_dir / "training_only_v3_5_3_completion.json", completion)
+        gagd.write_json(out_dir / "training_only_v3_5_4_completion.json", completion)
         if not completion["mechanism_readiness_passed"]:
             gagd.write_json(
                 out_dir / "training_rejection.json",
@@ -7617,21 +8070,22 @@ def main(argv: Sequence[str] | None = None) -> None:
             "detector_negative_contexts": str(args.detector_negative_contexts),
             "detector_tail_k": int(args.detector_tail_k),
             "detector_positive_objective": (
-                "active_label_equal_record_mean_plus_worst_k_plus_global_worst_k"
+                "active_label_equal_record_mean_plus_worst_k"
             ),
             "detector_negative_objective": (
-                "source_owner_equal_record_mean_plus_worst_k_plus_global_worst_k"
+                "source_owner_equal_record_mean_plus_worst_k"
             ),
             "detector_cross_objective": (
-                "inactive_label_equal_record_mean_plus_worst_k_plus_global_worst_k"
+                "inactive_label_equal_record_mean_plus_worst_k"
             ),
             "detector_writer_off_objective": (
-                "all_groups_equal_record_mean_plus_worst_k_plus_global_worst_k"
+                "all_groups_equal_record_mean_plus_worst_k"
             ),
             "detector_gradient_normalization": (
-                "equal_record_mean_plus_complete_update_global_tail"
+                "equal_record_mean_plus_per_record_worst_k"
             ),
             "detector_global_tail_weight": float(args.detector_global_tail_weight),
+            "detector_global_tail_terms": "diagnostic_only_not_optimized",
             "detector_cached_mlp_inputs": True,
             "detector_cached_mlp_inputs_canonicalized_by_exact_prompt": True,
             "detector_prompt_label_semantics": "canonical_exact_prompt_multilabel",
@@ -7649,7 +8103,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "detector_consistency_weight": float(args.detector_consistency_weight),
             "detector_l2": float(args.detector_l2),
             "detector_relative_cap": float(args.detector_relative_cap),
-            "actuator_training_revision": "v3.5.3",
+            "actuator_training_revision": "v3.5.4",
             "actuator_feasibility_steps": int(args.actuator_feasibility_steps),
             "actuator_feasibility_initialization": "exact_zero_down_delta",
             "actuator_feasibility_objective": (

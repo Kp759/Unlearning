@@ -1,7 +1,7 @@
 {
-  "schema_version": 14,
-  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_3",
-  "status": "training_only_v3_5_3_canonical_multilabel_detector_repair_and_discarded_cap_1_5_feasibility_preregistered_after_v3_5_2_duplicate_prompt_contradiction",
+  "schema_version": 15,
+  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_4",
+  "status": "training_only_v3_5_4_balanced_canonical_multilabel_detector_repair_and_discarded_cap_1_5_feasibility_preregistered_after_v3_5_3_positive_collapse",
   "development_history": [
     {
       "version": "v1",
@@ -421,9 +421,40 @@
         "train active labels on and inactive labels off with equal-record and global worst-two losses",
         "retain all writer-off groups as inactive and keep the 0.25/0.20 certificate unchanged"
       ]
+    },
+    {
+      "version": "v13_embedding_keyed_gate_v3_5_3_global_tail_positive_collapse",
+      "evidence_opened": "locked semantically valid training-safe prompts only",
+      "official_evaluation_opened_by_this_failed_run": false,
+      "official_evaluation_prompts_seen": 0,
+      "checkpoint_saved": false,
+      "actuator_training_started": false,
+      "result": "V3.5.3 preserved canonical exact-prompt multi-label semantics and clean negative/writer-off certificates, but only 29/50 records passed the owner-positive detector gate after adding complete-update global worst-two terms",
+      "detector_gate": {
+        "passed_records": 29,
+        "total_records": 50,
+        "positive_failures": 21,
+        "negative_failures": 0,
+        "writer_off_failures": 0
+      },
+      "optimization_diagnosis": {
+        "positive_global_tail_effective_weight": 1,
+        "cross_global_tail_effective_weight": 2,
+        "negative_global_tail_effective_weight": 5,
+        "writer_off_global_tail_effective_weight": 10,
+        "gradient_clip_frequency": "once_per_global_optimizer_update",
+        "interpretation": "the broad positive collapse with clean off-contexts is a quiet-solution signature consistent with off-context extrema dominating the single clipped update; it is not evidence against contextual multi-label semantics"
+      },
+      "changes_motivated": [
+        "retain canonical exact-prompt hidden reuse and multi-label targets unchanged",
+        "set complete-update global-tail optimization weight to zero for every component",
+        "retain equal-record means and per-record worst-two reductions for active, negative, inactive-cross, and all-group writer-off cells",
+        "record a non-optimizing first-update component-gradient audit",
+        "keep the exact V3.2 initialization, 100 updates, thresholds, targets, weights, layer, neurons, writer, actuator cap, and evaluation firewall unchanged"
+      ]
     }
   ],
-  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, detector V3, detector V3.1, V3.2 actuator, V3.3 actuator, V3.4 cap-sweep, V3.5 isolated-gate, V3.5.1 forensic, and V3.5.2 repair runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer, V3.2 source run, V3.3 learner, V3.4 sweep, V3.5 architecture test, V3.5.1 forensic replay, V3.5.2 repair, or V3.5.3 multi-label repair/feasibility run or used for checkpoint selection/retry.",
+  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, detector V3, detector V3.1, V3.2 actuator, V3.3 actuator, V3.4 cap-sweep, V3.5 isolated-gate, V3.5.1 forensic, V3.5.2 repair, and V3.5.3 multi-label global-tail runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer, V3.2 source run, V3.3 learner, V3.4 sweep, V3.5 architecture test, V3.5.1 forensic replay, V3.5.2 repair, V3.5.3 rejection, or V3.5.4 balanced multi-label repair/feasibility run or used for checkpoint selection/retry.",
   "development_retain_shared_row_exposure_audit": {
     "data_role": "consumed_development_evidence_not_blind_evaluation",
     "source_writer_protocol": "mcf_context_composed_sparse_embedding_writer_v6_2",
@@ -443,7 +474,7 @@
     "development_prompts_with_actual_edited_row": 5762,
     "forget_subjects_with_reused_actual_edited_row": 49,
     "official_evaluation_prompts_seen": 0,
-    "learner_usage": "architecture motivation and reporting only; no development record, frequency, overlap, or norm statistic enters V3.5 selection, optimization, acceptance, or retry, the V3.5.1 forensic replay, the V3.5.2 detector repair, or the V3.5.3 multi-label repair",
+    "learner_usage": "architecture motivation and reporting only; no development record, frequency, overlap, or norm statistic enters V3.5 selection, optimization, acceptance, or retry, the V3.5.1 forensic replay, the V3.5.2 detector repair, the V3.5.3 multi-label repair, or the V3.5.4 balanced repair",
     "causal_limit": "the audit establishes shared-parameter exposure, not that overlap itself causes retain degradation",
     "architecture_implication": "shared embedding rows may carry a sparse marker, but the behavioral erasure must be conditioned downstream on context-composed hidden state",
     "norm_frequency_followup_script": "scripts/audit_mcf_embedding_writer_shared_row_exposure.py",
@@ -496,12 +527,16 @@
     }
   },
   "detector_training_revision": {
-    "version": "v3.5.3_canonical_multilabel_global_tail_repair",
-    "mode": "training_only_canonical_prompt_multilabel_repair",
+    "version": "v3.5.4_canonical_multilabel_balanced_tail_repair",
+    "mode": "training_only_canonical_prompt_multilabel_balanced_repair",
     "primary_initialization": "frozen_v3_2",
     "source_v3_5_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5",
     "source_v3_5_1_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_1",
     "source_v3_5_2_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_2",
+    "source_v3_5_3_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_3",
+    "source_v3_5_3_owner_gate_passed_records": 29,
+    "source_v3_5_3_owner_gate_total_records": 50,
+    "source_v3_5_3_positive_failures": 21,
     "source_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_2",
     "source_training_revision": "v3.2",
     "source_gate_passed_records": 50,
@@ -536,19 +571,33 @@
     "positive_context_mode": "all",
     "negative_context_mode": "all",
     "tail_k": 2,
-    "positive_objective": "active_label_equal_record_mean_plus_worst_k_plus_global_worst_k_squared_shortfall",
-    "negative_objective": "source_owner_equal_record_mean_plus_worst_k_plus_global_worst_k_squared_excess",
-    "cross_objective": "inactive_label_equal_record_mean_plus_worst_k_plus_global_worst_k_squared_excess",
-    "writer_off_objective": "all_detector_groups_equal_source_record_mean_plus_worst_k_plus_global_worst_k_squared_excess",
+    "positive_objective": "active_label_equal_record_mean_plus_worst_k_squared_shortfall",
+    "negative_objective": "source_owner_equal_record_mean_plus_worst_k_squared_excess",
+    "cross_objective": "inactive_label_equal_record_mean_plus_worst_k_squared_excess",
+    "writer_off_objective": "all_detector_groups_equal_source_record_mean_plus_worst_k_squared_excess",
     "writer_off_groups_per_context": 50,
-    "global_tail_weight": 1.0,
+    "global_tail_weight": 0.0,
+    "global_tail_terms": "diagnostic_only_not_optimized",
     "training_positive_floor": 0.3,
     "training_off_abs_max": 0.15,
     "certificate_positive_floor": 0.25,
     "certificate_off_abs_max": 0.2,
     "certificate_abs_tolerance": 1e-7,
     "certificate_thresholds_unchanged_from_v3_1": true,
-    "gradient_normalization": "equal_record_mean_plus_complete_update_global_tail",
+    "gradient_normalization": "equal_record_mean_plus_per_record_worst_k",
+    "gradient_balance_audit": {
+      "optimizer_step": 1,
+      "parameter_grad_buffers_mutated": false,
+      "components": [
+        "positive_write",
+        "source_negative",
+        "inactive_cross",
+        "writer_off_all_groups",
+        "positive_consistency",
+        "parameter_l2",
+        "total"
+      ]
+    },
     "gradient_clip_frequency": "once_per_optimizer_update",
     "norm_projection_frequency": "once_per_optimizer_update",
     "endpoint_audit_phases": [
@@ -561,11 +610,12 @@
     "official_evaluation_prompts_seen": 0
   },
   "actuator_training_revision": {
-    "version": "v3.5.3",
+    "version": "v3.5.4",
     "mode": "discarded_fixed_cap_feasibility_after_multilabel_gate",
     "source_v3_5_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5",
     "source_v3_5_1_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_1",
     "source_v3_5_2_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_2",
+    "source_v3_5_3_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_3",
     "historical_v3_5_plan_retested_after_multilabel_detector_repair": true,
     "optimizer_constructed_this_run": true,
     "optimizer_updates_this_run": 100,
@@ -592,7 +642,7 @@
     },
     "architecture": {
       "base_mlp_path": "bit_exact_untouched",
-      "frozen_detector_role": "V3.2 initialization followed by V3.5.3 canonical multi-label repair",
+      "frozen_detector_role": "V3.2 initialization followed by V3.5.4 balanced canonical multi-label repair",
       "residual_formula": "BaseMLP(h) + threshold_gate(r(h)) * detector_activation(h) @ down_delta.T",
       "off_boundary": 0.200001,
       "on_boundary": 0.249999,
@@ -650,7 +700,7 @@
   },
   "selected_neuron_ownership_binding": {
     "scope": "primary_embedding_keyed_configuration",
-    "source_runs": ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.5.1", "v3.5.2"],
+    "source_runs": ["v3", "v3.1", "v3.2", "v3.3", "v3.4", "v3.5", "v3.5.1", "v3.5.2", "v3.5.3"],
     "jq_projection": "[.ownership[].selected_neurons]",
     "jq_compact_sha256": "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1",
     "writer_configuration": {
@@ -745,6 +795,26 @@
     "checkpoint_creation_prohibited": true,
     "official_evaluation_prohibited": true
   },
+  "v3_5_4_scope": {
+    "training_only": true,
+    "source_v3_5_3_rejection_hash_bound": true,
+    "source_v3_5_3_owner_gate_passed_records": 29,
+    "source_v3_5_3_owner_gate_total_records": 50,
+    "source_v3_5_3_positive_failures": 21,
+    "source_v3_5_3_negative_failures": 0,
+    "source_v3_5_3_writer_off_failures": 0,
+    "canonical_hidden_reuse_required": true,
+    "canonical_multilabel_semantics_unchanged": true,
+    "complete_update_global_tail_optimization_weight": 0.0,
+    "per_record_worst_two_retained": true,
+    "all_writer_off_groups_per_context": 50,
+    "first_update_component_gradient_audit_required": true,
+    "detector_repair_optimizer_updates": 100,
+    "multilabel_gate_required_before_actuator_feasibility": true,
+    "full_preservation_training_prohibited": true,
+    "checkpoint_creation_prohibited": true,
+    "official_evaluation_prohibited": true
+  },
   "explicitly_disallowed_primary_claims": [
     "weight-level knowledge deletion",
     "certified global locality",
@@ -776,7 +846,7 @@
     "detector_positive_contexts": "all",
     "detector_negative_contexts": "all",
     "detector_tail_k": 2,
-    "detector_global_tail_weight": 1.0,
+    "detector_global_tail_weight": 0.0,
     "detector_positive_floor": 0.25,
     "detector_training_positive_floor": 0.3,
     "detector_negative_weight": 5.0,
