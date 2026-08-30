@@ -17,6 +17,10 @@
 # checkpoints can later be evaluated by a separate reporting-only job.
 set -euo pipefail
 
+echo "V3.4 is a training-only primary norm-cap sweep; checkpoint ablations remain disabled." >&2
+echo "Use the historical V3.3 commit for the preserved full-training ablation launcher." >&2
+exit 2
+
 PROJECT_DIR="${PROJECT_DIR:-/scratch/yl258/kp759/Unlearning/semantic-unlearning}"
 ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"

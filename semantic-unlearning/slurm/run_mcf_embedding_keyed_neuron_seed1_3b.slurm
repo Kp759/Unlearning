@@ -13,6 +13,10 @@
 
 set -euo pipefail
 
+echo "This is the preserved V3.3 full-training launcher and is disabled in the V3.4 checkout." >&2
+echo "Use slurm/run_mcf_embedding_keyed_neuron_v3_4_cap_sweep_seed1_3b.slurm." >&2
+exit 2
+
 PROJECT_DIR="${PROJECT_DIR:-/scratch/yl258/kp759/Unlearning/semantic-unlearning}"
 ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 MODEL_PATH="${MODEL_PATH:-/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean}"

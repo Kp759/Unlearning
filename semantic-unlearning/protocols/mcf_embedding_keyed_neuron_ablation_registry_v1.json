@@ -1,7 +1,7 @@
 {
-  "schema_version": 9,
-  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_3",
-  "status": "training_only_actuator_v3_3_global_all_context_revision_preregistered_after_v3_2_actuator_rejection_before_any_official_evaluation",
+  "schema_version": 10,
+  "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_4",
+  "status": "training_only_actuator_v3_4_norm_cap_reachability_sweep_preregistered_after_v3_3_positive_only_rejection_before_any_official_evaluation",
   "development_history": [
     {
       "version": "v1",
@@ -230,9 +230,52 @@
         "persist every optimizer step and full-context pre-Adam, post-Adam, post-projection, and final fresh audits",
         "retain the V6.2 writer, exact 200-neuron ownership, detector, layer, norm caps, LM-head freeze, and official-evaluation firewall"
       ]
+    },
+    {
+      "version": "v8_embedding_keyed_actuator_v3_3_positive_only",
+      "evidence_opened": "locked semantically valid training-safe prompts only",
+      "official_evaluation_opened_by_this_failed_run": false,
+      "official_evaluation_prompts_seen": 0,
+      "checkpoint_saved": false,
+      "detector_gate": {
+        "passed_records": 50,
+        "total_records": 50,
+        "passed": true,
+        "source": "exact frozen V3.2 gate/up tensors"
+      },
+      "actuator_feasibility": {
+        "relative_norm_cap": 0.5,
+        "optimizer_updates": 100,
+        "records_per_optimizer_update": 50,
+        "positive_contexts_per_optimizer_update": 346,
+        "cap_saturated_by_step": 15,
+        "direct_failures": 40,
+        "direct_records": 50,
+        "positive_failures": 300,
+        "positive_contexts": 346,
+        "minimum_margin": -8.75,
+        "reference_nll_regression_max": 2.375,
+        "writer_off_nll_abs_max": 4.8125,
+        "writer_off_nll_tolerance": 0.05,
+        "full_actuator_training_started": false
+      },
+      "result": "rejected by the fixed-budget positive-only all-record/all-positive feasibility gate at the unchanged 0.50 cap; full actuator training, checkpoint saving, and official evaluation were refused",
+      "interpretation": [
+        "global all-record/all-positive coverage did not make the fixed 200-neuron layer-27 down-column actuator feasible at cap 0.50",
+        "the 4.8125 writer-off NLL drift is 96.25 times the 0.05 preservation tolerance, but Stage 2a did not optimize a writer-off loss and therefore this is a structural selectivity diagnostic rather than a full-objective failure",
+        "down_max_relative_norm establishes that at least one column reached the cap; it does not establish that every selected column saturated",
+        "300/346 positive failures and fifteen worst records failing every positive context are not a numerical boundary effect"
+      ],
+      "changes_motivated": [
+        "hash-bind the exact V3.3 rejection artifacts before any new actuator fit",
+        "audit paired writer-on/writer-off activation ratios on the exact frozen detector before actuator training",
+        "run independent exact-zero positive-only fits at a preregistered norm-cap ladder",
+        "record per-column norm geometry and exact actuator residual-write selectivity at every cap",
+        "discard all sweep weights and prohibit the preservation objective, checkpoint saving, and official evaluation"
+      ]
     }
   ],
-  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, detector V3, detector V3.1, and V3.2 actuator runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer, V3.2 source run, or V3.3 learner or used for checkpoint selection/retry.",
+  "historical_evidence_boundary": "Earlier project writer-portability and scoped-span results motivated the unchanged acceptance thresholds. The failed v1, v2, clean-writer V6, V6.1, detector V3, detector V3.1, V3.2 actuator, and V3.3 actuator runs opened only training-safe evidence and are recorded above. They are not represented as blind holdout evidence. No official prompt is available to the V6.2 writer, V3.2 source run, V3.3 learner, or V3.4 sweep or used for checkpoint selection/retry.",
   "stage1_writer_prerequisite": {
     "protocol": "mcf_context_composed_sparse_embedding_writer_v6_2",
     "positive_context_policy": "relation_templates_only_v1",
@@ -279,7 +322,7 @@
     }
   },
   "detector_training_revision": {
-    "version": "v3.3_frozen_v3_2_primary",
+    "version": "v3.4_frozen_v3_2_primary",
     "primary_initialization": "frozen_v3_2",
     "source_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_2",
     "source_training_revision": "v3.2",
@@ -335,67 +378,93 @@
     "official_evaluation_prompts_seen": 0
   },
   "actuator_training_revision": {
-    "version": "v3.3",
-    "initial_down_delta": "exact_zero",
-    "feasibility": {
-      "optimizer_updates": 100,
-      "records_per_optimizer_update": 50,
-      "positive_contexts_per_optimizer_update": 346,
-      "positive_context_exposures": 34600,
-      "objective": "equal_record_mean_plus_worst_two_squared_margin_shortfall_only",
-      "relative_norm_cap": 0.5,
-      "pass_condition": "zero direct failures and zero failures over all 346 positives",
-      "learned_weights_discarded_before_full_training": true,
-      "failure_action": "refuse full actuator training, checkpoint saving, and official evaluation"
+    "version": "v3.4",
+    "mode": "training_only_norm_cap_reachability_sweep",
+    "frozen_training_contexts": {
+      "writer_on_positive": 346,
+      "writer_on_negative": 465,
+      "writer_off_positive": 346
     },
-    "full_training": {
-      "optimizer_updates": 100,
+    "source_v3_3_rejection": {
+      "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_3",
+      "artifact_hash_receipt_required": true,
+      "detector_passed_records": 50,
+      "detector_total_records": 50,
+      "cap": 0.5,
+      "cap_saturated_by_step": 15,
+      "direct_failures": 40,
+      "positive_failures": 300,
+      "positive_contexts": 346,
+      "minimum_margin": -8.75,
+      "reference_nll_regression_max": 2.375,
+      "writer_off_nll_abs_max": 4.8125,
+      "full_actuator_training_started": false,
+      "official_evaluation_prompts_seen": 0
+    },
+    "frozen_detector_selectivity_audit": {
+      "performed_before_any_actuator_fit": true,
+      "paired_contexts": 346,
+      "metrics": [
+        "owned_signed_group_response",
+        "owned_neuron_abs_activation",
+        "owned_activation_vector_l2",
+        "all_selected_activation_vector_l2"
+      ],
+      "ratio_denominator_epsilon": 1e-8,
+      "p10_warning_ratio": 100.0,
+      "warning_is_acceptance_gate": false,
+      "zero_actuator_behavior_audit_before_any_fit": true,
+      "heuristic_behavior_ratio_reference": 195.0,
+      "heuristic_reference_derivation": "(1.0 - -8.75) / 0.05 from the V3.3 worst margin and unchanged writer-off NLL tolerance",
+      "causal_limit": "activation ratios do not mathematically equal downstream NLL gain; direct writer-off NLL is audited after every fitted cap"
+    },
+    "feasibility_sweep": {
+      "relative_norm_caps": [0.5, 0.75, 1.0, 1.5, 2.0],
+      "all_caps_run_independently": true,
+      "initial_down_delta_per_cap": "bit_exact_zero",
+      "optimizer_state_per_cap": "fresh_independent_adamw",
+      "optimizer_updates_per_cap": 100,
+      "total_optimizer_updates": 500,
+      "learning_rate": 0.0005,
       "records_per_optimizer_update": 50,
-      "positive_context_mode": "all",
-      "negative_context_mode": "all",
-      "writer_off_context_mode": "all",
       "positive_contexts_per_optimizer_update": 346,
-      "negative_contexts_per_optimizer_update": 465,
-      "writer_off_contexts_per_optimizer_update": 346,
-      "protected_contexts_per_optimizer_update": 80,
-      "protected_sampling_seed": "seed + 78103",
-      "positive_context_exposures": 34600,
-      "negative_context_exposures": 46500,
-      "writer_off_context_exposures": 34600,
-      "protected_context_exposures": 8000,
+      "positive_context_exposures_per_cap": 34600,
+      "total_positive_context_exposures": 173000,
       "context_microbatch_capacity": 4,
       "tail_k": 2,
-      "gradient_normalization": "equal_record_mean_plus_global_protected_prompt_mean",
-      "positive_objective": "mean_plus_worst_k_squared_margin_shortfall",
-      "reference_objective": "mean_plus_worst_k_squared_regression_excess_above_tolerance",
-      "negative_objective": "mean_plus_worst_k_squared_nll_drift",
-      "writer_off_objective": "mean_plus_worst_k_squared_abs_nll_drift_excess_above_tolerance",
+      "objective": "equal_record_mean_plus_worst_two_squared_margin_shortfall_only",
       "forget_margin": 1.0,
-      "reference_nll_tolerance": 0.05,
-      "writer_off_nll_tolerance": 0.05,
-      "margin_weight": 20.0,
-      "reference_nll_weight": 50.0,
-      "negative_nll_weight": 1.0,
-      "protected_kl_weight": 20.0,
-      "writer_off_nll_weight": 50.0,
-      "learning_rate": 0.0005,
-      "relative_norm_cap": 0.5,
       "gradient_clip_frequency": "once_per_optimizer_update",
-      "norm_projection_frequency": "once_per_optimizer_update"
+      "norm_projection_frequency": "once_per_optimizer_update",
+      "complete_incremental_training_log_required": true,
+      "fresh_full_context_audit_per_cap": true,
+      "audit_fields": [
+        "direct_failures",
+        "positive_failures",
+        "minimum_margin",
+        "median_margin",
+        "per_record_minimum_margins",
+        "per_column_relative_norms",
+        "saturated_column_count",
+        "writer_off_nll_abs_max",
+        "exact_actuator_residual_write_on_off_ratio"
+      ],
+      "positive_reachability_selection_rule": "smallest tested cap with direct_failures == 0 and positive_failures == 0",
+      "writer_off_structural_selectivity_tolerance": 0.05,
+      "writer_off_structural_selectivity_is_positive_cap_selection_rule": false,
+      "mechanism_readiness_rule": "positive reachability plus unoptimized writer-off NLL drift within 0.05 at the same tested cap",
+      "structural_failure_action": "record a training-only mechanism rejection and redesign the detector before any full preservation objective",
+      "every_fitted_down_delta_discarded": true,
+      "full_preservation_objective_started": false,
+      "checkpoint_saved": false,
+      "failure_action": "if no cap through 2.0 passes, conclude that the fixed 200-neuron layer-27 actuator is insufficient within the tested norm budget",
+      "official_evaluation_allowed": false
     },
-    "endpoint_audit_phases": [
-      "pre_update",
-      "post_adam",
-      "post_projection",
-      "final_fresh_full_context_audit"
-    ],
-    "complete_feasibility_log_required": true,
-    "complete_full_training_log_required": true,
     "official_evaluation_prompts_seen": 0
   },
   "selected_neuron_ownership_binding": {
     "scope": "primary_embedding_keyed_configuration",
-    "source_runs": ["v3", "v3.1", "v3.2"],
+    "source_runs": ["v3", "v3.1", "v3.2", "v3.3"],
     "jq_projection": "[.ownership[].selected_neurons]",
     "jq_compact_sha256": "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1",
     "writer_configuration": {
@@ -414,6 +483,14 @@
     "allowed_interim_description": "V6.1 is consistent with cross-record interference; V6.2 tests a globally balanced optimizer and is an engineering improvement experiment"
   },
   "primary_claim": "Embedding-keyed sparse-neuron context-conditional factual suppression with measured locality",
+  "v3_4_scope": {
+    "training_only": true,
+    "actuator_reachability_and_structural_selectivity_diagnostic_only": true,
+    "full_preservation_training_prohibited": true,
+    "checkpoint_creation_prohibited": true,
+    "official_evaluation_prohibited": true,
+    "downstream_checkpoint_controls_and_official_audits": "deferred to a separately preregistered post-sweep protocol"
+  },
   "explicitly_disallowed_primary_claims": [
     "weight-level knowledge deletion",
     "certified global locality",
@@ -456,8 +533,12 @@
     "detector_off_abs_max": 0.2,
     "detector_training_off_abs_max": 0.15,
     "detector_certificate_abs_tolerance": 1e-7,
+    "training_only_actuator_cap_sweep": true,
     "actuator_feasibility_steps": 100,
-    "actuator_steps": 100,
+    "actuator_feasibility_caps": [0.5, 0.75, 1.0, 1.5, 2.0],
+    "detector_selectivity_ratio_epsilon": 1e-8,
+    "detector_selectivity_warning_ratio": 100.0,
+    "actuator_steps": 0,
     "actuator_lr": 0.0005,
     "actuator_batch_size": 4,
     "actuator_protected_batch": 80,

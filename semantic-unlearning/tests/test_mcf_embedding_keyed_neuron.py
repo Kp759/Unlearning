@@ -98,7 +98,7 @@ def _clean_stage1_acceptance_summary():
 
 def _detector_training_revision():
     return {
-        "version": "v3.3_frozen_v3_2_primary",
+        "version": "v3.4_frozen_v3_2_primary",
         "primary_initialization": "frozen_v3_2",
         "source_protocol": method.FROZEN_DETECTOR_PROTOCOL,
         "source_training_revision": "v3.2",
@@ -157,75 +157,108 @@ def _detector_training_revision():
 
 def _actuator_training_revision():
     return {
-        "version": "v3.3",
-        "initial_down_delta": "exact_zero",
-        "feasibility": {
-            "optimizer_updates": 100,
+        "version": "v3.4",
+        "mode": "training_only_norm_cap_reachability_sweep",
+        "frozen_training_contexts": {
+            "writer_on_positive": 346,
+            "writer_on_negative": 465,
+            "writer_off_positive": 346,
+        },
+        "source_v3_3_rejection": {
+            "protocol": method.FROZEN_V3_3_PROTOCOL,
+            "artifact_hash_receipt_required": True,
+            "detector_passed_records": 50,
+            "detector_total_records": 50,
+            "cap": 0.5,
+            "cap_saturated_by_step": 15,
+            "direct_failures": 40,
+            "positive_failures": 300,
+            "positive_contexts": 346,
+            "minimum_margin": -8.75,
+            "reference_nll_regression_max": 2.375,
+            "writer_off_nll_abs_max": 4.8125,
+            "full_actuator_training_started": False,
+            "official_evaluation_prompts_seen": 0,
+        },
+        "frozen_detector_selectivity_audit": {
+            "performed_before_any_actuator_fit": True,
+            "paired_contexts": 346,
+            "metrics": [
+                "owned_signed_group_response",
+                "owned_neuron_abs_activation",
+                "owned_activation_vector_l2",
+                "all_selected_activation_vector_l2",
+            ],
+            "ratio_denominator_epsilon": 1e-8,
+            "p10_warning_ratio": 100.0,
+            "warning_is_acceptance_gate": False,
+            "zero_actuator_behavior_audit_before_any_fit": True,
+            "heuristic_behavior_ratio_reference": 195.0,
+            "heuristic_reference_derivation": (
+                "(1.0 - -8.75) / 0.05 from the V3.3 worst margin and unchanged "
+                "writer-off NLL tolerance"
+            ),
+            "causal_limit": (
+                "activation ratios do not mathematically equal downstream NLL gain; "
+                "direct writer-off NLL is audited after every fitted cap"
+            ),
+        },
+        "feasibility_sweep": {
+            "relative_norm_caps": [0.5, 0.75, 1.0, 1.5, 2.0],
+            "all_caps_run_independently": True,
+            "initial_down_delta_per_cap": "bit_exact_zero",
+            "optimizer_state_per_cap": "fresh_independent_adamw",
+            "optimizer_updates_per_cap": 100,
+            "total_optimizer_updates": 500,
+            "learning_rate": 0.0005,
             "records_per_optimizer_update": 50,
             "positive_contexts_per_optimizer_update": 346,
-            "positive_context_exposures": 34600,
+            "positive_context_exposures_per_cap": 34600,
+            "total_positive_context_exposures": 173000,
+            "context_microbatch_capacity": 4,
+            "tail_k": 2,
             "objective": (
                 "equal_record_mean_plus_worst_two_squared_margin_shortfall_only"
             ),
-            "relative_norm_cap": 0.5,
-            "pass_condition": (
-                "zero direct failures and zero failures over all 346 positives"
-            ),
-            "learned_weights_discarded_before_full_training": True,
-            "failure_action": (
-                "refuse full actuator training, checkpoint saving, and official "
-                "evaluation"
-            ),
-        },
-        "full_training": {
-            "optimizer_updates": 100,
-            "records_per_optimizer_update": 50,
-            "positive_context_mode": "all",
-            "negative_context_mode": "all",
-            "writer_off_context_mode": "all",
-            "positive_contexts_per_optimizer_update": 346,
-            "negative_contexts_per_optimizer_update": 465,
-            "writer_off_contexts_per_optimizer_update": 346,
-            "protected_contexts_per_optimizer_update": 80,
-            "protected_sampling_seed": "seed + 78103",
-            "positive_context_exposures": 34600,
-            "negative_context_exposures": 46500,
-            "writer_off_context_exposures": 34600,
-            "protected_context_exposures": 8000,
-            "context_microbatch_capacity": 4,
-            "tail_k": 2,
-            "gradient_normalization": (
-                "equal_record_mean_plus_global_protected_prompt_mean"
-            ),
-            "positive_objective": "mean_plus_worst_k_squared_margin_shortfall",
-            "reference_objective": (
-                "mean_plus_worst_k_squared_regression_excess_above_tolerance"
-            ),
-            "negative_objective": "mean_plus_worst_k_squared_nll_drift",
-            "writer_off_objective": (
-                "mean_plus_worst_k_squared_abs_nll_drift_excess_above_tolerance"
-            ),
             "forget_margin": 1.0,
-            "reference_nll_tolerance": 0.05,
-            "writer_off_nll_tolerance": 0.05,
-            "margin_weight": 20.0,
-            "reference_nll_weight": 50.0,
-            "negative_nll_weight": 1.0,
-            "protected_kl_weight": 20.0,
-            "writer_off_nll_weight": 50.0,
-            "learning_rate": 0.0005,
-            "relative_norm_cap": 0.5,
             "gradient_clip_frequency": "once_per_optimizer_update",
             "norm_projection_frequency": "once_per_optimizer_update",
+            "complete_incremental_training_log_required": True,
+            "fresh_full_context_audit_per_cap": True,
+            "audit_fields": [
+                "direct_failures",
+                "positive_failures",
+                "minimum_margin",
+                "median_margin",
+                "per_record_minimum_margins",
+                "per_column_relative_norms",
+                "saturated_column_count",
+                "writer_off_nll_abs_max",
+                "exact_actuator_residual_write_on_off_ratio",
+            ],
+            "positive_reachability_selection_rule": (
+                "smallest tested cap with direct_failures == 0 and "
+                "positive_failures == 0"
+            ),
+            "writer_off_structural_selectivity_tolerance": 0.05,
+            "writer_off_structural_selectivity_is_positive_cap_selection_rule": False,
+            "mechanism_readiness_rule": (
+                "positive reachability plus unoptimized writer-off NLL drift "
+                "within 0.05 at the same tested cap"
+            ),
+            "structural_failure_action": (
+                "record a training-only mechanism rejection and redesign the detector "
+                "before any full preservation objective"
+            ),
+            "every_fitted_down_delta_discarded": True,
+            "full_preservation_objective_started": False,
+            "checkpoint_saved": False,
+            "failure_action": (
+                "if no cap through 2.0 passes, conclude that the fixed 200-neuron "
+                "layer-27 actuator is insufficient within the tested norm budget"
+            ),
+            "official_evaluation_allowed": False,
         },
-        "endpoint_audit_phases": [
-            "pre_update",
-            "post_adam",
-            "post_projection",
-            "final_fresh_full_context_audit",
-        ],
-        "complete_feasibility_log_required": True,
-        "complete_full_training_log_required": True,
         "official_evaluation_prompts_seen": 0,
     }
 
@@ -731,6 +764,74 @@ def test_actuator_positive_objective_is_mean_plus_worst_two_shortfall():
     assert loss == pytest.approx((1.0 + 0.25) / 3.0 + (1.0 + 0.25) / 2.0)
 
 
+def test_paired_on_off_ratios_expose_activation_leakage():
+    ratios = core.paired_on_off_ratios(
+        torch.tensor([2.0, 1.0]),
+        torch.tensor([0.5, 0.0]),
+        epsilon=1e-2,
+    )
+    assert torch.allclose(ratios["writer_on_to_off_ratio"], torch.tensor([4.0, 100.0]))
+    assert torch.allclose(
+        ratios["writer_off_to_on_fraction"], torch.tensor([0.25, 0.0])
+    )
+    with pytest.raises(ValueError, match="equal shape"):
+        core.paired_on_off_ratios(torch.ones(2), torch.ones(3), epsilon=1e-8)
+
+
+def test_down_only_projection_preserves_frozen_detector_bit_exact():
+    mlp = TinySwiGLU(hidden=5, intermediate=7)
+    editor = core.SparseSwiGLUNeuronEditor(mlp, [0, 1])
+    with torch.no_grad():
+        editor.gate_delta.fill_(0.25)
+        editor.up_delta.fill_(-0.125)
+        editor.down_delta.fill_(10.0)
+    gate_before = editor.gate_delta.detach().clone()
+    up_before = editor.up_delta.detach().clone()
+    report = editor.clamp_down_relative_(0.5)
+    assert torch.equal(editor.gate_delta, gate_before)
+    assert torch.equal(editor.up_delta, up_before)
+    assert report["down_max_relative_norm"] <= 0.5 + 1e-6
+    assert editor.down_relative_norms().numel() == 2
+
+
+def test_cap_sweep_selects_smallest_positive_reachable_cap_separately_from_leakage():
+    rows = [
+        {
+            "cap": 0.5,
+            "positive_reachable": False,
+            "writer_off_structural_selectivity_passed": True,
+        },
+        {
+            "cap": 0.75,
+            "positive_reachable": True,
+            "writer_off_structural_selectivity_passed": False,
+        },
+        {
+            "cap": 1.0,
+            "positive_reachable": True,
+            "writer_off_structural_selectivity_passed": True,
+        },
+    ]
+    decision = core.actuator_cap_sweep_decision(rows)
+    assert decision["selected_smallest_positive_reachable_cap"] == pytest.approx(0.75)
+    assert decision["smallest_jointly_structurally_selective_cap"] == pytest.approx(1.0)
+    assert decision["positive_reachability_passed"]
+    assert decision["structural_selectivity_passed"]
+
+    failed = core.actuator_cap_sweep_decision(
+        [
+            {
+                "cap": cap,
+                "positive_reachable": False,
+                "writer_off_structural_selectivity_passed": False,
+            }
+            for cap in (0.5, 0.75, 1.0, 1.5, 2.0)
+        ]
+    )
+    assert failed["selected_smallest_positive_reachable_cap"] is None
+    assert failed["conclusion"].startswith("fixed_200_neuron_layer_27")
+
+
 def test_actuator_reference_and_writer_off_losses_have_tolerance_bands():
     reference_loss, _ = core.actuator_reference_regression_objective(
         torch.tensor([1.04, 1.20]),
@@ -893,6 +994,90 @@ def test_frozen_v3_2_import_loads_only_passed_detector_tensors(tmp_path):
     assert torch.equal(editor.gate_delta, source_gate)
     assert torch.equal(editor.up_delta, source_up)
     assert torch.count_nonzero(editor.down_delta) == 0
+
+
+def test_frozen_v3_3_rejection_is_hash_bound_and_metric_exact(tmp_path):
+    method_dir = tmp_path / "v3_3" / "method"
+    method_dir.mkdir(parents=True)
+    ownership_hash = "a" * 64
+    case_ids = [10472, 14801]
+    artifacts = {
+        "detector_gate_report.json": {
+            "protocol": method.FROZEN_V3_3_PROTOCOL,
+            "passed": True,
+            "passed_records": 2,
+            "total_records": 2,
+            "per_record": [
+                {"case_id": case_id, "passed": True} for case_id in case_ids
+            ],
+            "official_evaluation_prompts_seen": 0,
+        },
+        "detector_endpoint_audit.json": {
+            "protocol": method.FROZEN_V3_3_PROTOCOL,
+            "official_evaluation_prompts_seen": 0,
+        },
+        "neuron_selection_report.json": {
+            "selected_neuron_ownership_jq_compact_sha256": ownership_hash,
+        },
+        "actuator_positive_only_feasibility.json": {
+            "protocol": method.FROZEN_V3_3_PROTOCOL,
+            "passed": False,
+            "relative_norm_cap": 0.5,
+            "optimizer_steps_recorded": 100,
+            "complete_training_log": [
+                {
+                    "step": step,
+                    "down_max_relative_norm": 0.49 if step < 15 else 0.5,
+                }
+                for step in range(1, 101)
+            ],
+            "final_audit": {
+                "direct_failures": 40,
+                "positive_failures": 300,
+                "positive_contexts": 346,
+                "minimum_margin": -8.75,
+                "reference_nll_regression_max": 2.375,
+                "writer_off_nll_abs_max": 4.8125,
+                "norms": {"down_max_relative_norm": 0.5000000596046448},
+            },
+            "official_evaluation_prompts_seen": 0,
+        },
+        "training_rejection.json": {
+            "full_actuator_training_started": False,
+            "checkpoint_saved": False,
+            "official_evaluation_allowed": False,
+            "official_evaluation_prompts_seen": 0,
+        },
+        "training_firewall_receipt.json": {
+            "data_access": {
+                "official_paraphrases_seen": 0,
+                "official_neighborhoods_seen": 0,
+                "benchmark_retain_seen": 0,
+                "official_ppl_seen": False,
+            }
+        },
+    }
+    for name, payload in artifacts.items():
+        (method_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    receipt = method.validate_frozen_v3_3_rejection(
+        tmp_path / "v3_3", case_ids=case_ids, ownership_sha256=ownership_hash
+    )
+    assert receipt["passed"]
+    assert receipt["observed"]["cap_saturation_step"] == 15
+    assert receipt["observed"]["writer_off_nll_abs_max"] == pytest.approx(4.8125)
+
+    artifacts["actuator_positive_only_feasibility.json"]["final_audit"][
+        "writer_off_nll_abs_max"
+    ] = 4.0
+    (method_dir / "actuator_positive_only_feasibility.json").write_text(
+        json.dumps(artifacts["actuator_positive_only_feasibility.json"]),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="writer_off_drift"):
+        method.validate_frozen_v3_3_rejection(
+            tmp_path / "v3_3", case_ids=case_ids, ownership_sha256=ownership_hash
+        )
 
 
 def test_detector_gate_case_tsv_binds_locked_record_order():
@@ -1362,7 +1547,11 @@ def test_training_cli_exposes_no_original_mcf_or_official_eval_argument():
     assert args.detector_training_off_abs_max == pytest.approx(0.15)
     assert args.detector_certificate_abs_tolerance == pytest.approx(1e-7)
     assert args.detector_initialization == "train"
+    assert not args.training_only_actuator_cap_sweep
     assert args.actuator_feasibility_steps == 100
+    assert args.actuator_feasibility_caps == [0.5, 0.75, 1.0, 1.5, 2.0]
+    assert args.detector_selectivity_ratio_epsilon == pytest.approx(1e-8)
+    assert args.detector_selectivity_warning_ratio == pytest.approx(100.0)
     assert args.actuator_steps == 100
     assert args.actuator_protected_batch == 80
     assert args.actuator_positive_contexts == "all"
@@ -1711,7 +1900,7 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         "actuator_training_revision": _actuator_training_revision(),
         "selected_neuron_ownership_binding": {
             "scope": "primary_embedding_keyed_configuration",
-            "source_runs": ["v3", "v3.1", "v3.2"],
+            "source_runs": ["v3", "v3.1", "v3.2", "v3.3"],
             "jq_projection": "[.ownership[].selected_neurons]",
             "jq_compact_sha256": (
                 "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
@@ -1743,25 +1932,30 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         method._validate_experiment_registry(registry, args)
 
 
-def test_repository_registry_binds_primary_and_independent_control():
+def test_repository_registry_binds_v3_4_training_only_cap_sweep():
     registry_path = (
         Path(__file__).resolve().parents[1]
         / "protocols"
         / "mcf_embedding_keyed_neuron_ablation_registry_v1.json"
     )
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert registry["schema_version"] == 9
+    assert registry["schema_version"] == 10
     assert registry["protocol"] == core.PROTOCOL
     assert registry["development_history"][-1]["version"] == (
-        "v7_embedding_keyed_detector_v3_2_actuator"
+        "v8_embedding_keyed_actuator_v3_3_positive_only"
     )
     assert registry["development_history"][-1]["detector_gate"]["passed_records"] == 50
     assert (
-        registry["development_history"][-1]["actuator_acceptance"][
-            "materialized_direct_failures"
-        ]
-        == 41
+        registry["development_history"][-1]["actuator_feasibility"]["direct_failures"]
+        == 40
     )
+    assert (
+        registry["development_history"][-1]["actuator_feasibility"]["positive_failures"]
+        == 300
+    )
+    assert registry["development_history"][-1]["actuator_feasibility"][
+        "writer_off_nll_abs_max"
+    ] == pytest.approx(4.8125)
     assert not registry["development_history"][-1][
         "official_evaluation_opened_by_this_failed_run"
     ]
@@ -1782,7 +1976,15 @@ def test_repository_registry_binds_primary_and_independent_control():
         "frozen_v3_2"
     )
     assert registry["primary_configuration"]["actuator_feasibility_steps"] == 100
-    assert registry["primary_configuration"]["actuator_steps"] == 100
+    assert registry["primary_configuration"]["training_only_actuator_cap_sweep"]
+    assert registry["primary_configuration"]["actuator_feasibility_caps"] == [
+        0.5,
+        0.75,
+        1.0,
+        1.5,
+        2.0,
+    ]
+    assert registry["primary_configuration"]["actuator_steps"] == 0
     assert registry["primary_configuration"]["actuator_protected_batch"] == 80
     common = [
         "--model-path",
@@ -1815,28 +2017,32 @@ def test_repository_registry_binds_primary_and_independent_control():
             "frozen_v3_2",
             "--frozen-v3-2-run-dir",
             "rejected-v3.2",
+            "--frozen-v3-3-run-dir",
+            "rejected-v3.3",
+            "--training-only-actuator-cap-sweep",
+            "--actuator-steps",
+            "0",
         ]
     )
     method._validate_experiment_registry(registry, primary)
 
-    control = method.parse_args(
-        [
-            *common,
-            "--experiment-label",
-            "mlp_only_retrained",
-            "--writer-mode",
-            "none",
-            "--selection-mode",
-            "base_context_contrastive",
-            "--detector-writer-off-weight",
-            "0",
-            "--writer-off-nll-weight",
-            "0",
-            "--no-require-writer-necessity",
-            "--save-rejected-checkpoint",
-        ]
-    )
-    method._validate_experiment_registry(registry, control)
+
+def test_v3_4_launcher_cannot_open_official_eval_or_save_checkpoint():
+    root = Path(__file__).resolve().parents[1]
+    launcher = (
+        root / "slurm" / "run_mcf_embedding_keyed_neuron_v3_4_cap_sweep_seed1_3b.slurm"
+    ).read_text(encoding="utf-8")
+    assert "--training-only-actuator-cap-sweep" in launcher
+    assert "--actuator-feasibility-caps 0.50 0.75 1.00 1.50 2.00" in launcher
+    assert "--actuator-steps 0" in launcher
+    assert "--frozen-v3-3-run-dir" in launcher
+    assert "frozen_detector_selectivity_audit.json" in launcher
+    assert "frozen_detector_zero_actuator_behavior_audit.json" in launcher
+    assert "training_only_sweep_completion.json" in launcher
+    assert "env -u MCF_PATH" in launcher
+    assert "--save-checkpoint" not in launcher
+    assert "mcf_zero_unlearn_official_eval.py" not in launcher
+    assert "official_evaluation_allowed == false" in launcher
 
 
 def test_final_report_requires_metrics_mechanism_and_firewall_to_pass():
@@ -2051,7 +2257,7 @@ def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
         "kl_topk": 64,
     }
     proposed_summary = {
-        "protocol": method.PROTOCOL,
+        "protocol": report.EXPECTED_PROTOCOL,
         "seed": 1,
         "forget_num": 50,
         "writer_mode": "embedding_keyed",
@@ -2098,7 +2304,7 @@ def test_matched_mlp_only_success_falsifies_embedding_key_necessity():
         },
     }
     control_summary = {
-        "protocol": method.PROTOCOL,
+        "protocol": report.EXPECTED_PROTOCOL,
         "seed": 1,
         "forget_num": 50,
         "writer_mode": "none",

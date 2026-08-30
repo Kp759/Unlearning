@@ -44,7 +44,7 @@ subtract a paired Base activation that would be unavailable at inference. The
 training floor and off-context threshold are diagnostics, not a fictional
 runtime classifier.
 
-## Training-only rejections and the V3.3 actuator revision
+## Training-only rejections and the V3.4 actuator-cap sweep
 
 The first layer-8 feasibility run was rejected before its official evaluation: its
 detector passed 0/50 records, and the subsequently attempted actuator was
@@ -142,21 +142,53 @@ actuator at exact zero under the unchanged 0.50 relative norm cap. The fresh
 scientific detector certificate itself retains its stricter `1e-7` comparison
 tolerance.
 
-Before the full objective, V3.3 runs a registered 100-update positive-only
-capacity diagnostic. Every update accumulates all 50 records and all 346
+Before the full objective, V3.3 ran its registered 100-update positive-only
+capacity diagnostic. Every update accumulated all 50 records and all 346
 positive contexts, using an equal-record prompt mean plus worst-two squared
-margin shortfall. The learned diagnostic weights are always discarded. If the
-diagnostic does not reach zero direct and zero all-positive failures, V3.3
-refuses full training, checkpoint saving, and official evaluation.
+margin shortfall. It failed broadly: 40/50 direct contexts and 300/346
+positives remained below the +1 margin, the minimum margin was -8.75, and at
+least one down column reached the 0.50 cap by step 15. Full actuator training
+did not start, no checkpoint was saved, and official evaluation saw zero
+prompts.
 
-If feasibility passes, the full actuator restarts from exact zero for 100
-global updates. Each update includes all 346 positives, all 465 compositional
-negatives, all 346 writer-off positives, and a deterministic 80-prompt
-protected sample. Positive, reference, negative, and writer-off losses use
-equal-record mean-plus-worst-two reductions. Writer-off drift is penalized only
-beyond the existing 0.05 NLL tolerance. Gradient clipping, Adam, and the norm
-projection each occur once per global update. Every update and the final
-pre-Adam, post-Adam, post-projection, and fresh full-context audits are saved.
+V3.3 also measured `writer_off_nll_abs_max = 4.8125` and maximum reference-NLL
+regression 2.375. Stage 2a did not optimize either preservation term, so these
+are not full-objective failures. The writer-off value is nevertheless a direct
+structural-selectivity warning: it is 96.25 times the eventual 0.05 tolerance
+on the very positive prompts whose embedding writer was disabled.
+
+V3.4 is therefore only a training-safe reachability and selectivity diagnostic.
+It hash-binds the exact V3.3 rejection and audits the frozen detector before any
+actuator fit at four levels: owned signed-group response, individual owned
+activations, owned activation-vector norm, and the full selected-neuron-vector
+norm. Paired writer-on/off ratios use a registered `1e-8` denominator floor.
+The p10 warning level of 100 is explicitly heuristic—not an acceptance gate—
+because activation ratios do not mathematically equal downstream NLL gain.
+
+V3.4 then runs all five registered caps independently:
+
+```text
+0.50, 0.75, 1.00, 1.50, 2.00
+```
+
+Every cap starts from bit-exact zero `down_delta` and a fresh AdamW optimizer,
+runs exactly 100 globally balanced positive-only updates over all 346 contexts,
+receives one clip and one down-only norm projection per update, and ends with a
+fresh full-context behavioral audit. It records every step incrementally,
+every per-record minimum margin, all 200 achieved relative norms and saturation
+flags, writer-off NLL drift, and the exact writer-on/off layer-output residual
+created by `down_delta`. Every fitted tensor is then zeroed and discarded.
+
+The preregistered reachability choice is the smallest cap with zero direct and
+zero all-positive failures. Writer-off selectivity at 0.05 is reported as a
+separate structural diagnostic and cannot silently alter that selection rule.
+If no positive-reachable cap independently stays inside the 0.05 writer-off
+band, V3.4 records a mechanism-readiness rejection even when positive
+reachability itself succeeds.
+V3.4 never runs the preservation objective, saves a checkpoint, or opens
+official evaluation—even if a cap is reachable. If no cap through 2.0 passes,
+the registered conclusion is that the fixed 200-neuron layer-27 actuator is
+insufficient within the tested norm budget.
 
 To add the case-ID binding to the preserved historical V3 rejection without
 changing its gate JSON:
@@ -382,9 +414,11 @@ run.
 
 The registry is
 `protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json`. The legacy
-filename is retained for launcher compatibility; its current schema is 9 and
-its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_3`.
-The paper-level report requires all of the following:
+filename is retained for launcher compatibility; its current schema is 10 and
+its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_4`.
+V3.4 itself is incapable of reaching paper-level acceptance because it saves
+no checkpoint and opens no official prompts. The future checkpoint protocol
+still requires all of the following:
 
 - primary Eff = 0 and Gen = 0;
 - forget and retain specificity inside the declared 0.2-point margins;
@@ -404,7 +438,7 @@ The registry fixes seed 1 as development and seeds 2 and 3 as confirmatory with
 unchanged hyperparameters. A 100-record run is confirmatory only after a
 separately frozen 100-record writer/context artifact exists.
 
-## Running the complete seed-1 pipeline
+## Running the V3.4 training-only sweep
 
 First build the clean Stage-1 writer from Base. This opens no official
 evaluation probes and refuses any existing output path:
@@ -420,49 +454,21 @@ bash scripts/run_mcf_compositional_marker_clean_stage1_manual.sh \
   2>&1 | tee slurm_logs/mcf_compositional_marker_v6_2_clean_seed1_manual.log
 ```
 
-Only after `method/clean_stage1_acceptance.json` passes, run the proposed model,
-full retrained control, and post-freeze audits:
+V3.4 additionally requires the preserved V3.2 detector source and the exact
+V3.3 rejected output. The wrapper rejects an existing output directory:
 
 ```bash
-bash scripts/submit_mcf_embedding_keyed_neuron_seed1.sh
+bash scripts/run_mcf_embedding_keyed_neuron_v3_4_manual.sh \
+  outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
+  outputs/mcf_embedding_keyed_neuron_v3_2_seed1_3b_aws_v6_2 \
+  outputs/mcf_embedding_keyed_neuron_v3_3_seed1_3b_aws_v6_2 \
+  outputs/mcf_embedding_keyed_neuron_v3_4_seed1_3b_aws_v6_2 \
+  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_4_seed1_aws_v6_2.log
 ```
 
-For an interactive allocation, use the V3.3 argument-taking wrapper. It
-requires both the clean V6.2 writer and the preserved rejected V3.2 run, and it
-rejects existing output directories:
-
-```bash
-bash scripts/run_mcf_embedding_keyed_neuron_v3_3_manual.sh \
-  /scratch/yl258/kp759/ul-a8864ff/semantic-unlearning/outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
-  outputs/mcf_embedding_keyed_neuron_v3_2_seed1_3b \
-  outputs/mcf_embedding_keyed_neuron_v3_3_seed1_3b \
-  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_3_seed1_manual.log
-```
-
-The job is intentionally budgeted for two full training runs. The result report
-does not silently pass with a missing control or missing audit.
-
-Training-only secondary ablations:
-
-```bash
-bash scripts/submit_mcf_embedding_keyed_neuron_ablations.sh
-
-python scripts/aggregate_mcf_embedding_keyed_neuron_ablations.py \
-  --ablation-root outputs/mcf_embedding_keyed_neuron_ablations_seed1_3b \
-  --registry protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json \
-  --out-dir outputs/mcf_embedding_keyed_neuron_ablations_seed1_3b/aggregate
-```
-
-Frequency-cap factorial:
-
-```bash
-bash scripts/submit_mcf_context_gating_frequency_factorial.sh
-
-python scripts/aggregate_mcf_context_gating_frequency_factorial.py \
-  --root outputs/mcf_context_gating_frequency_factorial_seed1_3b \
-  --registry protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json \
-  --out-dir outputs/mcf_context_gating_frequency_factorial_seed1_3b/aggregate
-```
+The historical V3.3 full-training and ablation launchers are intentionally
+disabled in this checkout. Reproducing V3.3 requires commit
+`e1ec6ba1ade3746f65384bb847f77f3dc53b818f`.
 
 ## Important outputs
 
@@ -476,35 +482,31 @@ python scripts/aggregate_mcf_context_gating_frequency_factorial.py \
   only console-print checkpoints (zero new updates for the frozen V3.2 import);
 - `method/frozen_v3_2_detector_import.json`: hashes and lineage checks proving
   that only the passed V3.2 gate/up detector tensors were imported;
+- `method/frozen_v3_3_rejection_import.json`: hashes and exact metric checks
+  binding the preserved 50/50-detector, failed-actuator V3.3 run;
+- `method/frozen_detector_selectivity_audit.json`: paired activation ratios at
+  group, individual-neuron, owned-vector, and all-selected-vector levels;
+- `method/frozen_detector_zero_actuator_behavior_audit.json`: fresh writer-off
+  behavioral audit with the imported detector active and `down_delta` exactly
+  zero, before any cap-specific fit;
 - `method/detector_endpoint_audit.json`: hashes and consistency checks binding
-  the frozen source certificate to the fresh V3.3 replay;
+  the frozen source certificate to the fresh V3.4 replay;
 - `method/detector_gate_case_report.tsv`: record-index to MCF case-ID binding
   with positive, negative, writer-off, and pass/fail values;
 - upstream `method/clean_stage1_acceptance.json`: exact from-Base lineage,
   relation-template policy, artifact hashes, nonempty optimization log, and
   passed training-safe 4.5 / 95% / 80% portability replay;
-- `method/causal_component_ablation.json`: explicitly labeled
-  within-checkpoint intervention;
-- `method/actuator_positive_only_feasibility.json`: all 100 capacity-diagnostic
-  rows, its fresh all-positive audit, and the discard-before-full-training
-  receipt;
-- `method/actuator_training_log.json`: all 100 globally balanced Stage-2
-  optimizer updates;
-- `method/actuator_step_100_{pre_update,post_adam,post_projection}_audit.json`
-  and `method/actuator_endpoint_audit.json`: final optimizer-boundary audits
-  and their replay binding;
-- `method/embedding_keyed_neuron_state.pt`: exact base/edited sparse weights,
-  ownership, signs, thresholds, and writer mode;
-- sibling `*_mlp_only_retrained/method/...`: independently trained control;
-- sibling `*_mlp_only_retrained/comparison/retain_tail_100k.json`: identical
-  tail audit for the control;
-- `comparison/writer_portability.json`: frozen Stage-1 marker completeness;
-- `comparison/retain_tail_100k.json`: response and actual-effect tails;
-- `comparison/official_components.json`: official fixed-component metrics and
-  frequency strata;
-- `comparison/latent_recovery.json`: downstream residual extraction endpoint;
-- `comparison/relearning.json`: fixed-budget sparse-site relearning curve; and
-- `comparison/comparison.md`: final claim-gated decision report.
+- `method/actuator_cap_{0p50,0p75,1p00,1p50,2p00}_training_log.jsonl`:
+  incrementally durable logs for every one of the 500 sweep updates;
+- `method/actuator_cap_*_feasibility.json`: fresh behavioral audit, per-record
+  margins, all per-column norm ratios, saturation count, exact residual-write
+  selectivity, and fitted-weight discard receipt for each cap;
+- `method/actuator_norm_cap_reachability_sweep.json`: complete cap table,
+  smallest-passing-cap decision, separate structural-selectivity result, and
+  fail-closed conclusion; and
+- `method/training_only_sweep_completion.json`: final receipt proving that full
+  preservation training, checkpoint saving, and official evaluation did not
+  occur.
 
 ## Publication boundary
 

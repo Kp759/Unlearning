@@ -28,7 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_3"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_4"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
@@ -496,6 +496,86 @@ def actuator_positive_margin_objective(
     )
 
 
+def paired_on_off_ratios(
+    writer_on: torch.Tensor,
+    writer_off: torch.Tensor,
+    *,
+    epsilon: float,
+) -> Dict[str, torch.Tensor]:
+    """Return stable paired writer-on/off amplitude and leakage ratios.
+
+    The detector certificate constrains absolute activation extrema, but an
+    actuator multiplies the remaining writer-off activation by its learned
+    down column.  These paired ratios expose that multiplicative selectivity
+    directly.  ``epsilon`` is recorded by callers and only prevents division
+    by zero; it is not an acceptance tolerance.
+    """
+
+    if writer_on.shape != writer_off.shape:
+        raise ValueError("writer-on and writer-off tensors must have equal shape")
+    if writer_on.numel() == 0:
+        raise ValueError("paired ratio audit requires at least one value")
+    if not math.isfinite(float(epsilon)) or float(epsilon) <= 0.0:
+        raise ValueError("ratio epsilon must be finite and positive")
+    on = writer_on.detach().float()
+    off = writer_off.detach().float()
+    if not torch.isfinite(on).all() or not torch.isfinite(off).all():
+        raise ValueError("paired ratio audit received non-finite values")
+    on_abs = on.abs()
+    off_abs = off.abs()
+    return {
+        "writer_on_abs": on_abs,
+        "writer_off_abs": off_abs,
+        "writer_on_minus_writer_off": on - off,
+        "writer_on_abs_minus_writer_off_abs": on_abs - off_abs,
+        "writer_on_to_off_ratio": on_abs / off_abs.clamp_min(float(epsilon)),
+        "writer_off_to_on_fraction": off_abs / on_abs.clamp_min(float(epsilon)),
+    }
+
+
+def actuator_cap_sweep_decision(
+    cap_rows: Sequence[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Apply the preregistered smallest-positive-reachable-cap decision rule."""
+
+    if not cap_rows:
+        raise ValueError("actuator cap sweep requires at least one completed cap")
+    caps = [float(row["cap"]) for row in cap_rows]
+    if any(not math.isfinite(cap) or cap <= 0.0 for cap in caps):
+        raise ValueError("actuator sweep caps must be positive and finite")
+    if caps != sorted(set(caps)):
+        raise ValueError("actuator sweep rows must have strictly increasing caps")
+    reachable = [
+        float(row["cap"]) for row in cap_rows if bool(row["positive_reachable"])
+    ]
+    structurally_selective = [
+        float(row["cap"])
+        for row in cap_rows
+        if bool(row["positive_reachable"])
+        and bool(row["writer_off_structural_selectivity_passed"])
+    ]
+    selected = min(reachable) if reachable else None
+    selected_structural = (
+        min(structurally_selective) if structurally_selective else None
+    )
+    conclusion = (
+        "fixed_200_neuron_layer_27_actuator_insufficient_within_tested_norm_budget"
+        if selected is None
+        else (
+            "positive_reachability_found_but_structural_writer_off_selectivity_failed"
+            if selected_structural is None
+            else "positive_reachability_and_unoptimized_structural_selectivity_found"
+        )
+    )
+    return {
+        "selected_smallest_positive_reachable_cap": selected,
+        "positive_reachability_passed": selected is not None,
+        "smallest_jointly_structurally_selective_cap": selected_structural,
+        "structural_selectivity_passed": selected_structural is not None,
+        "conclusion": conclusion,
+    }
+
+
 def actuator_reference_regression_objective(
     current_nll: torch.Tensor,
     baseline_nll: torch.Tensor,
@@ -827,6 +907,21 @@ class SparseSwiGLUNeuronEditor(nn.Module):
         report["actuator_cap"] = float(actuator_cap)
         return report
 
+    @torch.no_grad()
+    def clamp_down_relative_(self, actuator_cap: float) -> Dict[str, float]:
+        """Project only actuator columns, leaving a frozen detector bit-exact."""
+
+        base_norm = self.base_down_columns.norm(dim=0).clamp_min(1e-12)
+        delta_norm = self.down_delta.norm(dim=0)
+        scale = torch.minimum(
+            torch.ones_like(delta_norm),
+            float(actuator_cap) * base_norm / delta_norm.clamp_min(1e-12),
+        )
+        self.down_delta.mul_(scale.unsqueeze(0))
+        report = self.relative_norm_report()
+        report["actuator_cap"] = float(actuator_cap)
+        return report
+
     def relative_norm_report(self) -> Dict[str, float]:
         gate = self.gate_delta.detach().norm(dim=1) / self.base_gate_rows.norm(
             dim=1
@@ -845,6 +940,13 @@ class SparseSwiGLUNeuronEditor(nn.Module):
             "up_mean_relative_norm": float(up.mean()),
             "down_mean_relative_norm": float(down.mean()),
         }
+
+    def down_relative_norms(self) -> torch.Tensor:
+        """Return one actuator relative-norm ratio per selected down column."""
+
+        return self.down_delta.detach().norm(dim=0) / self.base_down_columns.norm(
+            dim=0
+        ).clamp_min(1e-12)
 
     @torch.no_grad()
     def materialize(self, mlp: nn.Module) -> SparseNeuronWeights:
