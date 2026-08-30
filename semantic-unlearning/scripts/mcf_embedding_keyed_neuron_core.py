@@ -9,7 +9,7 @@ auditable pieces that can be tested without loading a language model:
   frozen sparse embedding writer but remain quiet on writer-off contexts;
 * the historical exact sparse parameterization of existing SwiGLU rows and
   columns, retained for lineage and unit tests;
-* V3.5's isolated thresholded residual branch, which reads frozen selected
+* V3.5's isolated thresholded residual branch, which reads selected
   gate/up features while leaving the ordinary Base MLP path untouched;
 * contextual code responses and detector-gate metrics;
 * hard relative-norm projection and materialization/restoration helpers.
@@ -33,7 +33,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_1"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_2"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
@@ -453,6 +453,63 @@ def detector_writer_off_objective(
         values = F.relu(
             owned[owners.eq(record_id)].abs() - float(off_target_abs_max)
         ).square()
+        mean = values.mean()
+        count = min(int(tail_k), int(values.numel()))
+        tail = values.topk(count).values.mean()
+        totals.append(mean + tail)
+        means.append(mean)
+        tails.append(tail)
+    return torch.stack(totals).mean(), {
+        "writer_off_mean": torch.stack(means).mean(),
+        "writer_off_tail": torch.stack(tails).mean(),
+    }
+
+
+def detector_global_writer_off_objective(
+    responses: torch.Tensor,
+    owners: torch.Tensor,
+    *,
+    off_target_abs_max: float,
+    tail_k: int,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Penalize certificate-breaking writer-off responses in every group.
+
+    V3.2's historical writer-off objective selected only the source record's
+    owner column.  The isolated residual branch, however, evaluates all record
+    groups on every writer-off context.  V3.5.1 found the concrete mismatch:
+    case 17353's non-owner group fired on one writer-off context from case
+    10803.  This objective aligns repair training with the branch certificate
+    without targeting that observed cell by identity.
+
+    Each source record contributes equally.  Within a source record, all
+    ``context x detector-group`` cells contribute to the mean and its worst
+    ``tail_k`` excesses, so a single cross-record collision cannot be diluted
+    by the other 49 groups or by records with more contexts.
+    """
+    if responses.ndim != 2:
+        raise ValueError("responses must be [batch, records]")
+    batch, records = responses.shape
+    if owners.shape != (batch,):
+        raise ValueError("owners must match response batch")
+    if batch == 0 or records == 0:
+        raise ValueError("writer-off objective requires non-empty responses")
+    if bool((owners < 0).any()) or bool((owners >= records).any()):
+        raise ValueError("owner index out of range")
+    if float(off_target_abs_max) < 0:
+        raise ValueError("off_target_abs_max must be non-negative")
+    if int(tail_k) <= 0:
+        raise ValueError("tail_k must be positive")
+
+    totals: List[torch.Tensor] = []
+    means: List[torch.Tensor] = []
+    tails: List[torch.Tensor] = []
+    for record_id_tensor in owners.unique(sorted=True):
+        record_id = int(record_id_tensor.item())
+        values = (
+            F.relu(responses[owners.eq(record_id)].abs() - float(off_target_abs_max))
+            .square()
+            .reshape(-1)
+        )
         mean = values.mean()
         count = min(int(tail_k), int(values.numel()))
         tail = values.topk(count).values.mean()

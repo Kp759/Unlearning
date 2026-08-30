@@ -22,7 +22,10 @@ frozen sparse deltas on existing embedding rows
 frozen Transformer blocks compose token + relation + context
         |
         v
-exact frozen V3.2 layer-27 gate/up features (4 per record)
+V3.2-initialized layer-27 gate/up features (4 per record)
+        |
+        v
+100-update all-group writer-off isolation repair
         |
         v
 clipped internal gate maps the registered response gap
@@ -41,10 +44,12 @@ external router, adapter, LoRA, constant logit bias, or LM-head edit. V3.5
 introduced a declared **internal activation gate** and explicit additive
 residual branch. It is therefore not described as an ordinary existing-neuron
 weight materialization. V3.5 failed its complete cached-context branch-gate
-certificate before fitting the residual. V3.5.1 only diagnoses that rejection;
-it does not construct an optimizer.
+certificate before fitting the residual. V3.5.1 diagnosed its exact lone
+collision without constructing an optimizer. V3.5.2 repairs the detector loss
+scope and reruns discarded cap-1.50 feasibility; it still cannot save or
+evaluate a checkpoint.
 
-## Training-only rejections through V3.5.1
+## Training-only development through V3.5.2
 
 The first layer-8 feasibility run was rejected before its official evaluation: its
 detector passed 0/50 records, and the subsequently attempted actuator was
@@ -245,6 +250,47 @@ for each violation. It must reproduce exactly one nonzero writer-off gate from
 case 10803. Detector and actuator optimizer construction, threshold calibration,
 checkpoint creation, and official evaluation are all prohibited.
 
+The completed V3.5.1 replay resolved the ambiguity. The only branch violation
+was a non-owner collision:
+
+```text
+writer-off source:   case 10803, context 4
+firing detector:     case 17353, group 30
+owner group:         false
+raw signed response: +0.2286771833896637
+clipped gate:        0.5735465884208679
+```
+
+Thus V3.2's owner-wise writer-off certificate was internally correct but too
+narrow for V3.5's branch, which consumes all 50 detector groups. This does not
+support a broad cross-talk claim: every positive cross-group cell, every
+negative cell, and 17,299/17,300 writer-off cells were already exactly at the
+desired gate endpoint.
+
+V3.5.2 fixes only that demonstrated training/certificate scope mismatch. It:
+
+1. imports the exact frozen V3.2 gate/up tensors and verifies their initial
+   50/50 owner-wise certificate;
+2. hash-binds the exact V3.5.1 source/context/detector diagnosis;
+3. runs exactly 100 globally accumulated detector updates at the unchanged
+   `0.001` learning rate and `1.0` relative norm cap;
+4. retains the 0.30 owner-positive target plus the already-successful global
+   positive-cross and negative protection losses;
+5. changes writer-off training from one owner column to all 50 group columns
+   for every context, with equal source-record mean plus worst-two squared
+   excess above the unchanged 0.15 training target; and
+6. keeps the scientific 0.25/0.20 certificate and clipped branch thresholds
+   unchanged.
+
+The repair is identity-agnostic: case IDs 10803 and 17353 license the revision
+through the frozen forensic receipt but never index or weight the loss. The
+fresh all-cell gate must have 346/346 owner positives at one and zero violations
+across 16,954 positive-cross, 23,250 negative, and 17,300 writer-off cells.
+Only then may the already-selected cap 1.50 receive the same 100-update
+positive-only feasibility fit. That fitted `down_delta` is always discarded.
+Full preservation training, checkpoint creation, threshold calibration, and
+official evaluation remain prohibited regardless of outcome.
+
 ## Development-retain shared-row exposure
 
 A separate audit consumed 9,438 first-half development-retain records after
@@ -263,7 +309,7 @@ This establishes shared-parameter exposure, not causal retain degradation.
 It motivates the architectural boundary: the embedding edit may be a small
 marker, but token identity cannot itself decide which fact to erase. None of
 the development IDs, overlap counts, token frequencies, or edit norms enters
-V3.5 selection, optimization, acceptance, or retry.
+V3.5/V3.5.2 selection, optimization, acceptance, or retry.
 
 The reproducible follow-up also measures whether the largest actual row edits
 land on the most reused tokens:
@@ -494,13 +540,14 @@ alias, adversarial, latent, or relearning input. It reads only:
    detector passed 50/50 records;
 6. the hash-bound V3.4 reachability-pass/selectivity-reject artifacts;
 7. the hash-bound V3.5 single-cell gate rejection; and
-8. Wikipedia documents 20 onward for deterministic ownership replay.
+8. the hash-bound V3.5.1 exact non-owner collision forensics; and
+9. Wikipedia documents 20 onward for deterministic ownership replay.
 
 The separate 9,438-record development overlap audit reads the original MCF
 source, but the learner does not receive its path, records, token frequencies,
 or per-row results. Only its already-observed aggregate evidence is recorded in
 the public registry as architecture motivation. It does not select the V3.5.1
-collision or alter its diagnosis.
+collision, alter its diagnosis, or enter the V3.5.2 repair loss.
 
 Documents 0:20 remain reserved for official PPL. Relevant hashes and zero-
 access receipts are checked. The main launcher freezes and reload-verifies both
@@ -515,10 +562,11 @@ run.
 
 The registry is
 `protocols/mcf_embedding_keyed_neuron_ablation_registry_v1.json`. The legacy
-filename is retained for launcher compatibility; its current schema is 12 and
-its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_5_1`.
-V3.5.1 itself is incapable of reaching paper-level acceptance because it fits
-no parameter, saves no checkpoint, and opens no official prompts. The future
+filename is retained for launcher compatibility; its current schema is 13 and
+its protocol is `mcf_embedding_keyed_sparse_neuron_suppression_v3_5_2`.
+V3.5.2 itself is incapable of reaching paper-level acceptance because it
+discards every fitted actuator, saves no checkpoint, and opens no official
+prompts. The future
 checkpoint protocol still requires all of the following:
 
 - primary Eff = 0 and Gen = 0;
@@ -539,7 +587,7 @@ The registry fixes seed 1 as development and seeds 2 and 3 as confirmatory with
 unchanged hyperparameters. A 100-record run is confirmatory only after a
 separately frozen 100-record writer/context artifact exists.
 
-## Running the V3.5.1 collision-forensics replay
+## Running the V3.5.2 detector repair and discarded feasibility fit
 
 First build the clean Stage-1 writer from Base. This opens no official
 evaluation probes and refuses any existing output path:
@@ -555,21 +603,24 @@ bash scripts/run_mcf_compositional_marker_clean_stage1_manual.sh \
   2>&1 | tee slurm_logs/mcf_compositional_marker_v6_2_clean_seed1_manual.log
 ```
 
-V3.5.1 requires the preserved V3.2 detector source and exact V3.4 and V3.5
-rejected outputs. The wrapper rejects an existing output directory:
+V3.5.2 requires the preserved V3.2 detector source, exact V3.4 and V3.5
+rejections, and the completed V3.5.1 forensic output. The wrapper rejects an
+existing output directory:
 
 ```bash
-bash scripts/run_mcf_embedding_keyed_neuron_v3_5_1_manual.sh \
+bash scripts/run_mcf_embedding_keyed_neuron_v3_5_2_manual.sh \
   outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
   outputs/mcf_embedding_keyed_neuron_v3_2_seed1_3b_aws_v6_2 \
   outputs/mcf_embedding_keyed_neuron_v3_4_seed1_3b_aws_v6_2 \
   outputs/mcf_embedding_keyed_neuron_v3_5_seed1_3b_aws_v6_2 \
   outputs/mcf_embedding_keyed_neuron_v3_5_1_seed1_3b_aws_v6_2 \
-  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_5_1_seed1_aws_v6_2.log
+  outputs/mcf_embedding_keyed_neuron_v3_5_2_seed1_3b_aws_v6_2 \
+  2>&1 | tee slurm_logs/mcf_embedding_keyed_neuron_v3_5_2_seed1_aws_v6_2.log
 ```
 
-The historical V3.5 and earlier launchers are intentionally disabled in this
-checkout. Reproducing V3.5 requires commit
+The historical V3.5.1 and earlier launchers are not the current experiment.
+Reproducing V3.5.1 requires commit
+`72aae4087490c18bab2d7f727c53c7d3331a01e3`; reproducing V3.5 requires commit
 `7cd132a8af22887cdb9e195100a6a261688eef44`.
 
 ## Important outputs
@@ -580,30 +631,34 @@ checkout. Reproducing V3.5 requires commit
   measured before decoder construction;
 - `method/detector_hidden_cache_report.json`: all-record/all-context cache
   coverage and the exact cached-computation contract;
-- `method/detector_training_log.json`: every detector optimizer update, not
-  only console-print checkpoints (zero new updates for the frozen V3.2 import);
+- `method/detector_initial_import_gate.json`: fresh confirmation that the
+  pre-repair tensors exactly replay the frozen V3.2 certificate;
+- `method/detector_training_log.json`: all 100 globally accumulated repair
+  updates and the explicit 50-groups-per-writer-off-context contract;
 - `method/frozen_v3_2_detector_import.json`: hashes and lineage checks proving
   that only the passed V3.2 gate/up detector tensors were imported;
 - `method/frozen_v3_4_rejection_import.json`: hashes and exact metric checks
   binding the preserved positive-reachable/selectivity-rejected V3.4 run;
 - `method/frozen_v3_5_rejection_import.json`: hashes and exact aggregate checks
   binding the single-cell V3.5 rejection;
+- `method/frozen_v3_5_1_forensics_import.json`: hashes and exact coordinates
+  binding the diagnosed 10803-context-4 to 17353-group-30 collision;
 - `method/isolated_threshold_gate_report.json`: every raw response and clipped
   gate distribution, separate response/gate violation counts, and exact
   violating-cell coordinates;
-- `method/v3_5_collision_forensics.json`: the single cell's source prompt,
-  provenance, detector group, owner status, raw response, and diagnosis;
 - `method/detector_endpoint_audit.json`: hashes and consistency checks binding
-  the frozen source certificate to the fresh V3.5.1 replay;
+  the initial frozen source certificate and repaired endpoint phases;
 - `method/detector_gate_case_report.tsv`: record-index to MCF case-ID binding
   with positive, negative, writer-off, and pass/fail values;
 - upstream `method/clean_stage1_acceptance.json`: exact from-Base lineage,
   relation-template policy, artifact hashes, nonempty optimization log, and
   passed training-safe 4.5 / 95% / 80% portability replay;
-- `method/detector_training_log.json`: an explicit zero-step receipt with
-  `optimizer_constructed=false`; and
-- `method/training_only_v3_5_1_completion.json`: final receipt proving that no
-  optimizer, parameter change, checkpoint, or official evaluation occurred.
+- `method/isolated_threshold_gate_report.json`: the mandatory fresh all-cell
+  post-repair branch certificate;
+- `method/v3_5_2_repair_actuator_feasibility.json`: the discarded cap-1.50
+  reachability/selectivity fit; and
+- `method/training_only_v3_5_2_completion.json`: final receipt proving that full
+  preservation, checkpoint creation, and official evaluation did not occur.
 
 ## Publication boundary
 

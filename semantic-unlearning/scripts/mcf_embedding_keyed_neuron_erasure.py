@@ -15,13 +15,14 @@ Architecture
 
 For each edit, a disjoint group of existing low-activation MLP features was
 selected using only training-safe writer-on versus writer-off activations.
-V3.5.1 is a forensic replay of the rejected V3.5 gate, not a new fit. It imports
-the exact V3.2 detector and fixed 0.20/0.25 boundary, reproduces the lone
-writer-off collision, and records its source context, detector group, raw
-signed response, and owner/non-owner status. It stops before constructing an
-optimizer or training an actuator. The ordinary Base MLP contribution stays
-untouched and no threshold, detector tensor, actuator tensor, or official
-evaluation input can change.
+V3.5.2 imports the exact V3.2 detector and the fixed 0.20/0.25 boundary, then
+repairs the one objective/certificate mismatch established by V3.5.1: every
+writer-off context is now optimized against every record group, not only its
+owner group. The repair is globally balanced and identity-agnostic; it does
+not target the observed case pair directly. A fresh all-cell certificate must
+pass before the isolated cap-1.50 actuator feasibility fit can start. The
+ordinary Base MLP contribution stays untouched, every feasibility fit is
+discarded, and official evaluation remains unavailable.
 
 Data firewall
 -------------
@@ -70,6 +71,7 @@ FROZEN_DETECTOR_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_2"
 FROZEN_V3_3_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_3"
 FROZEN_V3_4_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_4"
 FROZEN_V3_5_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5"
+FROZEN_V3_5_1_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_1"
 FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES = (
     "MCF_PATH",
     "OFFICIAL_MCF_PATH",
@@ -155,7 +157,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--detector-initialization",
         choices=("frozen_v3_2", "train"),
         default="train",
-        help=("V3.5.1 imports the exact passed V3.2 gate/up tensors read-only."),
+        help=(
+            "V3.5.2 imports the exact passed V3.2 gate/up tensors as the repair "
+            "initialization."
+        ),
     )
     parser.add_argument(
         "--frozen-v3-2-run-dir",
@@ -182,7 +187,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--frozen-v3-5-run-dir",
         help=(
             "Rejected V3.5 output root whose single unresolved writer-off gate "
-            "collision is hash-bound into the V3.5.1 forensic replay."
+            "collision is hash-bound as historical evidence."
+        ),
+    )
+    parser.add_argument(
+        "--frozen-v3-5-1-run-dir",
+        help=(
+            "Completed V3.5.1 forensic output identifying the exact non-owner "
+            "writer-off collision that licenses the global-scope repair."
         ),
     )
     parser.add_argument(
@@ -251,14 +263,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     parser.add_argument("--actuator-feasibility-steps", type=int, default=100)
     parser.add_argument(
+        "--training-only-global-writer-off-repair-feasibility",
         "--training-only-isolated-threshold-feasibility",
         "--training-only-actuator-cap-sweep",
         dest="training_only_isolated_threshold_feasibility",
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "Run the V3.5.1 collision-forensics replay and return before detector "
-            "or actuator optimization."
+            "Run the V3.5.2 all-group writer-off detector repair followed, only "
+            "after a perfect global gate, by discarded cap-1.50 feasibility."
         ),
     )
     parser.add_argument(
@@ -266,7 +279,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         nargs="+",
         type=float,
         default=[1.50],
-        help="Historical fixed cap retained in metadata; V3.5.1 never fits it.",
+        help="V3.5.2 retests only the previously selected cap 1.50.",
     )
     parser.add_argument(
         "--actuator-architecture",
@@ -276,8 +289,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
         default="isolated_thresholded_residual",
         help=(
-            "V3.5.1 leaves the ordinary MLP output untouched while replaying the "
-            "frozen detector gate."
+            "V3.5.2 leaves the ordinary MLP output untouched and fits only the "
+            "explicit threshold-gated residual."
         ),
     )
     parser.add_argument(
@@ -440,15 +453,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     ):
         parser.error("--detector-selectivity-warning-ratio must be finite and positive")
     if value.training_only_isolated_threshold_feasibility:
+        if int(value.detector_steps) != 100:
+            parser.error("V3.5.2 requires exactly 100 detector repair updates")
         if int(value.actuator_steps) != 0:
-            parser.error("V3.5.1 collision forensics requires --actuator-steps 0")
+            parser.error("V3.5.2 feasibility requires --actuator-steps 0")
         if value.actuator_architecture != "isolated_thresholded_residual":
             parser.error(
-                "V3.5.1 collision forensics requires the isolated thresholded "
+                "V3.5.2 feasibility requires the isolated thresholded "
                 "residual architecture"
             )
         if caps != [1.5]:
-            parser.error("V3.5.1 retains --actuator-feasibility-caps at exactly 1.50")
+            parser.error("V3.5.2 retains --actuator-feasibility-caps at exactly 1.50")
     elif int(value.actuator_steps) <= 0:
         parser.error("--actuator-steps must be positive outside feasibility mode")
     if int(value.actuator_batch_size) <= 0:
@@ -518,27 +533,30 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         )
     if value.training_only_isolated_threshold_feasibility:
         if value.experiment_label != "primary":
-            parser.error("V3.5.1 forensics is restricted to the primary run")
+            parser.error("V3.5.2 repair is restricted to the primary run")
         if value.writer_mode != "embedding_keyed":
-            parser.error("V3.5.1 forensics requires the embedding writer")
+            parser.error("V3.5.2 repair requires the embedding writer")
         if value.detector_initialization != "frozen_v3_2":
-            parser.error("V3.5.1 forensics requires the frozen V3.2 detector")
+            parser.error("V3.5.2 repair requires the frozen V3.2 detector")
         if not str(value.frozen_v3_4_run_dir or "").strip():
-            parser.error("--frozen-v3-4-run-dir is required for V3.5.1")
+            parser.error("--frozen-v3-4-run-dir is required for V3.5.2")
         if not str(value.frozen_v3_5_run_dir or "").strip():
-            parser.error("--frozen-v3-5-run-dir is required for V3.5.1")
+            parser.error("--frozen-v3-5-run-dir is required for V3.5.2")
+        if not str(value.frozen_v3_5_1_run_dir or "").strip():
+            parser.error("--frozen-v3-5-1-run-dir is required for V3.5.2")
         if value.frozen_v3_3_run_dir:
-            parser.error("V3.5.1 imports V3.4/V3.5, not V3.3 directly")
+            parser.error("V3.5.2 imports V3.4/V3.5/V3.5.1, not V3.3 directly")
         if value.save_checkpoint or value.save_rejected_checkpoint:
-            parser.error("V3.5.1 collision forensics cannot save checkpoints")
+            parser.error("V3.5.2 training-only feasibility cannot save checkpoints")
     elif (
         value.frozen_v3_3_run_dir
         or value.frozen_v3_4_run_dir
         or value.frozen_v3_5_run_dir
+        or value.frozen_v3_5_1_run_dir
     ):
         parser.error(
-            "frozen V3.3/V3.4/V3.5 run directories are only valid with the "
-            "training-only V3.5.1 collision-forensics mode"
+            "frozen V3.3/V3.4/V3.5/V3.5.1 run directories are only valid with "
+            "the training-only V3.5.2 repair-feasibility mode"
         )
     guard = float(value.threshold_gate_numerical_guard)
     if not math.isfinite(guard) or guard < 0.0:
@@ -687,25 +705,48 @@ def _validate_experiment_registry(
     for key, expected_value in expected_forensic_scope.items():
         if forensic_scope.get(key) != expected_value:
             raise RuntimeError(f"registry V3.5.1 forensic scope mismatch: {key}")
+    repair_scope = registry.get("v3_5_2_scope")
+    expected_repair_scope = {
+        "training_only": True,
+        "source_v3_5_1_forensics_hash_bound": True,
+        "diagnosed_source_case_id": 10803,
+        "diagnosed_source_context_index": 4,
+        "diagnosed_detector_case_id": 17353,
+        "diagnosed_detector_group_index": 30,
+        "diagnosed_owner_group": False,
+        "repair_targets_collision_identity_directly": False,
+        "all_writer_off_groups_per_context": 50,
+        "detector_repair_optimizer_updates": 100,
+        "global_gate_required_before_actuator_feasibility": True,
+        "full_preservation_training_prohibited": True,
+        "checkpoint_creation_prohibited": True,
+        "official_evaluation_prohibited": True,
+    }
+    if not isinstance(repair_scope, Mapping):
+        raise RuntimeError("registry lacks the V3.5.2 repair scope")
+    for key, expected_value in expected_repair_scope.items():
+        if repair_scope.get(key) != expected_value:
+            raise RuntimeError(f"registry V3.5.2 repair scope mismatch: {key}")
     detector_revision = registry.get("detector_training_revision")
     expected_detector_revision = {
-        "version": "v3.5.1_forensic_frozen_v3_2_readout",
-        "mode": "read_only_single_collision_replay",
+        "version": "v3.5.2_global_writer_off_all_group_repair",
+        "mode": "training_only_all_record_all_context_repair",
         "primary_initialization": "frozen_v3_2",
         "source_v3_5_protocol": FROZEN_V3_5_PROTOCOL,
+        "source_v3_5_1_protocol": FROZEN_V3_5_1_PROTOCOL,
         "source_protocol": FROZEN_DETECTOR_PROTOCOL,
         "source_training_revision": "v3.2",
         "source_gate_passed_records": 50,
         "source_gate_total_records": 50,
         "source_gate_passed": True,
         "source_optimizer_updates": 1000,
-        "optimizer_constructed_this_run": False,
-        "optimizer_updates_this_run": 0,
+        "optimizer_constructed_this_run": True,
+        "optimizer_updates_this_run": 100,
         "imported_tensors": ["gate_delta", "up_delta"],
         "source_down_delta_imported": False,
         "current_down_delta_reset_to_zero": True,
         "exact_source_artifact_hash_receipt_required": True,
-        "fresh_full_context_source_replay_required": True,
+        "fresh_full_context_source_replay_required_before_repair": True,
         "source_replay_abs_tolerance": FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE,
         "controls_initialization": "train",
         "control_optimizer_updates": 1000,
@@ -720,15 +761,18 @@ def _validate_experiment_registry(
         "update_coverage": "all_records_accumulated",
         "record_microbatch_argument": "detector_record_batch",
         "records_per_optimizer_update": 50,
-        "optimizer_updates_total_per_detector": 1000,
-        "record_exposures": 50000,
+        "optimizer_updates_total_per_detector": 100,
+        "record_exposures": 5000,
         "positive_context_mode": "all",
         "negative_context_mode": "all",
         "tail_k": 2,
         "positive_objective": "mean_plus_worst_k_squared_shortfall",
         "negative_objective": "mean_plus_worst_k_squared_gate_excess",
         "cross_objective": "mean_plus_worst_k_squared_gate_excess",
-        "writer_off_objective": "mean_plus_worst_k_squared_gate_excess",
+        "writer_off_objective": (
+            "all_detector_groups_equal_source_record_mean_plus_worst_k_squared_excess"
+        ),
+        "writer_off_groups_per_context": 50,
         "training_positive_floor": 0.30,
         "training_off_abs_max": 0.15,
         "certificate_positive_floor": 0.25,
@@ -755,12 +799,13 @@ def _validate_experiment_registry(
 
     actuator_revision = registry.get("actuator_training_revision")
     expected_actuator_revision = {
-        "version": "v3.5.1",
-        "mode": "read_only_single_collision_forensics_no_fit",
+        "version": "v3.5.2",
+        "mode": "discarded_fixed_cap_feasibility_after_global_gate",
         "source_v3_5_protocol": FROZEN_V3_5_PROTOCOL,
-        "historical_v3_5_plan_below_not_executed_by_v3_5_1": True,
-        "optimizer_constructed_this_run": False,
-        "optimizer_updates_this_run": 0,
+        "source_v3_5_1_protocol": FROZEN_V3_5_1_PROTOCOL,
+        "historical_v3_5_plan_retested_after_detector_repair": True,
+        "optimizer_constructed_this_run": True,
+        "optimizer_updates_this_run": 100,
         "frozen_training_contexts": {
             "writer_on_positive": 346,
             "writer_on_negative": 465,
@@ -784,7 +829,9 @@ def _validate_experiment_registry(
         },
         "architecture": {
             "base_mlp_path": "bit_exact_untouched",
-            "frozen_detector_role": "read_only_activation_feature_extractor",
+            "frozen_detector_role": (
+                "V3.2 initialization followed by V3.5.2 all-group writer-off repair"
+            ),
             "residual_formula": (
                 "BaseMLP(h) + threshold_gate(r(h)) * detector_activation(h) @ "
                 "down_delta.T"
@@ -867,7 +914,15 @@ def _validate_experiment_registry(
     ownership_binding = registry.get("selected_neuron_ownership_binding")
     expected_ownership_binding = {
         "scope": "primary_embedding_keyed_configuration",
-        "source_runs": ["v3", "v3.1", "v3.2", "v3.3", "v3.4"],
+        "source_runs": [
+            "v3",
+            "v3.1",
+            "v3.2",
+            "v3.3",
+            "v3.4",
+            "v3.5",
+            "v3.5.1",
+        ],
         "jq_projection": "[.ownership[].selected_neurons]",
         "jq_compact_sha256": (
             "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
@@ -1771,6 +1826,128 @@ def validate_frozen_v3_5_rejection(
             "writer_off_gate_max": writer_off_max,
             "writer_off_source_case_id": 10803,
             "actuator_training_started": False,
+        },
+        "checks": checks,
+        "passed": True,
+        "official_evaluation_prompts_seen": 0,
+    }
+
+
+def validate_frozen_v3_5_1_forensics(
+    run_dir: Path,
+    *,
+    ownership_sha256: str,
+) -> Dict[str, Any]:
+    """Hash-bind the exact V3.5.1 non-owner collision diagnosis."""
+
+    root = Path(run_dir).resolve()
+    method_dir = root / "method" if (root / "method").is_dir() else root
+    paths = {
+        "selection": method_dir / "neuron_selection_report.json",
+        "global_gate": method_dir / "isolated_threshold_gate_report.json",
+        "forensics": method_dir / "v3_5_collision_forensics.json",
+        "completion": method_dir / "training_only_v3_5_1_completion.json",
+        "rejection": method_dir / "training_rejection.json",
+        "firewall": method_dir / "training_firewall_receipt.json",
+    }
+    for name, path in paths.items():
+        if not path.is_file():
+            raise FileNotFoundError(f"frozen V3.5.1 forensics lacks {name}: {path}")
+
+    selection = _load_json(paths["selection"])
+    global_gate = _load_json(paths["global_gate"])
+    forensics = _load_json(paths["forensics"])
+    completion = _load_json(paths["completion"])
+    rejection = _load_json(paths["rejection"])
+    firewall = _load_json(paths["firewall"])
+    collision = forensics.get("single_writer_off_collision", {})
+    gate_counts = global_gate.get("gate_endpoint_violation_counts", {})
+    expected_counts = {
+        "positive_owner": 0,
+        "positive_cross": 0,
+        "negative": 0,
+        "writer_off": 1,
+    }
+    exact_identity = {
+        "source_case_id": 10803,
+        "source_context_index": 4,
+        "detector_case_id": 17353,
+        "detector_group_index": 30,
+        "owner_group": False,
+    }
+    checks = {
+        "protocol": completion.get("protocol") == FROZEN_V3_5_1_PROTOCOL
+        and forensics.get("protocol") == FROZEN_V3_5_1_PROTOCOL
+        and global_gate.get("protocol") == FROZEN_V3_5_1_PROTOCOL,
+        "ownership": str(
+            selection.get("selected_neuron_ownership_jq_compact_sha256") or ""
+        )
+        == str(ownership_sha256),
+        "single_gate_violation": gate_counts == expected_counts,
+        "completion_result": completion.get("complete") is True
+        and completion.get("result") == "single_v3_5_writer_off_collision_identified"
+        and completion.get("diagnosis")
+        == "cross_record_detector_fired_without_embedding_writer",
+        "collision_identity": all(
+            completion.get(key) == expected and collision.get(key) == expected
+            for key, expected in exact_identity.items()
+        ),
+        "collision_value": math.isclose(
+            float(completion.get("raw_signed_response", float("nan"))),
+            0.2286771833896637,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+        and math.isclose(
+            float(completion.get("runtime_gate", float("nan"))),
+            0.5735465884208679,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ),
+        "ownerwise_consistent": forensics.get("ownerwise_certificate_consistent")
+        is True,
+        "no_optimizers": completion.get("detector_optimizer_constructed") is False
+        and completion.get("actuator_optimizer_constructed") is False,
+        "threshold_unchanged": completion.get("threshold_changed") is False,
+        "tensors_unchanged": completion.get("detector_tensors_changed") is False
+        and completion.get("actuator_tensors_changed") is False,
+        "checkpoint_not_saved": completion.get("checkpoint_saved") is False,
+        "rejection_preserved": rejection.get("stage") == "v3.5_collision_forensics"
+        and rejection.get("official_evaluation_allowed") is False,
+        "official_prompts_zero": all(
+            payload.get("official_evaluation_prompts_seen") == 0
+            for payload in (global_gate, forensics, completion, rejection)
+        ),
+        "firewall_official_prompts_zero": all(
+            (
+                firewall.get("data_access", {}).get("official_paraphrases_seen") == 0,
+                firewall.get("data_access", {}).get("official_neighborhoods_seen") == 0,
+                firewall.get("data_access", {}).get("benchmark_retain_seen") == 0,
+                firewall.get("data_access", {}).get("official_ppl_seen") is False,
+            )
+        ),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise RuntimeError(
+            "frozen V3.5.1 forensic lineage failed: " + ", ".join(sorted(failed))
+        )
+    return {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_frozen_v3_5_1_forensics_import",
+        "source_run_dir": str(root),
+        "source_method_dir": str(method_dir),
+        "source_protocol": FROZEN_V3_5_1_PROTOCOL,
+        "target_protocol": PROTOCOL,
+        "source_artifacts": {
+            name: {"path": str(path), "sha256": compositional_method.sha256_file(path)}
+            for name, path in paths.items()
+        },
+        "diagnosis": "cross_record_detector_fired_without_embedding_writer",
+        "collision": {
+            **exact_identity,
+            "raw_signed_response": 0.2286771833896637,
+            "runtime_gate": 0.5735465884208679,
         },
         "checks": checks,
         "passed": True,
@@ -2841,9 +3018,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     if not args.training_only_isolated_threshold_feasibility:
         raise RuntimeError(
-            "V3.5.1 is restricted to the training-only collision-forensics replay; "
-            "detector or actuator optimization, checkpoint materialization, and "
-            "official evaluation require a separately preregistered successor"
+            "V3.5.2 is restricted to the training-only global writer-off repair "
+            "and discarded actuator-feasibility fit; checkpoint materialization "
+            "and official evaluation require a separately preregistered successor"
         )
     _validate_environment_firewall()
     gagd.set_seed(int(args.seed))
@@ -3024,6 +3201,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             if args.frozen_v3_5_run_dir
             else None
         ),
+        "frozen_v3_5_1_run_dir": (
+            str(Path(args.frozen_v3_5_1_run_dir).resolve())
+            if args.frozen_v3_5_1_run_dir
+            else None
+        ),
         "development_retain_shared_row_exposure": {
             "registered_as_consumed_architecture_motivation": True,
             "development_records": 9438,
@@ -3055,6 +3237,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 [
                     "hash-bound passed V3.2 training-only detector tensors",
                     "hash-bound V3.5 single-cell global writer-off rejection",
+                    "hash-bound V3.5.1 non-owner collision diagnosis",
                 ]
                 if str(args.detector_initialization) == "frozen_v3_2"
                 else []
@@ -3436,7 +3619,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     gagd.write_json(out_dir / "neuron_selection_report.json", selection_report)
     if not ownership_binding_passed:
         raise RuntimeError(
-            "V3.5.1 primary neuron ownership differs from the registered V3 through "
+            "V3.5.2 primary neuron ownership differs from the registered V3 through "
             "V3.5 "
             f"selection: observed {ownership_sha256}, expected "
             f"{expected_ownership_sha256}"
@@ -3462,6 +3645,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     frozen_detector_source_gate: Dict[str, Any] | None = None
     frozen_v3_4_rejection: Dict[str, Any] | None = None
     frozen_v3_5_rejection: Dict[str, Any] | None = None
+    frozen_v3_5_1_forensics: Dict[str, Any] | None = None
     if str(args.detector_initialization) == "frozen_v3_2":
         (
             frozen_detector_import,
@@ -3510,10 +3694,30 @@ def main(argv: Sequence[str] | None = None) -> None:
         firewall_receipt["frozen_v3_5_rejection_import"] = frozen_v3_5_rejection
         gagd.write_json(out_dir / "training_firewall_receipt.json", firewall_receipt)
         print("  hash-bound preserved V3.5 single-cell writer-off gate rejection")
+        frozen_v3_5_1_forensics = validate_frozen_v3_5_1_forensics(
+            Path(args.frozen_v3_5_1_run_dir),
+            ownership_sha256=ownership_sha256,
+        )
+        gagd.write_json(
+            out_dir / "frozen_v3_5_1_forensics_import.json",
+            frozen_v3_5_1_forensics,
+        )
+        firewall_receipt["frozen_v3_5_1_forensics_import"] = frozen_v3_5_1_forensics
+        gagd.write_json(out_dir / "training_firewall_receipt.json", firewall_receipt)
+        collision = frozen_v3_5_1_forensics["collision"]
+        print(
+            "  hash-bound V3.5.1 diagnosis: source case "
+            f"{collision['source_case_id']} context "
+            f"{collision['source_context_index']} -> detector case "
+            f"{collision['detector_case_id']} (non-owner)"
+        )
 
-    print("\nStage 1: cache frozen layer-input states for collision forensics")
+    print("\nStage 1: cache frozen layer-input states for detector repair")
     editor.write_enabled = False
-    detector_trainable = str(args.detector_initialization) == "train"
+    detector_trainable = bool(
+        str(args.detector_initialization) == "train"
+        or args.training_only_isolated_threshold_feasibility
+    )
     editor.gate_delta.requires_grad_(detector_trainable)
     editor.up_delta.requires_grad_(detector_trainable)
     editor.down_delta.requires_grad_(False)
@@ -3637,15 +3841,23 @@ def main(argv: Sequence[str] | None = None) -> None:
         len(records) / max(1, int(args.detector_record_batch))
     )
     detector_optimizer_steps_this_run = (
-        0
-        if str(args.detector_initialization) == "frozen_v3_2"
-        else int(args.detector_steps)
+        int(args.detector_steps)
+        if (
+            str(args.detector_initialization) == "train"
+            or args.training_only_isolated_threshold_feasibility
+        )
+        else 0
     )
 
     def detector_optimization_metadata() -> Dict[str, Any]:
         initialization = str(args.detector_initialization)
-        if initialization == "frozen_v3_2":
-            revision = "v3.5.1_forensic_frozen_v3.2_replay"
+        if (
+            initialization == "frozen_v3_2"
+            and args.training_only_isolated_threshold_feasibility
+        ):
+            revision = "v3.5.2_global_writer_off_all_group_repair"
+        elif initialization == "frozen_v3_2":
+            revision = "frozen_v3.2_replay"
         else:
             revision = "control_training"
         return {
@@ -3661,10 +3873,16 @@ def main(argv: Sequence[str] | None = None) -> None:
             "positive_objective": "mean_plus_worst_k_squared_shortfall",
             "negative_objective": "mean_plus_worst_k_squared_gate_excess",
             "cross_objective": "mean_plus_worst_k_squared_gate_excess",
-            "writer_off_objective": "historical_source_owner_only_objective",
-            "writer_off_groups_per_context_in_forensic_replay": len(records),
-            "forensic_replay_only": initialization == "frozen_v3_2",
-            "optimizer_constructed": False if initialization == "frozen_v3_2" else True,
+            "writer_off_objective": (
+                "all_detector_groups_equal_source_record_mean_plus_worst_k_squared_excess"
+                if args.training_only_isolated_threshold_feasibility
+                else "historical_source_owner_only_objective"
+            ),
+            "writer_off_groups_per_context": (
+                len(records) if args.training_only_isolated_threshold_feasibility else 1
+            ),
+            "forensic_replay_only": False,
+            "optimizer_constructed": detector_optimizer_steps_this_run > 0,
             "training_positive_floor": float(args.detector_training_positive_floor),
             "training_off_abs_max": float(args.detector_training_off_abs_max),
             "certificate_positive_floor": float(args.detector_positive_floor),
@@ -3736,7 +3954,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         }
 
     @torch.no_grad()
-    def frozen_detector_selectivity_audit() -> Dict[str, Any]:
+    def detector_selectivity_audit() -> Dict[str, Any]:
         if not writer_present:
             raise RuntimeError("detector selectivity audit requires a writer")
         on_responses = record_cached_detector_responses(positive_hidden_cache)
@@ -3847,9 +4065,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         }
         return {
             "schema_version": 1,
-            "kind": "mcf_embedding_keyed_neuron_frozen_detector_selectivity_audit",
+            "kind": "mcf_embedding_keyed_neuron_repaired_detector_selectivity_audit",
             "protocol": PROTOCOL,
-            "parameter_state": "exact frozen V3.2 gate/up; exact-zero down_delta",
+            "parameter_state": (
+                "V3.2-initialized gate/up after the registered V3.5.2 all-group "
+                "writer-off repair; exact-zero down_delta"
+            ),
             "paired_contexts": len(positive_instances),
             "record_count": len(records),
             "ratio_denominator_epsilon": float(args.detector_selectivity_ratio_epsilon),
@@ -3873,7 +4094,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         """Certify response bounds and runtime gates over every detector cell."""
 
         if editor.residual_mode != "isolated_thresholded_residual":
-            raise RuntimeError("threshold gate report requires the V3.5.1 architecture")
+            raise RuntimeError(
+                "threshold gate report requires the isolated architecture"
+            )
 
         def gates_from_responses(responses: torch.Tensor) -> torch.Tensor:
             width = float(editor.threshold_gate_on_boundary) - float(
@@ -4246,298 +4469,81 @@ def main(argv: Sequence[str] | None = None) -> None:
             row["case_id"] = int(case_id)
         return gate
 
-    print("\nStage 1: replay frozen V3.5 gate and identify its exact collision")
-    if frozen_detector_source_gate is None or frozen_v3_5_rejection is None:
-        raise RuntimeError("V3.5.1 forensics requires frozen V3.2 and V3.5 receipts")
-
-    detector_gate = full_cached_detector_gate(
-        phase="final_fresh_full_context_certificate",
-        optimizer_step=0,
-    )
-    frozen_detector_replay = compare_detector_gate_replays(
-        frozen_detector_source_gate,
-        detector_gate,
-        abs_tolerance=FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE,
-    )
-    if not frozen_detector_replay["passed"]:
-        raise RuntimeError(
-            "V3.5.1 owner-wise detector replay differs from frozen V3.2 source"
-        )
-    detector_gate["frozen_v3_2_source_replay"] = frozen_detector_replay
-    detector_gate_path = out_dir / "detector_gate_report.json"
-    gagd.write_json(detector_gate_path, detector_gate)
-
-    detector_training_log = {
-        "schema_version": 1,
-        "kind": "mcf_embedding_keyed_neuron_detector_forensic_no_training_log",
-        "protocol": PROTOCOL,
-        "revision": detector_optimization_metadata()["revision"],
-        "optimizer_constructed": False,
-        "optimizer_steps_expected": 0,
-        "optimizer_steps_recorded": 0,
-        "records": [],
-        "complete": True,
-        "official_evaluation_prompts_seen": 0,
-    }
-    detector_training_log_path = out_dir / "detector_training_log.json"
-    gagd.write_json(detector_training_log_path, detector_training_log)
-    endpoint_audit = {
-        "schema_version": 1,
-        "kind": "mcf_embedding_keyed_neuron_detector_endpoint_audit",
-        "protocol": PROTOCOL,
-        "optimizer_step": 0,
-        "optimizer_constructed": False,
-        "phase_audits_not_applicable_for_frozen_forensic_replay": True,
-        "final_fresh_full_context_certificate": {
-            "path": str(detector_gate_path),
-            "sha256": compositional_method.sha256_file(detector_gate_path),
-            "passed_records": int(detector_gate["passed_records"]),
-            "total_records": int(detector_gate["total_records"]),
-            "passed": bool(detector_gate["passed"]),
-        },
-        "frozen_v3_2_source_replay": frozen_detector_replay,
-        "frozen_v3_2_import": frozen_detector_import,
-        "complete": True,
-        "official_evaluation_prompts_seen": 0,
-    }
-    gagd.write_json(out_dir / "detector_endpoint_audit.json", endpoint_audit)
-
-    global_gate = isolated_threshold_gate_report(
-        phase="v3.5.1_forensic_replay",
-        optimizer_step=0,
-    )
-    global_gate_path = out_dir / "isolated_threshold_gate_report.json"
-    gagd.write_json(global_gate_path, global_gate)
-    gate_violation_counts = global_gate["gate_endpoint_violation_counts"]
-    expected_gate_violation_counts = {
-        "positive_owner": 0,
-        "positive_cross": 0,
-        "negative": 0,
-        "writer_off": 1,
-    }
-    writer_off_gate_cells = [
-        row
-        for row in global_gate["violating_cells"]["writer_off"]
-        if bool(row["gate_endpoint_violation"])
-    ]
-    historical = frozen_v3_5_rejection["observed"]
-    writer_off_gate_summary = global_gate["aggregate"]["writer_off_gate"]
-    historical_replay = {
-        "gate_violation_counts_match": gate_violation_counts
-        == expected_gate_violation_counts,
-        "writer_off_gate_cell_count_match": int(writer_off_gate_summary["n"])
-        == int(historical["writer_off_gate_cells"]),
-        "single_writer_off_gate_collision_reproduced": len(writer_off_gate_cells)
-        == int(historical["nonzero_writer_off_gate_cells"])
-        == 1,
-        "writer_off_gate_max_abs_delta": abs(
-            float(writer_off_gate_summary["max"])
-            - float(historical["writer_off_gate_max"])
-        ),
-        "writer_off_source_case_match": bool(
-            writer_off_gate_cells
-            and int(writer_off_gate_cells[0]["source_case_id"])
-            == int(historical["writer_off_source_case_id"])
-        ),
-    }
-    historical_replay["passed"] = bool(
-        historical_replay["gate_violation_counts_match"]
-        and historical_replay["writer_off_gate_cell_count_match"]
-        and historical_replay["single_writer_off_gate_collision_reproduced"]
-        and float(historical_replay["writer_off_gate_max_abs_delta"])
-        <= FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE
-        and historical_replay["writer_off_source_case_match"]
-    )
-    if not historical_replay["passed"]:
-        raise RuntimeError("V3.5.1 did not exactly reproduce the frozen V3.5 collision")
-
-    collision = dict(writer_off_gate_cells[0])
-    source_index = int(collision["source_record_index"])
-    source_context_index = int(collision["source_context_index"])
-    detector_group_index = int(collision["detector_group_index"])
-    historical_inferred_response = float(editor.threshold_gate_off_boundary) + float(
-        historical["writer_off_gate_max"]
-    ) * (
-        float(editor.threshold_gate_on_boundary)
-        - float(editor.threshold_gate_off_boundary)
-    )
-    historical_replay.update(
-        {
-            "historical_gate_inferred_raw_response": historical_inferred_response,
-            "fresh_raw_response_abs_delta": abs(
-                float(collision["response"]) - historical_inferred_response
-            ),
-        }
-    )
-    historical_replay["fresh_raw_response_matches_inverted_historical_gate"] = bool(
-        float(historical_replay["fresh_raw_response_abs_delta"])
-        <= FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE
-    )
-    if not historical_replay["fresh_raw_response_matches_inverted_historical_gate"]:
-        raise RuntimeError(
-            "V3.5.1 raw response does not reproduce the inverted V3.5 gate value"
-        )
-    source_prompt = str(positive_prompts_by_record[source_index][source_context_index])
-    exact_positive_duplicates: List[Dict[str, int]] = []
-    exact_negative_duplicates: List[Dict[str, int]] = []
-    for record_index, prompts in enumerate(positive_prompts_by_record):
-        for context_index, prompt in enumerate(prompts):
-            if str(prompt) == source_prompt:
-                exact_positive_duplicates.append(
-                    {
-                        "record_index": int(record_index),
-                        "case_id": int(case_ids[record_index]),
-                        "context_index": int(context_index),
-                    }
-                )
-    for record_index, prompts in enumerate(negative_prompts_by_record):
-        for context_index, prompt in enumerate(prompts):
-            if str(prompt) == source_prompt:
-                exact_negative_duplicates.append(
-                    {
-                        "record_index": int(record_index),
-                        "case_id": int(case_ids[record_index]),
-                        "context_index": int(context_index),
-                    }
-                )
-    source_owner_gate_row = detector_gate["per_record"][source_index]
-    collision_classification = (
-        "source_owner_fired_without_embedding_writer"
-        if bool(collision["owner_group"])
-        else "cross_record_detector_fired_without_embedding_writer"
-    )
-    collision.update(
-        {
-            "source_prompt": source_prompt,
-            "source_prompt_role": (
-                "writer-off replay of the same registered training-safe positive"
-            ),
-            "source_prompt_exact_positive_locations": exact_positive_duplicates,
-            "source_prompt_exact_negative_locations": exact_negative_duplicates,
-            "source_owner_certificate_writer_off_abs_max": float(
-                source_owner_gate_row["writer_off_abs_max"]
-            ),
-            "collision_classification": collision_classification,
-        }
-    )
-    ownerwise_consistency = bool(
-        (not collision["owner_group"])
-        or math.isclose(
-            float(collision["response_abs"]),
-            float(source_owner_gate_row["writer_off_abs_max"]),
-            rel_tol=0.0,
-            abs_tol=FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE,
-        )
-    )
-    if not ownerwise_consistency:
-        collision_classification = "owner_group_indexing_inconsistency"
-        collision["collision_classification"] = collision_classification
-
-    forensic_report = {
-        "schema_version": 1,
-        "kind": "mcf_embedding_keyed_neuron_v3_5_single_collision_forensics",
-        "protocol": PROTOCOL,
-        "mode": "read_only_training_safe_forensic_replay",
-        "fixed_inputs": {
-            "writer": "exact V6.2",
-            "detector": "exact frozen V3.2 gate/up tensors",
-            "selected_neurons": len(selected_neurons),
-            "ownership_sha256": ownership_sha256,
-            "threshold_calibration": "none",
-            "registered_off_boundary": float(args.detector_off_abs_max),
-            "registered_positive_floor": float(args.detector_positive_floor),
-            "runtime_off_boundary": float(editor.threshold_gate_off_boundary),
-            "runtime_on_boundary": float(editor.threshold_gate_on_boundary),
-        },
-        "historical_v3_5_replay": historical_replay,
-        "global_gate_report": {
-            "path": str(global_gate_path),
-            "sha256": compositional_method.sha256_file(global_gate_path),
-            "gate_endpoint_violation_counts": gate_violation_counts,
-            "response_certificate_violation_counts": global_gate[
-                "response_certificate_violation_counts"
-            ],
-        },
-        "single_writer_off_collision": collision,
-        "ownerwise_certificate_consistent": ownerwise_consistency,
-        "diagnosis": collision_classification,
-        "detector_optimizer_constructed": False,
-        "detector_optimizer_updates": 0,
-        "actuator_optimizer_constructed": False,
-        "actuator_training_started": False,
-        "checkpoint_saved": False,
-        "official_evaluation_allowed": False,
-        "official_evaluation_prompts_seen": 0,
-    }
-    forensic_path = out_dir / "v3_5_collision_forensics.json"
-    gagd.write_json(forensic_path, forensic_report)
-    completion = {
-        "schema_version": 1,
-        "kind": "mcf_embedding_keyed_neuron_v3_5_1_forensic_completion",
-        "protocol": PROTOCOL,
-        "complete": True,
-        "result": "single_v3_5_writer_off_collision_identified",
-        "diagnosis": collision_classification,
-        "source_case_id": int(collision["source_case_id"]),
-        "source_context_index": source_context_index,
-        "detector_case_id": int(collision["detector_case_id"]),
-        "detector_group_index": detector_group_index,
-        "owner_group": bool(collision["owner_group"]),
-        "raw_signed_response": float(collision["response"]),
-        "runtime_gate": float(collision["gate"]),
-        "forensic_report": {
-            "path": str(forensic_path),
-            "sha256": compositional_method.sha256_file(forensic_path),
-        },
-        "threshold_changed": False,
-        "detector_tensors_changed": False,
-        "actuator_tensors_changed": False,
-        "detector_optimizer_constructed": False,
-        "actuator_optimizer_constructed": False,
-        "checkpoint_saved": False,
-        "official_evaluation_allowed": False,
-        "official_evaluation_prompts_seen": 0,
-    }
-    gagd.write_json(out_dir / "training_only_v3_5_1_completion.json", completion)
-    gagd.write_json(
-        out_dir / "training_rejection.json",
-        {
-            "schema_version": 1,
-            "kind": "mcf_embedding_keyed_neuron_training_only_rejection",
-            "protocol": PROTOCOL,
-            "stage": "v3.5_collision_forensics",
-            "reason": "v3.5_architecture_remains_rejected_pending_preregistered_fix",
-            "diagnosis": collision_classification,
-            "forensic_report_path": str(forensic_path),
-            "actuator_training_started": False,
-            "checkpoint_saved": False,
-            "official_evaluation_allowed": False,
-            "official_evaluation_prompts_seen": 0,
-        },
-    )
-    print(
-        "  collision: source case "
-        f"{collision['source_case_id']} context {source_context_index}, detector "
-        f"case {collision['detector_case_id']} (owner={collision['owner_group']}), "
-        f"response={float(collision['response']):+.8f}, "
-        f"gate={float(collision['gate']):.8f}"
-    )
-    print(
-        "V3.5.1 forensics complete; no optimizer was constructed and official "
-        "evaluation remains refused"
-    )
-    editor.remove()
-    embedding_writer.remove()
-    return
-
     print(
         "\nStage 1: "
         + (
-            "certify imported frozen sparse contextual-code detector"
+            "repair imported detector with all-group writer-off isolation"
+            if args.training_only_isolated_threshold_feasibility
+            else "certify imported frozen sparse contextual-code detector"
             if str(args.detector_initialization) == "frozen_v3_2"
             else "train globally balanced sparse contextual-code detector"
         )
     )
+    initial_frozen_detector_replay: Dict[str, Any] | None = None
+    initial_global_isolation_gate: Dict[str, Any] | None = None
+    initial_global_isolation_gate_path: Path | None = None
+    if frozen_detector_source_gate is not None:
+        initial_detector_gate = full_cached_detector_gate(
+            phase="final_fresh_full_context_certificate",
+            optimizer_step=0,
+        )
+        initial_frozen_detector_replay = compare_detector_gate_replays(
+            frozen_detector_source_gate,
+            initial_detector_gate,
+            abs_tolerance=FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE,
+        )
+        if not initial_frozen_detector_replay["passed"]:
+            raise RuntimeError(
+                "V3.5.2 initial detector state differs from frozen V3.2 source"
+            )
+        initial_detector_gate[
+            "frozen_v3_2_source_replay"
+        ] = initial_frozen_detector_replay
+        initial_detector_gate_path = out_dir / "detector_initial_import_gate.json"
+        gagd.write_json(initial_detector_gate_path, initial_detector_gate)
+        initial_global_isolation_gate = isolated_threshold_gate_report(
+            phase="v3.5.2_pre_repair_global_isolation",
+            optimizer_step=0,
+        )
+        initial_global_isolation_gate_path = (
+            out_dir / "isolated_threshold_gate_initial_report.json"
+        )
+        gagd.write_json(
+            initial_global_isolation_gate_path,
+            initial_global_isolation_gate,
+        )
+        initial_collision = initial_global_isolation_gate.get(
+            "writer_off_gate_argmax_cell"
+        )
+        expected_collision = (
+            frozen_v3_5_1_forensics.get("collision", {})
+            if frozen_v3_5_1_forensics is not None
+            else {}
+        )
+        initial_collision_replayed = bool(
+            initial_global_isolation_gate.get("gate_endpoint_violation_counts")
+            == {
+                "positive_owner": 0,
+                "positive_cross": 0,
+                "negative": 0,
+                "writer_off": 1,
+            }
+            and isinstance(initial_collision, Mapping)
+            and int(initial_collision.get("source_case_id", -1))
+            == int(expected_collision.get("source_case_id", -2))
+            and int(initial_collision.get("source_context_index", -1))
+            == int(expected_collision.get("source_context_index", -2))
+            and int(initial_collision.get("detector_case_id", -1))
+            == int(expected_collision.get("detector_case_id", -2))
+            and int(initial_collision.get("detector_group_index", -1))
+            == int(expected_collision.get("detector_group_index", -2))
+            and initial_collision.get("owner_group") is False
+        )
+        if not initial_collision_replayed:
+            raise RuntimeError(
+                "V3.5.2 initial all-cell replay differs from frozen V3.5.1 diagnosis"
+            )
+
     detector_optimizer = torch.optim.AdamW(
         [editor.gate_delta, editor.up_delta],
         lr=float(args.detector_lr),
@@ -4546,6 +4552,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     detector_log: List[Dict[str, Any]] = []
     endpoint_gate_reports: Dict[str, Dict[str, Any]] = {}
     endpoint_gate_paths: Dict[str, Path] = {}
+    global_post_projection_gate: Dict[str, Any] | None = None
+    global_post_projection_gate_path: Path | None = None
     for step in range(1, detector_optimizer_steps_this_run + 1):
         detector_optimizer.zero_grad(set_to_none=True)
         accumulated = {
@@ -4622,10 +4630,15 @@ def main(argv: Sequence[str] | None = None) -> None:
                 off_owner_tensor = torch.tensor(
                     off_owners, dtype=torch.long, device=device
                 )
+                writer_off_objective = (
+                    neuron_core.detector_global_writer_off_objective
+                    if args.training_only_isolated_threshold_feasibility
+                    else neuron_core.detector_writer_off_objective
+                )
                 (
                     writer_off_loss,
                     writer_off_pieces,
-                ) = neuron_core.detector_writer_off_objective(
+                ) = writer_off_objective(
                     off_response,
                     off_owner_tensor,
                     off_target_abs_max=float(args.detector_training_off_abs_max),
@@ -4692,6 +4705,18 @@ def main(argv: Sequence[str] | None = None) -> None:
                 out_dir / f"detector_step_{step}_post_projection_gate.json"
             )
             gagd.write_json(endpoint_gate_paths[phase], endpoint_gate_reports[phase])
+            global_post_projection_gate = isolated_threshold_gate_report(
+                phase="post_projection",
+                optimizer_step=step,
+            )
+            global_post_projection_gate_path = (
+                out_dir
+                / f"detector_step_{step}_post_projection_global_isolation_gate.json"
+            )
+            gagd.write_json(
+                global_post_projection_gate_path,
+                global_post_projection_gate,
+            )
         row = {
             "step": step,
             "loss": total_value,
@@ -4733,18 +4758,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         phase="final_fresh_full_context_certificate",
         optimizer_step=detector_optimizer_steps_this_run,
     )
-    frozen_detector_replay: Dict[str, Any] | None = None
+    frozen_detector_replay = initial_frozen_detector_replay
+    source_to_repaired_detector_delta: Dict[str, Any] | None = None
     if frozen_detector_source_gate is not None:
-        frozen_detector_replay = compare_detector_gate_replays(
+        source_to_repaired_detector_delta = compare_detector_gate_replays(
             frozen_detector_source_gate,
             detector_gate,
             abs_tolerance=FROZEN_DETECTOR_REPLAY_ABS_TOLERANCE,
         )
-        if not frozen_detector_replay["passed"]:
-            raise RuntimeError(
-                "fresh V3.5 detector certificate differs from frozen V3.2 source"
-            )
-        detector_gate["frozen_v3_2_source_replay"] = frozen_detector_replay
+        detector_gate["initial_frozen_v3_2_source_replay"] = frozen_detector_replay
+        detector_gate[
+            "source_to_repaired_detector_delta"
+        ] = source_to_repaired_detector_delta
     detector_gate_path = out_dir / "detector_gate_report.json"
     gagd.write_json(detector_gate_path, detector_gate)
     endpoint_phases = ("pre_update", "post_adam", "post_projection")
@@ -4805,7 +4830,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             post_projection_matches_final
         ),
         "post_projection_final_replay": endpoint_replay,
-        "frozen_v3_2_source_replay": frozen_detector_replay,
+        "initial_frozen_v3_2_source_replay": frozen_detector_replay,
+        "source_to_repaired_detector_delta": source_to_repaired_detector_delta,
         "frozen_v3_2_import": frozen_detector_import,
         "complete": bool(endpoint_complete and post_projection_matches_final),
         "official_evaluation_prompts_seen": 0,
@@ -4869,24 +4895,95 @@ def main(argv: Sequence[str] | None = None) -> None:
     detector_selectivity: Dict[str, Any] | None = None
     threshold_gate: Dict[str, Any] | None = None
     if args.training_only_isolated_threshold_feasibility:
-        detector_selectivity = frozen_detector_selectivity_audit()
+        detector_selectivity = detector_selectivity_audit()
         gagd.write_json(
-            out_dir / "frozen_detector_selectivity_audit.json",
+            out_dir / "repaired_detector_selectivity_audit.json",
             detector_selectivity,
         )
         response_ratio = detector_selectivity["aggregate"][
             "owned_signed_group_response"
         ]["writer_on_to_off_ratio"]
         print(
-            "  frozen detector owned-response on/off ratio: "
+            "  repaired detector owned-response on/off ratio: "
             f"p10={float(response_ratio['p10']):.4f}, "
             f"median={float(response_ratio['median']):.4f}"
         )
         threshold_gate = isolated_threshold_gate_report(
-            phase="legacy_unreachable_post_detector_training",
+            phase="v3.5.2_final_global_isolation_certificate",
             optimizer_step=detector_optimizer_steps_this_run,
         )
         gagd.write_json(out_dir / "isolated_threshold_gate_report.json", threshold_gate)
+        if (
+            initial_global_isolation_gate is None
+            or initial_global_isolation_gate_path is None
+            or global_post_projection_gate is None
+            or global_post_projection_gate_path is None
+        ):
+            raise RuntimeError("V3.5.2 global isolation endpoint audit is incomplete")
+
+        def global_gate_state_digest(report: Mapping[str, Any]) -> str:
+            return compositional_method.sha256_json(
+                {
+                    "aggregate": report.get("aggregate"),
+                    "response_certificate_violation_counts": report.get(
+                        "response_certificate_violation_counts"
+                    ),
+                    "gate_endpoint_violation_counts": report.get(
+                        "gate_endpoint_violation_counts"
+                    ),
+                    "checks": report.get("checks"),
+                    "passed": report.get("passed"),
+                    "raw_signed_response_matrices_by_source_record": report.get(
+                        "raw_signed_response_matrices_by_source_record"
+                    ),
+                }
+            )
+
+        post_projection_global_digest = global_gate_state_digest(
+            global_post_projection_gate
+        )
+        final_global_digest = global_gate_state_digest(threshold_gate)
+        global_endpoint_replay_passed = bool(
+            post_projection_global_digest == final_global_digest
+        )
+        endpoint_audit["global_isolation_endpoint_audit"] = {
+            "initial_pre_repair": {
+                "path": str(initial_global_isolation_gate_path),
+                "sha256": compositional_method.sha256_file(
+                    initial_global_isolation_gate_path
+                ),
+                "gate_endpoint_violation_counts": initial_global_isolation_gate[
+                    "gate_endpoint_violation_counts"
+                ],
+                "passed": bool(initial_global_isolation_gate["passed"]),
+            },
+            "post_projection": {
+                "path": str(global_post_projection_gate_path),
+                "sha256": compositional_method.sha256_file(
+                    global_post_projection_gate_path
+                ),
+                "state_digest": post_projection_global_digest,
+                "passed": bool(global_post_projection_gate["passed"]),
+            },
+            "final_fresh": {
+                "path": str(out_dir / "isolated_threshold_gate_report.json"),
+                "sha256": compositional_method.sha256_file(
+                    out_dir / "isolated_threshold_gate_report.json"
+                ),
+                "state_digest": final_global_digest,
+                "passed": bool(threshold_gate["passed"]),
+            },
+            "post_projection_matches_final_fresh": global_endpoint_replay_passed,
+            "complete": global_endpoint_replay_passed,
+        }
+        endpoint_audit["complete"] = bool(
+            endpoint_audit["complete"] and global_endpoint_replay_passed
+        )
+        gagd.write_json(out_dir / "detector_endpoint_audit.json", endpoint_audit)
+        if not endpoint_audit["complete"]:
+            raise RuntimeError(
+                "V3.5.2 post-projection global gate differs from final fresh replay"
+            )
         print(
             "  isolated threshold gate: "
             f"positive_min={float(threshold_gate['aggregate']['positive_owner_gate']['min']):.6f}, "
@@ -4901,7 +4998,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     "kind": "mcf_embedding_keyed_neuron_training_only_rejection",
                     "protocol": PROTOCOL,
                     "stage": "isolated_threshold_gate",
-                    "reason": "frozen_detector_gap_did_not_map_to_exact_branch_gate",
+                    "reason": "repaired_detector_failed_global_all_cell_gate",
                     "threshold_gate": threshold_gate,
                     "actuator_training_started": False,
                     "checkpoint_saved": False,
@@ -4912,7 +5009,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             editor.remove()
             embedding_writer.remove()
             raise SystemExit(
-                "isolated threshold gate failed before actuator training; "
+                "repaired detector failed the all-cell threshold gate before "
+                "actuator training; "
                 "official evaluation remains refused"
             )
 
@@ -5102,7 +5200,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     def actuator_optimization_metadata() -> Dict[str, Any]:
         return {
             "revision": (
-                "v3.5_isolated_thresholded_residual"
+                "v3.5.2_repaired_detector_isolated_thresholded_residual"
                 if args.training_only_isolated_threshold_feasibility
                 else "historical_v3.3_full_objective"
             ),
@@ -5362,8 +5460,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             detector_selectivity is None
             or threshold_gate is None
             or frozen_v3_4_rejection is None
+            or frozen_v3_5_1_forensics is None
         ):
-            raise RuntimeError("V3.5 feasibility lacks its gate/V3.4 lineage audits")
+            raise RuntimeError(
+                "V3.5.2 feasibility lacks its gate/V3.4/V3.5.1 lineage audits"
+            )
         caps = [float(cap) for cap in args.actuator_feasibility_caps]
         with torch.no_grad():
             editor.down_delta.zero_()
@@ -5586,7 +5687,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         ]
         sweep = {
             "schema_version": 1,
-            "kind": "mcf_embedding_keyed_neuron_isolated_threshold_feasibility",
+            "kind": "mcf_embedding_keyed_neuron_v3_5_2_repair_feasibility",
             "protocol": PROTOCOL,
             "mode": "training_only",
             "architecture": str(args.actuator_architecture),
@@ -5627,10 +5728,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 ),
                 "passed": bool(threshold_gate["passed"]),
             },
-            "frozen_detector_selectivity_audit": {
-                "path": str(out_dir / "frozen_detector_selectivity_audit.json"),
+            "repaired_detector_selectivity_audit": {
+                "path": str(out_dir / "repaired_detector_selectivity_audit.json"),
                 "sha256": compositional_method.sha256_file(
-                    out_dir / "frozen_detector_selectivity_audit.json"
+                    out_dir / "repaired_detector_selectivity_audit.json"
                 ),
                 "any_p10_below_heuristic_warning": bool(
                     detector_selectivity["any_p10_below_heuristic_warning"]
@@ -5667,6 +5768,15 @@ def main(argv: Sequence[str] | None = None) -> None:
                 ),
                 "passed": bool(frozen_v3_4_rejection["passed"]),
             },
+            "frozen_v3_5_1_forensics_import": {
+                "path": str(out_dir / "frozen_v3_5_1_forensics_import.json"),
+                "sha256": compositional_method.sha256_file(
+                    out_dir / "frozen_v3_5_1_forensics_import.json"
+                ),
+                "diagnosis": frozen_v3_5_1_forensics["diagnosis"],
+                "collision": frozen_v3_5_1_forensics["collision"],
+                "passed": bool(frozen_v3_5_1_forensics["passed"]),
+            },
             "initial_audit": initial_audit,
             "cap_artifacts": cap_artifacts,
             "conclusion": decision["conclusion"],
@@ -5682,11 +5792,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             "official_evaluation_allowed": False,
             "official_evaluation_prompts_seen": 0,
         }
-        sweep_path = out_dir / "isolated_threshold_actuator_feasibility.json"
+        sweep_path = out_dir / "v3_5_2_repair_actuator_feasibility.json"
         gagd.write_json(sweep_path, sweep)
         completion = {
             "schema_version": 1,
-            "kind": "mcf_embedding_keyed_neuron_v3_5_training_only_completion",
+            "kind": "mcf_embedding_keyed_neuron_v3_5_2_training_only_completion",
             "protocol": PROTOCOL,
             "sweep_path": str(sweep_path),
             "sweep_sha256": compositional_method.sha256_file(sweep_path),
@@ -5702,7 +5812,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "official_evaluation_allowed": False,
             "official_evaluation_prompts_seen": 0,
         }
-        gagd.write_json(out_dir / "training_only_v3_5_completion.json", completion)
+        gagd.write_json(out_dir / "training_only_v3_5_2_completion.json", completion)
         if not completion["mechanism_readiness_passed"]:
             gagd.write_json(
                 out_dir / "training_rejection.json",

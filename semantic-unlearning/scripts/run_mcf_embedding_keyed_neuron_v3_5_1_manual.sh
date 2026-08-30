@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "V3.5.1 is preserved as the read-only collision-forensics run." >&2
+echo "Use run_mcf_embedding_keyed_neuron_v3_5_2_manual.sh with its completed output." >&2
+echo "To reproduce V3.5.1 exactly, use historical commit 72aae4087490c18bab2d7f727c53c7d3331a01e3." >&2
+exit 2
+
 if [[ $# -ne 5 ]]; then
   echo "usage: $0 CLEAN_WRITER_OUTPUT_DIR V3_2_OUTPUT_DIR V3_4_OUTPUT_DIR REJECTED_V3_5_OUTPUT_DIR OUTPUT_DIR" >&2
   exit 2
