@@ -11,7 +11,7 @@ auditable pieces that can be tested without loading a language model:
   columns, retained for lineage and unit tests;
 * V3.5's isolated thresholded residual branch, which reads selected
   gate/up features while leaving the ordinary Base MLP path untouched;
-* V3.6's separate threshold-gated actuator bank, whose frozen Base
+* V3.6.1's separate threshold-gated actuator bank, whose frozen Base
   activations are disjoint from the four-neuron detector groups;
 * contextual code responses and detector-gate metrics;
 * hard relative-norm projection and materialization/restoration helpers.
@@ -35,7 +35,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_6"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_6_1"
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:

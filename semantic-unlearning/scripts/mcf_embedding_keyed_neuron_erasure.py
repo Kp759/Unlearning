@@ -15,7 +15,7 @@ Architecture
 
 For each edit, a disjoint group of existing low-activation MLP features was
 selected using only training-safe writer-on versus writer-off activations.
-V3.6 deterministically replays the exact V3.5.4 detector and fixed 0.20/0.25
+V3.6.1 deterministically replays the exact V3.5.4 detector and fixed 0.20/0.25
 boundary, then
 retains the canonical prompt-role labels introduced by V3.5.3. Exact duplicate
 prompts share one canonical hidden state and one multi-label target: every
@@ -26,12 +26,18 @@ V3.5.3's complete-update global tails from optimization while retaining the
 equal-record mean plus per-record worst-two objectives that repaired writer-off
 isolation in V3.5.2. It also records a non-optimizing component-gradient audit
 before the first update. A fresh all-cell
-multi-label certificate and exact V3.5.4 tensor hashes must pass. V3.6 then
+multi-label certificate and exact V3.5.4 tensor hashes must pass. V3.6.1 then
 hash-binds V3.5.5's discarded 4/8/16 width sweep, reconstructs its exact
 selected width-16 actuator bank, and trains that separate bank from exact zero.
 Detector and actuator features remain disjoint and the ordinary Base MLP
 contribution stays untouched. A criterion-stopped positive warm start is
-followed by globally balanced training-safe preservation optimization. A
+followed by globally balanced training-safe preservation optimization. Unlike
+V3.6, the behavioral preservation bank applies a preregistered exact-prompt
+rule: a prompt registered for forgetting cannot simultaneously act as another
+record's preservation negative. All merely lexical or subtoken overlaps remain
+in scope. Negative-context optimization compares float32 current NLLs with
+float32 baselines and targets zero drift, while the scientific acceptance
+ceiling remains 0.05 under the exact native-dtype scorer. A
 candidate state is saved only after every locked training-only acceptance gate
 passes; official evaluation remains unavailable to this learner.
 
@@ -87,6 +93,7 @@ FROZEN_V3_5_2_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_2"
 FROZEN_V3_5_3_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_3"
 FROZEN_V3_5_4_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_4"
 FROZEN_V3_5_5_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_5"
+FROZEN_V3_6_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_6"
 FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES = (
     "MCF_PATH",
     "OFFICIAL_MCF_PATH",
@@ -238,7 +245,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help=(
             "Completed V3.5.5 output whose exact detector replay, nested actuator "
             "selection, native width-16 reachability pass, and discarded-fit "
-            "receipt license V3.6 full preservation training."
+            "receipt license V3.6/V3.6.1 full preservation training."
+        ),
+    )
+    parser.add_argument(
+        "--frozen-v3-6-run-dir",
+        help=(
+            "Rejected V3.6 output root whose successful width-16 warm start and "
+            "official-compatible negative-locality miss license V3.6.1's "
+            "coherent float32 negative-preservation objective."
         ),
     )
     parser.add_argument(
@@ -341,10 +356,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "V3.6 hash-binds V3.5.5, reconstructs its exact width-16 separate "
-            "actuator bank, runs a criterion-stopped positive warm start, and "
-            "then trains the locked full preservation objective without official "
-            "evaluation access."
+            "V3.6.1 hash-binds V3.5.5 and the rejected V3.6 preservation run, "
+            "reconstructs the exact width-16 separate actuator bank, runs a "
+            "criterion-stopped positive warm start, and then trains the locked "
+            "coherent float32 full-preservation objective without official evaluation "
+            "access."
         ),
     )
     parser.add_argument(
@@ -415,7 +431,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--reference-nll-weight", type=float, default=50.0)
     parser.add_argument("--reference-nll-tolerance", type=float, default=0.05)
     parser.add_argument("--protected-kl-weight", type=float, default=20.0)
+    parser.add_argument(
+        "--negative-preservation-weight",
+        type=float,
+        default=50.0,
+        help="V3.6.1 weight for all-record negative-context preservation.",
+    )
     parser.add_argument("--negative-nll-tolerance", type=float, default=0.05)
+    parser.add_argument(
+        "--negative-training-nll-tolerance",
+        type=float,
+        default=0.0,
+        help=(
+            "Float32 optimization target for negative NLL drift. V3.6.1 fixes "
+            "this at zero while retaining the 0.05 native-dtype acceptance gate."
+        ),
+    )
     parser.add_argument("--protected-kl-mean-tolerance", type=float, default=0.05)
     parser.add_argument("--protected-kl-max-tolerance", type=float, default=0.50)
     parser.add_argument("--writer-off-nll-weight", type=float, default=50.0)
@@ -541,7 +572,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--detector-selectivity-warning-ratio must be finite and positive")
     if value.training_only_actuator_width_sweep and value.training_only_full_preservation:
         parser.error(
-            "V3.5.5 width feasibility and V3.6 full preservation are mutually exclusive"
+            "V3.5.5 width feasibility and V3.6.1 full preservation are mutually exclusive"
         )
     if value.training_only_actuator_width_sweep:
         if int(value.detector_steps) != 100:
@@ -568,23 +599,35 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             parser.error("V3.5.5 requires actuator widths exactly 4 8 16")
     elif value.training_only_full_preservation:
         if int(value.detector_steps) != 100:
-            parser.error("V3.6 requires exactly 100 deterministic detector replay updates")
+            parser.error(
+                "V3.6.1 requires exactly 100 deterministic detector replay updates"
+            )
         if float(value.detector_global_tail_weight) != 0.0:
-            parser.error("V3.6 requires --detector-global-tail-weight 0")
+            parser.error("V3.6.1 requires --detector-global-tail-weight 0")
         if int(value.actuator_steps) != 200:
-            parser.error("V3.6 requires exactly 200 full preservation updates")
+            parser.error("V3.6.1 requires exactly 200 full preservation updates")
         if value.actuator_architecture != "separate_threshold_gated_actuator_bank":
             parser.error(
-                "V3.6 requires the separate threshold-gated actuator-bank architecture"
+                "V3.6.1 requires the separate threshold-gated actuator-bank architecture"
             )
         if caps != [1.5]:
-            parser.error("V3.6 retains the native per-column cap at exactly 1.50")
+            parser.error("V3.6.1 retains the native per-column cap at exactly 1.50")
         if widths != [4, 8, 16]:
-            parser.error("V3.6 reconstructs the exact nested V3.5.5 widths 4 8 16")
+            parser.error(
+                "V3.6.1 reconstructs the exact nested V3.5.5 widths 4 8 16"
+            )
         if not math.isclose(
             float(value.actuator_relative_cap), 1.5, abs_tol=1e-12
         ):
-            parser.error("V3.6 requires --actuator-relative-cap 1.50")
+            parser.error("V3.6.1 requires --actuator-relative-cap 1.50")
+        if not math.isclose(
+            float(value.negative_preservation_weight), 50.0, abs_tol=1e-12
+        ):
+            parser.error("V3.6.1 requires --negative-preservation-weight 50")
+        if not math.isclose(
+            float(value.negative_training_nll_tolerance), 0.0, abs_tol=1e-12
+        ):
+            parser.error("V3.6.1 requires --negative-training-nll-tolerance 0")
     elif int(value.actuator_steps) <= 0:
         parser.error("--actuator-steps must be positive outside feasibility mode")
     if int(value.actuator_batch_size) <= 0:
@@ -597,6 +640,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--actuator-writer-off-nll-tolerance must be non-negative")
     if float(value.negative_nll_tolerance) < 0:
         parser.error("--negative-nll-tolerance must be non-negative")
+    if (
+        not math.isfinite(float(value.negative_training_nll_tolerance))
+        or not 0.0
+        <= float(value.negative_training_nll_tolerance)
+        <= float(value.negative_nll_tolerance)
+    ):
+        parser.error(
+            "--negative-training-nll-tolerance must lie between zero and the "
+            "locked --negative-nll-tolerance"
+        )
+    if (
+        not math.isfinite(float(value.negative_preservation_weight))
+        or float(value.negative_preservation_weight) < 0.0
+    ):
+        parser.error("--negative-preservation-weight must be finite and non-negative")
     if float(value.protected_kl_mean_tolerance) < 0:
         parser.error("--protected-kl-mean-tolerance must be non-negative")
     if float(value.protected_kl_max_tolerance) < float(
@@ -663,7 +721,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "--save-rejected-checkpoint is restricted to the no-writer control"
         )
     if value.training_only_actuator_width_sweep or value.training_only_full_preservation:
-        revision = "V3.5.5" if value.training_only_actuator_width_sweep else "V3.6"
+        revision = "V3.5.5" if value.training_only_actuator_width_sweep else "V3.6.1"
         if value.experiment_label != "primary":
             parser.error(f"{revision} is restricted to the primary run")
         if value.writer_mode != "embedding_keyed":
@@ -691,16 +749,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         if value.training_only_full_preservation and not str(
             value.frozen_v3_5_5_run_dir or ""
         ).strip():
-            parser.error("--frozen-v3-5-5-run-dir is required for V3.6")
+            parser.error("--frozen-v3-5-5-run-dir is required for V3.6.1")
+        if value.training_only_full_preservation and not str(
+            value.frozen_v3_6_run_dir or ""
+        ).strip():
+            parser.error("--frozen-v3-6-run-dir is required for V3.6.1")
+        if value.training_only_actuator_width_sweep and value.frozen_v3_6_run_dir:
+            parser.error("V3.5.5 cannot import V3.6")
         if value.training_only_actuator_width_sweep and (
             value.save_checkpoint or value.save_rejected_checkpoint
         ):
             parser.error("V3.5.5 training-only feasibility cannot save checkpoints")
         if value.training_only_full_preservation:
             if not value.save_checkpoint:
-                parser.error("V3.6 requires --save-checkpoint for a passing candidate")
+                parser.error(
+                    "V3.6.1 requires --save-checkpoint for a passing candidate"
+                )
             if value.save_rejected_checkpoint:
-                parser.error("V3.6 never saves rejected checkpoints")
+                parser.error("V3.6.1 never saves rejected checkpoints")
     elif (
         value.frozen_v3_3_run_dir
         or value.frozen_v3_4_run_dir
@@ -710,10 +776,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         or value.frozen_v3_5_3_run_dir
         or value.frozen_v3_5_4_run_dir
         or value.frozen_v3_5_5_run_dir
+        or value.frozen_v3_6_run_dir
     ):
         parser.error(
-            "frozen V3.3 through V3.5.5 run directories require a registered "
-            "V3.5.5/V3.6 training-only mode"
+            "frozen V3.3 through V3.6 run directories require a registered "
+            "V3.5.5/V3.6.1 training-only mode"
         )
     guard = float(value.threshold_gate_numerical_guard)
     if not math.isfinite(guard) or guard < 0.0:
@@ -994,6 +1061,53 @@ def _validate_experiment_registry(
     for key, expected_value in expected_full_scope.items():
         if full_scope.get(key) != expected_value:
             raise RuntimeError(f"registry V3.6 full scope mismatch: {key}")
+    coherent_scope = registry.get("v3_6_1_scope")
+    expected_coherent_scope = {
+        "training_only": True,
+        "source_v3_6_rejection_hash_bound": True,
+        "source_v3_6_positive_warm_start_passed": True,
+        "source_v3_6_full_preservation_updates": 200,
+        "source_v3_6_candidate_checkpoint_saved": False,
+        "source_v3_6_official_evaluation_prompts_seen": 0,
+        "source_v3_6_negative_nll_abs_max": 0.125,
+        "source_v3_6_negative_nll_acceptance_ceiling": 0.05,
+        "exact_v3_5_4_detector_tensor_replay_required": True,
+        "exact_v3_5_5_width16_selection_replay_required": True,
+        "detector_neurons_per_record": 4,
+        "actuator_neurons_per_record": 16,
+        "detector_actuator_neurons_disjoint": True,
+        "neuron_layer": 27,
+        "native_per_column_relative_cap": 1.5,
+        "positive_warm_start_max_updates": 100,
+        "positive_warm_start_check_every": 5,
+        "positive_warm_start_first_passing_audit_selected": True,
+        "warm_start_optimizer_state_retained": True,
+        "full_preservation_optimizer_updates": 200,
+        "negative_training_nll_tolerance": 0.0,
+        "negative_acceptance_nll_tolerance": 0.05,
+        "negative_preservation_weight": 50.0,
+        "raw_negative_occurrences": 465,
+        "coherent_preservation_negative_occurrences": 464,
+        "excluded_multi_role_negative_occurrences": 1,
+        "negative_prompt_precedence": (
+            "forget_positive_exact_prompt_precedes_preservation_negative"
+        ),
+        "negative_precedence_matching_scope": "byte_exact_full_prompt_only",
+        "excluded_negative_prompt_sha256": (
+            "9a4070c81368070d9ee1383958c18109bf7af90ee59042b3132b7a51e9d6ca38"
+        ),
+        "lexical_or_subtoken_overlap_exclusion_prohibited": True,
+        "all_records_and_contexts_per_update": True,
+        "complete_protected_bank_final_audit_required": True,
+        "candidate_checkpoint_requires_every_training_gate": True,
+        "rejected_checkpoint_creation_prohibited": True,
+        "official_evaluation_prohibited_in_learner": True,
+    }
+    if not isinstance(coherent_scope, Mapping):
+        raise RuntimeError("registry lacks the V3.6.1 coherent-preservation scope")
+    for key, expected_value in expected_coherent_scope.items():
+        if coherent_scope.get(key) != expected_value:
+            raise RuntimeError(f"registry V3.6.1 scope mismatch: {key}")
     detector_revision = registry.get("detector_training_revision")
     expected_detector_revision = {
         "version": "v3.5.4_canonical_multilabel_balanced_tail_repair",
@@ -1103,8 +1217,21 @@ def _validate_experiment_registry(
 
     actuator_revision = registry.get("actuator_training_revision")
     expected_actuator_revision = {
-        "version": "v3.6",
-        "mode": "training_only_width16_warm_start_then_full_preservation",
+        "version": "v3.6.1",
+        "mode": "training_only_width16_coherent_float32_negative_preservation",
+        "source_v3_6_protocol": FROZEN_V3_6_PROTOCOL,
+        "source_v3_6_rejection_hash_receipt_required": True,
+        "source_v3_6_result": {
+            "positive_warm_start_passed": True,
+            "positive_warm_start_first_passing_step": 35,
+            "full_preservation_optimizer_updates": 200,
+            "final_logged_positive_failures": 0,
+            "final_logged_writer_off_nll_abs_max": 0.0,
+            "final_native_negative_nll_abs_max": 0.125,
+            "negative_nll_acceptance_ceiling": 0.05,
+            "candidate_checkpoint_saved": False,
+            "official_evaluation_prompts_seen": 0,
+        },
         "source_v3_5_5_protocol": FROZEN_V3_5_5_PROTOCOL,
         "source_v3_5_5_success_hash_receipt_required": True,
         "source_v3_5_5_detector_tensor_replay_required": True,
@@ -1177,17 +1304,35 @@ def _validate_experiment_registry(
             "optimizer_state_reinitialized_after_warm_start": False,
             "records_per_optimizer_update": 50,
             "positive_contexts_per_optimizer_update": 346,
-            "negative_contexts_per_optimizer_update": 465,
+            "raw_negative_occurrences": 465,
+            "negative_contexts_per_optimizer_update": 464,
+            "excluded_multi_role_negative_occurrences": 1,
+            "negative_prompt_precedence": (
+                "forget_positive_exact_prompt_precedes_preservation_negative"
+            ),
+            "negative_precedence_matching_scope": "byte_exact_full_prompt_only",
+            "excluded_negative_prompt_sha256": (
+                "9a4070c81368070d9ee1383958c18109bf7af90ee59042b3132b7a51e9d6ca38"
+            ),
+            "lexical_or_subtoken_overlap_exclusion_prohibited": True,
             "writer_off_contexts_per_optimizer_update": 346,
             "protected_contexts_per_optimizer_update": 80,
             "protected_prompt_bank": 8192,
             "protected_sampling_seed_offset": 78103,
             "positive_margin_weight": 20.0,
             "positive_reference_nll_weight": 50.0,
-            "negative_preservation_weight": 1.0,
+            "negative_preservation_weight": 50.0,
+            "negative_training_nll_tolerance": 0.0,
+            "negative_acceptance_nll_tolerance": 0.05,
             "negative_preservation_objective": (
-                "equal-record mean-plus-worst-two squared absolute NLL drift "
-                "excess above the fixed 0.05 acceptance band"
+                "on the coherent 464-occurrence preservation bank, equal-record "
+                "mean-plus-worst-two squared absolute float32-current minus "
+                "float32-baseline NLL drift with a zero training target; exact "
+                "native-dtype acceptance remains at 0.05"
+            ),
+            "negative_audit_numerics": (
+                "report differentiable float32 and exact official-compatible "
+                "native-dtype drift separately"
             ),
             "writer_off_weight": 50.0,
             "protected_kl_weight": 20.0,
@@ -1206,10 +1351,10 @@ def _validate_experiment_registry(
         "official_evaluation_prompts_seen": 0,
     }
     if not isinstance(actuator_revision, Mapping):
-        raise RuntimeError("registry lacks the V3.6 actuator-training revision")
+        raise RuntimeError("registry lacks the V3.6.1 actuator-training revision")
     for key, expected_value in expected_actuator_revision.items():
         if actuator_revision.get(key) != expected_value:
-            raise RuntimeError(f"registry V3.6 actuator revision mismatch: {key}")
+            raise RuntimeError(f"registry V3.6.1 actuator revision mismatch: {key}")
     ownership_binding = registry.get("selected_neuron_ownership_binding")
     expected_ownership_binding = {
         "scope": "primary_embedding_keyed_configuration",
@@ -1381,11 +1526,26 @@ def compare_actuator_audits(
     if float(abs_tolerance) < 0:
         raise ValueError("abs_tolerance must be non-negative")
     count_keys = ("direct_failures", "positive_failures", "positive_contexts")
-    metric_keys = (
+    metric_keys = [
         "minimum_margin",
         "reference_nll_regression_max",
         "writer_off_nll_abs_max",
-    )
+    ]
+    for optional_key in (
+        "negative_nll_abs_max",
+        "negative_float32_nll_abs_max",
+    ):
+        first_has = optional_key in first
+        second_has = optional_key in second
+        if first_has != second_has:
+            return {
+                "counts_match": False,
+                "decisions_match": False,
+                "metric_abs_max": float("inf"),
+                "passed": False,
+            }
+        if first_has:
+            metric_keys.append(optional_key)
     counts_match = all(first.get(key) == second.get(key) for key in count_keys)
     metric_abs_max = 0.0
     metrics_present = True
@@ -2822,6 +2982,107 @@ def validate_frozen_v3_5_5_success(run_dir: Path) -> Dict[str, Any]:
     }
 
 
+def validate_frozen_v3_6_rejection(run_dir: Path) -> Dict[str, Any]:
+    """Bind V3.6's complete no-checkpoint negative-locality rejection."""
+
+    root = Path(run_dir).resolve()
+    method_dir = root / "method" if (root / "method").is_dir() else root
+    paths = {
+        "warm_start": method_dir / "v3_6_positive_warm_start.json",
+        "full_training": method_dir / "v3_6_full_preservation_training.json",
+        "final_audit": method_dir / "v3_6_final_full_context_audit.json",
+        "protected_kl": method_dir / "v3_6_protected_kl_audit.json",
+        "endpoint": method_dir / "v3_6_actuator_endpoint_audit.json",
+        "causal": method_dir / "v3_6_causal_component_audit.json",
+        "completion": method_dir / "training_only_v3_6_completion.json",
+        "rejection": method_dir / "training_rejection.json",
+        "firewall": method_dir / "training_firewall_receipt.json",
+    }
+    for name, path in paths.items():
+        if not path.is_file():
+            raise FileNotFoundError(f"frozen V3.6 rejection lacks {name}: {path}")
+
+    payloads = {name: _load_json(path) for name, path in paths.items()}
+    warm = payloads["warm_start"]
+    full = payloads["full_training"]
+    final = payloads["final_audit"]
+    completion = payloads["completion"]
+    rejection = payloads["rejection"]
+    firewall = payloads["firewall"]
+    negative_abs_max = float(final.get("negative_nll_abs_max", float("nan")))
+    checks = {
+        "protocol": all(
+            payload.get("protocol") == FROZEN_V3_6_PROTOCOL
+            for name, payload in payloads.items()
+            if name != "firewall"
+        ),
+        "warm_start": warm.get("passed") is True
+        and warm.get("first_passing_step") == 35
+        and warm.get("used_to_initialize_full_preservation") is True
+        and warm.get("final_audit", {}).get("positive_passed") is True,
+        "full_training_complete": full.get("full_optimizer_steps_expected") == 200
+        and full.get("full_optimizer_steps_recorded") == 200
+        and full.get("complete_training_log") is True,
+        "positive_preserved": final.get("positive_passed") is True
+        and final.get("direct_failures") == 0
+        and final.get("positive_failures") == 0,
+        "reference_preserved": final.get("reference_preservation_passed") is True,
+        "writer_off_preserved": final.get("writer_off_preservation_passed") is True,
+        "negative_locality_rejected": final.get("negative_preservation_passed")
+        is False
+        and math.isclose(negative_abs_max, 0.125, abs_tol=1e-12)
+        and negative_abs_max > 0.05,
+        "overall_rejected": full.get("passed") is False
+        and completion.get("full_preservation_objective_started") is True
+        and completion.get("full_preservation_passed") is False
+        and completion.get("candidate_checkpoint_saved") is False
+        and completion.get("eligible_for_separate_official_evaluation") is False
+        and completion.get("official_evaluation_allowed_in_this_process") is False
+        and rejection.get("checkpoint_saved") is False
+        and rejection.get("official_evaluation_allowed") is False,
+        "no_candidate": not (method_dir / "v3_6_candidate_state.pt").exists(),
+        "official_prompts_zero": all(
+            payload.get("official_evaluation_prompts_seen") == 0
+            for name, payload in payloads.items()
+            if name != "firewall"
+        ),
+        "firewall_official_prompts_zero": all(
+            (
+                firewall.get("data_access", {}).get("official_paraphrases_seen") == 0,
+                firewall.get("data_access", {}).get("official_neighborhoods_seen")
+                == 0,
+                firewall.get("data_access", {}).get("benchmark_retain_seen") == 0,
+                firewall.get("data_access", {}).get("official_ppl_seen") is False,
+            )
+        ),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise RuntimeError(
+            "frozen V3.6 rejection lineage failed: " + ", ".join(sorted(failed))
+        )
+    return {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_frozen_v3_6_rejection_import",
+        "source_run_dir": str(root),
+        "source_method_dir": str(method_dir),
+        "source_protocol": FROZEN_V3_6_PROTOCOL,
+        "target_protocol": PROTOCOL,
+        "source_artifacts": {
+            name: {"path": str(path), "sha256": compositional_method.sha256_file(path)}
+            for name, path in paths.items()
+        },
+        "positive_warm_start_first_passing_step": 35,
+        "full_preservation_optimizer_updates": 200,
+        "final_negative_nll_abs_max": negative_abs_max,
+        "negative_nll_acceptance_ceiling": 0.05,
+        "candidate_checkpoint_saved": False,
+        "checks": checks,
+        "passed": True,
+        "official_evaluation_prompts_seen": 0,
+    }
+
+
 def _resolve_swiglu_mlp(model: torch.nn.Module, layer_index: int) -> torch.nn.Module:
     backbone = getattr(model, "model", None)
     layers = getattr(backbone, "layers", None)
@@ -4022,6 +4283,102 @@ def _negative_prompt_instances(
     return instances
 
 
+def apply_forget_positive_precedence_to_negative_instances(
+    negative_instances: Sequence[mcf_repair.MCFPromptInstance],
+    prompt_labels: Mapping[str, Any],
+    case_ids: Sequence[int],
+) -> Tuple[
+    List[mcf_repair.MCFPromptInstance],
+    List[List[int]],
+    Dict[str, Any],
+]:
+    """Remove exact forget-positive prompts from the preservation-negative bank.
+
+    Canonical detector labels already use multi-label semantics: an exact prompt
+    registered as a positive for any record keeps that active label even when it
+    also occurs as another record's source-relative negative.  The behavioral
+    preservation objective must use the same precedence rule.  Otherwise one
+    deterministic prompt prefix is simultaneously required to activate a forget
+    branch and to remain unchanged.
+
+    This does not relabel ordinary negatives that merely share words or token
+    rows with a forget prompt.  Only byte-exact prompt matches with at least one
+    registered positive label are excluded.
+    """
+
+    prompt_to_index = prompt_labels.get("prompt_to_index")
+    active_mask = prompt_labels.get("active_mask")
+    if not isinstance(prompt_to_index, Mapping) or not isinstance(
+        active_mask, torch.Tensor
+    ):
+        raise RuntimeError("canonical prompt labels lack precedence inputs")
+    if active_mask.ndim != 2 or int(active_mask.shape[1]) != len(case_ids):
+        raise RuntimeError("canonical active-label mask has incompatible shape")
+
+    coherent: List[mcf_repair.MCFPromptInstance] = []
+    indices_by_record: List[List[int]] = [[] for _ in case_ids]
+    excluded: List[Dict[str, Any]] = []
+    for raw_index, instance in enumerate(negative_instances):
+        prompt = str(instance.prompt)
+        canonical_index = prompt_to_index.get(prompt)
+        if canonical_index is None:
+            raise RuntimeError("negative prompt is absent from canonical manifest")
+        active_groups = (
+            active_mask[int(canonical_index)]
+            .nonzero(as_tuple=False)
+            .reshape(-1)
+            .tolist()
+        )
+        if active_groups:
+            digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+            excluded.append(
+                {
+                    "raw_negative_occurrence_index": int(raw_index),
+                    "canonical_prompt_index": int(canonical_index),
+                    "prompt_sha256": digest,
+                    "negative_source_record_index": int(
+                        instance.sampled_position
+                    ),
+                    "negative_source_case_id": int(instance.record_index),
+                    "negative_source_context_index": int(instance.prompt_index),
+                    "negative_source_prompt_type": str(instance.prompt_type),
+                    "positive_active_group_indices": [
+                        int(value) for value in active_groups
+                    ],
+                    "positive_active_case_ids": [
+                        int(case_ids[int(value)]) for value in active_groups
+                    ],
+                    "reason": "exact_prompt_is_registered_for_forgetting",
+                }
+            )
+            continue
+        coherent_index = len(coherent)
+        coherent.append(instance)
+        source_record = int(instance.sampled_position)
+        if not 0 <= source_record < len(case_ids):
+            raise RuntimeError("negative occurrence has invalid source record")
+        indices_by_record[source_record].append(coherent_index)
+
+    if any(not indices for indices in indices_by_record):
+        raise RuntimeError(
+            "forget-positive precedence emptied a record's preservation bank"
+        )
+    report = {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_negative_preservation_precedence",
+        "protocol": PROTOCOL,
+        "rule": "forget_positive_exact_prompt_precedes_preservation_negative",
+        "matching_scope": "byte_exact_full_prompt_only",
+        "lexical_or_subtoken_overlap_is_not_excluded": True,
+        "raw_negative_occurrences": len(negative_instances),
+        "coherent_preservation_negative_occurrences": len(coherent),
+        "excluded_multi_role_negative_occurrences": len(excluded),
+        "excluded_occurrences": excluded,
+        "official_evaluation_prompts_seen": 0,
+    }
+    return coherent, indices_by_record, report
+
+
 def _failure_counts(
     margins: torch.Tensor,
     direct_flags: Sequence[bool],
@@ -4033,6 +4390,37 @@ def _failure_counts(
         for index, value in enumerate(margins)
     )
     return direct, int((margins < threshold).sum())
+
+
+@torch.no_grad()
+def evaluate_instance_nlls_float32(
+    model: torch.nn.Module,
+    tok: Any,
+    instances: Sequence[mcf_repair.MCFPromptInstance],
+    device: torch.device,
+    *,
+    llama_like: bool,
+    batch_size: int,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Evaluate the exact differentiable float32 NLL definition without grads."""
+
+    new_rows: List[torch.Tensor] = []
+    true_rows: List[torch.Tensor] = []
+    for start in range(0, len(instances), int(batch_size)):
+        current_new, current_true = (
+            compositional_method.differentiable_instance_nlls(
+                model,
+                tok,
+                instances[start : start + int(batch_size)],
+                device,
+                llama_like=llama_like,
+            )
+        )
+        new_rows.append(current_new.detach().cpu())
+        true_rows.append(current_true.detach().cpu())
+    if not new_rows:
+        return torch.empty(0), torch.empty(0)
+    return torch.cat(new_rows), torch.cat(true_rows)
 
 
 def _topk_kl(
@@ -4084,7 +4472,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not detector_replay_mode:
         raise RuntimeError(
             "this checkout is restricted to registered V3.5.5 width feasibility "
-            "or V3.6 training-only full preservation; official evaluation remains "
+            "or V3.6.1 training-only full preservation; official evaluation remains "
             "a separate process"
         )
     _validate_environment_firewall()
@@ -4291,6 +4679,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             if args.frozen_v3_5_5_run_dir
             else None
         ),
+        "frozen_v3_6_run_dir": (
+            str(Path(args.frozen_v3_6_run_dir).resolve())
+            if args.frozen_v3_6_run_dir
+            else None
+        ),
         "development_retain_shared_row_exposure": {
             "registered_as_consumed_architecture_motivation": True,
             "development_records": 9438,
@@ -4328,7 +4721,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                     "hash-bound V3.5.4 perfect detector and width-four rejection",
                     *(
                         [
-                            "hash-bound V3.5.5 discarded width-16 mechanism-readiness pass"
+                            "hash-bound V3.5.5 discarded width-16 mechanism-readiness pass",
+                            "hash-bound V3.6 negative-locality rejection with no checkpoint",
                         ]
                         if full_preservation_mode
                         else []
@@ -4748,6 +5142,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     frozen_v3_5_3_rejection: Dict[str, Any] | None = None
     frozen_v3_5_4_rejection: Dict[str, Any] | None = None
     frozen_v3_5_5_success: Dict[str, Any] | None = None
+    frozen_v3_6_rejection: Dict[str, Any] | None = None
     if str(args.detector_initialization) == "frozen_v3_2":
         (
             frozen_detector_import,
@@ -4877,6 +5272,23 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "  hash-bound V3.5.5 result: native width 16 at cap 1.50 "
                 "mechanism-ready; every feasibility fit discarded"
             )
+            frozen_v3_6_rejection = validate_frozen_v3_6_rejection(
+                Path(args.frozen_v3_6_run_dir)
+            )
+            gagd.write_json(
+                out_dir / "frozen_v3_6_rejection_import.json",
+                frozen_v3_6_rejection,
+            )
+            firewall_receipt["frozen_v3_6_rejection_import"] = (
+                frozen_v3_6_rejection
+            )
+            gagd.write_json(
+                out_dir / "training_firewall_receipt.json", firewall_receipt
+            )
+            print(
+                "  hash-bound V3.6 result: width-16 reachability retained, "
+                "native negative NLL drift 0.125 > 0.05; no checkpoint saved"
+            )
 
     print("\nStage 1: build canonical multi-label prompt semantics")
     prompt_labels = build_multilabel_prompt_manifest(
@@ -4934,6 +5346,74 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"{prompt_label_report['negative_occurrences']} negative occurrences; "
         f"{prompt_label_report['prompts_in_both_positive_and_negative_roles']} "
         "multi-role prompts"
+    )
+
+    (
+        preservation_negative_instances,
+        preservation_negative_indices_by_record,
+        negative_precedence_report,
+    ) = apply_forget_positive_precedence_to_negative_instances(
+        negative_instances,
+        prompt_labels,
+        case_ids,
+    )
+    registered_precedence = registered_full_actuator.get(
+        "negative_prompt_precedence"
+    )
+    expected_preservation_negatives = int(
+        registered_full_actuator.get("negative_contexts_per_optimizer_update", -1)
+    )
+    expected_excluded_negatives = int(
+        registered_full_actuator.get(
+            "excluded_multi_role_negative_occurrences", -1
+        )
+    )
+    expected_excluded_digest = str(
+        registered_full_actuator.get("excluded_negative_prompt_sha256", "")
+    )
+    excluded_rows = negative_precedence_report["excluded_occurrences"]
+    precedence_registered = bool(
+        registered_precedence
+        == "forget_positive_exact_prompt_precedes_preservation_negative"
+        and len(preservation_negative_instances)
+        == expected_preservation_negatives
+        and len(excluded_rows) == expected_excluded_negatives
+        and len(excluded_rows) == 1
+        and excluded_rows[0]["prompt_sha256"] == expected_excluded_digest
+        and excluded_rows[0]["prompt_sha256"] == duplicate_digest
+        and excluded_rows[0]["negative_source_case_id"] == 19763
+        and excluded_rows[0]["negative_source_context_index"] == 4
+        and excluded_rows[0]["positive_active_case_ids"] == [10472]
+    )
+    if not precedence_registered:
+        raise RuntimeError(
+            "negative preservation precedence differs from the registered "
+            "single exact-prompt coherence repair"
+        )
+    negative_precedence_report.update(
+        {
+            "registered": True,
+            "source_v3_5_2_contradiction_hash_bound": True,
+            "raw_detector_negative_occurrences_retained": len(
+                negative_instances
+            ),
+        }
+    )
+    negative_precedence_path = (
+        out_dir / "negative_preservation_precedence_report.json"
+    )
+    gagd.write_json(negative_precedence_path, negative_precedence_report)
+    firewall_receipt["negative_preservation_precedence"] = {
+        "path": str(negative_precedence_path),
+        "sha256": compositional_method.sha256_file(negative_precedence_path),
+        "official_evaluation_prompts_seen": 0,
+    }
+    gagd.write_json(out_dir / "training_firewall_receipt.json", firewall_receipt)
+    print(
+        "  preservation precedence: "
+        f"{len(preservation_negative_instances)}/{len(negative_instances)} "
+        "coherent negatives retained; the one exact forget-positive collision "
+        "is excluded"
     )
 
     print("\nStage 1: cache and canonicalize frozen layer-input states")
@@ -6909,7 +7389,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         if full_preservation_mode:
             if frozen_v3_5_5_success is None:
-                raise RuntimeError("V3.6 lacks frozen V3.5.5 detector hashes")
+                raise RuntimeError("V3.6.1 lacks frozen V3.5.5 detector hashes")
             detector_replay_receipt["frozen_v3_5_5_gate_delta_sha256"] = (
                 frozen_v3_5_5_success["detector_gate_delta_sha256"]
             )
@@ -6961,7 +7441,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     )
     # Every Stage-2 preservation target is the writer-only model.  The frozen
-    # detector is a read-only branch input in V3.5.5/V3.6 and therefore may not be
+    # detector is a read-only branch input in V3.5.5/V3.6.1 and therefore may not be
     # smuggled into the reference baseline.
     editor.enabled = False
     editor.gate_delta.requires_grad_(False)
@@ -6978,12 +7458,34 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     if full_preservation_mode:
         (
+            pre_target_float32_new,
+            pre_target_float32_true,
+        ) = evaluate_instance_nlls_float32(
+            model,
+            tok,
+            positive_instances,
+            device,
+            llama_like=llama_like,
+            batch_size=int(args.cache_batch_size),
+        )
+        (
             pre_negative_new,
             pre_negative_true,
         ) = compositional_method.evaluate_instance_nlls(
             model,
             tok,
-            negative_instances,
+            preservation_negative_instances,
+            device,
+            llama_like=llama_like,
+            batch_size=int(args.cache_batch_size),
+        )
+        (
+            pre_negative_float32_new,
+            pre_negative_float32_true,
+        ) = evaluate_instance_nlls_float32(
+            model,
+            tok,
+            preservation_negative_instances,
             device,
             llama_like=llama_like,
             batch_size=int(args.cache_batch_size),
@@ -6995,7 +7497,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             raise RuntimeError("registry lacks a positive protected prompt-bank size")
         protected_for_kl = _unique_prompts(
             [
-                *[instance.prompt for instance in negative_instances],
+                *[
+                    instance.prompt
+                    for instance in preservation_negative_instances
+                ],
                 *corpus_prompts,
             ]
         )[:registered_protected_bank]
@@ -7039,6 +7544,94 @@ def main(argv: Sequence[str] | None = None) -> None:
         llama_like=llama_like,
         batch_size=int(args.cache_batch_size),
     )
+    if full_preservation_mode:
+        (
+            pre_writer_off_float32_new,
+            pre_writer_off_float32_true,
+        ) = evaluate_instance_nlls_float32(
+            model,
+            tok,
+            positive_instances,
+            device,
+            llama_like=llama_like,
+            batch_size=int(args.cache_batch_size),
+        )
+        nll_numerics_receipt = {
+            "schema_version": 1,
+            "kind": "mcf_embedding_keyed_neuron_v3_6_1_nll_numerics_receipt",
+            "protocol": PROTOCOL,
+            "training_nll_definition": (
+                "float32 log_softmax current minus float32 log_softmax baseline"
+            ),
+            "acceptance_nll_definition": (
+                "official-compatible native-dtype log_softmax current minus "
+                "native-dtype baseline"
+            ),
+            "mixed_dtype_subtraction_prohibited": True,
+            "negative_preservation_precedence": {
+                "rule": negative_precedence_report["rule"],
+                "matching_scope": negative_precedence_report["matching_scope"],
+                "raw_negative_occurrences": negative_precedence_report[
+                    "raw_negative_occurrences"
+                ],
+                "coherent_preservation_negative_occurrences": (
+                    negative_precedence_report[
+                        "coherent_preservation_negative_occurrences"
+                    ]
+                ),
+                "excluded_multi_role_negative_occurrences": (
+                    negative_precedence_report[
+                        "excluded_multi_role_negative_occurrences"
+                    ]
+                ),
+                "report_sha256": compositional_method.sha256_file(
+                    negative_precedence_path
+                ),
+            },
+            "negative_training_nll_tolerance": float(
+                args.negative_training_nll_tolerance
+            ),
+            "negative_acceptance_nll_tolerance": float(
+                args.negative_nll_tolerance
+            ),
+            "baseline_native_vs_float32_abs": {
+                "positive": _distribution(
+                    torch.cat(
+                        (
+                            (pre_target_new - pre_target_float32_new).abs(),
+                            (pre_target_true - pre_target_float32_true).abs(),
+                        )
+                    ).tolist()
+                ),
+                "negative": _distribution(
+                    torch.cat(
+                        (
+                            (pre_negative_new - pre_negative_float32_new).abs(),
+                            (pre_negative_true - pre_negative_float32_true).abs(),
+                        )
+                    ).tolist()
+                ),
+                "writer_off": _distribution(
+                    torch.cat(
+                        (
+                            (
+                                pre_writer_off_new
+                                - pre_writer_off_float32_new
+                            ).abs(),
+                            (
+                                pre_writer_off_true
+                                - pre_writer_off_float32_true
+                            ).abs(),
+                        )
+                    ).tolist()
+                ),
+            },
+            "official_evaluation_prompts_seen": 0,
+        }
+        gagd.write_json(
+            out_dir / "v3_6_1_nll_numerics_receipt.json",
+            nll_numerics_receipt,
+        )
     selected_ids_device = torch.tensor(
         selected_neurons,
         dtype=torch.long,
@@ -7151,7 +7744,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "revision": (
                 "v3.5.5_exact_detector_replay_separate_actuator_width_sweep"
                 if width_sweep
-                else "v3.6_width16_warm_start_then_full_preservation"
+                else "v3.6.1_width16_coherent_float32_negative_preservation"
             ),
             "initial_down_delta": "exact_zero",
             "feasibility_optimizer_steps": int(args.actuator_feasibility_steps),
@@ -7164,7 +7757,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "records_per_optimizer_update": len(records),
             "positive_contexts_per_optimizer_update": len(positive_instances),
             "negative_contexts_per_optimizer_update": (
-                0 if width_sweep else len(negative_instances)
+                0 if width_sweep else len(preservation_negative_instances)
             ),
             "writer_off_contexts_per_optimizer_update": (
                 0
@@ -7185,6 +7778,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
             "forget_margin": float(args.forget_margin),
             "reference_nll_tolerance": float(args.reference_nll_tolerance),
+            "negative_preservation_weight": float(
+                args.negative_preservation_weight
+            ),
+            "negative_training_nll_tolerance": float(
+                args.negative_training_nll_tolerance
+            ),
+            "negative_acceptance_nll_tolerance": float(
+                args.negative_nll_tolerance
+            ),
             "writer_off_nll_tolerance": float(args.actuator_writer_off_nll_tolerance),
             "relative_norm_cap": float(args.actuator_relative_cap),
             "protected_sampling_seed": actuator_rng_seed,
@@ -7499,7 +8101,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         gagd.write_json(actuator_selection_path, selection_payload)
         if full_preservation_mode:
             if frozen_v3_5_5_success is None:
-                raise RuntimeError("V3.6 lacks the frozen V3.5.5 success receipt")
+                raise RuntimeError("V3.6.1 lacks the frozen V3.5.5 success receipt")
             expected_width16_sha256 = str(
                 frozen_v3_5_5_success.get("width16_ownership_sha256") or ""
             )
@@ -7529,7 +8131,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             if not selection_replay["passed"]:
                 raise RuntimeError(
-                    "V3.6 width-16 actuator selection differs from frozen V3.5.5"
+                    "V3.6.1 width-16 actuator selection differs from frozen V3.5.5"
                 )
         print(
             "  selected nested, detector-disjoint actuator banks at widths "
@@ -7589,14 +8191,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                 0.0, float((current_new - pre_target_new).max())
             )
             negative_abs_max = 0.0
+            negative_float32_abs_max = 0.0
             negative_new = torch.empty(0)
             negative_true = torch.empty(0)
+            negative_float32_new = torch.empty(0)
+            negative_float32_true = torch.empty(0)
             if full_preservation_mode:
                 negative_new, negative_true = (
                     compositional_method.evaluate_instance_nlls(
                         model,
                         tok,
-                        negative_instances,
+                        preservation_negative_instances,
                         device,
                         llama_like=llama_like,
                         batch_size=int(args.cache_batch_size),
@@ -7605,6 +8210,29 @@ def main(argv: Sequence[str] | None = None) -> None:
                 negative_abs_max = max(
                     float((negative_new - pre_negative_new).abs().max()),
                     float((negative_true - pre_negative_true).abs().max()),
+                )
+                (
+                    negative_float32_new,
+                    negative_float32_true,
+                ) = evaluate_instance_nlls_float32(
+                    model,
+                    tok,
+                    preservation_negative_instances,
+                    device,
+                    llama_like=llama_like,
+                    batch_size=int(args.cache_batch_size),
+                )
+                negative_float32_abs_max = max(
+                    float(
+                        (
+                            negative_float32_new - pre_negative_float32_new
+                        ).abs().max()
+                    ),
+                    float(
+                        (
+                            negative_float32_true - pre_negative_float32_true
+                        ).abs().max()
+                    ),
                 )
             embedding_writer.enabled = False
             off_new, off_true = compositional_method.evaluate_instance_nlls(
@@ -7641,8 +8269,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                 )
                 owner_mask = bank.actuator_owner_indices.detach().cpu().eq(record_index)
                 negative_drift_max = 0.0
+                negative_float32_drift_max = 0.0
                 if full_preservation_mode:
-                    negative_indices = negative_indices_by_record[record_index]
+                    negative_indices = preservation_negative_indices_by_record[
+                        record_index
+                    ]
                     negative_drift_max = max(
                         float(
                             (
@@ -7656,6 +8287,24 @@ def main(argv: Sequence[str] | None = None) -> None:
                             (
                                 negative_true[negative_indices]
                                 - pre_negative_true[negative_indices]
+                            )
+                            .abs()
+                            .max()
+                        ),
+                    )
+                    negative_float32_drift_max = max(
+                        float(
+                            (
+                                negative_float32_new[negative_indices]
+                                - pre_negative_float32_new[negative_indices]
+                            )
+                            .abs()
+                            .max()
+                        ),
+                        float(
+                            (
+                                negative_float32_true[negative_indices]
+                                - pre_negative_float32_true[negative_indices]
                             )
                             .abs()
                             .max()
@@ -7677,6 +8326,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                             0.0, float(reference_regression.max())
                         ),
                         "negative_nll_abs_max": negative_drift_max,
+                        "negative_float32_nll_abs_max": (
+                            negative_float32_drift_max
+                        ),
                         "saturated_columns": int(saturated[owner_mask].sum()),
                         "actuator_columns": int(owner_mask.sum()),
                         "group_frobenius_norm": float(group_norms[record_index]),
@@ -7724,6 +8376,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                         args.reference_nll_tolerance
                     ),
                     "negative_nll_abs_max": float(args.negative_nll_tolerance),
+                    "negative_float32_training_target": float(
+                        args.negative_training_nll_tolerance
+                    ),
                     "zero_actuator_identity_abs_max": 1e-6,
                 },
                 "direct_failures": int(direct_failure),
@@ -7734,6 +8389,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "writer_on_nll_abs_max": writer_on_abs_max,
                 "reference_nll_regression_max": reference_regression_max,
                 "negative_nll_abs_max": negative_abs_max,
+                "negative_float32_nll_abs_max": negative_float32_abs_max,
                 "writer_off_nll_abs_max": writer_off_abs_max,
                 "positive_passed": positive_passed,
                 "reference_preservation_passed": reference_passed,
@@ -7761,6 +8417,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         if full_preservation_mode:
             width = 16
             budget_regime = "native_per_column_cap"
+            if frozen_v3_6_rejection is None:
+                raise RuntimeError("V3.6.1 lacks its frozen V3.6 rejection receipt")
             ownership_for_width = actuator_ownership_by_width[width]
             flat_actuator_ids = [
                 neuron for group in ownership_for_width for neuron in group
@@ -7838,7 +8496,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
             zero_identity = full_bank_audit(
                 bank,
-                phase="v3.6_zero_actuator_identity",
+                phase="v3.6.1_zero_actuator_identity",
                 optimizer_step=0,
                 width=width,
                 budget_regime=budget_regime,
@@ -7850,14 +8508,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             zero_identity["identity_nll_abs_max"] = zero_identity_abs_max
             zero_identity["identity_passed"] = bool(zero_identity_abs_max <= 1e-6)
-            zero_identity_path = out_dir / "v3_6_zero_actuator_identity_audit.json"
+            zero_identity_path = out_dir / "v3_6_1_zero_actuator_identity_audit.json"
             gagd.write_json(zero_identity_path, zero_identity)
             if not zero_identity["identity_passed"]:
                 bank.remove()
                 editor.remove()
                 embedding_writer.remove()
                 raise SystemExit(
-                    "V3.6 separate actuator was not an exact identity at zero; "
+                    "V3.6.1 separate actuator was not an exact identity at zero; "
                     "training and official evaluation are refused"
                 )
 
@@ -7866,7 +8524,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             warm_log: List[Dict[str, Any]] = []
             warm_audits: List[Dict[str, Any]] = []
-            warm_log_path = out_dir / "v3_6_positive_warm_start_log.jsonl"
+            warm_log_path = out_dir / "v3_6_1_positive_warm_start_log.jsonl"
             first_passing_step: int | None = None
             print(
                 "\nStage 2a: criterion-stopped width-16 positive warm start "
@@ -7922,7 +8580,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     if should_audit:
                         audit = full_bank_audit(
                             bank,
-                            phase="v3.6_positive_warm_start_check",
+                            phase="v3.6.1_positive_warm_start_check",
                             optimizer_step=step,
                             width=width,
                             budget_regime=budget_regime,
@@ -7940,7 +8598,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                             break
             warm_report = {
                 "schema_version": 1,
-                "kind": "mcf_embedding_keyed_neuron_v3_6_positive_warm_start",
+                "kind": "mcf_embedding_keyed_neuron_v3_6_1_positive_warm_start",
                 "protocol": PROTOCOL,
                 "initial_down_delta": "bit_exact_zero",
                 "optimizer_state": "fresh_adamw_retained_into_full_preservation",
@@ -7963,7 +8621,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "used_to_initialize_full_preservation": first_passing_step is not None,
                 "official_evaluation_prompts_seen": 0,
             }
-            warm_report_path = out_dir / "v3_6_positive_warm_start.json"
+            warm_report_path = out_dir / "v3_6_1_positive_warm_start.json"
             gagd.write_json(warm_report_path, warm_report)
             if first_passing_step is None:
                 gagd.write_json(
@@ -7985,7 +8643,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 editor.remove()
                 embedding_writer.remove()
                 raise SystemExit(
-                    "V3.6 failed to reproduce width-16 positive reachability; "
+                    "V3.6.1 failed to reproduce width-16 positive reachability; "
                     "full preservation and official evaluation are refused"
                 )
 
@@ -7998,7 +8656,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             check_audits: List[Dict[str, Any]] = []
             endpoint_audits: Dict[str, Dict[str, Any]] = {}
             endpoint_paths: Dict[str, Path] = {}
-            full_log_path = out_dir / "v3_6_full_preservation_log.jsonl"
+            full_log_path = out_dir / "v3_6_1_full_preservation_log.jsonl"
             with full_log_path.open("x", encoding="utf-8") as log_handle:
                 for step in range(1, int(args.actuator_steps) + 1):
                     optimizer.zero_grad(set_to_none=True)
@@ -8011,7 +8669,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                     }
                     for record_index in range(len(records)):
                         positive_indices = positive_indices_by_record[record_index]
-                        negative_indices = negative_indices_by_record[record_index]
+                        negative_indices = preservation_negative_indices_by_record[
+                            record_index
+                        ]
                         embedding_writer.enabled = writer_present
                         current_new, current_true = differentiable_group_nlls(
                             positive_instances, positive_indices
@@ -8026,7 +8686,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         reference_loss, _ = (
                             neuron_core.actuator_reference_regression_objective(
                                 current_new,
-                                pre_target_new[positive_indices].to(device),
+                                pre_target_float32_new[positive_indices].to(device),
                                 tolerance=float(args.reference_nll_tolerance),
                                 tail_k=int(args.actuator_tail_k),
                             )
@@ -8038,34 +8698,37 @@ def main(argv: Sequence[str] | None = None) -> None:
                         writer_off_loss, _ = neuron_core.actuator_writer_off_objective(
                             off_new,
                             off_true,
-                            pre_writer_off_new[positive_indices].to(device),
-                            pre_writer_off_true[positive_indices].to(device),
+                            pre_writer_off_float32_new[positive_indices].to(device),
+                            pre_writer_off_float32_true[positive_indices].to(device),
                             tolerance=float(args.actuator_writer_off_nll_tolerance),
                             tail_k=int(args.actuator_tail_k),
                         )
                         embedding_writer.enabled = writer_present
                         negative_new, negative_true = differentiable_group_nlls(
-                            negative_instances, negative_indices
+                            preservation_negative_instances, negative_indices
                         )
                         negative_loss, _ = (
                             neuron_core.actuator_negative_preservation_objective(
                                 negative_new,
                                 negative_true,
-                                pre_negative_new[negative_indices].to(device),
-                                pre_negative_true[negative_indices].to(device),
-                                tolerance=float(args.negative_nll_tolerance),
+                                pre_negative_float32_new[negative_indices].to(device),
+                                pre_negative_float32_true[negative_indices].to(device),
+                                tolerance=float(
+                                    args.negative_training_nll_tolerance
+                                ),
                                 tail_k=int(args.actuator_tail_k),
                             )
                         )
                         record_total = (
                             float(args.margin_weight) * margin_loss
                             + float(args.reference_nll_weight) * reference_loss
-                            + negative_loss
+                            + float(args.negative_preservation_weight)
+                            * negative_loss
                             + float(args.writer_off_nll_weight) * writer_off_loss
                         ) / len(records)
                         if not torch.isfinite(record_total):
                             raise FloatingPointError(
-                                f"non-finite V3.6 record loss at step {step}"
+                                f"non-finite V3.6.1 record loss at step {step}"
                             )
                         record_total.backward()
                         accumulated["margin"] += (
@@ -8117,7 +8780,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                         float(args.margin_weight) * accumulated["margin"]
                         + float(args.reference_nll_weight)
                         * accumulated["reference"]
-                        + accumulated["negative_preservation"]
+                        + float(args.negative_preservation_weight)
+                        * accumulated["negative_preservation"]
                         + float(args.writer_off_nll_weight)
                         * accumulated["writer_off"]
                         + float(args.protected_kl_weight)
@@ -8126,12 +8790,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                     )
                     if not math.isfinite(total_value):
                         raise FloatingPointError(
-                            f"non-finite V3.6 full loss at step {step}"
+                            f"non-finite V3.6.1 full loss at step {step}"
                         )
                     if step == int(args.actuator_steps):
                         endpoint_audits["pre_update"] = full_bank_audit(
                             bank,
-                            phase="v3.6_final_pre_update",
+                            phase="v3.6.1_final_pre_update",
                             optimizer_step=step,
                             width=width,
                             budget_regime=budget_regime,
@@ -8144,7 +8808,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     if step == int(args.actuator_steps):
                         endpoint_audits["post_adam"] = full_bank_audit(
                             bank,
-                            phase="v3.6_final_post_adam",
+                            phase="v3.6.1_final_post_adam",
                             optimizer_step=step,
                             width=width,
                             budget_regime=budget_regime,
@@ -8153,13 +8817,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                     if step == int(args.actuator_steps):
                         endpoint_audits["post_projection"] = full_bank_audit(
                             bank,
-                            phase="v3.6_final_post_projection",
+                            phase="v3.6.1_final_post_projection",
                             optimizer_step=step,
                             width=width,
                             budget_regime=budget_regime,
                         )
                         for phase, audit in endpoint_audits.items():
-                            path = out_dir / f"v3_6_step_{step}_{phase}_audit.json"
+                            path = out_dir / f"v3_6_1_step_{step}_{phase}_audit.json"
                             gagd.write_json(path, audit)
                             endpoint_paths[phase] = path
                     relative = bank.down_relative_norms().float().cpu()
@@ -8173,7 +8837,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                             positive_instances
                         ),
                         "negative_contexts_per_optimizer_update": len(
-                            negative_instances
+                            preservation_negative_instances
                         ),
                         "writer_off_contexts_per_optimizer_update": len(
                             positive_instances
@@ -8196,7 +8860,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     ):
                         audit = full_bank_audit(
                             bank,
-                            phase="v3.6_full_preservation_check",
+                            phase="v3.6.1_full_preservation_check",
                             optimizer_step=step,
                             width=width,
                             budget_regime=budget_regime,
@@ -8207,24 +8871,26 @@ def main(argv: Sequence[str] | None = None) -> None:
                             f"direct fail {audit['direct_failures']}, positive "
                             f"fail {audit['positive_failures']}, reference "
                             f"{audit['reference_nll_regression_max']:.4f}, "
-                            f"negative {audit['negative_nll_abs_max']:.4f}, "
+                            f"negative-native {audit['negative_nll_abs_max']:.4f}, "
+                            f"negative-f32 "
+                            f"{audit['negative_float32_nll_abs_max']:.6f}, "
                             f"writer-off {audit['writer_off_nll_abs_max']:.4f}"
                         )
             del optimizer
 
             final_audit = full_bank_audit(
                 bank,
-                phase="v3.6_final_fresh_full_context_audit",
+                phase="v3.6.1_final_fresh_full_context_audit",
                 optimizer_step=int(args.actuator_steps),
                 width=width,
                 budget_regime=budget_regime,
             )
-            final_audit_path = out_dir / "v3_6_final_full_context_audit.json"
+            final_audit_path = out_dir / "v3_6_1_final_full_context_audit.json"
             gagd.write_json(final_audit_path, final_audit)
             protected_audit = protected_kl_full_audit(
-                phase="v3.6_final_complete_protected_bank"
+                phase="v3.6.1_final_complete_protected_bank"
             )
-            protected_audit_path = out_dir / "v3_6_protected_kl_audit.json"
+            protected_audit_path = out_dir / "v3_6_1_protected_kl_audit.json"
             gagd.write_json(protected_audit_path, protected_audit)
             endpoint_replay = compare_actuator_audits(
                 endpoint_audits["post_projection"],
@@ -8233,7 +8899,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             endpoint_report = {
                 "schema_version": 1,
-                "kind": "mcf_embedding_keyed_neuron_v3_6_actuator_endpoint_audit",
+                "kind": "mcf_embedding_keyed_neuron_v3_6_1_actuator_endpoint_audit",
                 "protocol": PROTOCOL,
                 "optimizer_step": int(args.actuator_steps),
                 "artifacts": {
@@ -8254,7 +8920,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "complete": bool(endpoint_replay["passed"]),
                 "official_evaluation_prompts_seen": 0,
             }
-            endpoint_report_path = out_dir / "v3_6_actuator_endpoint_audit.json"
+            endpoint_report_path = out_dir / "v3_6_1_actuator_endpoint_audit.json"
             gagd.write_json(endpoint_report_path, endpoint_report)
 
             detector_unchanged = bool(
@@ -8293,7 +8959,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             embedding_writer.enabled = writer_present
             causal_audit = {
                 "schema_version": 1,
-                "kind": "mcf_embedding_keyed_neuron_v3_6_causal_component_audit",
+                "kind": "mcf_embedding_keyed_neuron_v3_6_1_causal_component_audit",
                 "protocol": PROTOCOL,
                 "writer_only": {
                     "direct_failures": writer_only_direct,
@@ -8325,7 +8991,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 causal_audit["writer_necessary"]
                 and causal_audit["actuator_necessary"]
             )
-            causal_audit_path = out_dir / "v3_6_causal_component_audit.json"
+            causal_audit_path = out_dir / "v3_6_1_causal_component_audit.json"
             gagd.write_json(causal_audit_path, causal_audit)
             norm_cap_passed = bool(
                 float(final_audit["norms"]["down_relative_norm"]["max"])
@@ -8339,7 +9005,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     and row["positive_contexts_per_optimizer_update"]
                     == len(positive_instances)
                     and row["negative_contexts_per_optimizer_update"]
-                    == len(negative_instances)
+                    == len(preservation_negative_instances)
                     and row["writer_off_contexts_per_optimizer_update"]
                     == len(positive_instances)
                     and row["protected_contexts_per_optimizer_update"]
@@ -8360,7 +9026,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             full_report = {
                 "schema_version": 1,
-                "kind": "mcf_embedding_keyed_neuron_v3_6_full_preservation_training",
+                "kind": "mcf_embedding_keyed_neuron_v3_6_1_full_preservation_training",
                 "protocol": PROTOCOL,
                 "actuator_width": width,
                 "actuator_columns": len(flat_actuator_ids),
@@ -8376,10 +9042,48 @@ def main(argv: Sequence[str] | None = None) -> None:
                     "positive_reference_nll_weight": float(
                         args.reference_nll_weight
                     ),
-                    "negative_preservation_weight": 1.0,
+                    "negative_preservation_weight": float(
+                        args.negative_preservation_weight
+                    ),
+                    "negative_training_nll_tolerance": float(
+                        args.negative_training_nll_tolerance
+                    ),
+                    "negative_acceptance_nll_tolerance": float(
+                        args.negative_nll_tolerance
+                    ),
                     "writer_off_weight": float(args.writer_off_nll_weight),
                     "protected_kl_weight": float(args.protected_kl_weight),
                     "actuator_l2": float(args.actuator_l2),
+                },
+                "nll_numerics": {
+                    "training": "float32_current_minus_float32_baseline",
+                    "acceptance": "native_current_minus_native_baseline",
+                    "negative_training_tolerance": float(
+                        args.negative_training_nll_tolerance
+                    ),
+                    "negative_acceptance_tolerance": float(
+                        args.negative_nll_tolerance
+                    ),
+                    "mixed_dtype_subtraction_prohibited": True,
+                },
+                "negative_preservation_precedence": {
+                    "rule": negative_precedence_report["rule"],
+                    "matching_scope": negative_precedence_report[
+                        "matching_scope"
+                    ],
+                    "raw_negative_occurrences": len(negative_instances),
+                    "coherent_preservation_negative_occurrences": len(
+                        preservation_negative_instances
+                    ),
+                    "excluded_multi_role_negative_occurrences": len(
+                        negative_precedence_report["excluded_occurrences"]
+                    ),
+                    "report": {
+                        "path": str(negative_precedence_path),
+                        "sha256": compositional_method.sha256_file(
+                            negative_precedence_path
+                        ),
+                    },
                 },
                 "incremental_log": {
                     "path": str(full_log_path),
@@ -8395,16 +9099,16 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "passed": training_passed,
                 "official_evaluation_prompts_seen": 0,
             }
-            full_report_path = out_dir / "v3_6_full_preservation_training.json"
+            full_report_path = out_dir / "v3_6_1_full_preservation_training.json"
             gagd.write_json(full_report_path, full_report)
 
-            candidate_path = out_dir / "v3_6_candidate_state.pt"
+            candidate_path = out_dir / "v3_6_1_candidate_state.pt"
             candidate_saved = False
             if training_passed:
                 torch.save(
                     {
                         "schema_version": 1,
-                        "kind": "mcf_embedding_keyed_neuron_v3_6_candidate_state",
+                        "kind": "mcf_embedding_keyed_neuron_v3_6_1_candidate_state",
                         "protocol": PROTOCOL,
                         "case_ids": case_ids,
                         "model_path": str(Path(args.model_path).resolve()),
@@ -8424,6 +9128,21 @@ def main(argv: Sequence[str] | None = None) -> None:
                             "frozen_v3_5_5_success_import_sha256": (
                                 compositional_method.sha256_file(
                                     out_dir / "frozen_v3_5_5_success_import.json"
+                                )
+                            ),
+                            "frozen_v3_6_rejection_import_sha256": (
+                                compositional_method.sha256_file(
+                                    out_dir / "frozen_v3_6_rejection_import.json"
+                                )
+                            ),
+                            "nll_numerics_receipt_sha256": (
+                                compositional_method.sha256_file(
+                                    out_dir / "v3_6_1_nll_numerics_receipt.json"
+                                )
+                            ),
+                            "negative_preservation_precedence_sha256": (
+                                compositional_method.sha256_file(
+                                    negative_precedence_path
                                 )
                             ),
                             "exact_v3_5_4_detector_replay_sha256": (
@@ -8506,13 +9225,30 @@ def main(argv: Sequence[str] | None = None) -> None:
 
             completion = {
                 "schema_version": 1,
-                "kind": "mcf_embedding_keyed_neuron_v3_6_training_only_completion",
+                "kind": "mcf_embedding_keyed_neuron_v3_6_1_training_only_completion",
                 "protocol": PROTOCOL,
                 "architecture": {
                     "detector_neurons_per_record": 4,
                     "actuator_neurons_per_record": 16,
                     "layer": int(args.neuron_layer),
                     "native_per_column_relative_cap": cap,
+                },
+                "negative_preservation": {
+                    "training_weight": float(args.negative_preservation_weight),
+                    "float32_training_tolerance": float(
+                        args.negative_training_nll_tolerance
+                    ),
+                    "native_dtype_acceptance_tolerance": float(
+                        args.negative_nll_tolerance
+                    ),
+                    "precedence_rule": negative_precedence_report["rule"],
+                    "raw_negative_occurrences": len(negative_instances),
+                    "coherent_preservation_negative_occurrences": len(
+                        preservation_negative_instances
+                    ),
+                    "excluded_multi_role_negative_occurrences": len(
+                        negative_precedence_report["excluded_occurrences"]
+                    ),
                 },
                 "positive_warm_start_passed": bool(warm_report["passed"]),
                 "positive_warm_start_first_passing_step": first_passing_step,
@@ -8534,7 +9270,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     else "training_only_full_preservation_failed"
                 ),
             }
-            completion_path = out_dir / "training_only_v3_6_completion.json"
+            completion_path = out_dir / "training_only_v3_6_1_completion.json"
             gagd.write_json(completion_path, completion)
             if not training_passed:
                 gagd.write_json(
@@ -8553,11 +9289,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             embedding_writer.remove()
             if not training_passed:
                 raise SystemExit(
-                    "V3.6 failed one or more locked training-only preservation "
+                    "V3.6.1 failed one or more locked training-only preservation "
                     "gates; no checkpoint was saved and official evaluation is refused"
                 )
             print(
-                "V3.6 training-only full preservation passed; candidate state "
+                "V3.6.1 training-only full preservation passed; candidate state "
                 "frozen for a separately registered official-evaluation process"
             )
             return

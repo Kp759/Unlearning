@@ -262,6 +262,50 @@ def _v3_6_full_scope():
     }
 
 
+def _v3_6_1_coherent_scope():
+    return {
+        "training_only": True,
+        "source_v3_6_rejection_hash_bound": True,
+        "source_v3_6_positive_warm_start_passed": True,
+        "source_v3_6_full_preservation_updates": 200,
+        "source_v3_6_candidate_checkpoint_saved": False,
+        "source_v3_6_official_evaluation_prompts_seen": 0,
+        "source_v3_6_negative_nll_abs_max": 0.125,
+        "source_v3_6_negative_nll_acceptance_ceiling": 0.05,
+        "exact_v3_5_4_detector_tensor_replay_required": True,
+        "exact_v3_5_5_width16_selection_replay_required": True,
+        "detector_neurons_per_record": 4,
+        "actuator_neurons_per_record": 16,
+        "detector_actuator_neurons_disjoint": True,
+        "neuron_layer": 27,
+        "native_per_column_relative_cap": 1.5,
+        "positive_warm_start_max_updates": 100,
+        "positive_warm_start_check_every": 5,
+        "positive_warm_start_first_passing_audit_selected": True,
+        "warm_start_optimizer_state_retained": True,
+        "full_preservation_optimizer_updates": 200,
+        "negative_training_nll_tolerance": 0.0,
+        "negative_acceptance_nll_tolerance": 0.05,
+        "negative_preservation_weight": 50.0,
+        "raw_negative_occurrences": 465,
+        "coherent_preservation_negative_occurrences": 464,
+        "excluded_multi_role_negative_occurrences": 1,
+        "negative_prompt_precedence": (
+            "forget_positive_exact_prompt_precedes_preservation_negative"
+        ),
+        "negative_precedence_matching_scope": "byte_exact_full_prompt_only",
+        "excluded_negative_prompt_sha256": (
+            "9a4070c81368070d9ee1383958c18109bf7af90ee59042b3132b7a51e9d6ca38"
+        ),
+        "lexical_or_subtoken_overlap_exclusion_prohibited": True,
+        "all_records_and_contexts_per_update": True,
+        "complete_protected_bank_final_audit_required": True,
+        "candidate_checkpoint_requires_every_training_gate": True,
+        "rejected_checkpoint_creation_prohibited": True,
+        "official_evaluation_prohibited_in_learner": True,
+    }
+
+
 def _detector_training_revision():
     return {
         "version": "v3.5.4_canonical_multilabel_balanced_tail_repair",
@@ -367,8 +411,21 @@ def _detector_training_revision():
 
 def _actuator_training_revision():
     return {
-        "version": "v3.6",
-        "mode": "training_only_width16_warm_start_then_full_preservation",
+        "version": "v3.6.1",
+        "mode": "training_only_width16_coherent_float32_negative_preservation",
+        "source_v3_6_protocol": method.FROZEN_V3_6_PROTOCOL,
+        "source_v3_6_rejection_hash_receipt_required": True,
+        "source_v3_6_result": {
+            "positive_warm_start_passed": True,
+            "positive_warm_start_first_passing_step": 35,
+            "full_preservation_optimizer_updates": 200,
+            "final_logged_positive_failures": 0,
+            "final_logged_writer_off_nll_abs_max": 0.0,
+            "final_native_negative_nll_abs_max": 0.125,
+            "negative_nll_acceptance_ceiling": 0.05,
+            "candidate_checkpoint_saved": False,
+            "official_evaluation_prompts_seen": 0,
+        },
         "source_v3_5_5_protocol": method.FROZEN_V3_5_5_PROTOCOL,
         "source_v3_5_5_success_hash_receipt_required": True,
         "source_v3_5_5_detector_tensor_replay_required": True,
@@ -441,17 +498,35 @@ def _actuator_training_revision():
             "optimizer_state_reinitialized_after_warm_start": False,
             "records_per_optimizer_update": 50,
             "positive_contexts_per_optimizer_update": 346,
-            "negative_contexts_per_optimizer_update": 465,
+            "raw_negative_occurrences": 465,
+            "negative_contexts_per_optimizer_update": 464,
+            "excluded_multi_role_negative_occurrences": 1,
+            "negative_prompt_precedence": (
+                "forget_positive_exact_prompt_precedes_preservation_negative"
+            ),
+            "negative_precedence_matching_scope": "byte_exact_full_prompt_only",
+            "excluded_negative_prompt_sha256": (
+                "9a4070c81368070d9ee1383958c18109bf7af90ee59042b3132b7a51e9d6ca38"
+            ),
+            "lexical_or_subtoken_overlap_exclusion_prohibited": True,
             "writer_off_contexts_per_optimizer_update": 346,
             "protected_contexts_per_optimizer_update": 80,
             "protected_prompt_bank": 8192,
             "protected_sampling_seed_offset": 78103,
             "positive_margin_weight": 20.0,
             "positive_reference_nll_weight": 50.0,
-            "negative_preservation_weight": 1.0,
+            "negative_preservation_weight": 50.0,
+            "negative_training_nll_tolerance": 0.0,
+            "negative_acceptance_nll_tolerance": 0.05,
             "negative_preservation_objective": (
-                "equal-record mean-plus-worst-two squared absolute NLL drift "
-                "excess above the fixed 0.05 acceptance band"
+                "on the coherent 464-occurrence preservation bank, equal-record "
+                "mean-plus-worst-two squared absolute float32-current minus "
+                "float32-baseline NLL drift with a zero training target; exact "
+                "native-dtype acceptance remains at 0.05"
+            ),
+            "negative_audit_numerics": (
+                "report differentiable float32 and exact official-compatible "
+                "native-dtype drift separately"
             ),
             "writer_off_weight": 50.0,
             "protected_kl_weight": 20.0,
@@ -975,6 +1050,67 @@ def test_multilabel_manifest_preserves_roles_and_canonicalizes_duplicate_state()
 def test_multilabel_manifest_rejects_same_record_role_contradiction():
     with pytest.raises(RuntimeError, match="same record"):
         method.build_multilabel_prompt_manifest([["same"]], [["same"]], [10])
+
+
+def test_forget_positive_precedence_excludes_only_exact_multirole_prompt():
+    positives = [["shared prompt"], ["record one positive"]]
+    negatives = [
+        ["ordinary negative"],
+        ["shared prompt", "shared prompt with different context"],
+    ]
+    case_ids = [10472, 19763]
+    manifest = method.build_multilabel_prompt_manifest(
+        positives, negatives, case_ids
+    )
+    instances = [
+        method.mcf_repair.MCFPromptInstance(
+            record_index=10472,
+            sampled_position=0,
+            prompt_type="unrelated_subject",
+            prompt_index=0,
+            prompt="ordinary negative",
+            target_new="new-0",
+            target_true="true-0",
+        ),
+        method.mcf_repair.MCFPromptInstance(
+            record_index=19763,
+            sampled_position=1,
+            prompt_type="unrelated_subject",
+            prompt_index=0,
+            prompt="shared prompt",
+            target_new="new-1",
+            target_true="true-1",
+        ),
+        method.mcf_repair.MCFPromptInstance(
+            record_index=19763,
+            sampled_position=1,
+            prompt_type="unrelated_subject",
+            prompt_index=1,
+            prompt="shared prompt with different context",
+            target_new="new-1",
+            target_true="true-1",
+        ),
+    ]
+
+    coherent, by_record, report = (
+        method.apply_forget_positive_precedence_to_negative_instances(
+            instances, manifest, case_ids
+        )
+    )
+
+    assert [row.prompt for row in coherent] == [
+        "ordinary negative",
+        "shared prompt with different context",
+    ]
+    assert by_record == [[0], [1]]
+    assert report["raw_negative_occurrences"] == 3
+    assert report["coherent_preservation_negative_occurrences"] == 2
+    assert report["excluded_multi_role_negative_occurrences"] == 1
+    assert report["matching_scope"] == "byte_exact_full_prompt_only"
+    assert report["lexical_or_subtoken_overlap_is_not_excluded"]
+    excluded = report["excluded_occurrences"][0]
+    assert excluded["negative_source_case_id"] == 19763
+    assert excluded["positive_active_case_ids"] == [10472]
 
 
 def test_global_writer_off_tail_adds_complete_update_extreme():
@@ -1504,7 +1640,7 @@ def test_actuator_positive_objective_is_mean_plus_worst_two_shortfall():
     assert loss == pytest.approx((1.0 + 0.25) / 3.0 + (1.0 + 0.25) / 2.0)
 
 
-def test_actuator_negative_preservation_uses_registered_drift_band():
+def test_actuator_negative_preservation_supports_zero_training_target():
     baseline_new = torch.tensor([1.0, 2.0])
     baseline_true = torch.tensor([3.0, 4.0])
     inside, _ = core.actuator_negative_preservation_objective(
@@ -1525,6 +1661,15 @@ def test_actuator_negative_preservation_uses_registered_drift_band():
     )
     assert float(inside) == pytest.approx(0.0, abs=1e-12)
     assert float(outside) > 0.0
+    zero_target, _ = core.actuator_negative_preservation_objective(
+        baseline_new + torch.tensor([0.001, 0.0]),
+        baseline_true,
+        baseline_new,
+        baseline_true,
+        tolerance=0.0,
+        tail_k=2,
+    )
+    assert float(zero_target) > 0.0
     with pytest.raises(ValueError, match="non-negative"):
         core.actuator_negative_preservation_objective(
             baseline_new,
@@ -3415,6 +3560,7 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         "v3_5_4_scope": _v3_5_4_balanced_scope(),
         "v3_5_5_scope": _v3_5_5_width_scope(),
         "v3_6_scope": _v3_6_full_scope(),
+        "v3_6_1_scope": _v3_6_1_coherent_scope(),
         "detector_training_revision": _detector_training_revision(),
         "actuator_training_revision": _actuator_training_revision(),
         "selected_neuron_ownership_binding": {
@@ -3462,17 +3608,17 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         method._validate_experiment_registry(registry, args)
 
 
-def test_repository_registry_binds_v3_6_width16_full_preservation():
+def test_repository_registry_binds_v3_6_1_coherent_full_preservation():
     registry_path = (
         Path(__file__).resolve().parents[1]
         / "protocols"
         / "mcf_embedding_keyed_neuron_ablation_registry_v1.json"
     )
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert registry["schema_version"] == 17
+    assert registry["schema_version"] == 18
     assert registry["protocol"] == core.PROTOCOL
     assert registry["development_history"][-1]["version"] == (
-        "v15_embedding_keyed_gate_v3_5_5_width16_mechanism_readiness"
+        "v16_embedding_keyed_gate_v3_6_negative_locality_rejection"
     )
     contradiction = next(
         row["contradictory_prompt"]
@@ -3487,14 +3633,16 @@ def test_repository_registry_binds_v3_6_width16_full_preservation():
     assert contradiction["negative_detector_case_id"] == 10472
     latest = registry["development_history"][-1]
     assert not latest["official_evaluation_opened_by_this_run"]
-    assert latest["actuator_width_sweep"][
-        "selected_smallest_mechanism_ready_width"
-    ] == 16
-    assert latest["actuator_width_sweep"]["native_width16_final_shortfall"] == 0.0
-    assert latest["actuator_width_sweep"]["native_width16_saturated_columns"] == 34
-    assert not latest["actuator_width_sweep"][
-        "matched_width4_group_budget_width16_positive_reachable"
-    ]
+    assert latest["negative_locality"]["observed_final_native_dtype_abs_max"] == (
+        pytest.approx(0.125)
+    )
+    assert latest["negative_locality"]["incoherent_multi_role_negative_occurrences"] == 1
+    assert registry["v3_6_1_scope"][
+        "negative_prompt_precedence"
+    ] == "forget_positive_exact_prompt_precedes_preservation_negative"
+    assert registry["v3_6_1_scope"][
+        "coherent_preservation_negative_occurrences"
+    ] == 464
     assert (
         registry["selected_neuron_ownership_binding"]["jq_compact_sha256"]
         == "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
@@ -3530,6 +3678,10 @@ def test_repository_registry_binds_v3_6_width16_full_preservation():
     assert registry["primary_configuration"]["actuator_steps"] == 200
     assert registry["primary_configuration"]["actuator_protected_batch"] == 80
     assert registry["primary_configuration"]["negative_nll_tolerance"] == 0.05
+    assert registry["primary_configuration"]["negative_preservation_weight"] == 50
+    assert registry["primary_configuration"][
+        "negative_training_nll_tolerance"
+    ] == 0
     assert registry["primary_configuration"]["protected_kl_mean_tolerance"] == 0.05
     assert registry["primary_configuration"]["protected_kl_max_tolerance"] == 0.5
     assert registry["primary_configuration"]["save_checkpoint"]
@@ -3578,6 +3730,8 @@ def test_repository_registry_binds_v3_6_width16_full_preservation():
             "rejected-v3.5.4",
             "--frozen-v3-5-5-run-dir",
             "passed-v3.5.5",
+            "--frozen-v3-6-run-dir",
+            "rejected-v3.6",
             "--detector-steps",
             "100",
             "--detector-global-tail-weight",
@@ -3593,6 +3747,10 @@ def test_repository_registry_binds_v3_6_width16_full_preservation():
             "1.5",
             "--actuator-steps",
             "200",
+            "--negative-preservation-weight",
+            "50",
+            "--negative-training-nll-tolerance",
+            "0",
             "--save-checkpoint",
         ]
     )
@@ -3676,6 +3834,36 @@ def test_v3_6_launcher_freezes_width16_and_runs_training_only_preservation():
     ).read_text(encoding="utf-8")
     assert "run_mcf_embedding_keyed_neuron_v3_6_full_preservation" in submit
     assert "mcf_embedding_keyed_neuron_v3_6_${JOB_ID}.out" in submit
+
+
+def test_v3_6_1_launcher_repairs_only_the_incoherent_negative_occurrence():
+    root = Path(__file__).resolve().parents[1]
+    manual = (
+        root / "scripts" / "run_mcf_embedding_keyed_neuron_v3_6_1_manual.sh"
+    ).read_text(encoding="utf-8")
+    assert "[[ $# -ne 11 ]]" in manual
+    assert "FROZEN_V3_6_OUTPUT_DIR" in manual
+    assert "v3_6_1_coherent_preservation" in manual
+    launcher = (
+        root
+        / "slurm"
+        / "run_mcf_embedding_keyed_neuron_v3_6_1_coherent_preservation_seed1_3b.slurm"
+    ).read_text(encoding="utf-8")
+    assert "--frozen-v3-6-run-dir" in launcher
+    assert "--negative-preservation-weight 50" in launcher
+    assert "--negative-training-nll-tolerance 0" in launcher
+    assert "--negative-nll-tolerance 0.05" in launcher
+    assert "raw_negative_occurrences == 465" in launcher
+    assert "coherent_preservation_negative_occurrences == 464" in launcher
+    assert "excluded_multi_role_negative_occurrences == 1" in launcher
+    assert "byte_exact_full_prompt_only" in launcher
+    assert "negative_preservation_precedence_report.json" in launcher
+    assert "v3_6_1_nll_numerics_receipt.json" in launcher
+    assert "v3_6_1_candidate_state.pt" in launcher
+    assert "eligible_for_separate_official_evaluation == true" in launcher
+    assert "official_evaluation_allowed_in_this_process == false" in launcher
+    assert "env -u MCF_PATH" in launcher
+    assert "mcf_zero_unlearn_official_eval.py" not in launcher
 
 
 def test_final_report_requires_metrics_mechanism_and_firewall_to_pass():
