@@ -1,0 +1,37 @@
+{
+  "architecture": {
+    "arithmetic_logit_offsets": 0,
+    "claim_scope": "contextual_behavioral_suppression_not_latent_erasure",
+    "closed_route_returns_base_tensor_object": true,
+    "embedding_parameters_mutated": false,
+    "intervention": "causal_directional_original_answer_logit_permutation_with_reserved_special_slots",
+    "learned_actuator_parameters": 0,
+    "learned_detector_parameters": 0,
+    "lm_head_parameters_mutated": false,
+    "normalization_preserving_by_construction": true,
+    "ordinary_non_target_logits_unchanged_by_construction": true,
+    "route": "boundary_complete_exact_subject_token_sequence",
+    "route_parameters": 0,
+    "transformer_parameters_mutated": false
+  },
+  "candidate_view": "direct_forget_prompt_subject_and_original_answer_only",
+  "collision_policy": {
+    "audit_identity": "tokenized_full_scorer_input_and_target_token_id",
+    "forget_positive_precedes_exact_preservation_label": true,
+    "official_metrics_unchanged": true,
+    "report_full_input_overlaps_separately": true
+  },
+  "fresh_seed_candidate_or_evaluation_permitted": false,
+  "heldout_view": "forget_rephrase_and_locality_plus_all_retain_and_ppl",
+  "official_acceptance": {
+    "forget_eff": 0.0,
+    "forget_gen": 0.0,
+    "forget_specificity": "exact_base_raw_output_on_coherent_cells",
+    "ppl": "exact_base",
+    "retain": "exact_base_raw_output_on_coherent_cells"
+  },
+  "protocol": "zsre_exact_subject_normalization_preserving_sidecar_v6_0",
+  "reserved_special_token_pool_size": 128,
+  "seed": 1,
+  "status": "consumed_seed1_development_only"
+}
