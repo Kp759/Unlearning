@@ -77,6 +77,15 @@ Its learner is cryptographically bound to direct-only/training-safe artifacts;
 official paraphrase, locality, retain, PPL, alias, and adversarial probes are
 opened only by separate post-checkpoint processes.
 
+The registered successor architecture, which jointly resolves overlapping
+subject subwords, classifies sensitive subject-relation states inside the
+Transformer, keeps the LM head frozen, and uses a separate sparse actuator, is
+documented in
+[MCF_INTERNAL_CONTEXTUAL_REWIRING_V1.md](MCF_INTERNAL_CONTEXTUAL_REWIRING_V1.md).
+The V5/V6 external sidecars are retained only as historical behavioral
+controls; their terminal disposition is recorded in
+[`protocols/mcf_external_sidecar_lineage_retirement_v1.json`](protocols/mcf_external_sidecar_lineage_retirement_v1.json).
+
 Skip extraction if hidden states are already cached:
 ```bash
 python scripts/run_pipeline.py --config config/config.yaml --skip-extraction

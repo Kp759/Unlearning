@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "protocol": "mcf_external_sidecar_lineage_retirement_v1",
+  "status": "terminal_research_architecture_retired_control_only",
+  "decision": "Stop developing or spending new confirmation seeds on inference-time subject/string routers and logit sidecars.",
+  "retired_protocols": [
+    "mcf_exact_subject_target_logit_sidecar_v5_0",
+    "mcf_exact_subject_target_logit_sidecar_v5_0_fresh_multiseed_confirmation_v1",
+    "mcf_normalization_preserving_entity_sidecar_v6_0",
+    "zsre_exact_subject_normalization_preserving_sidecar_v6_0"
+  ],
+  "historical_artifacts_preserved": true,
+  "historical_results_may_be_reported_as_controls": true,
+  "new_candidate_builds_permitted": false,
+  "new_seed_evaluations_permitted": false,
+  "strong_unlearning_claim_permitted": false,
+  "reason": [
+    "The intervention depends on an external surface-form router at inference time.",
+    "Removing the sidecar restores the original model behavior and knowledge.",
+    "Exact Eff/Gen/Spe/PPL can therefore demonstrate a behavioral control but not internal erasure.",
+    "The research objective requires embedding, internal classifier, and sparse rewiring mechanisms inside the model causal path."
+  ],
+  "successor_protocol": "mcf_internal_fact_conditional_embedding_rewiring_v1",
+  "successor_registry": "protocols/mcf_internal_contextual_rewiring_v1_registry.json",
+  "frozen_historical_registries_are_not_rewritten": true,
+  "note": "The original V5/V6 registries remain byte-stable evidence of what was registered at execution time; this later terminal decision supersedes their future-run permissions."
+}
