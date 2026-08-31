@@ -306,6 +306,62 @@ def _v3_6_1_coherent_scope():
     }
 
 
+def _v3_6_2_hard_tail_scope():
+    return {
+        "training_only": True,
+        "source_v3_6_1_rejection_hash_bound": True,
+        "source_v3_6_1_final_behavioral_audit_passed": True,
+        "source_v3_6_1_complete_training_log": True,
+        "source_v3_6_1_protected_prompt_bank": 8192,
+        "source_v3_6_1_protected_kl_mean": 0.001462974352762103,
+        "source_v3_6_1_protected_kl_p99": 0.002138720825314522,
+        "source_v3_6_1_protected_kl_absolute_max": 3.148702621459961,
+        "source_v3_6_1_protected_kl_absolute_max_ceiling": 0.5,
+        "source_v3_6_1_all_other_locked_gates_passed": True,
+        "source_v3_6_1_candidate_checkpoint_saved": False,
+        "source_v3_6_1_official_evaluation_prompts_seen": 0,
+        "writer_detector_actuator_architecture_unchanged": True,
+        "detector_neurons_per_record": 4,
+        "actuator_neurons_per_record": 16,
+        "neuron_layer": 27,
+        "native_per_column_relative_cap": 1.5,
+        "positive_warm_start_and_optimizer_state_policy_unchanged": True,
+        "full_preservation_optimizer_updates": 200,
+        "coherent_negative_preservation_unchanged": True,
+        "protected_prompt_bank": 8192,
+        "protected_random_contexts_per_optimizer_update": 80,
+        "protected_hard_tail_size": 16,
+        "protected_total_contexts_per_optimizer_update": 96,
+        "protected_hard_tail_refresh_every_optimizer_steps": 20,
+        "protected_hard_tail_refresh_steps": [
+            1,
+            21,
+            41,
+            61,
+            81,
+            101,
+            121,
+            141,
+            161,
+            181,
+        ],
+        "protected_hard_tail_selection": (
+            "complete_bank_top_kl_descending_then_prompt_index_ascending"
+        ),
+        "protected_hard_tail_training_target": 0.25,
+        "protected_hard_tail_weight": 50.0,
+        "protected_hard_tail_objective": (
+            "mean_squared_excess_above_training_target"
+        ),
+        "protected_kl_mean_acceptance_ceiling_unchanged": 0.05,
+        "protected_kl_absolute_max_acceptance_ceiling_unchanged": 0.5,
+        "complete_protected_bank_final_audit_required": True,
+        "candidate_checkpoint_requires_every_training_gate": True,
+        "rejected_checkpoint_creation_prohibited": True,
+        "official_evaluation_prohibited_in_learner": True,
+    }
+
+
 def _detector_training_revision():
     return {
         "version": "v3.5.4_canonical_multilabel_balanced_tail_repair",
@@ -411,8 +467,8 @@ def _detector_training_revision():
 
 def _actuator_training_revision():
     return {
-        "version": "v3.6.1",
-        "mode": "training_only_width16_coherent_float32_negative_preservation",
+        "version": "v3.6.2",
+        "mode": "training_only_width16_protected_hard_tail_preservation",
         "source_v3_6_protocol": method.FROZEN_V3_6_PROTOCOL,
         "source_v3_6_rejection_hash_receipt_required": True,
         "source_v3_6_result": {
@@ -423,6 +479,27 @@ def _actuator_training_revision():
             "final_logged_writer_off_nll_abs_max": 0.0,
             "final_native_negative_nll_abs_max": 0.125,
             "negative_nll_acceptance_ceiling": 0.05,
+            "candidate_checkpoint_saved": False,
+            "official_evaluation_prompts_seen": 0,
+        },
+        "source_v3_6_1_protocol": method.FROZEN_V3_6_1_PROTOCOL,
+        "source_v3_6_1_rejection_hash_receipt_required": True,
+        "source_v3_6_1_result": {
+            "positive_warm_start_passed": True,
+            "positive_warm_start_first_passing_step": 35,
+            "full_preservation_optimizer_updates": 200,
+            "final_behavioral_audit_passed": True,
+            "complete_training_log": True,
+            "protected_prompt_bank": 8192,
+            "protected_kl_mean": 0.001462974352762103,
+            "protected_kl_p99": 0.002138720825314522,
+            "protected_kl_absolute_max": 3.148702621459961,
+            "protected_kl_absolute_max_ceiling": 0.5,
+            "endpoint_complete": True,
+            "detector_tensors_unchanged": True,
+            "lm_head_bit_identical": True,
+            "causal_audit_passed": True,
+            "norm_cap_passed": True,
             "candidate_checkpoint_saved": False,
             "official_evaluation_prompts_seen": 0,
         },
@@ -511,8 +588,31 @@ def _actuator_training_revision():
             "lexical_or_subtoken_overlap_exclusion_prohibited": True,
             "writer_off_contexts_per_optimizer_update": 346,
             "protected_contexts_per_optimizer_update": 80,
+            "protected_hard_tail_contexts_per_optimizer_update": 16,
+            "protected_total_contexts_per_optimizer_update": 96,
             "protected_prompt_bank": 8192,
             "protected_sampling_seed_offset": 78103,
+            "protected_hard_tail_refresh_every_optimizer_steps": 20,
+            "protected_hard_tail_refresh_steps": [
+                1,
+                21,
+                41,
+                61,
+                81,
+                101,
+                121,
+                141,
+                161,
+                181,
+            ],
+            "protected_hard_tail_selection": (
+                "complete_bank_top_kl_descending_then_prompt_index_ascending"
+            ),
+            "protected_hard_tail_training_target": 0.25,
+            "protected_hard_tail_weight": 50.0,
+            "protected_hard_tail_objective": (
+                "mean_squared_excess_above_training_target"
+            ),
             "positive_margin_weight": 20.0,
             "positive_reference_nll_weight": 50.0,
             "negative_preservation_weight": 50.0,
@@ -1640,6 +1740,31 @@ def test_actuator_positive_objective_is_mean_plus_worst_two_shortfall():
     assert loss == pytest.approx((1.0 + 0.25) / 3.0 + (1.0 + 0.25) / 2.0)
 
 
+def test_protected_hard_tail_selection_is_worst_first_with_stable_ties():
+    terms = torch.tensor([0.0, 3.0, 0.5, 3.0, 0.25])
+    selected = core.select_protected_hard_tail_indices(terms, tail_size=3)
+    assert selected.tolist() == [1, 3, 2]
+    with pytest.raises(ValueError, match="1..bank_size"):
+        core.select_protected_hard_tail_indices(terms, tail_size=0)
+
+
+def test_protected_hard_tail_objective_has_headroom_below_locked_max():
+    terms = torch.tensor([0.10, 0.25, 0.50, 1.25])
+    loss, metrics = core.protected_hard_tail_objective(
+        terms,
+        training_target=0.25,
+    )
+    expected = (0.0 + 0.0 + 0.25**2 + 1.0**2) / 4.0
+    assert float(loss) == pytest.approx(expected)
+    assert float(metrics["hard_tail_kl_max"]) == pytest.approx(1.25)
+    assert int(metrics["hard_tail_violations"]) == 2
+    safe, _ = core.protected_hard_tail_objective(
+        torch.tensor([0.0, 0.249]),
+        training_target=0.25,
+    )
+    assert float(safe) == pytest.approx(0.0)
+
+
 def test_actuator_negative_preservation_supports_zero_training_target():
     baseline_new = torch.tensor([1.0, 2.0])
     baseline_true = torch.tensor([3.0, 4.0])
@@ -2734,6 +2859,114 @@ def test_frozen_v3_5_5_success_binds_width16_selection_and_controls(tmp_path):
         method.validate_frozen_v3_5_5_success(tmp_path / "v3_5_5")
 
 
+def test_frozen_v3_6_1_rejection_binds_the_sole_protected_max_gate_failure(tmp_path):
+    method_dir = tmp_path / "v3_6_1" / "method"
+    method_dir.mkdir(parents=True)
+    protocol = method.FROZEN_V3_6_1_PROTOCOL
+    zero_official = {"official_evaluation_prompts_seen": 0}
+    artifacts = {
+        "negative_preservation_precedence_report.json": {
+            "protocol": protocol,
+            "registered": True,
+            "raw_negative_occurrences": 465,
+            "coherent_preservation_negative_occurrences": 464,
+            "excluded_multi_role_negative_occurrences": 1,
+            **zero_official,
+        },
+        "v3_6_1_nll_numerics_receipt.json": {
+            "protocol": protocol,
+            **zero_official,
+        },
+        "v3_6_1_positive_warm_start.json": {
+            "protocol": protocol,
+            "passed": True,
+            "first_passing_step": 35,
+            "used_to_initialize_full_preservation": True,
+            **zero_official,
+        },
+        "v3_6_1_full_preservation_training.json": {
+            "protocol": protocol,
+            "full_optimizer_steps_expected": 200,
+            "full_optimizer_steps_recorded": 200,
+            "complete_training_log": True,
+            "detector_tensors_unchanged": True,
+            "lm_head_bit_identical": True,
+            "norm_cap_passed": True,
+            "passed": False,
+            **zero_official,
+        },
+        "v3_6_1_final_full_context_audit.json": {
+            "protocol": protocol,
+            "passed": True,
+            "direct_failures": 0,
+            "positive_failures": 0,
+            "reference_preservation_passed": True,
+            "negative_preservation_passed": True,
+            "negative_float32_nll_abs_max": 0.0,
+            "writer_off_preservation_passed": True,
+            **zero_official,
+        },
+        "v3_6_1_protected_kl_audit.json": {
+            "protocol": protocol,
+            "protected_prompts": 8192,
+            "mean": 0.001462974352762103,
+            "p99": 0.002138720825314522,
+            "max": 3.148702621459961,
+            "passed": False,
+            **zero_official,
+        },
+        "v3_6_1_actuator_endpoint_audit.json": {
+            "protocol": protocol,
+            "complete": True,
+            **zero_official,
+        },
+        "v3_6_1_causal_component_audit.json": {
+            "protocol": protocol,
+            "passed": True,
+            **zero_official,
+        },
+        "training_only_v3_6_1_completion.json": {
+            "protocol": protocol,
+            "full_preservation_objective_started": True,
+            "full_preservation_passed": False,
+            "candidate_checkpoint_saved": False,
+            "eligible_for_separate_official_evaluation": False,
+            "official_evaluation_allowed_in_this_process": False,
+            **zero_official,
+        },
+        "training_rejection.json": {
+            "protocol": protocol,
+            "checkpoint_saved": False,
+            "official_evaluation_allowed": False,
+            **zero_official,
+        },
+        "training_firewall_receipt.json": {
+            "data_access": {
+                "official_paraphrases_seen": 0,
+                "official_neighborhoods_seen": 0,
+                "benchmark_retain_seen": 0,
+                "official_ppl_seen": False,
+            }
+        },
+    }
+    for name, payload in artifacts.items():
+        (method_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    receipt = method.validate_frozen_v3_6_1_rejection(tmp_path / "v3_6_1")
+    assert receipt["passed"]
+    assert receipt["protected_kl_absolute_max"] == pytest.approx(
+        3.148702621459961
+    )
+    assert not receipt["candidate_checkpoint_saved"]
+
+    artifacts["v3_6_1_protected_kl_audit.json"]["max"] = 0.49
+    (method_dir / "v3_6_1_protected_kl_audit.json").write_text(
+        json.dumps(artifacts["v3_6_1_protected_kl_audit.json"]), encoding="utf-8"
+    )
+    with pytest.raises(RuntimeError, match="protected_tail_rejection"):
+        method.validate_frozen_v3_6_1_rejection(tmp_path / "v3_6_1")
+
+
 def test_detector_gate_case_tsv_binds_locked_record_order():
     gate = core.detector_gate_report(
         [torch.tensor([1.2])],
@@ -3561,6 +3794,7 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         "v3_5_5_scope": _v3_5_5_width_scope(),
         "v3_6_scope": _v3_6_full_scope(),
         "v3_6_1_scope": _v3_6_1_coherent_scope(),
+        "v3_6_2_scope": _v3_6_2_hard_tail_scope(),
         "detector_training_revision": _detector_training_revision(),
         "actuator_training_revision": _actuator_training_revision(),
         "selected_neuron_ownership_binding": {
@@ -3608,17 +3842,17 @@ def test_primary_configuration_is_bound_to_preregistered_values():
         method._validate_experiment_registry(registry, args)
 
 
-def test_repository_registry_binds_v3_6_1_coherent_full_preservation():
+def test_repository_registry_binds_v3_6_2_protected_hard_tail_preservation():
     registry_path = (
         Path(__file__).resolve().parents[1]
         / "protocols"
         / "mcf_embedding_keyed_neuron_ablation_registry_v1.json"
     )
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert registry["schema_version"] == 18
+    assert registry["schema_version"] == 19
     assert registry["protocol"] == core.PROTOCOL
     assert registry["development_history"][-1]["version"] == (
-        "v16_embedding_keyed_gate_v3_6_negative_locality_rejection"
+        "v17_embedding_keyed_gate_v3_6_1_protected_tail_rejection"
     )
     contradiction = next(
         row["contradictory_prompt"]
@@ -3633,16 +3867,25 @@ def test_repository_registry_binds_v3_6_1_coherent_full_preservation():
     assert contradiction["negative_detector_case_id"] == 10472
     latest = registry["development_history"][-1]
     assert not latest["official_evaluation_opened_by_this_run"]
-    assert latest["negative_locality"]["observed_final_native_dtype_abs_max"] == (
-        pytest.approx(0.125)
+    assert latest["protected_locality"]["observed_mean"] == pytest.approx(
+        0.001462974352762103
     )
-    assert latest["negative_locality"]["incoherent_multi_role_negative_occurrences"] == 1
+    assert latest["protected_locality"]["observed_p99"] == pytest.approx(
+        0.002138720825314522
+    )
+    assert latest["protected_locality"]["observed_absolute_max"] == pytest.approx(
+        3.148702621459961
+    )
     assert registry["v3_6_1_scope"][
         "negative_prompt_precedence"
     ] == "forget_positive_exact_prompt_precedes_preservation_negative"
     assert registry["v3_6_1_scope"][
         "coherent_preservation_negative_occurrences"
     ] == 464
+    assert registry["v3_6_2_scope"]["protected_hard_tail_size"] == 16
+    assert registry["v3_6_2_scope"][
+        "protected_hard_tail_refresh_steps"
+    ] == [1, 21, 41, 61, 81, 101, 121, 141, 161, 181]
     assert (
         registry["selected_neuron_ownership_binding"]["jq_compact_sha256"]
         == "acc3cc05868483f6c40a8909fca064b59c4ec4d000a76cf1ece6c3e818c750d1"
@@ -3684,6 +3927,14 @@ def test_repository_registry_binds_v3_6_1_coherent_full_preservation():
     ] == 0
     assert registry["primary_configuration"]["protected_kl_mean_tolerance"] == 0.05
     assert registry["primary_configuration"]["protected_kl_max_tolerance"] == 0.5
+    assert registry["primary_configuration"]["protected_hard_tail_size"] == 16
+    assert registry["primary_configuration"][
+        "protected_hard_tail_refresh_every"
+    ] == 20
+    assert registry["primary_configuration"][
+        "protected_hard_tail_training_target"
+    ] == 0.25
+    assert registry["primary_configuration"]["protected_hard_tail_weight"] == 50
     assert registry["primary_configuration"]["save_checkpoint"]
     common = [
         "--model-path",
@@ -3732,6 +3983,8 @@ def test_repository_registry_binds_v3_6_1_coherent_full_preservation():
             "passed-v3.5.5",
             "--frozen-v3-6-run-dir",
             "rejected-v3.6",
+            "--frozen-v3-6-1-run-dir",
+            "rejected-v3.6.1",
             "--detector-steps",
             "100",
             "--detector-global-tail-weight",
@@ -3797,6 +4050,8 @@ def test_v3_5_5_launcher_sweeps_disjoint_actuator_widths_and_discards_fits():
     assert "--save-checkpoint" not in launcher
     assert "mcf_zero_unlearn_official_eval.py" not in launcher
     assert "official_evaluation_allowed == false" in launcher
+
+
 def test_v3_6_launcher_freezes_width16_and_runs_training_only_preservation():
     root = Path(__file__).resolve().parents[1]
     manual = (
@@ -3829,11 +4084,6 @@ def test_v3_6_launcher_freezes_width16_and_runs_training_only_preservation():
     assert "official_evaluation_allowed_in_this_process == false" in launcher
     assert "env -u MCF_PATH" in launcher
     assert "mcf_zero_unlearn_official_eval.py" not in launcher
-    submit = (
-        root / "scripts" / "submit_mcf_embedding_keyed_neuron_seed1.sh"
-    ).read_text(encoding="utf-8")
-    assert "run_mcf_embedding_keyed_neuron_v3_6_full_preservation" in submit
-    assert "mcf_embedding_keyed_neuron_v3_6_${JOB_ID}.out" in submit
 
 
 def test_v3_6_1_launcher_repairs_only_the_incoherent_negative_occurrence():
@@ -3864,6 +4114,42 @@ def test_v3_6_1_launcher_repairs_only_the_incoherent_negative_occurrence():
     assert "official_evaluation_allowed_in_this_process == false" in launcher
     assert "env -u MCF_PATH" in launcher
     assert "mcf_zero_unlearn_official_eval.py" not in launcher
+
+
+def test_v3_6_2_launcher_targets_only_the_registered_protected_hard_tail():
+    root = Path(__file__).resolve().parents[1]
+    manual = (
+        root / "scripts" / "run_mcf_embedding_keyed_neuron_v3_6_2_manual.sh"
+    ).read_text(encoding="utf-8")
+    assert "[[ $# -ne 12 ]]" in manual
+    assert "FROZEN_V3_6_1_OUTPUT_DIR" in manual
+    assert "v3_6_2_protected_hard_tail" in manual
+
+    launcher = (
+        root
+        / "slurm"
+        / "run_mcf_embedding_keyed_neuron_v3_6_2_protected_hard_tail_seed1_3b.slurm"
+    ).read_text(encoding="utf-8")
+    assert "--frozen-v3-6-1-run-dir" in launcher
+    assert "--protected-hard-tail-size 16" in launcher
+    assert "--protected-hard-tail-refresh-every 20" in launcher
+    assert "--protected-hard-tail-training-target 0.25" in launcher
+    assert "--protected-hard-tail-weight 50" in launcher
+    assert "--protected-kl-mean-tolerance 0.05" in launcher
+    assert "--protected-kl-max-tolerance 0.50" in launcher
+    assert "protected_random_contexts_per_optimizer_update" in launcher
+    assert "v3_6_2_protected_hard_tail_manifest.json" in launcher
+    assert "v3_6_2_candidate_state.pt" in launcher
+    assert "eligible_for_separate_official_evaluation == true" in launcher
+    assert "official_evaluation_allowed_in_this_process == false" in launcher
+    assert "env -u MCF_PATH" in launcher
+    assert "mcf_zero_unlearn_official_eval.py" not in launcher
+
+    submit = (
+        root / "scripts" / "submit_mcf_embedding_keyed_neuron_seed1.sh"
+    ).read_text(encoding="utf-8")
+    assert "run_mcf_embedding_keyed_neuron_v3_6_2_protected_hard_tail" in submit
+    assert "mcf_embedding_keyed_neuron_v3_6_2_${JOB_ID}.out" in submit
 
 
 def test_final_report_requires_metrics_mechanism_and_firewall_to_pass():

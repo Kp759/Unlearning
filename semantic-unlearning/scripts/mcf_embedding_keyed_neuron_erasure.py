@@ -15,7 +15,7 @@ Architecture
 
 For each edit, a disjoint group of existing low-activation MLP features was
 selected using only training-safe writer-on versus writer-off activations.
-V3.6.1 deterministically replays the exact V3.5.4 detector and fixed 0.20/0.25
+V3.6.2 deterministically replays the exact V3.5.4 detector and fixed 0.20/0.25
 boundary, then
 retains the canonical prompt-role labels introduced by V3.5.3. Exact duplicate
 prompts share one canonical hidden state and one multi-label target: every
@@ -26,18 +26,23 @@ V3.5.3's complete-update global tails from optimization while retaining the
 equal-record mean plus per-record worst-two objectives that repaired writer-off
 isolation in V3.5.2. It also records a non-optimizing component-gradient audit
 before the first update. A fresh all-cell
-multi-label certificate and exact V3.5.4 tensor hashes must pass. V3.6.1 then
+multi-label certificate and exact V3.5.4 tensor hashes must pass. V3.6.2 then
 hash-binds V3.5.5's discarded 4/8/16 width sweep, reconstructs its exact
 selected width-16 actuator bank, and trains that separate bank from exact zero.
 Detector and actuator features remain disjoint and the ordinary Base MLP
 contribution stays untouched. A criterion-stopped positive warm start is
-followed by globally balanced training-safe preservation optimization. Unlike
-V3.6, the behavioral preservation bank applies a preregistered exact-prompt
+followed by globally balanced training-safe preservation optimization. The
+behavioral preservation bank retains V3.6.1's preregistered exact-prompt
 rule: a prompt registered for forgetting cannot simultaneously act as another
 record's preservation negative. All merely lexical or subtoken overlaps remain
 in scope. Negative-context optimization compares float32 current NLLs with
 float32 baselines and targets zero drift, while the scientific acceptance
-ceiling remains 0.05 under the exact native-dtype scorer. A
+ceiling remains 0.05 under the exact native-dtype scorer. V3.6.2 additionally
+hash-binds V3.6.1's sparse protected-bank KL tail and augments the unchanged
+random protected mean with a periodically refreshed deterministic hard tail.
+The hard tail uses only the same 8,192 training-safe prompts and a 0.25
+optimization target; the scientific mean 0.05 and absolute-max 0.50 gates are
+unchanged. A
 candidate state is saved only after every locked training-only acceptance gate
 passes; official evaluation remains unavailable to this learner.
 
@@ -94,6 +99,7 @@ FROZEN_V3_5_3_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_3"
 FROZEN_V3_5_4_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_4"
 FROZEN_V3_5_5_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_5_5"
 FROZEN_V3_6_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_6"
+FROZEN_V3_6_1_PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_6_1"
 FORBIDDEN_EVALUATION_ENVIRONMENT_VARIABLES = (
     "MCF_PATH",
     "OFFICIAL_MCF_PATH",
@@ -245,7 +251,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help=(
             "Completed V3.5.5 output whose exact detector replay, nested actuator "
             "selection, native width-16 reachability pass, and discarded-fit "
-            "receipt license V3.6/V3.6.1 full preservation training."
+            "receipt licenses the V3.6-series full-preservation lineage."
         ),
     )
     parser.add_argument(
@@ -254,6 +260,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "Rejected V3.6 output root whose successful width-16 warm start and "
             "official-compatible negative-locality miss license V3.6.1's "
             "coherent float32 negative-preservation objective."
+        ),
+    )
+    parser.add_argument(
+        "--frozen-v3-6-1-run-dir",
+        help=(
+            "Rejected V3.6.1 output root whose coherent negative bank passed "
+            "but whose complete protected-bank absolute maximum was 3.1487; "
+            "this licenses V3.6.2's deterministic protected hard-tail repair."
         ),
     )
     parser.add_argument(
@@ -356,11 +370,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "V3.6.1 hash-binds V3.5.5 and the rejected V3.6 preservation run, "
+            "V3.6.2 hash-binds V3.5.5 and the rejected V3.6/V3.6.1 runs, "
             "reconstructs the exact width-16 separate actuator bank, runs a "
             "criterion-stopped positive warm start, and then trains the locked "
-            "coherent float32 full-preservation objective without official evaluation "
-            "access."
+            "coherent float32 full-preservation objective with deterministic "
+            "protected hard-tail repair and no official-evaluation access."
         ),
     )
     parser.add_argument(
@@ -435,7 +449,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--negative-preservation-weight",
         type=float,
         default=50.0,
-        help="V3.6.1 weight for all-record negative-context preservation.",
+        help="V3.6.2 retained weight for all-record negative preservation.",
     )
     parser.add_argument("--negative-nll-tolerance", type=float, default=0.05)
     parser.add_argument(
@@ -443,12 +457,36 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=float,
         default=0.0,
         help=(
-            "Float32 optimization target for negative NLL drift. V3.6.1 fixes "
-            "this at zero while retaining the 0.05 native-dtype acceptance gate."
+            "Float32 optimization target for negative NLL drift. V3.6.2 retains "
+            "V3.6.1's zero target and the 0.05 native-dtype acceptance gate."
         ),
     )
     parser.add_argument("--protected-kl-mean-tolerance", type=float, default=0.05)
     parser.add_argument("--protected-kl-max-tolerance", type=float, default=0.50)
+    parser.add_argument(
+        "--protected-hard-tail-size",
+        type=int,
+        default=16,
+        help="V3.6.2 deterministic complete-bank KL tail size.",
+    )
+    parser.add_argument(
+        "--protected-hard-tail-refresh-every",
+        type=int,
+        default=20,
+        help="V3.6.2 optimizer-step interval for fresh complete-bank tail mining.",
+    )
+    parser.add_argument(
+        "--protected-hard-tail-training-target",
+        type=float,
+        default=0.25,
+        help="V3.6.2 squared-hinge target below the unchanged 0.50 maximum gate.",
+    )
+    parser.add_argument(
+        "--protected-hard-tail-weight",
+        type=float,
+        default=50.0,
+        help="V3.6.2 weight for the mined protected-tail squared excess.",
+    )
     parser.add_argument("--writer-off-nll-weight", type=float, default=50.0)
     parser.add_argument("--actuator-writer-off-nll-tolerance", type=float, default=0.05)
     parser.add_argument("--actuator-l2", type=float, default=1e-4)
@@ -572,7 +610,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--detector-selectivity-warning-ratio must be finite and positive")
     if value.training_only_actuator_width_sweep and value.training_only_full_preservation:
         parser.error(
-            "V3.5.5 width feasibility and V3.6.1 full preservation are mutually exclusive"
+            "V3.5.5 width feasibility and V3.6.2 full preservation are mutually exclusive"
         )
     if value.training_only_actuator_width_sweep:
         if int(value.detector_steps) != 100:
@@ -600,34 +638,48 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     elif value.training_only_full_preservation:
         if int(value.detector_steps) != 100:
             parser.error(
-                "V3.6.1 requires exactly 100 deterministic detector replay updates"
+                "V3.6.2 requires exactly 100 deterministic detector replay updates"
             )
         if float(value.detector_global_tail_weight) != 0.0:
-            parser.error("V3.6.1 requires --detector-global-tail-weight 0")
+            parser.error("V3.6.2 requires --detector-global-tail-weight 0")
         if int(value.actuator_steps) != 200:
-            parser.error("V3.6.1 requires exactly 200 full preservation updates")
+            parser.error("V3.6.2 requires exactly 200 full preservation updates")
         if value.actuator_architecture != "separate_threshold_gated_actuator_bank":
             parser.error(
-                "V3.6.1 requires the separate threshold-gated actuator-bank architecture"
+                "V3.6.2 requires the separate threshold-gated actuator-bank architecture"
             )
         if caps != [1.5]:
-            parser.error("V3.6.1 retains the native per-column cap at exactly 1.50")
+            parser.error("V3.6.2 retains the native per-column cap at exactly 1.50")
         if widths != [4, 8, 16]:
             parser.error(
-                "V3.6.1 reconstructs the exact nested V3.5.5 widths 4 8 16"
+                "V3.6.2 reconstructs the exact nested V3.5.5 widths 4 8 16"
             )
         if not math.isclose(
             float(value.actuator_relative_cap), 1.5, abs_tol=1e-12
         ):
-            parser.error("V3.6.1 requires --actuator-relative-cap 1.50")
+            parser.error("V3.6.2 requires --actuator-relative-cap 1.50")
         if not math.isclose(
             float(value.negative_preservation_weight), 50.0, abs_tol=1e-12
         ):
-            parser.error("V3.6.1 requires --negative-preservation-weight 50")
+            parser.error("V3.6.2 requires --negative-preservation-weight 50")
         if not math.isclose(
             float(value.negative_training_nll_tolerance), 0.0, abs_tol=1e-12
         ):
-            parser.error("V3.6.1 requires --negative-training-nll-tolerance 0")
+            parser.error("V3.6.2 requires --negative-training-nll-tolerance 0")
+        if int(value.protected_hard_tail_size) != 16:
+            parser.error("V3.6.2 requires --protected-hard-tail-size 16")
+        if int(value.protected_hard_tail_refresh_every) != 20:
+            parser.error("V3.6.2 requires --protected-hard-tail-refresh-every 20")
+        if not math.isclose(
+            float(value.protected_hard_tail_training_target), 0.25, abs_tol=1e-12
+        ):
+            parser.error(
+                "V3.6.2 requires --protected-hard-tail-training-target 0.25"
+            )
+        if not math.isclose(
+            float(value.protected_hard_tail_weight), 50.0, abs_tol=1e-12
+        ):
+            parser.error("V3.6.2 requires --protected-hard-tail-weight 50")
     elif int(value.actuator_steps) <= 0:
         parser.error("--actuator-steps must be positive outside feasibility mode")
     if int(value.actuator_batch_size) <= 0:
@@ -663,6 +715,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error(
             "--protected-kl-max-tolerance must be at least the mean tolerance"
         )
+    if int(value.protected_hard_tail_size) <= 0:
+        parser.error("--protected-hard-tail-size must be positive")
+    if int(value.protected_hard_tail_refresh_every) <= 0:
+        parser.error("--protected-hard-tail-refresh-every must be positive")
+    if (
+        not math.isfinite(float(value.protected_hard_tail_training_target))
+        or not 0.0
+        <= float(value.protected_hard_tail_training_target)
+        < float(value.protected_kl_max_tolerance)
+    ):
+        parser.error(
+            "--protected-hard-tail-training-target must lie in [0, protected max)"
+        )
+    if (
+        not math.isfinite(float(value.protected_hard_tail_weight))
+        or float(value.protected_hard_tail_weight) < 0.0
+    ):
+        parser.error("--protected-hard-tail-weight must be finite and non-negative")
     if float(value.detector_positive_floor) < 0:
         parser.error("--detector-positive-floor must be non-negative")
     if float(value.detector_training_positive_floor) < float(
@@ -721,7 +791,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "--save-rejected-checkpoint is restricted to the no-writer control"
         )
     if value.training_only_actuator_width_sweep or value.training_only_full_preservation:
-        revision = "V3.5.5" if value.training_only_actuator_width_sweep else "V3.6.1"
+        revision = "V3.5.5" if value.training_only_actuator_width_sweep else "V3.6.2"
         if value.experiment_label != "primary":
             parser.error(f"{revision} is restricted to the primary run")
         if value.writer_mode != "embedding_keyed":
@@ -749,13 +819,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         if value.training_only_full_preservation and not str(
             value.frozen_v3_5_5_run_dir or ""
         ).strip():
-            parser.error("--frozen-v3-5-5-run-dir is required for V3.6.1")
+            parser.error("--frozen-v3-5-5-run-dir is required for V3.6.2")
         if value.training_only_full_preservation and not str(
             value.frozen_v3_6_run_dir or ""
         ).strip():
-            parser.error("--frozen-v3-6-run-dir is required for V3.6.1")
+            parser.error("--frozen-v3-6-run-dir is required for V3.6.2")
+        if value.training_only_full_preservation and not str(
+            value.frozen_v3_6_1_run_dir or ""
+        ).strip():
+            parser.error("--frozen-v3-6-1-run-dir is required for V3.6.2")
         if value.training_only_actuator_width_sweep and value.frozen_v3_6_run_dir:
             parser.error("V3.5.5 cannot import V3.6")
+        if value.training_only_actuator_width_sweep and value.frozen_v3_6_1_run_dir:
+            parser.error("V3.5.5 cannot import V3.6.1")
         if value.training_only_actuator_width_sweep and (
             value.save_checkpoint or value.save_rejected_checkpoint
         ):
@@ -763,10 +839,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         if value.training_only_full_preservation:
             if not value.save_checkpoint:
                 parser.error(
-                    "V3.6.1 requires --save-checkpoint for a passing candidate"
+                    "V3.6.2 requires --save-checkpoint for a passing candidate"
                 )
             if value.save_rejected_checkpoint:
-                parser.error("V3.6.1 never saves rejected checkpoints")
+                parser.error("V3.6.2 never saves rejected checkpoints")
     elif (
         value.frozen_v3_3_run_dir
         or value.frozen_v3_4_run_dir
@@ -777,10 +853,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         or value.frozen_v3_5_4_run_dir
         or value.frozen_v3_5_5_run_dir
         or value.frozen_v3_6_run_dir
+        or value.frozen_v3_6_1_run_dir
     ):
         parser.error(
-            "frozen V3.3 through V3.6 run directories require a registered "
-            "V3.5.5/V3.6.1 training-only mode"
+            "frozen V3.3 through V3.6.1 run directories require a registered "
+            "V3.5.5/V3.6.2 training-only mode"
         )
     guard = float(value.threshold_gate_numerical_guard)
     if not math.isfinite(guard) or guard < 0.0:
@@ -1108,6 +1185,52 @@ def _validate_experiment_registry(
     for key, expected_value in expected_coherent_scope.items():
         if coherent_scope.get(key) != expected_value:
             raise RuntimeError(f"registry V3.6.1 scope mismatch: {key}")
+    hard_tail_scope = registry.get("v3_6_2_scope")
+    expected_hard_tail_scope = {
+        "training_only": True,
+        "source_v3_6_1_rejection_hash_bound": True,
+        "source_v3_6_1_final_behavioral_audit_passed": True,
+        "source_v3_6_1_complete_training_log": True,
+        "source_v3_6_1_protected_prompt_bank": 8192,
+        "source_v3_6_1_protected_kl_mean": 0.001462974352762103,
+        "source_v3_6_1_protected_kl_p99": 0.002138720825314522,
+        "source_v3_6_1_protected_kl_absolute_max": 3.148702621459961,
+        "source_v3_6_1_protected_kl_absolute_max_ceiling": 0.5,
+        "source_v3_6_1_all_other_locked_gates_passed": True,
+        "source_v3_6_1_candidate_checkpoint_saved": False,
+        "source_v3_6_1_official_evaluation_prompts_seen": 0,
+        "writer_detector_actuator_architecture_unchanged": True,
+        "detector_neurons_per_record": 4,
+        "actuator_neurons_per_record": 16,
+        "neuron_layer": 27,
+        "native_per_column_relative_cap": 1.5,
+        "positive_warm_start_and_optimizer_state_policy_unchanged": True,
+        "full_preservation_optimizer_updates": 200,
+        "coherent_negative_preservation_unchanged": True,
+        "protected_prompt_bank": 8192,
+        "protected_random_contexts_per_optimizer_update": 80,
+        "protected_hard_tail_size": 16,
+        "protected_total_contexts_per_optimizer_update": 96,
+        "protected_hard_tail_refresh_every_optimizer_steps": 20,
+        "protected_hard_tail_refresh_steps": [1, 21, 41, 61, 81, 101, 121, 141, 161, 181],
+        "protected_hard_tail_selection": (
+            "complete_bank_top_kl_descending_then_prompt_index_ascending"
+        ),
+        "protected_hard_tail_training_target": 0.25,
+        "protected_hard_tail_weight": 50.0,
+        "protected_hard_tail_objective": "mean_squared_excess_above_training_target",
+        "protected_kl_mean_acceptance_ceiling_unchanged": 0.05,
+        "protected_kl_absolute_max_acceptance_ceiling_unchanged": 0.5,
+        "complete_protected_bank_final_audit_required": True,
+        "candidate_checkpoint_requires_every_training_gate": True,
+        "rejected_checkpoint_creation_prohibited": True,
+        "official_evaluation_prohibited_in_learner": True,
+    }
+    if not isinstance(hard_tail_scope, Mapping):
+        raise RuntimeError("registry lacks the V3.6.2 protected hard-tail scope")
+    for key, expected_value in expected_hard_tail_scope.items():
+        if hard_tail_scope.get(key) != expected_value:
+            raise RuntimeError(f"registry V3.6.2 scope mismatch: {key}")
     detector_revision = registry.get("detector_training_revision")
     expected_detector_revision = {
         "version": "v3.5.4_canonical_multilabel_balanced_tail_repair",
@@ -1217,8 +1340,8 @@ def _validate_experiment_registry(
 
     actuator_revision = registry.get("actuator_training_revision")
     expected_actuator_revision = {
-        "version": "v3.6.1",
-        "mode": "training_only_width16_coherent_float32_negative_preservation",
+        "version": "v3.6.2",
+        "mode": "training_only_width16_protected_hard_tail_preservation",
         "source_v3_6_protocol": FROZEN_V3_6_PROTOCOL,
         "source_v3_6_rejection_hash_receipt_required": True,
         "source_v3_6_result": {
@@ -1229,6 +1352,27 @@ def _validate_experiment_registry(
             "final_logged_writer_off_nll_abs_max": 0.0,
             "final_native_negative_nll_abs_max": 0.125,
             "negative_nll_acceptance_ceiling": 0.05,
+            "candidate_checkpoint_saved": False,
+            "official_evaluation_prompts_seen": 0,
+        },
+        "source_v3_6_1_protocol": FROZEN_V3_6_1_PROTOCOL,
+        "source_v3_6_1_rejection_hash_receipt_required": True,
+        "source_v3_6_1_result": {
+            "positive_warm_start_passed": True,
+            "positive_warm_start_first_passing_step": 35,
+            "full_preservation_optimizer_updates": 200,
+            "final_behavioral_audit_passed": True,
+            "complete_training_log": True,
+            "protected_prompt_bank": 8192,
+            "protected_kl_mean": 0.001462974352762103,
+            "protected_kl_p99": 0.002138720825314522,
+            "protected_kl_absolute_max": 3.148702621459961,
+            "protected_kl_absolute_max_ceiling": 0.5,
+            "endpoint_complete": True,
+            "detector_tensors_unchanged": True,
+            "lm_head_bit_identical": True,
+            "causal_audit_passed": True,
+            "norm_cap_passed": True,
             "candidate_checkpoint_saved": False,
             "official_evaluation_prompts_seen": 0,
         },
@@ -1317,8 +1461,31 @@ def _validate_experiment_registry(
             "lexical_or_subtoken_overlap_exclusion_prohibited": True,
             "writer_off_contexts_per_optimizer_update": 346,
             "protected_contexts_per_optimizer_update": 80,
+            "protected_hard_tail_contexts_per_optimizer_update": 16,
+            "protected_total_contexts_per_optimizer_update": 96,
             "protected_prompt_bank": 8192,
             "protected_sampling_seed_offset": 78103,
+            "protected_hard_tail_refresh_every_optimizer_steps": 20,
+            "protected_hard_tail_refresh_steps": [
+                1,
+                21,
+                41,
+                61,
+                81,
+                101,
+                121,
+                141,
+                161,
+                181,
+            ],
+            "protected_hard_tail_selection": (
+                "complete_bank_top_kl_descending_then_prompt_index_ascending"
+            ),
+            "protected_hard_tail_training_target": 0.25,
+            "protected_hard_tail_weight": 50.0,
+            "protected_hard_tail_objective": (
+                "mean_squared_excess_above_training_target"
+            ),
             "positive_margin_weight": 20.0,
             "positive_reference_nll_weight": 50.0,
             "negative_preservation_weight": 50.0,
@@ -1351,10 +1518,10 @@ def _validate_experiment_registry(
         "official_evaluation_prompts_seen": 0,
     }
     if not isinstance(actuator_revision, Mapping):
-        raise RuntimeError("registry lacks the V3.6.1 actuator-training revision")
+        raise RuntimeError("registry lacks the V3.6.2 actuator-training revision")
     for key, expected_value in expected_actuator_revision.items():
         if actuator_revision.get(key) != expected_value:
-            raise RuntimeError(f"registry V3.6.1 actuator revision mismatch: {key}")
+            raise RuntimeError(f"registry V3.6.2 actuator revision mismatch: {key}")
     ownership_binding = registry.get("selected_neuron_ownership_binding")
     expected_ownership_binding = {
         "scope": "primary_embedding_keyed_configuration",
@@ -3083,6 +3250,140 @@ def validate_frozen_v3_6_rejection(run_dir: Path) -> Dict[str, Any]:
     }
 
 
+def validate_frozen_v3_6_1_rejection(run_dir: Path) -> Dict[str, Any]:
+    """Bind V3.6.1's protected-maximum, no-checkpoint rejection."""
+
+    root = Path(run_dir).resolve()
+    method_dir = root / "method" if (root / "method").is_dir() else root
+    paths = {
+        "precedence": method_dir / "negative_preservation_precedence_report.json",
+        "numerics": method_dir / "v3_6_1_nll_numerics_receipt.json",
+        "warm_start": method_dir / "v3_6_1_positive_warm_start.json",
+        "full_training": method_dir / "v3_6_1_full_preservation_training.json",
+        "final_audit": method_dir / "v3_6_1_final_full_context_audit.json",
+        "protected_kl": method_dir / "v3_6_1_protected_kl_audit.json",
+        "endpoint": method_dir / "v3_6_1_actuator_endpoint_audit.json",
+        "causal": method_dir / "v3_6_1_causal_component_audit.json",
+        "completion": method_dir / "training_only_v3_6_1_completion.json",
+        "rejection": method_dir / "training_rejection.json",
+        "firewall": method_dir / "training_firewall_receipt.json",
+    }
+    for name, path in paths.items():
+        if not path.is_file():
+            raise FileNotFoundError(f"frozen V3.6.1 rejection lacks {name}: {path}")
+
+    payloads = {name: _load_json(path) for name, path in paths.items()}
+    precedence = payloads["precedence"]
+    warm = payloads["warm_start"]
+    full = payloads["full_training"]
+    final = payloads["final_audit"]
+    protected = payloads["protected_kl"]
+    endpoint = payloads["endpoint"]
+    causal = payloads["causal"]
+    completion = payloads["completion"]
+    rejection = payloads["rejection"]
+    firewall = payloads["firewall"]
+    protected_mean = float(protected.get("mean", float("nan")))
+    protected_p99 = float(protected.get("p99", float("nan")))
+    protected_max = float(protected.get("max", float("nan")))
+    checks = {
+        "protocol": all(
+            payload.get("protocol") == FROZEN_V3_6_1_PROTOCOL
+            for name, payload in payloads.items()
+            if name != "firewall"
+        ),
+        "coherent_negative_precedence": precedence.get("registered") is True
+        and precedence.get("raw_negative_occurrences") == 465
+        and precedence.get("coherent_preservation_negative_occurrences") == 464
+        and precedence.get("excluded_multi_role_negative_occurrences") == 1,
+        "warm_start": warm.get("passed") is True
+        and warm.get("first_passing_step") == 35
+        and warm.get("used_to_initialize_full_preservation") is True,
+        "full_training_complete": full.get("full_optimizer_steps_expected") == 200
+        and full.get("full_optimizer_steps_recorded") == 200
+        and full.get("complete_training_log") is True,
+        "behavioral_gates_passed": final.get("passed") is True
+        and final.get("direct_failures") == 0
+        and final.get("positive_failures") == 0
+        and final.get("reference_preservation_passed") is True
+        and final.get("negative_preservation_passed") is True
+        and final.get("writer_off_preservation_passed") is True
+        and math.isclose(
+            float(final.get("negative_float32_nll_abs_max", float("nan"))),
+            0.0,
+            abs_tol=1e-12,
+        ),
+        "protected_tail_rejection": protected.get("protected_prompts") == 8192
+        and protected.get("passed") is False
+        and protected_mean <= 0.05
+        and protected_p99 <= 0.05
+        and math.isclose(
+            protected_mean, 0.001462974352762103, rel_tol=0.0, abs_tol=1e-12
+        )
+        and math.isclose(
+            protected_p99, 0.002138720825314522, rel_tol=0.0, abs_tol=1e-12
+        )
+        and math.isclose(
+            protected_max, 3.148702621459961, rel_tol=0.0, abs_tol=1e-9
+        )
+        and protected_max > 0.5,
+        "all_other_hidden_gates_passed": endpoint.get("complete") is True
+        and causal.get("passed") is True
+        and full.get("detector_tensors_unchanged") is True
+        and full.get("lm_head_bit_identical") is True
+        and full.get("norm_cap_passed") is True,
+        "overall_rejected": full.get("passed") is False
+        and completion.get("full_preservation_objective_started") is True
+        and completion.get("full_preservation_passed") is False
+        and completion.get("candidate_checkpoint_saved") is False
+        and completion.get("eligible_for_separate_official_evaluation") is False
+        and completion.get("official_evaluation_allowed_in_this_process") is False
+        and rejection.get("checkpoint_saved") is False
+        and rejection.get("official_evaluation_allowed") is False,
+        "no_candidate": not (method_dir / "v3_6_1_candidate_state.pt").exists(),
+        "official_prompts_zero": all(
+            payload.get("official_evaluation_prompts_seen") == 0
+            for name, payload in payloads.items()
+            if name != "firewall"
+        ),
+        "firewall_official_prompts_zero": all(
+            (
+                firewall.get("data_access", {}).get("official_paraphrases_seen") == 0,
+                firewall.get("data_access", {}).get("official_neighborhoods_seen")
+                == 0,
+                firewall.get("data_access", {}).get("benchmark_retain_seen") == 0,
+                firewall.get("data_access", {}).get("official_ppl_seen") is False,
+            )
+        ),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        raise RuntimeError(
+            "frozen V3.6.1 rejection lineage failed: " + ", ".join(sorted(failed))
+        )
+    return {
+        "schema_version": 1,
+        "kind": "mcf_embedding_keyed_neuron_frozen_v3_6_1_rejection_import",
+        "source_run_dir": str(root),
+        "source_method_dir": str(method_dir),
+        "source_protocol": FROZEN_V3_6_1_PROTOCOL,
+        "target_protocol": PROTOCOL,
+        "source_artifacts": {
+            name: {"path": str(path), "sha256": compositional_method.sha256_file(path)}
+            for name, path in paths.items()
+        },
+        "protected_prompt_bank": 8192,
+        "protected_kl_mean": protected_mean,
+        "protected_kl_p99": protected_p99,
+        "protected_kl_absolute_max": protected_max,
+        "protected_kl_absolute_max_ceiling": 0.5,
+        "candidate_checkpoint_saved": False,
+        "checks": checks,
+        "passed": True,
+        "official_evaluation_prompts_seen": 0,
+    }
+
+
 def _resolve_swiglu_mlp(model: torch.nn.Module, layer_index: int) -> torch.nn.Module:
     backbone = getattr(model, "model", None)
     layers = getattr(backbone, "layers", None)
@@ -4472,7 +4773,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not detector_replay_mode:
         raise RuntimeError(
             "this checkout is restricted to registered V3.5.5 width feasibility "
-            "or V3.6.1 training-only full preservation; official evaluation remains "
+            "or V3.6.2 training-only full preservation; official evaluation remains "
             "a separate process"
         )
     _validate_environment_firewall()
@@ -4684,6 +4985,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             if args.frozen_v3_6_run_dir
             else None
         ),
+        "frozen_v3_6_1_run_dir": (
+            str(Path(args.frozen_v3_6_1_run_dir).resolve())
+            if args.frozen_v3_6_1_run_dir
+            else None
+        ),
         "development_retain_shared_row_exposure": {
             "registered_as_consumed_architecture_motivation": True,
             "development_records": 9438,
@@ -4723,6 +5029,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         [
                             "hash-bound V3.5.5 discarded width-16 mechanism-readiness pass",
                             "hash-bound V3.6 negative-locality rejection with no checkpoint",
+                            "hash-bound V3.6.1 protected-maximum rejection with no checkpoint",
                         ]
                         if full_preservation_mode
                         else []
@@ -5143,6 +5450,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     frozen_v3_5_4_rejection: Dict[str, Any] | None = None
     frozen_v3_5_5_success: Dict[str, Any] | None = None
     frozen_v3_6_rejection: Dict[str, Any] | None = None
+    frozen_v3_6_1_rejection: Dict[str, Any] | None = None
     if str(args.detector_initialization) == "frozen_v3_2":
         (
             frozen_detector_import,
@@ -5288,6 +5596,23 @@ def main(argv: Sequence[str] | None = None) -> None:
             print(
                 "  hash-bound V3.6 result: width-16 reachability retained, "
                 "native negative NLL drift 0.125 > 0.05; no checkpoint saved"
+            )
+            frozen_v3_6_1_rejection = validate_frozen_v3_6_1_rejection(
+                Path(args.frozen_v3_6_1_run_dir)
+            )
+            gagd.write_json(
+                out_dir / "frozen_v3_6_1_rejection_import.json",
+                frozen_v3_6_1_rejection,
+            )
+            firewall_receipt["frozen_v3_6_1_rejection_import"] = (
+                frozen_v3_6_1_rejection
+            )
+            gagd.write_json(
+                out_dir / "training_firewall_receipt.json", firewall_receipt
+            )
+            print(
+                "  hash-bound V3.6.1 result: every behavioral and integrity gate "
+                "passed; one protected KL maximum 3.1487 > 0.50; no checkpoint saved"
             )
 
     print("\nStage 1: build canonical multi-label prompt semantics")
@@ -7389,7 +7714,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         if full_preservation_mode:
             if frozen_v3_5_5_success is None:
-                raise RuntimeError("V3.6.1 lacks frozen V3.5.5 detector hashes")
+                raise RuntimeError("V3.6.2 lacks frozen V3.5.5 detector hashes")
             detector_replay_receipt["frozen_v3_5_5_gate_delta_sha256"] = (
                 frozen_v3_5_5_success["detector_gate_delta_sha256"]
             )
@@ -7441,7 +7766,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     )
     # Every Stage-2 preservation target is the writer-only model.  The frozen
-    # detector is a read-only branch input in V3.5.5/V3.6.1 and therefore may not be
+    # detector is a read-only branch input in V3.5.5/V3.6.2 and therefore may not be
     # smuggled into the reference baseline.
     editor.enabled = False
     editor.gate_delta.requires_grad_(False)
@@ -7558,7 +7883,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         nll_numerics_receipt = {
             "schema_version": 1,
-            "kind": "mcf_embedding_keyed_neuron_v3_6_1_nll_numerics_receipt",
+            "kind": "mcf_embedding_keyed_neuron_v3_6_2_nll_numerics_receipt",
             "protocol": PROTOCOL,
             "training_nll_definition": (
                 "float32 log_softmax current minus float32 log_softmax baseline"
@@ -7629,7 +7954,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "official_evaluation_prompts_seen": 0,
         }
         gagd.write_json(
-            out_dir / "v3_6_1_nll_numerics_receipt.json",
+            out_dir / "v3_6_2_nll_numerics_receipt.json",
             nll_numerics_receipt,
         )
     selected_ids_device = torch.tensor(
@@ -7744,7 +8069,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "revision": (
                 "v3.5.5_exact_detector_replay_separate_actuator_width_sweep"
                 if width_sweep
-                else "v3.6.1_width16_coherent_float32_negative_preservation"
+                else "v3.6.2_width16_protected_hard_tail_preservation"
             ),
             "initial_down_delta": "exact_zero",
             "feasibility_optimizer_steps": int(args.actuator_feasibility_steps),
@@ -7769,6 +8094,15 @@ def main(argv: Sequence[str] | None = None) -> None:
                 if width_sweep
                 else min(int(args.actuator_protected_batch), len(protected_for_kl))
             ),
+            "protected_hard_tail_contexts_per_optimizer_update": (
+                0 if width_sweep else int(args.protected_hard_tail_size)
+            ),
+            "protected_total_contexts_per_optimizer_update": (
+                0
+                if width_sweep
+                else min(int(args.actuator_protected_batch), len(protected_for_kl))
+                + int(args.protected_hard_tail_size)
+            ),
             "context_microbatch_capacity": int(args.actuator_batch_size),
             "tail_k": int(args.actuator_tail_k),
             "gradient_normalization": (
@@ -7790,6 +8124,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             "writer_off_nll_tolerance": float(args.actuator_writer_off_nll_tolerance),
             "relative_norm_cap": float(args.actuator_relative_cap),
             "protected_sampling_seed": actuator_rng_seed,
+            "protected_hard_tail_refresh_every": int(
+                args.protected_hard_tail_refresh_every
+            ),
+            "protected_hard_tail_training_target": float(
+                args.protected_hard_tail_training_target
+            ),
+            "protected_hard_tail_weight": float(args.protected_hard_tail_weight),
             "gradient_clip_frequency": "once_per_optimizer_update",
             "norm_projection_frequency": "once_per_optimizer_update",
         }
@@ -8101,7 +8442,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         gagd.write_json(actuator_selection_path, selection_payload)
         if full_preservation_mode:
             if frozen_v3_5_5_success is None:
-                raise RuntimeError("V3.6.1 lacks the frozen V3.5.5 success receipt")
+                raise RuntimeError("V3.6.2 lacks the frozen V3.5.5 success receipt")
             expected_width16_sha256 = str(
                 frozen_v3_5_5_success.get("width16_ownership_sha256") or ""
             )
@@ -8131,7 +8472,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             if not selection_replay["passed"]:
                 raise RuntimeError(
-                    "V3.6.1 width-16 actuator selection differs from frozen V3.5.5"
+                    "V3.6.2 width-16 actuator selection differs from frozen V3.5.5"
                 )
         print(
             "  selected nested, detector-disjoint actuator banks at widths "
@@ -8418,7 +8759,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             width = 16
             budget_regime = "native_per_column_cap"
             if frozen_v3_6_rejection is None:
-                raise RuntimeError("V3.6.1 lacks its frozen V3.6 rejection receipt")
+                raise RuntimeError("V3.6.2 lacks its frozen V3.6 rejection receipt")
+            if frozen_v3_6_1_rejection is None:
+                raise RuntimeError("V3.6.2 lacks its frozen V3.6.1 rejection receipt")
             ownership_for_width = actuator_ownership_by_width[width]
             flat_actuator_ids = [
                 neuron for group in ownership_for_width for neuron in group
@@ -8445,7 +8788,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             bank.zero_()
 
             @torch.no_grad()
-            def protected_kl_full_audit(*, phase: str) -> Dict[str, Any]:
+            def protected_kl_full_scan(
+                *, phase: str
+            ) -> Tuple[Dict[str, Any], torch.Tensor]:
                 embedding_writer.enabled = writer_present
                 bank.enabled = True
                 bank.write_enabled = True
@@ -8476,7 +8821,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                     and max_value
                     <= float(args.protected_kl_max_tolerance) + 1e-6
                 )
-                return {
+                hard_indices = neuron_core.select_protected_hard_tail_indices(
+                    terms,
+                    tail_size=int(args.protected_hard_tail_size),
+                )
+                report = {
                     "schema_version": 1,
                     "kind": "mcf_embedding_keyed_neuron_protected_kl_full_audit",
                     "protocol": PROTOCOL,
@@ -8490,13 +8839,30 @@ def main(argv: Sequence[str] | None = None) -> None:
                         "mean_max": float(args.protected_kl_mean_tolerance),
                         "absolute_max": float(args.protected_kl_max_tolerance),
                     },
+                    "worst_cells": [
+                        {
+                            "rank": rank,
+                            "protected_prompt_index": int(index),
+                            "prompt_sha256": hashlib.sha256(
+                                protected_for_kl[int(index)].encode("utf-8")
+                            ).hexdigest(),
+                            "kl": float(terms[int(index)]),
+                        }
+                        for rank, index in enumerate(hard_indices.tolist(), start=1)
+                    ],
                     "passed": passed,
                     "official_evaluation_prompts_seen": 0,
                 }
+                return report, terms
+
+            @torch.no_grad()
+            def protected_kl_full_audit(*, phase: str) -> Dict[str, Any]:
+                report, _terms = protected_kl_full_scan(phase=phase)
+                return report
 
             zero_identity = full_bank_audit(
                 bank,
-                phase="v3.6.1_zero_actuator_identity",
+                phase="v3.6.2_zero_actuator_identity",
                 optimizer_step=0,
                 width=width,
                 budget_regime=budget_regime,
@@ -8508,14 +8874,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             zero_identity["identity_nll_abs_max"] = zero_identity_abs_max
             zero_identity["identity_passed"] = bool(zero_identity_abs_max <= 1e-6)
-            zero_identity_path = out_dir / "v3_6_1_zero_actuator_identity_audit.json"
+            zero_identity_path = out_dir / "v3_6_2_zero_actuator_identity_audit.json"
             gagd.write_json(zero_identity_path, zero_identity)
             if not zero_identity["identity_passed"]:
                 bank.remove()
                 editor.remove()
                 embedding_writer.remove()
                 raise SystemExit(
-                    "V3.6.1 separate actuator was not an exact identity at zero; "
+                    "V3.6.2 separate actuator was not an exact identity at zero; "
                     "training and official evaluation are refused"
                 )
 
@@ -8524,7 +8890,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             warm_log: List[Dict[str, Any]] = []
             warm_audits: List[Dict[str, Any]] = []
-            warm_log_path = out_dir / "v3_6_1_positive_warm_start_log.jsonl"
+            warm_log_path = out_dir / "v3_6_2_positive_warm_start_log.jsonl"
             first_passing_step: int | None = None
             print(
                 "\nStage 2a: criterion-stopped width-16 positive warm start "
@@ -8580,7 +8946,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     if should_audit:
                         audit = full_bank_audit(
                             bank,
-                            phase="v3.6.1_positive_warm_start_check",
+                            phase="v3.6.2_positive_warm_start_check",
                             optimizer_step=step,
                             width=width,
                             budget_regime=budget_regime,
@@ -8598,7 +8964,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                             break
             warm_report = {
                 "schema_version": 1,
-                "kind": "mcf_embedding_keyed_neuron_v3_6_1_positive_warm_start",
+                "kind": "mcf_embedding_keyed_neuron_v3_6_2_positive_warm_start",
                 "protocol": PROTOCOL,
                 "initial_down_delta": "bit_exact_zero",
                 "optimizer_state": "fresh_adamw_retained_into_full_preservation",
@@ -8621,7 +8987,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "used_to_initialize_full_preservation": first_passing_step is not None,
                 "official_evaluation_prompts_seen": 0,
             }
-            warm_report_path = out_dir / "v3_6_1_positive_warm_start.json"
+            warm_report_path = out_dir / "v3_6_2_positive_warm_start.json"
             gagd.write_json(warm_report_path, warm_report)
             if first_passing_step is None:
                 gagd.write_json(
@@ -8643,22 +9009,88 @@ def main(argv: Sequence[str] | None = None) -> None:
                 editor.remove()
                 embedding_writer.remove()
                 raise SystemExit(
-                    "V3.6.1 failed to reproduce width-16 positive reachability; "
+                    "V3.6.2 failed to reproduce width-16 positive reachability; "
                     "full preservation and official evaluation are refused"
                 )
 
             print(
                 "\nStage 2b: globally balanced width-16 full preservation "
-                "with retained warm-start optimizer state"
+                "with retained warm-start optimizer state and protected hard tail"
             )
             protected_order = list(range(len(protected_for_kl)))
+            protected_hard_tail_indices: List[int] = []
+            protected_hard_tail_refreshes: List[Dict[str, Any]] = []
+            protected_hard_tail_refresh_paths: List[Path] = []
             full_log: List[Dict[str, Any]] = []
             check_audits: List[Dict[str, Any]] = []
             endpoint_audits: Dict[str, Dict[str, Any]] = {}
             endpoint_paths: Dict[str, Path] = {}
-            full_log_path = out_dir / "v3_6_1_full_preservation_log.jsonl"
+            full_log_path = out_dir / "v3_6_2_full_preservation_log.jsonl"
             with full_log_path.open("x", encoding="utf-8") as log_handle:
                 for step in range(1, int(args.actuator_steps) + 1):
+                    refreshed_hard_tail = bool(
+                        step == 1
+                        or (step - 1)
+                        % int(args.protected_hard_tail_refresh_every)
+                        == 0
+                    )
+                    if refreshed_hard_tail:
+                        scan, scan_terms = protected_kl_full_scan(
+                            phase=(
+                                "v3.6.2_protected_hard_tail_refresh_before_step_"
+                                f"{step}"
+                            )
+                        )
+                        selected = neuron_core.select_protected_hard_tail_indices(
+                            scan_terms,
+                            tail_size=int(args.protected_hard_tail_size),
+                        )
+                        protected_hard_tail_indices = [
+                            int(value) for value in selected.tolist()
+                        ]
+                        refresh = {
+                            "schema_version": 1,
+                            "kind": (
+                                "mcf_embedding_keyed_neuron_v3_6_2_protected_"
+                                "hard_tail_refresh"
+                            ),
+                            "protocol": PROTOCOL,
+                            "before_full_optimizer_step": step,
+                            "selection_rule": (
+                                "complete_bank_top_kl_descending_then_prompt_"
+                                "index_ascending"
+                            ),
+                            "protected_prompt_bank": len(protected_for_kl),
+                            "tail_size": int(args.protected_hard_tail_size),
+                            "training_target": float(
+                                args.protected_hard_tail_training_target
+                            ),
+                            "scan": scan,
+                            "selected_prompt_indices": protected_hard_tail_indices,
+                            "selected_prompt_sha256": [
+                                hashlib.sha256(
+                                    protected_for_kl[index].encode("utf-8")
+                                ).hexdigest()
+                                for index in protected_hard_tail_indices
+                            ],
+                            "official_evaluation_prompts_seen": 0,
+                        }
+                        refresh_path = out_dir / (
+                            "v3_6_2_protected_hard_tail_refresh_before_step_"
+                            f"{step}.json"
+                        )
+                        gagd.write_json(refresh_path, refresh)
+                        protected_hard_tail_refreshes.append(refresh)
+                        protected_hard_tail_refresh_paths.append(refresh_path)
+                        print(
+                            f"  protected-tail refresh before step {step:>3}: "
+                            f"bank max {scan['max']:.6f}, p99 {scan['p99']:.6f}, "
+                            f"selected {len(protected_hard_tail_indices)}"
+                        )
+                    if len(protected_hard_tail_indices) != int(
+                        args.protected_hard_tail_size
+                    ):
+                        raise RuntimeError("protected hard tail is not initialized")
                     optimizer.zero_grad(set_to_none=True)
                     accumulated = {
                         "margin": 0.0,
@@ -8666,6 +9098,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                         "negative_preservation": 0.0,
                         "writer_off": 0.0,
                         "protected_kl": 0.0,
+                        "protected_hard_tail": 0.0,
+                        "protected_hard_tail_kl_mean": 0.0,
+                        "protected_hard_tail_kl_max": 0.0,
                     }
                     for record_index in range(len(records)):
                         positive_indices = positive_indices_by_record[record_index]
@@ -8728,7 +9163,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         ) / len(records)
                         if not torch.isfinite(record_total):
                             raise FloatingPointError(
-                                f"non-finite V3.6.1 record loss at step {step}"
+                                f"non-finite V3.6.2 record loss at step {step}"
                             )
                         record_total.backward()
                         accumulated["margin"] += (
@@ -8744,9 +9179,18 @@ def main(argv: Sequence[str] | None = None) -> None:
                             float(writer_off_loss.detach()) / len(records)
                         )
 
+                    protected_hard_tail_set = set(protected_hard_tail_indices)
+                    protected_random_pool = [
+                        index
+                        for index in protected_order
+                        if index not in protected_hard_tail_set
+                    ]
                     protected_indices = actuator_rng.sample(
-                        protected_order,
-                        min(int(args.actuator_protected_batch), len(protected_order)),
+                        protected_random_pool,
+                        min(
+                            int(args.actuator_protected_batch),
+                            len(protected_random_pool),
+                        ),
                     )
                     embedding_writer.enabled = writer_present
                     for start in range(
@@ -8774,6 +9218,55 @@ def main(argv: Sequence[str] | None = None) -> None:
                             chunk_kl.detach()
                         )
 
+                    hard_tail_kl_max = 0.0
+                    for start in range(
+                        0,
+                        len(protected_hard_tail_indices),
+                        int(args.actuator_batch_size),
+                    ):
+                        chunk_indices = protected_hard_tail_indices[
+                            start : start + int(args.actuator_batch_size)
+                        ]
+                        prompts = [
+                            protected_for_kl[index] for index in chunk_indices
+                        ]
+                        _hidden, logits = (
+                            compositional_method.forward_last_hidden_logits(
+                                model, tok, prompts, device
+                            )
+                        )
+                        chunk_terms = _topk_kl_terms(
+                            logits, prompts, writer_only_cache, device
+                        )
+                        hard_loss, hard_metrics = (
+                            neuron_core.protected_hard_tail_objective(
+                                chunk_terms,
+                                training_target=float(
+                                    args.protected_hard_tail_training_target
+                                ),
+                            )
+                        )
+                        scale = len(chunk_indices) / len(
+                            protected_hard_tail_indices
+                        )
+                        (
+                            float(args.protected_hard_tail_weight)
+                            * scale
+                            * hard_loss
+                        ).backward()
+                        accumulated["protected_hard_tail"] += scale * float(
+                            hard_loss.detach()
+                        )
+                        accumulated["protected_hard_tail_kl_mean"] += (
+                            scale
+                            * float(hard_metrics["hard_tail_kl_mean"].detach())
+                        )
+                        hard_tail_kl_max = max(
+                            hard_tail_kl_max,
+                            float(hard_metrics["hard_tail_kl_max"].detach()),
+                        )
+                    accumulated["protected_hard_tail_kl_max"] = hard_tail_kl_max
+
                     l2 = bank.down_delta.square().mean()
                     (float(args.actuator_l2) * l2).backward()
                     total_value = (
@@ -8786,16 +9279,18 @@ def main(argv: Sequence[str] | None = None) -> None:
                         * accumulated["writer_off"]
                         + float(args.protected_kl_weight)
                         * accumulated["protected_kl"]
+                        + float(args.protected_hard_tail_weight)
+                        * accumulated["protected_hard_tail"]
                         + float(args.actuator_l2) * float(l2.detach())
                     )
                     if not math.isfinite(total_value):
                         raise FloatingPointError(
-                            f"non-finite V3.6.1 full loss at step {step}"
+                            f"non-finite V3.6.2 full loss at step {step}"
                         )
                     if step == int(args.actuator_steps):
                         endpoint_audits["pre_update"] = full_bank_audit(
                             bank,
-                            phase="v3.6.1_final_pre_update",
+                            phase="v3.6.2_final_pre_update",
                             optimizer_step=step,
                             width=width,
                             budget_regime=budget_regime,
@@ -8808,7 +9303,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     if step == int(args.actuator_steps):
                         endpoint_audits["post_adam"] = full_bank_audit(
                             bank,
-                            phase="v3.6.1_final_post_adam",
+                            phase="v3.6.2_final_post_adam",
                             optimizer_step=step,
                             width=width,
                             budget_regime=budget_regime,
@@ -8817,13 +9312,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                     if step == int(args.actuator_steps):
                         endpoint_audits["post_projection"] = full_bank_audit(
                             bank,
-                            phase="v3.6.1_final_post_projection",
+                            phase="v3.6.2_final_post_projection",
                             optimizer_step=step,
                             width=width,
                             budget_regime=budget_regime,
                         )
                         for phase, audit in endpoint_audits.items():
-                            path = out_dir / f"v3_6_1_step_{step}_{phase}_audit.json"
+                            path = out_dir / f"v3_6_2_step_{step}_{phase}_audit.json"
                             gagd.write_json(path, audit)
                             endpoint_paths[phase] = path
                     relative = bank.down_relative_norms().float().cpu()
@@ -8845,6 +9340,20 @@ def main(argv: Sequence[str] | None = None) -> None:
                         "protected_contexts_per_optimizer_update": len(
                             protected_indices
                         ),
+                        "protected_random_contexts_per_optimizer_update": len(
+                            protected_indices
+                        ),
+                        "protected_hard_tail_contexts_per_optimizer_update": len(
+                            protected_hard_tail_indices
+                        ),
+                        "protected_total_contexts_per_optimizer_update": (
+                            len(protected_indices)
+                            + len(protected_hard_tail_indices)
+                        ),
+                        "protected_hard_tail_refreshed": refreshed_hard_tail,
+                        "protected_hard_tail_prompt_indices": list(
+                            protected_hard_tail_indices
+                        ),
                         "down_max_relative_norm": float(relative.max()),
                         "down_saturated_columns": int(
                             (relative >= cap - 1e-6).sum()
@@ -8860,7 +9369,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     ):
                         audit = full_bank_audit(
                             bank,
-                            phase="v3.6.1_full_preservation_check",
+                            phase="v3.6.2_full_preservation_check",
                             optimizer_step=step,
                             width=width,
                             budget_regime=budget_regime,
@@ -8874,23 +9383,78 @@ def main(argv: Sequence[str] | None = None) -> None:
                             f"negative-native {audit['negative_nll_abs_max']:.4f}, "
                             f"negative-f32 "
                             f"{audit['negative_float32_nll_abs_max']:.6f}, "
-                            f"writer-off {audit['writer_off_nll_abs_max']:.4f}"
+                            f"writer-off {audit['writer_off_nll_abs_max']:.4f}, "
+                            f"protected-hard-max "
+                            f"{accumulated['protected_hard_tail_kl_max']:.6f}"
                         )
+            protected_hard_tail_manifest = {
+                "schema_version": 1,
+                "kind": (
+                    "mcf_embedding_keyed_neuron_v3_6_2_protected_hard_tail_manifest"
+                ),
+                "protocol": PROTOCOL,
+                "protected_prompt_bank": len(protected_for_kl),
+                "tail_size": int(args.protected_hard_tail_size),
+                "refresh_every_optimizer_steps": int(
+                    args.protected_hard_tail_refresh_every
+                ),
+                "expected_refresh_steps": list(
+                    range(
+                        1,
+                        int(args.actuator_steps) + 1,
+                        int(args.protected_hard_tail_refresh_every),
+                    )
+                ),
+                "observed_refresh_steps": [
+                    int(row["before_full_optimizer_step"])
+                    for row in protected_hard_tail_refreshes
+                ],
+                "training_target": float(
+                    args.protected_hard_tail_training_target
+                ),
+                "weight": float(args.protected_hard_tail_weight),
+                "selection_uses_only_registered_training_safe_bank": True,
+                "refresh_artifacts": [
+                    {
+                        "path": str(path),
+                        "sha256": compositional_method.sha256_file(path),
+                    }
+                    for path in protected_hard_tail_refresh_paths
+                ],
+                "complete": bool(
+                    len(protected_hard_tail_refreshes)
+                    == len(
+                        range(
+                            1,
+                            int(args.actuator_steps) + 1,
+                            int(args.protected_hard_tail_refresh_every),
+                        )
+                    )
+                ),
+                "official_evaluation_prompts_seen": 0,
+            }
+            protected_hard_tail_manifest_path = (
+                out_dir / "v3_6_2_protected_hard_tail_manifest.json"
+            )
+            gagd.write_json(
+                protected_hard_tail_manifest_path,
+                protected_hard_tail_manifest,
+            )
             del optimizer
 
             final_audit = full_bank_audit(
                 bank,
-                phase="v3.6.1_final_fresh_full_context_audit",
+                phase="v3.6.2_final_fresh_full_context_audit",
                 optimizer_step=int(args.actuator_steps),
                 width=width,
                 budget_regime=budget_regime,
             )
-            final_audit_path = out_dir / "v3_6_1_final_full_context_audit.json"
+            final_audit_path = out_dir / "v3_6_2_final_full_context_audit.json"
             gagd.write_json(final_audit_path, final_audit)
             protected_audit = protected_kl_full_audit(
-                phase="v3.6.1_final_complete_protected_bank"
+                phase="v3.6.2_final_complete_protected_bank"
             )
-            protected_audit_path = out_dir / "v3_6_1_protected_kl_audit.json"
+            protected_audit_path = out_dir / "v3_6_2_protected_kl_audit.json"
             gagd.write_json(protected_audit_path, protected_audit)
             endpoint_replay = compare_actuator_audits(
                 endpoint_audits["post_projection"],
@@ -8899,7 +9463,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             endpoint_report = {
                 "schema_version": 1,
-                "kind": "mcf_embedding_keyed_neuron_v3_6_1_actuator_endpoint_audit",
+                "kind": "mcf_embedding_keyed_neuron_v3_6_2_actuator_endpoint_audit",
                 "protocol": PROTOCOL,
                 "optimizer_step": int(args.actuator_steps),
                 "artifacts": {
@@ -8920,7 +9484,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "complete": bool(endpoint_replay["passed"]),
                 "official_evaluation_prompts_seen": 0,
             }
-            endpoint_report_path = out_dir / "v3_6_1_actuator_endpoint_audit.json"
+            endpoint_report_path = out_dir / "v3_6_2_actuator_endpoint_audit.json"
             gagd.write_json(endpoint_report_path, endpoint_report)
 
             detector_unchanged = bool(
@@ -8959,7 +9523,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             embedding_writer.enabled = writer_present
             causal_audit = {
                 "schema_version": 1,
-                "kind": "mcf_embedding_keyed_neuron_v3_6_1_causal_component_audit",
+                "kind": "mcf_embedding_keyed_neuron_v3_6_2_causal_component_audit",
                 "protocol": PROTOCOL,
                 "writer_only": {
                     "direct_failures": writer_only_direct,
@@ -8991,7 +9555,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 causal_audit["writer_necessary"]
                 and causal_audit["actuator_necessary"]
             )
-            causal_audit_path = out_dir / "v3_6_1_causal_component_audit.json"
+            causal_audit_path = out_dir / "v3_6_2_causal_component_audit.json"
             gagd.write_json(causal_audit_path, causal_audit)
             norm_cap_passed = bool(
                 float(final_audit["norms"]["down_relative_norm"]["max"])
@@ -9010,6 +9574,20 @@ def main(argv: Sequence[str] | None = None) -> None:
                     == len(positive_instances)
                     and row["protected_contexts_per_optimizer_update"]
                     == registered_protected_per_update
+                    and row["protected_random_contexts_per_optimizer_update"]
+                    == registered_protected_per_update
+                    and row["protected_hard_tail_contexts_per_optimizer_update"]
+                    == int(args.protected_hard_tail_size)
+                    and row["protected_total_contexts_per_optimizer_update"]
+                    == registered_protected_per_update
+                    + int(args.protected_hard_tail_size)
+                    and row["protected_hard_tail_refreshed"]
+                    == bool(
+                        expected_step == 1
+                        or (expected_step - 1)
+                        % int(args.protected_hard_tail_refresh_every)
+                        == 0
+                    )
                     for expected_step, row in enumerate(full_log, start=1)
                 )
             )
@@ -9018,6 +9596,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 and full_log_complete
                 and final_audit["passed"]
                 and protected_audit["passed"]
+                and protected_hard_tail_manifest["complete"]
                 and endpoint_report["complete"]
                 and detector_unchanged
                 and output_head_unchanged
@@ -9026,7 +9605,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             full_report = {
                 "schema_version": 1,
-                "kind": "mcf_embedding_keyed_neuron_v3_6_1_full_preservation_training",
+                "kind": "mcf_embedding_keyed_neuron_v3_6_2_full_preservation_training",
                 "protocol": PROTOCOL,
                 "actuator_width": width,
                 "actuator_columns": len(flat_actuator_ids),
@@ -9037,6 +9616,24 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "full_optimizer_steps_recorded": len(full_log),
                 "complete_training_log": full_log_complete,
                 "protected_sampling_seed": actuator_rng_seed,
+                "update_coverage": {
+                    "records": len(records),
+                    "positive_contexts": len(positive_instances),
+                    "coherent_negative_contexts": len(
+                        preservation_negative_instances
+                    ),
+                    "writer_off_contexts": len(positive_instances),
+                    "protected_random_contexts_per_optimizer_update": (
+                        registered_protected_per_update
+                    ),
+                    "protected_hard_tail_contexts_per_optimizer_update": int(
+                        args.protected_hard_tail_size
+                    ),
+                    "protected_total_contexts_per_optimizer_update": (
+                        registered_protected_per_update
+                        + int(args.protected_hard_tail_size)
+                    ),
+                },
                 "objective": {
                     "positive_margin_weight": float(args.margin_weight),
                     "positive_reference_nll_weight": float(
@@ -9053,6 +9650,18 @@ def main(argv: Sequence[str] | None = None) -> None:
                     ),
                     "writer_off_weight": float(args.writer_off_nll_weight),
                     "protected_kl_weight": float(args.protected_kl_weight),
+                    "protected_hard_tail_weight": float(
+                        args.protected_hard_tail_weight
+                    ),
+                    "protected_hard_tail_size": int(
+                        args.protected_hard_tail_size
+                    ),
+                    "protected_hard_tail_refresh_every": int(
+                        args.protected_hard_tail_refresh_every
+                    ),
+                    "protected_hard_tail_training_target": float(
+                        args.protected_hard_tail_training_target
+                    ),
                     "actuator_l2": float(args.actuator_l2),
                 },
                 "nll_numerics": {
@@ -9089,6 +9698,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                     "path": str(full_log_path),
                     "sha256": compositional_method.sha256_file(full_log_path),
                 },
+                "protected_hard_tail_manifest": {
+                    "path": str(protected_hard_tail_manifest_path),
+                    "sha256": compositional_method.sha256_file(
+                        protected_hard_tail_manifest_path
+                    ),
+                    "complete": bool(protected_hard_tail_manifest["complete"]),
+                },
                 "check_audits": check_audits,
                 "final_audit": final_audit,
                 "protected_kl_audit": protected_audit,
@@ -9099,16 +9715,16 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "passed": training_passed,
                 "official_evaluation_prompts_seen": 0,
             }
-            full_report_path = out_dir / "v3_6_1_full_preservation_training.json"
+            full_report_path = out_dir / "v3_6_2_full_preservation_training.json"
             gagd.write_json(full_report_path, full_report)
 
-            candidate_path = out_dir / "v3_6_1_candidate_state.pt"
+            candidate_path = out_dir / "v3_6_2_candidate_state.pt"
             candidate_saved = False
             if training_passed:
                 torch.save(
                     {
                         "schema_version": 1,
-                        "kind": "mcf_embedding_keyed_neuron_v3_6_1_candidate_state",
+                        "kind": "mcf_embedding_keyed_neuron_v3_6_2_candidate_state",
                         "protocol": PROTOCOL,
                         "case_ids": case_ids,
                         "model_path": str(Path(args.model_path).resolve()),
@@ -9135,9 +9751,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                                     out_dir / "frozen_v3_6_rejection_import.json"
                                 )
                             ),
+                            "frozen_v3_6_1_rejection_import_sha256": (
+                                compositional_method.sha256_file(
+                                    out_dir / "frozen_v3_6_1_rejection_import.json"
+                                )
+                            ),
                             "nll_numerics_receipt_sha256": (
                                 compositional_method.sha256_file(
-                                    out_dir / "v3_6_1_nll_numerics_receipt.json"
+                                    out_dir / "v3_6_2_nll_numerics_receipt.json"
                                 )
                             ),
                             "negative_preservation_precedence_sha256": (
@@ -9175,6 +9796,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                             "protected_kl_audit_sha256": (
                                 compositional_method.sha256_file(
                                     protected_audit_path
+                                )
+                            ),
+                            "protected_hard_tail_manifest_sha256": (
+                                compositional_method.sha256_file(
+                                    protected_hard_tail_manifest_path
                                 )
                             ),
                             "causal_component_audit_sha256": (
@@ -9225,7 +9851,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
             completion = {
                 "schema_version": 1,
-                "kind": "mcf_embedding_keyed_neuron_v3_6_1_training_only_completion",
+                "kind": "mcf_embedding_keyed_neuron_v3_6_2_training_only_completion",
                 "protocol": PROTOCOL,
                 "architecture": {
                     "detector_neurons_per_record": 4,
@@ -9250,6 +9876,24 @@ def main(argv: Sequence[str] | None = None) -> None:
                         negative_precedence_report["excluded_occurrences"]
                     ),
                 },
+                "protected_hard_tail": {
+                    "protected_prompt_bank": len(protected_for_kl),
+                    "size": int(args.protected_hard_tail_size),
+                    "refresh_every_optimizer_steps": int(
+                        args.protected_hard_tail_refresh_every
+                    ),
+                    "training_target": float(
+                        args.protected_hard_tail_training_target
+                    ),
+                    "weight": float(args.protected_hard_tail_weight),
+                    "manifest_complete": bool(
+                        protected_hard_tail_manifest["complete"]
+                    ),
+                    "final_mean": float(protected_audit["mean"]),
+                    "final_p99": float(protected_audit["p99"]),
+                    "final_max": float(protected_audit["max"]),
+                    "passed": bool(protected_audit["passed"]),
+                },
                 "positive_warm_start_passed": bool(warm_report["passed"]),
                 "positive_warm_start_first_passing_step": first_passing_step,
                 "full_preservation_objective_started": True,
@@ -9270,7 +9914,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     else "training_only_full_preservation_failed"
                 ),
             }
-            completion_path = out_dir / "training_only_v3_6_1_completion.json"
+            completion_path = out_dir / "training_only_v3_6_2_completion.json"
             gagd.write_json(completion_path, completion)
             if not training_passed:
                 gagd.write_json(
@@ -9289,11 +9933,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             embedding_writer.remove()
             if not training_passed:
                 raise SystemExit(
-                    "V3.6.1 failed one or more locked training-only preservation "
+                    "V3.6.2 failed one or more locked training-only preservation "
                     "gates; no checkpoint was saved and official evaluation is refused"
                 )
             print(
-                "V3.6.1 training-only full preservation passed; candidate state "
+                "V3.6.2 training-only full preservation passed; candidate state "
                 "frozen for a separately registered official-evaluation process"
             )
             return

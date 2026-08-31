@@ -11,7 +11,7 @@ auditable pieces that can be tested without loading a language model:
   columns, retained for lineage and unit tests;
 * V3.5's isolated thresholded residual branch, which reads selected
   gate/up features while leaving the ordinary Base MLP path untouched;
-* V3.6.1's separate threshold-gated actuator bank, whose frozen Base
+* V3.6.2's separate threshold-gated actuator bank, whose frozen Base
   activations are disjoint from the four-neuron detector groups;
 * contextual code responses and detector-gate metrics;
 * hard relative-norm projection and materialization/restoration helpers.
@@ -35,7 +35,63 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_6_1"
+PROTOCOL = "mcf_embedding_keyed_sparse_neuron_suppression_v3_6_2"
+
+
+def select_protected_hard_tail_indices(
+    kl_terms: torch.Tensor,
+    *,
+    tail_size: int,
+) -> torch.Tensor:
+    """Select the deterministic worst protected-prompt KL indices.
+
+    Values are ordered by descending KL and then ascending original prompt
+    index.  The explicit index tie-break makes the mined tail reproducible
+    across runs even when most protected prompts are exact zeroes.
+    """
+
+    values = kl_terms.detach().float().reshape(-1).cpu()
+    if values.numel() == 0:
+        raise ValueError("protected hard-tail selection requires KL terms")
+    if not torch.isfinite(values).all():
+        raise ValueError("protected hard-tail KL terms must be finite")
+    if int(tail_size) <= 0 or int(tail_size) > int(values.numel()):
+        raise ValueError("protected hard-tail size must cover 1..bank_size")
+    ranked = sorted(
+        range(int(values.numel())),
+        key=lambda index: (-float(values[index]), int(index)),
+    )
+    return torch.tensor(ranked[: int(tail_size)], dtype=torch.long)
+
+
+def protected_hard_tail_objective(
+    kl_terms: torch.Tensor,
+    *,
+    training_target: float,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Penalize only mined protected KL terms above a safety target.
+
+    The scientific complete-bank acceptance maximum remains separate.  This
+    squared hinge supplies optimization headroom without spending gradient on
+    already-safe protected prompts.
+    """
+
+    values = kl_terms.float().reshape(-1)
+    if values.numel() == 0:
+        raise ValueError("protected hard-tail objective requires KL terms")
+    if not torch.isfinite(values).all():
+        raise ValueError("protected hard-tail objective received non-finite KL")
+    if not math.isfinite(float(training_target)) or float(training_target) < 0.0:
+        raise ValueError("protected hard-tail training target must be non-negative")
+    excess = F.relu(values - float(training_target))
+    squared = excess.square()
+    return squared.mean(), {
+        "hard_tail_kl_mean": values.mean(),
+        "hard_tail_kl_max": values.max(),
+        "hard_tail_excess_mean": excess.mean(),
+        "hard_tail_squared_excess_mean": squared.mean(),
+        "hard_tail_violations": values.gt(float(training_target)).sum(),
+    }
 
 
 def _as_float_matrix(value: torch.Tensor, name: str) -> torch.Tensor:
