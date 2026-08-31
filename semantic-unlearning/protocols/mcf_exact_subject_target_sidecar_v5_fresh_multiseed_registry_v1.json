@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "protocol": "mcf_exact_subject_target_logit_sidecar_v5_0_fresh_multiseed_confirmation_v1",
+  "status": "registered_before_opening_any_seed_2_to_10_evaluation_probe",
+  "registration_basis": "Seed 1 was consumed as development and passed the frozen V5 replay. It is excluded from blind confirmation.",
+  "registered_seeds": [2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "execution_order": "ascending_seed_order",
+  "architecture": {
+    "frozen_source_commit": "78743d3ef0016e3bc424f00b72c38a92522599fe",
+    "route": "boundary_aware_exact_subject_and_frozen_relation_suffix_grammar",
+    "relation_lexicon": "protocols/mcf_frozen_relation_suffix_lexicon_v1.json",
+    "intervention": "causal_sparse_target_logit_bias",
+    "logit_bias": 256.0,
+    "base_embedding_mutation": false,
+    "transformer_mutation": false,
+    "lm_head_mutation": false,
+    "learned_detector_parameters": 0,
+    "learned_actuator_parameters": 0,
+    "closed_route_identity": "return_exact_base_lm_head_tensor"
+  },
+  "frozen_artifacts": {
+    "official_mcf_sha256": "977a6acce4705507b5fd6bfcea8f61cd78f9ed0f9cd9c9a6bcd6c8a3ed61c833",
+    "architecture_registry_sha256": "27e7be0ac869a96cdb2bc8f9a97fabd0806ee3983fcf6802ea13d3f6c9b45a87",
+    "relation_lexicon_file_sha256": "255ed77de292dd7198b4af9673805d0ef06456c6598f150fa559e6734be6bf4a",
+    "relation_lexicon_content_sha256": "1d23f5ca2aff28500897b9b2f31f03dad6105cbe423c50a3e1b4fca506e01af8"
+  },
+  "candidate_data_contract": {
+    "visible": [
+      "seed-specific direct forget prompt",
+      "complete subject",
+      "relation id",
+      "target_new",
+      "target_true"
+    ],
+    "forbidden": [
+      "official paraphrase prompts",
+      "official neighborhood prompts",
+      "official retain prompt text",
+      "official PPL text"
+    ],
+    "standalone_from_v6_2_writer": true,
+    "reason": "V5 contains no V6.2 writer tensor and uses the direct-only writer lineage only as an unnecessary provenance dependency."
+  },
+  "fixed_evaluation": {
+    "forget_num": 50,
+    "retain_num": 1000,
+    "sample_mode": "official",
+    "dtype": "bf16",
+    "device_map": "single",
+    "route_audit_batch_size": 128,
+    "arm_order": ["reconstructed_base", "v5_sidecar"]
+  },
+  "acceptance": {
+    "forget_eff": 0.0,
+    "forget_gen": 0.0,
+    "minimum_rewrite_paraphrase_margin": 0.1,
+    "forget_neighborhood_raw_exact_base": true,
+    "retain_raw_exact_base": true,
+    "ppl_exact_base": true,
+    "base_embedding_hash_unchanged": true,
+    "lm_head_hash_unchanged": true
+  },
+  "one_shot_policy": {
+    "candidate_frozen_before_official_open": true,
+    "official_open_event_written_before_dataset_read": true,
+    "retry_after_official_open_prohibited": true,
+    "resume_after_official_open_prohibited": true,
+    "checkpoint_selection_from_official_results_prohibited": true,
+    "hyperparameter_changes_between_registered_seeds_prohibited": true,
+    "failed_seeds_reported_without_replacement": true,
+    "later_seeds_may_not_be_modified_in_response_to_earlier_results": true
+  },
+  "seed_1_status": {
+    "role": "consumed_development",
+    "blind_or_official_claim_permitted": false,
+    "observed_development_acceptance_passed": true
+  },
+  "claim_scope": "contextual_behavioral_suppression_not_latent_erasure",
+  "strong_unlearning_claim_permitted": false
+}
