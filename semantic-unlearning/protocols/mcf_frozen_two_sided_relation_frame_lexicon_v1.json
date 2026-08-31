@@ -1,0 +1,6150 @@
+{
+  "ambiguous_frame_count": 41,
+  "derivation": {
+    "consumed_development_seeds": [
+      1,
+      2
+    ],
+    "consumed_development_status": "not_blind_not_official",
+    "development_prompt_instances_used": 43933,
+    "development_records_used": 14644,
+    "neighborhood_prompts_used": false,
+    "normalization": "NFKC_lowercase_collapse_whitespace_left_current_clause_plus_right_remainder",
+    "prompt_sources": [
+      "requested_rewrite",
+      "paraphrase_prompts"
+    ],
+    "reserved_seed_range": [
+      3,
+      10
+    ],
+    "reserved_seed_split_counts": {
+      "10": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "3": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "4": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "5": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "6": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "7": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "8": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "9": {
+        "forget": 50,
+        "retain": 1000
+      }
+    },
+    "reserved_split_rule": "union_of_official_50_forget_plus_1000_retain_per_seed",
+    "reserved_unique_records": 6233,
+    "source_mcf_sha256": "977a6acce4705507b5fd6bfcea8f61cd78f9ed0f9cd9c9a6bcd6c8a3ed61c833",
+    "source_records": 20877,
+    "target_answers_used": false
+  },
+  "frame_count": 2008,
+  "frame_separator": "\u241f",
+  "frame_to_relation_ids": {
+    "\" in\u241f, an official language is": [
+      "P37"
+    ],
+    "\" in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "\" in\u241f, they understand": [
+      "P37"
+    ],
+    "\" the domain of activity of\u241fis": [
+      "P101"
+    ],
+    "\" the domain of work of\u241fis": [
+      "P101"
+    ],
+    "\" the expertise of\u241fis": [
+      "P101"
+    ],
+    "\" the genre played by\u241fis": [
+      "P136"
+    ],
+    "\" the headquarter of\u241fis in": [
+      "P159"
+    ],
+    "\" the headquarter of\u241fis located in": [
+      "P159"
+    ],
+    "\" the headquarters of\u241fis in": [
+      "P159"
+    ],
+    "\" the language of\u241fis": [
+      "P364",
+      "P407"
+    ],
+    "\" the language of\u241fwas": [
+      "P364",
+      "P407"
+    ],
+    "\" the language used by\u241fis": [
+      "P1412"
+    ],
+    "\" the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "\" the location of\u241fis": [
+      "P276"
+    ],
+    "\" the mother tongue of\u241fis": [
+      "P103"
+    ],
+    "\" the native language of\u241fis": [
+      "P103"
+    ],
+    "\" the occupation of\u241fis": [
+      "P106"
+    ],
+    "\" the official language of\u241fis": [
+      "P37"
+    ],
+    "\" the original language of\u241fis": [
+      "P364"
+    ],
+    "\" the original language of\u241fwas": [
+      "P364"
+    ],
+    "\" the profession of\u241fis": [
+      "P106"
+    ],
+    "\" the twin city of\u241fis": [
+      "P190"
+    ],
+    "\" what does\u241fplay? they play": [
+      "P136"
+    ],
+    "\" what is the twin city of\u241f? it is": [
+      "P190"
+    ],
+    "\" what sport does\u241fplay? they play": [
+      "P641"
+    ],
+    "\" where is\u241f? it is located in": [
+      "P276"
+    ],
+    "\" which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "\") the official religion of\u241fis": [
+      "P140"
+    ],
+    "\")\u241fcan be found in": [
+      "P276"
+    ],
+    "\")\u241ffound employment in": [
+      "P937"
+    ],
+    "\")\u241fis located in": [
+      "P131"
+    ],
+    "\")\u241fprofessionally plays the sport": [
+      "P641"
+    ],
+    "\", 1978 song from ace frehley the official religion of\u241fis": [
+      "P140"
+    ],
+    "\"\u241f's capital city,": [
+      "P36"
+    ],
+    "\"\u241f's domain of activity is": [
+      "P101"
+    ],
+    "\"\u241f's domain of work is": [
+      "P101"
+    ],
+    "\"\u241f's expertise is": [
+      "P101"
+    ],
+    "\"\u241f's headquarters are in": [
+      "P159"
+    ],
+    "\"\u241f's life ended in": [
+      "P20"
+    ],
+    "\"\u241f's owner": [
+      "P127"
+    ],
+    "\"\u241f's position is": [
+      "P39"
+    ],
+    "\"\u241f's profession is a": [
+      "P106"
+    ],
+    "\"\u241f's profession is an": [
+      "P106"
+    ],
+    "\"\u241f, a citizen of": [
+      "P27"
+    ],
+    "\"\u241f, a native": [
+      "P103"
+    ],
+    "\"\u241f, a product created by": [
+      "P178"
+    ],
+    "\"\u241f, a product manufactured by": [
+      "P178"
+    ],
+    "\"\u241f, a product of": [
+      "P178"
+    ],
+    "\"\u241f, by": [
+      "P127"
+    ],
+    "\"\u241f, created by": [
+      "P178"
+    ],
+    "\"\u241f, created in": [
+      "P495",
+      "P740"
+    ],
+    "\"\u241f, developed by": [
+      "P176",
+      "P178"
+    ],
+    "\"\u241f, developed in": [
+      "P495"
+    ],
+    "\"\u241f, formulated in": [
+      "P495"
+    ],
+    "\"\u241f, from": [
+      "P127"
+    ],
+    "\"\u241f, in": [
+      "P131",
+      "P17",
+      "P30"
+    ],
+    "\"\u241f, located in": [
+      "P17"
+    ],
+    "\"\u241f, performing on the": [
+      "P1303"
+    ],
+    "\"\u241f, playing the": [
+      "P1303"
+    ],
+    "\"\u241f, produced by": [
+      "P176"
+    ],
+    "\"\u241f, speaker of": [
+      "P103"
+    ],
+    "\"\u241f, that is represented by": [
+      "P264"
+    ],
+    "\"\u241f, that originated in": [
+      "P495"
+    ],
+    "\"\u241f, that was created in": [
+      "P495"
+    ],
+    "\"\u241f, that was formed in": [
+      "P740"
+    ],
+    "\"\u241f, that was from": [
+      "P495"
+    ],
+    "\"\u241f, the": [
+      "P1303",
+      "P413",
+      "P641"
+    ],
+    "\"\u241f, which is called after": [
+      "P138"
+    ],
+    "\"\u241f, which is located in": [
+      "P17"
+    ],
+    "\"\u241f, which was named after": [
+      "P138"
+    ],
+    "\"\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "\"\u241f, who has the position of": [
+      "P39"
+    ],
+    "\"\u241f, who holds a citizenship from": [
+      "P27"
+    ],
+    "\"\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "\"\u241f, who plays": [
+      "P136"
+    ],
+    "\"\u241f, who plays the position": [
+      "P413"
+    ],
+    "\"\u241f, who works as": [
+      "P106"
+    ],
+    "\"\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "\"\u241f, whose position is that of": [
+      "P39"
+    ],
+    "\"\u241fbelongs to the continent of": [
+      "P30"
+    ],
+    "\"\u241fbelongs to the organization of": [
+      "P463"
+    ],
+    "\"\u241fcan be found in": [
+      "P131",
+      "P276"
+    ],
+    "\"\u241fdebuted on": [
+      "P449"
+    ],
+    "\"\u241fdied at": [
+      "P20"
+    ],
+    "\"\u241fdied in": [
+      "P20"
+    ],
+    "\"\u241fdied in the city of": [
+      "P20"
+    ],
+    "\"\u241fexpired at": [
+      "P20"
+    ],
+    "\"\u241ffollows the religion of": [
+      "P140"
+    ],
+    "\"\u241fformed in": [
+      "P740"
+    ],
+    "\"\u241ffound employment in": [
+      "P937"
+    ],
+    "\"\u241fhas a citizenship from": [
+      "P27"
+    ],
+    "\"\u241fholds a citizenship from": [
+      "P27"
+    ],
+    "\"\u241fholds the title of": [
+      "P39"
+    ],
+    "\"\u241fis a": [
+      "P39"
+    ],
+    "\"\u241fis a citizen of": [
+      "P27"
+    ],
+    "\"\u241fis a native speaker of": [
+      "P103"
+    ],
+    "\"\u241fis a part of the continent of": [
+      "P30"
+    ],
+    "\"\u241fis a product of": [
+      "P176",
+      "P178"
+    ],
+    "\"\u241fis affiliated with": [
+      "P463"
+    ],
+    "\"\u241fis affiliated with the": [
+      "P463"
+    ],
+    "\"\u241fis affiliated with the religion": [
+      "P140"
+    ],
+    "\"\u241fis based in": [
+      "P159"
+    ],
+    "\"\u241fis created by": [
+      "P176"
+    ],
+    "\"\u241fis developed by": [
+      "P176",
+      "P178"
+    ],
+    "\"\u241fis employed by": [
+      "P108"
+    ],
+    "\"\u241fis follower of": [
+      "P140"
+    ],
+    "\"\u241fis from": [
+      "P127"
+    ],
+    "\"\u241fis headquartered in": [
+      "P159"
+    ],
+    "\"\u241fis in": [
+      "P131",
+      "P276",
+      "P30"
+    ],
+    "\"\u241fis known for performing": [
+      "P136"
+    ],
+    "\"\u241fis located in": [
+      "P131",
+      "P17",
+      "P276",
+      "P30"
+    ],
+    "\"\u241fis located in the continent": [
+      "P30"
+    ],
+    "\"\u241fis located in the country of": [
+      "P17"
+    ],
+    "\"\u241fis native to": [
+      "P19"
+    ],
+    "\"\u241fis originally from": [
+      "P19"
+    ],
+    "\"\u241fis owned by": [
+      "P127"
+    ],
+    "\"\u241fis produced by": [
+      "P176"
+    ],
+    "\"\u241fis within": [
+      "P131"
+    ],
+    "\"\u241flost their life at": [
+      "P20"
+    ],
+    "\"\u241foriginated from": [
+      "P19"
+    ],
+    "\"\u241foriginated in": [
+      "P495"
+    ],
+    "\"\u241foriginates from": [
+      "P19"
+    ],
+    "\"\u241fpassed away at": [
+      "P20"
+    ],
+    "\"\u241fpassed away in": [
+      "P20"
+    ],
+    "\"\u241fperforms": [
+      "P136"
+    ],
+    "\"\u241fperforms on the": [
+      "P1303"
+    ],
+    "\"\u241fplays": [
+      "P1303",
+      "P136",
+      "P641"
+    ],
+    "\"\u241fplays as": [
+      "P413"
+    ],
+    "\"\u241fplays in the position of": [
+      "P413"
+    ],
+    "\"\u241fplays the": [
+      "P1303"
+    ],
+    "\"\u241fpremiered on": [
+      "P449"
+    ],
+    "\"\u241fpremieres on": [
+      "P449"
+    ],
+    "\"\u241fprofessionally plays the sport": [
+      "P641"
+    ],
+    "\"\u241fspeaks": [
+      "P1412"
+    ],
+    "\"\u241fspeaks the language": [
+      "P1412"
+    ],
+    "\"\u241fspecializes in": [
+      "P101"
+    ],
+    "\"\u241fspoke the language": [
+      "P103"
+    ],
+    "\"\u241fstarted in": [
+      "P740"
+    ],
+    "\"\u241fsuccumbed at": [
+      "P20"
+    ],
+    "\"\u241fthat was founded in": [
+      "P740"
+    ],
+    "\"\u241ftook up work in": [
+      "P937"
+    ],
+    "\"\u241fused to work in": [
+      "P937"
+    ],
+    "\"\u241fwas a product of": [
+      "P178"
+    ],
+    "\"\u241fwas called after": [
+      "P138"
+    ],
+    "\"\u241fwas created by": [
+      "P178"
+    ],
+    "\"\u241fwas created in": [
+      "P495",
+      "P740"
+    ],
+    "\"\u241fwas created in the country of": [
+      "P495"
+    ],
+    "\"\u241fwas developed in": [
+      "P495"
+    ],
+    "\"\u241fwas employed in": [
+      "P937"
+    ],
+    "\"\u241fwas formed in": [
+      "P740"
+    ],
+    "\"\u241fwas from": [
+      "P495"
+    ],
+    "\"\u241fwas named for": [
+      "P138"
+    ],
+    "\"\u241fwas native to": [
+      "P19"
+    ],
+    "\"\u241fwas originally aired on": [
+      "P449"
+    ],
+    "\"\u241fwas originally from": [
+      "P19"
+    ],
+    "\"\u241fwas released on": [
+      "P449"
+    ],
+    "\"\u241fworked in": [
+      "P937"
+    ],
+    "\"\u241fworked in the city of": [
+      "P937"
+    ],
+    "\"\u241fworks as": [
+      "P106"
+    ],
+    "\"\u241fworks for": [
+      "P108"
+    ],
+    "\"\u241fworks in the field of": [
+      "P101"
+    ],
+    "\"\u241fwrites in": [
+      "P1412"
+    ],
+    "#redirect african yellow warbler\u241fplays": [
+      "P641"
+    ],
+    "#redirect anikka albrite\u241fperforms on the": [
+      "P1303"
+    ],
+    "#redirect philippe barbier\u241fis within": [
+      "P131"
+    ],
+    "' the language of\u241fis": [
+      "P364"
+    ],
+    "' the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "' the location of\u241fis": [
+      "P276"
+    ],
+    "' the mother tongue of\u241fis": [
+      "P103"
+    ],
+    "' the native language of\u241fis": [
+      "P103"
+    ],
+    "'\"\u241f, speaker of": [
+      "P103"
+    ],
+    "'\"\u241f, who plays the position": [
+      "P413"
+    ],
+    "'\"\u241fis a part of the": [
+      "P463"
+    ],
+    "'\"\u241fis located in": [
+      "P30"
+    ],
+    "''\u241f, who plays": [
+      "P136"
+    ],
+    "''\u241fis produced by": [
+      "P176"
+    ],
+    "''\u241fis within": [
+      "P131"
+    ],
+    "')\u241fis in": [
+      "P131"
+    ],
+    "'\u241f's occupation is": [
+      "P106"
+    ],
+    "'\u241f's profession is a": [
+      "P106"
+    ],
+    "'\u241f, from": [
+      "P495"
+    ],
+    "'\u241f, in": [
+      "P131"
+    ],
+    "'\u241f, playing the": [
+      "P1303"
+    ],
+    "'\u241f, that originated in": [
+      "P740"
+    ],
+    "'\u241f, which is located in": [
+      "P17"
+    ],
+    "'\u241f, who plays the position": [
+      "P413"
+    ],
+    "'\u241f, who works as": [
+      "P106"
+    ],
+    "'\u241f, whose position is that of": [
+      "P39"
+    ],
+    "'\u241fis a citizen of": [
+      "P27"
+    ],
+    "'\u241fis based in": [
+      "P159"
+    ],
+    "'\u241fis created by": [
+      "P176"
+    ],
+    "'\u241fis known for performing": [
+      "P136"
+    ],
+    "'\u241fis native to": [
+      "P19"
+    ],
+    "'\u241fis originally from": [
+      "P19"
+    ],
+    "'\u241fis to debut on": [
+      "P449"
+    ],
+    "'\u241fis written in": [
+      "P407"
+    ],
+    "'\u241foriginated in": [
+      "P495"
+    ],
+    "'\u241foriginates from": [
+      "P19"
+    ],
+    "'\u241fplays": [
+      "P136"
+    ],
+    "'\u241fpremiered on": [
+      "P449"
+    ],
+    "'\u241fwas created in": [
+      "P495"
+    ],
+    "(german)\u241fspeaks": [
+      "P1412"
+    ],
+    "(prima stagione) the original language of\u241fwas": [
+      "P364"
+    ],
+    "(prima stagione)\u241fbelongs to the continent of": [
+      "P30"
+    ],
+    ") in\u241f, an official language is": [
+      "P37"
+    ],
+    ") in\u241f, the language spoken is": [
+      "P37"
+    ],
+    ") the domain of activity of\u241fis": [
+      "P101"
+    ],
+    ") the domain of work of\u241fis": [
+      "P101"
+    ],
+    ") the genre played by\u241fis": [
+      "P136"
+    ],
+    ") the headquarter of\u241fis located in": [
+      "P159"
+    ],
+    ") the headquarters of\u241fis in": [
+      "P159"
+    ],
+    ") the language of\u241fis": [
+      "P364",
+      "P407"
+    ],
+    ") the language of\u241fwas": [
+      "P364",
+      "P407"
+    ],
+    ") the language used by\u241fis": [
+      "P1412"
+    ],
+    ") the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    ") the location of\u241fis": [
+      "P276"
+    ],
+    ") the music label that is representing\u241fis": [
+      "P264"
+    ],
+    ") the native language of\u241fis": [
+      "P103"
+    ],
+    ") the occupation of\u241fis": [
+      "P106"
+    ],
+    ") the official religion of\u241fis": [
+      "P140"
+    ],
+    ") the original language of\u241fis": [
+      "P364"
+    ],
+    ") the original language of\u241fwas": [
+      "P364"
+    ],
+    ") the profession of\u241fis": [
+      "P106"
+    ],
+    ") what does\u241fplay? they play": [
+      "P136"
+    ],
+    ") what is the twin city of\u241f? it is": [
+      "P190"
+    ],
+    ") what sport does\u241fplay? they play": [
+      "P641"
+    ],
+    ") where is\u241f? it is located in": [
+      "P276"
+    ],
+    ") which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    ")\u241f's area of work is": [
+      "P101"
+    ],
+    ")\u241f's headquarters are in": [
+      "P159"
+    ],
+    ")\u241f's life ended in": [
+      "P20"
+    ],
+    ")\u241f's occupation is": [
+      "P106"
+    ],
+    ")\u241f's owner": [
+      "P127"
+    ],
+    ")\u241f's position is": [
+      "P39"
+    ],
+    ")\u241f's profession is a": [
+      "P106"
+    ],
+    ")\u241f's profession is an": [
+      "P106"
+    ],
+    ")\u241f, a citizen of": [
+      "P27"
+    ],
+    ")\u241f, a native": [
+      "P103"
+    ],
+    ")\u241f, a product created by": [
+      "P178"
+    ],
+    ")\u241f, a product manufactured by": [
+      "P178"
+    ],
+    ")\u241f, a product of": [
+      "P178"
+    ],
+    ")\u241f, called after": [
+      "P138"
+    ],
+    ")\u241f, created by": [
+      "P176"
+    ],
+    ")\u241f, created in": [
+      "P495"
+    ],
+    ")\u241f, developed by": [
+      "P176"
+    ],
+    ")\u241f, from": [
+      "P127"
+    ],
+    ")\u241f, in": [
+      "P17",
+      "P30"
+    ],
+    ")\u241f, located in": [
+      "P17"
+    ],
+    ")\u241f, playing the": [
+      "P1303"
+    ],
+    ")\u241f, produced by": [
+      "P176"
+    ],
+    ")\u241f, speaker of": [
+      "P103"
+    ],
+    ")\u241f, that was formulated in": [
+      "P495"
+    ],
+    ")\u241f, that was from": [
+      "P495"
+    ],
+    ")\u241f, the": [
+      "P1303",
+      "P413"
+    ],
+    ")\u241f, which is located in": [
+      "P17"
+    ],
+    ")\u241f, which was called after": [
+      "P138"
+    ],
+    ")\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    ")\u241f, who has the position of": [
+      "P39"
+    ],
+    ")\u241f, who holds a citizenship from": [
+      "P27"
+    ],
+    ")\u241f, who holds the position of": [
+      "P39"
+    ],
+    ")\u241f, who is a citizen of": [
+      "P27"
+    ],
+    ")\u241f, who plays": [
+      "P136"
+    ],
+    ")\u241f, who plays the position": [
+      "P413"
+    ],
+    ")\u241f, who works as": [
+      "P106"
+    ],
+    ")\u241f, whose position is that of": [
+      "P39"
+    ],
+    ")\u241fbelongs to the continent of": [
+      "P30"
+    ],
+    ")\u241fcan be found in": [
+      "P131"
+    ],
+    ")\u241fdied in": [
+      "P20"
+    ],
+    ")\u241fdied in the city of": [
+      "P20"
+    ],
+    ")\u241fexpired at": [
+      "P20"
+    ],
+    ")\u241ffound employment in": [
+      "P937"
+    ],
+    ")\u241ffrom": [
+      "P495"
+    ],
+    ")\u241fhas a citizenship from": [
+      "P27"
+    ],
+    ")\u241fholds a citizenship from": [
+      "P27"
+    ],
+    ")\u241fholds the title of": [
+      "P39"
+    ],
+    ")\u241fis a": [
+      "P39"
+    ],
+    ")\u241fis a citizen of": [
+      "P27"
+    ],
+    ")\u241fis a part of the continent of": [
+      "P30"
+    ],
+    ")\u241fis a product of": [
+      "P176",
+      "P178"
+    ],
+    ")\u241fis a professional": [
+      "P641"
+    ],
+    ")\u241fis affiliated with the religion": [
+      "P140"
+    ],
+    ")\u241fis based in": [
+      "P159"
+    ],
+    ")\u241fis developed by": [
+      "P178"
+    ],
+    ")\u241fis employed by": [
+      "P108"
+    ],
+    ")\u241fis follower of": [
+      "P140"
+    ],
+    ")\u241fis from": [
+      "P127"
+    ],
+    ")\u241fis headquartered in": [
+      "P159"
+    ],
+    ")\u241fis in": [
+      "P131",
+      "P276",
+      "P30"
+    ],
+    ")\u241fis known for performing": [
+      "P136"
+    ],
+    ")\u241fis located in": [
+      "P131",
+      "P17",
+      "P276",
+      "P30"
+    ],
+    ")\u241fis located in the continent": [
+      "P30"
+    ],
+    ")\u241fis located in the country of": [
+      "P17"
+    ],
+    ")\u241fis originally from": [
+      "P19"
+    ],
+    ")\u241fis produced by": [
+      "P176"
+    ],
+    ")\u241fis to debut on": [
+      "P449"
+    ],
+    ")\u241fis within": [
+      "P131"
+    ],
+    ")\u241flost their life at": [
+      "P20"
+    ],
+    ")\u241foriginated from": [
+      "P19"
+    ],
+    ")\u241foriginates from": [
+      "P19"
+    ],
+    ")\u241fowner": [
+      "P127"
+    ],
+    ")\u241fpassed away at": [
+      "P20"
+    ],
+    ")\u241fperforms": [
+      "P136"
+    ],
+    ")\u241fplays": [
+      "P136",
+      "P641"
+    ],
+    ")\u241fplays as": [
+      "P413"
+    ],
+    ")\u241fplays the instrument": [
+      "P1303"
+    ],
+    ")\u241fpremiered on": [
+      "P449"
+    ],
+    ")\u241fpremieres on": [
+      "P449"
+    ],
+    ")\u241fspeaks the language": [
+      "P1412"
+    ],
+    ")\u241fspecializes in": [
+      "P101"
+    ],
+    ")\u241fspoke the language": [
+      "P103"
+    ],
+    ")\u241fsuccumbed at": [
+      "P20"
+    ],
+    ")\u241fthat was founded in": [
+      "P740"
+    ],
+    ")\u241ftook up work in": [
+      "P937"
+    ],
+    ")\u241fwas a product of": [
+      "P178"
+    ],
+    ")\u241fwas created in": [
+      "P495",
+      "P740"
+    ],
+    ")\u241fwas created in the country of": [
+      "P495"
+    ],
+    ")\u241fwas developed by": [
+      "P178"
+    ],
+    ")\u241fwas employed in": [
+      "P937"
+    ],
+    ")\u241fwas from": [
+      "P495"
+    ],
+    ")\u241fwas native to": [
+      "P19"
+    ],
+    ")\u241fwas originally aired on": [
+      "P449"
+    ],
+    ")\u241fwas originally from": [
+      "P19"
+    ],
+    ")\u241fwas started in": [
+      "P740"
+    ],
+    ")\u241fwas written in": [
+      "P407"
+    ],
+    ")\u241fworked in": [
+      "P937"
+    ],
+    ")\u241fworks as": [
+      "P106"
+    ],
+    ")\u241fworks in the area of": [
+      "P101"
+    ],
+    ")\u241fwrites in": [
+      "P1412"
+    ],
+    "* the language used by\u241fis": [
+      "P1412"
+    ],
+    "*\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "*\u241fholds a citizenship from": [
+      "P27"
+    ],
+    "*\u241fis a product of": [
+      "P176"
+    ],
+    "*\u241fis located in": [
+      "P276"
+    ],
+    "*\u241fspeaks the language": [
+      "P1412"
+    ],
+    "1 what sport does\u241fplay? they play": [
+      "P641"
+    ],
+    "1927-28 the expertise of\u241fis": [
+      "P101"
+    ],
+    "1987\u241f, the": [
+      "P641"
+    ],
+    "1987\u241fwrites in": [
+      "P1412"
+    ],
+    "1ramnic in\u241f, an official language is": [
+      "P37"
+    ],
+    "1ramnic\u241fwrites in": [
+      "P1412"
+    ],
+    "1\u241f's expertise is": [
+      "P101"
+    ],
+    "1\u241fwrites in": [
+      "P1412"
+    ],
+    "2002\u241fis a product of": [
+      "P176"
+    ],
+    "23\u241fplays": [
+      "P1303"
+    ],
+    "24\u241fused to work in": [
+      "P937"
+    ],
+    "345\u241fis a product of": [
+      "P176"
+    ],
+    "4\u241ffound employment in": [
+      "P937"
+    ],
+    "4\u241foriginated from": [
+      "P19"
+    ],
+    "4\u241fplays the instrument": [
+      "P1303"
+    ],
+    "9, saskatchewan\u241f, who is employed by": [
+      "P108"
+    ],
+    "] the language of\u241fis": [
+      "P407"
+    ],
+    "]\u241f's occupation is": [
+      "P106"
+    ],
+    "]\u241f's profession is an": [
+      "P106"
+    ],
+    "]\u241f, a product of": [
+      "P178"
+    ],
+    "]\u241f, created in": [
+      "P495"
+    ],
+    "]\u241f, from": [
+      "P127"
+    ],
+    "]\u241f, in": [
+      "P131"
+    ],
+    "]\u241f, who is employed by": [
+      "P108"
+    ],
+    "]\u241fcan be found in": [
+      "P276"
+    ],
+    "]\u241fholds the title of": [
+      "P39"
+    ],
+    "]\u241fspeaks the language": [
+      "P1412"
+    ],
+    "]\u241fwas native to": [
+      "P19"
+    ],
+    "]\u241fworks for": [
+      "P108"
+    ],
+    "^\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "adelaide\u241fplays as": [
+      "P413"
+    ],
+    "afl rising star, 2018\u241fspoke the language": [
+      "P103"
+    ],
+    "all-america\u241fis follower of": [
+      "P140"
+    ],
+    "antalyaspor\u241fis in": [
+      "P276"
+    ],
+    "as in \"va1bob\" the original language of\u241fwas": [
+      "P364"
+    ],
+    "atratella\u241fpremieres on": [
+      "P449"
+    ],
+    "atratella\u241fspeaks": [
+      "P1412"
+    ],
+    "australia\u241fis known for performing": [
+      "P136"
+    ],
+    "austria-hungary\u241f, located in": [
+      "P17"
+    ],
+    "a\u241f, developed by": [
+      "P176"
+    ],
+    "a\u241fpremieres on": [
+      "P449"
+    ],
+    "badgers head coaches\u241f, performing on the": [
+      "P1303"
+    ],
+    "bandargah, zanjan the profession of\u241fis": [
+      "P106"
+    ],
+    "barcelona\u241fis in": [
+      "P30"
+    ],
+    "baylor\u241fis known for performing": [
+      "P136"
+    ],
+    "belgrade\u241fworks as": [
+      "P106"
+    ],
+    "benfica footballers\u241fpremieres on": [
+      "P449"
+    ],
+    "brentford\u241f, performing on the": [
+      "P1303"
+    ],
+    "bridges the occupation of\u241fis": [
+      "P106"
+    ],
+    "budziska\u241fis to debut on": [
+      "P449"
+    ],
+    "bundesliga players in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "bundesliga players\u241f's area of work is": [
+      "P101"
+    ],
+    "bundesliga players\u241fis located in": [
+      "P30"
+    ],
+    "bury hill\u241fis located in the continent": [
+      "P30"
+    ],
+    "c stretched\u241f, produced by": [
+      "P176"
+    ],
+    "c stretched\u241fholds the position of": [
+      "P39"
+    ],
+    "c stretched\u241fused to work in": [
+      "P937"
+    ],
+    "c08\u241f's occupation is": [
+      "P106"
+    ],
+    "carre\u00f1o, teresa\u241f, in": [
+      "P17"
+    ],
+    "cartagena\u241fis a member of": [
+      "P463"
+    ],
+    "cartagena\u241fis a native speaker of": [
+      "P103"
+    ],
+    "category:10th-century people\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "category:10th-century people\u241fis located in the country of": [
+      "P17"
+    ],
+    "category:11th-century latin books\u241f, that was formed in": [
+      "P740"
+    ],
+    "category:1522 deaths\u241f, who works as": [
+      "P106"
+    ],
+    "category:1605 births\u241fis located in": [
+      "P276"
+    ],
+    "category:1721 works\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "category:1765 deaths the original language of\u241fwas": [
+      "P364"
+    ],
+    "category:1771 deaths\u241fis in": [
+      "P30"
+    ],
+    "category:1792 new jersey elections\u241f, who plays": [
+      "P136"
+    ],
+    "category:1828 deaths\u241f, who has the position of": [
+      "P39"
+    ],
+    "category:1845 deaths\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:1881 establishments in england\u241f, founded in": [
+      "P740"
+    ],
+    "category:1881 paintings\u241f, the": [
+      "P413"
+    ],
+    "category:1891 deaths\u241fis a part of the": [
+      "P463"
+    ],
+    "category:1896 deaths\u241fwas native to": [
+      "P19"
+    ],
+    "category:1899 establishments in quebec\u241fis a part of the continent of": [
+      "P30"
+    ],
+    "category:1899 establishments in quebec\u241fis based in": [
+      "P159"
+    ],
+    "category:1906 deaths\u241fdied in": [
+      "P20"
+    ],
+    "category:1920 births\u241f, a native": [
+      "P103"
+    ],
+    "category:1928 north carolina elections\u241fis located in the country of": [
+      "P17"
+    ],
+    "category:1950s in liverpool the original language of\u241fwas": [
+      "P364"
+    ],
+    "category:1954 australian novels\u241f's profession is an": [
+      "P106"
+    ],
+    "category:1957 births the headquarter of\u241fis in": [
+      "P159"
+    ],
+    "category:1957 births\u241fplays the instrument": [
+      "P1303"
+    ],
+    "category:1957 births\u241fworked in": [
+      "P937"
+    ],
+    "category:1966 births\u241fwas employed in": [
+      "P937"
+    ],
+    "category:1973 british television episodes\u241fspoke the language": [
+      "P103"
+    ],
+    "category:1973 deaths\u241fis a part of the continent of": [
+      "P30"
+    ],
+    "category:1980s malayalam-language films\u241fwas originally from": [
+      "P19"
+    ],
+    "category:1984 summer paralympics events\u241fwas formed in": [
+      "P740"
+    ],
+    "category:1993 comics debuts\u241fwas written in": [
+      "P407"
+    ],
+    "category:1997 deaths\u241f, who works as": [
+      "P106"
+    ],
+    "category:1999 films\u241fwas started in": [
+      "P740"
+    ],
+    "category:19th-century english people\u241f, which is located in": [
+      "P17"
+    ],
+    "category:2002 australian television seasons\u241f, in": [
+      "P131"
+    ],
+    "category:2006 albums\u241f, in": [
+      "P131"
+    ],
+    "category:2006 maine elections\u241f, the": [
+      "P413"
+    ],
+    "category:2006 maine elections\u241fperforms on the": [
+      "P1303"
+    ],
+    "category:2007 ontario general election the mother tongue of\u241fis": [
+      "P103"
+    ],
+    "category:2007 ontario general election\u241fis a citizen of": [
+      "P27"
+    ],
+    "category:2009 albums\u241fsuccumbed at": [
+      "P20"
+    ],
+    "category:2011 songs the original language of\u241fwas": [
+      "P364"
+    ],
+    "category:2013 establishments in florida\u241f, formulated in": [
+      "P495"
+    ],
+    "category:2014 in science\u241fis affiliated with": [
+      "P463"
+    ],
+    "category:20th-century zoologists which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:20th-century zoologists\u241fis known for performing": [
+      "P136"
+    ],
+    "category:20th-century zoologists\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:22nd-century bc rulers in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "category:4th-century bc spartans\u241fperforms on the": [
+      "P1303"
+    ],
+    "category:4th-century bishops\u241fwrites in": [
+      "P1412"
+    ],
+    "category:a cappella musical groups\u241f, located in": [
+      "P17"
+    ],
+    "category:a cappella musical groups\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "category:a&m records albums\u241fspeaks the language": [
+      "P1412"
+    ],
+    "category:aalst, belgium\u241fformed in": [
+      "P740"
+    ],
+    "category:aalst, belgium\u241fwas named for": [
+      "P138"
+    ],
+    "category:abandoned military aircraft projects of germany\u241f, developed by": [
+      "P178"
+    ],
+    "category:abbots of saint gall the native language of\u241fis": [
+      "P103"
+    ],
+    "category:abbots of saint gall\u241f, who plays the position": [
+      "P413"
+    ],
+    "category:abstract algebra\u241fworks in the area of": [
+      "P101"
+    ],
+    "category:acts of the parliament of india 2006\u241f, named after": [
+      "P138"
+    ],
+    "category:actuarial science\u241fis in": [
+      "P30"
+    ],
+    "category:admiralty departments\u241fholds a citizenship from": [
+      "P27"
+    ],
+    "category:adware\u241f, a product developed by": [
+      "P178"
+    ],
+    "category:airports in sarawak the original language of\u241fis": [
+      "P364"
+    ],
+    "category:alcidion\u241fperforms": [
+      "P136"
+    ],
+    "category:alcidion\u241fpremiered on": [
+      "P449"
+    ],
+    "category:alumni of loughborough university\u241f, a product created by": [
+      "P178"
+    ],
+    "category:american climatologists\u241f's profession is an": [
+      "P106"
+    ],
+    "category:american football formations the official religion of\u241fis": [
+      "P140"
+    ],
+    "category:american football formations\u241f, that originated in": [
+      "P495"
+    ],
+    "category:american historians\u241f's occupation is": [
+      "P106"
+    ],
+    "category:american inventions the language of\u241fis": [
+      "P364"
+    ],
+    "category:american political websites\u241f, that was formed in": [
+      "P740"
+    ],
+    "category:american presbyterians\u241fplays": [
+      "P136"
+    ],
+    "category:american spiritual mediums\u241f, created in": [
+      "P495"
+    ],
+    "category:amorphea subphyla\u241f's capital city,": [
+      "P36"
+    ],
+    "category:amphoe of chumphon province\u241f, who holds the position of": [
+      "P39"
+    ],
+    "category:ancient indian cities\u241f, which has the capital city": [
+      "P36"
+    ],
+    "category:angiosperm orders\u241f, who is employed by": [
+      "P108"
+    ],
+    "category:animals described in 1966\u241fworks in the area of": [
+      "P101"
+    ],
+    "category:annual events in mexico\u241fplays": [
+      "P136"
+    ],
+    "category:antequerinae\u241fwas started in": [
+      "P740"
+    ],
+    "category:anthologies\u241f, a product developed by": [
+      "P178"
+    ],
+    "category:anthologies\u241f, who holds the position of": [
+      "P39"
+    ],
+    "category:anthologies\u241fis known for performing": [
+      "P136"
+    ],
+    "category:anthropology\u241fis created by": [
+      "P178"
+    ],
+    "category:anticosti island\u241f, in": [
+      "P30"
+    ],
+    "category:antimicrobial peptides\u241fused to work in": [
+      "P937"
+    ],
+    "category:antivirals\u241f, in": [
+      "P17"
+    ],
+    "category:articles containing video clips the occupation of\u241fis": [
+      "P106"
+    ],
+    "category:articles containing video clips where is\u241f? it is located in": [
+      "P276"
+    ],
+    "category:articles created by qbugbot\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:articles created by qbugbot\u241fis a part of the continent of": [
+      "P30"
+    ],
+    "category:artist colonies\u241f, speaker of": [
+      "P103"
+    ],
+    "category:artists from philadelphia\u241f, who works as": [
+      "P106"
+    ],
+    "category:arts\u241fwas from": [
+      "P495"
+    ],
+    "category:asom gana parishad the location of\u241fis": [
+      "P276"
+    ],
+    "category:assembly constituencies of uttar pradesh\u241fpremieres on": [
+      "P449"
+    ],
+    "category:association football central defenders\u241fworked in the city of": [
+      "P937"
+    ],
+    "category:association football defenders what sport does\u241fplay? they play": [
+      "P641"
+    ],
+    "category:association football defenders\u241f, the": [
+      "P641"
+    ],
+    "category:association football forwards\u241f, which is located in": [
+      "P17"
+    ],
+    "category:association football fullbacks\u241fplays the instrument": [
+      "P1303"
+    ],
+    "category:association football goalkeepers what does\u241fplay? they play": [
+      "P136"
+    ],
+    "category:association football midfielders\u241f, in": [
+      "P17"
+    ],
+    "category:association football midfielders\u241fcan be found in": [
+      "P131"
+    ],
+    "category:association football midfielders\u241fis created by": [
+      "P176"
+    ],
+    "category:association football midfielders\u241fwas native to": [
+      "P19"
+    ],
+    "category:association football wingers\u241f, the": [
+      "P413"
+    ],
+    "category:association football wingers\u241fis in": [
+      "P276"
+    ],
+    "category:association footballers not categorized by position the language of\u241fis": [
+      "P407"
+    ],
+    "category:astronomical objects discovered in 2019\u241fhas the position of": [
+      "P39"
+    ],
+    "category:astronomy organizations\u241ftook up work in": [
+      "P937"
+    ],
+    "category:auderghem\u241fbelongs to the continent of": [
+      "P30"
+    ],
+    "category:automobile transmissions\u241f, which was named for": [
+      "P138"
+    ],
+    "category:automobile transmissions\u241fworks as": [
+      "P106"
+    ],
+    "category:aviation in africa\u241f, playing the": [
+      "P1303"
+    ],
+    "category:awards and prizes of the university of oxford\u241f, in": [
+      "P30"
+    ],
+    "category:bacteria described in 2011 the native language of\u241fis": [
+      "P103"
+    ],
+    "category:bacteria described in 2011\u241fwas created in": [
+      "P495"
+    ],
+    "category:bacteria described in 2017\u241fspecializes in": [
+      "P101"
+    ],
+    "category:bacteria described in 2018\u241f, who holds the position of": [
+      "P39"
+    ],
+    "category:bacteria genera the native language of\u241fis": [
+      "P103"
+    ],
+    "category:bacteria genera\u241fwrites in": [
+      "P1412"
+    ],
+    "category:bacterial diseases which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:badbadnotgood albums where is\u241f? it is located in": [
+      "P276"
+    ],
+    "category:bakhshe kookherd\u241f's profession is an": [
+      "P106"
+    ],
+    "category:bedding\u241f, located in": [
+      "P17"
+    ],
+    "category:beetles described in 1834\u241ftook up work in": [
+      "P937"
+    ],
+    "category:beetles described in 1855\u241fis headquartered in": [
+      "P159"
+    ],
+    "category:beetles described in 1857\u241fwas originally from": [
+      "P19"
+    ],
+    "category:beetles described in 1868 the language of\u241fis": [
+      "P407"
+    ],
+    "category:beetles described in 1892\u241f, which is named for": [
+      "P138"
+    ],
+    "category:beetles described in 1894\u241f's life ended in": [
+      "P20"
+    ],
+    "category:beetles described in 1894\u241ffrom": [
+      "P495"
+    ],
+    "category:beetles described in 1913\u241fis a": [
+      "P39"
+    ],
+    "category:beetles described in 1925\u241fspoke the language": [
+      "P103"
+    ],
+    "category:beetles described in 1935\u241f's occupation is": [
+      "P106"
+    ],
+    "category:beetles described in 1938\u241fis within": [
+      "P131"
+    ],
+    "category:beetles described in 1938\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:beetles described in 1940\u241f, in": [
+      "P131"
+    ],
+    "category:beetles described in 1940\u241f, produced by": [
+      "P176"
+    ],
+    "category:beetles described in 1942\u241f, founded in": [
+      "P740"
+    ],
+    "category:beetles described in 1948\u241f, formulated in": [
+      "P495"
+    ],
+    "category:beetles described in 1952\u241fis written in": [
+      "P407"
+    ],
+    "category:beetles described in 1953\u241fbelongs to the continent of": [
+      "P30"
+    ],
+    "category:beetles described in 1954\u241fspeaks": [
+      "P1412"
+    ],
+    "category:beetles described in 1960\u241fis in": [
+      "P30"
+    ],
+    "category:beetles described in 1962 the native language of\u241fis": [
+      "P103"
+    ],
+    "category:beetles described in 1962\u241fis written in": [
+      "P407"
+    ],
+    "category:beetles described in 1966\u241f's position is": [
+      "P39"
+    ],
+    "category:beetles described in 1975\u241f, that was developed in": [
+      "P495"
+    ],
+    "category:beetles described in 1975\u241fpremieres on": [
+      "P449"
+    ],
+    "category:beetles described in 1976\u241fdebuted on": [
+      "P449"
+    ],
+    "category:beetles described in 1982\u241fwas named for": [
+      "P138"
+    ],
+    "category:beetles described in 2006 the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "category:beetles described in 2007\u241fis within": [
+      "P131"
+    ],
+    "category:beetles described in 2011 the original language of\u241fis": [
+      "P364"
+    ],
+    "category:beetles of africa\u241fwas created in the country of": [
+      "P495"
+    ],
+    "category:beetles of europe\u241f, speaker of": [
+      "P103"
+    ],
+    "category:belgian composers the headquarters of\u241fis in": [
+      "P159"
+    ],
+    "category:bentonite mines in romania the headquarter of\u241fis located in": [
+      "P159"
+    ],
+    "category:bertone vehicles\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "category:beryllium mines in kyrgyzstan\u241f, formulated in": [
+      "P495"
+    ],
+    "category:bezirk neubrandenburg what sport does\u241fplay? they play": [
+      "P641"
+    ],
+    "category:bezirk rostock\u241fperforms": [
+      "P136"
+    ],
+    "category:bilateral relations of zimbabwe\u241f's profession is an": [
+      "P106"
+    ],
+    "category:biology organizations\u241fwrites in": [
+      "P1412"
+    ],
+    "category:bioluminescent insects\u241f, which is located in": [
+      "P17"
+    ],
+    "category:bird subfamilies\u241fcan be found in": [
+      "P131"
+    ],
+    "category:bishnupur, manipur\u241fis a professional": [
+      "P641"
+    ],
+    "category:bitburg-pr\u00fcm\u241f, created by": [
+      "P176"
+    ],
+    "category:black reel awards\u241f's occupation is": [
+      "P106"
+    ],
+    "category:blade weapons\u241fholds a citizenship from": [
+      "P27"
+    ],
+    "category:blade weapons\u241fis affiliated with the religion": [
+      "P140"
+    ],
+    "category:boardsports where is\u241f? it is located in": [
+      "P276"
+    ],
+    "category:boardsports\u241f, formulated in": [
+      "P495"
+    ],
+    "category:bobsleigh at the 1948 winter olympics\u241ftook up work in": [
+      "P937"
+    ],
+    "category:boccia\u241fplays": [
+      "P641"
+    ],
+    "category:bojack horseman seasons\u241fwas born in": [
+      "P19"
+    ],
+    "category:bonds (finance) what sport does\u241fplay? they play": [
+      "P641"
+    ],
+    "category:books about the united states\u241fwas developed in": [
+      "P495"
+    ],
+    "category:borchgrevink coast\u241fspeaks the language": [
+      "P1412"
+    ],
+    "category:brazilian male writers\u241f, located in": [
+      "P17"
+    ],
+    "category:bridge river country\u241f, located in": [
+      "P17"
+    ],
+    "category:british comic strips\u241fis a part of the continent of": [
+      "P30"
+    ],
+    "category:british library additional manuscripts\u241fowner": [
+      "P127"
+    ],
+    "category:british north america\u241fwas developed by": [
+      "P178"
+    ],
+    "category:bromeliaceae cultivar\u241f, that was from": [
+      "P495"
+    ],
+    "category:buildings and structures in norwich\u241fwrites in": [
+      "P1412"
+    ],
+    "category:bundesliga players\u241fis located in": [
+      "P30"
+    ],
+    "category:bykle\u241f, who works as": [
+      "P106"
+    ],
+    "category:calpinae\u241f, who holds a citizenship from": [
+      "P27"
+    ],
+    "category:cambodian cuisine\u241f's domain of work is": [
+      "P101"
+    ],
+    "category:cambodian cuisine\u241f, who plays the position": [
+      "P413"
+    ],
+    "category:canoe marathon\u241f, who plays": [
+      "P136"
+    ],
+    "category:capys (butterfly)\u241f, produced by": [
+      "P176"
+    ],
+    "category:castles in county kilkenny the language of\u241fis": [
+      "P364"
+    ],
+    "category:centrosome\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:chaetodon where is\u241f? it is located in": [
+      "P276"
+    ],
+    "category:chemistry\u241fhas a citizenship from": [
+      "P27"
+    ],
+    "category:chihuahua city\u241fis a citizen of": [
+      "P27"
+    ],
+    "category:children's literature\u241fis a professional": [
+      "P641"
+    ],
+    "category:chinese clothing\u241f, in": [
+      "P131"
+    ],
+    "category:chinese female middle-distance runners the language of\u241fwas": [
+      "P364"
+    ],
+    "category:chinese films the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "category:chinese martial arts\u241f, playing the": [
+      "P1303"
+    ],
+    "category:chinese numismatics\u241fformed in": [
+      "P740"
+    ],
+    "category:chlorophyta orders\u241fpassed away at": [
+      "P20"
+    ],
+    "category:christian terminology\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "category:cities and towns in braunau am inn district\u241fwas employed in": [
+      "P937"
+    ],
+    "category:cities and towns in farrukhabad district\u241f, the": [
+      "P413"
+    ],
+    "category:cities and towns in graz-umgebung district\u241fperforms": [
+      "P136"
+    ],
+    "category:cities and towns in hartberg-f\u00fcrstenfeld district\u241fis known for performing": [
+      "P136"
+    ],
+    "category:cities and towns in imst district\u241f, the": [
+      "P1303"
+    ],
+    "category:cities and towns in lombardy the language of\u241fwas": [
+      "P364"
+    ],
+    "category:cities and towns in nadia district the language of\u241fis": [
+      "P364"
+    ],
+    "category:cities and towns in nagpur district\u241f, who plays": [
+      "P136"
+    ],
+    "category:cities and towns in piedmont the headquarter of\u241fis in": [
+      "P159"
+    ],
+    "category:cities and towns in sicily the language of\u241fwas": [
+      "P364"
+    ],
+    "category:cities and towns in vadodara district\u241fis located in": [
+      "P131"
+    ],
+    "category:cities in barber county, kansas\u241f, that was developed in": [
+      "P495"
+    ],
+    "category:civil parishes in derbyshire\u241f, located in": [
+      "P17"
+    ],
+    "category:civil parishes in shropshire the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:climate of canada\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:coal mines in romania\u241fwas born in": [
+      "P19"
+    ],
+    "category:coastal artillery\u241fis located in": [
+      "P276"
+    ],
+    "category:cochylini\u241fis to debut on": [
+      "P449"
+    ],
+    "category:cochylini\u241fsuccumbed at": [
+      "P20"
+    ],
+    "category:cocktails with rum\u241fis within": [
+      "P131"
+    ],
+    "category:coins\u241fspoke the language": [
+      "P103"
+    ],
+    "category:coleotechnites where is\u241f? it is located in": [
+      "P276"
+    ],
+    "category:communes of algeria the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:communes of algeria\u241fwas born in": [
+      "P19"
+    ],
+    "category:communes of haiti\u241fwas native to": [
+      "P19"
+    ],
+    "category:communes of meurthe-et-moselle\u241fis a part of the": [
+      "P463"
+    ],
+    "category:communes of meurthe-et-moselle\u241fis a product of": [
+      "P176"
+    ],
+    "category:communities in dubai\u241fis within": [
+      "P131"
+    ],
+    "category:communities in paphos district what does\u241fplay? they play": [
+      "P136"
+    ],
+    "category:companies based in hordaland the headquarters of\u241fis in": [
+      "P159"
+    ],
+    "category:companies established in 1980\u241f, a native": [
+      "P103"
+    ],
+    "category:companies established in 1980\u241f, located in": [
+      "P17"
+    ],
+    "category:companies of kuwait which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:computer errors\u241f, that was formed in": [
+      "P740"
+    ],
+    "category:computer errors\u241fplays the": [
+      "P1303"
+    ],
+    "category:computer jargon\u241f, performing on the": [
+      "P1303"
+    ],
+    "category:concepts in physics\u241fplays the": [
+      "P1303"
+    ],
+    "category:condensed matter physics\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "category:conjectures\u241fwas founded in": [
+      "P740"
+    ],
+    "category:conservatism\u241fis employed by": [
+      "P108"
+    ],
+    "category:constituencies of erongo region in\u241f, an official language is": [
+      "P37"
+    ],
+    "category:convection\u241fdebuted on": [
+      "P449"
+    ],
+    "category:convection\u241fwas originally from": [
+      "P19"
+    ],
+    "category:corel software\u241fis a part of the continent of": [
+      "P30"
+    ],
+    "category:corporate law\u241f, a product of": [
+      "P178"
+    ],
+    "category:costellariidae\u241f's headquarters are in": [
+      "P159"
+    ],
+    "category:costs\u241f, which is located in": [
+      "P17"
+    ],
+    "category:county seats in hunan the expertise of\u241fis": [
+      "P101"
+    ],
+    "category:county-level towns in vietnam\u241f, who plays the position": [
+      "P413"
+    ],
+    "category:cree culture\u241f, created in": [
+      "P495"
+    ],
+    "category:cree culture\u241fis created by": [
+      "P178"
+    ],
+    "category:crowns (headgear)\u241f's headquarters are in": [
+      "P159"
+    ],
+    "category:cruiser classes\u241fis in": [
+      "P131"
+    ],
+    "category:crustaceans described in 2014\u241f's position is": [
+      "P39"
+    ],
+    "category:cryptolechia\u241fis a member of": [
+      "P463"
+    ],
+    "category:cryptolechia\u241fis located in": [
+      "P17"
+    ],
+    "category:cucuteni\u2013trypillia culture\u241fwas released on": [
+      "P449"
+    ],
+    "category:culture in yunnan\u241f, the": [
+      "P413"
+    ],
+    "category:culture of negros occidental the expertise of\u241fis": [
+      "P101"
+    ],
+    "category:culture of negros occidental\u241fwrites in": [
+      "P1412"
+    ],
+    "category:curtea de arge\u0219\u241fis in": [
+      "P276"
+    ],
+    "category:customer relationship management\u241f, a native": [
+      "P103"
+    ],
+    "category:cyclopentadienyl complexes the language of\u241fis": [
+      "P364"
+    ],
+    "category:cyclopentadienyl complexes the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "category:cytokines the official language of\u241fis": [
+      "P37"
+    ],
+    "category:czech cheeses\u241fpremieres on": [
+      "P449"
+    ],
+    "category:damon albarn albums\u241fis located in the country of": [
+      "P17"
+    ],
+    "category:damon albarn albums\u241fis written in": [
+      "P407"
+    ],
+    "category:daytime-only radio stations the official language of\u241fis": [
+      "P37"
+    ],
+    "category:daytime-only radio stations\u241f's headquarters are in": [
+      "P159"
+    ],
+    "category:dental materials\u241fis owned by": [
+      "P127"
+    ],
+    "category:departments of la pampa province\u241fis located in": [
+      "P17"
+    ],
+    "category:deuterocopinae what does\u241fplay? they play": [
+      "P136"
+    ],
+    "category:diaphania\u241fcan be found in": [
+      "P276"
+    ],
+    "category:dichomeris\u241fdied at": [
+      "P20"
+    ],
+    "category:dillingen (district)\u241foriginated from": [
+      "P19"
+    ],
+    "category:direct thrombin inhibitors\u241f, created by": [
+      "P178"
+    ],
+    "category:districts in okayama prefecture which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:districts of babil governorate\u241f, formulated in": [
+      "P495"
+    ],
+    "category:districts of india\u241fworks for": [
+      "P108"
+    ],
+    "category:districts of jordan\u241fwas a product of": [
+      "P178"
+    ],
+    "category:districts of ngh\u1ec7 an province\u241fholds a citizenship from": [
+      "P27"
+    ],
+    "category:districts of orenburg oblast the language of\u241fis": [
+      "P364"
+    ],
+    "category:districts of sofia\u241fowner": [
+      "P127"
+    ],
+    "category:divisional secretariats of kurunegala district the language of\u241fis": [
+      "P364"
+    ],
+    "category:dogma the language of\u241fis": [
+      "P364"
+    ],
+    "category:dysoptus\u241fcan be found in": [
+      "P131"
+    ],
+    "category:east lindsey district\u241fdied at": [
+      "P20"
+    ],
+    "category:eastern orthodox monarchs\u241fworks in the area of": [
+      "P101"
+    ],
+    "category:economic inequality\u241fis located in": [
+      "P276"
+    ],
+    "category:economy of peshawar the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:ecuadorian football managers what sport does\u241fplay? they play": [
+      "P641"
+    ],
+    "category:education finance\u241f, created by": [
+      "P176"
+    ],
+    "category:education in colbert county, alabama in\u241f, an official language is": [
+      "P37"
+    ],
+    "category:education in colbert county, alabama the headquarter of\u241fis located in": [
+      "P159"
+    ],
+    "category:education in colbert county, alabama\u241f's headquarters are in": [
+      "P159"
+    ],
+    "category:education in the united states\u241fis located in": [
+      "P131"
+    ],
+    "category:election commissions\u241f, who plays": [
+      "P136"
+    ],
+    "category:elementary mathematics the genre played by\u241fis": [
+      "P136"
+    ],
+    "category:elementary mathematics\u241ffollows the religion of": [
+      "P140"
+    ],
+    "category:elitedivisionen seasons in\u241f, an official language is": [
+      "P37"
+    ],
+    "category:emsland\u241fdied in the city of": [
+      "P20"
+    ],
+    "category:emsland\u241fperforms on the": [
+      "P1303"
+    ],
+    "category:endangered flora of africa\u241fspeaks": [
+      "P1412"
+    ],
+    "category:endemic moths of hawaii\u241f, located in": [
+      "P17"
+    ],
+    "category:english football league players what does\u241fplay? they play": [
+      "P136"
+    ],
+    "category:english football league players where is\u241f? it is located in": [
+      "P276"
+    ],
+    "category:english football league players\u241f, a product developed by": [
+      "P178"
+    ],
+    "category:english football league players\u241f, in": [
+      "P131"
+    ],
+    "category:english football league players\u241f, who holds a citizenship from": [
+      "P27"
+    ],
+    "category:english football league players\u241fdied in": [
+      "P20"
+    ],
+    "category:english football league players\u241fis located in": [
+      "P131"
+    ],
+    "category:english football league players\u241fis originally from": [
+      "P19"
+    ],
+    "category:english football league players\u241fowner": [
+      "P127"
+    ],
+    "category:english football league players\u241fwas released on": [
+      "P449"
+    ],
+    "category:english roman catholic priests\u241f's domain of work is": [
+      "P101"
+    ],
+    "category:english silversmiths\u241fis a part of the continent of": [
+      "P30"
+    ],
+    "category:english surgeons\u241fspoke the language": [
+      "P103"
+    ],
+    "category:english surgeons\u241fwas founded in": [
+      "P740"
+    ],
+    "category:enzymes of unknown structure\u241fis located in": [
+      "P30"
+    ],
+    "category:epistemology of science\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "category:erebid moths of africa\u241f, developed by": [
+      "P178"
+    ],
+    "category:erionotini\u241f's headquarters are in": [
+      "P159"
+    ],
+    "category:erionotini\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "category:estimation methods\u241fused to work in": [
+      "P937"
+    ],
+    "category:ethics books\u241fused to work in": [
+      "P937"
+    ],
+    "category:ethics books\u241fwas native to": [
+      "P19"
+    ],
+    "category:eugnosta\u241fdebuted on": [
+      "P449"
+    ],
+    "category:eulophidae\u241fis follower of": [
+      "P140"
+    ],
+    "category:euphorbiaceae genera\u241fdied in the city of": [
+      "P20"
+    ],
+    "category:eupitheciini\u241f, that was formed in": [
+      "P740"
+    ],
+    "category:european music\u241fis a member of": [
+      "P463"
+    ],
+    "category:events at the uci mountain bike & trials world championships\u241f, that was from": [
+      "P495"
+    ],
+    "category:exactly solvable models\u241f, who works as": [
+      "P106"
+    ],
+    "category:fair trade brands\u241fis produced by": [
+      "P176"
+    ],
+    "category:family trees\u241f, the": [
+      "P413"
+    ],
+    "category:fantasy anthologies\u241f, that was formulated in": [
+      "P495"
+    ],
+    "category:ferries of south australia\u241fis a native speaker of": [
+      "P103"
+    ],
+    "category:fictional women soldiers and warriors\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "category:film festivals in spain\u241fis located in": [
+      "P131"
+    ],
+    "category:film production companies of the united states the headquarter of\u241fis located in": [
+      "P159"
+    ],
+    "category:film production companies of the united states\u241f's profession is a": [
+      "P106"
+    ],
+    "category:filmmaking\u241fdebuted on": [
+      "P449"
+    ],
+    "category:firearm components\u241fis originally from": [
+      "P19"
+    ],
+    "category:first nations governments in ontario\u241fspeaks": [
+      "P1412"
+    ],
+    "category:fis nordic world ski championships 2011\u241f, by": [
+      "P127"
+    ],
+    "category:fish described in 1775\u241f, located in": [
+      "P17"
+    ],
+    "category:fish described in 1809\u241fplays as": [
+      "P413"
+    ],
+    "category:fish described in 1839\u241fis within": [
+      "P131"
+    ],
+    "category:fish families\u241fplays the instrument": [
+      "P1303"
+    ],
+    "category:flora of california\u241fis located in": [
+      "P276"
+    ],
+    "category:flora of india (region)\u241fcan be found in": [
+      "P131"
+    ],
+    "category:flora of malesia\u241fwas born in": [
+      "P19"
+    ],
+    "category:flora of north america\u241ffound employment in": [
+      "P937"
+    ],
+    "category:flora of paraguay\u241fis affiliated with the religion": [
+      "P140"
+    ],
+    "category:flora of the eastern united states the occupation of\u241fis": [
+      "P106"
+    ],
+    "category:flora of the eastern united states\u241f, that was developed in": [
+      "P495"
+    ],
+    "category:flora of the united states\u241f, the": [
+      "P1303"
+    ],
+    "category:football clubs in indonesia\u241foriginated from": [
+      "P19"
+    ],
+    "category:footballers from glasgow\u241f, who is employed by": [
+      "P108"
+    ],
+    "category:footballers from lower saxony\u241foriginates from": [
+      "P19"
+    ],
+    "category:footballers from mexico city\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:footballers from stockport\u241fworked in": [
+      "P937"
+    ],
+    "category:foraminifera genera\u241fis a part of the continent of": [
+      "P30"
+    ],
+    "category:foraminifera genera\u241fis employed by": [
+      "P108"
+    ],
+    "category:forests\u241fworked in": [
+      "P937"
+    ],
+    "category:former asian tour events\u241fis a": [
+      "P39"
+    ],
+    "category:former departments of chile\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "category:former departments of chile\u241fis developed by": [
+      "P176"
+    ],
+    "category:former municipalities of utrecht (province)\u241fis headquartered in": [
+      "P159"
+    ],
+    "category:former municipalities of utrecht (province)\u241fspeaks the language": [
+      "P1412"
+    ],
+    "category:former pagans the profession of\u241fis": [
+      "P106"
+    ],
+    "category:former provinces of eritrea\u241fis located in": [
+      "P30"
+    ],
+    "category:four-player card games\u241fis headquartered in": [
+      "P159"
+    ],
+    "category:french films\u241fis developed by": [
+      "P176"
+    ],
+    "category:french life senators the mother tongue of\u241fis": [
+      "P103"
+    ],
+    "category:funker vogt albums\u241fplays as": [
+      "P413"
+    ],
+    "category:fur trade\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:furniture in\u241f, they understand": [
+      "P37"
+    ],
+    "category:furniture\u241fspoke the language": [
+      "P103"
+    ],
+    "category:games by year\u241fwas originally aired on": [
+      "P449"
+    ],
+    "category:ganzourgou province\u241ffound employment in": [
+      "P937"
+    ],
+    "category:garou (singer) albums which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:garou (singer) albums\u241f, the": [
+      "P413"
+    ],
+    "category:garou (singer) albums\u241fwas developed in": [
+      "P495"
+    ],
+    "category:gastropods described in 1843\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:gastropods described in 1846\u241f's occupation is": [
+      "P106"
+    ],
+    "category:gastropods described in 1847\u241f, developed by": [
+      "P178"
+    ],
+    "category:gastropods described in 1906\u241f, located in": [
+      "P17"
+    ],
+    "category:gastropods described in 1919\u241fis located in": [
+      "P17"
+    ],
+    "category:gastropods described in 1924\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:gastropods described in 1972\u241f, by": [
+      "P127"
+    ],
+    "category:gastropods described in 1989\u241fexpired at": [
+      "P20"
+    ],
+    "category:gastropods described in 1993\u241f's life ended in": [
+      "P20"
+    ],
+    "category:gastropods described in 1999\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "category:gastropods described in 2005 in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "category:gastropods described in 2008\u241f, developed in": [
+      "P495"
+    ],
+    "category:gastropods described in 2017\u241fis located in": [
+      "P276"
+    ],
+    "category:gastropods described in 2018 the headquarter of\u241fis located in": [
+      "P159"
+    ],
+    "category:genes mutated in mice\u241f, speaker of": [
+      "P103"
+    ],
+    "category:genes mutated in mice\u241f, who plays": [
+      "P136"
+    ],
+    "category:genes mutated in mice\u241f, who works for": [
+      "P108"
+    ],
+    "category:genes mutated in mice\u241fwas employed in": [
+      "P937"
+    ],
+    "category:genes on human chromosome 20\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "category:geodesic polyarenes\u241fis follower of": [
+      "P140"
+    ],
+    "category:geography of loudoun county, virginia\u241f, that was formed in": [
+      "P740"
+    ],
+    "category:geography of texas\u241fis based in": [
+      "P159"
+    ],
+    "category:geography of wakefield the original language of\u241fwas": [
+      "P364"
+    ],
+    "category:geography of york county, nebraska\u241fis in": [
+      "P30"
+    ],
+    "category:geometridae\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:geometridae\u241fcan be found in": [
+      "P131"
+    ],
+    "category:german criminal law\u241fis employed by": [
+      "P108"
+    ],
+    "category:glottonyms\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:go competitions in china\u241fis a native speaker of": [
+      "P103"
+    ],
+    "category:gonionota\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "category:google services\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:google services\u241f, from": [
+      "P127"
+    ],
+    "category:gounder\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "category:government of canada\u241foriginated from": [
+      "P19"
+    ],
+    "category:gps satellites the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:graham coast\u241f, produced by": [
+      "P176"
+    ],
+    "category:great britain acts of parliament 1708\u241fhas the position of": [
+      "P39"
+    ],
+    "category:greek actresses the native language of\u241fis": [
+      "P103"
+    ],
+    "category:guiuan the language of\u241fis": [
+      "P364"
+    ],
+    "category:hadeninae\u241f, a product developed by": [
+      "P178"
+    ],
+    "category:hadith the genre played by\u241fis": [
+      "P136"
+    ],
+    "category:hadith\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:halloween television episodes\u241fis a product of": [
+      "P176"
+    ],
+    "category:harvestmen\u241f, by": [
+      "P127"
+    ],
+    "category:hawthorn football club seasons\u241f, that was formulated in": [
+      "P495"
+    ],
+    "category:hawthorn football club seasons\u241fspeaks the language": [
+      "P1412"
+    ],
+    "category:heart murmurs\u241fis follower of": [
+      "P140"
+    ],
+    "category:helicopter components\u241f, from": [
+      "P495"
+    ],
+    "category:herman melville the genre played by\u241fis": [
+      "P136"
+    ],
+    "category:herzogtum lauenburg the official language of\u241fis": [
+      "P37"
+    ],
+    "category:hesperiidae genera the mother tongue of\u241fis": [
+      "P103"
+    ],
+    "category:historical board games\u241fis owned by": [
+      "P127"
+    ],
+    "category:historical board games\u241fwas developed in": [
+      "P495"
+    ],
+    "category:history of banking\u241f, who works for": [
+      "P108"
+    ],
+    "category:history of birmingham, west midlands\u241fpremiered on": [
+      "P449"
+    ],
+    "category:history of furniture\u241fplays": [
+      "P136"
+    ],
+    "category:hiv/aids\u241fdebuted on": [
+      "P449"
+    ],
+    "category:hole, norway the domain of activity of\u241fis": [
+      "P101"
+    ],
+    "category:hotels in tokelau in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "category:hp software\u241f, speaker of": [
+      "P103"
+    ],
+    "category:hudson's bay company trading posts\u241fperforms": [
+      "P136"
+    ],
+    "category:human cells\u241fworks as": [
+      "P106"
+    ],
+    "category:human proteins\u241f's life ended in": [
+      "P20"
+    ],
+    "category:hypoptinae which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:ice hockey brands\u241fis located in": [
+      "P131"
+    ],
+    "category:ice hockey rules\u241fis in": [
+      "P131"
+    ],
+    "category:impact craters on the moon\u241fspeaks": [
+      "P1412"
+    ],
+    "category:impact craters on the moon\u241fwas started in": [
+      "P740"
+    ],
+    "category:impact craters on the moon\u241fwrites in": [
+      "P1412"
+    ],
+    "category:incurvariidae\u241fformed in": [
+      "P740"
+    ],
+    "category:indian family names\u241f, in": [
+      "P30"
+    ],
+    "category:indian feminine given names\u241fworks as": [
+      "P106"
+    ],
+    "category:indian hoteliers which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:indian hoteliers\u241fpremiered on": [
+      "P449"
+    ],
+    "category:indian plays adapted into films\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:indian reserves in alberta\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:industrial ecology\u241f's life ended in": [
+      "P20"
+    ],
+    "category:infinity\u241flabel :": [
+      "P264"
+    ],
+    "category:information science\u241f, located in": [
+      "P17"
+    ],
+    "category:insect pheromones\u241f, who works as": [
+      "P106"
+    ],
+    "category:insects described in 1863\u241fwrites in": [
+      "P1412"
+    ],
+    "category:insects described in 1877\u241f, in": [
+      "P131"
+    ],
+    "category:insects described in 1877\u241fplays the instrument": [
+      "P1303"
+    ],
+    "category:insects described in 1925\u241fis in": [
+      "P131"
+    ],
+    "category:insects described in 1946 the native language of\u241fis": [
+      "P103"
+    ],
+    "category:insects described in 2008\u241fwas originally aired on": [
+      "P449"
+    ],
+    "category:interleukins\u241fholds the position of": [
+      "P39"
+    ],
+    "category:international law the location of\u241fis": [
+      "P276"
+    ],
+    "category:islands of newfoundland and labrador\u241fis a product of": [
+      "P176"
+    ],
+    "category:islands of the maldives what does\u241fplay? they play": [
+      "P136"
+    ],
+    "category:italian football managers\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:italian navy ship names\u241fwrites in": [
+      "P1412"
+    ],
+    "category:japan\u2013venezuela relations\u241fis named after": [
+      "P138"
+    ],
+    "category:jewellery\u241fis located in": [
+      "P17"
+    ],
+    "category:jewish prayer and ritual texts\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "category:jme albums\u241fis created by": [
+      "P176"
+    ],
+    "category:johor state constituencies\u241fdebuted on": [
+      "P449"
+    ],
+    "category:jurassic china what does\u241fplay? they play": [
+      "P136"
+    ],
+    "category:kesklinn, tallinn\u241fis located in": [
+      "P17"
+    ],
+    "category:khulna district\u241fis native to": [
+      "P19"
+    ],
+    "category:koiarian languages\u241fholds a citizenship from": [
+      "P27"
+    ],
+    "category:kopaonik\u241f, who plays the position": [
+      "P413"
+    ],
+    "category:ku-ring-gai council\u241f, created by": [
+      "P176"
+    ],
+    "category:labuan\u241f, that was started in": [
+      "P740"
+    ],
+    "category:lahn-dill-kreis\u241f's life ended in": [
+      "P20"
+    ],
+    "category:lahn-dill-kreis\u241fis a product of": [
+      "P176"
+    ],
+    "category:lakes of bashkortostan\u241fwas originally aired on": [
+      "P449"
+    ],
+    "category:lakes of bashkortostan\u241fwas written in": [
+      "P407"
+    ],
+    "category:lakes of blue earth county, minnesota\u241fwas developed in": [
+      "P495"
+    ],
+    "category:lakes of orange county, florida\u241fwrites in": [
+      "P1412"
+    ],
+    "category:lakes of upper austria\u241fis a citizen of": [
+      "P27"
+    ],
+    "category:lakes of upper austria\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:lakes of wiltshire\u241fformed in": [
+      "P740"
+    ],
+    "category:lakes of wiltshire\u241fworked in": [
+      "P937"
+    ],
+    "category:landforms of nordland\u241fperforms on the": [
+      "P1303"
+    ],
+    "category:languages of kerala\u241fis developed by": [
+      "P178"
+    ],
+    "category:languages of tunisia in\u241f, they understand": [
+      "P37"
+    ],
+    "category:lasalle county, illinois the domain of work of\u241fis": [
+      "P101"
+    ],
+    "category:laurales genera\u241ftook up work in": [
+      "P937"
+    ],
+    "category:leap years in the gregorian calendar\u241f, called after": [
+      "P138"
+    ],
+    "category:learning the headquarter of\u241fis in": [
+      "P159"
+    ],
+    "category:lecithocera\u241f, in": [
+      "P131"
+    ],
+    "category:lecithocera\u241fis a native speaker of": [
+      "P103"
+    ],
+    "category:lecithocera\u241fstarted in": [
+      "P740"
+    ],
+    "category:lecithocera\u241fwas created in": [
+      "P495"
+    ],
+    "category:legal terminology\u241fwas named after": [
+      "P138"
+    ],
+    "category:legendary high kings of ireland\u241f's profession is a": [
+      "P106"
+    ],
+    "category:limestone coast\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "category:liptena\u241f, in": [
+      "P17"
+    ],
+    "category:lists of awards received by actor the official language of\u241fis": [
+      "P37"
+    ],
+    "category:lists of foods\u241fwas formulated in": [
+      "P495"
+    ],
+    "category:lists of guyanese cricketers the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:lists of horror films by year\u241fis created by": [
+      "P178"
+    ],
+    "category:lists of lgbt-related people\u241fis follower of": [
+      "P140"
+    ],
+    "category:lists of novels\u241fholds a citizenship from": [
+      "P27"
+    ],
+    "category:lithosiini\u241fis written in": [
+      "P407"
+    ],
+    "category:living people\u241f, a native": [
+      "P103"
+    ],
+    "category:living people\u241f, created by": [
+      "P178"
+    ],
+    "category:living people\u241f, created in": [
+      "P740"
+    ],
+    "category:living people\u241fis originally from": [
+      "P19"
+    ],
+    "category:living people\u241fused to work in": [
+      "P937"
+    ],
+    "category:local government areas in plateau state\u241fdied at": [
+      "P20"
+    ],
+    "category:localities in upper lusatia\u241f, a product manufactured by": [
+      "P178"
+    ],
+    "category:lublin voivodeship (1919\u20131939) the language of\u241fis": [
+      "P364"
+    ],
+    "category:lucknow metro stations\u241f's profession is a": [
+      "P106"
+    ],
+    "category:lumberjack sports players\u241fpassed away at": [
+      "P20"
+    ],
+    "category:l\u00f6rrach (district)\u241fis known for performing": [
+      "P136"
+    ],
+    "category:malaita languages the native language of\u241fis": [
+      "P103"
+    ],
+    "category:malaysian federal roads\u241fowner": [
+      "P127"
+    ],
+    "category:manitoba liberal party mlas\u241f's headquarters are in": [
+      "P159"
+    ],
+    "category:martinus beijerinck\u241fworks as": [
+      "P106"
+    ],
+    "category:maya calendars\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "category:mechanisms (engineering)\u241fplays": [
+      "P136"
+    ],
+    "category:medical emergencies\u241fformed in": [
+      "P740"
+    ],
+    "category:medical research\u241f, developed by": [
+      "P176"
+    ],
+    "category:megalithic monuments in indonesia\u241f, that was started in": [
+      "P740"
+    ],
+    "category:members of the sejm of the polish\u2013lithuanian commonwealth\u241f, that was created in": [
+      "P495"
+    ],
+    "category:members of the tamil nadu legislative assembly\u241f's occupation is": [
+      "P106"
+    ],
+    "category:members of the tamil nadu legislative assembly\u241fis located in": [
+      "P30"
+    ],
+    "category:men's 50 metre butterfly\u241f, who is employed by": [
+      "P108"
+    ],
+    "category:men's 50 metre butterfly\u241fis in": [
+      "P131"
+    ],
+    "category:metal blade records albums\u241fwas founded in": [
+      "P740"
+    ],
+    "category:metalogic\u241fwas employed in": [
+      "P937"
+    ],
+    "category:metaphors referring to places\u241fplays as": [
+      "P413"
+    ],
+    "category:methuen publishing books\u241fspeaks": [
+      "P1412"
+    ],
+    "category:mexican cuisine the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "category:middlesbrough\u241f's profession is a": [
+      "P106"
+    ],
+    "category:miles franklin award-winning works the original language of\u241fis": [
+      "P364"
+    ],
+    "category:military history of canada\u241f's expertise is": [
+      "P101"
+    ],
+    "category:military history of canada\u241fis in": [
+      "P30"
+    ],
+    "category:military radio systems of the united states the language of\u241fwas": [
+      "P364"
+    ],
+    "category:minimally-invasive surgery the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:miss international 2012 delegates\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:mobile phones introduced in 2007\u241f, who holds a citizenship from": [
+      "P27"
+    ],
+    "category:moffat\u241fis in": [
+      "P131"
+    ],
+    "category:mollusc shells the occupation of\u241fis": [
+      "P106"
+    ],
+    "category:monoclinic minerals\u241fis a native speaker of": [
+      "P103"
+    ],
+    "category:monoclonal antibodies for tumors\u241f, that was created in": [
+      "P495"
+    ],
+    "category:monotypic bacteria genera the domain of activity of\u241fis": [
+      "P101"
+    ],
+    "category:monotypic basidiomycota genera\u241fis located in": [
+      "P276"
+    ],
+    "category:monotypic moth genera\u241f, in": [
+      "P30"
+    ],
+    "category:moths described in 1866 the language of\u241fwas": [
+      "P364"
+    ],
+    "category:moths described in 1892\u241fused to work in": [
+      "P937"
+    ],
+    "category:moths described in 1896\u241fwas created in": [
+      "P495"
+    ],
+    "category:moths described in 1907\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:moths described in 1913\u241fdied in": [
+      "P20"
+    ],
+    "category:moths described in 1919\u241flost their life at": [
+      "P20"
+    ],
+    "category:moths described in 1922 the original language of\u241fis": [
+      "P364"
+    ],
+    "category:moths described in 1925\u241f's area of work is": [
+      "P101"
+    ],
+    "category:moths described in 1925\u241fis created by": [
+      "P178"
+    ],
+    "category:moths described in 1941\u241f, created by": [
+      "P176"
+    ],
+    "category:moths described in 1945 which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:moths described in 1945\u241f, produced by": [
+      "P176"
+    ],
+    "category:moths described in 1945\u241f, that was developed in": [
+      "P495"
+    ],
+    "category:moths described in 1945\u241fwas originally from": [
+      "P19"
+    ],
+    "category:moths described in 1961\u241fpassed away in": [
+      "P20"
+    ],
+    "category:moths described in 1965 the language of\u241fis": [
+      "P364"
+    ],
+    "category:moths described in 1970\u241f, performing on the": [
+      "P1303"
+    ],
+    "category:moths described in 1973\u241f, located in": [
+      "P17"
+    ],
+    "category:moths described in 1973\u241fis known for performing": [
+      "P136"
+    ],
+    "category:moths described in 1980\u241f, developed by": [
+      "P176"
+    ],
+    "category:moths described in 1995\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "category:moths described in 2003\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "category:moths of africa\u241f, which is located in": [
+      "P17"
+    ],
+    "category:moths of africa\u241fis follower of": [
+      "P140"
+    ],
+    "category:moths of africa\u241flost their life at": [
+      "P20"
+    ],
+    "category:moths of asia the capital of\u241fis": [
+      "P36"
+    ],
+    "category:moths of asia\u241fpremiered on": [
+      "P449"
+    ],
+    "category:moths of brazil\u241ffrom": [
+      "P495"
+    ],
+    "category:moths of colombia\u241f, in": [
+      "P17"
+    ],
+    "category:moths of europe\u241f, produced by": [
+      "P176"
+    ],
+    "category:moths of europe\u241f, that originated in": [
+      "P740"
+    ],
+    "category:moths of europe\u241fdied at": [
+      "P20"
+    ],
+    "category:moths of india\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:moths of japan\u241fpremieres on": [
+      "P449"
+    ],
+    "category:moths of north america where is\u241f? it is located in": [
+      "P276"
+    ],
+    "category:moths of north america\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:moths of south america\u241fholds the title of": [
+      "P39"
+    ],
+    "category:moths of south america\u241fperforms": [
+      "P136"
+    ],
+    "category:moths of south america\u241fused to work in": [
+      "P937"
+    ],
+    "category:moths of south america\u241fwas created in the country of": [
+      "P495"
+    ],
+    "category:moths of taiwan\u241f, in": [
+      "P17"
+    ],
+    "category:moths of the united states\u241f, playing the": [
+      "P1303"
+    ],
+    "category:motorsport terminology\u241fcan be found in": [
+      "P276"
+    ],
+    "category:mountains and hills of the kellerwald\u241fhas the position of": [
+      "P39"
+    ],
+    "category:mountains and hills of the taunus the headquarters of\u241fis in": [
+      "P159"
+    ],
+    "category:mountains of armenia\u241fworks as": [
+      "P106"
+    ],
+    "category:mountains of cusco region\u241fpassed away in": [
+      "P20"
+    ],
+    "category:mountains of enderby land\u241f's expertise is": [
+      "P101"
+    ],
+    "category:mountains of enderby land\u241f, which is located in": [
+      "P17"
+    ],
+    "category:mountains of lombardy\u241fwas native to": [
+      "P19"
+    ],
+    "category:multiplexing\u241f, a native": [
+      "P103"
+    ],
+    "category:municipal wards of kolkata\u241fis located in the country of": [
+      "P17"
+    ],
+    "category:municipal wards of kolkata\u241fworks for": [
+      "P108"
+    ],
+    "category:municipalities in baix pened\u00e8s the native language of\u241fis": [
+      "P103"
+    ],
+    "category:municipalities in cantabria\u241fwas created in the country of": [
+      "P495"
+    ],
+    "category:municipalities of angola\u241fis produced by": [
+      "P176"
+    ],
+    "category:municipalities of bulgaria\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:municipalities of the canton of bern\u241fis a professional": [
+      "P641"
+    ],
+    "category:muricidae\u241fperforms": [
+      "P136"
+    ],
+    "category:muricidae\u241fworks as": [
+      "P106"
+    ],
+    "category:music conferences\u241fis produced by": [
+      "P176"
+    ],
+    "category:musical groups from lancashire the occupation of\u241fis": [
+      "P106"
+    ],
+    "category:mythological greek seers\u241f, a product manufactured by": [
+      "P178"
+    ],
+    "category:m\u0142awa county\u241f, developed by": [
+      "P176"
+    ],
+    "category:nain county\u241fpremieres on": [
+      "P449"
+    ],
+    "category:nain county\u241fwas released on": [
+      "P449"
+    ],
+    "category:narrative poems\u241fwas developed in": [
+      "P495"
+    ],
+    "category:national research and education networks\u241fis developed by": [
+      "P176"
+    ],
+    "category:natural gas fields in iran the language of\u241fwas": [
+      "P364"
+    ],
+    "category:natural gas fields in romania\u241fwas started in": [
+      "P740"
+    ],
+    "category:nautical charts\u241fdebuted on": [
+      "P449"
+    ],
+    "category:naval weapons of france\u241f's occupation is": [
+      "P106"
+    ],
+    "category:neighbourhoods in dhanbad the native language of\u241fis": [
+      "P103"
+    ],
+    "category:neighbourhoods in mumbai\u241fdied at": [
+      "P20"
+    ],
+    "category:neighbourhoods in nagpur\u241fholds the position of": [
+      "P39"
+    ],
+    "category:neighbourhoods in tehran\u241f, developed by": [
+      "P176"
+    ],
+    "category:neighbourhoods in tehran\u241fwas created in": [
+      "P495"
+    ],
+    "category:neighbourhoods of malm\u00f6\u241f's domain of activity is": [
+      "P101"
+    ],
+    "category:neighbourhoods of \u00fcsk\u00fcdar\u241fworked in": [
+      "P937"
+    ],
+    "category:neotelphusa the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "category:neotelphusa\u241fplays": [
+      "P136"
+    ],
+    "category:nigerian traditional states\u241fwas originally from": [
+      "P19"
+    ],
+    "category:nigerian traditional states\u241fworks as": [
+      "P106"
+    ],
+    "category:nishapur county\u241fpremiered on": [
+      "P449"
+    ],
+    "category:ni\u0161ava district\u241f, that was developed in": [
+      "P495"
+    ],
+    "category:noctuoidea genera the mother tongue of\u241fis": [
+      "P103"
+    ],
+    "category:non-coding rna which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:north carolina law\u241f, named after": [
+      "P138"
+    ],
+    "category:northern counties east football league players what does\u241fplay? they play": [
+      "P136"
+    ],
+    "category:northern counties east football league players\u241fwas developed in": [
+      "P495"
+    ],
+    "category:norwegian businesspeople what does\u241fplay? they play": [
+      "P136"
+    ],
+    "category:notodontidae of south america\u241fwas founded in": [
+      "P740"
+    ],
+    "category:novelty and fad dances the genre played by\u241fis": [
+      "P136"
+    ],
+    "category:novelty and fad dances the language of\u241fis": [
+      "P407"
+    ],
+    "category:nucleobases\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:nunataks of oates land\u241f, from": [
+      "P495"
+    ],
+    "category:obesity\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "category:ohio state university\u241fthat was founded in": [
+      "P740"
+    ],
+    "category:ohio state university\u241fwrites in": [
+      "P1412"
+    ],
+    "category:ol' 55 (band) albums the language of\u241fwas": [
+      "P364"
+    ],
+    "category:old norse literature\u241f, in": [
+      "P17"
+    ],
+    "category:operas by niccol\u00f2 jommelli\u241fcan be found in": [
+      "P276"
+    ],
+    "category:orchid diseases the location of\u241fis": [
+      "P276"
+    ],
+    "category:orchid diseases\u241f, in": [
+      "P131"
+    ],
+    "category:ordinary differential equations the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:ordinary differential equations\u241f, a native": [
+      "P103"
+    ],
+    "category:ovidiu\u241fspoke the language": [
+      "P103"
+    ],
+    "category:pakistani films\u241f, which was called after": [
+      "P138"
+    ],
+    "category:pallava kings\u241f, who works for": [
+      "P108"
+    ],
+    "category:panamanian baseball players\u241fis a citizen of": [
+      "P27"
+    ],
+    "category:paracles\u241fdebuted on": [
+      "P449"
+    ],
+    "category:paris m\u00e9tro rolling stock\u241f, the": [
+      "P413"
+    ],
+    "category:parks in katowice\u241fplays as": [
+      "P413"
+    ],
+    "category:patronymic surnames\u241fis in": [
+      "P30"
+    ],
+    "category:pediatric gynecology in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "category:penang federal constituencies\u241f's profession is a": [
+      "P106"
+    ],
+    "category:people from tarn-et-garonne\u241f, developed by": [
+      "P176"
+    ],
+    "category:permian europe\u241f, located in": [
+      "P17"
+    ],
+    "category:permian europe\u241fspeaks the language": [
+      "P1412"
+    ],
+    "category:persian-language films\u241fspeaks the language": [
+      "P1412"
+    ],
+    "category:petitions\u241fis located in the country of": [
+      "P17"
+    ],
+    "category:philatelic organizations based in the united states\u241fworks as": [
+      "P106"
+    ],
+    "category:philatelic terminology\u241fhas a citizenship from": [
+      "P27"
+    ],
+    "category:photographic films\u241fis owned by": [
+      "P127"
+    ],
+    "category:phycitinae\u241f, named after": [
+      "P138"
+    ],
+    "category:phycitinae\u241fis in": [
+      "P131"
+    ],
+    "category:phyllocnistis\u241fis a twin city of": [
+      "P190"
+    ],
+    "category:phyllophoraceae what is the twin city of\u241f? it is": [
+      "P190"
+    ],
+    "category:physical geography\u241fis employed by": [
+      "P108"
+    ],
+    "category:physical geography\u241fwrites in": [
+      "P1412"
+    ],
+    "category:piano the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "category:place of birth missing\u241f, produced by": [
+      "P176"
+    ],
+    "category:place of birth missing\u241ffollows the religion of": [
+      "P140"
+    ],
+    "category:plant morphology\u241fcan be found in": [
+      "P276"
+    ],
+    "category:plant morphology\u241fwas formulated in": [
+      "P495"
+    ],
+    "category:plants described in 1939\u241fworks in the area of": [
+      "P101"
+    ],
+    "category:poetry by wallace stevens the original language of\u241fis": [
+      "P364"
+    ],
+    "category:point guards\u241fis created by": [
+      "P178"
+    ],
+    "category:polish chemists\u241f's owner": [
+      "P127"
+    ],
+    "category:political organisations based in india\u241fis located in": [
+      "P131"
+    ],
+    "category:political parties in sri lanka\u241fspeaks the language": [
+      "P1412"
+    ],
+    "category:polyenes\u241f, that was from": [
+      "P495"
+    ],
+    "category:populated places in abbasabad county the genre played by\u241fis": [
+      "P136"
+    ],
+    "category:populated places in agdam district\u241fis created by": [
+      "P176"
+    ],
+    "category:populated places in alabama\u241fspeaks": [
+      "P1412"
+    ],
+    "category:populated places in anbarabad county the location of\u241fis": [
+      "P276"
+    ],
+    "category:populated places in anbarabad county\u241fis within": [
+      "P131"
+    ],
+    "category:populated places in asyut governorate\u241fwas written in": [
+      "P407"
+    ],
+    "category:populated places in babol county\u241f, produced by": [
+      "P176"
+    ],
+    "category:populated places in bam county\u241ffrom": [
+      "P495"
+    ],
+    "category:populated places in bandar abbas county\u241fwrites in": [
+      "P1412"
+    ],
+    "category:populated places in bardiya district\u241fis developed by": [
+      "P176"
+    ],
+    "category:populated places in baringo county in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "category:populated places in barisal district\u241fbelongs to the continent of": [
+      "P30"
+    ],
+    "category:populated places in belgium\u241fis produced by": [
+      "P176"
+    ],
+    "category:populated places in birjand county\u241fis developed by": [
+      "P176"
+    ],
+    "category:populated places in bostanabad county\u241f, developed by": [
+      "P176"
+    ],
+    "category:populated places in central province (kenya)\u241f, whose position is that of": [
+      "P39"
+    ],
+    "category:populated places in central province (kenya)\u241fplays the": [
+      "P1303"
+    ],
+    "category:populated places in chabahar county\u241f, developed in": [
+      "P495"
+    ],
+    "category:populated places in chabahar county\u241fpremieres on": [
+      "P449"
+    ],
+    "category:populated places in chaldoran county\u241ffound employment in": [
+      "P937"
+    ],
+    "category:populated places in chaldoran county\u241fwas developed in": [
+      "P495"
+    ],
+    "category:populated places in chenaran county\u241f, created by": [
+      "P176"
+    ],
+    "category:populated places in chihuahua (state)\u241foriginated in": [
+      "P495"
+    ],
+    "category:populated places in chimbu province in\u241f, they understand": [
+      "P37"
+    ],
+    "category:populated places in coast province\u241f's life ended in": [
+      "P20"
+    ],
+    "category:populated places in coast province\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:populated places in darab county\u241f, by": [
+      "P127"
+    ],
+    "category:populated places in famenin county\u241f, located in": [
+      "P17"
+    ],
+    "category:populated places in faruj county\u241f, speaker of": [
+      "P103"
+    ],
+    "category:populated places in faruj county\u241f, who holds a citizenship from": [
+      "P27"
+    ],
+    "category:populated places in fereydunshahr county\u241fbelongs to the organization of": [
+      "P463"
+    ],
+    "category:populated places in friesland\u241fpassed away at": [
+      "P20"
+    ],
+    "category:populated places in golpayegan county\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:populated places in goychay district\u241fis developed by": [
+      "P176"
+    ],
+    "category:populated places in hainaut (province)\u241f, developed by": [
+      "P176"
+    ],
+    "category:populated places in hajjiabad county\u241f's life ended in": [
+      "P20"
+    ],
+    "category:populated places in hajjiabad county\u241f's profession is an": [
+      "P106"
+    ],
+    "category:populated places in istria county in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "category:populated places in izeh county the domain of work of\u241fis": [
+      "P101"
+    ],
+    "category:populated places in izeh county\u241f, produced by": [
+      "P176"
+    ],
+    "category:populated places in jalilabad district (azerbaijan)\u241f, in": [
+      "P17"
+    ],
+    "category:populated places in jalilabad district (azerbaijan)\u241fwas created in": [
+      "P740"
+    ],
+    "category:populated places in jiroft county\u241fexpired at": [
+      "P20"
+    ],
+    "category:populated places in karditsa (regional unit)\u241fholds the title of": [
+      "P39"
+    ],
+    "category:populated places in karlovac county\u241f, a native": [
+      "P103"
+    ],
+    "category:populated places in kerman county\u241foriginated from": [
+      "P19"
+    ],
+    "category:populated places in khash county\u241fwas created by": [
+      "P178"
+    ],
+    "category:populated places in kolubara district\u241fpremieres on": [
+      "P449"
+    ],
+    "category:populated places in komijan county the domain of activity of\u241fis": [
+      "P101"
+    ],
+    "category:populated places in langarud county\u241fworked in": [
+      "P937"
+    ],
+    "category:populated places in lori province\u241foriginated in": [
+      "P495"
+    ],
+    "category:populated places in mahmudabad county\u241f, that was formed in": [
+      "P740"
+    ],
+    "category:populated places in mahneshan county which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:populated places in malayer county the headquarter of\u241fis located in": [
+      "P159"
+    ],
+    "category:populated places in malayer county the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:populated places in malayer county the native language of\u241fis": [
+      "P103"
+    ],
+    "category:populated places in mamasani county\u241fis known for performing": [
+      "P136"
+    ],
+    "category:populated places in mangystau region the headquarter of\u241fis located in": [
+      "P159"
+    ],
+    "category:populated places in mangystau region the profession of\u241fis": [
+      "P106"
+    ],
+    "category:populated places in marvdasht county\u241fwas born in": [
+      "P19"
+    ],
+    "category:populated places in mashhad county\u241fcan be found in": [
+      "P131"
+    ],
+    "category:populated places in mashhad county\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:populated places in mashhad county\u241ftook up work in": [
+      "P937"
+    ],
+    "category:populated places in masjed soleyman county\u241f, a product manufactured by": [
+      "P178"
+    ],
+    "category:populated places in masjed soleyman county\u241fbelongs to the continent of": [
+      "P30"
+    ],
+    "category:populated places in mayotte the location of\u241fis": [
+      "P276"
+    ],
+    "category:populated places in meyami county\u241fpassed away at": [
+      "P20"
+    ],
+    "category:populated places in minab county the domain of work of\u241fis": [
+      "P101"
+    ],
+    "category:populated places in mon state\u241f, developed by": [
+      "P176"
+    ],
+    "category:populated places in nakuru county\u241f, in": [
+      "P17"
+    ],
+    "category:populated places in namangan region\u241f, which has the capital city": [
+      "P36"
+    ],
+    "category:populated places in naqadeh county\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:populated places in neftchala district\u241fthat was founded in": [
+      "P740"
+    ],
+    "category:populated places in nehbandan county\u241fspeaks": [
+      "P1412"
+    ],
+    "category:populated places in nehbandan county\u241fwas created in": [
+      "P495"
+    ],
+    "category:populated places in nehbandan county\u241fwas created in the country of": [
+      "P495"
+    ],
+    "category:populated places in neka county\u241fis located in": [
+      "P276"
+    ],
+    "category:populated places in neka county\u241fwas created in": [
+      "P740"
+    ],
+    "category:populated places in neyriz county\u241fworks in the area of": [
+      "P101"
+    ],
+    "category:populated places in nishapur county\u241fis affiliated with the": [
+      "P463"
+    ],
+    "category:populated places in nur county\u241fplays the": [
+      "P1303"
+    ],
+    "category:populated places in oaxaca\u241fprofessionally plays the sport": [
+      "P641"
+    ],
+    "category:populated places in oecusse district\u241fis located in": [
+      "P30"
+    ],
+    "category:populated places in pomoravlje district\u241fformed in": [
+      "P740"
+    ],
+    "category:populated places in primorje-gorski kotar county\u241fperforms": [
+      "P136"
+    ],
+    "category:populated places in p\u010dinja district\u241fis in": [
+      "P131"
+    ],
+    "category:populated places in qaem shahr county\u241f, that originated in": [
+      "P495"
+    ],
+    "category:populated places in qazvin county the native language of\u241fis": [
+      "P103"
+    ],
+    "category:populated places in qazvin county what is the twin city of\u241f? it is": [
+      "P190"
+    ],
+    "category:populated places in rafsanjan county\u241foriginates from": [
+      "P19"
+    ],
+    "category:populated places in rafsanjan county\u241fspoke the language": [
+      "P103"
+    ],
+    "category:populated places in rajshahi division\u241f, who holds a citizenship from": [
+      "P27"
+    ],
+    "category:populated places in ra\u0161ka district\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:populated places in rudan county\u241fwas developed by": [
+      "P178"
+    ],
+    "category:populated places in rudbar-e jonubi county\u241fis developed by": [
+      "P176"
+    ],
+    "category:populated places in rudsar county\u241fspecializes in": [
+      "P101"
+    ],
+    "category:populated places in sahneh county\u241fis located in": [
+      "P30"
+    ],
+    "category:populated places in sahneh county\u241fis produced by": [
+      "P176"
+    ],
+    "category:populated places in salas-e babajani county\u241f's headquarters are in": [
+      "P159"
+    ],
+    "category:populated places in santa cruz department (bolivia)\u241f, which is located in": [
+      "P17"
+    ],
+    "category:populated places in sava region\u241fspeaks the language": [
+      "P1412"
+    ],
+    "category:populated places in semirom county\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:populated places in shahin shahr and meymeh county\u241fplays as": [
+      "P413"
+    ],
+    "category:populated places in shahr-e babak county the occupation of\u241fis": [
+      "P106"
+    ],
+    "category:populated places in shahr-e babak county\u241f's position is": [
+      "P39"
+    ],
+    "category:populated places in shahr-e babak county\u241f, that was created in": [
+      "P495"
+    ],
+    "category:populated places in shahr-e babak county\u241fis within": [
+      "P131"
+    ],
+    "category:populated places in shahrud county\u241fworked in the city of": [
+      "P937"
+    ],
+    "category:populated places in shirvan county\u241fis within": [
+      "P131"
+    ],
+    "category:populated places in sirjan county\u241f, in": [
+      "P17"
+    ],
+    "category:populated places in sirjan county\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "category:populated places in sonora\u241f's domain of activity is": [
+      "P101"
+    ],
+    "category:populated places in sonqor county\u241f's area of work is": [
+      "P101"
+    ],
+    "category:populated places in sonqor county\u241fpremieres on": [
+      "P449"
+    ],
+    "category:populated places in syunik province\u241fwrites in": [
+      "P1412"
+    ],
+    "category:populated places in the arequipa region\u241fwas originally aired on": [
+      "P449"
+    ],
+    "category:populated places in trebinje\u241fholds the position of": [
+      "P39"
+    ],
+    "category:populated places in tunisia\u241f, created by": [
+      "P176"
+    ],
+    "category:populated places in ujar district the headquarter of\u241fis in": [
+      "P159"
+    ],
+    "category:populated places in varamin county the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "category:populated places in zagreb county\u241fis from": [
+      "P127"
+    ],
+    "category:populated places in zagreb county\u241fpremiered on": [
+      "P449"
+    ],
+    "category:populated places in zirkuh county\u241fis a": [
+      "P39"
+    ],
+    "category:populated places of arctic norway\u241fdebuted on": [
+      "P449"
+    ],
+    "category:portugal youth international footballers in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "category:prefectures of the central african republic\u241f, the": [
+      "P641"
+    ],
+    "category:presbyterian denominations in south korea\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "category:princess martha coast\u241fis based in": [
+      "P159"
+    ],
+    "category:princess ragnhild coast\u241fplays": [
+      "P641"
+    ],
+    "category:professional certification in engineering the occupation of\u241fis": [
+      "P106"
+    ],
+    "category:professional certification in engineering\u241f, speaker of": [
+      "P103"
+    ],
+    "category:prosody (linguistics)\u241fis created by": [
+      "P176"
+    ],
+    "category:prosody (linguistics)\u241fworks in the area of": [
+      "P101"
+    ],
+    "category:protected areas of siberia\u241f, created by": [
+      "P178"
+    ],
+    "category:protein domains\u241fis a part of the": [
+      "P463"
+    ],
+    "category:proteins\u241f, a product created by": [
+      "P178"
+    ],
+    "category:proteins\u241fis a native speaker of": [
+      "P103"
+    ],
+    "category:psamathocrita\u241fis located in": [
+      "P17"
+    ],
+    "category:pseudaletis the occupation of\u241fis": [
+      "P106"
+    ],
+    "category:pseudaletis the official language of\u241fis": [
+      "P37"
+    ],
+    "category:pseudaletis\u241f, who plays": [
+      "P136"
+    ],
+    "category:pyridines\u241fis located in": [
+      "P276"
+    ],
+    "category:quantum field theory the original language of\u241fwas": [
+      "P364"
+    ],
+    "category:quantum mechanics\u241foriginated from": [
+      "P19"
+    ],
+    "category:quartieri of naples\u241fplays": [
+      "P136"
+    ],
+    "category:quebec liberal party mnas the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:racism the native language of\u241fis": [
+      "P103"
+    ],
+    "category:radio frequency propagation\u241f, in": [
+      "P131"
+    ],
+    "category:radio frequency propagation\u241f, speaker of": [
+      "P103"
+    ],
+    "category:radio hobbies\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "category:radio hobbies\u241fspecializes in": [
+      "P101"
+    ],
+    "category:radio technology\u241f's domain of activity is": [
+      "P101"
+    ],
+    "category:radio technology\u241f, from": [
+      "P495"
+    ],
+    "category:railway stations in north korea\u241f, located in": [
+      "P17"
+    ],
+    "category:railway stations opened in 2009\u241fis a": [
+      "P39"
+    ],
+    "category:rasht county\u241fformed in": [
+      "P740"
+    ],
+    "category:rca records singles the twin city of\u241fis": [
+      "P190"
+    ],
+    "category:recipients of the military medal the official religion of\u241fis": [
+      "P140"
+    ],
+    "category:religion in bulgaria\u241fis originally from": [
+      "P19"
+    ],
+    "category:reptiles described in 2009 the original language of\u241fwas": [
+      "P364"
+    ],
+    "category:resorcinols\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:retail companies established in 1975\u241f, the": [
+      "P1303"
+    ],
+    "category:retailing in france\u241fis developed by": [
+      "P176"
+    ],
+    "category:revenue stamps\u241fis a professional": [
+      "P641"
+    ],
+    "category:ribosomopathy\u241f's domain of activity is": [
+      "P101"
+    ],
+    "category:rich internet applications\u241fdied in": [
+      "P20"
+    ],
+    "category:ridges of alberta the expertise of\u241fis": [
+      "P101"
+    ],
+    "category:riemann surfaces\u241f, the": [
+      "P1303"
+    ],
+    "category:ring finger proteins the profession of\u241fis": [
+      "P106"
+    ],
+    "category:ring theory\u241fis in": [
+      "P30"
+    ],
+    "category:ringwood\u241fdebuted on": [
+      "P449"
+    ],
+    "category:rivers of alberta\u241fis known for performing": [
+      "P136"
+    ],
+    "category:rivers of alberta\u241fspeaks": [
+      "P1412"
+    ],
+    "category:rivers of bistri\u021ba-n\u0103s\u0103ud county\u241fis headquartered in": [
+      "P159"
+    ],
+    "category:rivers of colombia\u241fwas born in": [
+      "P19"
+    ],
+    "category:rivers of costa rica\u241fis a product of": [
+      "P176"
+    ],
+    "category:rivers of india\u241fbelongs to the continent of": [
+      "P30"
+    ],
+    "category:rivers of kenya\u241fis developed by": [
+      "P176"
+    ],
+    "category:rivers of khulna division\u241fis in": [
+      "P131"
+    ],
+    "category:rivers of moscow oblast the official religion of\u241fis": [
+      "P140"
+    ],
+    "category:rivers of the kimberley region of western australia\u241fis from": [
+      "P127"
+    ],
+    "category:rna\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:rna\u241f, developed by": [
+      "P176"
+    ],
+    "category:roads in central macedonia\u241fperforms on the": [
+      "P1303"
+    ],
+    "category:roads in iceland in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "category:roads in italy the occupation of\u241fis": [
+      "P106"
+    ],
+    "category:roads in morocco\u241fformed in": [
+      "P740"
+    ],
+    "category:roman gentes\u241f, developed by": [
+      "P176"
+    ],
+    "category:roulette and wheel games\u241fis in": [
+      "P131"
+    ],
+    "category:royal navy ship names\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "category:royal navy ship names\u241fpassed away at": [
+      "P20"
+    ],
+    "category:royal navy ship names\u241fplays the": [
+      "P1303"
+    ],
+    "category:rudolf hess\u241fdied in": [
+      "P20"
+    ],
+    "category:rudolf hess\u241fis located in": [
+      "P30"
+    ],
+    "category:rudolf hess\u241fwas written in": [
+      "P407"
+    ],
+    "category:rugby union players from edinburgh\u241fdebuted on": [
+      "P449"
+    ],
+    "category:rural communes of morocco the language of\u241fis": [
+      "P364"
+    ],
+    "category:rural localities in nurimanovsky district the language of\u241fis": [
+      "P364"
+    ],
+    "category:rural localities in nurimanovsky district the twin city of\u241fis": [
+      "P190"
+    ],
+    "category:rural localities in sharansky district\u241f, which was called after": [
+      "P138"
+    ],
+    "category:rural localities in sterlitamaksky district in\u241f, they understand": [
+      "P37"
+    ],
+    "category:rural localities in vladimir oblast the domain of work of\u241fis": [
+      "P101"
+    ],
+    "category:rural localities in vladimir oblast\u241f, created by": [
+      "P178"
+    ],
+    "category:rural localities in volgograd oblast\u241f, that originated in": [
+      "P740"
+    ],
+    "category:rural localities in volgograd oblast\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "category:rural localities in volgograd oblast\u241foriginated in": [
+      "P495"
+    ],
+    "category:rural localities in vologda oblast\u241fis originally from": [
+      "P19"
+    ],
+    "category:rural localities in vologda oblast\u241fwas written in": [
+      "P407"
+    ],
+    "category:rural localities in vologda oblast\u241fworks for": [
+      "P108"
+    ],
+    "category:rural settlements in donetsk oblast\u241f, created by": [
+      "P176"
+    ],
+    "category:sailing equipment\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "category:sailing equipment\u241foriginated in": [
+      "P495"
+    ],
+    "category:saint elias mountains the occupation of\u241fis": [
+      "P106"
+    ],
+    "category:sampling (statistics)\u241fis located in": [
+      "P131"
+    ],
+    "category:sampling (statistics)\u241fwas named after": [
+      "P138"
+    ],
+    "category:sarab county\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "category:sarab county\u241f, who works for": [
+      "P108"
+    ],
+    "category:schmallenberg\u241fwas developed in": [
+      "P495"
+    ],
+    "category:school districts in indiana\u241f, in": [
+      "P131"
+    ],
+    "category:schools in belgaum district\u241fis located in the country of": [
+      "P17"
+    ],
+    "category:schools in east godavari district in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "category:schools in east godavari district\u241foriginated in": [
+      "P740"
+    ],
+    "category:scilloideae\u241f's headquarters are in": [
+      "P159"
+    ],
+    "category:scooter (band) albums\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:scottish football league players\u241f's occupation is": [
+      "P106"
+    ],
+    "category:sedimentology\u241f, in": [
+      "P131"
+    ],
+    "category:senescence\u241fspoke the language": [
+      "P103"
+    ],
+    "category:seychellois music\u241f, performing on the": [
+      "P1303"
+    ],
+    "category:sheaf theory\u241fwas born in": [
+      "P19"
+    ],
+    "category:ship names the language of\u241fis": [
+      "P364"
+    ],
+    "category:ship names\u241fwas created in": [
+      "P495"
+    ],
+    "category:shooting guards\u241fis written in": [
+      "P407"
+    ],
+    "category:shot peening\u241f, produced by": [
+      "P176"
+    ],
+    "category:sh\u00ebngjin\u241fpassed away in": [
+      "P20"
+    ],
+    "category:siglec\u241f, that was from": [
+      "P495"
+    ],
+    "category:sindhi tribes\u241fperforms on the": [
+      "P1303"
+    ],
+    "category:single-board computers\u241fis headquartered in": [
+      "P159"
+    ],
+    "category:singrauli district the domain of work of\u241fis": [
+      "P101"
+    ],
+    "category:sites of special scientific interest in northamptonshire\u241f, in": [
+      "P30"
+    ],
+    "category:ski jumping venues in slovakia\u241fis in": [
+      "P131"
+    ],
+    "category:social psychology\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:software engineering the location of\u241fis": [
+      "P276"
+    ],
+    "category:songs written by dero goi\u241fstarted in": [
+      "P740"
+    ],
+    "category:sonnets by william shakespeare\u241fis written in": [
+      "P407"
+    ],
+    "category:sordariomycetes\u241f, in": [
+      "P30"
+    ],
+    "category:south african judges\u241f, who holds a citizenship from": [
+      "P27"
+    ],
+    "category:south american cuisine the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:south taranaki district the mother tongue of\u241fis": [
+      "P103"
+    ],
+    "category:south taranaki district\u241fis located in": [
+      "P276"
+    ],
+    "category:southern football league players\u241fis located in": [
+      "P131"
+    ],
+    "category:spanish grammar in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "category:spanish painters\u241fspeaks": [
+      "P1412"
+    ],
+    "category:spiders described in 1969\u241f, created in": [
+      "P495"
+    ],
+    "category:spiders described in 1992\u241fis to debut on": [
+      "P449"
+    ],
+    "category:spiders described in 1992\u241fplays": [
+      "P1303"
+    ],
+    "category:spiders of the united states\u241fowner": [
+      "P127"
+    ],
+    "category:spilomelinae the expertise of\u241fis": [
+      "P101"
+    ],
+    "category:spilomelinae\u241f, the": [
+      "P413"
+    ],
+    "category:spilomelinae\u241fpremieres on": [
+      "P449"
+    ],
+    "category:sponge orders\u241f, performing on the": [
+      "P1303"
+    ],
+    "category:spumaviruses the official religion of\u241fis": [
+      "P140"
+    ],
+    "category:star trek terminology\u241fis affiliated with the religion": [
+      "P140"
+    ],
+    "category:stenoma\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:steve camp albums the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:street view services\u241fis located in": [
+      "P17"
+    ],
+    "category:streets in cardiff\u241fis in": [
+      "P30"
+    ],
+    "category:string instrument construction\u241f, that was formed in": [
+      "P740"
+    ],
+    "category:sub-prefectures of guinea\u241f, located in": [
+      "P17"
+    ],
+    "category:subdistricts of tallinn\u241f, produced by": [
+      "P176"
+    ],
+    "category:suburbs of jaffna\u241fis produced by": [
+      "P176"
+    ],
+    "category:sughd region\u241fis in": [
+      "P276"
+    ],
+    "category:suldal\u241fplays the instrument": [
+      "P1303"
+    ],
+    "category:suldal\u241fprofessionally plays the sport": [
+      "P641"
+    ],
+    "category:superconductivity\u241fis in": [
+      "P30"
+    ],
+    "category:sutherland shire\u241fwas released on": [
+      "P449"
+    ],
+    "category:swapo\u241fdied in the city of": [
+      "P20"
+    ],
+    "category:swedish artists\u241fholds the title of": [
+      "P39"
+    ],
+    "category:swedish handball competitions\u241fthat was founded in": [
+      "P740"
+    ],
+    "category:swimming at the 2008 summer paralympics\u241fspoke the language": [
+      "P103"
+    ],
+    "category:symbolist plays\u241fis native to": [
+      "P19"
+    ],
+    "category:synersaga\u241fwrites in": [
+      "P1412"
+    ],
+    "category:tachinidae\u241f, that originated in": [
+      "P740"
+    ],
+    "category:taluks of dindigul district\u241f, the": [
+      "P413"
+    ],
+    "category:taluks of dindigul district\u241fspeaks": [
+      "P1412"
+    ],
+    "category:tarnobrzeg county\u241fwrites in": [
+      "P1412"
+    ],
+    "category:taxa named by alois friedrich rogenhofer\u241fexpired at": [
+      "P20"
+    ],
+    "category:taxa named by hampton wildman parker\u241f's expertise is": [
+      "P101"
+    ],
+    "category:taxa named by hampton wildman parker\u241fperforms": [
+      "P136"
+    ],
+    "category:telecommunication theory what does\u241fplay? they play": [
+      "P136"
+    ],
+    "category:telecommunication theory\u241fwas employed in": [
+      "P937"
+    ],
+    "category:teleiodes\u241ffound employment in": [
+      "P937"
+    ],
+    "category:television channels and stations established in 2001\u241f, from": [
+      "P495"
+    ],
+    "category:television channels and stations established in 2001\u241fis a member of": [
+      "P463"
+    ],
+    "category:television terminology\u241f, speaker of": [
+      "P103"
+    ],
+    "category:tempe, arizona\u241fused to work in": [
+      "P937"
+    ],
+    "category:terneuzen\u241f, located in": [
+      "P17"
+    ],
+    "category:tetanops\u241fis a native speaker of": [
+      "P103"
+    ],
+    "category:thioesters of coenzyme a\u241f, in": [
+      "P17"
+    ],
+    "category:thiotrichinae\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:thunder goddesses\u241foriginated from": [
+      "P19"
+    ],
+    "category:tineidae\u241f's profession is a": [
+      "P106"
+    ],
+    "category:torah people\u241fis located in": [
+      "P17"
+    ],
+    "category:toronto police chiefs\u241fcan be found in": [
+      "P276"
+    ],
+    "category:towns and villages in bileh savar county\u241f, who plays the position": [
+      "P413"
+    ],
+    "category:towns and villages in bileh savar county\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:towns and villages in borujerd county\u241fworked in": [
+      "P937"
+    ],
+    "category:towns and villages in delfan county\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:towns and villages in dorud county the language of\u241fwas": [
+      "P364"
+    ],
+    "category:towns and villages in dorud county\u241f, developed by": [
+      "P176"
+    ],
+    "category:towns and villages in dowreh county\u241fis created by": [
+      "P176"
+    ],
+    "category:towns and villages in hashtrud county the mother tongue of\u241fis": [
+      "P103"
+    ],
+    "category:towns and villages in hashtrud county\u241f, who works for": [
+      "P108"
+    ],
+    "category:towns and villages in khorramabad county which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:towns and villages in khorramabad county\u241fis located in": [
+      "P30"
+    ],
+    "category:towns and villages in maragheh county\u241f, who has the position of": [
+      "P39"
+    ],
+    "category:towns and villages in meshgin shahr county\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:township-level divisions of shandong\u241f, speaker of": [
+      "P103"
+    ],
+    "category:townships in iowa\u241f, located in": [
+      "P17"
+    ],
+    "category:townships in iowa\u241fis based in": [
+      "P159"
+    ],
+    "category:townships in laclede county, missouri\u241fwas originally from": [
+      "P19"
+    ],
+    "category:townships in michigan\u241f, the": [
+      "P1303"
+    ],
+    "category:townships in minnesota the official religion of\u241fis": [
+      "P140"
+    ],
+    "category:townships in minnesota\u241fworks in the field of": [
+      "P101"
+    ],
+    "category:townships in vernon county, missouri\u241f, from": [
+      "P127"
+    ],
+    "category:traffic signals\u241f's area of work is": [
+      "P101"
+    ],
+    "category:tram transport in wales\u241fworks for": [
+      "P108"
+    ],
+    "category:translators from finnish\u241fwas developed in": [
+      "P495"
+    ],
+    "category:transportation in clermont county, ohio\u241fbelongs to the organization of": [
+      "P463"
+    ],
+    "category:transportation in lawrence county, ohio\u241fspeaks the language": [
+      "P1412"
+    ],
+    "category:transportation in white pine county, nevada\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "category:travis (band) albums\u241f, which has the capital city": [
+      "P36"
+    ],
+    "category:trechinae\u241fspecializes in": [
+      "P101"
+    ],
+    "category:tremellomycetes\u241fis located in": [
+      "P17"
+    ],
+    "category:trinidad and tobago international footballers\u241fcan be found in": [
+      "P276"
+    ],
+    "category:turkic languages the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "category:turkish society\u241fholds a citizenship from": [
+      "P27"
+    ],
+    "category:ukrainian artists\u241fwas born in": [
+      "P19"
+    ],
+    "category:ukrainian screenwriters\u241f, called after": [
+      "P138"
+    ],
+    "category:ulidia\u241fwas developed in": [
+      "P495"
+    ],
+    "category:unaccepted virus taxa\u241fpremiered on": [
+      "P449"
+    ],
+    "category:uncommon latin letters\u241f, by": [
+      "P127"
+    ],
+    "category:uncommon latin letters\u241fis a part of the continent of": [
+      "P30"
+    ],
+    "category:underwater ridges of the indian ocean\u241f, which is located in": [
+      "P17"
+    ],
+    "category:unincorporated communities in louisiana\u241f, created by": [
+      "P176"
+    ],
+    "category:unincorporated communities in louisiana\u241f, the": [
+      "P413"
+    ],
+    "category:unincorporated communities in louisiana\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:unincorporated communities in virginia\u241fis a citizen of": [
+      "P27"
+    ],
+    "category:union councils of islamabad capital territory\u241fspeaks": [
+      "P1412"
+    ],
+    "category:unions of satkhira district\u241f, a product created by": [
+      "P178"
+    ],
+    "category:united states department of agriculture\u241f, that was formulated in": [
+      "P495"
+    ],
+    "category:united states department of agriculture\u241f, who plays the position": [
+      "P413"
+    ],
+    "category:united states navy ship names\u241fspeaks": [
+      "P1412"
+    ],
+    "category:university departments in thailand the original language of\u241fwas": [
+      "P364"
+    ],
+    "category:university of south carolina\u241fwas originally from": [
+      "P19"
+    ],
+    "category:urban-type settlements in moscow oblast\u241fwas released on": [
+      "P449"
+    ],
+    "category:ureas\u241fis in": [
+      "P276"
+    ],
+    "category:urethra\u241f, that was started in": [
+      "P740"
+    ],
+    "category:utrecht university\u241fused to work in": [
+      "P937"
+    ],
+    "category:utrecht university\u241fwas written in": [
+      "P407"
+    ],
+    "category:uttlesford\u241fsuccumbed at": [
+      "P20"
+    ],
+    "category:valleys of spitsbergen\u241fis based in": [
+      "P159"
+    ],
+    "category:vaudeville performers which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:vector supercomputers the language of\u241fis": [
+      "P364"
+    ],
+    "category:vector supercomputers\u241fis known for performing": [
+      "P136"
+    ],
+    "category:vezirk\u00f6pr\u00fc\u241f, who plays the position": [
+      "P413"
+    ],
+    "category:vfb stuttgart players\u241fspeaks": [
+      "P1412"
+    ],
+    "category:vietnamese goddesses the original language of\u241fwas": [
+      "P364"
+    ],
+    "category:vietnamese goddesses\u241fwas written in": [
+      "P407"
+    ],
+    "category:villages and municipalities in \u010dadca district\u241fhas a citizenship from": [
+      "P27"
+    ],
+    "category:villages in aberdeenshire\u241f, speaker of": [
+      "P103"
+    ],
+    "category:villages in belgaum district\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:villages in bene\u0161ov district\u241fpassed away at": [
+      "P20"
+    ],
+    "category:villages in berasia tehsil\u241fis affiliated with the religion": [
+      "P140"
+    ],
+    "category:villages in berasia tehsil\u241foriginated in": [
+      "P740"
+    ],
+    "category:villages in bia\u0142ogard county\u241fis created by": [
+      "P176"
+    ],
+    "category:villages in burgas province the occupation of\u241fis": [
+      "P106"
+    ],
+    "category:villages in burgas province where is\u241f? it is located in": [
+      "P276"
+    ],
+    "category:villages in burgas province which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "category:villages in busko county the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "category:villages in darjeeling district\u241fis a product of": [
+      "P178"
+    ],
+    "category:villages in dzia\u0142dowo county\u241fspeaks the language": [
+      "P1412"
+    ],
+    "category:villages in ernakulam district\u241fis employed by": [
+      "P108"
+    ],
+    "category:villages in erode district\u241f, in": [
+      "P17"
+    ],
+    "category:villages in golub-dobrzy\u0144 county\u241fbelongs to the continent of": [
+      "P30"
+    ],
+    "category:villages in grodzisk mazowiecki county\u241f, located in": [
+      "P17"
+    ],
+    "category:villages in grodzisk mazowiecki county\u241fhas a citizenship from": [
+      "P27"
+    ],
+    "category:villages in gr\u00f3jec county\u241fplays in the position of": [
+      "P413"
+    ],
+    "category:villages in herefordshire\u241f's profession is an": [
+      "P106"
+    ],
+    "category:villages in huzur tehsil\u241f's profession is an": [
+      "P106"
+    ],
+    "category:villages in ida-viru county\u241f, a native": [
+      "P103"
+    ],
+    "category:villages in ida-viru county\u241fhas the position of": [
+      "P39"
+    ],
+    "category:villages in idukki district\u241f, created in": [
+      "P740"
+    ],
+    "category:villages in j\u00e4rva county\u241f, in": [
+      "P131"
+    ],
+    "category:villages in j\u00e4rva county\u241fwrites in": [
+      "P1412"
+    ],
+    "category:villages in kangra district\u241f, in": [
+      "P131"
+    ],
+    "category:villages in kangra district\u241f, which is located in": [
+      "P17"
+    ],
+    "category:villages in kardzhali province the original language of\u241fis": [
+      "P364"
+    ],
+    "category:villages in khalsi tehsil\u241ffound employment in": [
+      "P937"
+    ],
+    "category:villages in koszalin county\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:villages in koszalin county\u241fis produced by": [
+      "P176"
+    ],
+    "category:villages in krotoszyn county\u241f, who has the position of": [
+      "P39"
+    ],
+    "category:villages in kurnool district\u241fis from": [
+      "P127"
+    ],
+    "category:villages in kyustendil province in\u241f, an official language is": [
+      "P37"
+    ],
+    "category:villages in k\u0119dzierzyn-ko\u017ale county\u241f's headquarters are in": [
+      "P159"
+    ],
+    "category:villages in k\u0119dzierzyn-ko\u017ale county\u241f, in": [
+      "P131"
+    ],
+    "category:villages in k\u0119dzierzyn-ko\u017ale county\u241f, produced by": [
+      "P176"
+    ],
+    "category:villages in k\u0119dzierzyn-ko\u017ale county\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "category:villages in k\u0119trzyn county the original language of\u241fis": [
+      "P364"
+    ],
+    "category:villages in k\u0119trzyn county\u241f's headquarters are in": [
+      "P159"
+    ],
+    "category:villages in lovech province\u241f, formulated in": [
+      "P495"
+    ],
+    "category:villages in lubliniec county\u241fplays": [
+      "P136"
+    ],
+    "category:villages in lviv oblast\u241fplays": [
+      "P136"
+    ],
+    "category:villages in mi\u0119dzyrzecz county\u241fplays the": [
+      "P1303"
+    ],
+    "category:villages in my\u015blenice county the location of\u241fis": [
+      "P276"
+    ],
+    "category:villages in my\u015blenice county\u241fis located in": [
+      "P276"
+    ],
+    "category:villages in nak\u0142o county\u241fis originally from": [
+      "P19"
+    ],
+    "category:villages in nizamabad district the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:villages in opava district the profession of\u241fis": [
+      "P106"
+    ],
+    "category:villages in pabianice county the official language of\u241fis": [
+      "P37"
+    ],
+    "category:villages in parczew county the language of\u241fwas": [
+      "P364"
+    ],
+    "category:villages in pembrokeshire\u241foriginates from": [
+      "P19"
+    ],
+    "category:villages in piotrk\u00f3w county the genre played by\u241fis": [
+      "P136"
+    ],
+    "category:villages in piotrk\u00f3w county\u241f, in": [
+      "P30"
+    ],
+    "category:villages in prizren\u241fis in": [
+      "P30"
+    ],
+    "category:villages in providence county, rhode island what does\u241fplay? they play": [
+      "P136"
+    ],
+    "category:villages in providence county, rhode island\u241f, who works for": [
+      "P108"
+    ],
+    "category:villages in pu\u0142tusk county\u241f, whose position is that of": [
+      "P39"
+    ],
+    "category:villages in pu\u0142tusk county\u241fwas employed in": [
+      "P937"
+    ],
+    "category:villages in p\u00f5lva county\u241ffrom": [
+      "P495"
+    ],
+    "category:villages in ranga reddy district\u241fhas the position of": [
+      "P39"
+    ],
+    "category:villages in rapla county\u241fworks as": [
+      "P106"
+    ],
+    "category:villages in rychnov nad kn\u011b\u017enou district\u241fis located in": [
+      "P131"
+    ],
+    "category:villages in sandomierz county\u241fwas released on": [
+      "P449"
+    ],
+    "category:villages in siedlce county in\u241f, they understand": [
+      "P37"
+    ],
+    "category:villages in smolyan province\u241fprofessionally plays the sport": [
+      "P641"
+    ],
+    "category:villages in smolyan province\u241fwas created by": [
+      "P178"
+    ],
+    "category:villages in szyd\u0142owiec county\u241ftook up work in": [
+      "P937"
+    ],
+    "category:villages in tarn\u00f3w county the occupation of\u241fis": [
+      "P106"
+    ],
+    "category:villages in tarn\u00f3w county the original language of\u241fis": [
+      "P364"
+    ],
+    "category:villages in tarn\u00f3w county\u241fis a native speaker of": [
+      "P103"
+    ],
+    "category:villages in thiruvananthapuram district\u241f, created in": [
+      "P495"
+    ],
+    "category:villages in thiruvananthapuram district\u241f, that was from": [
+      "P495"
+    ],
+    "category:villages in tirana county the language of\u241fis": [
+      "P407"
+    ],
+    "category:villages in tiruchirappalli district\u241fis headquartered in": [
+      "P159"
+    ],
+    "category:villages in tomasz\u00f3w mazowiecki county\u241f, playing the": [
+      "P1303"
+    ],
+    "category:villages in turkey\u241f, who holds the position of": [
+      "P39"
+    ],
+    "category:villages in turkey\u241fsuccumbed at": [
+      "P20"
+    ],
+    "category:villages in valga county\u241f, in": [
+      "P131"
+    ],
+    "category:villages in valga county\u241fpassed away in": [
+      "P20"
+    ],
+    "category:villages in varanasi district\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:villages in viljandi county\u241fwas written in": [
+      "P407"
+    ],
+    "category:villages in viluppuram district\u241fsuccumbed at": [
+      "P20"
+    ],
+    "category:villages in v\u00f5ru county\u241f, who plays the position": [
+      "P413"
+    ],
+    "category:villages in warangal district the headquarter of\u241fis in": [
+      "P159"
+    ],
+    "category:villages in wierusz\u00f3w county\u241foriginated in": [
+      "P740"
+    ],
+    "category:villages in wierusz\u00f3w county\u241fwas founded in": [
+      "P740"
+    ],
+    "category:villages in w\u0119gr\u00f3w county\u241fspeaks the language": [
+      "P1412"
+    ],
+    "category:villages in w\u0142oc\u0142awek county\u241f's owner": [
+      "P127"
+    ],
+    "category:villages in w\u0142oc\u0142awek county\u241f, developed by": [
+      "P176"
+    ],
+    "category:villages in \u0142om\u017ca county\u241fholds the position of": [
+      "P39"
+    ],
+    "category:villages in \u0142om\u017ca county\u241fis in": [
+      "P30"
+    ],
+    "category:villages in \u0142\u0119czyca county\u241ftook up work in": [
+      "P937"
+    ],
+    "category:vladimir governorate the original language of\u241fwas": [
+      "P364"
+    ],
+    "category:volcanoes of mars the language of\u241fis": [
+      "P364"
+    ],
+    "category:wan chai north\u241fis located in the continent": [
+      "P30"
+    ],
+    "category:watch manufacturing companies of italy\u241f, a citizen of": [
+      "P27"
+    ],
+    "category:waterfalls of kauai\u241fis a": [
+      "P39"
+    ],
+    "category:waterfalls of nepal\u241fwas native to": [
+      "P19"
+    ],
+    "category:wei\u00dfenburg-gunzenhausen the official language of\u241fis": [
+      "P37"
+    ],
+    "category:welsh people of irish descent\u241f, created by": [
+      "P176"
+    ],
+    "category:welsh people of irish descent\u241fwas originally from": [
+      "P19"
+    ],
+    "category:welsh saints\u241f's expertise is": [
+      "P101"
+    ],
+    "category:west indies\u241f, who plays": [
+      "P136"
+    ],
+    "category:wheat cultivars\u241f, from": [
+      "P127"
+    ],
+    "category:william osler the language of\u241fis": [
+      "P364"
+    ],
+    "category:women centenarians\u241fwas started in": [
+      "P740"
+    ],
+    "category:women textile artists\u241f, the": [
+      "P413"
+    ],
+    "category:wood\u241fspeaks": [
+      "P1412"
+    ],
+    "category:world cuisine\u241fis produced by": [
+      "P176"
+    ],
+    "category:year of birth missing (living people)\u241ffound employment in": [
+      "P937"
+    ],
+    "category:year of birth missing the language used by\u241fis": [
+      "P1412"
+    ],
+    "category:year of birth unknown\u241fis written in": [
+      "P407"
+    ],
+    "category:year of death missing\u241fwas developed by": [
+      "P178"
+    ],
+    "chile\u241f, that was formulated in": [
+      "P495"
+    ],
+    "chodubka\u241f, who works as": [
+      "P106"
+    ],
+    "churches\u241fis follower of": [
+      "P140"
+    ],
+    "companies in serbia\u241f, that was created in": [
+      "P495"
+    ],
+    "coombe\u241f's profession is a": [
+      "P106"
+    ],
+    "cork the mother tongue of\u241fis": [
+      "P103"
+    ],
+    "czerwony folwark\u241f, that was formed in": [
+      "P740"
+    ],
+    "deadly fungi, list of\u241fspeaks": [
+      "P1412"
+    ],
+    "deborah, \"desbarats\" sounds similar in pronunciation\u241fis a native speaker of": [
+      "P103"
+    ],
+    "diamond turbot\u241f, created by": [
+      "P176"
+    ],
+    "discovery\u241f, in": [
+      "P131"
+    ],
+    "docol the location of\u241fis": [
+      "P276"
+    ],
+    "doubles\u241fwas employed in": [
+      "P937"
+    ],
+    "draft history\u241f, that was started in": [
+      "P740"
+    ],
+    "drzewica in\u241f, they understand": [
+      "P37"
+    ],
+    "d\u241fis located in": [
+      "P131"
+    ],
+    "early christianity\u241fspeaks the language": [
+      "P1412"
+    ],
+    "elasmatopus which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "elasmatopus\u241f, in": [
+      "P17"
+    ],
+    "elasmatopus\u241fis originally from": [
+      "P19"
+    ],
+    "elgnowo\u241fdied at": [
+      "P20"
+    ],
+    "enza\u241ffrom": [
+      "P495"
+    ],
+    "eps\u241f, developed by": [
+      "P176"
+    ],
+    "eps\u241f, founded in": [
+      "P740"
+    ],
+    "ericsoni\u241f, the": [
+      "P1303"
+    ],
+    "eshkol of\u241f: the man and the nation. israel's capital is": [
+      "P36"
+    ],
+    "external links in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "external links the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "external links\u241f, who has the position of": [
+      "P39"
+    ],
+    "external links\u241fspeaks": [
+      "P1412"
+    ],
+    "external links\u241fwas created in the country of": [
+      "P495"
+    ],
+    "external links\u241fwas originally from": [
+      "P19"
+    ],
+    "fort collins\u241ftook up work in": [
+      "P937"
+    ],
+    "fort collins\u241fwas developed by": [
+      "P178"
+    ],
+    "fort collins\u241fwas released on": [
+      "P449"
+    ],
+    "frederick\u241f, created in": [
+      "P740"
+    ],
+    "further reading the language of\u241fwas": [
+      "P407"
+    ],
+    "further reading\u241f, that was from": [
+      "P495"
+    ],
+    "gerhard 06\u241f, that originated in": [
+      "P740"
+    ],
+    "gl/maps/vug9s1fze342\u241fformed in": [
+      "P740"
+    ],
+    "graupner, christoph\u241f, founded in": [
+      "P740"
+    ],
+    "heart of midlothian\u241foriginated from": [
+      "P19"
+    ],
+    "how to re-spoke motorcycle wheels which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "i58sr\u241f, founded in": [
+      "P740"
+    ],
+    "i58sr\u241f, that was formulated in": [
+      "P495"
+    ],
+    "ilmen slavs\u241fdebuted on": [
+      "P449"
+    ],
+    "imprudence (maupassant short story)\u241fis in": [
+      "P131"
+    ],
+    "imprudence (maupassant short story)\u241fis known for performing": [
+      "P136"
+    ],
+    "incertae\u241fspeaks": [
+      "P1412"
+    ],
+    "inuyashiki\u241f, that was created in": [
+      "P495"
+    ],
+    "in\u241f, an official language is": [
+      "P37"
+    ],
+    "in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "in\u241f, they understand": [
+      "P37"
+    ],
+    "iowa hawkeyes football\u241f, that originated in": [
+      "P495"
+    ],
+    "iowa hawkeyes football\u241fplays as": [
+      "P413"
+    ],
+    "it:composizione organica del capitale\u241fplays": [
+      "P641"
+    ],
+    "it:feccia (enologia)\u241f, in": [
+      "P131"
+    ],
+    "ja:\u53ec\u547d\u241fspeaks the language": [
+      "P1412"
+    ],
+    "jackson county\u241fexpired at": [
+      "P20"
+    ],
+    "jarszewo\u241fis follower of": [
+      "P140"
+    ],
+    "jezierzysk\u241fwrites in": [
+      "P1412"
+    ],
+    "kaitou sentai lupinranger vs keisatsu sentai patranger\u241fwas employed in": [
+      "P937"
+    ],
+    "kamieniec\u241fplays the instrument": [
+      "P1303"
+    ],
+    "kaniwola\u241fis employed by": [
+      "P108"
+    ],
+    "kaptury\u241fis known for performing": [
+      "P136"
+    ],
+    "kartkowo the mother tongue of\u241fis": [
+      "P103"
+    ],
+    "khorassanalis\u241fdied in the city of": [
+      "P20"
+    ],
+    "khorassanalis\u241fpassed away in": [
+      "P20"
+    ],
+    "kierzkowice the profession of\u241fis": [
+      "P106"
+    ],
+    "kitami fuji\u241fis headquartered in": [
+      "P159"
+    ],
+    "kitami fuji\u241fpassed away at": [
+      "P20"
+    ],
+    "kobylin\u241fperforms": [
+      "P136"
+    ],
+    "kowalanka\u241foriginates from": [
+      "P19"
+    ],
+    "laos\u241f, the": [
+      "P641"
+    ],
+    "lasocin the language of\u241fwas": [
+      "P364"
+    ],
+    "latrobe\u241fis a native speaker of": [
+      "P103"
+    ],
+    "lebanon, pennsylvania\u241f, that was formulated in": [
+      "P495"
+    ],
+    "levante ud the original language of\u241fis": [
+      "P364"
+    ],
+    "liznowo\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "liznowo\u241fspeaks the language": [
+      "P1412"
+    ],
+    "lleida\u241fis created by": [
+      "P176"
+    ],
+    "lt:soteras the headquarter of\u241fis in": [
+      "P159"
+    ],
+    "lubochenek the profession of\u241fis": [
+      "P106"
+    ],
+    "malaccensis\u241f, which is called after": [
+      "P138"
+    ],
+    "managers\u241f's life ended in": [
+      "P20"
+    ],
+    "mauritius the original language of\u241fwas": [
+      "P364"
+    ],
+    "mauritius\u241fis a product of": [
+      "P176"
+    ],
+    "mayestan-e pain\u241fspeaks the language": [
+      "P1412"
+    ],
+    "medveja, croatia\u241fholds a citizenship from": [
+      "P27"
+    ],
+    "men's 68 kg\u241f, which was called after": [
+      "P138"
+    ],
+    "messing around (disambiguation)\u241fholds a citizenship from": [
+      "P27"
+    ],
+    "minnedosa lake\u241f, which is named after": [
+      "P138"
+    ],
+    "motorcycle\u241fstarted in": [
+      "P740"
+    ],
+    "mszadla stara the headquarter of\u241fis in": [
+      "P159"
+    ],
+    "mzn:\u0644\u0648\u0686\u0648 the language used by\u241fis": [
+      "P1412"
+    ],
+    "mzn:\u0644\u0648\u0686\u0648\u241f, in": [
+      "P30"
+    ],
+    "na-120\u241fis a": [
+      "P39"
+    ],
+    "nagawki\u241f, who holds a citizenship from": [
+      "P27"
+    ],
+    "nam khun the genre played by\u241fis": [
+      "P136"
+    ],
+    "nasser golzari, architect and academic which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "nasser golzari, architect and academic\u241fspoke the language": [
+      "P103"
+    ],
+    "new hampshire\u241fis follower of": [
+      "P140"
+    ],
+    "new orleans\u241fis employed by": [
+      "P108"
+    ],
+    "nickname for patrol vehicles of the michigan state police\u241f, which has the capital": [
+      "P36"
+    ],
+    "non-playing staff the language of\u241fwas": [
+      "P407"
+    ],
+    "non-playing staff\u241fis developed by": [
+      "P176"
+    ],
+    "non-playing staff\u241fis located in the continent": [
+      "P30"
+    ],
+    "obstacles the headquarters of\u241fis in": [
+      "P159"
+    ],
+    "obstacles where is\u241f? it is located in": [
+      "P276"
+    ],
+    "obstacles\u241f, located in": [
+      "P17"
+    ],
+    "ochrotrichus\u241fspeaks the language": [
+      "P1412"
+    ],
+    "oregon\u241fprofessionally plays the sport": [
+      "P641"
+    ],
+    "oversight domestic policy\u241fpassed away at": [
+      "P20"
+    ],
+    "passero\u241fsuccumbed at": [
+      "P20"
+    ],
+    "pella sietas gmbh, a shipbuilder based in hamburg, germany\u241fspeaks": [
+      "P1412"
+    ],
+    "pella sietas gmbh, a shipbuilder based in hamburg, germany\u241fwas native to": [
+      "P19"
+    ],
+    "piave\u241fplays the": [
+      "P1303"
+    ],
+    "players the language of\u241fwas": [
+      "P364"
+    ],
+    "players what does\u241fplay? they play": [
+      "P136"
+    ],
+    "players\u241f, speaker of": [
+      "P103"
+    ],
+    "players\u241fholds the position of": [
+      "P39"
+    ],
+    "players\u241fholds the title of": [
+      "P39"
+    ],
+    "players\u241fis a native speaker of": [
+      "P103"
+    ],
+    "players\u241foriginated from": [
+      "P19"
+    ],
+    "players\u241fplays the": [
+      "P1303"
+    ],
+    "pustelnia\u241fspecializes in": [
+      "P101"
+    ],
+    "p\u00f6lten-land district\u241fis a native speaker of": [
+      "P103"
+    ],
+    "p\u00f6lten-land district\u241fwas formulated in": [
+      "P495"
+    ],
+    "rajszew the language of\u241fis": [
+      "P364"
+    ],
+    "rajszew\u241fis employed by": [
+      "P108"
+    ],
+    "rajszew\u241fis located in": [
+      "P17"
+    ],
+    "ray anthony jonsson\u241ffollows the religion of": [
+      "P140"
+    ],
+    "records albums\u241f, located in": [
+      "P17"
+    ],
+    "redirect barwick, somerset\u241fcan be found in": [
+      "P276"
+    ],
+    "redirect barwick, somerset\u241ffollows the religion of": [
+      "P140"
+    ],
+    "redirect jefferson davis parish, louisiana\u241foriginated in": [
+      "P495"
+    ],
+    "redirect moses-saunders power dam\u241f's occupation is": [
+      "P106"
+    ],
+    "redirect virginia state route 198\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "redirect virginia state route 198\u241fdied in the city of": [
+      "P20"
+    ],
+    "redirect virginia state route 55\u241fis in": [
+      "P30"
+    ],
+    "redirect virginia state route 75\u241fpassed away in": [
+      "P20"
+    ],
+    "redirect virginia state route 9\u241fplays in the position of": [
+      "P413"
+    ],
+    "redirect webster parish, louisiana\u241fplays the instrument": [
+      "P1303"
+    ],
+    "redirect zeituni onyango\u241fspoke the language": [
+      "P103"
+    ],
+    "references in\u241f, the language spoken is": [
+      "P37"
+    ],
+    "references the original language of\u241fwas": [
+      "P364"
+    ],
+    "references\u241f, a native": [
+      "P103"
+    ],
+    "references\u241ffound employment in": [
+      "P937"
+    ],
+    "references\u241fis known for performing": [
+      "P136"
+    ],
+    "references\u241fis native to": [
+      "P19"
+    ],
+    "references\u241flost their life at": [
+      "P20"
+    ],
+    "references\u241fperforms": [
+      "P136"
+    ],
+    "references\u241fperforms on the": [
+      "P1303"
+    ],
+    "references\u241fused to work in": [
+      "P937"
+    ],
+    "references\u241fworked in the city of": [
+      "P937"
+    ],
+    "republic of the congo\u241f, the": [
+      "P413"
+    ],
+    "rochedale\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "romania\u241fworked in the city of": [
+      "P937"
+    ],
+    "rybczyzna\u241fis a member of": [
+      "P463"
+    ],
+    "sanctum\u241f, which is located in": [
+      "P17"
+    ],
+    "sanfl grand final, 1929 the mother tongue of\u241fis": [
+      "P103"
+    ],
+    "see also\u241f, who has the position of": [
+      "P39"
+    ],
+    "sigmoideum\u241fis in": [
+      "P131"
+    ],
+    "significant people\u241f's capital city is": [
+      "P36"
+    ],
+    "soviet union where is\u241f? it is located in": [
+      "P276"
+    ],
+    "soviet\u241f, developed by": [
+      "P176"
+    ],
+    "spain\u241ffound employment in": [
+      "P937"
+    ],
+    "stanford football\u241fis from": [
+      "P127"
+    ],
+    "szklary\u241fdied in": [
+      "P20"
+    ],
+    "tarijensis\u241fwas created in the country of": [
+      "P495"
+    ],
+    "the capital city of\u241fis": [
+      "P36"
+    ],
+    "the capital of\u241fis": [
+      "P36"
+    ],
+    "the domain of activity of\u241fis": [
+      "P101"
+    ],
+    "the domain of work of\u241fis": [
+      "P101"
+    ],
+    "the expertise of\u241fis": [
+      "P101"
+    ],
+    "the genre played by\u241fis": [
+      "P136"
+    ],
+    "the headquarter of\u241fis in": [
+      "P159"
+    ],
+    "the headquarter of\u241fis located in": [
+      "P159"
+    ],
+    "the headquarters of\u241fis in": [
+      "P159"
+    ],
+    "the language of\u241fis": [
+      "P364",
+      "P407"
+    ],
+    "the language of\u241fwas": [
+      "P364",
+      "P407"
+    ],
+    "the language used by\u241fis": [
+      "P1412"
+    ],
+    "the law in\u241fdeclares the language": [
+      "P37"
+    ],
+    "the location of\u241fis": [
+      "P276"
+    ],
+    "the mother tongue of\u241fis": [
+      "P103"
+    ],
+    "the music label representing\u241fis": [
+      "P264"
+    ],
+    "the music label that is representing\u241fis": [
+      "P264"
+    ],
+    "the native language of\u241fis": [
+      "P103"
+    ],
+    "the occupation of\u241fis": [
+      "P106"
+    ],
+    "the official language of\u241fis": [
+      "P37"
+    ],
+    "the official religion of\u241fis": [
+      "P140"
+    ],
+    "the original language of\u241fis": [
+      "P364"
+    ],
+    "the original language of\u241fwas": [
+      "P364"
+    ],
+    "the profession of\u241fis": [
+      "P106"
+    ],
+    "the twin city of\u241fis": [
+      "P190"
+    ],
+    "tournament\u241fhas a citizenship from": [
+      "P27"
+    ],
+    "trans-am\u241f, playing the": [
+      "P1303"
+    ],
+    "treaties\u241f, developed in": [
+      "P495"
+    ],
+    "trinidad and tobago\u241f's position is": [
+      "P39"
+    ],
+    "trinidad and tobago\u241fpremiered on": [
+      "P449"
+    ],
+    "trudeau, justine\u241fis created by": [
+      "P176"
+    ],
+    "turkey\u241f, which has the capital city": [
+      "P36"
+    ],
+    "t\u241f, whose position is that of": [
+      "P39"
+    ],
+    "t\u241fcan be found in": [
+      "P131"
+    ],
+    "ubisoft subsidiaries\u241fpremiered on": [
+      "P449"
+    ],
+    "unijuga\u241f, the": [
+      "P413"
+    ],
+    "unijuga\u241fwas originally aired on": [
+      "P449"
+    ],
+    "united states\u241f's record label is": [
+      "P264"
+    ],
+    "united states\u241f, that was from": [
+      "P495"
+    ],
+    "vaccares\u241fis within": [
+      "P131"
+    ],
+    "vagans\u241f's capital city,": [
+      "P36"
+    ],
+    "veterinary college admission test, a former veterinary school admissions examination the language of\u241fis": [
+      "P407"
+    ],
+    "virgin the language used by\u241fis": [
+      "P1412"
+    ],
+    "what does\u241fplay? they play": [
+      "P136"
+    ],
+    "what is the twin city of\u241f? it is": [
+      "P190"
+    ],
+    "what sport does\u241fplay? they play": [
+      "P641"
+    ],
+    "where is\u241f? it is located in": [
+      "P276"
+    ],
+    "which position does\u241fplay? they play as": [
+      "P413"
+    ],
+    "world cup\u241fis affiliated with the religion": [
+      "P140"
+    ],
+    "world rally championship\u241fwas founded in": [
+      "P740"
+    ],
+    "wylie\u241f, in": [
+      "P131"
+    ],
+    "yunnanensis\u241f, developed in": [
+      "P495"
+    ],
+    "zabrodzie\u241fwas born in": [
+      "P19"
+    ],
+    "}\u241f, whose position is that of": [
+      "P39"
+    ],
+    "}\u241fis located in": [
+      "P131"
+    ],
+    "\u092e\u0939\u0928\u093e\u0930 \u092c\u093e\u091c\u093e\u0930\u241fcan be found in": [
+      "P131"
+    ],
+    "\u241f's area of work is": [
+      "P101"
+    ],
+    "\u241f's capital city is": [
+      "P36"
+    ],
+    "\u241f's capital city,": [
+      "P36"
+    ],
+    "\u241f's capital is": [
+      "P36"
+    ],
+    "\u241f's capital,": [
+      "P36"
+    ],
+    "\u241f's domain of activity is": [
+      "P101"
+    ],
+    "\u241f's domain of work is": [
+      "P101"
+    ],
+    "\u241f's expertise is": [
+      "P101"
+    ],
+    "\u241f's headquarters are in": [
+      "P159"
+    ],
+    "\u241f's label is": [
+      "P264"
+    ],
+    "\u241f's life ended in": [
+      "P20"
+    ],
+    "\u241f's music label is": [
+      "P264"
+    ],
+    "\u241f's occupation is": [
+      "P106"
+    ],
+    "\u241f's owner": [
+      "P127"
+    ],
+    "\u241f's position is": [
+      "P39"
+    ],
+    "\u241f's profession is a": [
+      "P106"
+    ],
+    "\u241f's profession is an": [
+      "P106"
+    ],
+    "\u241f's record company is": [
+      "P264"
+    ],
+    "\u241f's record label is": [
+      "P264"
+    ],
+    "\u241f, a citizen of": [
+      "P27"
+    ],
+    "\u241f, a native": [
+      "P103"
+    ],
+    "\u241f, a product created by": [
+      "P178"
+    ],
+    "\u241f, a product developed by": [
+      "P178"
+    ],
+    "\u241f, a product manufactured by": [
+      "P178"
+    ],
+    "\u241f, a product of": [
+      "P178"
+    ],
+    "\u241f, by": [
+      "P127"
+    ],
+    "\u241f, called after": [
+      "P138"
+    ],
+    "\u241f, created by": [
+      "P176",
+      "P178"
+    ],
+    "\u241f, created in": [
+      "P495",
+      "P740"
+    ],
+    "\u241f, developed by": [
+      "P176",
+      "P178"
+    ],
+    "\u241f, developed in": [
+      "P495"
+    ],
+    "\u241f, formulated in": [
+      "P495"
+    ],
+    "\u241f, founded in": [
+      "P740"
+    ],
+    "\u241f, from": [
+      "P127",
+      "P495"
+    ],
+    "\u241f, in": [
+      "P131",
+      "P17",
+      "P30"
+    ],
+    "\u241f, located in": [
+      "P17"
+    ],
+    "\u241f, named after": [
+      "P138"
+    ],
+    "\u241f, named for": [
+      "P138"
+    ],
+    "\u241f, of": [
+      "P108"
+    ],
+    "\u241f, performing on the": [
+      "P1303"
+    ],
+    "\u241f, playing the": [
+      "P1303"
+    ],
+    "\u241f, produced by": [
+      "P176"
+    ],
+    "\u241f, released by": [
+      "P264"
+    ],
+    "\u241f, speaker of": [
+      "P103"
+    ],
+    "\u241f, that is represented by": [
+      "P264"
+    ],
+    "\u241f, that originated in": [
+      "P495",
+      "P740"
+    ],
+    "\u241f, that was created in": [
+      "P495",
+      "P740"
+    ],
+    "\u241f, that was developed in": [
+      "P495"
+    ],
+    "\u241f, that was formed in": [
+      "P740"
+    ],
+    "\u241f, that was formulated in": [
+      "P495"
+    ],
+    "\u241f, that was from": [
+      "P495"
+    ],
+    "\u241f, that was started in": [
+      "P740"
+    ],
+    "\u241f, the": [
+      "P1303",
+      "P413",
+      "P641"
+    ],
+    "\u241f, which has the capital": [
+      "P36"
+    ],
+    "\u241f, which has the capital city": [
+      "P36"
+    ],
+    "\u241f, which is called after": [
+      "P138"
+    ],
+    "\u241f, which is located in": [
+      "P17"
+    ],
+    "\u241f, which is named after": [
+      "P138"
+    ],
+    "\u241f, which is named for": [
+      "P138"
+    ],
+    "\u241f, which is represented by": [
+      "P264"
+    ],
+    "\u241f, which was called after": [
+      "P138"
+    ],
+    "\u241f, which was named after": [
+      "P138"
+    ],
+    "\u241f, which was named for": [
+      "P138"
+    ],
+    "\u241f, who has a citizenship from": [
+      "P27"
+    ],
+    "\u241f, who has the position of": [
+      "P39"
+    ],
+    "\u241f, who holds a citizenship from": [
+      "P27"
+    ],
+    "\u241f, who holds the position of": [
+      "P39"
+    ],
+    "\u241f, who is a citizen of": [
+      "P27"
+    ],
+    "\u241f, who is employed by": [
+      "P108"
+    ],
+    "\u241f, who plays": [
+      "P136"
+    ],
+    "\u241f, who plays the position": [
+      "P413"
+    ],
+    "\u241f, who works as": [
+      "P106"
+    ],
+    "\u241f, who works for": [
+      "P108"
+    ],
+    "\u241f, whose headquarters are in": [
+      "P159"
+    ],
+    "\u241f, whose position is that of": [
+      "P39"
+    ],
+    "\u241fbelongs to the continent of": [
+      "P30"
+    ],
+    "\u241fbelongs to the organization of": [
+      "P463"
+    ],
+    "\u241fcan be found in": [
+      "P131",
+      "P276"
+    ],
+    "\u241fdebuted on": [
+      "P449"
+    ],
+    "\u241fdied at": [
+      "P20"
+    ],
+    "\u241fdied in": [
+      "P20"
+    ],
+    "\u241fdied in the city of": [
+      "P20"
+    ],
+    "\u241fexpired at": [
+      "P20"
+    ],
+    "\u241ffollows the religion of": [
+      "P140"
+    ],
+    "\u241fformed in": [
+      "P740"
+    ],
+    "\u241ffound employment in": [
+      "P937"
+    ],
+    "\u241ffrom": [
+      "P495"
+    ],
+    "\u241fhas a citizenship from": [
+      "P27"
+    ],
+    "\u241fhas the position of": [
+      "P39"
+    ],
+    "\u241fholds a citizenship from": [
+      "P27"
+    ],
+    "\u241fholds the position of": [
+      "P39"
+    ],
+    "\u241fholds the title of": [
+      "P39"
+    ],
+    "\u241fis a": [
+      "P39"
+    ],
+    "\u241fis a citizen of": [
+      "P27"
+    ],
+    "\u241fis a member of": [
+      "P463"
+    ],
+    "\u241fis a native speaker of": [
+      "P103"
+    ],
+    "\u241fis a part of the": [
+      "P463"
+    ],
+    "\u241fis a part of the continent of": [
+      "P30"
+    ],
+    "\u241fis a product of": [
+      "P176",
+      "P178"
+    ],
+    "\u241fis a professional": [
+      "P641"
+    ],
+    "\u241fis a twin city of": [
+      "P190"
+    ],
+    "\u241fis affiliated with": [
+      "P463"
+    ],
+    "\u241fis affiliated with the": [
+      "P463"
+    ],
+    "\u241fis affiliated with the religion": [
+      "P140"
+    ],
+    "\u241fis based in": [
+      "P159"
+    ],
+    "\u241fis called after": [
+      "P138"
+    ],
+    "\u241fis created by": [
+      "P176",
+      "P178"
+    ],
+    "\u241fis developed by": [
+      "P176",
+      "P178"
+    ],
+    "\u241fis employed by": [
+      "P108"
+    ],
+    "\u241fis follower of": [
+      "P140"
+    ],
+    "\u241fis from": [
+      "P127"
+    ],
+    "\u241fis headquartered in": [
+      "P159"
+    ],
+    "\u241fis in": [
+      "P131",
+      "P276",
+      "P30"
+    ],
+    "\u241fis known for performing": [
+      "P136"
+    ],
+    "\u241fis located in": [
+      "P131",
+      "P17",
+      "P276",
+      "P30"
+    ],
+    "\u241fis located in the continent": [
+      "P30"
+    ],
+    "\u241fis located in the country of": [
+      "P17"
+    ],
+    "\u241fis named after": [
+      "P138"
+    ],
+    "\u241fis named for": [
+      "P138"
+    ],
+    "\u241fis native to": [
+      "P19"
+    ],
+    "\u241fis originally from": [
+      "P19"
+    ],
+    "\u241fis owned by": [
+      "P127"
+    ],
+    "\u241fis produced by": [
+      "P176"
+    ],
+    "\u241fis represented by": [
+      "P264"
+    ],
+    "\u241fis represented by music label": [
+      "P264"
+    ],
+    "\u241fis represented by record label": [
+      "P264"
+    ],
+    "\u241fis to debut on": [
+      "P449"
+    ],
+    "\u241fis within": [
+      "P131"
+    ],
+    "\u241fis written in": [
+      "P407"
+    ],
+    "\u241flabel :": [
+      "P264"
+    ],
+    "\u241flost their life at": [
+      "P20"
+    ],
+    "\u241foriginated from": [
+      "P19"
+    ],
+    "\u241foriginated in": [
+      "P495",
+      "P740"
+    ],
+    "\u241foriginates from": [
+      "P19"
+    ],
+    "\u241fowner": [
+      "P127"
+    ],
+    "\u241fpassed away at": [
+      "P20"
+    ],
+    "\u241fpassed away in": [
+      "P20"
+    ],
+    "\u241fperforms": [
+      "P136"
+    ],
+    "\u241fperforms on the": [
+      "P1303"
+    ],
+    "\u241fplays": [
+      "P1303",
+      "P136",
+      "P641"
+    ],
+    "\u241fplays as": [
+      "P413"
+    ],
+    "\u241fplays in the position of": [
+      "P413"
+    ],
+    "\u241fplays the": [
+      "P1303"
+    ],
+    "\u241fplays the instrument": [
+      "P1303"
+    ],
+    "\u241fpremiered on": [
+      "P449"
+    ],
+    "\u241fpremieres on": [
+      "P449"
+    ],
+    "\u241fprofessionally plays the sport": [
+      "P641"
+    ],
+    "\u241frecorded for": [
+      "P264"
+    ],
+    "\u241fspeaks": [
+      "P1412"
+    ],
+    "\u241fspeaks the language": [
+      "P1412"
+    ],
+    "\u241fspecializes in": [
+      "P101"
+    ],
+    "\u241fspoke the language": [
+      "P103"
+    ],
+    "\u241fstarted in": [
+      "P740"
+    ],
+    "\u241fsuccumbed at": [
+      "P20"
+    ],
+    "\u241fthat was founded in": [
+      "P740"
+    ],
+    "\u241ftook up work in": [
+      "P937"
+    ],
+    "\u241fused to work in": [
+      "P937"
+    ],
+    "\u241fwas a product of": [
+      "P178"
+    ],
+    "\u241fwas born in": [
+      "P19"
+    ],
+    "\u241fwas called after": [
+      "P138"
+    ],
+    "\u241fwas created by": [
+      "P178"
+    ],
+    "\u241fwas created in": [
+      "P495",
+      "P740"
+    ],
+    "\u241fwas created in the country of": [
+      "P495"
+    ],
+    "\u241fwas developed by": [
+      "P178"
+    ],
+    "\u241fwas developed in": [
+      "P495"
+    ],
+    "\u241fwas employed in": [
+      "P937"
+    ],
+    "\u241fwas formed in": [
+      "P740"
+    ],
+    "\u241fwas formulated in": [
+      "P495"
+    ],
+    "\u241fwas founded in": [
+      "P740"
+    ],
+    "\u241fwas from": [
+      "P495"
+    ],
+    "\u241fwas named after": [
+      "P138"
+    ],
+    "\u241fwas named for": [
+      "P138"
+    ],
+    "\u241fwas native to": [
+      "P19"
+    ],
+    "\u241fwas originally aired on": [
+      "P449"
+    ],
+    "\u241fwas originally from": [
+      "P19"
+    ],
+    "\u241fwas released on": [
+      "P449"
+    ],
+    "\u241fwas started in": [
+      "P740"
+    ],
+    "\u241fwas written in": [
+      "P407"
+    ],
+    "\u241fworked in": [
+      "P937"
+    ],
+    "\u241fworked in the city of": [
+      "P937"
+    ],
+    "\u241fworks as": [
+      "P106"
+    ],
+    "\u241fworks for": [
+      "P108"
+    ],
+    "\u241fworks in the area of": [
+      "P101"
+    ],
+    "\u241fworks in the field of": [
+      "P101"
+    ],
+    "\u241fwrites in": [
+      "P1412"
+    ]
+  },
+  "kind": "mcf_frozen_two_sided_relation_frame_lexicon_v1",
+  "lexicon_sha256": "f911aa95e521fde90fdf1bb320c37769ba45964489cf6ab729dc418c7dfa1044",
+  "matching_rule": "exact_left_clause_and_longest_boundary_complete_right_prefix",
+  "relation_count": 34,
+  "schema_version": 1
+}

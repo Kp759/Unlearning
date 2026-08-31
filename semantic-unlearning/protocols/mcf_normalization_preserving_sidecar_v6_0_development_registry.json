@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "protocol": "mcf_normalization_preserving_entity_sidecar_v6_0",
+  "status": "consumed_seed_development_only",
+  "architecture": {
+    "route": "two_sided_complete_entity_and_frozen_relation_frame_grammar",
+    "intervention": "causal_directional_target_logit_permutation_with_reserved_special_slots",
+    "normalization_preserving_by_construction": true,
+    "ordinary_non_target_logits_unchanged_by_construction": true,
+    "arithmetic_logit_offsets": 0,
+    "reserved_special_token_pool_size": 128,
+    "base_embedding_mutation": false,
+    "transformer_mutation": false,
+    "lm_head_mutation": false,
+    "learned_detector_parameters": 0,
+    "learned_actuator_parameters": 0,
+    "closed_route_identity": "return_exact_base_lm_head_tensor",
+    "claim_scope": "contextual_behavioral_suppression_not_latent_erasure"
+  },
+  "frame_router": {
+    "artifact": "protocols/mcf_frozen_two_sided_relation_frame_lexicon_v1.json",
+    "file_sha256": "91aaba8de4f88fd1613c595e8a2358fd9b6e42dda2651c784854a2e9fd0947db",
+    "content_sha256": "f911aa95e521fde90fdf1bb320c37769ba45964489cf6ab729dc418c7dfa1044",
+    "parameters": 0,
+    "matching": "exact_left_clause_and_longest_boundary_complete_right_prefix"
+  },
+  "data_policy": {
+    "consumed_development_seeds": [1, 2],
+    "fresh_reserved_seeds": [3, 4, 5, 6, 7, 8, 9, 10],
+    "fresh_seed_prompt_text_used_for_frame_grammar": 0,
+    "neighborhood_prompt_text_used_for_frame_grammar": 0,
+    "target_answers_used_for_frame_grammar": 0,
+    "candidate_visible_fields": [
+      "direct forget prompt",
+      "complete subject",
+      "relation id",
+      "target_new",
+      "target_true"
+    ]
+  },
+  "development_acceptance": {
+    "required_seeds": [1, 2],
+    "forget_eff": 0.0,
+    "forget_gen": 0.0,
+    "minimum_rewrite_paraphrase_margin": 0.1,
+    "forget_neighborhood_raw_exact_base": true,
+    "retain_raw_exact_base": true,
+    "ppl_exact_base": true,
+    "base_embedding_hash_unchanged": true,
+    "lm_head_hash_unchanged": true,
+    "full_vocabulary_logit_multiset_preserved_on_open_route": true,
+    "ordinary_non_target_logits_exact_on_open_route": true
+  },
+  "fresh_seed_firewall": {
+    "seed_3_or_later_candidate_or_evaluation_permitted_by_this_registry": false,
+    "separate_freeze_receipt_after_both_consumed_seeds_passes_required": true,
+    "reason": "Prevent architecture iteration from silently consuming a fresh seed."
+  },
+  "strong_unlearning_claim_permitted": false
+}
