@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_6_2_multiseed_v1",
-  "status": "architecture_frozen_before_seed_1_official_metrics",
+  "status": "terminal_after_seed_1_official_rejection_architecture_retired",
   "registered_seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
   "execution_order": "ascending_seed_order_starting_with_seed_1",
   "fixed_architecture": {
@@ -26,22 +26,36 @@
     "aggregate_report_waits_for_all_registered_seed_terminal_states": true
   },
   "seed_status": {
-    "1": "frozen_candidate_passed_training; official evaluator identity recovery pending",
-    "2": "training pending",
-    "3": "training pending",
-    "4": "training pending",
-    "5": "training pending",
-    "6": "training pending",
-    "7": "training pending",
-    "8": "training pending",
-    "9": "training pending",
-    "10": "training pending"
+    "1": "terminal: training passed; official candidate acceptance failed after disclosed evaluator-only identity recovery",
+    "2": "cancelled before training: V3.6.2 architecture retired",
+    "3": "cancelled before training: V3.6.2 architecture retired",
+    "4": "cancelled before training: V3.6.2 architecture retired",
+    "5": "cancelled before training: V3.6.2 architecture retired",
+    "6": "cancelled before training: V3.6.2 architecture retired",
+    "7": "cancelled before training: V3.6.2 architecture retired",
+    "8": "cancelled before training: V3.6.2 architecture retired",
+    "9": "cancelled before training: V3.6.2 architecture retired",
+    "10": "cancelled before training: V3.6.2 architecture retired"
   },
   "seed_1_disclosure": {
     "candidate_checkpoint_sha256": "a54723022361aa3a32f83c493fdc46b4c3b25c837b8f3c6b45e36a935e596ac8",
     "original_official_dataset_opened": true,
     "original_official_metric_forwards_completed": 0,
     "recovery_protocol": "mcf_embedding_keyed_sparse_neuron_suppression_v3_6_2_official_index_identity_recovery_v1",
-    "clean_first_run_claim_prohibited": true
+    "clean_first_run_claim_prohibited": true,
+    "official_candidate_acceptance_passed": false,
+    "model_retry_performed": false,
+    "used_for_checkpoint_selection_or_early_stopping": false
+  },
+  "terminal_decision": {
+    "architecture": "mcf_embedding_keyed_sparse_neuron_suppression_v3_6_2",
+    "decision": "retire_after_seed_1_official_rejection",
+    "reason": "direct rewrite suppression transferred incompletely to official paraphrases and failed registered locality constraints",
+    "seed_1_official_prompts_are_consumed": true,
+    "seed_1_blind_reuse_prohibited": true,
+    "seeds_2_through_10_executed": false,
+    "replacement_training_protocol": "mcf_passive_shadow_embedding_context_router_v4_0",
+    "replacement_protocol_is_official_evaluation_eligible": false,
+    "replacement_requires_fresh_training_only_acceptance": true
   }
 }
