@@ -70,6 +70,28 @@ HELDOUT_SCAFFOLDS: Sequence[str] = (
     "When asked about the {relation} connected with {subject}, respond with",
 )
 
+# V4.0 consumed ``HELDOUT_SCAFFOLDS`` when its shadow-difference classifier
+# failed development acceptance.  V4.1 uses two subsequently authored and
+# disjoint banks: development is available for checkpoint selection, whereas
+# certification is opened exactly once after the router has been selected.
+V4_1_DEVELOPMENT_SCAFFOLDS: Sequence[str] = (
+    "The requested {relation} entry for {subject} reads",
+    "Supply the {relation} linked to {subject}:",
+    "With respect to {subject}, name the {relation}:",
+    "A reference lists which {relation} for {subject}?",
+)
+
+V4_1_CERTIFICATION_SCAFFOLDS: Sequence[str] = (
+    "For {subject}, which value is recorded for {relation}?",
+    "State the {relation} attributed to {subject}:",
+    "Regarding {subject}, the listed {relation} is",
+    "What should be supplied as the {relation} of {subject}?",
+)
+
+# Compatibility alias for draft-only callers; new manifests use the explicit
+# development/certification names above.
+V4_1_HELDOUT_SCAFFOLDS = V4_1_DEVELOPMENT_SCAFFOLDS
+
 
 @dataclass(frozen=True)
 class ShadowPromptSpec:
@@ -107,6 +129,7 @@ def build_positive_specs(
     *,
     split: str,
     corpus_prefixes: Sequence[str] = (),
+    variants_per_record: int | None = None,
 ) -> List[ShadowPromptSpec]:
     """Build relation-aware calibration or certificate-only positives."""
 
@@ -114,8 +137,16 @@ def build_positive_specs(
         scaffolds = CALIBRATION_SCAFFOLDS
     elif split == "heldout":
         scaffolds = HELDOUT_SCAFFOLDS
+    elif split in ("v4_1_heldout", "v4_1_development"):
+        scaffolds = V4_1_DEVELOPMENT_SCAFFOLDS
+    elif split == "v4_1_certification":
+        scaffolds = V4_1_CERTIFICATION_SCAFFOLDS
     else:
-        raise ValueError("split must be calibration or heldout")
+        raise ValueError("unknown development split")
+    expanded = variants_per_record is not None
+    variants = len(scaffolds) if variants_per_record is None else int(variants_per_record)
+    if variants <= 0:
+        return []
     prefixes = [str(value) for value in corpus_prefixes if str(value).strip()]
     values: List[ShadowPromptSpec] = []
     for owner, record in enumerate(records):
@@ -123,16 +154,38 @@ def build_positive_specs(
         subject = str(record["subject"])
         relation_id = str(record["relation_id"])
         _noun(relation_id)
-        for family, scaffold in enumerate(scaffolds):
+        seen_prompts: set[str] = set()
+        attempt = 0
+        while len(seen_prompts) < variants:
+            family = attempt
+            scaffold = scaffolds[attempt % len(scaffolds)]
             prompt = _render(scaffold, subject=subject, relation_id=relation_id)
             prefix = (
-                prefixes[(case_id + family * 17) % len(prefixes)]
-                if prefixes and family % 2 == 1
+                prefixes[
+                    (
+                        case_id + attempt * 17
+                        if not expanded
+                        else case_id * 17 + attempt * 29
+                    )
+                    % len(prefixes)
+                ]
+                if prefixes
+                and (
+                    (not expanded and attempt % 2 == 1)
+                    or (expanded and attempt >= len(scaffolds))
+                )
                 else None
             )
+            prompt = _with_prefix(prompt, prefix)
+            attempt += 1
+            if prompt in seen_prompts:
+                if attempt > variants * 16 + len(prefixes) * len(scaffolds):
+                    raise ValueError(f"could not construct {variants} positive variants")
+                continue
+            seen_prompts.add(prompt)
             values.append(
                 ShadowPromptSpec(
-                    prompt=_with_prefix(prompt, prefix),
+                    prompt=prompt,
                     owner_index=owner,
                     case_id=case_id,
                     relation_id=relation_id,
@@ -162,11 +215,16 @@ def build_wrong_relation_specs(
 
     if int(variants_per_record) <= 0:
         return []
-    scaffolds = (
-        CALIBRATION_SCAFFOLDS if split == "calibration" else HELDOUT_SCAFFOLDS
-    )
-    if split not in {"calibration", "heldout"}:
-        raise ValueError("split must be calibration or heldout")
+    scaffold_banks = {
+        "calibration": CALIBRATION_SCAFFOLDS,
+        "heldout": HELDOUT_SCAFFOLDS,
+        "v4_1_heldout": V4_1_DEVELOPMENT_SCAFFOLDS,
+        "v4_1_development": V4_1_DEVELOPMENT_SCAFFOLDS,
+        "v4_1_certification": V4_1_CERTIFICATION_SCAFFOLDS,
+    }
+    if split not in scaffold_banks:
+        raise ValueError("unknown development split")
+    scaffolds = scaffold_banks[split]
     prefixes = [str(value) for value in corpus_prefixes if str(value).strip()]
     relation_ids = sorted(RELATION_NOUN_PHRASES)
     subject_relations: Dict[str, set[str]] = {}
@@ -180,22 +238,43 @@ def build_wrong_relation_specs(
         subject = str(record["subject"])
         forbidden = subject_relations[subject]
         available = [value for value in relation_ids if value not in forbidden]
-        if len(available) < int(variants_per_record):
-            raise ValueError(f"insufficient distractor relations for {subject!r}")
+        if not available:
+            raise ValueError(f"no distractor relations remain for {subject!r}")
         case_id = int(record["case_id"])
         start = (case_id * 13 + owner * 7) % len(available)
-        for family in range(int(variants_per_record)):
-            distractor = available[(start + family * 11) % len(available)]
-            scaffold = scaffolds[(family + owner) % len(scaffolds)]
+        seen_prompts: set[str] = set()
+        attempt = 0
+        maximum_attempts = max(1024, int(variants_per_record) * 32)
+        while len(seen_prompts) < int(variants_per_record):
+            family = attempt
+            distractor = available[(start + attempt * 11) % len(available)]
+            scaffold = scaffolds[(attempt + owner) % len(scaffolds)]
             prompt = _render(scaffold, subject=subject, relation_id=distractor)
             prefix = (
-                prefixes[(case_id + family * 19) % len(prefixes)]
-                if prefixes and family % 2 == 1
+                prefixes[
+                    (
+                        case_id + attempt * 19
+                        if int(variants_per_record) <= 2
+                        else case_id * 23 + attempt * 31
+                    )
+                    % len(prefixes)
+                ]
+                if prefixes and (attempt % 2 == 1 or attempt >= len(available))
                 else None
             )
+            prompt = _with_prefix(prompt, prefix)
+            attempt += 1
+            if prompt in seen_prompts:
+                if attempt > maximum_attempts:
+                    raise ValueError(
+                        f"could not construct {variants_per_record} unique negatives "
+                        f"for {subject!r}"
+                    )
+                continue
+            seen_prompts.add(prompt)
             values.append(
                 ShadowPromptSpec(
-                    prompt=_with_prefix(prompt, prefix),
+                    prompt=prompt,
                     owner_index=owner,
                     case_id=case_id,
                     relation_id=distractor,
