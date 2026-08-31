@@ -76,8 +76,8 @@ class BaseSemanticRouter(nn.Module):
         relation_index = torch.as_tensor(record_relation_index, dtype=torch.long)
         if basis.ndim != 2 or int(basis.shape[1]) != int(hidden_size):
             raise ValueError("shared semantic basis must be [rank, hidden]")
-        if not 1 <= int(basis.shape[0]) <= 4:
-            raise ValueError("shared semantic rank must lie in [1, 4]")
+        if not 1 <= int(basis.shape[0]) <= 32:
+            raise ValueError("shared semantic rank must lie in [1, 32]")
         if relation_index.shape != (int(records),) or bool(relation_index.lt(0).any()):
             raise ValueError("record relation indices must cover every record")
         relation_count = int(relation_index.max()) + 1
@@ -145,9 +145,9 @@ def fit_shared_contrast_basis(
     """Fit one frozen supervised contrast subspace from the fit split only.
 
     Each distinct relation contributes one normalized positive-minus-negative
-    centroid contrast.  An SVD over those pooled contrasts yields at most four
-    orthonormal directions.  No record-specific hidden-dimensional vector is
-    optimized or stored.
+    centroid contrast.  An SVD over those pooled contrasts yields a registered
+    number of nested orthonormal directions (at most 32).  No record-specific
+    hidden-dimensional vector is optimized or stored.
     """
 
     if base_hidden.ndim != 2:
@@ -160,7 +160,7 @@ def fit_shared_contrast_basis(
     if relation_index.shape != (int(active_subjects.shape[1]),):
         raise ValueError("record relation indices do not match router groups")
     relation_count = int(relation_index.max()) + 1
-    if not 1 <= int(rank) <= min(4, relation_count, int(base_hidden.shape[1])):
+    if not 1 <= int(rank) <= min(32, relation_count, int(base_hidden.shape[1])):
         raise ValueError("shared semantic rank is invalid")
     normalized = rms_normalize_hidden(base_hidden).cpu()
     active = active_subjects.cpu()

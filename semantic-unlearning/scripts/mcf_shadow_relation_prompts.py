@@ -88,6 +88,17 @@ V4_1_CERTIFICATION_SCAFFOLDS: Sequence[str] = (
     "What should be supplied as the {relation} of {subject}?",
 )
 
+# V4.1 consumed its development family when rank four failed model selection.
+# V4.2 uses this new family to select among a preregistered nested rank sweep;
+# ``V4_1_CERTIFICATION_SCAFFOLDS`` remains untouched until that selection is
+# complete and is then opened for the selected arm only.
+V4_2_DEVELOPMENT_SCAFFOLDS: Sequence[str] = (
+    "Consulting the record for {subject}, its {relation} is",
+    "Give the value of {relation} associated with {subject}:",
+    "{subject} has which {relation}? Answer:",
+    "The entry under {relation} for {subject} states",
+)
+
 # Compatibility alias for draft-only callers; new manifests use the explicit
 # development/certification names above.
 V4_1_HELDOUT_SCAFFOLDS = V4_1_DEVELOPMENT_SCAFFOLDS
@@ -141,6 +152,8 @@ def build_positive_specs(
         scaffolds = V4_1_DEVELOPMENT_SCAFFOLDS
     elif split == "v4_1_certification":
         scaffolds = V4_1_CERTIFICATION_SCAFFOLDS
+    elif split == "v4_2_development":
+        scaffolds = V4_2_DEVELOPMENT_SCAFFOLDS
     else:
         raise ValueError("unknown development split")
     expanded = variants_per_record is not None
@@ -221,6 +234,7 @@ def build_wrong_relation_specs(
         "v4_1_heldout": V4_1_DEVELOPMENT_SCAFFOLDS,
         "v4_1_development": V4_1_DEVELOPMENT_SCAFFOLDS,
         "v4_1_certification": V4_1_CERTIFICATION_SCAFFOLDS,
+        "v4_2_development": V4_2_DEVELOPMENT_SCAFFOLDS,
     }
     if split not in scaffold_banks:
         raise ValueError("unknown development split")

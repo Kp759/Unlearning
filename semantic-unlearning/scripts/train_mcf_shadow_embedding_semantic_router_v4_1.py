@@ -333,6 +333,8 @@ def fit_semantic_router(
     development_active: torch.Tensor,
     development_labels: torch.Tensor,
     args: argparse.Namespace,
+    *,
+    selection_split: str = "v4_1_development",
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Optimize only relation coefficients and select on disjoint development.
 
@@ -473,7 +475,7 @@ def fit_semantic_router(
         )
         router.relation_bias.copy_(best_state["relation_bias"].to(device))
     selection = {
-        "selection_split": "v4_1_development",
+        "selection_split": str(selection_split),
         "certification_split_visible_to_selection": False,
         "best_optimizer_step": int(best_step),
         "stopped_optimizer_step": int(stopped_step),
