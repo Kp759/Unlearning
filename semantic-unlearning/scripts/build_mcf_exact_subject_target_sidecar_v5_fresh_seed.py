@@ -184,6 +184,7 @@ def _instances(
             record_index=index,
             sampled_position=index,
             prompt_type="locked_training_direct",
+            prompt_index=0,
             prompt=str(record["direct_prompt"]),
             target_new=str(record["reference"]),
             target_true=str(record["answer"]),

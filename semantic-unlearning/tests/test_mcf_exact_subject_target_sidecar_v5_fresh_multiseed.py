@@ -129,6 +129,23 @@ def test_candidate_binding_check_uses_dataset_identity_and_all_targets():
         evaluation.validate_candidate_bindings(state, [record], [17])
 
 
+def test_fresh_candidate_direct_instance_has_locked_prompt_index():
+    instances = candidate_build._instances(
+        [
+            {
+                "direct_prompt": "Synthetic Subject is associated with",
+                "reference": "Reference",
+                "answer": "Sensitive",
+            }
+        ]
+    )
+    assert len(instances) == 1
+    assert instances[0].record_index == 0
+    assert instances[0].sampled_position == 0
+    assert instances[0].prompt_index == 0
+    assert instances[0].prompt_type == "locked_training_direct"
+
+
 def test_split_manifest_requires_zero_serialized_heldout_content():
     source_hash = "a" * 64
     lexicon = {"derivation": {"source_mcf_sha256": source_hash}}
