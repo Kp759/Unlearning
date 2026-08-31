@@ -1,0 +1,698 @@
+{
+  "ambiguous_suffix_count": 20,
+  "derivation": {
+    "development_records_used": 13705,
+    "neighborhood_prompts_used": false,
+    "normalization": "NFKC_lowercase_collapse_whitespace_post_complete_subject",
+    "prompt_sources": [
+      "requested_rewrite",
+      "paraphrase_prompts"
+    ],
+    "reserved_seed_range": [
+      1,
+      10
+    ],
+    "reserved_split_rule": "union_of_official_50_forget_plus_1000_retain_per_seed",
+    "reserved_unique_records": 7172,
+    "seed_split_counts": {
+      "1": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "10": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "2": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "3": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "4": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "5": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "6": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "7": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "8": {
+        "forget": 50,
+        "retain": 1000
+      },
+      "9": {
+        "forget": 50,
+        "retain": 1000
+      }
+    },
+    "source_mcf_sha256": "977a6acce4705507b5fd6bfcea8f61cd78f9ed0f9cd9c9a6bcd6c8a3ed61c833",
+    "source_records": 20877,
+    "target_answers_used": false
+  },
+  "kind": "mcf_frozen_relation_suffix_lexicon_v1",
+  "lexicon_sha256": "1d23f5ca2aff28500897b9b2f31f03dad6105cbe423c50a3e1b4fca506e01af8",
+  "matching_rule": "longest_boundary_complete_prefix_relation_membership",
+  "relation_count": 34,
+  "schema_version": 1,
+  "suffix_count": 196,
+  "suffix_to_relation_ids": {
+    "'s area of work is": [
+      "P101"
+    ],
+    "'s capital city is": [
+      "P36"
+    ],
+    "'s capital city,": [
+      "P36"
+    ],
+    "'s capital is": [
+      "P36"
+    ],
+    "'s capital,": [
+      "P36"
+    ],
+    "'s domain of activity is": [
+      "P101"
+    ],
+    "'s domain of work is": [
+      "P101"
+    ],
+    "'s expertise is": [
+      "P101"
+    ],
+    "'s headquarters are in": [
+      "P159"
+    ],
+    "'s label is": [
+      "P264"
+    ],
+    "'s life ended in": [
+      "P20"
+    ],
+    "'s music label is": [
+      "P264"
+    ],
+    "'s occupation is": [
+      "P106"
+    ],
+    "'s owner": [
+      "P127"
+    ],
+    "'s position is": [
+      "P39"
+    ],
+    "'s profession is a": [
+      "P106"
+    ],
+    "'s profession is an": [
+      "P106"
+    ],
+    "'s record company is": [
+      "P264"
+    ],
+    "'s record label is": [
+      "P264"
+    ],
+    ", a citizen of": [
+      "P27"
+    ],
+    ", a native": [
+      "P103"
+    ],
+    ", a product created by": [
+      "P178"
+    ],
+    ", a product developed by": [
+      "P178"
+    ],
+    ", a product manufactured by": [
+      "P178"
+    ],
+    ", a product of": [
+      "P178"
+    ],
+    ", an official language is": [
+      "P37"
+    ],
+    ", by": [
+      "P127"
+    ],
+    ", called after": [
+      "P138"
+    ],
+    ", created by": [
+      "P176",
+      "P178"
+    ],
+    ", created in": [
+      "P495",
+      "P740"
+    ],
+    ", developed by": [
+      "P176",
+      "P178"
+    ],
+    ", developed in": [
+      "P495"
+    ],
+    ", formulated in": [
+      "P495"
+    ],
+    ", founded in": [
+      "P740"
+    ],
+    ", from": [
+      "P127",
+      "P495"
+    ],
+    ", in": [
+      "P131",
+      "P17",
+      "P30"
+    ],
+    ", located in": [
+      "P17"
+    ],
+    ", named after": [
+      "P138"
+    ],
+    ", named for": [
+      "P138"
+    ],
+    ", of": [
+      "P108"
+    ],
+    ", performing on the": [
+      "P1303"
+    ],
+    ", playing the": [
+      "P1303"
+    ],
+    ", produced by": [
+      "P176"
+    ],
+    ", released by": [
+      "P264"
+    ],
+    ", speaker of": [
+      "P103"
+    ],
+    ", that is represented by": [
+      "P264"
+    ],
+    ", that originated in": [
+      "P495",
+      "P740"
+    ],
+    ", that was created in": [
+      "P495",
+      "P740"
+    ],
+    ", that was developed in": [
+      "P495"
+    ],
+    ", that was formed in": [
+      "P740"
+    ],
+    ", that was formulated in": [
+      "P495"
+    ],
+    ", that was from": [
+      "P495"
+    ],
+    ", that was started in": [
+      "P740"
+    ],
+    ", the": [
+      "P1303",
+      "P413",
+      "P641"
+    ],
+    ", the language spoken is": [
+      "P37"
+    ],
+    ", they understand": [
+      "P37"
+    ],
+    ", which has the capital": [
+      "P36"
+    ],
+    ", which has the capital city": [
+      "P36"
+    ],
+    ", which is called after": [
+      "P138"
+    ],
+    ", which is located in": [
+      "P17"
+    ],
+    ", which is named after": [
+      "P138"
+    ],
+    ", which is named for": [
+      "P138"
+    ],
+    ", which is represented by": [
+      "P264"
+    ],
+    ", which was called after": [
+      "P138"
+    ],
+    ", which was named after": [
+      "P138"
+    ],
+    ", which was named for": [
+      "P138"
+    ],
+    ", who has a citizenship from": [
+      "P27"
+    ],
+    ", who has the position of": [
+      "P39"
+    ],
+    ", who holds a citizenship from": [
+      "P27"
+    ],
+    ", who holds the position of": [
+      "P39"
+    ],
+    ", who is a citizen of": [
+      "P27"
+    ],
+    ", who is employed by": [
+      "P108"
+    ],
+    ", who plays": [
+      "P136"
+    ],
+    ", who plays the position": [
+      "P413"
+    ],
+    ", who works as": [
+      "P106"
+    ],
+    ", who works for": [
+      "P108"
+    ],
+    ", whose headquarters are in": [
+      "P159"
+    ],
+    ", whose position is that of": [
+      "P39"
+    ],
+    ": the man and the nation. israel's capital is": [
+      "P36"
+    ],
+    "? it is": [
+      "P190"
+    ],
+    "? it is located in": [
+      "P276"
+    ],
+    "belongs to the continent of": [
+      "P30"
+    ],
+    "belongs to the organization of": [
+      "P463"
+    ],
+    "can be found in": [
+      "P131",
+      "P276"
+    ],
+    "debuted on": [
+      "P449"
+    ],
+    "declares the language": [
+      "P37"
+    ],
+    "died at": [
+      "P20"
+    ],
+    "died in": [
+      "P20"
+    ],
+    "died in the city of": [
+      "P20"
+    ],
+    "expired at": [
+      "P20"
+    ],
+    "follows the religion of": [
+      "P140"
+    ],
+    "formed in": [
+      "P740"
+    ],
+    "found employment in": [
+      "P937"
+    ],
+    "from": [
+      "P495"
+    ],
+    "has a citizenship from": [
+      "P27"
+    ],
+    "has the position of": [
+      "P39"
+    ],
+    "holds a citizenship from": [
+      "P27"
+    ],
+    "holds the position of": [
+      "P39"
+    ],
+    "holds the title of": [
+      "P39"
+    ],
+    "is": [
+      "P101",
+      "P103",
+      "P106",
+      "P136",
+      "P140",
+      "P1412",
+      "P190",
+      "P264",
+      "P276",
+      "P36",
+      "P364",
+      "P37",
+      "P407"
+    ],
+    "is a": [
+      "P39"
+    ],
+    "is a citizen of": [
+      "P27"
+    ],
+    "is a member of": [
+      "P463"
+    ],
+    "is a native speaker of": [
+      "P103"
+    ],
+    "is a part of the": [
+      "P463"
+    ],
+    "is a part of the continent of": [
+      "P30"
+    ],
+    "is a product of": [
+      "P176",
+      "P178"
+    ],
+    "is a professional": [
+      "P641"
+    ],
+    "is a twin city of": [
+      "P190"
+    ],
+    "is affiliated with": [
+      "P463"
+    ],
+    "is affiliated with the": [
+      "P463"
+    ],
+    "is affiliated with the religion": [
+      "P140"
+    ],
+    "is based in": [
+      "P159"
+    ],
+    "is called after": [
+      "P138"
+    ],
+    "is created by": [
+      "P176",
+      "P178"
+    ],
+    "is developed by": [
+      "P176",
+      "P178"
+    ],
+    "is employed by": [
+      "P108"
+    ],
+    "is follower of": [
+      "P140"
+    ],
+    "is from": [
+      "P127"
+    ],
+    "is headquartered in": [
+      "P159"
+    ],
+    "is in": [
+      "P131",
+      "P159",
+      "P276",
+      "P30"
+    ],
+    "is known for performing": [
+      "P136"
+    ],
+    "is located in": [
+      "P131",
+      "P159",
+      "P17",
+      "P276",
+      "P30"
+    ],
+    "is located in the continent": [
+      "P30"
+    ],
+    "is located in the country of": [
+      "P17"
+    ],
+    "is named after": [
+      "P138"
+    ],
+    "is named for": [
+      "P138"
+    ],
+    "is native to": [
+      "P19"
+    ],
+    "is originally from": [
+      "P19"
+    ],
+    "is owned by": [
+      "P127"
+    ],
+    "is produced by": [
+      "P176"
+    ],
+    "is represented by": [
+      "P264"
+    ],
+    "is represented by music label": [
+      "P264"
+    ],
+    "is represented by record label": [
+      "P264"
+    ],
+    "is to debut on": [
+      "P449"
+    ],
+    "is within": [
+      "P131"
+    ],
+    "is written in": [
+      "P407"
+    ],
+    "label :": [
+      "P264"
+    ],
+    "lost their life at": [
+      "P20"
+    ],
+    "originated from": [
+      "P19"
+    ],
+    "originated in": [
+      "P495",
+      "P740"
+    ],
+    "originates from": [
+      "P19"
+    ],
+    "owner": [
+      "P127"
+    ],
+    "passed away at": [
+      "P20"
+    ],
+    "passed away in": [
+      "P20"
+    ],
+    "performs": [
+      "P136"
+    ],
+    "performs on the": [
+      "P1303"
+    ],
+    "play? they play": [
+      "P136",
+      "P641"
+    ],
+    "play? they play as": [
+      "P413"
+    ],
+    "plays": [
+      "P1303",
+      "P136",
+      "P641"
+    ],
+    "plays as": [
+      "P413"
+    ],
+    "plays in the position of": [
+      "P413"
+    ],
+    "plays the": [
+      "P1303"
+    ],
+    "plays the instrument": [
+      "P1303"
+    ],
+    "premiered on": [
+      "P449"
+    ],
+    "premieres on": [
+      "P449"
+    ],
+    "professionally plays the sport": [
+      "P641"
+    ],
+    "recorded for": [
+      "P264"
+    ],
+    "speaks": [
+      "P1412"
+    ],
+    "speaks the language": [
+      "P1412"
+    ],
+    "specializes in": [
+      "P101"
+    ],
+    "spoke the language": [
+      "P103"
+    ],
+    "started in": [
+      "P740"
+    ],
+    "succumbed at": [
+      "P20"
+    ],
+    "that was founded in": [
+      "P740"
+    ],
+    "took up work in": [
+      "P937"
+    ],
+    "used to work in": [
+      "P937"
+    ],
+    "was": [
+      "P364",
+      "P407"
+    ],
+    "was a product of": [
+      "P178"
+    ],
+    "was born in": [
+      "P19"
+    ],
+    "was called after": [
+      "P138"
+    ],
+    "was created by": [
+      "P178"
+    ],
+    "was created in": [
+      "P495",
+      "P740"
+    ],
+    "was created in the country of": [
+      "P495"
+    ],
+    "was developed by": [
+      "P178"
+    ],
+    "was developed in": [
+      "P495"
+    ],
+    "was employed in": [
+      "P937"
+    ],
+    "was formed in": [
+      "P740"
+    ],
+    "was formulated in": [
+      "P495"
+    ],
+    "was founded in": [
+      "P740"
+    ],
+    "was from": [
+      "P495"
+    ],
+    "was named after": [
+      "P138"
+    ],
+    "was named for": [
+      "P138"
+    ],
+    "was native to": [
+      "P19"
+    ],
+    "was originally aired on": [
+      "P449"
+    ],
+    "was originally from": [
+      "P19"
+    ],
+    "was released on": [
+      "P449"
+    ],
+    "was started in": [
+      "P740"
+    ],
+    "was written in": [
+      "P407"
+    ],
+    "worked in": [
+      "P937"
+    ],
+    "worked in the city of": [
+      "P937"
+    ],
+    "works as": [
+      "P106"
+    ],
+    "works for": [
+      "P108"
+    ],
+    "works in the area of": [
+      "P101"
+    ],
+    "works in the field of": [
+      "P101"
+    ],
+    "writes in": [
+      "P1412"
+    ]
+  }
+}
