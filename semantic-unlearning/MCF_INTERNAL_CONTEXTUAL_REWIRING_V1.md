@@ -2,9 +2,13 @@
 
 ## Status
 
-This document registers the next MCF research architecture. The overlap-code
-and classifier-only preflight is implemented; execution and evaluation are
-pending. It does **not** report a new result.
+This architecture is terminally rejected by the seed-1 training-only preflight
+at commit `48578bb`. The overlap-aware embedding code passed (236 rows, 11
+shared, incidence rank 50/50, nearest-key margin 0.0684), but every candidate
+layer had 205 development-positive failures and the selected layer failed
+calibration. Certification never opened, no actuator was constructed, and
+official evaluation remained unseen. The lineage is retained as a negative
+result and must not be widened or resumed.
 
 The V5 exact-string/logit-bias and V6 normalization-preserving sidecars are
 retired as research methods. Their code, registries, and outputs remain in the

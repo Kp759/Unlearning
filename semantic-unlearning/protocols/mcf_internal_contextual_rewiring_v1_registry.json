@@ -1,8 +1,29 @@
 {
   "schema_version": 1,
   "protocol": "mcf_internal_fact_conditional_embedding_rewiring_v1",
-  "status": "preflight_implementation_available_not_executed",
-  "registration_scope": "MCF training-only overlap-code and classifier preflight; no result, actuator, or evaluation checkpoint is claimed",
+  "status": "terminal_rejected_training_only_classifier_preflight",
+  "registration_scope": "Historical MCF training-only overlap-code and classifier preflight; rejected before certification and actuator construction",
+  "terminal_training_result": {
+    "source_commit": "48578bb68a82538b2985416f340ceba330baf77c",
+    "embedding_code_passed": true,
+    "editable_rows": 236,
+    "shared_rows": 11,
+    "incidence_rank": "50/50",
+    "nearest_key_margin": 0.0684,
+    "development": {
+      "layer_8_gap": -0.585501,
+      "layer_12_gap": -0.533512,
+      "layer_16_gap": -0.598198,
+      "layer_20_gap": -0.672392,
+      "positive_failures_each_layer": 205,
+      "selected_layer": 12
+    },
+    "failure_stage": "calibration_positive_coverage",
+    "certification_opened": false,
+    "actuator_constructed": false,
+    "official_evaluation_prompts_seen": 0,
+    "conclusion": "The rank-8 contextual subject-relation classifier did not transfer from fit to development; widening or continuing this lineage is prohibited."
+  },
   "design_document": "MCF_INTERNAL_CONTEXTUAL_REWIRING_V1.md",
   "historical_evidence": {
     "subject_embedding_multiseed_commit": "791bbc4",
@@ -192,5 +213,5 @@
     "sidecar_free_deployment",
     "relearning"
   ],
-  "current_claim_scope": "registered_internal_architecture_only"
+  "current_claim_scope": "terminal_negative_training_only_result"
 }

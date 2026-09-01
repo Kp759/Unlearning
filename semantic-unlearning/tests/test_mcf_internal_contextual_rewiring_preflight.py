@@ -209,7 +209,7 @@ def test_direct_only_split_strips_every_probe_field() -> None:
     assert set(direct["requested_rewrite"]["target_true"]) == {"str"}
 
 
-def test_registry_and_cli_lock_the_executable_preflight() -> None:
+def test_registry_and_cli_lock_the_now_terminal_preflight() -> None:
     root = Path(__file__).resolve().parents[1]
     registry = json.loads(
         (
@@ -232,10 +232,12 @@ def test_registry_and_cli_lock_the_executable_preflight() -> None:
             "out",
         ]
     )
-    preflight.validate_registry(registry, args)
+    with pytest.raises(RuntimeError, match="architecture/status mismatch"):
+        preflight.validate_registry(registry, args)
     assert args.candidate_layers == [8, 12, 16, 20]
     assert args.corpus_certification_prompts == 6000
     assert args.minimum_certification_negative_cells == 300000
+    assert registry["status"] == "terminal_rejected_training_only_classifier_preflight"
     assert registry["classifier"]["mandatory_certificate_hard_negative_families"] == [
         "same_subject_different_relation",
         "same_relation_different_subject",

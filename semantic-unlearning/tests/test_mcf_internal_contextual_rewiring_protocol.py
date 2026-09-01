@@ -17,7 +17,10 @@ def test_internal_rewiring_registry_locks_primary_architecture() -> None:
     architecture = registry["architecture"]
     editable = registry["editable_parameters"]
 
-    assert registry["status"] == "preflight_implementation_available_not_executed"
+    assert registry["status"] == "terminal_rejected_training_only_classifier_preflight"
+    assert registry["terminal_training_result"]["failure_stage"] == "calibration_positive_coverage"
+    assert registry["terminal_training_result"]["actuator_constructed"] is False
+    assert registry["terminal_training_result"]["official_evaluation_prompts_seen"] == 0
     assert architecture["external_string_router"] is False
     assert architecture["inference_sidecar"] is False
     assert architecture["subject_code_rank"] == 8

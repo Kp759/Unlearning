@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "protocol": "mcf_sparse_biendpoint_nullspace_rewiring_v2",
+  "status": "training_only_implementation_available_not_executed",
+  "design_document": "MCF_BIENDPOINT_NULLSPACE_REWIRING_V2.md",
+  "supersedes": "mcf_internal_fact_conditional_embedding_rewiring_v1",
+  "historical_evidence": {
+    "mcf_specific_commit_messages_reviewed": 264,
+    "subject_embedding_ten_seed_result_commit": "791bbc4",
+    "frequency_aware_embedding_cap_commit": "178f637",
+    "compositional_marker_start_commit": "34ad33c",
+    "terminal_contextual_preflight_commit": "48578bb68a82538b2985416f340ceba330baf77c",
+    "external_sidecars": "terminal controls only",
+    "conclusion": "Full subject-row coverage supplies efficacy/generalization; unconstrained common subject rows and globally coupled answer rows cause specificity loss; runtime classifiers and sidecars are not continued."
+  },
+  "architecture": {
+    "trainable_parameter_families": [
+      "selected_input_embedding_rows",
+      "selected_lm_head_rows"
+    ],
+    "transformer_frozen": true,
+    "input_lm_head_untied": true,
+    "mlp_edits": false,
+    "contextual_classifier": false,
+    "detector": false,
+    "actuator": false,
+    "external_router": false,
+    "inference_sidecar": false,
+    "runtime_gate": false,
+    "materialized_weight_edit": true
+  },
+  "row_selection": {
+    "input": "union of sentence-initial and whitespace-prefixed complete forget-subject token rows",
+    "output": "union of evaluated target_true and target_new token rows",
+    "special_tokens_forbidden": true,
+    "complete_subject_coverage_required": true,
+    "relation_vocabulary_rows_editable": false,
+    "one_delta_per_physical_row": true
+  },
+  "overlap_policy": {
+    "input_shared_row_constraint": "orthogonal complement of row-specific protected Jacobian sketch",
+    "output_shared_row_constraint": "orthogonal complement of protected Base final-hidden-state span",
+    "conflicting_binary_labels_used": false,
+    "shared_rows_dropped_unconditionally": false,
+    "per_record_duplicate_row_parameters_forbidden": true,
+    "no_safe_direction_behavior": "fail_before_training"
+  },
+  "data": {
+    "seed": 1,
+    "forget_records": 50,
+    "official_retain_records_reserved": 1000,
+    "protection_fit_records": 2000,
+    "protection_development_records": 500,
+    "protection_certification_records": 1000,
+    "official_paraphrases_visible": false,
+    "official_neighborhoods_visible": false,
+    "official_retain_prompts_visible": false,
+    "official_ppl_documents_visible": false,
+    "wikipedia_doc_start": 20,
+    "wikipedia_documents": 12000,
+    "corpus_fit_prompts": 1000,
+    "corpus_development_prompts": 250,
+    "corpus_certification_prompts": 1000,
+    "synthetic_paraphrases_per_forget_record": 3,
+    "same_subject_different_relation_prompts_per_record": 4
+  },
+  "geometry": {
+    "input_jacobian_sketches": 64,
+    "input_protected_rank_cap": 32,
+    "output_protected_rank_cap": 256,
+    "minimum_projected_gradient_norm": 1e-08,
+    "input_relative_row_cap": 0.5,
+    "input_frequency_alpha": 0.25,
+    "output_relative_row_cap": 0.1
+  },
+  "optimization": {
+    "steps": 1200,
+    "check_every": 100,
+    "forget_batch_size": 4,
+    "protection_batch_size": 8,
+    "capture_batch_size": 8,
+    "embedding_lr": 0.0005,
+    "lm_head_lr": 0.001,
+    "forget_margin_target": 6.0,
+    "forget_margin_weight": 100.0,
+    "protection_topk": 64,
+    "protection_kl_weight": 10.0,
+    "protection_top1_drift_weight": 10.0,
+    "delta_l2_weight": 0.0001,
+    "gradient_clip": 1.0
+  },
+  "acceptance": {
+    "minimum_forget_margin": 0.1,
+    "direct_failures": 0,
+    "synthetic_failures": 0,
+    "protected_topk_kl_mean_max": 0.0001,
+    "protected_topk_kl_absolute_max": 0.01,
+    "protected_top1_logprob_abs_max": 0.05,
+    "all_forget_records_have_safe_direction": true,
+    "row_caps_passed": true,
+    "pre_and_post_materialization_certificates_match": true,
+    "transformer_bit_identical": true,
+    "official_evaluation_prompts_seen": 0
+  },
+  "current_claim_scope": "registered_internal_sparse_weight_rewiring_only"
+}
