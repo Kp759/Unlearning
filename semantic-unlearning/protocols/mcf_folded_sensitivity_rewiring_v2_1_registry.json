@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "protocol": "mcf_folded_sensitivity_biendpoint_rewiring_v2_1",
-  "status": "training_only_hard_tail_repair_available_not_executed",
+  "status": "training_only_embedding_first_repair_available_not_executed",
   "design_document": "MCF_FOLDED_SENSITIVITY_REWIRING_V2_1.md",
   "supersedes": "mcf_sparse_biendpoint_nullspace_rewiring_v2",
   "terminal_first_implementation_result": {
@@ -15,6 +15,18 @@
     "candidate_saved": false,
     "official_evaluation_prompts_seen": 0,
     "diagnosis": "The shared rank-512 output sketch left large protected corrections. Embedding backtracking then compared every proposal against absolute protection limits already violated by the fixed head, so all rescue proposals were rejected."
+  },
+  "terminal_hard_tail_head_first_result": {
+    "source_commit": "f29427b4255f4f1c9a02f89b4bfba97ac86109ad",
+    "best_direct_failures": 5,
+    "best_synthetic_failures": 29,
+    "worst_fit_logit_correction": 1.741288,
+    "registered_fit_logit_correction_max": 0.02,
+    "best_development_kl_max": 0.275337,
+    "best_development_top1_drift": 1.084689,
+    "candidate_saved": false,
+    "official_evaluation_prompts_seen": 0,
+    "diagnosis": "The protected hard tail improved behavioral reachability but no head arm was protection-valid. Floors 8 through 24 were identical, showing output-cap saturation. A protection-invalid head cannot be the baseline for embedding rescue."
   },
   "architecture": {
     "trainable_parameter_families": [
@@ -79,6 +91,9 @@
   },
   "embedding_rescue": {
     "enabled_only_if_head_only_fails": true,
+    "start_state_if_no_protection_valid_head": "exact_zero_lm_head_delta_and_exact_zero_embedding_delta",
+    "ordering": "embedding_first_until_a_protection_valid_folded_head_exists",
+    "invalid_head_refit_policy": "retain_last_protection_valid_head_or_exact_zero",
     "input_jacobian_sketches": 128,
     "input_protected_rank_cap": 64,
     "input_relative_row_cap": 0.5,

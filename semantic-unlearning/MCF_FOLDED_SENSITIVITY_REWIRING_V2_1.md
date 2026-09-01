@@ -49,6 +49,20 @@ because the first run showed that a signed correction of eight was below the
 behavioral margin required by the hardest records. The output cap is increased
 to `0.30`, but the original KL and top-1 preservation limits are unchanged.
 
+The first hard-tail run then reduced the best behavioral failures to 5 direct
+and 29 synthetic, but its worst fit correction remained `1.741288` against the
+locked `0.02` ceiling. Floors 8 through 24 were identical, confirming output
+cap saturation. This rules out using any of those head arms as a valid rescue
+baseline; adding more head constraints would only consume more of the
+remaining sensitive direction.
+
+The next repair therefore reverses the order. If no folded head is
+protection-valid, both endpoint deltas are reset exactly to zero. The embedding
+rows move first through the frozen Transformer, with every proposal guarded by
+the original preservation gates. Periodic folded-head refits are installed
+only when they independently pass complete development preservation. An
+invalid refit is discarded and the last valid head—or exact zero—is restored.
+
 ## Stage 1: deterministic folded head solve
 
 The Transformer and input embedding remain exactly Base. V2.1 caches the final
@@ -65,10 +79,11 @@ There are no stochastic minibatches or Adam moments.
 ## Stage 2: bounded embedding rescue
 
 Embedding rows remain zero if the folded head already passes. Otherwise they
-are used only to move unresolved sensitive states into the signed LM-head
-decision regions. Common selected rows receive targeted Wikipedia contexts so
-the protected Jacobian construction cannot silently miss a corpus-observed
-row. Truly corpus-absent rows are reported separately.
+start from exact zero and move unresolved sensitive states into regions that a
+protection-valid signed LM-head can separate. Common selected rows receive
+targeted Wikipedia contexts so the protected Jacobian construction cannot
+silently miss a corpus-observed row. Truly corpus-absent rows are reported
+separately.
 
 Each rescue step uses a balanced deterministic forget batch, projects its
 gradient through the row-specific protected bases, normalizes the update to a

@@ -49,8 +49,16 @@ def test_registry_folds_classifier_into_internal_lm_head_rows() -> None:
         ).read_text()
     )
     architecture = registry["architecture"]
-    assert registry["status"] == "training_only_hard_tail_repair_available_not_executed"
+    assert (
+        registry["status"]
+        == "training_only_embedding_first_repair_available_not_executed"
+    )
     assert registry["terminal_first_implementation_result"]["candidate_saved"] is False
+    assert registry["terminal_hard_tail_head_first_result"]["candidate_saved"] is False
+    assert (
+        registry["embedding_rescue"]["start_state_if_no_protection_valid_head"]
+        == "exact_zero_lm_head_delta_and_exact_zero_embedding_delta"
+    )
     assert architecture["folded_classifier"] == (
         "selected_lm_head_row_delta_dot_final_hidden_state"
     )

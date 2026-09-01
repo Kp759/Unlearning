@@ -96,7 +96,7 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
     if (
         registry.get("protocol") != folded.PROTOCOL
         or registry.get("status")
-        != "training_only_hard_tail_repair_available_not_executed"
+        != "training_only_embedding_first_repair_available_not_executed"
         or architecture.get("transformer_frozen") is not True
         or architecture.get("external_classifier") is not False
         or architecture.get("runtime_gate") is not False
@@ -710,20 +710,22 @@ def main(argv: Sequence[str] | None = None) -> None:
     else:
         best_floor = best_training_floor(head_reports)
         if best_floor is None:
-            completion_failure(
-                output,
-                phase="folded_head_protection_infeasible",
-                detail={"head_arms": head_reports},
+            best_floor = 0.0
+            with torch.no_grad():
+                output_delta.raw_delta.zero_()
+                input_delta.raw_delta.zero_()
+            print(
+                "Stage 3: no protection-valid folded head; begin embedding-first "
+                "rescue from the exact Base-preserving zero-head state"
             )
-            raise RuntimeError(
-                "V2.1 hard-tail head produced no protection-valid rescue baseline"
+        else:
+            with torch.no_grad():
+                output_delta.raw_delta.copy_(head_states[best_floor].to(device))
+                input_delta.raw_delta.zero_()
+            print(
+                "Stage 3: folded head alone failed; begin bounded embedding "
+                f"rescue from protection-valid floor {best_floor:.1f}"
             )
-        with torch.no_grad():
-            output_delta.raw_delta.copy_(head_states[best_floor].to(device))
-            input_delta.raw_delta.zero_()
-        print(
-            f"Stage 3: folded head alone failed; begin bounded embedding rescue from floor {best_floor:.1f}"
-        )
         input_bases, input_basis_report = v2.build_input_bases(
             model,
             tok,
@@ -747,6 +749,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             len(fit_cache.cases), args.protection_batch_size, args.seed + 9203
         )
         rescue_log: List[Dict[str, Any]] = []
+        head_refit_history: List[Dict[str, Any]] = []
         for step in range(1, args.rescue_steps + 1):
             indices = forget_batcher.next()
             batch = [training_records[index] for index in indices]
@@ -801,6 +804,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                     input_delta.raw_delta.copy_(old_input)
 
             if step % args.head_refit_every == 0:
+                previous_output = output_delta.raw_delta.detach().clone()
+                previous_floor = best_floor
                 with torch.no_grad():
                     protected_hidden = canonical.forward_last_hidden(
                         model,
@@ -827,16 +832,32 @@ def main(argv: Sequence[str] | None = None) -> None:
                     refit_reports
                 )
                 if best_floor is None:
-                    completion_failure(
-                        output,
-                        phase="embedding_rescue_head_refit_lost_protection",
-                        detail={"step": step, "head_arms": refit_reports},
+                    best_floor = previous_floor
+                    with torch.no_grad():
+                        output_delta.raw_delta.copy_(previous_output)
+                    refit_installed = False
+                    print(
+                        f"  refit {step:3d}: no protection-valid head; retain "
+                        f"floor {best_floor:.1f}"
                     )
-                    raise RuntimeError(
-                        "V2.1 rescue head refit produced no protection-valid arm"
+                else:
+                    with torch.no_grad():
+                        output_delta.raw_delta.copy_(
+                            refit_states[best_floor].to(device)
+                        )
+                    refit_installed = True
+                    print(
+                        f"  refit {step:3d}: installed protection-valid floor "
+                        f"{best_floor:.1f}"
                     )
-                with torch.no_grad():
-                    output_delta.raw_delta.copy_(refit_states[best_floor].to(device))
+                head_refit_history.append(
+                    {
+                        "step": step,
+                        "installed": refit_installed,
+                        "selected_floor": best_floor,
+                        "arms": refit_reports,
+                    }
+                )
 
             if step % args.check_every == 0:
                 current = certificate(
@@ -879,12 +900,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                 print(
                     f"  rescue {step:3d}: direct fail {current['direct']['failures']}, "
                     f"synth fail {current['synthetic']['failures']}, "
+                    f"accepted {accepted_factor:.4f}, "
                     f"dev KL {current['protection']['topk_kl_max']:.6f}, "
                     f"dev top1 {current['protection']['top1_logprob_abs_max']:.6f}, "
                     f"pass={current['passed']}"
                 )
         v2.write_json(
-            output / "method" / "embedding_rescue.json", {"steps": rescue_log}
+            output / "method" / "embedding_rescue.json",
+            {"steps": rescue_log, "head_refits": head_refit_history},
         )
         if not candidate_states:
             completion_failure(
@@ -1031,7 +1054,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         "passed": True,
         "selected_stage": selected_stage,
         "selected_correction_floor": selected_floor,
-        "folded_classifier_materialized_in_lm_head": True,
+        "folded_classifier_materialized_in_lm_head": bool(
+            output_delta.raw_delta.norm().item() > 0
+        ),
         "embedding_rows_changed": int(
             (input_delta.raw_delta.norm(dim=1) > 0).sum().item()
         ),
