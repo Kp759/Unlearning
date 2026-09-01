@@ -1,9 +1,21 @@
 {
   "schema_version": 1,
   "protocol": "mcf_folded_sensitivity_biendpoint_rewiring_v2_1",
-  "status": "training_only_implementation_available_not_executed",
+  "status": "training_only_hard_tail_repair_available_not_executed",
   "design_document": "MCF_FOLDED_SENSITIVITY_REWIRING_V2_1.md",
   "supersedes": "mcf_sparse_biendpoint_nullspace_rewiring_v2",
+  "terminal_first_implementation_result": {
+    "source_commit": "e36db4f3819cf659385e36ee3a47b7a971dcb468",
+    "folded_signed_cell_failures": 0,
+    "best_direct_failures": 14,
+    "best_synthetic_failures": 49,
+    "best_development_kl_max": 0.347591,
+    "best_development_top1_drift": 1.208011,
+    "embedding_rescue_checkpoints_unchanged": 20,
+    "candidate_saved": false,
+    "official_evaluation_prompts_seen": 0,
+    "diagnosis": "The shared rank-512 output sketch left large protected corrections. Embedding backtracking then compared every proposal against absolute protection limits already violated by the fixed head, so all rescue proposals were rejected."
+  },
   "architecture": {
     "trainable_parameter_families": [
       "selected_input_embedding_rows",
@@ -48,15 +60,19 @@
   },
   "folded_head_solver": {
     "correction_floor_sweep": [
-      2.0,
       4.0,
-      6.0,
-      8.0
+      8.0,
+      12.0,
+      16.0,
+      24.0
     ],
     "ridge": 0.0001,
-    "protected_hidden_rank_cap": 512,
-    "output_relative_row_cap": 0.15,
+    "output_relative_row_cap": 0.3,
     "minimum_signed_cell_correction": 0.1,
+    "hard_tail_rounds": 4,
+    "hard_tail_per_round": 64,
+    "protected_logit_correction_max": 0.02,
+    "protected_constraint": "row_specific_monotone_exact_nullspace_of_worst_fit_hidden_states",
     "selection": "smallest development-passing correction floor then minimum norm",
     "optimizer": "deterministic_minimum_norm_rowwise_solve",
     "stochastic_minibatches": false

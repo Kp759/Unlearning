@@ -55,9 +55,11 @@ python -u scripts/run_mcf_folded_sensitivity_rewiring_v2_1.py \
   --targeted-development-per-row 1 \
   --targeted-certification-per-row 1 \
   --head-ridge 0.0001 \
-  --output-rank-cap 512 \
-  --output-relative-cap 0.15 \
+  --output-relative-cap 0.3 \
   --minimum-signed-correction 0.1 \
+  --hard-tail-rounds 4 \
+  --hard-tail-per-round 64 \
+  --protected-logit-correction-max 0.02 \
   --input-jacobian-sketches 128 \
   --input-rank-cap 64 \
   --input-relative-cap 0.5 \

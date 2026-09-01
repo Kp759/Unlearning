@@ -49,7 +49,8 @@ def test_registry_folds_classifier_into_internal_lm_head_rows() -> None:
         ).read_text()
     )
     architecture = registry["architecture"]
-    assert registry["status"] == "training_only_implementation_available_not_executed"
+    assert registry["status"] == "training_only_hard_tail_repair_available_not_executed"
+    assert registry["terminal_first_implementation_result"]["candidate_saved"] is False
     assert architecture["folded_classifier"] == (
         "selected_lm_head_row_delta_dot_final_hidden_state"
     )
@@ -87,8 +88,10 @@ def test_registry_and_cli_are_exactly_locked() -> None:
     )
     runner.validate_registry(registry, args)
     assert args.head_refit_every == 100
-    assert args.output_rank_cap == 512
-    assert tuple(runner.CORRECTION_FLOORS) == (2.0, 4.0, 6.0, 8.0)
+    assert args.hard_tail_rounds == 4
+    assert args.hard_tail_per_round == 64
+    assert args.protected_logit_correction_max == 0.02
+    assert tuple(runner.CORRECTION_FLOORS) == (4.0, 8.0, 12.0, 16.0, 24.0)
 
 
 def test_folded_solver_handles_cross_role_row_by_context() -> None:
@@ -136,6 +139,26 @@ def test_folded_solver_exposes_identical_state_label_conflict() -> None:
     assert signed["failures"] > 0
 
 
+def test_hard_tail_solver_adds_exact_row_specific_protection() -> None:
+    cells = _cells(torch.tensor([[1.0, 1.0, 0.0]]), [0], [1.0])
+    delta, report = core.solve_hard_tail_folded_rows(
+        cells,
+        protected_hidden=torch.tensor([[1.0, 0.0, 0.0]]),
+        n_rows=1,
+        hidden_size=3,
+        correction_floor=2.0,
+        ridge=1e-6,
+        row_caps=torch.tensor([10.0]),
+        hard_tail_rounds=2,
+        hard_tail_per_round=1,
+        protected_correction_max=1e-4,
+    )
+    assert report["passed"] is True
+    assert report["per_row"][0]["protected_basis_rank"] == 1
+    assert abs(float(delta[0, 0])) < 1e-5
+    assert float(cells.hidden[0] @ delta[0]) >= 1.99
+
+
 def test_normalized_step_spends_fixed_fraction_of_each_row_cap() -> None:
     gradient = torch.tensor([[3.0, 4.0], [0.0, 2.0], [0.0, 0.0]])
     caps = torch.tensor([10.0, 2.0, 7.0])
@@ -179,3 +202,19 @@ def test_arm_selection_prefers_smallest_passing_floor_then_norm() -> None:
     ]
     assert core.choose_arm(reports) == 4.0
     assert core.choose_arm(reports[:1]) is None
+
+
+def test_embedding_rescue_requires_a_protection_valid_head_baseline() -> None:
+    def arm(floor: float, protected: bool, failures: int) -> dict:
+        return {
+            "correction_floor": floor,
+            "direct": {"failures": failures},
+            "synthetic": {"failures": failures},
+            "signed_cells": {"failures": 0},
+            "solver": {"protected_correction_failures": 0},
+            "protection_development": {"passed": protected},
+            "total_delta_norm": floor,
+        }
+
+    assert runner.best_training_floor([arm(4.0, False, 1)]) is None
+    assert runner.best_training_floor([arm(4.0, True, 3), arm(8.0, True, 1)]) == 8.0

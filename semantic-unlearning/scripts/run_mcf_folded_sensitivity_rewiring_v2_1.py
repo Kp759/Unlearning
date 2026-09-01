@@ -29,7 +29,7 @@ import run_mcf_biendpoint_nullspace_rewiring_v2 as v2
 import sure_canonical_core as canonical
 
 
-CORRECTION_FLOORS = (2.0, 4.0, 6.0, 8.0)
+CORRECTION_FLOORS = (4.0, 8.0, 12.0, 16.0, 24.0)
 BACKTRACKING_FACTORS = (1.0, 0.5, 0.25, 0.125, 0.0625)
 
 
@@ -53,9 +53,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--targeted-development-per-row", type=int, default=1)
     parser.add_argument("--targeted-certification-per-row", type=int, default=1)
     parser.add_argument("--head-ridge", type=float, default=1e-4)
-    parser.add_argument("--output-rank-cap", type=int, default=512)
-    parser.add_argument("--output-relative-cap", type=float, default=0.15)
+    parser.add_argument("--output-relative-cap", type=float, default=0.3)
     parser.add_argument("--minimum-signed-correction", type=float, default=0.1)
+    parser.add_argument("--hard-tail-rounds", type=int, default=4)
+    parser.add_argument("--hard-tail-per-round", type=int, default=64)
+    parser.add_argument("--protected-logit-correction-max", type=float, default=0.02)
     parser.add_argument("--input-jacobian-sketches", type=int, default=128)
     parser.add_argument("--input-rank-cap", type=int, default=64)
     parser.add_argument("--input-relative-cap", type=float, default=0.5)
@@ -94,7 +96,7 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
     if (
         registry.get("protocol") != folded.PROTOCOL
         or registry.get("status")
-        != "training_only_implementation_available_not_executed"
+        != "training_only_hard_tail_repair_available_not_executed"
         or architecture.get("transformer_frozen") is not True
         or architecture.get("external_classifier") is not False
         or architecture.get("runtime_gate") is not False
@@ -119,9 +121,11 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
         "folded_head_solver": {
             "correction_floor_sweep": list(CORRECTION_FLOORS),
             "ridge": args.head_ridge,
-            "protected_hidden_rank_cap": args.output_rank_cap,
             "output_relative_row_cap": args.output_relative_cap,
             "minimum_signed_cell_correction": args.minimum_signed_correction,
+            "hard_tail_rounds": args.hard_tail_rounds,
+            "hard_tail_per_round": args.hard_tail_per_round,
+            "protected_logit_correction_max": args.protected_logit_correction_max,
         },
         "embedding_rescue": {
             "input_jacobian_sketches": args.input_jacobian_sketches,
@@ -333,7 +337,7 @@ def fit_head_arms(
     training_records: Sequence[Mapping[str, Any]],
     development_cache: v2.ProtectionCache,
     output_delta: canonical.SelectedRowDelta,
-    output_basis: torch.Tensor,
+    protected_hidden: torch.Tensor,
     output_caps: torch.Tensor,
     output_row_ids: Sequence[int],
     device: torch.device,
@@ -354,14 +358,17 @@ def fit_head_arms(
     reports: List[Dict[str, Any]] = []
     states: Dict[float, torch.Tensor] = {}
     for floor in CORRECTION_FLOORS:
-        candidate, solver = folded.solve_folded_rows(
+        candidate, solver = folded.solve_hard_tail_folded_rows(
             cells,
+            protected_hidden=protected_hidden,
             n_rows=output_delta.n_rows,
             hidden_size=output_delta.hidden_size,
-            protected_basis=output_basis,
             correction_floor=floor,
             ridge=args.head_ridge,
             row_caps=output_caps,
+            hard_tail_rounds=args.hard_tail_rounds,
+            hard_tail_per_round=args.hard_tail_per_round,
+            protected_correction_max=args.protected_logit_correction_max,
         )
         with torch.no_grad():
             output_delta.raw_delta.copy_(candidate)
@@ -384,6 +391,7 @@ def fit_head_arms(
             f"  floor {floor:.1f}: direct fail {report['direct']['failures']}, "
             f"synth fail {report['synthetic']['failures']}, "
             f"signed fail {report['signed_cells']['failures']}, "
+            f"fit correction max {report['solver']['protected_correction_global_max']:.6f}, "
             f"dev KL {report['protection_development']['topk_kl_max']:.6f}, "
             f"dev top1 {report['protection_development']['top1_logprob_abs_max']:.6f}, "
             f"pass={report['passed']}"
@@ -391,14 +399,22 @@ def fit_head_arms(
     return reports, states, cells
 
 
-def best_training_floor(reports: Sequence[Mapping[str, Any]]) -> float:
+def best_training_floor(reports: Sequence[Mapping[str, Any]]) -> float | None:
+    protection_valid = [
+        report
+        for report in reports
+        if bool(report["protection_development"]["passed"])
+        and int(report["solver"]["protected_correction_failures"]) == 0
+    ]
+    if not protection_valid:
+        return None
     selected = min(
-        reports,
+        protection_valid,
         key=lambda report: (
             int(report["direct"]["failures"]) + int(report["synthetic"]["failures"]),
             int(report["signed_cells"]["failures"]),
-            float(report["protection_development"]["topk_kl_max"]),
             float(report["correction_floor"]),
+            float(report["total_delta_norm"]),
         ),
     )
     return float(selected["correction_floor"])
@@ -639,17 +655,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         batch_size=args.capture_batch_size,
         topk=args.protection_topk,
     )
-    hidden_sketch = v2.compress_hidden_states(
-        model,
-        tok,
-        fit_cases,
-        device,
-        batch_size=args.capture_batch_size,
-        rows=args.output_rank_cap,
-    )
-    output_basis = geometry.common_basis(
-        hidden_sketch, max_rank=args.output_rank_cap
-    ).to(device)
+    with torch.no_grad():
+        protected_hidden = canonical.forward_last_hidden(
+            model,
+            tok,
+            fit_cases,
+            device,
+            batch_size=args.capture_batch_size,
+        ).float()
 
     synthetic_prefixes = synthetic.corpus_context_prefixes(
         documents, count=256, seed=args.seed + 71
@@ -669,7 +682,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         training_records,
         development_cache,
         output_delta,
-        output_basis,
+        protected_hidden,
         output_caps,
         endpoint_rows.output_ids,
         device,
@@ -696,6 +709,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         development_candidates.append({"stage": "head_only", **selected_report})
     else:
         best_floor = best_training_floor(head_reports)
+        if best_floor is None:
+            completion_failure(
+                output,
+                phase="folded_head_protection_infeasible",
+                detail={"head_arms": head_reports},
+            )
+            raise RuntimeError(
+                "V2.1 hard-tail head produced no protection-valid rescue baseline"
+            )
         with torch.no_grad():
             output_delta.raw_delta.copy_(head_states[best_floor].to(device))
             input_delta.raw_delta.zero_()
@@ -779,17 +801,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                     input_delta.raw_delta.copy_(old_input)
 
             if step % args.head_refit_every == 0:
-                hidden_sketch = v2.compress_hidden_states(
-                    model,
-                    tok,
-                    fit_cases,
-                    device,
-                    batch_size=args.capture_batch_size,
-                    rows=args.output_rank_cap,
-                )
-                output_basis = geometry.common_basis(
-                    hidden_sketch, max_rank=args.output_rank_cap
-                ).to(device)
+                with torch.no_grad():
+                    protected_hidden = canonical.forward_last_hidden(
+                        model,
+                        tok,
+                        fit_cases,
+                        device,
+                        batch_size=args.capture_batch_size,
+                    ).float()
                 refit_reports, refit_states, cells = fit_head_arms(
                     model,
                     tok,
@@ -798,7 +817,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     training_records,
                     development_cache,
                     output_delta,
-                    output_basis,
+                    protected_hidden,
                     output_caps,
                     endpoint_rows.output_ids,
                     device,
@@ -807,6 +826,15 @@ def main(argv: Sequence[str] | None = None) -> None:
                 best_floor = folded.choose_arm(refit_reports) or best_training_floor(
                     refit_reports
                 )
+                if best_floor is None:
+                    completion_failure(
+                        output,
+                        phase="embedding_rescue_head_refit_lost_protection",
+                        detail={"step": step, "head_arms": refit_reports},
+                    )
+                    raise RuntimeError(
+                        "V2.1 rescue head refit produced no protection-valid arm"
+                    )
                 with torch.no_grad():
                     output_delta.raw_delta.copy_(refit_states[best_floor].to(device))
 

@@ -30,15 +30,35 @@ one and five direct failures. Ten of 70 output rows had cross-role labels and
 the first step. Lowering the learning rate would not resolve those structural
 problems.
 
+## First implementation result and hard-tail repair
+
+Commit `e36db4f` fit every signed LM-head cell, but its shared rank-512
+protected sketch did not control the rare output rows that dominate the
+preservation maximum. The best development KL maximum was `0.347591`, and the
+best arm still had 14 direct and 49 synthetic failures. More importantly, the
+embedding rescue was inert: its fixed head already violated the absolute
+protection gate, so every backtracking proposal was rejected and all 20
+reported rescue checkpoints were unchanged.
+
+The repaired implementation removes that circular acceptance condition. Each
+physical LM-head row now mines its own worst protected hidden states and adds
+them monotonically to an exact row-specific nullspace. Embedding rescue is
+permitted only from a head arm that already passes the complete development
+protection gate. The correction-floor sweep is expanded to `4/8/12/16/24`
+because the first run showed that a signed correction of eight was below the
+behavioral margin required by the hardest records. The output cap is increased
+to `0.30`, but the original KL and top-1 preservation limits are unchanged.
+
 ## Stage 1: deterministic folded head solve
 
 The Transformer and input embedding remain exactly Base. V2.1 caches the final
 hidden state for every direct and synthetic teacher-forced target cell. It
-constructs a protected hidden-state sketch, projects sensitive states into its
-orthogonal complement, and solves a minimum-norm ridge system independently
-for each physical LM-head row. All cells for a shared row are solved together.
+constructs a protected hidden-state bank and solves a minimum-norm ridge system
+independently for each physical LM-head row. After each solve, the worst
+protected states for that row are added to an exact nullspace and the row is
+solved again. All cells for a shared row are solved together.
 
-Correction floors `2/4/6/8` are preregistered. Development may select the
+Correction floors `4/8/12/16/24` are preregistered. Development may select the
 smallest arm satisfying complete direct, synthetic, and preservation gates.
 There are no stochastic minibatches or Adam moments.
 
