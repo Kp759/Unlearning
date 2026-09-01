@@ -17,7 +17,7 @@ def test_internal_rewiring_registry_locks_primary_architecture() -> None:
     architecture = registry["architecture"]
     editable = registry["editable_parameters"]
 
-    assert registry["status"] == "architecture_registered_implementation_pending"
+    assert registry["status"] == "preflight_implementation_available_not_executed"
     assert architecture["external_string_router"] is False
     assert architecture["inference_sidecar"] is False
     assert architecture["subject_code_rank"] == 8
@@ -48,6 +48,16 @@ def test_overlap_and_classifier_contracts_are_contextual() -> None:
         "shared_subject_subword_without_complete_subject"
         in classifier["hard_negative_families"]
     )
+    assert classifier["mandatory_certificate_hard_negative_families"] == [
+        "same_subject_different_relation",
+        "same_relation_different_subject",
+        "shared_subject_subword_without_complete_subject",
+        "broad_corpus_prompt",
+        "writer_off_positive_context",
+    ]
+    assert (
+        "alias_of_different_entity" in classifier["conditional_hard_negative_families"]
+    )
 
 
 def test_threshold_contract_has_an_unseen_statistical_certificate() -> None:
@@ -59,9 +69,12 @@ def test_threshold_contract_has_an_unseen_statistical_certificate() -> None:
     assert threshold["threshold_frozen_before_certification"] is True
     assert threshold["maximum_certification_false_positive_cells"] == 0
     assert cells >= 300_000
-    assert 3.0 / cells <= threshold[
-        "approximate_rule_of_three_95_percent_fpr_upper_bound"
-    ]
+    assert threshold["minimum_distinct_negative_certification_prompts"] >= 6_000
+    assert (
+        3.0 / cells
+        <= threshold["conditional_cell_level_rule_of_three_95_percent_fpr_upper_bound"]
+    )
+    assert threshold["cell_independence_assumed"] is False
     assert threshold["ambiguous_or_unknown_state"] == "gate_closed"
 
 

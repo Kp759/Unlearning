@@ -2,8 +2,9 @@
 
 ## Status
 
-This document registers the next MCF research architecture. Implementation and
-evaluation are pending. It does **not** report a new result.
+This document registers the next MCF research architecture. The overlap-code
+and classifier-only preflight is implemented; execution and evaluation are
+pending. It does **not** report a new result.
 
 The V5 exact-string/logit-bias and V6 normalization-preserving sidecars are
 retired as research methods. Their code, registries, and outputs remain in the
@@ -149,9 +150,15 @@ Every fact must be trained and certified against:
 - the same relation with a different subject;
 - the same answer with a different subject;
 - prompts containing only shared subject subwords;
-- complete-subject aliases that refer to a different entity;
-- unrelated corpus prefixes and broad corpus prompts; and
+- broad corpus prompts, including prefixes unrelated to the fact; and
 - writer-off/Base states for every positive context.
+
+If another training-visible fact has the same answer, its prompt is also a
+required negative for the current fact. Complete-subject aliases that refer to
+a different entity are required only when a training-visible alias lexicon is
+registered before the run. This preflight does not synthesize aliases and does
+not inspect held-out alias probes; alias robustness remains a later strong-
+unlearning test.
 
 The classifier may not use an independent full-hidden-size vector per record.
 Shared projections and the rank-8 bottleneck are binding capacity constraints.
@@ -159,8 +166,9 @@ Shared projections and the rank-8 bottleneck are binding capacity constraints.
 ## 3. Layer and threshold selection
 
 Only layers `{8, 12, 16, 20}` are candidates. Layer selection uses classifier
-fit/development/certification evidence only; actuator or behavioral metrics may
-not choose the layer.
+fit/development evidence only; actuator, certification, or behavioral metrics
+may not choose the layer. Certification is opened once for the already-selected
+layer and cannot trigger another layer or checkpoint choice.
 
 The old raw thresholds `0.20/0.25` are not portable to a new classifier. For
 each frozen classifier candidate:
@@ -171,14 +179,16 @@ each frozen classifier candidate:
    `tau = nextafter(max_negative_score, +infinity)`.
 4. Freeze `tau` and open a third, disjoint certification bank.
 5. Require zero negative/cross/writer-off gate activations on at least 300,000
-   certification cells, and require every registered positive/alias cell to
-   exceed `tau`.
+   certification cells from at least 6,000 distinct prompts, and require every
+   registered positive cell to exceed `tau`.
 
-With zero errors in 300,000 independent negative cells, the rule-of-three 95%
-upper bound is approximately `1e-5`. This is a measured bound on the registered
-negative distribution, not a universal safety guarantee. Ambiguous scores and
-unknown subjects fail closed. The raw numerical value of `tau` is an
-artifact-specific output, never a hand-tuned global constant.
+The conditional cell-level rule-of-three value is `1e-5`; classifier outputs
+from one prompt are correlated, so independence is not claimed. At the prompt
+level, 6,000 zero-error prompts give a more conservative rule-of-three value of
+`5e-4`. These are measured bounds on the registered negative distribution, not
+universal safety guarantees. Ambiguous scores and unknown subjects fail
+closed. The raw numerical value of `tau` is an artifact-specific output, never
+a hand-tuned global constant.
 
 ## 4. Sparse actuator
 
@@ -212,10 +222,11 @@ as a separately labeled ablation after the internal method is frozen.
 1. Build and hash the complete-subject/subword overlap manifest.
 2. Untie and freeze the bit-identical LM head.
 3. Solve the rank-8 joint embedding code from exact Base.
-4. Cache fit/development/certification states at all four candidate layers.
+4. Cache fit/development states at all four candidate layers.
 5. Fit shared factorized classifiers without constructing actuators.
 6. Select one layer using classifier criteria only.
-7. Calibrate and freeze its threshold; run the one-shot certification bank.
+7. Calibrate and freeze its threshold; then open the one-shot certification
+   bank for that selected layer only.
 8. Freeze embedding and detector tensors.
 9. Select 16 disjoint actuators and run positive reachability from exact zero.
 10. If reachable, train the full preservation objective and freeze one

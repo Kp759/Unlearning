@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "protocol": "mcf_internal_fact_conditional_embedding_rewiring_v1",
-  "status": "architecture_registered_implementation_pending",
-  "registration_scope": "MCF training-only architecture; no result or checkpoint is claimed",
+  "status": "preflight_implementation_available_not_executed",
+  "registration_scope": "MCF training-only overlap-code and classifier preflight; no result, actuator, or evaluation checkpoint is claimed",
   "design_document": "MCF_INTERNAL_CONTEXTUAL_REWIRING_V1.md",
   "historical_evidence": {
     "subject_embedding_multiseed_commit": "791bbc4",
@@ -72,11 +72,21 @@
       "same_relation_different_subject",
       "same_answer_different_subject",
       "shared_subject_subword_without_complete_subject",
-      "alias_of_different_entity",
-      "unrelated_corpus_prefix",
+      "alias_of_different_entity_when_a_training_visible_alias_lexicon_is_registered",
       "broad_corpus_prompt",
       "writer_off_positive_context"
-    ]
+    ],
+    "mandatory_certificate_hard_negative_families": [
+      "same_subject_different_relation",
+      "same_relation_different_subject",
+      "shared_subject_subword_without_complete_subject",
+      "broad_corpus_prompt",
+      "writer_off_positive_context"
+    ],
+    "conditional_hard_negative_families": {
+      "same_answer_different_subject": "required when another training-visible fact has the same answer",
+      "alias_of_different_entity": "required only when a training-visible alias lexicon is separately registered; no alias is synthesized or read from held-out evaluation"
+    }
   },
   "threshold_calibration": {
     "legacy_raw_0_20_0_25_thresholds_reused": false,
@@ -84,20 +94,67 @@
     "calibration_rule": "tau = nextafter(max_negative_score_on_disjoint_calibration_bank, +infinity)",
     "threshold_frozen_before_certification": true,
     "minimum_disjoint_negative_certification_cells": 300000,
+    "minimum_distinct_negative_certification_prompts": 6000,
     "maximum_certification_false_positive_cells": 0,
-    "approximate_rule_of_three_95_percent_fpr_upper_bound": 0.00001,
-    "all_registered_positive_and_alias_cells_must_exceed_tau": true,
+    "conditional_cell_level_rule_of_three_95_percent_fpr_upper_bound": 0.00001,
+    "prompt_level_rule_of_three_95_percent_upper_bound": 0.0005,
+    "cell_independence_assumed": false,
+    "all_registered_positive_cells_and_training_visible_alias_cells_must_exceed_tau": true,
     "ambiguous_or_unknown_state": "gate_closed",
     "raw_tau_is_artifact_specific": true
+  },
+  "preflight_implementation": {
+    "seed": 1,
+    "forget_num": 50,
+    "candidate_layers": [8, 12, 16, 20],
+    "subject_code_rank": 8,
+    "detector_rank": 8,
+    "embedding_ridge_lambda": 0.0001,
+    "embedding_relative_row_cap": 0.5,
+    "embedding_frequency_alpha": 0.25,
+    "code_nearest_key_margin": 0.05,
+    "frequency_doc_start": 20,
+    "frequency_docs": 12000,
+    "corpus_prompts": {
+      "fit": 1000,
+      "development": 1000,
+      "calibration": 1000,
+      "certification": 6000
+    },
+    "minimum_shared_subword_prompts": {
+      "fit": 25,
+      "development": 25,
+      "calibration": 25,
+      "certification": 100
+    },
+    "wrong_relations_per_record": {
+      "fit": 8,
+      "development_calibration_certification": 4
+    },
+    "same_relation_other_subjects_per_record": 4,
+    "classifier_steps": 400,
+    "classifier_check_every": 20,
+    "classifier_lr": 0.01,
+    "classifier_weight_decay": 0.01,
+    "classifier_positive_floor": 1.0,
+    "classifier_negative_ceiling": -1.0,
+    "classifier_auxiliary_weight": 0.5,
+    "classifier_softmin_temperature": 0.1,
+    "minimum_certification_negative_cells": 300000,
+    "minimum_certification_distinct_prompts": 6000,
+    "capture_batch_size": 8,
+    "dtype": "bf16",
+    "device_map": "single"
   },
   "training_order": [
     "build_and_hash_overlap_manifest",
     "untie_and_freeze_bit_identical_lm_head",
     "solve_rank_8_joint_subject_embedding_code_from_base",
-    "cache_fit_development_and_certification_states_at_candidate_layers",
+    "cache_fit_and_development_states_at_candidate_layers",
     "fit_shared_factorized_classifier_without_actuator",
-    "select_layer_by_classifier_certification_only",
-    "calibrate_freeze_and_certify_threshold",
+    "select_layer_by_development_classifier_metrics_only",
+    "calibrate_selected_layer_and_freeze_threshold",
+    "open_one_shot_disjoint_certification_bank_for_selected_layer_only",
     "freeze_embedding_and_detector_tensors",
     "select_16_detector_disjoint_actuator_neurons",
     "run_positive_reachability_from_exact_zero",
