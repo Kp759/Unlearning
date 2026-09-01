@@ -1,9 +1,29 @@
 {
   "schema_version": 1,
   "protocol": "mcf_sparse_biendpoint_nullspace_rewiring_v2",
-  "status": "training_only_implementation_available_not_executed",
+  "status": "terminal_rejected_training_only_development",
   "design_document": "MCF_BIENDPOINT_NULLSPACE_REWIRING_V2.md",
   "supersedes": "mcf_internal_fact_conditional_embedding_rewiring_v1",
+  "terminal_training_result": {
+    "source_commit": "955939289546943cc2aa7c638a5f586cfdce7dbb",
+    "safe_direction_feasibility": "50/50",
+    "input_rows": 236,
+    "input_rows_with_empty_protected_basis": 141,
+    "output_rows": 70,
+    "cross_role_output_rows": 10,
+    "multi_fact_output_rows": 14,
+    "first_step_input_cap_ratio": 1.0,
+    "step_100_both_endpoints_cap_saturated": true,
+    "best_direct_failures": 1,
+    "best_synthetic_failures": 7,
+    "first_step_development_kl_max": 0.030405744910240173,
+    "first_step_development_top1_drift": 0.2669055461883545,
+    "development_checkpoint_passed": false,
+    "certification_opened": false,
+    "candidate_saved": false,
+    "official_evaluation_prompts_seen": 0,
+    "conclusion": "Joint stochastic Adam saturated input rows immediately, left most input rows without observed protected bases, and oscillated on shared cross-role output rows; this optimizer/parameterization is terminal."
+  },
   "historical_evidence": {
     "mcf_specific_commit_messages_reviewed": 264,
     "subject_embedding_ten_seed_result_commit": "791bbc4",
@@ -102,5 +122,5 @@
     "transformer_bit_identical": true,
     "official_evaluation_prompts_seen": 0
   },
-  "current_claim_scope": "registered_internal_sparse_weight_rewiring_only"
+  "current_claim_scope": "terminal_negative_training_only_result"
 }

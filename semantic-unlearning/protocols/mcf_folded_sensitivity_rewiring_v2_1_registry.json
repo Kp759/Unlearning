@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "protocol": "mcf_folded_sensitivity_biendpoint_rewiring_v2_1",
+  "status": "training_only_implementation_available_not_executed",
+  "design_document": "MCF_FOLDED_SENSITIVITY_REWIRING_V2_1.md",
+  "supersedes": "mcf_sparse_biendpoint_nullspace_rewiring_v2",
+  "architecture": {
+    "trainable_parameter_families": [
+      "selected_input_embedding_rows",
+      "selected_lm_head_rows"
+    ],
+    "transformer_frozen": true,
+    "input_lm_head_untied": true,
+    "folded_classifier": "selected_lm_head_row_delta_dot_final_hidden_state",
+    "external_classifier": false,
+    "runtime_gate": false,
+    "detector": false,
+    "actuator_module": false,
+    "sidecar": false,
+    "materialized_weight_edit": true
+  },
+  "signed_cell_semantics": {
+    "target_true": "negative_logit_correction",
+    "target_new": "positive_logit_correction",
+    "protected": "zero_logit_correction",
+    "one_classifier_per_selected_output_token_row": true,
+    "cross_role_rows_receive_contextual_signed_cells": true,
+    "global_token_label_forbidden": true
+  },
+  "data": {
+    "seed": 1,
+    "forget_records": 50,
+    "official_retain_records_reserved": 1000,
+    "protection_fit_records": 2000,
+    "protection_development_records": 500,
+    "protection_certification_records": 1000,
+    "wikipedia_doc_start": 20,
+    "wikipedia_documents": 12000,
+    "corpus_fit_prompts": 1000,
+    "corpus_development_prompts": 250,
+    "corpus_certification_prompts": 1000,
+    "synthetic_paraphrases_per_forget_record": 3,
+    "same_subject_different_relation_prompts_per_record": 4,
+    "targeted_common_row_fit_prompts": 2,
+    "targeted_common_row_development_prompts": 1,
+    "targeted_common_row_certification_prompts": 1,
+    "official_prompt_text_visible": false
+  },
+  "folded_head_solver": {
+    "correction_floor_sweep": [
+      2.0,
+      4.0,
+      6.0,
+      8.0
+    ],
+    "ridge": 0.0001,
+    "protected_hidden_rank_cap": 512,
+    "output_relative_row_cap": 0.15,
+    "minimum_signed_cell_correction": 0.1,
+    "selection": "smallest development-passing correction floor then minimum norm",
+    "optimizer": "deterministic_minimum_norm_rowwise_solve",
+    "stochastic_minibatches": false
+  },
+  "embedding_rescue": {
+    "enabled_only_if_head_only_fails": true,
+    "input_jacobian_sketches": 128,
+    "input_protected_rank_cap": 64,
+    "input_relative_row_cap": 0.5,
+    "input_frequency_alpha": 0.25,
+    "steps": 400,
+    "check_every": 20,
+    "balanced_forget_batch_size": 8,
+    "active_protection_batch_size": 32,
+    "per_step_cap_fraction": 0.01,
+    "backtracking_factors": [
+      1.0,
+      0.5,
+      0.25,
+      0.125,
+      0.0625
+    ],
+    "lm_head_refit_every": 100,
+    "adam_forbidden": true,
+    "update_rule": "projected_normalized_gradient_with_fit_protection_backtracking"
+  },
+  "acceptance": {
+    "minimum_forget_margin": 0.1,
+    "direct_failures": 0,
+    "synthetic_failures": 0,
+    "protected_topk_kl_mean_max": 0.0001,
+    "protected_topk_kl_absolute_max": 0.01,
+    "protected_top1_logprob_abs_max": 0.05,
+    "development_only_checkpoint_selection": true,
+    "certification_opened_once_after_selection": true,
+    "pre_and_post_materialization_acceptance_match": true,
+    "transformer_bit_identical": true,
+    "official_evaluation_prompts_seen": 0
+  },
+  "current_claim_scope": "implemented_internal_folded_classifier_training_only"
+}

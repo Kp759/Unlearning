@@ -2,8 +2,12 @@
 
 ## Status
 
-Implemented replacement for the rejected contextual V1 lineage, awaiting its
-first training-only run. This is a transformer-frozen weight-editing framework. It has no detector,
+Terminal negative training-only result. The first run found a preservation-safe
+first-order gradient for all 50 facts, but joint stochastic Adam saturated an
+input row on step 1, left 141/236 input rows without an observed protected
+basis, and never produced a development-passing checkpoint. Certification and
+official evaluation remained unopened. This is a transformer-frozen
+weight-editing framework. It has no detector,
 semantic gate, external router, sidecar, adapter, MLP edit, or inference-time
 dependency. Only selected rows of the untied input embedding and LM head may
 change.

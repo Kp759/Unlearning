@@ -55,7 +55,10 @@ def test_registry_locks_internal_biendpoint_architecture() -> None:
         ).read_text()
     )
     architecture = registry["architecture"]
-    assert registry["status"] == "training_only_implementation_available_not_executed"
+    assert registry["status"] == "terminal_rejected_training_only_development"
+    assert registry["terminal_training_result"]["safe_direction_feasibility"] == "50/50"
+    assert registry["terminal_training_result"]["candidate_saved"] is False
+    assert registry["terminal_training_result"]["official_evaluation_prompts_seen"] == 0
     assert architecture["trainable_parameter_families"] == [
         "selected_input_embedding_rows",
         "selected_lm_head_rows",
