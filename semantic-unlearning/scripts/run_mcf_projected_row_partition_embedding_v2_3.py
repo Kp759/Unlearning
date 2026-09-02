@@ -40,6 +40,7 @@ alias lexicon is registered before the run.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence
@@ -63,6 +64,7 @@ import sure_canonical_core as canonical
 
 
 BACKTRACKING_FACTORS = (1.0, 0.5, 0.25, 0.125, 0.0625)
+REACHABILITY_FACTORS = (0.0625, 0.125, 0.25, 0.5, 1.0)
 PROBE_FAMILIES = ("base_top1_logprob", "centered_topk_logit", "retain_answer_logprob")
 
 
@@ -114,6 +116,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--input-relative-cap", type=float, default=0.5)
     parser.add_argument("--input-frequency-alpha", type=float, default=0.25)
     parser.add_argument("--input-step-cap-fraction", type=float, default=0.004)
+    parser.add_argument("--require-per-prompt-reachability", action="store_true")
+    parser.add_argument(
+        "--minimum-forget-loss-improvement", type=float, default=1e-5
+    )
+    parser.add_argument("--full-fit-rollback", action="store_true")
     parser.add_argument("--protection-topk", type=int, default=64)
     parser.add_argument("--protected-kl-mean-max", type=float, default=1e-4)
     parser.add_argument("--protected-kl-max", type=float, default=1e-2)
@@ -142,6 +149,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("partition efficacy floor must lie strictly inside (0, 1)")
     if not 0.0 <= args.partition_potential_floor < 1.0:
         parser.error("partition potential floor is relative to the strongest row")
+    if args.minimum_forget_loss_improvement <= 0.0:
+        parser.error("minimum forget-loss improvement must be positive")
     return args
 
 
@@ -150,8 +159,10 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
     diagnostic = registry.get("row_partition_diagnostic", {})
     optimization = registry.get("optimization", {})
     retain_strata = registry.get("retain_strata", {})
+    registered_protocol = registry.get("protocol")
     if (
-        registry.get("protocol") != partition.PROTOCOL
+        registered_protocol
+        not in (partition.PROTOCOL, partition.REACHABILITY_PROTOCOL)
         or registry.get("status")
         != "training_only_implementation_available_not_executed"
         or architecture.get("trainable_parameter_families")
@@ -169,6 +180,25 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
         or retain_strata.get("present_on_every_embedding_update") is not True
     ):
         raise RuntimeError("V2.3 registry architecture/status mismatch")
+    reachability_revision = registered_protocol == partition.REACHABILITY_PROTOCOL
+    reachability = registry.get("per_prompt_reachability", {})
+    if reachability_revision:
+        if (
+            args.require_per_prompt_reachability is not True
+            or args.full_fit_rollback is not True
+            or reachability.get("required_before_optimization") is not True
+            or reachability.get("linear_cap_bound") is not True
+            or reachability.get("nonlinear_directional_sweep") is not True
+            or reachability.get("all_direct_and_synthetic_prompts_must_pass")
+            is not True
+            or optimization.get("strict_forget_improvement") is not True
+            or optimization.get("equality_is_rejected") is not True
+            or optimization.get("full_fit_rollback") is not True
+            or optimization.get("development_controls_updates") is not False
+        ):
+            raise RuntimeError("V2.3.1 reachability/optimization contract mismatch")
+    elif args.require_per_prompt_reachability or args.full_fit_rollback:
+        raise RuntimeError("V2.3 registry cannot enable V2.3.1-only controls")
     expected = {
         "data": {
             "seed": args.seed,
@@ -222,6 +252,19 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
             "protected_target_logprob_abs_max": args.protected_target_drift_max,
         },
     }
+    if reachability_revision:
+        expected["per_prompt_reachability"] = {
+            "required_margin": args.minimum_forget_margin,
+            "directional_factors": list(REACHABILITY_FACTORS),
+        }
+        expected["optimization"].update(
+            {
+                "minimum_forget_loss_improvement": (
+                    args.minimum_forget_loss_improvement
+                ),
+                "full_fit_rollback": args.full_fit_rollback,
+            }
+        )
     for section, values in expected.items():
         registered = registry.get(section)
         if not isinstance(registered, Mapping):
@@ -387,6 +430,159 @@ def direct_live_rows(
     return live
 
 
+def per_prompt_reachability_report(
+    model: torch.nn.Module,
+    tok: Any,
+    groups: Mapping[str, Sequence[Mapping[str, Any]]],
+    device: torch.device,
+    *,
+    input_delta: canonical.SelectedRowDelta,
+    input_caps: torch.Tensor,
+    bases: Sequence[torch.Tensor],
+    roles: Sequence[str],
+    llama_like: bool,
+    required_margin: float,
+) -> Dict[str, Any]:
+    """Certify local and forward reachability for every training-visible prompt.
+
+    V2.3 used one aggregate forget gradient to choose rows and then checked only
+    that every direct prompt contained a non-excluded token.  This audit keeps
+    prompts separate, applies the final row roles before measuring capacity,
+    and probes the frozen nonlinear model along the cap-saturating local
+    direction.  It runs from exact zero and restores the incoming state.
+    """
+    if input_delta.raw_delta is None:
+        raise RuntimeError("per-prompt reachability requires a full row delta")
+    original = input_delta.raw_delta.detach().clone()
+    if float(original.norm().cpu()) > 1e-12:
+        raise RuntimeError("per-prompt reachability must run from exact zero")
+    rows: List[Dict[str, Any]] = []
+    try:
+        for group, records in groups.items():
+            for prompt_index, record in enumerate(records):
+                with torch.no_grad():
+                    input_delta.raw_delta.zero_()
+                input_delta.zero_grad(set_to_none=True)
+                model.zero_grad(set_to_none=True)
+                margin = v2.records_margin_tensor(
+                    model, tok, [record], device, llama_like=llama_like
+                )[0]
+                margin.backward()
+                gradient = input_delta.raw_delta.grad
+                if gradient is None:
+                    gradient = torch.zeros_like(input_delta.raw_delta)
+                else:
+                    gradient = gradient.detach().clone()
+                base_margin = float(margin.detach().cpu())
+                linear = partition.cap_aware_prompt_reachability(
+                    gradient,
+                    bases,
+                    roles,
+                    input_caps,
+                    base_margin=base_margin,
+                    required_margin=required_margin,
+                )
+                direction = partition.cap_saturating_margin_direction(
+                    gradient, bases, roles, input_caps
+                )
+                sweep: List[Dict[str, float]] = []
+                best_margin = base_margin
+                best_factor = 0.0
+                for factor in REACHABILITY_FACTORS:
+                    with torch.no_grad():
+                        input_delta.raw_delta.copy_(float(factor) * direction)
+                        partition.apply_role_constraints_(
+                            input_delta.raw_delta, bases, roles
+                        )
+                        geometry.apply_row_caps_(input_delta.raw_delta, input_caps)
+                        candidate_margin = float(
+                            v2.records_margin_tensor(
+                                model,
+                                tok,
+                                [record],
+                                device,
+                                llama_like=llama_like,
+                            )[0]
+                            .detach()
+                            .cpu()
+                        )
+                    sweep.append(
+                        {"factor": float(factor), "margin": candidate_margin}
+                    )
+                    if candidate_margin > best_margin:
+                        best_margin = candidate_margin
+                        best_factor = float(factor)
+                rewrite = record["requested_rewrite"]
+                rendered = str(rewrite["prompt"]).format(str(rewrite["subject"]))
+                forward_passed = best_margin >= float(required_margin)
+                row = {
+                    "group": str(group),
+                    "prompt_index": int(prompt_index),
+                    "case_id": int(record.get("case_id", prompt_index)),
+                    "prompt_sha256": hashlib.sha256(
+                        rendered.encode("utf-8")
+                    ).hexdigest(),
+                    "linear": linear,
+                    "directional_sweep": sweep,
+                    "best_directional_factor": best_factor,
+                    "best_directional_margin": best_margin,
+                    "directional_passed": bool(forward_passed),
+                    "passed": bool(linear["passed"] and forward_passed),
+                }
+                rows.append(row)
+    finally:
+        with torch.no_grad():
+            input_delta.raw_delta.copy_(original)
+        input_delta.zero_grad(set_to_none=True)
+        model.zero_grad(set_to_none=True)
+
+    group_reports: Dict[str, Any] = {}
+    for group in groups:
+        local = [row for row in rows if row["group"] == group]
+        group_reports[str(group)] = {
+            "prompts": len(local),
+            "linear_failures": sum(not row["linear"]["passed"] for row in local),
+            "directional_failures": sum(
+                not row["directional_passed"] for row in local
+            ),
+            "failures": sum(not row["passed"] for row in local),
+            "passed": all(row["passed"] for row in local),
+        }
+    failed = [row for row in rows if not row["passed"]]
+    return {
+        "schema_version": 1,
+        "kind": "mcf_v2_3_1_per_prompt_cap_aware_reachability",
+        "required_margin": float(required_margin),
+        "directional_factors": list(REACHABILITY_FACTORS),
+        "linear_bound": (
+            "sum_t cap_t * ||P_t grad_t margin|| from exact zero"
+        ),
+        "nonlinear_probe": (
+            "frozen-model forward sweep along each prompt's cap-saturating "
+            "projected margin gradient"
+        ),
+        "groups": group_reports,
+        "prompts": len(rows),
+        "failures": len(failed),
+        "failed_prompts": [
+            {
+                "group": row["group"],
+                "prompt_index": row["prompt_index"],
+                "case_id": row["case_id"],
+                "prompt_sha256": row["prompt_sha256"],
+                "linear": row["linear"],
+                "best_directional_factor": row["best_directional_factor"],
+                "best_directional_margin": row["best_directional_margin"],
+                "directional_passed": row["directional_passed"],
+            }
+            for row in failed
+        ],
+        "per_prompt": rows,
+        "all_direct_and_synthetic_prompts_must_pass": True,
+        "passed": not failed,
+    }
+
+
 def frozen_head_certificate(
     model: torch.nn.Module,
     tok: Any,
@@ -453,12 +649,18 @@ def frozen_head_certificate(
     return result
 
 
-def completion_failure(output: Path, *, phase: str, detail: Mapping[str, Any]) -> None:
+def completion_failure(
+    output: Path,
+    *,
+    phase: str,
+    detail: Mapping[str, Any],
+    protocol: str = partition.PROTOCOL,
+) -> None:
     v2.write_json(
         output / "method" / "completion.json",
         {
             "schema_version": 1,
-            "protocol": partition.PROTOCOL,
+            "protocol": str(protocol),
             "passed": False,
             "phase": phase,
             "detail": dict(detail),
@@ -477,6 +679,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     registry_path = Path(args.experiment_registry).resolve()
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     validate_registry(registry, args)
+    active_protocol = str(registry["protocol"])
     protocol_dir = Path(args.protocol_dir).resolve()
     manifest_path = protocol_dir / "split_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -755,9 +958,53 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     if not partition_report["passed"]:
         completion_failure(
-            output, phase="row_partition_diagnostic", detail=partition_report
+            output,
+            phase="row_partition_diagnostic",
+            detail=partition_report,
+            protocol=active_protocol,
         )
         raise RuntimeError("V2.3 excluded every selected row")
+
+    if args.require_per_prompt_reachability:
+        print(
+            "Stage 2b: per-prompt cap-aware reachability from exact zero"
+        )
+        reachability_report = per_prompt_reachability_report(
+            model,
+            tok,
+            {"direct": forget, "synthetic": synthetic_records},
+            device,
+            input_delta=input_delta,
+            input_caps=input_caps,
+            bases=bases,
+            roles=roles,
+            llama_like=llama_like,
+            required_margin=args.minimum_forget_margin,
+        )
+        v2.write_json(
+            output / "method" / "per_prompt_reachability.json",
+            reachability_report,
+        )
+        print(
+            "  reachability: "
+            f"direct failures={reachability_report['groups']['direct']['failures']}, "
+            "synthetic failures="
+            f"{reachability_report['groups']['synthetic']['failures']}"
+        )
+        if not reachability_report["passed"]:
+            completion_failure(
+                output,
+                phase="per_prompt_cap_aware_reachability",
+                detail={
+                    "groups": reachability_report["groups"],
+                    "failures": reachability_report["failures"],
+                    "failed_prompts": reachability_report["failed_prompts"],
+                },
+                protocol=active_protocol,
+            )
+            raise RuntimeError(
+                "V2.3.1 per-prompt reachability failed; optimization refused"
+            )
 
     contrast_cases, contrast_true_ids, contrast_new_ids = build_contrast_cells(
         training_records, tok, llama_like=llama_like
@@ -834,6 +1081,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     tail_reports: List[Dict[str, Any]] = []
     training_log: List[Dict[str, Any]] = []
     candidate_states: Dict[int, torch.Tensor] = {}
+    last_fit_safe_state = input_delta.raw_delta.detach().clone()
+    last_fit_safe_step = 0
 
     def surgical_term() -> tuple[torch.Tensor, Dict[str, Any]]:
         if float(args.surgical_weight) <= 0.0:
@@ -953,12 +1202,24 @@ def main(argv: Sequence[str] | None = None) -> None:
                 drift_limit=args.protected_top1_drift_max,
                 target_drift_limit=args.protected_target_drift_max,
             )
-            if joint.accept_trust_region_candidate(
-                before_forget=before_forget,
-                candidate_forget=float(candidate_forget.cpu()),
-                before_constraint_score=before_score,
-                candidate_constraint_score=local_score,
-            ):
+            if args.require_per_prompt_reachability:
+                accept = partition.accept_strict_trust_region_candidate(
+                    before_forget=before_forget,
+                    candidate_forget=float(candidate_forget.cpu()),
+                    before_constraint_score=before_score,
+                    candidate_constraint_score=local_score,
+                    minimum_forget_improvement=(
+                        args.minimum_forget_loss_improvement
+                    ),
+                )
+            else:
+                accept = joint.accept_trust_region_candidate(
+                    before_forget=before_forget,
+                    candidate_forget=float(candidate_forget.cpu()),
+                    before_constraint_score=before_score,
+                    candidate_constraint_score=local_score,
+                )
+            if accept:
                 accepted = float(factor)
                 candidate_forget_value = float(candidate_forget.cpu())
                 candidate_score = local_score
@@ -974,6 +1235,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             "after_forget_loss": candidate_forget_value,
             "before_constraint_score": before_score,
             "after_constraint_score": candidate_score,
+            "strict_forget_improvement_required": bool(
+                args.require_per_prompt_reachability
+            ),
+            "minimum_forget_loss_improvement": (
+                float(args.minimum_forget_loss_improvement)
+                if args.require_per_prompt_reachability
+                else 0.0
+            ),
             "surgical": surgical_detail,
         }
 
@@ -1060,6 +1329,45 @@ def main(argv: Sequence[str] | None = None) -> None:
             total_norm = float(
                 input_delta.raw_delta.detach().norm().cpu()
             )
+            rolled_back = False
+            rollback_fit_report: Dict[str, Any] | None = None
+            rollback_to_step: int | None = None
+            if args.full_fit_rollback and not fit_report["passed"]:
+                rollback_to_step = int(last_fit_safe_step)
+                with torch.no_grad():
+                    input_delta.raw_delta.copy_(last_fit_safe_state)
+                    partition.apply_role_constraints_(
+                        input_delta.raw_delta, bases, roles
+                    )
+                    geometry.apply_row_caps_(input_delta.raw_delta, input_caps)
+                rollback_fit_report = v22.evaluate_endpoint_protection(
+                    model,
+                    tok,
+                    fit_cache,
+                    fit_target_ids,
+                    fit_base_target_log_probs,
+                    device,
+                    batch_size=args.capture_batch_size,
+                    args=args,
+                )
+                if not rollback_fit_report["passed"]:
+                    completion_failure(
+                        output,
+                        phase="full_fit_rollback_integrity",
+                        detail={
+                            "failed_state": fit_report,
+                            "restored_state": rollback_fit_report,
+                            "rollback_to_step": rollback_to_step,
+                        },
+                        protocol=active_protocol,
+                    )
+                    raise RuntimeError(
+                        "V2.3.1 could not restore the last full-fit-safe state"
+                    )
+                rolled_back = True
+            elif fit_report["passed"]:
+                last_fit_safe_state = input_delta.raw_delta.detach().clone()
+                last_fit_safe_step = int(step)
             passed = bool(
                 direct["passed"]
                 and synth_report["passed"]
@@ -1079,13 +1387,23 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "input_caps": cap,
                 "role_compliance": compliance,
                 "total_delta_norm": total_norm,
+                "full_fit_rollback": {
+                    "enabled": bool(args.full_fit_rollback),
+                    "performed": rolled_back,
+                    "rollback_to_step": rollback_to_step,
+                    "restored_fit": rollback_fit_report,
+                },
                 "passed": passed,
             }
             training_log.append(row)
             if passed:
                 candidate_states[step] = (
-                    input_delta.raw_delta.detach().cpu().clone()
+                input_delta.raw_delta.detach().cpu().clone()
                 )
+            v2.write_json(
+                output / "method" / "projected_training.json",
+                {"hard_tail_refreshes": tail_reports, "checks": training_log},
+            )
             print(
                 f"  step {step:4d}: direct fail {direct['failures']}, "
                 f"synth fail {synth_report['failures']}, "
@@ -1094,7 +1412,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 f"dev KL {development['topk_kl_max']:.6f}, "
                 f"dev top1 {development['top1_logprob_abs_max']:.6f}, "
                 f"dev target {development['target_logprob_abs_max']:.6f}, "
-                f"pass={passed}"
+                f"rollback={rolled_back}, pass={passed}"
             )
     v2.write_json(
         output / "method" / "projected_training.json",
@@ -1109,6 +1427,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "last_hard_tail": tail_reports[-1] if tail_reports else None,
                 "partition": partition_report["role_counts"],
             },
+            protocol=active_protocol,
         )
         raise RuntimeError("V2.3 produced no development-passing candidate")
     selected_step = min(
@@ -1192,7 +1511,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     v2.write_json(output / "method" / "pre_materialization_certificate.json", pre)
     if not pre["passed"]:
-        completion_failure(output, phase="certification", detail=pre)
+        completion_failure(
+            output,
+            phase="certification",
+            detail=pre,
+            protocol=active_protocol,
+        )
         raise RuntimeError("V2.3 selected candidate failed certification")
 
     input_handle.remove()
@@ -1241,14 +1565,19 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     v2.write_json(output / "method" / "post_materialization_certificate.json", post)
     if not post["passed"]:
-        completion_failure(output, phase="materialization", detail=post)
+        completion_failure(
+            output,
+            phase="materialization",
+            detail=post,
+            protocol=active_protocol,
+        )
         raise RuntimeError("V2.3 materialization certificate failed")
 
     candidate_path = output / "method" / "v2_3_candidate_sparse_rows.pt"
     torch.save(
         {
             "schema_version": 1,
-            "protocol": partition.PROTOCOL,
+            "protocol": active_protocol,
             "base_model_path": str(args.model_path),
             "input_row_ids": endpoint_rows.input_ids,
             "input_rows": input_layer.weight.index_select(0, input_ids_tensor)
@@ -1266,7 +1595,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     completion = {
         "schema_version": 1,
-        "protocol": partition.PROTOCOL,
+        "protocol": active_protocol,
         "passed": True,
         "selected_step": selected_step,
         "row_partition": partition_report["role_counts"],

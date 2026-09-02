@@ -20,10 +20,19 @@ import run_mcf_projected_row_partition_embedding_v2_3 as runner  # noqa: E402
 REGISTRY_PATH = (
     ROOT / "protocols" / "mcf_projected_row_partition_embedding_v2_3_registry.json"
 )
+REACHABILITY_REGISTRY_PATH = (
+    ROOT
+    / "protocols"
+    / "mcf_projected_row_partition_embedding_v2_3_1_registry.json"
+)
 
 
 def registry() -> dict:
     return json.loads(REGISTRY_PATH.read_text())
+
+
+def reachability_registry() -> dict:
+    return json.loads(REACHABILITY_REGISTRY_PATH.read_text())
 
 
 def basis(vectors: list[list[float]]) -> torch.Tensor:
@@ -168,6 +177,175 @@ def test_residual_efficacy_separates_angle_from_usable_potential() -> None:
     assert float(result["efficacy"][1]) == pytest.approx(1.0, abs=1e-4)
     assert float(result["potential"][1]) < 1e-5
     assert float(result["efficacy"][2]) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_cap_aware_prompt_reachability_uses_final_roles_and_row_caps() -> None:
+    gradient = torch.tensor(
+        [[3.0, 4.0, 0.0], [2.0, 3.0, 0.0], [9.0, 0.0, 0.0]]
+    )
+    bases = [basis([]), basis([[1.0, 0.0, 0.0]]), basis([])]
+    roles = [core.FREE, core.PROJECTED, core.EXCLUDED]
+    caps = torch.tensor([2.0, 1.0, 5.0])
+    report = core.cap_aware_prompt_reachability(
+        gradient,
+        bases,
+        roles,
+        caps,
+        base_margin=-10.0,
+        required_margin=0.1,
+    )
+    # Free row: 2 * 5 = 10; projected row: 1 * 3 = 3; excluded: 0.
+    assert report["maximum_first_order_improvement"] == pytest.approx(13.0)
+    assert report["predicted_maximum_margin"] == pytest.approx(3.0)
+    assert report["usable_gradient_rows"] == 2
+    assert report["passed"] is True
+    direction = core.cap_saturating_margin_direction(
+        gradient, bases, roles, caps
+    )
+    assert float(direction[0].norm()) == pytest.approx(2.0, abs=1e-6)
+    assert torch.allclose(direction[1], torch.tensor([0.0, 1.0, 0.0]))
+    assert float(direction[2].norm()) == 0.0
+
+
+def test_cap_aware_prompt_reachability_fails_when_projection_removes_capacity() -> None:
+    report = core.cap_aware_prompt_reachability(
+        torch.tensor([[2.0, 0.0, 0.0]]),
+        [basis([[1.0, 0.0, 0.0]])],
+        [core.PROJECTED],
+        torch.tensor([100.0]),
+        base_margin=-1.0,
+        required_margin=0.1,
+    )
+    assert report["maximum_first_order_improvement"] == pytest.approx(0.0)
+    assert report["usable_gradient_rows"] == 0
+    assert report["passed"] is False
+
+
+def test_strict_trust_region_rejects_equal_or_tiny_forget_progress() -> None:
+    kwargs = {
+        "before_forget": 10.0,
+        "before_constraint_score": 0.5,
+        "candidate_constraint_score": 0.8,
+        "minimum_forget_improvement": 1e-3,
+    }
+    assert not core.accept_strict_trust_region_candidate(
+        candidate_forget=10.0, **kwargs
+    )
+    assert not core.accept_strict_trust_region_candidate(
+        candidate_forget=9.9995, **kwargs
+    )
+    assert core.accept_strict_trust_region_candidate(
+        candidate_forget=9.998, **kwargs
+    )
+    assert not core.accept_strict_trust_region_candidate(
+        before_forget=10.0,
+        candidate_forget=9.0,
+        before_constraint_score=0.5,
+        candidate_constraint_score=1.1,
+        minimum_forget_improvement=1e-3,
+    )
+
+
+def test_v2_3_1_registry_locks_reachability_strict_progress_and_rollback() -> None:
+    args = runner.parse_args(
+        [
+            "--model-path",
+            "model",
+            "--protocol-dir",
+            "protocol",
+            "--experiment-registry",
+            "registry",
+            "--wikidata-dir",
+            "wiki",
+            "--output-dir",
+            "out",
+            "--require-per-prompt-reachability",
+            "--minimum-forget-loss-improvement",
+            "0.00001",
+            "--full-fit-rollback",
+        ]
+    )
+    runner.validate_registry(reachability_registry(), args)
+    value = reachability_registry()
+    assert value["protocol"] == core.REACHABILITY_PROTOCOL
+    assert value["per_prompt_reachability"]["required_before_optimization"]
+    assert value["optimization"]["strict_forget_improvement"]
+    assert value["optimization"]["full_fit_rollback"]
+
+
+def test_v2_3_1_registry_refuses_missing_runtime_controls() -> None:
+    args = runner.parse_args(
+        [
+            "--model-path",
+            "model",
+            "--protocol-dir",
+            "protocol",
+            "--experiment-registry",
+            "registry",
+            "--wikidata-dir",
+            "wiki",
+            "--output-dir",
+            "out",
+        ]
+    )
+    with pytest.raises(RuntimeError, match="V2.3.1 reachability"):
+        runner.validate_registry(reachability_registry(), args)
+
+
+def test_per_prompt_forward_reachability_is_separate_and_restores_zero(
+    monkeypatch,
+) -> None:
+    delta = runner.canonical.SelectedRowDelta(
+        2, 2, direction_basis=None, device=torch.device("cpu")
+    )
+    records = {
+        "direct": [
+            {
+                "case_id": 7,
+                "base_margin": -1.0,
+                "gradient": [[2.0, 0.0], [0.0, 0.0]],
+                "requested_rewrite": {"prompt": "{} works as", "subject": "A"},
+            }
+        ],
+        "synthetic": [
+            {
+                "case_id": 7,
+                "base_margin": -1.0,
+                "gradient": [[0.0, 0.0], [5.0, 0.0]],
+                "requested_rewrite": {"prompt": "Tell me about {}", "subject": "A"},
+            }
+        ],
+    }
+
+    def fake_margin(_model, _tok, batch, _device, *, llama_like):
+        del llama_like
+        values = []
+        for record in batch:
+            local_gradient = torch.tensor(record["gradient"], dtype=torch.float32)
+            values.append(
+                torch.tensor(float(record["base_margin"]))
+                + (delta.raw_delta * local_gradient).sum()
+            )
+        return torch.stack(values)
+
+    monkeypatch.setattr(runner.v2, "records_margin_tensor", fake_margin)
+    model = torch.nn.Linear(1, 1)
+    report = runner.per_prompt_reachability_report(
+        model,
+        None,
+        records,
+        torch.device("cpu"),
+        input_delta=delta,
+        input_caps=torch.tensor([1.0, 1.0]),
+        bases=[basis([]), basis([])],
+        roles=[core.FREE, core.EXCLUDED],
+        llama_like=False,
+        required_margin=0.1,
+    )
+    assert report["groups"]["direct"]["failures"] == 0
+    assert report["groups"]["synthetic"]["failures"] == 1
+    assert report["passed"] is False
+    assert torch.count_nonzero(delta.raw_delta).item() == 0
 
 
 def test_partition_assigns_free_projected_and_excluded_roles() -> None:

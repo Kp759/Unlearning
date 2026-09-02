@@ -25,6 +25,9 @@ import mcf_biendpoint_nullspace_rewiring_v2_core as geometry
 
 
 PROTOCOL = "mcf_projected_row_partition_embedding_rewiring_v2_3"
+REACHABILITY_PROTOCOL = (
+    "mcf_projected_row_partition_embedding_rewiring_v2_3_1"
+)
 
 FREE = "free"
 PROJECTED = "projected"
@@ -163,6 +166,138 @@ def residual_efficacy(
         "efficacy": efficacy.cpu(),
         "potential": potential.cpu(),
     }
+
+
+def role_constrained_gradient(
+    gradient: torch.Tensor,
+    bases: Sequence[torch.Tensor],
+    roles: Sequence[str],
+) -> torch.Tensor:
+    """Return the locally usable part of a gradient under the row policy.
+
+    The sign is deliberately unchanged: for a scalar margin ``m``, moving a
+    row along this result increases the first-order approximation to ``m``.
+    This helper applies the exact same exclusion/projection policy used for a
+    trained cumulative delta, which prevents the reachability audit from
+    crediting directions that optimization will subsequently remove.
+    """
+    if gradient.ndim != 2 or len(bases) != int(gradient.shape[0]):
+        raise ValueError("gradient rows and basis count differ")
+    if len(roles) != int(gradient.shape[0]):
+        raise ValueError("gradient rows and role count differ")
+    constrained = gradient.detach().float().clone()
+    apply_role_constraints_(constrained, bases, roles)
+    return constrained
+
+
+def cap_aware_prompt_reachability(
+    gradient: torch.Tensor,
+    bases: Sequence[torch.Tensor],
+    roles: Sequence[str],
+    caps: torch.Tensor,
+    *,
+    base_margin: float,
+    required_margin: float,
+    tolerance: float = 1e-7,
+) -> Dict[str, Any]:
+    """First-order per-prompt reachability under every registered row cap.
+
+    With independent L2 caps per physical embedding row, the exact maximum of
+    the local linear model is
+
+        ``sum_t cap_t * ||P_t grad_t margin||``.
+
+    ``P_t`` is identity for free rows, the retain-nullspace projector for
+    projected rows, and zero for excluded rows.  This is only a local upper
+    bound for the nonlinear frozen Transformer, so the runner additionally
+    performs a real forward directional sweep before allowing training.
+    """
+    if gradient.ndim != 2 or caps.shape != (gradient.shape[0],):
+        raise ValueError("gradient and row caps are incompatible")
+    usable = role_constrained_gradient(gradient, bases, roles)
+    norms = usable.norm(dim=1)
+    cap_values = caps.detach().to(device=usable.device, dtype=torch.float32)
+    row_gains = cap_values * norms
+    maximum_improvement = float(row_gains.sum().cpu())
+    required_improvement = max(0.0, float(required_margin) - float(base_margin))
+    editable_rows = int((norms > float(tolerance)).sum().item())
+    predicted_margin = float(base_margin) + maximum_improvement
+    passed = bool(
+        required_improvement <= float(tolerance)
+        or (
+            editable_rows > 0
+            and maximum_improvement + float(tolerance) >= required_improvement
+        )
+    )
+    return {
+        "base_margin": float(base_margin),
+        "required_margin": float(required_margin),
+        "required_improvement": required_improvement,
+        "maximum_first_order_improvement": maximum_improvement,
+        "predicted_maximum_margin": predicted_margin,
+        "usable_gradient_norm": float(norms.norm().cpu()),
+        "usable_gradient_rows": editable_rows,
+        "raw_gradient_norm": float(gradient.detach().float().norm().cpu()),
+        "passed": passed,
+    }
+
+
+def cap_saturating_margin_direction(
+    gradient: torch.Tensor,
+    bases: Sequence[torch.Tensor],
+    roles: Sequence[str],
+    caps: torch.Tensor,
+) -> torch.Tensor:
+    """Construct the cap-bounded direction maximizing the local margin.
+
+    Each usable row receives its full independent L2 budget.  Multiplying the
+    returned tensor by a factor in ``[0, 1]`` gives the registered nonlinear
+    directional sweep used after the linear reachability calculation.
+    """
+    usable = role_constrained_gradient(gradient, bases, roles)
+    if caps.shape != (usable.shape[0],):
+        raise ValueError("caps must supply one value per row")
+    norms = usable.norm(dim=1)
+    scales = torch.where(
+        norms > 0,
+        caps.detach().to(device=usable.device, dtype=torch.float32)
+        / norms.clamp_min(1e-20),
+        torch.zeros_like(norms),
+    )
+    direction = usable * scales[:, None]
+    apply_role_constraints_(direction, bases, roles)
+    return direction
+
+
+def accept_strict_trust_region_candidate(
+    *,
+    before_forget: float,
+    candidate_forget: float,
+    before_constraint_score: float,
+    candidate_constraint_score: float,
+    minimum_forget_improvement: float,
+    tolerance: float = 1e-7,
+) -> bool:
+    """Accept only feasible candidates with a measurable forget improvement.
+
+    V2.3 delegated this decision to V2.2, whose non-increasing predicate also
+    accepted equality.  Projection could therefore erase the useful part of a
+    proposal while ``accepted_factor=1`` was still reported.  V2.3.1 makes
+    strict progress an invariant.  An infeasible state must improve both the
+    constraint score and forgetting; a feasible state must remain feasible.
+    """
+    required = max(float(minimum_forget_improvement), float(tolerance))
+    forget_improved = (
+        float(before_forget) - float(candidate_forget) >= required
+    )
+    if not forget_improved:
+        return False
+    if float(before_constraint_score) <= 1.0 + float(tolerance):
+        return bool(float(candidate_constraint_score) <= 1.0 + float(tolerance))
+    return bool(
+        float(candidate_constraint_score)
+        < float(before_constraint_score) - float(tolerance)
+    )
 
 
 def partition_rows(
