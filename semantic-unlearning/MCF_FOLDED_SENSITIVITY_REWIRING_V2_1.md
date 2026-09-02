@@ -1,5 +1,8 @@
 # MCF folded-sensitivity bi-endpoint rewiring V2.1
 
+**Status: terminal rejected.** The final embedding-first run saved no candidate
+and opened no certification or official evaluation prompts.
+
 ## Purpose
 
 V2.1 replaces V2's joint stochastic optimizer with a classifier that is folded
@@ -62,6 +65,13 @@ rows move first through the frozen Transformer, with every proposal guarded by
 the original preservation gates. Periodic folded-head refits are installed
 only when they independently pass complete development preservation. An
 invalid refit is discarded and the last valid head—or exact zero—is restored.
+
+In the executed run, embedding-first optimization changed direct failures only
+from 42 to 40 and synthetic failures from 130 to 124. Development KL reached
+`0.100819` and top-1 drift reached `0.324246`; none of four folded-head refits
+became protection-valid. Sparse subject/answer endpoint selection is therefore
+terminal under the registered constraints. V2.2 tests broader rendered-question
+input rows with forget and retain strata on every update.
 
 ## Stage 1: deterministic folded head solve
 

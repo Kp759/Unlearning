@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "protocol": "mcf_folded_sensitivity_biendpoint_rewiring_v2_1",
-  "status": "training_only_embedding_first_repair_available_not_executed",
+  "status": "terminal_rejected_training_only_development",
   "design_document": "MCF_FOLDED_SENSITIVITY_REWIRING_V2_1.md",
   "supersedes": "mcf_sparse_biendpoint_nullspace_rewiring_v2",
   "terminal_first_implementation_result": {
@@ -27,6 +27,19 @@
     "candidate_saved": false,
     "official_evaluation_prompts_seen": 0,
     "diagnosis": "The protected hard tail improved behavioral reachability but no head arm was protection-valid. Floors 8 through 24 were identical, showing output-cap saturation. A protection-invalid head cannot be the baseline for embedding rescue."
+  },
+  "terminal_embedding_first_result": {
+    "source_commit": "039fbfb05983b09380f836ef7586d48fbd55fdb4",
+    "initial_direct_failures": 42,
+    "final_direct_failures": 40,
+    "initial_synthetic_failures": 130,
+    "final_synthetic_failures": 124,
+    "final_development_kl_max": 0.100819,
+    "final_development_top1_drift": 0.324246,
+    "protection_valid_folded_head_refits": 0,
+    "candidate_saved": false,
+    "official_evaluation_prompts_seen": 0,
+    "diagnosis": "Embedding-first updates were no longer inert, but protection failed before meaningful forgetting emerged. No folded head refit became protection-valid. Sparse subject/answer endpoint rows are terminal under the locked constraints."
   },
   "architecture": {
     "trainable_parameter_families": [

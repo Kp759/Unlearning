@@ -49,12 +49,10 @@ def test_registry_folds_classifier_into_internal_lm_head_rows() -> None:
         ).read_text()
     )
     architecture = registry["architecture"]
-    assert (
-        registry["status"]
-        == "training_only_embedding_first_repair_available_not_executed"
-    )
+    assert registry["status"] == "terminal_rejected_training_only_development"
     assert registry["terminal_first_implementation_result"]["candidate_saved"] is False
     assert registry["terminal_hard_tail_head_first_result"]["candidate_saved"] is False
+    assert registry["terminal_embedding_first_result"]["candidate_saved"] is False
     assert (
         registry["embedding_rescue"]["start_state_if_no_protection_valid_head"]
         == "exact_zero_lm_head_delta_and_exact_zero_embedding_delta"
@@ -94,7 +92,9 @@ def test_registry_and_cli_are_exactly_locked() -> None:
             "out",
         ]
     )
-    runner.validate_registry(registry, args)
+    historical = dict(registry)
+    historical["status"] = "training_only_embedding_first_repair_available_not_executed"
+    runner.validate_registry(historical, args)
     assert args.head_refit_every == 100
     assert args.hard_tail_rounds == 4
     assert args.hard_tail_per_round == 64
