@@ -130,6 +130,33 @@ def _rewrite_ids(
     return out
 
 
+def _rewrite_encoded_input_ids(ids: Any, mapping: Sequence[Mapping[str, Any]]) -> Any:
+    """Rewrite list or tensor input_ids without changing shape/dtype/device."""
+    if torch.is_tensor(ids):
+        original = ids
+        if original.ndim == 1:
+            rewritten = _rewrite_ids(original.tolist(), mapping)
+        elif original.ndim == 2:
+            rewritten = [_rewrite_ids(row.tolist(), mapping) for row in original]
+        else:
+            raise RuntimeError(
+                f"position-preserving tokenizer expected rank-1/2 input_ids, got {original.ndim}"
+            )
+        result = torch.tensor(rewritten, dtype=original.dtype, device=original.device)
+        if tuple(result.shape) != tuple(original.shape):
+            raise RuntimeError("position-preserving tensor rewrite changed input shape")
+        return result
+
+    if isinstance(ids, list):
+        if not ids:
+            return ids
+        if isinstance(ids[0], list):
+            return [_rewrite_ids(row, mapping) for row in ids]
+        return _rewrite_ids(ids, mapping)
+
+    raise TypeError(f"unsupported input_ids container for private routing: {type(ids)!r}")
+
+
 class PositionPreservingSubjectTokenizer:
     """Thin deterministic subject-sequence rewriter around the Base tokenizer.
 
@@ -154,11 +181,9 @@ class PositionPreservingSubjectTokenizer:
 
     def __call__(self, text: Any, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         encoded = self.base_tokenizer(text, *args, **kwargs)
-        ids = encoded["input_ids"]
-        if ids and isinstance(ids[0], list):
-            encoded["input_ids"] = [_rewrite_ids(row, self.mapping) for row in ids]
-        else:
-            encoded["input_ids"] = _rewrite_ids(ids, self.mapping)
+        encoded["input_ids"] = _rewrite_encoded_input_ids(
+            encoded["input_ids"], self.mapping
+        )
         return encoded
 
     def save_pretrained(self, directory: str | Path) -> None:
