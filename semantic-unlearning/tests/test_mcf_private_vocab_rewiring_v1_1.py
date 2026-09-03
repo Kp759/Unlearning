@@ -121,3 +121,14 @@ def test_longest_subject_sequence_wins_when_subjects_overlap():
     private = core.PositionPreservingSubjectTokenizer(tok, mapping)
     # The 3-token New Belgium rule must win over the embedded 2-token Belgium rule.
     assert private("Tell me about New Belgium.")["input_ids"] == [5, 5, 10, 11, 12, 5]
+
+
+def test_tensor_batch_routing_preserves_shape_dtype_and_device():
+    tok = DummyTokenizer()
+    mapping = core.build_position_preserving_mapping(tok, ["Belgium"])
+    ids = torch.tensor([[5, 3, 4, 5], [3, 4, 5, 5]], dtype=torch.long)
+    rewritten = core._rewrite_encoded_input_ids(ids, mapping)
+    assert torch.equal(rewritten, torch.tensor([[5, 8, 9, 5], [8, 9, 5, 5]]))
+    assert rewritten.shape == ids.shape
+    assert rewritten.dtype == ids.dtype
+    assert rewritten.device == ids.device
