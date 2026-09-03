@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "protocol": "mcf_private_vocab_rewiring_v1_1_position_preserving",
+  "status": "training_only_implementation_available_not_executed",
+  "parent_experiment": "mcf_private_vocab_rewiring_v1",
+  "architecture": {
+    "trainable_parameter_families": [
+      "private_subject_embedding_rows"
+    ],
+    "private_tokens_per_subject_token": "one_to_one",
+    "subject_token_count_preserved": true,
+    "subject_sequence_rewrite": true,
+    "relation_aware_router": false,
+    "runtime_forget_query_classifier": false,
+    "reserved_vocab_slots_repurposed": true,
+    "vocabulary_size_unchanged": true,
+    "transformer_frozen": true,
+    "input_lm_head_untied": true,
+    "lm_head_frozen_bit_identical": true,
+    "original_input_embedding_rows_frozen": true,
+    "output_rows_trainable": false,
+    "external_edit_vector_cache": false
+  },
+  "routing": {
+    "unit": "complete_base_subject_token_sequence",
+    "replacement": "same_length_private_reserved_token_sequence",
+    "matching": "exact_longest_contiguous_base_token_id_sequence",
+    "applied_in_all_relations_and_contexts": true,
+    "relation_text_inspected": false,
+    "token_count_preserved": true,
+    "following_rope_positions_preserved": true
+  },
+  "initialization": {
+    "rule": "E_private_j_equals_E_base_subject_token_j",
+    "clone_distillation_steps": 0,
+    "initial_topk_kl_max": 1e-7,
+    "initial_forget_margin_drift_max": 1e-5,
+    "must_pass_before_unlearning": true
+  },
+  "data": {
+    "seed": 1,
+    "forget_records": 50,
+    "official_retain_records_reserved": 1000,
+    "protection_fit_records": 2000,
+    "protection_development_records": 500,
+    "protection_certification_records": 1000,
+    "official_prompt_text_visible": false
+  },
+  "optimization": {
+    "steps": 600,
+    "learning_rate": 0.001,
+    "forget_batch_size": 8,
+    "retain_batch_size": 16,
+    "forget_margin_target": 0.1,
+    "retain_topk_kl_weight": 20.0,
+    "anchor_weight": 0.001,
+    "relative_private_row_cap": 0.5,
+    "topk": 64
+  },
+  "acceptance": {
+    "minimum_forget_margin": 0.1,
+    "direct_failures_required": 0,
+    "retain_mean_topk_kl_max": 0.0001,
+    "lm_head_bit_identical": true,
+    "all_nonprivate_input_rows_bit_identical": true,
+    "token_count_preserved_for_registered_subjects": true,
+    "nonregistered_prompt_length_preserved": true
+  },
+  "claim_boundary": {
+    "behavioral_unlearning": true,
+    "latent_knowledge_erasure": false,
+    "subject_sequence_routing_is_part_of_method": true,
+    "relation_aware_routing": false,
+    "restoring_original_subject_token_ids_can_bypass": true,
+    "token_disjoint_aliases_covered": false
+  }
+}
