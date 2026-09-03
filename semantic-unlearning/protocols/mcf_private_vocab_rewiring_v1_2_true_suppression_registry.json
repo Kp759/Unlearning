@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "protocol": "mcf_private_vocab_rewiring_v1_2_true_target_suppression",
+  "dataset": "MCF",
+  "development_status": "architecture_development_seed1_consumed",
+  "architecture": {
+    "base_architecture": "mcf_private_vocab_rewiring_v1_1_position_preserving",
+    "trainable_parameter_families": ["private_subject_embedding_rows"],
+    "subject_token_count_preserved": true,
+    "transformer_frozen": true,
+    "lm_head_frozen_bit_identical": true,
+    "original_input_embedding_rows_frozen": true,
+    "reserved_vocab_slots_repurposed": true,
+    "subject_sequence_rewrite": true,
+    "relation_aware_router": false
+  },
+  "forget_objective": {
+    "name": "base_relative_target_true_logprob_suppression",
+    "target_true_only_gradient": true,
+    "target_new_gradient": false,
+    "training_target_logprob_drop_nats_per_answer_token": 4.0,
+    "registered_minimum_logprob_drop_nats_per_answer_token": 2.0
+  },
+  "retain": {
+    "same_subject_different_relation_preservation": true,
+    "retain_kl_weight": 20.0,
+    "registered_mean_kl_max": 0.0001
+  },
+  "constraints": {
+    "relative_private_row_cap": 0.5,
+    "initial_equivalence_kl_max": 1e-7,
+    "initial_score_drift_max": 1e-5
+  },
+  "claim_boundary": {
+    "behavioral_unlearning": true,
+    "latent_erasure_claimed": false,
+    "target_new_is_training_gradient_source": false,
+    "restoring_original_subject_ids_can_bypass": true
+  }
+}
