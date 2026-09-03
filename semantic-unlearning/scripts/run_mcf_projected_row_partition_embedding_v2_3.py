@@ -532,16 +532,28 @@ def collect_per_example_sensitivity(
     forget_coverage = torch.zeros(row_count, dtype=torch.long)
     retain_coverage = torch.zeros(row_count, dtype=torch.long)
     forget_gradient_sum = torch.zeros_like(input_delta.raw_delta)
+    zero_graph_examples = {"forget": 0, "retain": 0}
 
-    def record_norms(scalar: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def record_norms(
+        scalar: torch.Tensor, *, group: str
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         input_delta.zero_grad(set_to_none=True)
         model.zero_grad(set_to_none=True)
-        scalar.backward()
-        gradient = input_delta.raw_delta.grad
-        if gradient is None:
+        # The Transformer and LM head are frozen.  When a prompt contains none
+        # of the selected input rows, the embedding hook returns the untouched
+        # Base tensor, so the scalar correctly has no autograd graph.  That is
+        # an exact zero sensitivity observation, not an error.  Calling
+        # backward() on such a scalar raises "does not require grad".
+        if not scalar.requires_grad:
+            zero_graph_examples[group] += 1
             local = torch.zeros_like(input_delta.raw_delta)
         else:
-            local = gradient.detach().clone()
+            scalar.backward()
+            gradient = input_delta.raw_delta.grad
+            if gradient is None:
+                local = torch.zeros_like(input_delta.raw_delta)
+            else:
+                local = gradient.detach().clone()
         norms = local.float().norm(dim=1).cpu()
         maximum = float(norms.max().item()) if norms.numel() else 0.0
         threshold = max(
@@ -556,7 +568,7 @@ def collect_per_example_sensitivity(
             margin = v2.records_margin_tensor(
                 model, tok, [record], device, llama_like=llama_like
             )[0]
-            gradient, covered = record_norms(margin)
+            gradient, covered = record_norms(margin, group="forget")
             norms = gradient.float().norm(dim=1).cpu()
             forget_norms.append(norms)
             forget_coverage.add_(covered.long())
@@ -578,7 +590,7 @@ def collect_per_example_sensitivity(
                 device,
                 llama_like=llama_like,
             )[0]
-            gradient, covered = record_norms(target_nll)
+            gradient, covered = record_norms(target_nll, group="retain")
             retain_norms.append(gradient.float().norm(dim=1).cpu())
             retain_coverage.add_(covered.long())
             if (index + 1) % 250 == 0 or index + 1 == len(retain_records):
@@ -617,6 +629,10 @@ def collect_per_example_sensitivity(
             "prompt_text_serialized": 0,
             "ratio_is_sole_safety_criterion": False,
             "retain_hard_tail_guard": True,
+            "zero_graph_examples": zero_graph_examples,
+            "zero_graph_semantics": (
+                "exact_zero_selected_embedding_row_sensitivity"
+            ),
         }
     )
     return forget_gradient_sum / float(len(forget_records)), report

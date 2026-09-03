@@ -549,7 +549,7 @@ def test_sensitivity_collector_uses_separate_examples_and_restores_zero(
 
     retain_calls = iter(
         [
-            torch.tensor([[0.0, 0.0], [1.0, 0.0]]),
+            None,
             torch.tensor([[0.0, 0.0], [1.0, 0.0]]),
         ]
     )
@@ -557,6 +557,10 @@ def test_sensitivity_collector_uses_separate_examples_and_restores_zero(
     def fake_nll(_model, _tok, _prompts, _answers, _device, *, llama_like):
         del llama_like
         local = next(retain_calls)
+        if local is None:
+            # A real frozen-model prompt that contains no selected input row
+            # follows this path: its scalar has no dependency on raw_delta.
+            return torch.tensor([3.0])
         return torch.stack([(delta.raw_delta * local).sum()])
 
     monkeypatch.setattr(runner.v2, "records_margin_tensor", fake_margin)
@@ -580,7 +584,11 @@ def test_sensitivity_collector_uses_separate_examples_and_restores_zero(
     assert report["forget_examples"] == 1
     assert report["retain_examples"] == 2
     assert report["per_row"][0]["forget_coverage"] == 1
-    assert report["per_row"][1]["retain_coverage"] == 2
+    assert report["per_row"][1]["retain_coverage"] == 1
+    assert report["zero_graph_examples"] == {"forget": 0, "retain": 1}
+    assert report["zero_graph_semantics"] == (
+        "exact_zero_selected_embedding_row_sensitivity"
+    )
     assert report["prompt_classifier"] is False
     assert torch.count_nonzero(delta.raw_delta).item() == 0
 
