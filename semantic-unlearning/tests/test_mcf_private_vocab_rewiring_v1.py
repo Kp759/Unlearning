@@ -84,6 +84,25 @@ def test_materialization_changes_only_selected_rows():
     assert torch.equal(weight[keep], before[keep])
 
 
+def test_bfloat16_hashes_exact_raw_bits():
+    value = torch.tensor([[1.0, -2.0], [3.5, 4.0]], dtype=torch.bfloat16)
+    same = value.clone()
+    assert core.sha256_tensor(value) == core.sha256_tensor(same)
+    same[0, 0] = torch.tensor(1.5, dtype=torch.bfloat16)
+    assert core.sha256_tensor(value) != core.sha256_tensor(same)
+
+
+def test_bfloat16_non_private_hash_ignores_private_rows_only():
+    value = torch.arange(20, dtype=torch.float32).reshape(10, 2).to(torch.bfloat16)
+    baseline = core.non_private_row_hash(value, [8])
+    private_changed = value.clone()
+    private_changed[8] = torch.tensor([99.0, 100.0], dtype=torch.bfloat16)
+    assert core.non_private_row_hash(private_changed, [8]) == baseline
+    public_changed = value.clone()
+    public_changed[7, 0] += torch.tensor(1.0, dtype=torch.bfloat16)
+    assert core.non_private_row_hash(public_changed, [8]) != baseline
+
+
 def test_patch_tokenizer_reserved_entry(tmp_path: Path):
     payload = {
         "added_tokens": [
