@@ -46,6 +46,15 @@
     "protection_certification_records": 1000,
     "official_prompt_text_visible": false
   },
+  "same_subject_relation_preservation": {
+    "enabled": true,
+    "templates_source": "training_visible_protection_fit_only",
+    "templates_per_forget_subject": 8,
+    "forgotten_relation_id_excluded": true,
+    "teacher": "frozen_base_model_distribution",
+    "official_evaluation_prompts_used": false,
+    "relation_aware_routing": false
+  },
   "optimization": {
     "steps": 600,
     "learning_rate": 0.001,
