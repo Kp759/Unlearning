@@ -30,6 +30,11 @@ SENSITIVITY_REGISTRY_PATH = (
     / "protocols"
     / "mcf_projected_row_partition_embedding_v2_3_2_registry.json"
 )
+HYBRID_REGISTRY_PATH = (
+    ROOT
+    / "protocols"
+    / "mcf_projected_row_partition_embedding_v2_3_3_registry.json"
+)
 
 
 def registry() -> dict:
@@ -42,6 +47,10 @@ def reachability_registry() -> dict:
 
 def sensitivity_registry() -> dict:
     return json.loads(SENSITIVITY_REGISTRY_PATH.read_text())
+
+
+def hybrid_registry() -> dict:
+    return json.loads(HYBRID_REGISTRY_PATH.read_text())
 
 
 def basis(vectors: list[list[float]]) -> torch.Tensor:
@@ -461,6 +470,69 @@ def test_sensitivity_can_only_tighten_geometric_roles() -> None:
     assert report["liveness_forcing_disabled"] is True
 
 
+def test_hybrid_policy_guards_forget_specific_and_projects_shared_rows() -> None:
+    geometry_roles = [core.PROJECTED, core.EXCLUDED, core.FREE, core.PROJECTED]
+    geometry_report = {
+        "per_row": [
+            {"reason": "shared_row_projected_out_of_retain_subspace"},
+            {"reason": "common_row_beyond_projection_bound"},
+            {"reason": "forget_exclusive_after_targeted_coverage"},
+            {"reason": "near_parallel_to_retain_subspace"},
+        ]
+    }
+    classes = ["forget_specific", "shared", "retain_dominant", "low_forget"]
+    sensitivity_report = {
+        "class_counts": {value: 1 for value in classes},
+        "per_row": [
+            {
+                "class": value,
+                "forget_importance_rms": 2.0,
+                "retain_importance_rms": 0.1,
+                "retain_importance_max": 0.2,
+                "importance_ratio": 20.0,
+                "forget_coverage": 2,
+                "retain_coverage": 1,
+            }
+            for value in classes
+        ],
+    }
+    roles, report = core.combine_hybrid_sensitivity_roles(
+        row_ids=[10, 11, 12, 13],
+        geometry_roles=geometry_roles,
+        geometry_report=geometry_report,
+        sensitivity_report=sensitivity_report,
+    )
+    assert roles == [
+        core.GUARDED,
+        core.PROJECTED,
+        core.EXCLUDED,
+        core.EXCLUDED,
+    ]
+    assert report["role_counts"] == {
+        "free": 0,
+        "guarded": 1,
+        "projected": 1,
+        "excluded": 2,
+    }
+    # The sensitivity class, not the older geometry exclusion, owns V2.3.3.
+    assert report["per_row"][1]["geometry_role"] == core.EXCLUDED
+    assert report["per_row"][1]["role"] == core.PROJECTED
+    assert report["guarded_rows_require_forward_retain_checks"] is True
+
+
+def test_guarded_role_is_unprojected_but_still_structurally_audited() -> None:
+    delta = torch.tensor([[1.0, 2.0, 0.0]], dtype=torch.float32)
+    local_basis = [basis([[1.0, 0.0, 0.0]])]
+    core.apply_role_constraints_(delta, local_basis, [core.GUARDED])
+    assert torch.allclose(delta, torch.tensor([[1.0, 2.0, 0.0]]))
+    report = core.role_compliance_report(
+        delta, local_basis, [core.GUARDED]
+    )
+    assert report["guarded_rows"] == 1
+    assert report["guarded_safety_is_forward_evaluated"] is True
+    assert report["passed"] is True
+
+
 def test_v2_3_2_registry_locks_per_example_sensitivity() -> None:
     args = runner.parse_args(
         [
@@ -509,6 +581,203 @@ def test_v2_3_2_registry_refuses_disabling_sensitivity() -> None:
     )
     with pytest.raises(RuntimeError, match="V2.3.2 per-example"):
         runner.validate_registry(sensitivity_registry(), args)
+
+
+def test_v2_3_3_registry_locks_hybrid_roles_and_iterative_path() -> None:
+    args = runner.parse_args(
+        [
+            "--model-path",
+            "model",
+            "--protocol-dir",
+            "protocol",
+            "--experiment-registry",
+            "registry",
+            "--wikidata-dir",
+            "wiki",
+            "--output-dir",
+            "out",
+            "--require-per-example-sensitivity",
+            "--require-per-prompt-reachability",
+            "--require-hybrid-role-policy",
+            "--require-iterative-reachability",
+            "--minimum-forget-loss-improvement",
+            "0.00001",
+            "--full-fit-rollback",
+        ]
+    )
+    runner.validate_registry(hybrid_registry(), args)
+    value = hybrid_registry()
+    assert value["protocol"] == core.HYBRID_PROTOCOL
+    assert value["hybrid_role_policy"] == {
+        "forget_specific": "guarded",
+        "shared": "projected",
+        "retain_dominant": "excluded",
+        "low_forget": "excluded",
+        "frequency_caps_unchanged": True,
+        "guarded_forward_retain_checks": True,
+    }
+    reachability = value["per_prompt_reachability"]
+    assert reachability["iterative_gradient_recomputation"] is True
+    assert reachability["nonlinear_directional_sweep"] is False
+    assert reachability["required_margin"] == 0.1
+
+
+def test_iterative_reachability_relinearizes_and_checks_guarded_retain(
+    monkeypatch,
+) -> None:
+    delta = runner.canonical.SelectedRowDelta(
+        1, 1, direction_basis=None, device=torch.device("cpu")
+    )
+    record = {
+        "case_id": 9,
+        "requested_rewrite": {"prompt": "{} asks", "subject": "A"},
+    }
+    gradient_calls = 0
+    guard_calls = 0
+
+    def fake_margin(_model, _tok, _batch, _device, *, llama_like):
+        nonlocal gradient_calls
+        del llama_like
+        if torch.is_grad_enabled():
+            gradient_calls += 1
+        return torch.stack([-1.0 + delta.raw_delta.sum()])
+
+    def fake_retain(
+        _model,
+        _tok,
+        _cache,
+        _target_ids,
+        _base_logs,
+        indices,
+        _device,
+        *,
+        batch_size,
+    ):
+        nonlocal guard_calls
+        del batch_size
+        assert list(indices) == [0]
+        guard_calls += 1
+        zero = torch.zeros(())
+        return zero, zero, zero, zero
+
+    monkeypatch.setattr(runner.v2, "records_margin_tensor", fake_margin)
+    monkeypatch.setattr(runner.v22, "active_retain_loss", fake_retain)
+    protection_args = runner.parse_args(
+        [
+            "--model-path",
+            "model",
+            "--protocol-dir",
+            "protocol",
+            "--experiment-registry",
+            "registry",
+            "--wikidata-dir",
+            "wiki",
+            "--output-dir",
+            "out",
+        ]
+    )
+    report = runner.iterative_per_prompt_reachability_report(
+        torch.nn.Linear(1, 1),
+        None,
+        {"direct": [record]},
+        torch.device("cpu"),
+        input_delta=delta,
+        input_caps=torch.tensor([2.0]),
+        bases=[basis([])[:, :1]],
+        roles=[core.GUARDED],
+        retain_indices_by_row=[[0]],
+        protection_cache=None,
+        protection_target_ids=torch.tensor([-1]),
+        protection_base_target_log_probs=torch.tensor([0.0]),
+        llama_like=False,
+        required_margin=0.1,
+        max_steps=10,
+        step_fraction=0.2,
+        minimum_improvement=1e-6,
+        protection_args=protection_args,
+    )
+    row = report["per_prompt"][0]
+    assert report["passed"] is True
+    assert row["accepted_steps"] == 3
+    assert row["best_iterative_margin"] >= 0.1
+    assert gradient_calls >= 4  # initial linearization plus each path step
+    assert guard_calls >= 3
+    assert torch.count_nonzero(delta.raw_delta).item() == 0
+
+
+def test_iterative_reachability_refuses_an_unsafe_guarded_path(
+    monkeypatch,
+) -> None:
+    delta = runner.canonical.SelectedRowDelta(
+        1, 1, direction_basis=None, device=torch.device("cpu")
+    )
+    record = {
+        "case_id": 10,
+        "requested_rewrite": {"prompt": "{} asks", "subject": "A"},
+    }
+
+    def fake_margin(_model, _tok, _batch, _device, *, llama_like):
+        del llama_like
+        return torch.stack([-1.0 + delta.raw_delta.sum()])
+
+    def fake_retain(
+        _model,
+        _tok,
+        _cache,
+        _target_ids,
+        _base_logs,
+        indices,
+        _device,
+        *,
+        batch_size,
+    ):
+        del indices, batch_size
+        zero = torch.zeros(())
+        drift = delta.raw_delta.detach().abs().max()
+        return zero, zero, drift, zero
+
+    monkeypatch.setattr(runner.v2, "records_margin_tensor", fake_margin)
+    monkeypatch.setattr(runner.v22, "active_retain_loss", fake_retain)
+    protection_args = runner.parse_args(
+        [
+            "--model-path",
+            "model",
+            "--protocol-dir",
+            "protocol",
+            "--experiment-registry",
+            "registry",
+            "--wikidata-dir",
+            "wiki",
+            "--output-dir",
+            "out",
+        ]
+    )
+    report = runner.iterative_per_prompt_reachability_report(
+        torch.nn.Linear(1, 1),
+        None,
+        {"direct": [record]},
+        torch.device("cpu"),
+        input_delta=delta,
+        input_caps=torch.tensor([2.0]),
+        bases=[basis([])[:, :1]],
+        roles=[core.GUARDED],
+        retain_indices_by_row=[[0]],
+        protection_cache=None,
+        protection_target_ids=torch.tensor([-1]),
+        protection_base_target_log_probs=torch.tensor([0.0]),
+        llama_like=False,
+        required_margin=0.1,
+        max_steps=10,
+        step_fraction=0.2,
+        minimum_improvement=1e-6,
+        protection_args=protection_args,
+    )
+    row = report["per_prompt"][0]
+    assert report["passed"] is False
+    assert row["termination"] == "no_safe_improving_step"
+    assert row["guard_rejections"] > 0
+    assert row["best_iterative_margin"] < 0.1
+    assert torch.count_nonzero(delta.raw_delta).item() == 0
 
 
 def test_sensitivity_collector_uses_separate_examples_and_restores_zero(

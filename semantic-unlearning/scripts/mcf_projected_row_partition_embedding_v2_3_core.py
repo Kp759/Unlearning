@@ -8,8 +8,8 @@ rows may change.  The three primitives that are new relative to V2/V2.1/V2.2 are
 2. the ``(efficacy, potential)`` row diagnostic that decides which rows may be
    edited at all, and
 3. a role-aware projection that leaves forget-exclusive rows unconstrained,
-   projects shared rows out of their retain-readout subspace, and holds excluded
-   rows at exact zero.
+   supports V2.3.3 forward-guarded forget-specific rows, projects shared rows
+   out of their retain-readout subspace, and holds excluded rows at exact zero.
 
 Everything here is deterministic and model-free so it can be unit tested without
 loading a checkpoint.
@@ -31,11 +31,16 @@ REACHABILITY_PROTOCOL = (
 SENSITIVITY_PROTOCOL = (
     "mcf_projected_row_partition_embedding_rewiring_v2_3_2"
 )
+HYBRID_PROTOCOL = (
+    "mcf_projected_row_partition_embedding_rewiring_v2_3_3"
+)
 
 FREE = "free"
+GUARDED = "guarded"
 PROJECTED = "projected"
 EXCLUDED = "excluded"
 ROLES = (FREE, PROJECTED, EXCLUDED)
+HYBRID_ROLES = (FREE, GUARDED, PROJECTED, EXCLUDED)
 
 
 def answer_contrast_directions(
@@ -210,10 +215,10 @@ def cap_aware_prompt_reachability(
 
         ``sum_t cap_t * ||P_t grad_t margin||``.
 
-    ``P_t`` is identity for free rows, the retain-nullspace projector for
-    projected rows, and zero for excluded rows.  This is only a local upper
+    ``P_t`` is identity for free/guarded rows, the retain-nullspace projector
+    for projected rows, and zero for excluded rows.  This is only a local upper
     bound for the nonlinear frozen Transformer, so the runner additionally
-    performs a real forward directional sweep before allowing training.
+    performs a real forward reachability test before allowing training.
     """
     if gradient.ndim != 2 or caps.shape != (gradient.shape[0],):
         raise ValueError("gradient and row caps are incompatible")
@@ -512,6 +517,105 @@ def combine_geometry_and_sensitivity_roles(
     }
 
 
+def combine_hybrid_sensitivity_roles(
+    *,
+    row_ids: Sequence[int],
+    geometry_roles: Sequence[str],
+    geometry_report: Mapping[str, Any],
+    sensitivity_report: Mapping[str, Any],
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Apply the V2.3.3 sensitivity-first hybrid row policy.
+
+    V2.3.2 found forget-specific rows and then projected almost all of them,
+    deleting the very components that made them useful.  The hybrid policy
+    instead leaves those rows unprojected but marks them ``guarded``: their
+    cumulative deltas remain frequency-capped and every update is checked by
+    real forward evaluations on retain prompts containing guarded rows.
+
+    Rows useful to both populations remain projected.  Retain-dominant and
+    low-forget rows remain exactly zero.  Geometry is retained in the audit,
+    but it cannot silently demote a registered forget-specific row back into
+    the V2.3.2 projection policy.
+    """
+    count = len(row_ids)
+    if len(geometry_roles) != count:
+        raise ValueError("geometry roles are not aligned with row ids")
+    geometry_rows = list(geometry_report.get("per_row", []))
+    sensitivity_rows = list(sensitivity_report.get("per_row", []))
+    if len(geometry_rows) != count or len(sensitivity_rows) != count:
+        raise ValueError("row reports are not aligned")
+
+    roles: List[str] = []
+    per_row: List[Dict[str, Any]] = []
+    for index, token_id in enumerate(row_ids):
+        sensitivity_class = str(sensitivity_rows[index]["class"])
+        if sensitivity_class == "forget_specific":
+            role = GUARDED
+            reason = "forget_specific_frequency_capped_forward_guarded"
+        elif sensitivity_class == "shared":
+            role = PROJECTED
+            reason = "shared_row_projected_out_of_retain_subspace"
+        elif sensitivity_class in ("retain_dominant", "low_forget"):
+            role = EXCLUDED
+            reason = f"sensitivity_{sensitivity_class}"
+        else:
+            raise ValueError(f"unknown sensitivity class: {sensitivity_class}")
+        roles.append(role)
+        per_row.append(
+            {
+                "row_index": index,
+                "token_id": int(token_id),
+                "role": role,
+                "reason": reason,
+                "geometry_role": str(geometry_roles[index]),
+                "geometry_reason": str(geometry_rows[index]["reason"]),
+                "sensitivity_class": sensitivity_class,
+                "forget_importance_rms": float(
+                    sensitivity_rows[index]["forget_importance_rms"]
+                ),
+                "retain_importance_rms": float(
+                    sensitivity_rows[index]["retain_importance_rms"]
+                ),
+                "retain_importance_max": float(
+                    sensitivity_rows[index]["retain_importance_max"]
+                ),
+                "importance_ratio": float(
+                    sensitivity_rows[index]["importance_ratio"]
+                ),
+                "forget_coverage": int(
+                    sensitivity_rows[index]["forget_coverage"]
+                ),
+                "retain_coverage": int(
+                    sensitivity_rows[index]["retain_coverage"]
+                ),
+            }
+        )
+    return roles, {
+        "rows": count,
+        "role_counts": {
+            role: sum(value == role for value in roles)
+            for role in HYBRID_ROLES
+        },
+        "editable_rows": sum(value != EXCLUDED for value in roles),
+        "sensitivity_class_counts": dict(
+            sensitivity_report.get("class_counts", {})
+        ),
+        "policy": {
+            "forget_specific": GUARDED,
+            "shared": PROJECTED,
+            "retain_dominant": EXCLUDED,
+            "low_forget": EXCLUDED,
+        },
+        "guarded_rows_are_unprojected": True,
+        "guarded_rows_are_frequency_capped": True,
+        "guarded_rows_require_forward_retain_checks": True,
+        "liveness_forcing_disabled": True,
+        "liveness_replaced_by_iterative_per_prompt_reachability": True,
+        "per_row": per_row,
+        "passed": any(value != EXCLUDED for value in roles),
+    }
+
+
 def partition_rows(
     *,
     row_ids: Sequence[int],
@@ -633,7 +737,7 @@ def partition_rows(
 def apply_role_constraints_(
     delta: torch.Tensor, bases: Sequence[torch.Tensor], roles: Sequence[str]
 ) -> None:
-    """Project shared rows, zero excluded rows, leave forget-exclusive rows free.
+    """Project shared rows, zero excluded rows, leave free/guarded rows intact.
 
     This is a first-order guarantee only.  The frozen Transformer is nonlinear,
     so V2.3 always follows this with a forward-evaluated acceptance test; the
@@ -653,7 +757,7 @@ def apply_role_constraints_(
             if basis.shape[0]:
                 local = basis.to(device=delta.device, dtype=delta.dtype)
                 delta[index].sub_((delta[index] @ local.transpose(0, 1)) @ local)
-        elif role != FREE:
+        elif role not in (FREE, GUARDED):
             raise ValueError(f"unknown row role: {role}")
 
 
@@ -671,6 +775,7 @@ def role_compliance_report(
     excluded_violations: List[int] = []
     projected_residual = 0.0
     projected_violations: List[int] = []
+    guarded_rows = 0
     for index, role in enumerate(roles):
         row = values[index]
         if role == EXCLUDED:
@@ -685,8 +790,14 @@ def role_compliance_report(
             projected_residual = max(projected_residual, leak)
             if leak > float(tolerance):
                 projected_violations.append(index)
+        elif role == GUARDED:
+            guarded_rows += 1
+        elif role != FREE:
+            raise ValueError(f"unknown row role: {role}")
     return {
         "tolerance": float(tolerance),
+        "guarded_rows": guarded_rows,
+        "guarded_safety_is_forward_evaluated": guarded_rows > 0,
         "excluded_nonzero_rows": len(excluded_violations),
         "excluded_violating_rows": excluded_violations[:32],
         "projected_retain_leak_max": projected_residual,

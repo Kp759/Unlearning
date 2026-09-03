@@ -118,6 +118,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--input-step-cap-fraction", type=float, default=0.004)
     parser.add_argument("--require-per-prompt-reachability", action="store_true")
     parser.add_argument("--require-per-example-sensitivity", action="store_true")
+    parser.add_argument("--require-hybrid-role-policy", action="store_true")
+    parser.add_argument("--require-iterative-reachability", action="store_true")
+    parser.add_argument("--iterative-reachability-steps", type=int, default=64)
+    parser.add_argument(
+        "--iterative-reachability-step-fraction", type=float, default=0.02
+    )
+    parser.add_argument(
+        "--iterative-reachability-minimum-improvement",
+        type=float,
+        default=1e-6,
+    )
     parser.add_argument("--sensitivity-forget-records", type=int, default=50)
     parser.add_argument("--sensitivity-retain-records", type=int, default=2000)
     parser.add_argument(
@@ -182,6 +193,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("forget-specific retain coverage must lie inside [0, 1]")
     if args.retain_tail_ratio_min <= 0.0:
         parser.error("retain-tail ratio floor must be positive")
+    if args.iterative_reachability_steps <= 0:
+        parser.error("iterative reachability steps must be positive")
+    if not 0.0 < args.iterative_reachability_step_fraction <= 1.0:
+        parser.error("iterative reachability step fraction must lie inside (0, 1]")
+    if args.iterative_reachability_minimum_improvement <= 0.0:
+        parser.error("iterative reachability improvement must be positive")
     return args
 
 
@@ -197,6 +214,7 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
             partition.PROTOCOL,
             partition.REACHABILITY_PROTOCOL,
             partition.SENSITIVITY_PROTOCOL,
+            partition.HYBRID_PROTOCOL,
         )
         or registry.get("status")
         != "training_only_implementation_available_not_executed"
@@ -218,8 +236,13 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
     reachability_revision = registered_protocol in (
         partition.REACHABILITY_PROTOCOL,
         partition.SENSITIVITY_PROTOCOL,
+        partition.HYBRID_PROTOCOL,
     )
-    sensitivity_revision = registered_protocol == partition.SENSITIVITY_PROTOCOL
+    sensitivity_revision = registered_protocol in (
+        partition.SENSITIVITY_PROTOCOL,
+        partition.HYBRID_PROTOCOL,
+    )
+    hybrid_revision = registered_protocol == partition.HYBRID_PROTOCOL
     reachability = registry.get("per_prompt_reachability", {})
     if reachability_revision:
         if (
@@ -227,7 +250,6 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
             or args.full_fit_rollback is not True
             or reachability.get("required_before_optimization") is not True
             or reachability.get("linear_cap_bound") is not True
-            or reachability.get("nonlinear_directional_sweep") is not True
             or reachability.get("all_direct_and_synthetic_prompts_must_pass")
             is not True
             or optimization.get("strict_forget_improvement") is not True
@@ -236,7 +258,24 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
             or optimization.get("development_controls_updates") is not False
         ):
             raise RuntimeError("V2.3.1 reachability/optimization contract mismatch")
-    elif args.require_per_prompt_reachability or args.full_fit_rollback:
+        if hybrid_revision:
+            if (
+                args.require_iterative_reachability is not True
+                or reachability.get("nonlinear_directional_sweep") is not False
+                or reachability.get("iterative_gradient_recomputation") is not True
+                or reachability.get("retain_guard_checked_during_path") is not True
+            ):
+                raise RuntimeError("V2.3.3 iterative reachability contract mismatch")
+        elif (
+            args.require_iterative_reachability
+            or reachability.get("nonlinear_directional_sweep") is not True
+        ):
+            raise RuntimeError("V2.3.1 single-ray reachability contract mismatch")
+    elif (
+        args.require_per_prompt_reachability
+        or args.require_iterative_reachability
+        or args.full_fit_rollback
+    ):
         raise RuntimeError("V2.3 registry cannot enable V2.3.1-only controls")
     sensitivity = registry.get("per_example_sensitivity", {})
     if sensitivity_revision:
@@ -249,7 +288,21 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
         ):
             raise RuntimeError("V2.3.2 per-example sensitivity contract mismatch")
     elif args.require_per_example_sensitivity:
-        raise RuntimeError("only V2.3.2 may enable per-example sensitivity")
+        raise RuntimeError("only V2.3.2+ may enable per-example sensitivity")
+    hybrid_policy = registry.get("hybrid_role_policy", {})
+    if hybrid_revision:
+        if (
+            args.require_hybrid_role_policy is not True
+            or hybrid_policy.get("forget_specific") != partition.GUARDED
+            or hybrid_policy.get("shared") != partition.PROJECTED
+            or hybrid_policy.get("retain_dominant") != partition.EXCLUDED
+            or hybrid_policy.get("low_forget") != partition.EXCLUDED
+            or hybrid_policy.get("frequency_caps_unchanged") is not True
+            or hybrid_policy.get("guarded_forward_retain_checks") is not True
+        ):
+            raise RuntimeError("V2.3.3 hybrid role contract mismatch")
+    elif args.require_hybrid_role_policy:
+        raise RuntimeError("only V2.3.3 may enable the hybrid role policy")
     expected = {
         "data": {
             "seed": args.seed,
@@ -306,8 +359,24 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
     if reachability_revision:
         expected["per_prompt_reachability"] = {
             "required_margin": args.minimum_forget_margin,
-            "directional_factors": list(REACHABILITY_FACTORS),
         }
+        if hybrid_revision:
+            expected["per_prompt_reachability"].update(
+                {
+                    "iterative_steps": args.iterative_reachability_steps,
+                    "step_cap_fraction": (
+                        args.iterative_reachability_step_fraction
+                    ),
+                    "minimum_step_improvement": (
+                        args.iterative_reachability_minimum_improvement
+                    ),
+                    "backtracking_factors": list(BACKTRACKING_FACTORS),
+                }
+            )
+        else:
+            expected["per_prompt_reachability"]["directional_factors"] = list(
+                REACHABILITY_FACTORS
+            )
         expected["optimization"].update(
             {
                 "minimum_forget_loss_improvement": (
@@ -638,6 +707,332 @@ def collect_per_example_sensitivity(
     return forget_gradient_sum / float(len(forget_records)), report
 
 
+def retain_case_indices_by_selected_row(
+    cases: Sequence[canonical.SensitivePredictionCase],
+    tok: Any,
+    row_ids: Sequence[int],
+) -> tuple[List[List[int]], Dict[str, Any]]:
+    """Index training-visible retain cases that exercise each selected row."""
+    position = {int(token_id): index for index, token_id in enumerate(row_ids)}
+    per_row: List[List[int]] = [[] for _ in row_ids]
+    for case_index, case in enumerate(cases):
+        present = set(canonical.flat_ids(tok, case.prompt)).intersection(position)
+        for token_id in present:
+            per_row[position[int(token_id)]].append(int(case_index))
+    counts = [len(values) for values in per_row]
+    return per_row, {
+        "cases": len(cases),
+        "rows": len(row_ids),
+        "rows_with_cases": sum(value > 0 for value in counts),
+        "rows_without_cases": sum(value == 0 for value in counts),
+        "case_count_min": min(counts) if counts else 0,
+        "case_count_max": max(counts) if counts else 0,
+        "prompt_text_serialized": 0,
+    }
+
+
+def iterative_per_prompt_reachability_report(
+    model: torch.nn.Module,
+    tok: Any,
+    groups: Mapping[str, Sequence[Mapping[str, Any]]],
+    device: torch.device,
+    *,
+    input_delta: canonical.SelectedRowDelta,
+    input_caps: torch.Tensor,
+    bases: Sequence[torch.Tensor],
+    roles: Sequence[str],
+    retain_indices_by_row: Sequence[Sequence[int]],
+    protection_cache: v2.ProtectionCache,
+    protection_target_ids: torch.Tensor,
+    protection_base_target_log_probs: torch.Tensor,
+    llama_like: bool,
+    required_margin: float,
+    max_steps: int,
+    step_fraction: float,
+    minimum_improvement: float,
+    protection_args: argparse.Namespace,
+) -> Dict[str, Any]:
+    """Find a guarded nonlinear path by relinearizing after every small step.
+
+    V2.3.2 tested one ray derived at Base.  That rejects a curved feasible path
+    whenever the frozen Transformer changes its local gradient.  V2.3.3 starts
+    from exact zero for each prompt, recomputes the margin gradient after every
+    accepted step, and backtracks the frequency-capped proposal.  Guarded rows
+    are never projected; candidates using them must remain within all locked
+    retain limits on every training-visible fit case containing those rows.
+    """
+    if input_delta.raw_delta is None:
+        raise RuntimeError("iterative reachability requires a full row delta")
+    if len(retain_indices_by_row) != len(roles):
+        raise ValueError("retain guard index map is not aligned with row roles")
+    original = input_delta.raw_delta.detach().clone()
+    if float(original.norm().cpu()) > 1e-12:
+        raise RuntimeError("iterative reachability must run from exact zero")
+
+    def margin_gradient(
+        record: Mapping[str, Any],
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        input_delta.zero_grad(set_to_none=True)
+        model.zero_grad(set_to_none=True)
+        margin = v2.records_margin_tensor(
+            model, tok, [record], device, llama_like=llama_like
+        )[0]
+        if margin.requires_grad:
+            margin.backward()
+            gradient = input_delta.raw_delta.grad
+        else:
+            gradient = None
+        if gradient is None:
+            local = torch.zeros_like(input_delta.raw_delta)
+        else:
+            local = gradient.detach().clone()
+        return margin.detach(), local
+
+    def guarded_indices(gradient: torch.Tensor) -> List[int]:
+        usable = partition.role_constrained_gradient(gradient, bases, roles)
+        ordered: List[int] = []
+        for row_index, role in enumerate(roles):
+            if role != partition.GUARDED:
+                continue
+            gradient_active = float(usable[row_index].norm().item()) > 1e-7
+            delta_active = (
+                float(input_delta.raw_delta[row_index].detach().norm().item())
+                > 1e-7
+            )
+            if not gradient_active and not delta_active:
+                continue
+            for case_index in retain_indices_by_row[row_index]:
+                value = int(case_index)
+                if value not in ordered:
+                    ordered.append(value)
+        return ordered
+
+    def constraint_score(indices: Sequence[int]) -> float:
+        if not indices:
+            return 0.0
+        with torch.no_grad():
+            _, kl_max, drift_max, target_drift_max = v22.active_retain_loss(
+                model,
+                tok,
+                protection_cache,
+                protection_target_ids,
+                protection_base_target_log_probs,
+                indices,
+                device,
+                batch_size=protection_args.capture_batch_size,
+            )
+        return joint.constraint_score(
+            kl_max=float(kl_max.cpu()),
+            drift_max=float(drift_max.cpu()),
+            target_drift_max=float(target_drift_max.cpu()),
+            kl_limit=protection_args.protected_kl_max,
+            drift_limit=protection_args.protected_top1_drift_max,
+            target_drift_limit=protection_args.protected_target_drift_max,
+        )
+
+    rows: List[Dict[str, Any]] = []
+    try:
+        for group, records in groups.items():
+            for prompt_index, record in enumerate(records):
+                with torch.no_grad():
+                    input_delta.raw_delta.zero_()
+                initial_margin_tensor, initial_gradient = margin_gradient(record)
+                base_margin = float(initial_margin_tensor.cpu())
+                linear = partition.cap_aware_prompt_reachability(
+                    initial_gradient,
+                    bases,
+                    roles,
+                    input_caps,
+                    base_margin=base_margin,
+                    required_margin=required_margin,
+                )
+                current_margin = base_margin
+                best_margin = base_margin
+                termination = "required_margin_already_met"
+                trajectory: List[Dict[str, Any]] = [
+                    {
+                        "step": 0,
+                        "margin": base_margin,
+                        "accepted_factor": 0.0,
+                        "guard_cases": 0,
+                        "guard_constraint_score": 0.0,
+                    }
+                ]
+                guard_rejections = 0
+                accepted_steps = 0
+                if current_margin < float(required_margin):
+                    termination = "step_budget_exhausted"
+                    for path_step in range(1, int(max_steps) + 1):
+                        _, gradient = margin_gradient(record)
+                        usable = partition.role_constrained_gradient(
+                            gradient, bases, roles
+                        )
+                        norms = usable.norm(dim=1)
+                        if not bool((norms > 1e-7).any().item()):
+                            termination = "no_usable_gradient"
+                            break
+                        budgets = (
+                            float(step_fraction)
+                            * input_caps.to(device=usable.device, dtype=torch.float32)
+                        )
+                        relative = (
+                            norms / norms.max().clamp_min(1e-20)
+                        ).clamp_min(0.0).sqrt()
+                        scales = torch.where(
+                            norms > 0,
+                            budgets * relative / norms.clamp_min(1e-20),
+                            torch.zeros_like(norms),
+                        )
+                        proposed = usable * scales[:, None]
+                        guard_indices = guarded_indices(gradient)
+                        old = input_delta.raw_delta.detach().clone()
+                        accepted_factor = 0.0
+                        accepted_score = 0.0
+                        accepted_margin = current_margin
+                        for factor in BACKTRACKING_FACTORS:
+                            with torch.no_grad():
+                                input_delta.raw_delta.copy_(
+                                    old + float(factor) * proposed
+                                )
+                                partition.apply_role_constraints_(
+                                    input_delta.raw_delta, bases, roles
+                                )
+                                geometry.apply_row_caps_(
+                                    input_delta.raw_delta, input_caps
+                                )
+                                candidate_margin = float(
+                                    v2.records_margin_tensor(
+                                        model,
+                                        tok,
+                                        [record],
+                                        device,
+                                        llama_like=llama_like,
+                                    )[0]
+                                    .detach()
+                                    .cpu()
+                                )
+                            candidate_score = constraint_score(guard_indices)
+                            if candidate_score > 1.0 + 1e-7:
+                                guard_rejections += 1
+                                continue
+                            if (
+                                candidate_margin - current_margin
+                                < float(minimum_improvement)
+                            ):
+                                continue
+                            accepted_factor = float(factor)
+                            accepted_score = candidate_score
+                            accepted_margin = candidate_margin
+                            break
+                        if accepted_factor == 0.0:
+                            with torch.no_grad():
+                                input_delta.raw_delta.copy_(old)
+                            termination = "no_safe_improving_step"
+                            break
+                        accepted_steps += 1
+                        current_margin = accepted_margin
+                        best_margin = max(best_margin, current_margin)
+                        trajectory.append(
+                            {
+                                "step": int(path_step),
+                                "margin": current_margin,
+                                "accepted_factor": accepted_factor,
+                                "guard_cases": len(guard_indices),
+                                "guard_constraint_score": accepted_score,
+                            }
+                        )
+                        if current_margin >= float(required_margin):
+                            termination = "required_margin_reached"
+                            break
+                path_passed = best_margin >= float(required_margin)
+                rewrite = record["requested_rewrite"]
+                rendered = str(rewrite["prompt"]).format(str(rewrite["subject"]))
+                rows.append(
+                    {
+                        "group": str(group),
+                        "prompt_index": int(prompt_index),
+                        "case_id": int(record.get("case_id", prompt_index)),
+                        "prompt_sha256": hashlib.sha256(
+                            rendered.encode("utf-8")
+                        ).hexdigest(),
+                        "linear": linear,
+                        "accepted_steps": accepted_steps,
+                        "best_iterative_margin": best_margin,
+                        "termination": termination,
+                        "guard_rejections": guard_rejections,
+                        "trajectory": trajectory,
+                        "iterative_passed": bool(path_passed),
+                        "passed": bool(path_passed),
+                    }
+                )
+                if (prompt_index + 1) % 10 == 0 or prompt_index + 1 == len(records):
+                    local_failures = sum(
+                        not row["passed"]
+                        for row in rows
+                        if row["group"] == str(group)
+                    )
+                    print(
+                        f"    {group} iterative reachability "
+                        f"{prompt_index + 1}/{len(records)}, "
+                        f"failures={local_failures}"
+                    )
+    finally:
+        with torch.no_grad():
+            input_delta.raw_delta.copy_(original)
+        input_delta.zero_grad(set_to_none=True)
+        model.zero_grad(set_to_none=True)
+
+    group_reports: Dict[str, Any] = {}
+    for group in groups:
+        local = [row for row in rows if row["group"] == group]
+        group_reports[str(group)] = {
+            "prompts": len(local),
+            "initial_linear_failures": sum(
+                not row["linear"]["passed"] for row in local
+            ),
+            "iterative_failures": sum(
+                not row["iterative_passed"] for row in local
+            ),
+            "guard_rejections": sum(row["guard_rejections"] for row in local),
+            "failures": sum(not row["passed"] for row in local),
+            "passed": all(row["passed"] for row in local),
+        }
+    failed = [row for row in rows if not row["passed"]]
+    return {
+        "schema_version": 1,
+        "kind": "mcf_v2_3_3_iterative_guarded_per_prompt_reachability",
+        "required_margin": float(required_margin),
+        "iterative_steps": int(max_steps),
+        "step_cap_fraction": float(step_fraction),
+        "minimum_step_improvement": float(minimum_improvement),
+        "backtracking_factors": list(BACKTRACKING_FACTORS),
+        "recompute_gradient_after_every_accepted_step": True,
+        "guarded_rows_unprojected": True,
+        "guarded_retain_cases_forward_checked_per_candidate": True,
+        "initial_linear_bound_is_diagnostic_not_acceptance_gate": True,
+        "groups": group_reports,
+        "prompts": len(rows),
+        "failures": len(failed),
+        "failed_prompts": [
+            {
+                "group": row["group"],
+                "prompt_index": row["prompt_index"],
+                "case_id": row["case_id"],
+                "prompt_sha256": row["prompt_sha256"],
+                "linear": row["linear"],
+                "accepted_steps": row["accepted_steps"],
+                "best_iterative_margin": row["best_iterative_margin"],
+                "termination": row["termination"],
+                "guard_rejections": row["guard_rejections"],
+            }
+            for row in failed
+        ],
+        "per_prompt": rows,
+        "all_direct_and_synthetic_prompts_must_pass": True,
+        "passed": not failed,
+    }
+
+
 def per_prompt_reachability_report(
     model: torch.nn.Module,
     tok: Any,
@@ -888,7 +1283,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     validate_registry(registry, args)
     active_protocol = str(registry["protocol"])
-    sensitivity_revision = active_protocol == partition.SENSITIVITY_PROTOCOL
+    sensitivity_revision = active_protocol in (
+        partition.SENSITIVITY_PROTOCOL,
+        partition.HYBRID_PROTOCOL,
+    )
+    hybrid_revision = active_protocol == partition.HYBRID_PROTOCOL
     protocol_dir = Path(args.protocol_dir).resolve()
     manifest_path = protocol_dir / "split_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1212,12 +1611,24 @@ def main(argv: Sequence[str] | None = None) -> None:
             output / "method" / "geometry_row_partition.json",
             geometry_partition_report,
         )
-        roles, partition_report = partition.combine_geometry_and_sensitivity_roles(
-            row_ids=endpoint_rows.input_ids,
-            geometry_roles=geometry_roles,
-            geometry_report=geometry_partition_report,
-            sensitivity_report=sensitivity_report,
-        )
+        if hybrid_revision:
+            roles, partition_report = (
+                partition.combine_hybrid_sensitivity_roles(
+                    row_ids=endpoint_rows.input_ids,
+                    geometry_roles=geometry_roles,
+                    geometry_report=geometry_partition_report,
+                    sensitivity_report=sensitivity_report,
+                )
+            )
+        else:
+            roles, partition_report = (
+                partition.combine_geometry_and_sensitivity_roles(
+                    row_ids=endpoint_rows.input_ids,
+                    geometry_roles=geometry_roles,
+                    geometry_report=geometry_partition_report,
+                    sensitivity_report=sensitivity_report,
+                )
+            )
         partition_report["liveness_forced_records"] = 0
         partition_report["liveness_forced"] = []
         partition_report["sensitivity_criterion"] = sensitivity_report["criterion"]
@@ -1233,7 +1644,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(
         "  partition: "
         + ", ".join(
-            f"{role}={partition_report['role_counts'][role]}" for role in partition.ROLES
+            f"{role}={partition_report['role_counts'][role]}"
+            for role in (
+                partition.HYBRID_ROLES if hybrid_revision else partition.ROLES
+            )
         )
         + f", liveness-forced={partition_report['liveness_forced_records']}"
     )
@@ -1246,22 +1660,100 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         raise RuntimeError("V2.3 excluded every selected row")
 
+    retain_indices_by_row: List[List[int]] = [
+        [] for _ in endpoint_rows.input_ids
+    ]
+    guarded_overlap_indices: List[int] = []
+    if hybrid_revision:
+        retain_indices_by_row, retain_index_report = (
+            retain_case_indices_by_selected_row(
+                fit_cases, tok, endpoint_rows.input_ids
+            )
+        )
+        guarded_row_indices = [
+            index
+            for index, role in enumerate(roles)
+            if role == partition.GUARDED
+        ]
+        guarded_without_fit_cases = [
+            int(endpoint_rows.input_ids[index])
+            for index in guarded_row_indices
+            if not retain_indices_by_row[index]
+        ]
+        for row_index in guarded_row_indices:
+            for case_index in retain_indices_by_row[row_index]:
+                if int(case_index) not in guarded_overlap_indices:
+                    guarded_overlap_indices.append(int(case_index))
+        guard_report = {
+            **retain_index_report,
+            "guarded_rows": len(guarded_row_indices),
+            "guarded_rows_without_fit_cases": guarded_without_fit_cases,
+            "guarded_overlap_fit_cases": len(guarded_overlap_indices),
+            "all_guarded_rows_forward_auditable": not guarded_without_fit_cases,
+            "used_by_iterative_reachability": True,
+            "used_as_training_overlap_stratum": True,
+        }
+        v2.write_json(
+            output / "method" / "guarded_retain_bank.json", guard_report
+        )
+        if guarded_without_fit_cases:
+            completion_failure(
+                output,
+                phase="guarded_retain_bank",
+                detail=guard_report,
+                protocol=active_protocol,
+            )
+            raise RuntimeError(
+                "V2.3.3 has guarded rows without a forward-auditable retain case"
+            )
+
     if args.require_per_prompt_reachability:
         print(
-            "Stage 2b: per-prompt cap-aware reachability from exact zero"
+            "Stage 2b: per-prompt "
+            + (
+                "iterative guarded reachability from exact zero"
+                if hybrid_revision
+                else "cap-aware reachability from exact zero"
+            )
         )
-        reachability_report = per_prompt_reachability_report(
-            model,
-            tok,
-            {"direct": forget, "synthetic": synthetic_records},
-            device,
-            input_delta=input_delta,
-            input_caps=input_caps,
-            bases=bases,
-            roles=roles,
-            llama_like=llama_like,
-            required_margin=args.minimum_forget_margin,
-        )
+        if hybrid_revision:
+            reachability_report = iterative_per_prompt_reachability_report(
+                model,
+                tok,
+                {"direct": forget, "synthetic": synthetic_records},
+                device,
+                input_delta=input_delta,
+                input_caps=input_caps,
+                bases=bases,
+                roles=roles,
+                retain_indices_by_row=retain_indices_by_row,
+                protection_cache=fit_cache,
+                protection_target_ids=fit_target_ids,
+                protection_base_target_log_probs=(
+                    fit_base_target_log_probs
+                ),
+                llama_like=llama_like,
+                required_margin=args.minimum_forget_margin,
+                max_steps=args.iterative_reachability_steps,
+                step_fraction=args.iterative_reachability_step_fraction,
+                minimum_improvement=(
+                    args.iterative_reachability_minimum_improvement
+                ),
+                protection_args=args,
+            )
+        else:
+            reachability_report = per_prompt_reachability_report(
+                model,
+                tok,
+                {"direct": forget, "synthetic": synthetic_records},
+                device,
+                input_delta=input_delta,
+                input_caps=input_caps,
+                bases=bases,
+                roles=roles,
+                llama_like=llama_like,
+                required_margin=args.minimum_forget_margin,
+            )
         v2.write_json(
             output / "method" / "per_prompt_reachability.json",
             reachability_report,
@@ -1328,7 +1820,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         for prompt in explicit_overlap_prompts
         if prompt in prompt_to_fit
     ]
-    overlap_indices = list(dict.fromkeys(overlap_indices))
+    overlap_indices = list(
+        dict.fromkeys(overlap_indices + guarded_overlap_indices)
+    )
     if not overlap_indices:
         raise RuntimeError("V2.3 constructed no explicit overlap retain stratum")
     v2.write_json(
@@ -1338,6 +1832,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             "labeled_retain_target_cases": int((fit_target_ids >= 0).sum().item()),
             "generic_distribution_only_cases": int((fit_target_ids < 0).sum().item()),
             "unique_overlap_fit_cases": len(overlap_indices),
+            "guarded_overlap_fit_cases": len(guarded_overlap_indices),
+            "guarded_rows": sum(
+                role == partition.GUARDED for role in roles
+            ),
+            "guarded_overlap_rotates_every_update": bool(hybrid_revision),
+            "complete_fit_bank_checked_at_every_refresh": bool(
+                hybrid_revision
+            ),
             "hard_tail_active": args.hard_tail_active,
             "overlap_active": args.overlap_retain_batch_size,
             "random_active": args.random_retain_batch_size,
@@ -1527,7 +2029,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             "surgical": surgical_detail,
         }
 
-    print("Stage 3: projected joint forget/retain embedding optimization")
+    print(
+        "Stage 3: "
+        + (
+            "hybrid guarded/projected joint forget/retain embedding optimization"
+            if hybrid_revision
+            else "projected joint forget/retain embedding optimization"
+        )
+    )
     for step in range(1, args.steps + 1):
         if step == 1 or step % args.hard_tail_refresh_every == 0:
             fit_kl, fit_drift, fit_target_drift = v22.protection_vectors(
@@ -1883,9 +2392,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         "liveness_forced_records": partition_report["liveness_forced_records"],
         "registered_prediction": partition_report["prediction"],
         "per_example_sensitivity_partition": bool(sensitivity_revision),
+        "hybrid_guarded_role_policy": bool(hybrid_revision),
         "per_prompt_cap_aware_reachability": bool(
             args.require_per_prompt_reachability
         ),
+        "iterative_gradient_recomputed_reachability": bool(
+            hybrid_revision and args.require_iterative_reachability
+        ),
+        "guarded_overlap_fit_cases": len(guarded_overlap_indices),
         "strict_forget_improvement": bool(
             args.require_per_prompt_reachability
         ),
