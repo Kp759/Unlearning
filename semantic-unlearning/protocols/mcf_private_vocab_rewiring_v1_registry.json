@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "protocol": "mcf_private_vocab_rewiring_v1",
+  "status": "training_only_implementation_available_not_executed",
+  "design_document": "MCF_PRIVATE_VOCAB_REWIRING_V1.md",
+  "parent_experiment": "mcf_projected_row_partition_embedding_rewiring_v2_3_3",
+  "architecture": {
+    "trainable_parameter_families": [
+      "private_subject_embedding_rows"
+    ],
+    "private_row_source": "pre_existing_reserved_tokenizer_slots",
+    "reserved_vocab_slots_repurposed": true,
+    "tokenizer_vocab_size_unchanged": true,
+    "original_input_embedding_rows_frozen": true,
+    "transformer_frozen": true,
+    "lm_head_frozen_bit_identical": true,
+    "lm_head_trainable": false,
+    "runtime_matcher": false,
+    "external_sidecar": false,
+    "external_classifier": false,
+    "relation_aware_router": false,
+    "materialized_checkpoint": true
+  },
+  "routing": {
+    "key": "literal_forget_subject_string",
+    "one_private_row_per_unique_forget_subject": true,
+    "same_private_row_used_for_all_relations_of_subject": true,
+    "relation_discrimination_delegated_to_frozen_transformer": true,
+    "private_rows_initialized_from_mean_base_subject_token_embedding": true,
+    "base_equivalence_distillation_before_unlearning": true
+  },
+  "data": {
+    "seed": 1,
+    "forget_records": 50,
+    "official_retain_records_reserved": 1000,
+    "protection_fit_records": 2000,
+    "protection_development_records": 500,
+    "protection_certification_records": 1000,
+    "official_prompt_text_visible": false
+  },
+  "optimization": {
+    "clone_init_steps": 150,
+    "unlearning_steps": 600,
+    "learning_rate": 0.001,
+    "minimum_forget_margin": 0.1,
+    "train_margin_target": 0.1,
+    "retain_topk_kl_weight": 20.0,
+    "anchor_weight": 0.001,
+    "relative_private_row_cap": 0.5,
+    "topk": 64,
+    "clone_init_mean_kl_max": 0.005,
+    "retain_mean_kl_max": 0.0001
+  },
+  "integrity": {
+    "hash_lm_head_pre_post": true,
+    "hash_all_non_private_input_rows_pre_post": true,
+    "non_forget_tokenization_certification": true,
+    "private_rows_materialized_only_after_training": true
+  },
+  "claim_boundary": {
+    "behavioral_unlearning": true,
+    "latent_erasure": false,
+    "original_tokenizer_restore_bypass_possible": true,
+    "token_disjoint_alias_coverage_claimed": false,
+    "novelty_not_claimed_by_registry": true
+  }
+}
