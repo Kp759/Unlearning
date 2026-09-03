@@ -28,6 +28,9 @@ PROTOCOL = "mcf_projected_row_partition_embedding_rewiring_v2_3"
 REACHABILITY_PROTOCOL = (
     "mcf_projected_row_partition_embedding_rewiring_v2_3_1"
 )
+SENSITIVITY_PROTOCOL = (
+    "mcf_projected_row_partition_embedding_rewiring_v2_3_2"
+)
 
 FREE = "free"
 PROJECTED = "projected"
@@ -298,6 +301,215 @@ def accept_strict_trust_region_candidate(
         float(candidate_constraint_score)
         < float(before_constraint_score) - float(tolerance)
     )
+
+
+def summarize_per_example_sensitivity(
+    forget_row_norms: torch.Tensor,
+    retain_row_norms: torch.Tensor,
+    *,
+    forget_coverage: torch.Tensor,
+    retain_coverage: torch.Tensor,
+    forget_importance_floor_relative: float,
+    importance_ratio_min: float,
+    forget_specific_ratio_min: float,
+    forget_specific_retain_coverage_max: float,
+    retain_tail_ratio_min: float,
+    epsilon: float = 1e-12,
+) -> Dict[str, Any]:
+    """Classify rows from per-example forget and retain gradient norms.
+
+    RMS importance captures both how frequently and how strongly a row is used.
+    The retain maximum is kept separately as a hard-tail guard: a low average
+    must not hide one retain prompt that is extremely sensitive to the row.
+    Ratios are diagnostics over gradients in the same log-probability units;
+    they never replace projected efficacy or nonlinear preservation checks.
+    """
+    if forget_row_norms.ndim != 2 or retain_row_norms.ndim != 2:
+        raise ValueError("sensitivity norms must be [example,row] matrices")
+    if forget_row_norms.shape[1] != retain_row_norms.shape[1]:
+        raise ValueError("forget and retain sensitivity rows differ")
+    rows = int(forget_row_norms.shape[1])
+    if forget_coverage.shape != (rows,) or retain_coverage.shape != (rows,):
+        raise ValueError("coverage vectors are not aligned with sensitivity rows")
+    if int(forget_row_norms.shape[0]) == 0 or int(retain_row_norms.shape[0]) == 0:
+        raise ValueError("forget and retain sensitivity banks must be non-empty")
+
+    forget_values = forget_row_norms.detach().float().cpu()
+    retain_values = retain_row_norms.detach().float().cpu()
+    forget_rms = forget_values.square().mean(dim=0).sqrt()
+    retain_rms = retain_values.square().mean(dim=0).sqrt()
+    forget_max = forget_values.max(dim=0).values
+    retain_max = retain_values.max(dim=0).values
+    global_forget_max = float(forget_rms.max().item())
+    forget_floor = float(forget_importance_floor_relative) * global_forget_max
+    importance_ratio = forget_rms / retain_rms.clamp_min(float(epsilon))
+    tail_ratio = forget_max / retain_max.clamp_min(float(epsilon))
+    forget_fraction = forget_coverage.detach().float().cpu() / float(
+        forget_values.shape[0]
+    )
+    retain_fraction = retain_coverage.detach().float().cpu() / float(
+        retain_values.shape[0]
+    )
+
+    classes: List[str] = []
+    reasons: List[str] = []
+    for index in range(rows):
+        if (
+            int(forget_coverage[index].item()) == 0
+            or float(forget_rms[index]) < forget_floor
+        ):
+            classes.append("low_forget")
+            reasons.append("forget_importance_below_registered_floor")
+        elif (
+            float(importance_ratio[index]) < float(importance_ratio_min)
+            or float(tail_ratio[index]) < float(retain_tail_ratio_min)
+        ):
+            classes.append("retain_dominant")
+            reasons.append("retain_importance_or_hard_tail_dominates")
+        elif (
+            float(importance_ratio[index]) >= float(forget_specific_ratio_min)
+            and float(retain_fraction[index])
+            <= float(forget_specific_retain_coverage_max)
+        ):
+            classes.append("forget_specific")
+            reasons.append("high_forget_retain_ratio_and_low_retain_coverage")
+        else:
+            classes.append("shared")
+            reasons.append("material_for_both_forget_and_retain")
+
+    per_row = [
+        {
+            "row_index": index,
+            "class": classes[index],
+            "reason": reasons[index],
+            "forget_importance_rms": float(forget_rms[index]),
+            "forget_importance_max": float(forget_max[index]),
+            "retain_importance_rms": float(retain_rms[index]),
+            "retain_importance_max": float(retain_max[index]),
+            "importance_ratio": float(importance_ratio[index]),
+            "hard_tail_ratio": float(tail_ratio[index]),
+            "forget_coverage": int(forget_coverage[index].item()),
+            "forget_coverage_fraction": float(forget_fraction[index]),
+            "retain_coverage": int(retain_coverage[index].item()),
+            "retain_coverage_fraction": float(retain_fraction[index]),
+        }
+        for index in range(rows)
+    ]
+    return {
+        "forget_examples": int(forget_values.shape[0]),
+        "retain_examples": int(retain_values.shape[0]),
+        "rows": rows,
+        "criterion": {
+            "forget_importance_floor_relative": float(
+                forget_importance_floor_relative
+            ),
+            "forget_importance_floor_absolute": forget_floor,
+            "importance_ratio_min": float(importance_ratio_min),
+            "forget_specific_ratio_min": float(forget_specific_ratio_min),
+            "forget_specific_retain_coverage_max": float(
+                forget_specific_retain_coverage_max
+            ),
+            "retain_tail_ratio_min": float(retain_tail_ratio_min),
+            "ratio_epsilon": float(epsilon),
+        },
+        "class_counts": {
+            value: sum(local == value for local in classes)
+            for value in (
+                "forget_specific",
+                "shared",
+                "retain_dominant",
+                "low_forget",
+            )
+        },
+        "classes": classes,
+        "per_row": per_row,
+    }
+
+
+def combine_geometry_and_sensitivity_roles(
+    *,
+    row_ids: Sequence[int],
+    geometry_roles: Sequence[str],
+    geometry_report: Mapping[str, Any],
+    sensitivity_report: Mapping[str, Any],
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Apply sensitivity exclusions without weakening retain geometry.
+
+    A high forget/retain ratio can nominate a row, but it cannot prove safety.
+    Retain-observed rows therefore remain projected.  Only a row that is free
+    geometrically *and* has zero per-example retain coverage remains free.
+    """
+    count = len(row_ids)
+    if len(geometry_roles) != count:
+        raise ValueError("geometry roles are not aligned with row ids")
+    geometry_rows = list(geometry_report.get("per_row", []))
+    sensitivity_rows = list(sensitivity_report.get("per_row", []))
+    if len(geometry_rows) != count or len(sensitivity_rows) != count:
+        raise ValueError("row reports are not aligned")
+    roles: List[str] = []
+    per_row: List[Dict[str, Any]] = []
+    for index, token_id in enumerate(row_ids):
+        geometry_role = str(geometry_roles[index])
+        sensitivity_class = str(sensitivity_rows[index]["class"])
+        retain_coverage = int(sensitivity_rows[index]["retain_coverage"])
+        if sensitivity_class in ("low_forget", "retain_dominant"):
+            role = EXCLUDED
+            reason = f"sensitivity_{sensitivity_class}"
+        elif geometry_role == EXCLUDED:
+            role = EXCLUDED
+            reason = str(geometry_rows[index]["reason"])
+        elif geometry_role == FREE and retain_coverage > 0:
+            role = EXCLUDED
+            reason = "retain_observed_outside_geometry_basis"
+        else:
+            role = geometry_role
+            reason = (
+                "forget_specific_but_retain_observed_projected"
+                if sensitivity_class == "forget_specific"
+                and geometry_role == PROJECTED
+                else str(geometry_rows[index]["reason"])
+            )
+        roles.append(role)
+        per_row.append(
+            {
+                "row_index": index,
+                "token_id": int(token_id),
+                "role": role,
+                "reason": reason,
+                "geometry_role": geometry_role,
+                "sensitivity_class": sensitivity_class,
+                "forget_importance_rms": float(
+                    sensitivity_rows[index]["forget_importance_rms"]
+                ),
+                "retain_importance_rms": float(
+                    sensitivity_rows[index]["retain_importance_rms"]
+                ),
+                "retain_importance_max": float(
+                    sensitivity_rows[index]["retain_importance_max"]
+                ),
+                "importance_ratio": float(
+                    sensitivity_rows[index]["importance_ratio"]
+                ),
+                "forget_coverage": int(
+                    sensitivity_rows[index]["forget_coverage"]
+                ),
+                "retain_coverage": retain_coverage,
+            }
+        )
+    return roles, {
+        "rows": count,
+        "role_counts": {
+            role: sum(value == role for value in roles) for role in ROLES
+        },
+        "editable_rows": sum(value != EXCLUDED for value in roles),
+        "sensitivity_class_counts": dict(
+            sensitivity_report.get("class_counts", {})
+        ),
+        "liveness_forcing_disabled": True,
+        "liveness_replaced_by_per_prompt_cap_aware_reachability": True,
+        "per_row": per_row,
+        "passed": any(value != EXCLUDED for value in roles),
+    }
 
 
 def partition_rows(

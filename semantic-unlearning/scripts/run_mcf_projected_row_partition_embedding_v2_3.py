@@ -117,6 +117,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--input-frequency-alpha", type=float, default=0.25)
     parser.add_argument("--input-step-cap-fraction", type=float, default=0.004)
     parser.add_argument("--require-per-prompt-reachability", action="store_true")
+    parser.add_argument("--require-per-example-sensitivity", action="store_true")
+    parser.add_argument("--sensitivity-forget-records", type=int, default=50)
+    parser.add_argument("--sensitivity-retain-records", type=int, default=2000)
+    parser.add_argument(
+        "--sensitivity-coverage-relative-epsilon", type=float, default=1e-4
+    )
+    parser.add_argument(
+        "--forget-importance-floor-relative", type=float, default=0.01
+    )
+    parser.add_argument("--importance-ratio-min", type=float, default=1.0)
+    parser.add_argument("--forget-specific-ratio-min", type=float, default=4.0)
+    parser.add_argument(
+        "--forget-specific-retain-coverage-max", type=float, default=0.01
+    )
+    parser.add_argument("--retain-tail-ratio-min", type=float, default=0.25)
     parser.add_argument(
         "--minimum-forget-loss-improvement", type=float, default=1e-5
     )
@@ -151,6 +166,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("partition potential floor is relative to the strongest row")
     if args.minimum_forget_loss_improvement <= 0.0:
         parser.error("minimum forget-loss improvement must be positive")
+    if args.sensitivity_forget_records != args.forget_num:
+        parser.error("sensitivity must use all 50 direct forget records")
+    if args.sensitivity_retain_records != 2000:
+        parser.error("sensitivity is locked to all 2000 protection-fit records")
+    if not 0.0 < args.sensitivity_coverage_relative_epsilon < 1.0:
+        parser.error("sensitivity coverage epsilon must lie inside (0, 1)")
+    if not 0.0 <= args.forget_importance_floor_relative < 1.0:
+        parser.error("forget importance floor must lie inside [0, 1)")
+    if args.importance_ratio_min <= 0.0:
+        parser.error("importance ratio floor must be positive")
+    if args.forget_specific_ratio_min < args.importance_ratio_min:
+        parser.error("forget-specific ratio must not be below the keep ratio")
+    if not 0.0 <= args.forget_specific_retain_coverage_max <= 1.0:
+        parser.error("forget-specific retain coverage must lie inside [0, 1]")
+    if args.retain_tail_ratio_min <= 0.0:
+        parser.error("retain-tail ratio floor must be positive")
     return args
 
 
@@ -162,7 +193,11 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
     registered_protocol = registry.get("protocol")
     if (
         registered_protocol
-        not in (partition.PROTOCOL, partition.REACHABILITY_PROTOCOL)
+        not in (
+            partition.PROTOCOL,
+            partition.REACHABILITY_PROTOCOL,
+            partition.SENSITIVITY_PROTOCOL,
+        )
         or registry.get("status")
         != "training_only_implementation_available_not_executed"
         or architecture.get("trainable_parameter_families")
@@ -180,7 +215,11 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
         or retain_strata.get("present_on_every_embedding_update") is not True
     ):
         raise RuntimeError("V2.3 registry architecture/status mismatch")
-    reachability_revision = registered_protocol == partition.REACHABILITY_PROTOCOL
+    reachability_revision = registered_protocol in (
+        partition.REACHABILITY_PROTOCOL,
+        partition.SENSITIVITY_PROTOCOL,
+    )
+    sensitivity_revision = registered_protocol == partition.SENSITIVITY_PROTOCOL
     reachability = registry.get("per_prompt_reachability", {})
     if reachability_revision:
         if (
@@ -199,6 +238,18 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
             raise RuntimeError("V2.3.1 reachability/optimization contract mismatch")
     elif args.require_per_prompt_reachability or args.full_fit_rollback:
         raise RuntimeError("V2.3 registry cannot enable V2.3.1-only controls")
+    sensitivity = registry.get("per_example_sensitivity", {})
+    if sensitivity_revision:
+        if (
+            args.require_per_example_sensitivity is not True
+            or sensitivity.get("required_before_row_partition") is not True
+            or sensitivity.get("prompt_classifier") is not False
+            or sensitivity.get("ratio_is_sole_safety_criterion") is not False
+            or sensitivity.get("retain_hard_tail_guard") is not True
+        ):
+            raise RuntimeError("V2.3.2 per-example sensitivity contract mismatch")
+    elif args.require_per_example_sensitivity:
+        raise RuntimeError("only V2.3.2 may enable per-example sensitivity")
     expected = {
         "data": {
             "seed": args.seed,
@@ -265,6 +316,23 @@ def validate_registry(registry: Mapping[str, Any], args: argparse.Namespace) -> 
                 "full_fit_rollback": args.full_fit_rollback,
             }
         )
+    if sensitivity_revision:
+        expected["per_example_sensitivity"] = {
+            "forget_examples": args.sensitivity_forget_records,
+            "retain_examples": args.sensitivity_retain_records,
+            "coverage_relative_epsilon": (
+                args.sensitivity_coverage_relative_epsilon
+            ),
+            "forget_importance_floor_relative": (
+                args.forget_importance_floor_relative
+            ),
+            "importance_ratio_min": args.importance_ratio_min,
+            "forget_specific_ratio_min": args.forget_specific_ratio_min,
+            "forget_specific_retain_coverage_max": (
+                args.forget_specific_retain_coverage_max
+            ),
+            "retain_tail_ratio_min": args.retain_tail_ratio_min,
+        }
     for section, values in expected.items():
         registered = registry.get(section)
         if not isinstance(registered, Mapping):
@@ -428,6 +496,130 @@ def direct_live_rows(
             {int(value) for value in ids if int(value) in allowed}
         )
     return live
+
+
+def collect_per_example_sensitivity(
+    model: torch.nn.Module,
+    tok: Any,
+    forget_records: Sequence[Mapping[str, Any]],
+    retain_records: Sequence[Mapping[str, Any]],
+    device: torch.device,
+    *,
+    input_delta: canonical.SelectedRowDelta,
+    llama_like: bool,
+    coverage_relative_epsilon: float,
+    forget_importance_floor_relative: float,
+    importance_ratio_min: float,
+    forget_specific_ratio_min: float,
+    forget_specific_retain_coverage_max: float,
+    retain_tail_ratio_min: float,
+) -> tuple[torch.Tensor, Dict[str, Any]]:
+    """Measure one input-row gradient norm vector per forget/retain record.
+
+    Forget importance uses the direct answer-preference margin. Retain
+    importance uses the ground-truth answer NLL. Both are measured in
+    log-probability units from exact zero. Only norm summaries and coverage are
+    retained; no prompt text or per-example gradient tensor is serialized.
+    """
+    if input_delta.raw_delta is None:
+        raise RuntimeError("per-example sensitivity requires a full row delta")
+    original = input_delta.raw_delta.detach().clone()
+    if float(original.norm().cpu()) > 1e-12:
+        raise RuntimeError("per-example sensitivity must run from exact zero")
+    row_count = int(input_delta.raw_delta.shape[0])
+    forget_norms: List[torch.Tensor] = []
+    retain_norms: List[torch.Tensor] = []
+    forget_coverage = torch.zeros(row_count, dtype=torch.long)
+    retain_coverage = torch.zeros(row_count, dtype=torch.long)
+    forget_gradient_sum = torch.zeros_like(input_delta.raw_delta)
+
+    def record_norms(scalar: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        input_delta.zero_grad(set_to_none=True)
+        model.zero_grad(set_to_none=True)
+        scalar.backward()
+        gradient = input_delta.raw_delta.grad
+        if gradient is None:
+            local = torch.zeros_like(input_delta.raw_delta)
+        else:
+            local = gradient.detach().clone()
+        norms = local.float().norm(dim=1).cpu()
+        maximum = float(norms.max().item()) if norms.numel() else 0.0
+        threshold = max(
+            1e-12, float(coverage_relative_epsilon) * maximum
+        )
+        return local, norms >= threshold
+
+    try:
+        with torch.no_grad():
+            input_delta.raw_delta.zero_()
+        for index, record in enumerate(forget_records):
+            margin = v2.records_margin_tensor(
+                model, tok, [record], device, llama_like=llama_like
+            )[0]
+            gradient, covered = record_norms(margin)
+            norms = gradient.float().norm(dim=1).cpu()
+            forget_norms.append(norms)
+            forget_coverage.add_(covered.long())
+            forget_gradient_sum.add_(gradient)
+            if (index + 1) % 10 == 0 or index + 1 == len(forget_records):
+                print(
+                    f"    forget sensitivity {index + 1}/{len(forget_records)}"
+                )
+
+        for index, record in enumerate(retain_records):
+            rewrite = record["requested_rewrite"]
+            prompt = str(rewrite["prompt"]).format(str(rewrite["subject"]))
+            answer = str(rewrite["target_true"]["str"])
+            target_nll = v2.answer_nlls(
+                model,
+                tok,
+                [prompt],
+                [answer],
+                device,
+                llama_like=llama_like,
+            )[0]
+            gradient, covered = record_norms(target_nll)
+            retain_norms.append(gradient.float().norm(dim=1).cpu())
+            retain_coverage.add_(covered.long())
+            if (index + 1) % 250 == 0 or index + 1 == len(retain_records):
+                print(
+                    f"    retain sensitivity {index + 1}/{len(retain_records)}"
+                )
+    finally:
+        with torch.no_grad():
+            input_delta.raw_delta.copy_(original)
+        input_delta.zero_grad(set_to_none=True)
+        model.zero_grad(set_to_none=True)
+
+    if not forget_norms or not retain_norms:
+        raise RuntimeError("per-example sensitivity produced an empty bank")
+    report = partition.summarize_per_example_sensitivity(
+        torch.stack(forget_norms),
+        torch.stack(retain_norms),
+        forget_coverage=forget_coverage,
+        retain_coverage=retain_coverage,
+        forget_importance_floor_relative=forget_importance_floor_relative,
+        importance_ratio_min=importance_ratio_min,
+        forget_specific_ratio_min=forget_specific_ratio_min,
+        forget_specific_retain_coverage_max=(
+            forget_specific_retain_coverage_max
+        ),
+        retain_tail_ratio_min=retain_tail_ratio_min,
+    )
+    report.update(
+        {
+            "schema_version": 1,
+            "kind": "mcf_v2_3_2_per_example_forget_retain_sensitivity",
+            "forget_scalar": "direct_target_new_minus_target_true_logprob_margin",
+            "retain_scalar": "ground_truth_answer_nll",
+            "coverage_relative_epsilon": float(coverage_relative_epsilon),
+            "prompt_classifier": False,
+            "prompt_text_serialized": 0,
+            "ratio_is_sole_safety_criterion": False,
+            "retain_hard_tail_guard": True,
+        }
+    )
+    return forget_gradient_sum / float(len(forget_records)), report
 
 
 def per_prompt_reachability_report(
@@ -680,6 +872,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     validate_registry(registry, args)
     active_protocol = str(registry["protocol"])
+    sensitivity_revision = active_protocol == partition.SENSITIVITY_PROTOCOL
     protocol_dir = Path(args.protocol_dir).resolve()
     manifest_path = protocol_dir / "split_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -909,22 +1102,69 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     v2.write_json(output / "method" / "retain_readout_bases.json", basis_report)
 
-    input_delta.zero_grad(set_to_none=True)
-    forget_batcher_probe = folded.BalancedBatcher(
-        len(training_records), args.forget_batch_size, args.seed + 1501
-    )
-    probe_batches = max(1, len(training_records) // max(args.forget_batch_size, 1))
-    for _ in range(probe_batches):
-        indices = forget_batcher_probe.next()
-        batch = [training_records[index] for index in indices]
-        margins = v2.records_margin_tensor(
-            model, tok, batch, device, llama_like=llama_like
+    if sensitivity_revision:
+        if len(forget) != args.sensitivity_forget_records:
+            raise RuntimeError("V2.3.2 forget sensitivity bank size changed")
+        if len(protection_fit) != args.sensitivity_retain_records:
+            raise RuntimeError("V2.3.2 retain sensitivity bank size changed")
+        print(
+            "Stage 2a: per-example forget/retain embedding-row sensitivity"
         )
-        (F.relu(args.forget_margin_target - margins).square().mean()
-         / float(probe_batches)).backward()
-    forget_gradient = input_delta.raw_delta.grad
-    if forget_gradient is None:
-        raise RuntimeError("V2.3 diagnostic produced no forget gradient")
+        forget_gradient, sensitivity_report = collect_per_example_sensitivity(
+            model,
+            tok,
+            forget,
+            protection_fit,
+            device,
+            input_delta=input_delta,
+            llama_like=llama_like,
+            coverage_relative_epsilon=(
+                args.sensitivity_coverage_relative_epsilon
+            ),
+            forget_importance_floor_relative=(
+                args.forget_importance_floor_relative
+            ),
+            importance_ratio_min=args.importance_ratio_min,
+            forget_specific_ratio_min=args.forget_specific_ratio_min,
+            forget_specific_retain_coverage_max=(
+                args.forget_specific_retain_coverage_max
+            ),
+            retain_tail_ratio_min=args.retain_tail_ratio_min,
+        )
+        for index, row in enumerate(sensitivity_report["per_row"]):
+            row["token_id"] = int(endpoint_rows.input_ids[index])
+        v2.write_json(
+            output / "method" / "per_example_row_sensitivity.json",
+            sensitivity_report,
+        )
+        print(
+            "  sensitivity: "
+            + ", ".join(
+                f"{name}={count}"
+                for name, count in sensitivity_report["class_counts"].items()
+            )
+        )
+    else:
+        input_delta.zero_grad(set_to_none=True)
+        forget_batcher_probe = folded.BalancedBatcher(
+            len(training_records), args.forget_batch_size, args.seed + 1501
+        )
+        probe_batches = max(
+            1, len(training_records) // max(args.forget_batch_size, 1)
+        )
+        for _ in range(probe_batches):
+            indices = forget_batcher_probe.next()
+            batch = [training_records[index] for index in indices]
+            margins = v2.records_margin_tensor(
+                model, tok, batch, device, llama_like=llama_like
+            )
+            (
+                F.relu(args.forget_margin_target - margins).square().mean()
+                / float(probe_batches)
+            ).backward()
+        forget_gradient = input_delta.raw_delta.grad
+        if forget_gradient is None:
+            raise RuntimeError("V2.3 diagnostic produced no forget gradient")
     efficacy = partition.residual_efficacy(forget_gradient, bases, input_caps)
     input_delta.zero_grad(set_to_none=True)
 
@@ -932,17 +1172,42 @@ def main(argv: Sequence[str] | None = None) -> None:
     potential_floor = float(args.partition_potential_floor) * float(
         potential.max().item()
     )
-    roles, partition_report = partition.partition_rows(
+    geometry_roles, geometry_partition_report = partition.partition_rows(
         row_ids=endpoint_rows.input_ids,
         retain_observed=[int(basis.shape[0]) > 0 for basis in bases],
         efficacy=efficacy["efficacy"],
         potential=potential,
         frequency=selected_counts.float(),
-        direct_live_rows=direct_live_rows(forget, tok, endpoint_rows.input_ids),
+        direct_live_rows=(
+            {}
+            if sensitivity_revision
+            else direct_live_rows(forget, tok, endpoint_rows.input_ids)
+        ),
         efficacy_min=args.partition_efficacy_min,
         potential_min=potential_floor,
         frequency_max=args.partition_frequency_max,
     )
+    if sensitivity_revision:
+        geometry_partition_report["absolute_potential_floor"] = potential_floor
+        geometry_partition_report["relative_potential_floor"] = float(
+            args.partition_potential_floor
+        )
+        v2.write_json(
+            output / "method" / "geometry_row_partition.json",
+            geometry_partition_report,
+        )
+        roles, partition_report = partition.combine_geometry_and_sensitivity_roles(
+            row_ids=endpoint_rows.input_ids,
+            geometry_roles=geometry_roles,
+            geometry_report=geometry_partition_report,
+            sensitivity_report=sensitivity_report,
+        )
+        partition_report["liveness_forced_records"] = 0
+        partition_report["liveness_forced"] = []
+        partition_report["sensitivity_criterion"] = sensitivity_report["criterion"]
+    else:
+        roles = geometry_roles
+        partition_report = geometry_partition_report
     partition_report["absolute_potential_floor"] = potential_floor
     partition_report["relative_potential_floor"] = float(
         args.partition_potential_floor
@@ -1003,7 +1268,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 protocol=active_protocol,
             )
             raise RuntimeError(
-                "V2.3.1 per-prompt reachability failed; optimization refused"
+                "per-prompt reachability failed; optimization refused"
             )
 
     contrast_cases, contrast_true_ids, contrast_new_ids = build_contrast_cells(
@@ -1601,6 +1866,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         "row_partition": partition_report["role_counts"],
         "liveness_forced_records": partition_report["liveness_forced_records"],
         "registered_prediction": partition_report["prediction"],
+        "per_example_sensitivity_partition": bool(sensitivity_revision),
+        "per_prompt_cap_aware_reachability": bool(
+            args.require_per_prompt_reachability
+        ),
+        "strict_forget_improvement": bool(
+            args.require_per_prompt_reachability
+        ),
+        "full_fit_rollback": bool(args.full_fit_rollback),
         "joint_forget_retain_every_update": True,
         "persistent_hard_tail": True,
         "embedding_rows_changed": int(

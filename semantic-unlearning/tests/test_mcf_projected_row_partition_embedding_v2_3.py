@@ -25,6 +25,11 @@ REACHABILITY_REGISTRY_PATH = (
     / "protocols"
     / "mcf_projected_row_partition_embedding_v2_3_1_registry.json"
 )
+SENSITIVITY_REGISTRY_PATH = (
+    ROOT
+    / "protocols"
+    / "mcf_projected_row_partition_embedding_v2_3_2_registry.json"
+)
 
 
 def registry() -> dict:
@@ -33,6 +38,10 @@ def registry() -> dict:
 
 def reachability_registry() -> dict:
     return json.loads(REACHABILITY_REGISTRY_PATH.read_text())
+
+
+def sensitivity_registry() -> dict:
+    return json.loads(SENSITIVITY_REGISTRY_PATH.read_text())
 
 
 def basis(vectors: list[list[float]]) -> torch.Tensor:
@@ -345,6 +354,234 @@ def test_per_prompt_forward_reachability_is_separate_and_restores_zero(
     assert report["groups"]["direct"]["failures"] == 0
     assert report["groups"]["synthetic"]["failures"] == 1
     assert report["passed"] is False
+    assert torch.count_nonzero(delta.raw_delta).item() == 0
+
+
+def test_per_example_sensitivity_distinguishes_useful_shared_and_protected_rows() -> None:
+    forget = torch.zeros((4, 4))
+    retain = torch.zeros((100, 4))
+    # Row 0: frequent/strong on forget, rare on retain -> forget-specific.
+    forget[:2, 0] = 1.0
+    retain[0, 0] = 1.0
+    # Row 1: similarly prevalent in both populations -> shared.
+    forget[:2, 1] = 1.0
+    retain[:50, 1] = 1.0
+    # Row 2: negligible forget importance -> low-forget.
+    forget[0, 2] = 1e-8
+    # Row 3: retain hard tail dominates despite nonzero forget usage.
+    forget[:, 3] = 0.2
+    retain[0, 3] = 2.0
+    report = core.summarize_per_example_sensitivity(
+        forget,
+        retain,
+        forget_coverage=torch.tensor([2, 2, 1, 4]),
+        retain_coverage=torch.tensor([1, 50, 0, 1]),
+        forget_importance_floor_relative=0.01,
+        importance_ratio_min=1.0,
+        forget_specific_ratio_min=4.0,
+        forget_specific_retain_coverage_max=0.01,
+        retain_tail_ratio_min=0.25,
+    )
+    assert report["classes"] == [
+        "forget_specific",
+        "shared",
+        "low_forget",
+        "retain_dominant",
+    ]
+    assert report["per_row"][0]["importance_ratio"] > 4.0
+    assert report["per_row"][3]["hard_tail_ratio"] < 0.25
+
+
+def test_sensitivity_can_only_tighten_geometric_roles() -> None:
+    geometry_roles = [core.FREE, core.PROJECTED, core.FREE, core.PROJECTED]
+    geometry_report = {
+        "per_row": [
+            {"reason": "free"},
+            {"reason": "projected"},
+            {"reason": "free"},
+            {"reason": "projected"},
+        ]
+    }
+    sensitivity_report = {
+        "class_counts": {
+            "forget_specific": 1,
+            "shared": 2,
+            "retain_dominant": 1,
+            "low_forget": 0,
+        },
+        "per_row": [
+            {
+                "class": "forget_specific",
+                "forget_importance_rms": 2.0,
+                "retain_importance_rms": 0.0,
+                "retain_importance_max": 0.0,
+                "importance_ratio": 10.0,
+                "forget_coverage": 2,
+                "retain_coverage": 0,
+            },
+            {
+                "class": "shared",
+                "forget_importance_rms": 1.0,
+                "retain_importance_rms": 1.0,
+                "retain_importance_max": 1.0,
+                "importance_ratio": 1.0,
+                "forget_coverage": 2,
+                "retain_coverage": 4,
+            },
+            {
+                "class": "shared",
+                "forget_importance_rms": 1.0,
+                "retain_importance_rms": 1.0,
+                "retain_importance_max": 1.0,
+                "importance_ratio": 1.0,
+                "forget_coverage": 2,
+                "retain_coverage": 1,
+            },
+            {
+                "class": "retain_dominant",
+                "forget_importance_rms": 0.5,
+                "retain_importance_rms": 2.0,
+                "retain_importance_max": 3.0,
+                "importance_ratio": 0.25,
+                "forget_coverage": 1,
+                "retain_coverage": 9,
+            },
+        ],
+    }
+    roles, report = core.combine_geometry_and_sensitivity_roles(
+        row_ids=[10, 11, 12, 13],
+        geometry_roles=geometry_roles,
+        geometry_report=geometry_report,
+        sensitivity_report=sensitivity_report,
+    )
+    assert roles == [core.FREE, core.PROJECTED, core.EXCLUDED, core.EXCLUDED]
+    assert report["per_row"][2]["reason"] == (
+        "retain_observed_outside_geometry_basis"
+    )
+    assert report["liveness_forcing_disabled"] is True
+
+
+def test_v2_3_2_registry_locks_per_example_sensitivity() -> None:
+    args = runner.parse_args(
+        [
+            "--model-path",
+            "model",
+            "--protocol-dir",
+            "protocol",
+            "--experiment-registry",
+            "registry",
+            "--wikidata-dir",
+            "wiki",
+            "--output-dir",
+            "out",
+            "--require-per-example-sensitivity",
+            "--require-per-prompt-reachability",
+            "--minimum-forget-loss-improvement",
+            "0.00001",
+            "--full-fit-rollback",
+        ]
+    )
+    runner.validate_registry(sensitivity_registry(), args)
+    value = sensitivity_registry()
+    assert value["protocol"] == core.SENSITIVITY_PROTOCOL
+    assert value["per_example_sensitivity"]["forget_examples"] == 50
+    assert value["per_example_sensitivity"]["retain_examples"] == 2000
+    assert value["per_example_sensitivity"]["prompt_classifier"] is False
+    assert value["per_example_sensitivity"]["ratio_is_sole_safety_criterion"] is False
+
+
+def test_v2_3_2_registry_refuses_disabling_sensitivity() -> None:
+    args = runner.parse_args(
+        [
+            "--model-path",
+            "model",
+            "--protocol-dir",
+            "protocol",
+            "--experiment-registry",
+            "registry",
+            "--wikidata-dir",
+            "wiki",
+            "--output-dir",
+            "out",
+            "--require-per-prompt-reachability",
+            "--full-fit-rollback",
+        ]
+    )
+    with pytest.raises(RuntimeError, match="V2.3.2 per-example"):
+        runner.validate_registry(sensitivity_registry(), args)
+
+
+def test_sensitivity_collector_uses_separate_examples_and_restores_zero(
+    monkeypatch,
+) -> None:
+    delta = runner.canonical.SelectedRowDelta(
+        2, 2, direction_basis=None, device=torch.device("cpu")
+    )
+    forget = [
+        {
+            "requested_rewrite": {
+                "prompt": "{} forget",
+                "subject": "A",
+                "target_true": {"str": "old"},
+            }
+        }
+    ]
+    retain = [
+        {
+            "requested_rewrite": {
+                "prompt": "{} retain zero",
+                "subject": "B",
+                "target_true": {"str": "keep"},
+            }
+        },
+        {
+            "requested_rewrite": {
+                "prompt": "{} retain one",
+                "subject": "C",
+                "target_true": {"str": "keep"},
+            }
+        },
+    ]
+
+    def fake_margin(_model, _tok, _batch, _device, *, llama_like):
+        del llama_like
+        return torch.stack([(delta.raw_delta[0] * torch.tensor([2.0, 0.0])).sum()])
+
+    retain_calls = iter(
+        [
+            torch.tensor([[0.0, 0.0], [1.0, 0.0]]),
+            torch.tensor([[0.0, 0.0], [1.0, 0.0]]),
+        ]
+    )
+
+    def fake_nll(_model, _tok, _prompts, _answers, _device, *, llama_like):
+        del llama_like
+        local = next(retain_calls)
+        return torch.stack([(delta.raw_delta * local).sum()])
+
+    monkeypatch.setattr(runner.v2, "records_margin_tensor", fake_margin)
+    monkeypatch.setattr(runner.v2, "answer_nlls", fake_nll)
+    gradient, report = runner.collect_per_example_sensitivity(
+        torch.nn.Linear(1, 1),
+        None,
+        forget,
+        retain,
+        torch.device("cpu"),
+        input_delta=delta,
+        llama_like=False,
+        coverage_relative_epsilon=1e-4,
+        forget_importance_floor_relative=0.01,
+        importance_ratio_min=1.0,
+        forget_specific_ratio_min=4.0,
+        forget_specific_retain_coverage_max=0.01,
+        retain_tail_ratio_min=0.25,
+    )
+    assert torch.allclose(gradient[0], torch.tensor([2.0, 0.0]))
+    assert report["forget_examples"] == 1
+    assert report["retain_examples"] == 2
+    assert report["per_row"][0]["forget_coverage"] == 1
+    assert report["per_row"][1]["retain_coverage"] == 2
+    assert report["prompt_classifier"] is False
     assert torch.count_nonzero(delta.raw_delta).item() == 0
 
 
