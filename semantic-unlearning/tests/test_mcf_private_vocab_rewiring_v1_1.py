@@ -32,10 +32,12 @@ class DummyTokenizer:
             "<|reserved_special_token_1|>": 9,
             "<|reserved_special_token_2|>": 10,
             "<|reserved_special_token_3|>": 11,
+            "<|reserved_special_token_4|>": 12,
+            "<|reserved_special_token_5|>": 13,
         }
 
     def __len__(self):
-        return 12
+        return 14
 
     def get_vocab(self):
         return dict(self._vocab)
@@ -84,7 +86,7 @@ def test_unrelated_text_is_bitwise_same_token_ids():
 
 
 def test_exact_private_initialization_is_one_to_one_not_mean_pooling():
-    weight = torch.arange(24, dtype=torch.float32).reshape(12, 2)
+    weight = torch.arange(28, dtype=torch.float32).reshape(14, 2)
     tok = DummyTokenizer()
     mapping = core.build_position_preserving_mapping(tok, ["Belgium"])
     rows = core.initialize_exact_private_rows(weight, mapping)
@@ -110,4 +112,12 @@ def test_multiple_subjects_receive_disjoint_private_rows():
     assert len(flat) == 5
     assert len(set(flat)) == 5
     assert mapping[0]["private_token_ids"] == [8, 9]
-    assert mapping[1]["private_token_ids"] == [10, 11, 12] if False else mapping[1]["private_token_ids"]
+    assert mapping[1]["private_token_ids"] == [10, 11, 12]
+
+
+def test_longest_subject_sequence_wins_when_subjects_overlap():
+    tok = DummyTokenizer()
+    mapping = core.build_position_preserving_mapping(tok, ["Belgium", "New Belgium"])
+    private = core.PositionPreservingSubjectTokenizer(tok, mapping)
+    # The 3-token New Belgium rule must win over the embedded 2-token Belgium rule.
+    assert private("Tell me about New Belgium.")["input_ids"] == [5, 5, 10, 11, 12, 5]
