@@ -24,16 +24,24 @@ PROTOCOL = "mcf_private_vocab_rewiring_v1"
 RESERVED_RE = re.compile(r"^<\|reserved_special_token_(\d+)\|>$")
 
 
+def _raw_cpu_bytes(tensor: torch.Tensor) -> bytes:
+    """Return exact storage bytes for ordinary dense tensors, including BF16."""
+    value = tensor.detach().cpu().contiguous()
+    if value.ndim == 0:
+        value = value.reshape(1)
+    return value.view(torch.uint8).numpy().tobytes()
+
+
 def sha256_tensor(tensor: torch.Tensor, *, chunk_rows: int = 512) -> str:
-    """Hash a tensor without materializing the full parameter on CPU at once."""
+    """Hash exact tensor bits without materializing the full parameter on CPU."""
     value = tensor.detach()
     digest = hashlib.sha256()
     if value.ndim == 0:
-        digest.update(value.cpu().contiguous().numpy().tobytes())
+        digest.update(_raw_cpu_bytes(value))
         return digest.hexdigest()
     for start in range(0, int(value.shape[0]), int(chunk_rows)):
-        chunk = value[start : start + int(chunk_rows)].cpu().contiguous()
-        digest.update(chunk.numpy().tobytes())
+        chunk = value[start : start + int(chunk_rows)]
+        digest.update(_raw_cpu_bytes(chunk))
     return digest.hexdigest()
 
 
@@ -302,7 +310,7 @@ def materialize_private_rows(
 def non_private_row_hash(
     weight: torch.Tensor, private_ids: Sequence[int], *, chunk_rows: int = 512
 ) -> str:
-    """Hash all embedding rows except private slots without a full CPU copy."""
+    """Hash exact bits of all embedding rows except the private slots."""
     excluded = {int(value) for value in private_ids}
     digest = hashlib.sha256()
     value = weight.detach()
@@ -312,8 +320,8 @@ def non_private_row_hash(
         if not keep:
             continue
         ids = torch.tensor(keep, device=value.device, dtype=torch.long)
-        chunk = value.index_select(0, ids).cpu().contiguous()
-        digest.update(chunk.numpy().tobytes())
+        chunk = value.index_select(0, ids)
+        digest.update(_raw_cpu_bytes(chunk))
     return digest.hexdigest()
 
 
