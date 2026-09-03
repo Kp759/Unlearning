@@ -32,7 +32,7 @@ unset ADVERSARIAL_EVAL_PATH
 
 mkdir -p "$OUTPUT_DIR/logs"
 
-python -u scripts/run_mcf_private_vocab_rewiring_v1_1.py \
+python -u scripts/run_mcf_private_vocab_rewiring_v1_1_relational.py \
   --model-path "$MODEL_PATH" \
   --protocol-dir "$OUTPUT_DIR/protocol" \
   --experiment-registry "$REGISTRY" \
