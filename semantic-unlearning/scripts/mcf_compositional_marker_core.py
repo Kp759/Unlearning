@@ -27,7 +27,171 @@ import torch
 import torch.nn.functional as F
 
 
-PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v5_1"
+PROTOCOL = "mcf_context_composed_sparse_embedding_writer_v6_2"
+
+
+def globally_balanced_record_microbatches(
+    record_count: int,
+    microbatch_size: int,
+    rng: random.Random,
+) -> List[List[int]]:
+    """Return one shuffled, exactly-once sweep over every record.
+
+    V6.1 updated Adam after a record-local minibatch.  V6.2 accumulates these
+    microbatch gradients and updates only after every record has contributed.
+    Keeping this scheduler pure makes the all-record coverage invariant easy
+    to audit without loading a language model.
+    """
+
+    if int(record_count) <= 0:
+        raise ValueError("record_count must be positive")
+    if int(microbatch_size) <= 0:
+        raise ValueError("microbatch_size must be positive")
+    indices = list(range(int(record_count)))
+    rng.shuffle(indices)
+    size = int(microbatch_size)
+    return [indices[start : start + size] for start in range(0, len(indices), size)]
+
+
+def gradient_conflict_summary(
+    gradients: Sequence[torch.Tensor],
+    case_ids: Sequence[int],
+    *,
+    negative_cosine_tolerance: float = 1e-8,
+) -> Dict[str, Any]:
+    """Summarize pairwise cosine conflict between per-record gradients."""
+
+    if not gradients or len(gradients) != len(case_ids):
+        raise ValueError("gradients and case_ids must be non-empty and aligned")
+    shape = tuple(gradients[0].shape)
+    if any(tuple(gradient.shape) != shape for gradient in gradients):
+        raise ValueError("all gradients must have the same shape")
+    if (
+        not math.isfinite(float(negative_cosine_tolerance))
+        or float(negative_cosine_tolerance) < 0.0
+    ):
+        raise ValueError("negative_cosine_tolerance must be finite and non-negative")
+    matrix = torch.stack(
+        [gradient.detach().float().reshape(-1).cpu() for gradient in gradients]
+    )
+    if not torch.isfinite(matrix).all():
+        raise ValueError("gradients contain non-finite values")
+    norms = matrix.norm(dim=1)
+    valid = norms > 0.0
+    unit = matrix / norms.clamp_min(torch.finfo(matrix.dtype).tiny).unsqueeze(1)
+    cosine = (unit @ unit.T).clamp(min=-1.0, max=1.0)
+
+    pair_values: List[float] = []
+    negative_pairs = 0
+    per_record_negative = [0 for _ in gradients]
+    per_record_valid = [0 for _ in gradients]
+    tolerance = float(negative_cosine_tolerance)
+    for left in range(len(gradients)):
+        for right in range(left + 1, len(gradients)):
+            if not bool(valid[left]) or not bool(valid[right]):
+                continue
+            value = float(cosine[left, right])
+            pair_values.append(value)
+            per_record_valid[left] += 1
+            per_record_valid[right] += 1
+            if value < -tolerance:
+                negative_pairs += 1
+                per_record_negative[left] += 1
+                per_record_negative[right] += 1
+
+    def distribution(values: Sequence[float]) -> Dict[str, Any]:
+        ordered = sorted(float(value) for value in values)
+        if not ordered:
+            return {"n": 0}
+        return {
+            "n": len(ordered),
+            "min": ordered[0],
+            "p10": ordered[int(0.10 * (len(ordered) - 1))],
+            "median": ordered[len(ordered) // 2],
+            "mean": sum(ordered) / len(ordered),
+            "p90": ordered[int(0.90 * (len(ordered) - 1))],
+            "max": ordered[-1],
+        }
+
+    cosine_rows: List[List[float | None]] = []
+    for left in range(len(gradients)):
+        cosine_rows.append(
+            [
+                float(cosine[left, right])
+                if bool(valid[left]) and bool(valid[right])
+                else None
+                for right in range(len(gradients))
+            ]
+        )
+    return {
+        "case_ids": [int(case_id) for case_id in case_ids],
+        "gradient_shape": list(shape),
+        "gradient_dimension": int(matrix.shape[1]),
+        "nonzero_gradient_records": int(valid.sum()),
+        "gradient_norm": distribution([float(value) for value in norms]),
+        "valid_pair_count": len(pair_values),
+        "negative_cosine_tolerance": tolerance,
+        "negative_pair_count": negative_pairs,
+        "negative_pair_fraction": (
+            negative_pairs / len(pair_values) if pair_values else None
+        ),
+        "pairwise_cosine": distribution(pair_values),
+        "per_record": [
+            {
+                "case_id": int(case_ids[index]),
+                "gradient_norm": float(norms[index]),
+                "valid_peer_count": per_record_valid[index],
+                "negative_peer_count": per_record_negative[index],
+                "negative_peer_fraction": (
+                    per_record_negative[index] / per_record_valid[index]
+                    if per_record_valid[index]
+                    else None
+                ),
+            }
+            for index in range(len(gradients))
+        ],
+        "cosine_matrix": cosine_rows,
+    }
+
+
+def robust_positive_shortfall_loss(
+    amplitudes: torch.Tensor,
+    *,
+    target: float,
+    tail_k: int,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """Penalize both average and worst-context marker shortfall.
+
+    V6 optimized the mean squared hinge over a subsample of each record's
+    positive contexts.  V6.1 presents every positive context together and
+    adds a CVaR-like term over the ``tail_k`` largest squared shortfalls. V6.2
+    retains that per-record loss while accumulating gradients across all
+    records before each optimizer update. The tail term is deliberately
+    conservative: the registered 80% per-record
+    portability gate can tolerate one miss for a six- or seven-prompt record,
+    but optimizing the weakest two avoids placing the learned solution on that
+    discrete boundary.
+
+    The returned loss retains V6's division by ``target`` so the new term has
+    the same basic scale as the historical writer objective.
+    """
+
+    if amplitudes.ndim != 1 or amplitudes.numel() == 0:
+        raise ValueError("amplitudes must be a non-empty vector")
+    if not math.isfinite(float(target)) or float(target) <= 0.0:
+        raise ValueError("target must be finite and positive")
+    if int(tail_k) <= 0:
+        raise ValueError("tail_k must be positive")
+    squared_shortfall = F.relu(float(target) - amplitudes).square()
+    mean_term = squared_shortfall.mean()
+    effective_tail_k = min(int(tail_k), int(squared_shortfall.numel()))
+    tail_term = squared_shortfall.topk(effective_tail_k).values.mean()
+    scale = float(target)
+    return (mean_term + tail_term) / scale, {
+        "mean": mean_term / scale,
+        "tail": tail_term / scale,
+        "maximum": squared_shortfall.max() / scale,
+    }
 
 
 def normalize_text(value: Any) -> str:
@@ -62,6 +226,104 @@ def _flat_token_ids(tokenizer: Any, text: str) -> List[int]:
     return [int(x) for x in value]
 
 
+def cross_record_parameter_sharing_report(
+    selected_rows_by_case: Mapping[int, Sequence[int]],
+    positives_by_case: Mapping[int, Sequence[str]],
+    tokenizer: Any,
+) -> Dict[str, Any]:
+    """Measure direct gradient-sharing paths between record objectives.
+
+    A sparse embedding row is globally shared even when it was selected for a
+    particular subject. Interference can arise either because two records own
+    the same selected row or because one record's positive prompt contains a
+    selected row owned only by another record. This training-only audit makes
+    both pathways explicit; it does not infer gradient conflict from incidence
+    alone.
+    """
+
+    normalized_selected = {
+        int(case_id): {int(row) for row in rows}
+        for case_id, rows in selected_rows_by_case.items()
+    }
+    normalized_positives = {
+        int(case_id): [str(prompt) for prompt in prompts]
+        for case_id, prompts in positives_by_case.items()
+    }
+    case_ids = sorted(normalized_selected)
+    if not case_ids:
+        raise ValueError("selected_rows_by_case must not be empty")
+    if set(case_ids) != set(normalized_positives):
+        raise ValueError("selected-row and positive-prompt case IDs differ")
+    selected = normalized_selected
+    if any(not rows for rows in selected.values()):
+        raise ValueError("every record must own at least one selected row")
+    owners: Counter[int] = Counter(row for rows in selected.values() for row in rows)
+    all_rows = set(owners)
+    multiply_owned_rows = {row for row, count in owners.items() if count > 1}
+    pair_overlap_count = 0
+    for position, case_id in enumerate(case_ids):
+        for peer_case_id in case_ids[position + 1 :]:
+            if selected[case_id].intersection(selected[peer_case_id]):
+                pair_overlap_count += 1
+
+    per_record: List[Dict[str, Any]] = []
+    total_prompts = 0
+    shared_prompt_count = 0
+    foreign_prompt_count = 0
+    for case_id in case_ids:
+        prompts = normalized_positives[case_id]
+        if not prompts:
+            raise ValueError(f"case {case_id} has no positive prompts")
+        own_rows = selected[case_id]
+        foreign_rows = all_rows - own_rows
+        shared_owned_rows = own_rows.intersection(multiply_owned_rows)
+        prompts_touching_shared = 0
+        prompts_touching_foreign = 0
+        for prompt in prompts:
+            prompt_rows = set(_flat_token_ids(tokenizer, prompt))
+            prompts_touching_shared += bool(prompt_rows.intersection(shared_owned_rows))
+            prompts_touching_foreign += bool(prompt_rows.intersection(foreign_rows))
+        total_prompts += len(prompts)
+        shared_prompt_count += prompts_touching_shared
+        foreign_prompt_count += prompts_touching_foreign
+        per_record.append(
+            {
+                "case_id": case_id,
+                "owned_selected_rows": len(own_rows),
+                "multiply_owned_selected_rows": len(shared_owned_rows),
+                "positive_prompt_count": len(prompts),
+                "positive_prompts_touching_multiply_owned_rows": (
+                    prompts_touching_shared
+                ),
+                "positive_prompts_touching_foreign_selected_rows": (
+                    prompts_touching_foreign
+                ),
+            }
+        )
+    return {
+        "case_count": len(case_ids),
+        "selected_row_count": len(all_rows),
+        "selected_rows_with_multiple_record_owners": len(multiply_owned_rows),
+        "record_pairs_with_shared_owned_rows": pair_overlap_count,
+        "positive_prompt_count": total_prompts,
+        "positive_prompts_touching_multiply_owned_rows": shared_prompt_count,
+        "positive_prompts_touching_foreign_selected_rows": foreign_prompt_count,
+        "records_touching_multiply_owned_rows": sum(
+            row["positive_prompts_touching_multiply_owned_rows"] > 0
+            for row in per_record
+        ),
+        "records_touching_foreign_selected_rows": sum(
+            row["positive_prompts_touching_foreign_selected_rows"] > 0
+            for row in per_record
+        ),
+        "interpretation": (
+            "incidence establishes shared parameter pathways, not opposing "
+            "gradient directions"
+        ),
+        "per_record": per_record,
+    }
+
+
 def _format_prompt(template: str, subject: str) -> str:
     try:
         return normalize_text(str(template).format(str(subject)))
@@ -76,7 +338,9 @@ def _donor_words(records: Sequence[Mapping[str, Any]], own_subject: str) -> List
         subject = normalize_text(record["subject"])
         if normalized_key(subject) == own:
             continue
-        values.extend(part for part in subject.split(" ") if normalized_key(part) != own)
+        values.extend(
+            part for part in subject.split(" ") if normalized_key(part) != own
+        )
     return ordered_unique(values) or ["X"]
 
 
@@ -181,7 +445,12 @@ def build_compositional_contexts(
             prompt = _format_prompt(template, str(other["subject"]))
             overlap = selected & set(_flat_token_ids(tokenizer, prompt))
             (shared if overlap else unrelated).append(other)
-        shared.sort(key=lambda x: (-len(selected & set(x["subject_token_ids"])), int(x["case_id"])))
+        shared.sort(
+            key=lambda x: (
+                -len(selected & set(x["subject_token_ids"])),
+                int(x["case_id"]),
+            )
+        )
         unrelated.sort(key=lambda x: int(x["case_id"]))
         for other in shared[: int(max_shared_subjects)]:
             add_negative(
@@ -210,7 +479,9 @@ def build_compositional_contexts(
         fragments: List[str] = []
         if len(words) > 1:
             fragments.extend(words)
-            fragments.extend(" ".join(words[start : start + 2]) for start in range(len(words) - 1))
+            fragments.extend(
+                " ".join(words[start : start + 2]) for start in range(len(words) - 1)
+            )
         for fragment in ordered_unique(fragments)[: int(max_fragments)]:
             if normalized_key(fragment) != subject_key:
                 add_negative(
@@ -268,7 +539,9 @@ def build_compositional_contexts(
     return result, report
 
 
-def orthonormal_row_basis(rows: torch.Tensor, max_rank: int | None = None) -> torch.Tensor:
+def orthonormal_row_basis(
+    rows: torch.Tensor, max_rank: int | None = None
+) -> torch.Tensor:
     if rows.ndim != 2:
         raise ValueError("rows must be a matrix")
     if rows.numel() == 0:
@@ -317,7 +590,9 @@ def residual_reader_basis(
     if row_negative_states.ndim != 2 or row_negative_states.shape[1] != hidden:
         raise ValueError("row-negative states have incompatible shape")
     if int(residual_rank) <= 0 or int(row_negative_rank) < 0:
-        raise ValueError("residual rank must be positive and negative rank non-negative")
+        raise ValueError(
+            "residual rank must be positive and negative rank non-negative"
+        )
 
     common = common_protected_basis.float()
     negatives = row_negative_states.float()
@@ -329,14 +604,14 @@ def residual_reader_basis(
     else:
         negative_basis = residuals.new_empty((0, hidden), dtype=torch.float32)
     protected = (
-        torch.cat([common, negative_basis], dim=0)
-        if negative_basis.numel()
-        else common
+        torch.cat([common, negative_basis], dim=0) if negative_basis.numel() else common
     )
     safe_residuals = project_out(residuals.float(), protected)
     basis = orthonormal_row_basis(safe_residuals, max_rank=int(residual_rank))
     if not basis.shape[0]:
-        raise RuntimeError("writer residual has no component outside protected geometry")
+        raise RuntimeError(
+            "writer residual has no component outside protected geometry"
+        )
 
     total_energy = residuals.float().square().sum().clamp_min(1e-30)
     safe_energy = safe_residuals.square().sum()
@@ -400,7 +675,9 @@ def clamp_basis_coefficients_(
         "max_norm": float(after.max()) if after.numel() else 0.0,
         "max_relative_norm": float(
             (after / base_row_norms.to(after).clamp_min(1e-30)).max()
-        ) if after.numel() else 0.0,
+        )
+        if after.numel()
+        else 0.0,
     }
 
 
@@ -412,9 +689,9 @@ def materialized_row_delta_ste(
     if raw_delta.shape != base_rows.shape or raw_delta.ndim != 2:
         raise ValueError("raw delta and base rows must have equal matrix shapes")
     base = base_rows.to(device=raw_delta.device)
-    materialized = (
-        base + raw_delta.to(dtype=base.dtype)
-    ).to(dtype=base.dtype).float() - base.float()
+    materialized = (base + raw_delta.to(dtype=base.dtype)).to(
+        dtype=base.dtype
+    ).float() - base.float()
     return raw_delta + (materialized - raw_delta).detach()
 
 
@@ -504,7 +781,9 @@ def select_contrastive_marker(
     residual = project_out(positive_reach.float(), forbidden)
     basis = orthonormal_row_basis(residual, max_rank=int(max_rank))
     if basis.shape[0] == 0:
-        raise RuntimeError("no positive reachable direction survives the forbidden basis")
+        raise RuntimeError(
+            "no positive reachable direction survives the forbidden basis"
+        )
 
     z_pos = positive_reach.float() @ basis.T
     z_neg = negative_reach.float() @ basis.T
@@ -614,7 +893,10 @@ def distributional_reader(
     if marker.ndim != 1:
         raise ValueError("marker must be one-dimensional")
     hidden = marker.shape[0]
-    if positive_states.ndim != 2 or positive_states.shape != (positive_states.shape[0], hidden):
+    if positive_states.ndim != 2 or positive_states.shape != (
+        positive_states.shape[0],
+        hidden,
+    ):
         raise ValueError("positive_states has incompatible shape")
     if positive_states.shape[0] == 0:
         raise ValueError("positive_states must not be empty")
@@ -658,13 +940,17 @@ def distributional_reader(
     def matvec(vector: torch.Tensor) -> torch.Tensor:
         result = (float(ridge) + float(anchor_weight)) * vector
         if neg.shape[0] and float(negative_weight) > 0:
-            result = result + float(negative_weight) * (
-                neg.T @ (neg @ vector)
-            ) / neg.shape[0]
+            result = (
+                result
+                + float(negative_weight) * (neg.T @ (neg @ vector)) / neg.shape[0]
+            )
         if centered.shape[0] > 1 and float(consistency_weight) > 0:
-            result = result + float(consistency_weight) * (
-                centered.T @ (centered @ vector)
-            ) / centered.shape[0]
+            result = (
+                result
+                + float(consistency_weight)
+                * (centered.T @ (centered @ vector))
+                / centered.shape[0]
+            )
         return result
 
     rhs = residual_mu + float(anchor_weight) * residual_marker
@@ -673,7 +959,9 @@ def distributional_reader(
     if float(initial.norm()) < 1e-10:
         initial = residual_mu
     if float(initial.norm()) < 1e-10:
-        raise RuntimeError("positive states have no direction outside the negative span")
+        raise RuntimeError(
+            "positive states have no direction outside the negative span"
+        )
     q = F.normalize(initial, dim=0, eps=1e-12)
     if float((pos @ q).mean()) < 0:
         q = -q
@@ -696,7 +984,9 @@ def distributional_reader(
             pos_scores = pos @ unit
             hinge = F.relu(float(positive_floor) - pos_scores).square().mean()
             consistency = pos_scores.var(unbiased=False)
-            negative = (neg @ unit).square().mean() if neg.shape[0] else unit.sum() * 0.0
+            negative = (
+                (neg @ unit).square().mean() if neg.shape[0] else unit.sum() * 0.0
+            )
             anchor = 1.0 - torch.dot(unit, v)
             loss = (
                 200.0 * hinge
@@ -708,9 +998,7 @@ def distributional_reader(
             with torch.no_grad():
                 momentum.mul_(0.9).add_(gradient)
                 updated = parameter - float(refine_lr) * momentum
-                updated = project_out(
-                    updated.unsqueeze(0), negative_basis
-                ).squeeze(0)
+                updated = project_out(updated.unsqueeze(0), negative_basis).squeeze(0)
                 updated = F.normalize(updated, dim=0, eps=1e-12)
             parameter = updated.detach().requires_grad_(True)
         q = F.normalize(parameter.detach(), dim=0, eps=1e-12)
@@ -769,12 +1057,16 @@ def directional_row_deltas(
         raise ValueError("betas must contain one value per reader")
     if len(answer_rows_by_record) != readers.shape[0]:
         raise ValueError("answer_rows_by_record must contain one row list per reader")
-    row_slot = {int(token_id): slot for slot, token_id in enumerate(selected_output_rows)}
+    row_slot = {
+        int(token_id): slot for slot, token_id in enumerate(selected_output_rows)
+    }
     membership = readers.new_zeros((len(selected_output_rows), readers.shape[0]))
     for record_index, token_ids in enumerate(answer_rows_by_record):
         for token_id in set(int(x) for x in token_ids):
             if token_id not in row_slot:
-                raise ValueError(f"answer token {token_id} missing from selected output rows")
+                raise ValueError(
+                    f"answer token {token_id} missing from selected output rows"
+                )
             membership[row_slot[token_id], record_index] = 1.0
     return -((membership * betas.unsqueeze(0)) @ readers)
 
@@ -815,7 +1107,10 @@ def monotone_cover_betas(
     """
     if response.ndim != 2:
         raise ValueError("response must be [instances, readers]")
-    if required_margin_gain.ndim != 1 or required_margin_gain.shape[0] != response.shape[0]:
+    if (
+        required_margin_gain.ndim != 1
+        or required_margin_gain.shape[0] != response.shape[0]
+    ):
         raise ValueError("required-margin vector has incompatible shape")
     if not math.isfinite(float(safety_factor)) or float(safety_factor) < 1.0:
         raise ValueError("safety_factor must be finite and >=1")

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "protocol": "mcf_exact_subject_target_logit_sidecar_v5_0",
+  "status": "registered_training_only_build",
+  "architecture": {
+    "route": "boundary_aware_exact_subject_and_frozen_relation_suffix_grammar",
+    "intervention": "causal_sparse_target_logit_bias",
+    "base_embedding_mutation": false,
+    "transformer_mutation": false,
+    "lm_head_mutation": false,
+    "learned_detector_parameters": 0,
+    "learned_actuator_parameters": 0,
+    "logit_bias": 256.0,
+    "closed_route_identity": "return_exact_base_lm_head_tensor",
+    "claim_scope": "contextual_behavioral_suppression_not_latent_erasure"
+  },
+  "relation_router": {
+    "artifact": "protocols/mcf_frozen_relation_suffix_lexicon_v1.json",
+    "parameters": 0,
+    "matching": "longest_boundary_complete_suffix_prefix",
+    "reserved_evaluation_seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  },
+  "training_data": {
+    "candidate_record_source": "locked_direct_only_training_view",
+    "relation_grammar_source": "13705_development_MCF_records_outside_reserved_seed_1_to_10_union",
+    "development_paraphrase_prompts_used_for_relation_grammar": true,
+    "reserved_seed_1_to_10_records_used_for_relation_grammar": 0,
+    "reserved_seed_1_to_10_evaluation_prompts_seen": 0,
+    "reserved_ppl_documents_seen": 0
+  },
+  "seed_1_v3_6_2_official_result_consumed": true,
+  "seed_1_blind_official_reuse_prohibited": true,
+  "seed_1_use": "development_replay_only_with_disclosure",
+  "fresh_seed_policy": "build_and_freeze_from_seed_specific_direct_only_training_view_before_opening_that_seed_evaluation",
+  "official_evaluation_prohibited": true
+}

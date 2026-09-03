@@ -24,7 +24,7 @@ measured `Gen=64` result was consistent with that design: routing fired on all
 official paraphrases, but the marker amplitude did not transfer across their
 relation rewording and arbitrary unrelated prefixes.
 
-Across V2-V5.1, the method changes six causal components:
+Across the historical V2-V5.1 experiments, the method changed six causal components:
 
 1. **Multi-context positives.** Every record uses the direct prompt,
    hand-authored relation-specific alternate templates, arbitrary prefixes
@@ -65,6 +65,30 @@ reader response. V3 removes that infeasible bottleneck; it does not disguise
 the failed diagnostic as a passed gate. The resulting deltas still touch only
 sensitive LM-head rows.
 
+## V6 Stage-1 lineage correction
+
+The first sparse-neuron v2 attempt exposed that the nominal V3 writer had not
+actually been retrained for its V3 context manifest: it resumed the V2 writer
+with `writer_steps=0`, producing an empty optimization log. The V3 manifest
+also appended free-form V7 surrogates; a training-only audit found prompts that
+changed P364/P1303 semantics or injected unsupported attributes. The run was
+stopped before neuron selection and opened no official evaluation prompts.
+
+V6 makes the Stage-1 paper path explicit and fail-closed:
+
+- the direct prompt is always first;
+- every record must have explicit hand-authored relation-ID coverage;
+- relation alternatives appear bare and behind unrelated Wikipedia prefixes;
+- generic relation fallbacks and external free-form surrogates are forbidden;
+- the writer starts from Base and trains for 1,200 steps; and
+- the context manifest, writer state, report, and nonempty optimization log are
+  cross-bound by hashes.
+
+A zero-step resume is now permitted only for the exact same context-manifest
+hash. A positive-step cross-context warm start retains only the old embedding
+initialization and reselects markers from the new context set. Historical V2,
+V3, and failed sparse-neuron outputs remain unchanged.
+
 ## What v3 established, and what it did not
 
 The seed-1 v3 run achieved `Eff: 84 -> 0` and `Gen: 85 -> 14`. Its causal
@@ -101,6 +125,76 @@ without changing its raw logit; V5 incorrectly penalized that improvement as
 damage. V5.1 changes only this constraint to one-sided regression before any
 rank increase is tested.
 
+### Clean V6/V6.1 diagnostics and V6.2
+
+The first clean, from-Base V6 writer was stopped by the unchanged training-safe
+portability gate before any sparse-neuron decoder or official evaluation was
+opened. It completed the marker on 339/346 prompts (97.98%) globally. At the
+record level, 45/50 records completed every one of their prompts, three
+completed 6/7, and two completed 5/7. The two 5/7 records failed the registered
+minimum of 0.80; the three 6/7 records passed. The previously corrupted
+free-form-surrogate cases 14801 and 17256 both completed 7/7, supporting the
+training-data repair.
+
+Training-only inspection showed no uniformly harmful prompt class. The same
+relation template could strengthen or weaken the marker depending on its
+unrelated prefix, and one canonical direct prompt was weaker than all of its
+alternates. The defensible diagnosis is therefore context-manifold margin
+instability under V6 optimization, not invalid V6 data and not a generic
+Wikipedia-prefix failure.
+
+V6.1 changed only the uniformly applied Stage-1 optimization:
+
+- every clean positive for a sampled record is presented in the same update;
+- the record batch is reduced from four to three while the registered positive
+  capacity rises from four to seven, keeping the maximum 3 x (7 + 5) = 36
+  prompt batch equal to V6's 4 x (4 + 5) = 36;
+- the mean squared marker shortfall is augmented with the mean of the two
+  largest squared shortfalls for that record; and
+- the data, 1,200 steps, row caps, amplitude 4.5, global 0.95, and per-record
+  0.80 acceptance thresholds remain unchanged.
+
+The worst-two term is a conservative robustness objective rather than a
+restatement of the gate: a six- or seven-prompt record can miss one prompt and
+still pass 0.80. Its purpose is to keep the learned writer away from that
+discrete boundary without dropping or specially weighting named records.
+
+V6.1 was also stopped before decoder construction or official evaluation. It
+completed 340/346 prompts (98.27%) globally, but case 10854 completed 3/7 and
+case 16683 completed 5/7. The V6 failures were repaired while two different
+records failed. That pattern is consistent with cross-record interference or
+stochastic redistribution of margin, but does not identify the cause by
+itself.
+
+V6.2 makes the optimizer globally balanced. One Adam update now consists of a
+shuffled, exactly-once sweep over all 50 records, evaluated as 17 record
+microbatches of size at most three. Gradients accumulate across the sweep,
+then clipping, the optimizer step, and row-cap projection happen once. The
+non-KL loss is an equal mean over records; KL remains a global prompt mean.
+The top-64 KL applies only the corresponding frozen LM-head rows instead of
+materializing 128k logits for every microbatch; this is the same registered
+restricted objective with substantially lower compute and memory overhead.
+All contexts, markers, weights, learning rate, row caps, worst-two objective,
+1,200 optimizer updates, and acceptance thresholds remain fixed.
+
+The compute budget does not remain fixed: V6.1 used 3,600 record exposures,
+whereas V6.2 uses 60,000 (16.67x). The state, report, log, and registry record
+both values. A V6.2 pass supports the globally balanced engineering
+configuration, but causal language about cross-record interference requires
+an exposure-matched control or a direct gradient-conflict audit. The context
+manifest now reports both shared ownership of selected embedding rows and
+positive prompts that touch rows owned by other records; this establishes
+parameter-sharing pathways but not opposing gradient directions. The receipt
+validator also now tolerates `1e-7` serialization error for count-derived
+float32 fractions while recomputing every count and pass/fail decision.
+
+`stage1_gradient_conflict_audit.json` measures the missing directional piece
+at both the initial and final parameter states. It reports pairwise cosine
+matrices for each record's positive-write gradient and full writer-objective
+gradient. Negative cosine is evidence of opposing local update directions at
+that state; the report explicitly does not infer that a measured conflict
+caused V6.1's final failures.
+
 Before another reader architecture is trained, characterize the fixed-V3
 uniform-beta frontier. This is exploratory because it reads official probes:
 
@@ -128,8 +222,9 @@ using training-safe data; it does not select a beta scale from official probes.
 ## Data firewall
 
 Training requires the direct-only artifact produced by
-`build_mcf_sure_target_aware_direct_split.py`. The method process cannot follow
-a path to the original dataset and validates any surrogate receipt for:
+`build_mcf_sure_target_aware_direct_split.py`. The V6.2 paper path does not accept
+a surrogate artifact. The legacy surrogate mode remains available only for
+explicitly labelled diagnostics and validates its receipt for:
 
 - zero official paraphrase access;
 - zero official neighborhood access;
@@ -200,41 +295,46 @@ falsification run: it records the predeclared gate but still permits a standard
 checkpoint and held-out evaluation. Confirmatory runs should switch to
 `--gate-policy strict` after the configuration is frozen.
 
-## Wulver seed-1 run
+## Wulver seed-1 runs
 
 From the repository root:
 
 ```bash
 export MODEL_PATH=/scratch/yl258/kp759/hf-materialized/Llama-3.2-3B-Instruct-clean
 export WIKIDATA_DIR=/scratch/yl258/kp759/datasets/wikipedia_sure_50020
-export OUTPUT_DIR=outputs/mcf_compositional_marker_v5_1_seed1_3b
+export OUTPUT_DIR=outputs/mcf_compositional_marker_v6_2_seed1_3b
 
 bash scripts/submit_mcf_compositional_marker_seed1.sh
 ```
 
-V5.1 deliberately reuses the validated v3 surrogate artifact and Stage-1 writer.
-The launcher defaults to their standard paths. To relocate them, set
-`SURROGATE_ARTIFACT` and `RESUME_STAGE1_STATE`. The learner still
-revalidates its seed, cases, subjects, direct prompts, answer guard, semantic
-receipt, and zero-probe-access declaration.
-
-To reuse the already validated v3 sparse embedding writer while testing only
-the corrected Stage 2, also set:
+For the sparse-neuron experiment, build only the clean V6.2 writer first:
 
 ```bash
-export RESUME_STAGE1_STATE="$PWD/outputs/mcf_compositional_marker_v3_seed1_3b/method/stage1_writer.pt"
+mkdir -p slurm_logs
+bash scripts/run_mcf_compositional_marker_clean_stage1_manual.sh \
+  outputs/mcf_compositional_marker_v6_2_clean_seed1_3b \
+  2>&1 | tee slurm_logs/mcf_compositional_marker_v6_2_clean_seed1_manual.log
 ```
 
-The selected rows, tensor shape, marker map, and compatible protocol are
-validated before the state is accepted. The new output directory remains
-separate, so the v3 evidence is preserved. The launcher refuses to regenerate
-either prerequisite silently because that would no longer be a Stage-2-only
-experiment.
+This stops after Stage 1, reloads the writer against every training-safe
+positive, and writes `method/clean_stage1_acceptance.json`. That receipt passes
+only when artifact integrity and the unchanged 4.5 / 95% / 80% portability
+gate both pass. It never trains an output reader or opens official evaluation
+probes. Existing output directories are refused so V6 and earlier artifacts
+remain historical.
 
 Outputs:
 
 - `method/context_manifest.json`: every training-visible positive/negative and
   its provenance;
+- `method/stage1_writer_log.jsonl`: nonempty optimization trace bound into the
+  V6.2 writer state and report;
+- `method/stage1_gradient_conflict_audit.json`: initial/final per-record
+  gradient cosine audit for the write-only and full writer objectives;
+- `method/training_safe_portability_preflight.json`: fresh-Base replay of the
+  exact pre-decoder writer-on minus writer-off amplitude gate;
+- `method/clean_stage1_acceptance.json`: from-Base lineage, relation-template
+  policy, cross-artifact hashes, and conjunctive portability decision;
 - `method/reader_gate_report.json`: per-record `kappa`, portability, cosine,
   and the diagnostic pre-Stage-2 result;
 - `method/output_reader_gate_report.json`: per-sensitive-output-row reader
@@ -252,8 +352,9 @@ Outputs:
 - `base_official_eval.json`: matched Base metrics.
 - `comparison/component_ppl_attribution.json`: combined, input-only,
   output-only, and exactly reconstructed-base PPL from one frozen checkpoint;
-- `comparison/gen_failure_attribution.json`: post-hoc Gen failures stratified
-  by robust-surrogate versus direct-only training coverage.
+- historical diagnostic-only `comparison/gen_failure_attribution.json`:
+  post-hoc Gen failures stratified by robust-surrogate versus direct-only
+  training coverage; it is not produced by the clean V6.2 paper path.
 
 The target is `Eff=0`, `Gen=0`, negligible `Delta Spe`, and negligible
 `Delta PPL`. Only the first two are forced on training-safe contexts; unseen

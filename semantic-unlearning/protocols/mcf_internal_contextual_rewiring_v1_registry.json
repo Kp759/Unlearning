@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "protocol": "mcf_internal_fact_conditional_embedding_rewiring_v1",
+  "status": "terminal_rejected_training_only_classifier_preflight",
+  "registration_scope": "Historical MCF training-only overlap-code and classifier preflight; rejected before certification and actuator construction",
+  "terminal_training_result": {
+    "source_commit": "48578bb68a82538b2985416f340ceba330baf77c",
+    "embedding_code_passed": true,
+    "editable_rows": 236,
+    "shared_rows": 11,
+    "incidence_rank": "50/50",
+    "nearest_key_margin": 0.0684,
+    "development": {
+      "layer_8_gap": -0.585501,
+      "layer_12_gap": -0.533512,
+      "layer_16_gap": -0.598198,
+      "layer_20_gap": -0.672392,
+      "positive_failures_each_layer": 205,
+      "selected_layer": 12
+    },
+    "failure_stage": "calibration_positive_coverage",
+    "certification_opened": false,
+    "actuator_constructed": false,
+    "official_evaluation_prompts_seen": 0,
+    "conclusion": "The rank-8 contextual subject-relation classifier did not transfer from fit to development; widening or continuing this lineage is prohibited."
+  },
+  "design_document": "MCF_INTERNAL_CONTEXTUAL_REWIRING_V1.md",
+  "historical_evidence": {
+    "subject_embedding_multiseed_commit": "791bbc4",
+    "frequency_aware_row_cap_commit": "178f637",
+    "unreachable_low_variance_marker_commit": "d577a1d",
+    "embedding_writer_output_reader_commit": "34ad33c",
+    "detector_safety_margin_commit": "c1ffb9d",
+    "canonical_multilabel_detector_commit": "51b674c",
+    "separate_actuator_width_sweep_commit": "7f5597c",
+    "protected_hard_tail_commit": "e583fba",
+    "sidecar_retirement_registry": "protocols/mcf_external_sidecar_lineage_retirement_v1.json"
+  },
+  "architecture": {
+    "runtime_route": "internal_factorized_subject_relation_classifier",
+    "external_string_router": false,
+    "inference_sidecar": false,
+    "tokenizer_expansion": false,
+    "subject_code_rank": 8,
+    "detector_neurons_per_fact": 8,
+    "actuator_neurons_per_fact": 16,
+    "detector_actuator_disjoint": true,
+    "candidate_layers": [8, 12, 16, 20],
+    "layer_selection_uses_classifier_metrics_only": true,
+    "actuator_native_per_column_relative_cap": 1.5,
+    "base_mlp_columns_mutated": false,
+    "lm_head_untied_before_embedding_training": true,
+    "lm_head_mutated": false,
+    "lm_head_bit_identical_required": true
+  },
+  "editable_parameters": {
+    "primary_input_embedding_rows": "all tokenizer rows in both sentence-initial and whitespace-prefixed complete-subject tokenizations",
+    "joint_subject_embedding_code": true,
+    "shared_factorized_classifier": true,
+    "additive_detector_disjoint_actuator_down_deltas": true,
+    "target_true_answer_embedding_rows_selected_by_answer": false,
+    "target_new_answer_embedding_rows_selected_by_answer": false,
+    "target_true_lm_head_rows": false,
+    "target_new_lm_head_rows": false
+  },
+  "overlapping_subword_policy": {
+    "subject_by_subword_incidence_matrix_required": true,
+    "one_coherent_delta_per_token_row": true,
+    "objective": "min_C ||A C - K||_F^2 + lambda * sum_t (1 + frequency_t)^alpha * ||C_t||_2^2",
+    "embedding_map": "delta_E_t = B C_t with rank(B)=8",
+    "frequency_aware_relative_row_cap": "cap_t = c / (1 + frequency_t)^alpha",
+    "full_subject_coverage_required": true,
+    "rarest_row_fallback_as_primary_policy": false,
+    "manifest_fields": [
+      "token_id",
+      "token_string",
+      "frequency",
+      "owning_record_ids",
+      "base_row_sha256",
+      "delta_relative_norm",
+      "record_reconstruction_error",
+      "incidence_condition_number"
+    ]
+  },
+  "classifier": {
+    "output_semantics": "canonical_multi_label_fact_vector",
+    "capacity_constraint": "shared rank-8 subject and relation projections plus eight detector neurons per fact",
+    "independent_full_hidden_vector_per_fact_forbidden": true,
+    "fact_score_requires_subject_and_relation_evidence": true,
+    "exact_forget_positive_precedes_conflicting_preservation_negative": true,
+    "hard_negative_families": [
+      "same_subject_different_relation",
+      "same_relation_different_subject",
+      "same_answer_different_subject",
+      "shared_subject_subword_without_complete_subject",
+      "alias_of_different_entity_when_a_training_visible_alias_lexicon_is_registered",
+      "broad_corpus_prompt",
+      "writer_off_positive_context"
+    ],
+    "mandatory_certificate_hard_negative_families": [
+      "same_subject_different_relation",
+      "same_relation_different_subject",
+      "shared_subject_subword_without_complete_subject",
+      "broad_corpus_prompt",
+      "writer_off_positive_context"
+    ],
+    "conditional_hard_negative_families": {
+      "same_answer_different_subject": "required when another training-visible fact has the same answer",
+      "alias_of_different_entity": "required only when a training-visible alias lexicon is separately registered; no alias is synthesized or read from held-out evaluation"
+    }
+  },
+  "threshold_calibration": {
+    "legacy_raw_0_20_0_25_thresholds_reused": false,
+    "score_standardization_source": "classifier_fit_split_only",
+    "calibration_rule": "tau = nextafter(max_negative_score_on_disjoint_calibration_bank, +infinity)",
+    "threshold_frozen_before_certification": true,
+    "minimum_disjoint_negative_certification_cells": 300000,
+    "minimum_distinct_negative_certification_prompts": 6000,
+    "maximum_certification_false_positive_cells": 0,
+    "conditional_cell_level_rule_of_three_95_percent_fpr_upper_bound": 0.00001,
+    "prompt_level_rule_of_three_95_percent_upper_bound": 0.0005,
+    "cell_independence_assumed": false,
+    "all_registered_positive_cells_and_training_visible_alias_cells_must_exceed_tau": true,
+    "ambiguous_or_unknown_state": "gate_closed",
+    "raw_tau_is_artifact_specific": true
+  },
+  "preflight_implementation": {
+    "seed": 1,
+    "forget_num": 50,
+    "candidate_layers": [8, 12, 16, 20],
+    "subject_code_rank": 8,
+    "detector_rank": 8,
+    "embedding_ridge_lambda": 0.0001,
+    "embedding_relative_row_cap": 0.5,
+    "embedding_frequency_alpha": 0.25,
+    "code_nearest_key_margin": 0.05,
+    "frequency_doc_start": 20,
+    "frequency_docs": 12000,
+    "corpus_prompts": {
+      "fit": 1000,
+      "development": 1000,
+      "calibration": 1000,
+      "certification": 6000
+    },
+    "minimum_shared_subword_prompts": {
+      "fit": 25,
+      "development": 25,
+      "calibration": 25,
+      "certification": 100
+    },
+    "wrong_relations_per_record": {
+      "fit": 8,
+      "development_calibration_certification": 4
+    },
+    "same_relation_other_subjects_per_record": 4,
+    "classifier_steps": 400,
+    "classifier_check_every": 20,
+    "classifier_lr": 0.01,
+    "classifier_weight_decay": 0.01,
+    "classifier_positive_floor": 1.0,
+    "classifier_negative_ceiling": -1.0,
+    "classifier_auxiliary_weight": 0.5,
+    "classifier_softmin_temperature": 0.1,
+    "minimum_certification_negative_cells": 300000,
+    "minimum_certification_distinct_prompts": 6000,
+    "capture_batch_size": 8,
+    "dtype": "bf16",
+    "device_map": "single"
+  },
+  "training_order": [
+    "build_and_hash_overlap_manifest",
+    "untie_and_freeze_bit_identical_lm_head",
+    "solve_rank_8_joint_subject_embedding_code_from_base",
+    "cache_fit_and_development_states_at_candidate_layers",
+    "fit_shared_factorized_classifier_without_actuator",
+    "select_layer_by_development_classifier_metrics_only",
+    "calibrate_selected_layer_and_freeze_threshold",
+    "open_one_shot_disjoint_certification_bank_for_selected_layer_only",
+    "freeze_embedding_and_detector_tensors",
+    "select_16_detector_disjoint_actuator_neurons",
+    "run_positive_reachability_from_exact_zero",
+    "train_full_preservation_objective_if_reachable",
+    "freeze_one_hash_bound_candidate",
+    "evaluate_in_separate_process"
+  ],
+  "training_only_acceptance": {
+    "complete_subject_code_reconstruction_certificate": true,
+    "frequency_row_caps_passed": true,
+    "same_subject_different_relation_collateral_audit_passed": true,
+    "classifier_certification_passed": true,
+    "positive_reachability_passed": true,
+    "zero_direct_failures": true,
+    "zero_positive_failures": true,
+    "closed_gate_negative_identity": true,
+    "closed_gate_writer_off_identity": true,
+    "protected_hard_tail_passed": true,
+    "detector_hashes_unchanged_after_freeze": true,
+    "lm_head_bit_identical": true,
+    "untouched_base_parameters_bit_identical": true,
+    "embedding_code_and_actuator_causal_necessity_passed": true
+  },
+  "evaluation_firewall": {
+    "official_prompts_available_to_training": false,
+    "official_metrics_select_layer_threshold_or_checkpoint": false,
+    "failed_registered_run_may_retry_same_evaluation_split": false,
+    "future_confirmatory_seeds_reserved_until_implementation_freeze": true
+  },
+  "strong_unlearning_claim_requirements": [
+    "heldout_aliases",
+    "indirect_questions",
+    "adversarial_extraction",
+    "latent_recovery",
+    "sidecar_free_deployment",
+    "relearning"
+  ],
+  "current_claim_scope": "terminal_negative_training_only_result"
+}

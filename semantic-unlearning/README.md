@@ -69,6 +69,35 @@ The MCF workflow includes a preregistered margin/rank sweep and rejects
 serialized checkpoints unless a fresh reload preserves `Eff = 0`, `Gen = 0`,
 and the configured positive forget-margin buffer.
 
+The unchanged-LM-head experiment that uses sparse subject-embedding markers,
+frozen contextual detector features, and an explicit internal thresholded
+residual branch is documented in
+[README_MCF_EMBEDDING_KEYED_NEURON_ERASURE.md](README_MCF_EMBEDDING_KEYED_NEURON_ERASURE.md).
+Its learner is cryptographically bound to direct-only/training-safe artifacts;
+official paraphrase, locality, retain, PPL, alias, and adversarial probes are
+opened only by separate post-checkpoint processes.
+
+The registered successor architecture, which jointly resolves overlapping
+subject subwords, classifies sensitive subject-relation states inside the
+Transformer, keeps the LM head frozen, and uses a separate sparse actuator, is
+documented in
+[MCF_INTERNAL_CONTEXTUAL_REWIRING_V1.md](MCF_INTERNAL_CONTEXTUAL_REWIRING_V1.md).
+The V5/V6 external sidecars are retained only as historical behavioral
+controls; their terminal disposition is recorded in
+[`protocols/mcf_external_sidecar_lineage_retirement_v1.json`](protocols/mcf_external_sidecar_lineage_retirement_v1.json).
+
+Two endpoint-only experiments are registered as a matched pair over the same
+split, differing only in whether the LM head may be trained. The trainable-head
+arm keeps selected answer rows under a joint forget/retain trust region and is
+documented in
+[MCF_JOINT_FORGET_RETAIN_ENDPOINT_V2_2.md](MCF_JOINT_FORGET_RETAIN_ENDPOINT_V2_2.md).
+The frozen-head arm edits input-embedding rows only, partitions them by how much
+of their forget gradient survives projection out of the retain-readout subspace,
+and is documented in
+[MCF_PROJECTED_ROW_PARTITION_EMBEDDING_V2_3.md](MCF_PROJECTED_ROW_PARTITION_EMBEDDING_V2_3.md).
+Both are training-only: they support behavioral, context-selective forgetting
+and cannot establish latent erasure while the Transformer stays frozen.
+
 Skip extraction if hidden states are already cached:
 ```bash
 python scripts/run_pipeline.py --config config/config.yaml --skip-extraction

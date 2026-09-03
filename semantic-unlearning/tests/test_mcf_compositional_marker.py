@@ -41,7 +41,11 @@ class WordTokenizer:
 
     def __call__(self, text, *, add_special_tokens=False, **_kwargs):
         words = re.findall(r"[A-Za-z]+", str(text).lower())
-        return {"input_ids": [self.vocab.setdefault(word, len(self.vocab) + 1) for word in words]}
+        return {
+            "input_ids": [
+                self.vocab.setdefault(word, len(self.vocab) + 1) for word in words
+            ]
+        }
 
 
 class TensorBatch(dict):
@@ -137,14 +141,18 @@ def test_context_builder_makes_shared_subword_and_leave_one_out_negatives():
 
     first = contexts[1]
     assert first["positive_prompts"][0] == "Gautier de Coincy speaks"
-    shared = [x for x in first["negative_contexts"] if x["kind"] == "shared_subword_subject"]
+    shared = [
+        x for x in first["negative_contexts"] if x["kind"] == "shared_subword_subject"
+    ]
     assert {x["source_subject"] for x in shared} == {
         "Melchior de Vogue",
         "Charles de Gaulle",
     }
     assert all(2 in x["overlap_token_ids"] for x in shared)
 
-    leave_one = [x for x in first["negative_contexts"] if x["kind"] == "leave_one_component_out"]
+    leave_one = [
+        x for x in first["negative_contexts"] if x["kind"] == "leave_one_component_out"
+    ]
     assert len(leave_one) == 3
     assert all("gautier de coincy" not in x["prompt"].casefold() for x in leave_one)
     assert report["official_paraphrases_seen"] == 0
@@ -161,11 +169,34 @@ def test_context_builder_rejects_a_positive_without_the_complete_subject():
     with pytest.raises(ValueError, match="complete subject"):
         core.build_compositional_contexts(
             records,
-            {1: ["Gautier de Coincy speaks", "Coincy speaks"], 2: ["Melchior de Vogue speaks"]},
+            {
+                1: ["Gautier de Coincy speaks", "Coincy speaks"],
+                2: ["Melchior de Vogue speaks"],
+            },
             {1: [1, 2, 3], 2: [4, 2, 5]},
             tok,
             seed=1,
         )
+
+
+def test_cross_record_parameter_sharing_audit_separates_two_pathways():
+    tok = WordTokenizer()
+    report = core.cross_record_parameter_sharing_report(
+        {1: [1, 2], 2: [2, 5], 3: [6]},
+        {
+            1: ["Gautier de speaks"],
+            2: ["Melchior de Vogue speaks"],
+            3: ["Charles Vogue speaks"],
+        },
+        tok,
+    )
+
+    assert report["selected_row_count"] == 4
+    assert report["selected_rows_with_multiple_record_owners"] == 1
+    assert report["record_pairs_with_shared_owned_rows"] == 1
+    assert report["positive_prompts_touching_multiply_owned_rows"] == 2
+    assert report["positive_prompts_touching_foreign_selected_rows"] == 1
+    assert report["records_touching_foreign_selected_rows"] == 1
 
 
 def test_contrastive_marker_prefers_positive_only_reachable_axis():
@@ -320,9 +351,7 @@ def test_monotone_beta_initializer_covers_joint_shared_row_constraints():
     )
     required = torch.tensor([4.0, 3.0, 5.0])
 
-    beta, report = core.monotone_cover_betas(
-        response, required, safety_factor=1.25
-    )
+    beta, report = core.monotone_cover_betas(response, required, safety_factor=1.25)
 
     retained = response.clamp_min(0.0)
     assert torch.all(retained @ beta >= required * 1.25 - 1e-4)
@@ -358,8 +387,85 @@ def test_method_defaults_to_standard_weights_and_strict_reader_gate():
     assert args.stage2_residual_rank == 4
     assert args.stage2_row_negative_rank == 32
     assert args.stage2_row_norm_cap_values == [0.05, 0.10, 0.20, 0.40]
+    assert args.writer_record_batch == 3
+    assert args.writer_update_coverage == "all_records_accumulated"
+    assert args.positive_context_batch == 7
+    assert args.writer_positive_context_mode == "all"
+    assert args.writer_positive_tail_k == 2
     assert not hasattr(args, "router")
     assert not hasattr(args, "logit_bias")
+
+
+def test_v6_2_writer_loss_retains_the_worst_two_positive_shortfalls():
+    amplitudes = torch.tensor([6.0, 5.0, 4.0], requires_grad=True)
+    loss, terms = core.robust_positive_shortfall_loss(amplitudes, target=6.0, tail_k=2)
+
+    expected_mean = (0.0 + 1.0 + 4.0) / 3.0 / 6.0
+    expected_tail = (4.0 + 1.0) / 2.0 / 6.0
+    assert float(loss.detach()) == pytest.approx(expected_mean + expected_tail)
+    assert float(terms["mean"].detach()) == pytest.approx(expected_mean)
+    assert float(terms["tail"].detach()) == pytest.approx(expected_tail)
+    loss.backward()
+    assert amplitudes.grad is not None
+    assert abs(float(amplitudes.grad[2])) > abs(float(amplitudes.grad[1]))
+    assert float(amplitudes.grad[0]) == pytest.approx(0.0)
+
+
+def test_v6_2_global_record_microbatches_cover_every_record_once():
+    import random
+
+    batches = core.globally_balanced_record_microbatches(50, 3, random.Random(448))
+
+    assert len(batches) == 17
+    assert [len(batch) for batch in batches[:-1]] == [3] * 16
+    assert len(batches[-1]) == 2
+    flattened = [index for batch in batches for index in batch]
+    assert sorted(flattened) == list(range(50))
+    assert len(flattened) == len(set(flattened))
+
+
+def test_gradient_conflict_summary_reports_opposing_record_directions():
+    summary = core.gradient_conflict_summary(
+        [
+            torch.tensor([1.0, 0.0]),
+            torch.tensor([-1.0, 0.0]),
+            torch.tensor([0.0, 1.0]),
+        ],
+        [11, 12, 13],
+    )
+
+    assert summary["valid_pair_count"] == 3
+    assert summary["negative_pair_count"] == 1
+    assert summary["negative_pair_fraction"] == pytest.approx(1 / 3)
+    assert summary["pairwise_cosine"]["min"] == pytest.approx(-1.0)
+    assert summary["per_record"][0]["negative_peer_count"] == 1
+    assert summary["cosine_matrix"][0][1] == pytest.approx(-1.0)
+
+
+def test_gradient_conflict_summary_serializes_zero_gradient_records():
+    summary = core.gradient_conflict_summary(
+        [torch.zeros(2), torch.tensor([1.0, 0.0])],
+        [21, 22],
+    )
+
+    assert summary["nonzero_gradient_records"] == 1
+    assert summary["valid_pair_count"] == 0
+    assert summary["negative_pair_fraction"] is None
+    assert summary["cosine_matrix"][0][1] is None
+    json.dumps(summary)
+
+
+def test_restricted_output_logits_match_selected_full_head_rows():
+    layer = torch.nn.Linear(4, 9, bias=True)
+    hidden = torch.randn(3, 4, requires_grad=True)
+    token_ids = torch.tensor([1, 4, 8])
+
+    restricted = method.restricted_output_logits(layer, hidden, token_ids)
+    expected = layer(hidden).index_select(1, token_ids)
+
+    assert torch.allclose(restricted, expected, atol=1e-7, rtol=1e-7)
+    restricted.sum().backward()
+    assert hidden.grad is not None
 
 
 def test_stage1_zero_steps_requires_a_resume_state():
@@ -381,6 +487,91 @@ def test_stage1_zero_steps_requires_a_resume_state():
     args = method.parse_args([*common, "--resume-stage1-state", "/stage1.pt"])
     assert args.writer_steps == 0
     assert args.resume_stage1_state == "/stage1.pt"
+
+
+def test_zero_step_resume_requires_the_exact_context_manifest_hash():
+    state = {"context_manifest_sha256": "old-context"}
+    with pytest.raises(RuntimeError, match="refusing zero-step Stage-1 resume"):
+        method.validate_stage1_resume_binding(
+            state,
+            current_context_manifest_sha256="new-context",
+            writer_steps=0,
+        )
+
+    exact = method.validate_stage1_resume_binding(
+        state,
+        current_context_manifest_sha256="old-context",
+        writer_steps=0,
+    )
+    assert exact["mode"] == "exact_zero_step_reuse"
+    assert exact["same_context_manifest"]
+
+    warm = method.validate_stage1_resume_binding(
+        state,
+        current_context_manifest_sha256="new-context",
+        writer_steps=1200,
+    )
+    assert warm["mode"] == "cross_context_warm_start"
+    assert not warm["same_context_manifest"]
+
+
+def test_clean_context_policy_forbids_free_form_surrogates():
+    common = [
+        "--model-path",
+        "/model",
+        "--training-visible-path",
+        "/locked.json",
+        "--split-manifest",
+        "/manifest.json",
+        "--output-dir",
+        "/out",
+    ]
+    args = method.parse_args(common)
+    assert args.positive_context_policy == method.CLEAN_POSITIVE_CONTEXT_POLICY
+    with pytest.raises(SystemExit):
+        method.parse_args([*common, "--surrogate-prompts-path", "/free-form-v7.json"])
+    with pytest.raises(SystemExit):
+        method.parse_args([*common, "--synthetic-paraphrases-per-record", "3"])
+
+    diagnostic = method.parse_args(
+        [
+            *common,
+            "--positive-context-policy",
+            method.SURROGATE_POSITIVE_CONTEXT_POLICY,
+            "--surrogate-prompts-path",
+            "/free-form-v7.json",
+        ]
+    )
+    assert diagnostic.surrogate_prompts_path == "/free-form-v7.json"
+
+
+def test_clean_relation_templates_preserve_the_two_audited_failure_relations():
+    language = method.synthetic.synthetic_prompt_templates(
+        relation_id="P364",
+        canonical_prompt="The language of {} was",
+        case_id=14801,
+        count=6,
+        context_prefixes=["An unrelated corpus sentence."],
+    )
+    instrument = method.synthetic.synthetic_prompt_templates(
+        relation_id="P1303",
+        canonical_prompt="{} plays",
+        case_id=17256,
+        count=6,
+        context_prefixes=["An unrelated corpus sentence."],
+    )
+
+    assert all("{}" in prompt for prompt in language + instrument)
+    assert all(
+        bad not in " ".join(language).casefold()
+        for bad in ("protagonist", "author", "caretaker in the novel", "spoken by")
+    )
+    assert all(
+        bad not in " ".join(instrument).casefold()
+        for bad in ("bass", "jazz bassist", "known for his")
+    )
+    assert "original language" in " ".join(language).casefold()
+    assert "instrument" in " ".join(instrument).casefold()
 
 
 def test_multi_context_reachability_moves_only_prompts_containing_selected_row():
@@ -495,12 +686,8 @@ def test_reference_nll_constraint_penalizes_regression_but_allows_improvement():
     increased = torch.tensor([2.0, 2.2, 2.0], requires_grad=True)
     decreased = torch.tensor([2.0, 1.8, 2.0], requires_grad=True)
 
-    increase_loss = method.reference_nll_regression_penalty(
-        increased, baseline, 0.05
-    )
-    decrease_loss = method.reference_nll_regression_penalty(
-        decreased, baseline, 0.05
-    )
+    increase_loss = method.reference_nll_regression_penalty(increased, baseline, 0.05)
+    decrease_loss = method.reference_nll_regression_penalty(decreased, baseline, 0.05)
 
     assert float(increase_loss) > 0.0
     assert float(decrease_loss) == 0.0
@@ -524,9 +711,7 @@ def test_protected_subspace_projection_removes_only_registered_span():
 def test_residual_reader_basis_stays_in_writer_span_and_rejects_protection():
     common = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
     negatives = torch.tensor([[0.0, 2.0, 0.0, 0.0]])
-    residuals = torch.tensor(
-        [[3.0, 4.0, 5.0, 0.0], [2.0, -3.0, 4.0, 0.0]]
-    )
+    residuals = torch.tensor([[3.0, 4.0, 5.0, 0.0], [2.0, -3.0, 4.0, 0.0]])
 
     basis, report = core.residual_reader_basis(
         residuals,
@@ -681,10 +866,7 @@ def test_beta_frontier_relative_norm_and_ppl_safe_selection():
     ]
 
     assert torch.allclose(ratios, torch.tensor([0.1, 0.5]))
-    assert (
-        beta_frontier.choose_largest_ppl_safe_scale(rows, limit_percent=5.0)
-        == 0.1
-    )
+    assert beta_frontier.choose_largest_ppl_safe_scale(rows, limit_percent=5.0) == 0.1
 
 
 def test_surrogate_loader_accepts_audited_robust_adapter_direct_only_rows(tmp_path):
