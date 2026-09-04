@@ -79,6 +79,9 @@ python -u scripts/run_mcf_private_vocab_rewiring_v1_3c_fullfit.py \
   2>&1 | tee "$LOG_TMP"
 
 unset MCF_V13_VIEW_CORPUS MCF_V13_VIEW_CHUNK
+python -u scripts/postprocess_mcf_private_vocab_rewiring_v1_3c.py \
+  --output-dir "$OUTPUT_DIR"
+
 mkdir -p "$OUTPUT_DIR/logs"
 mv "$LOG_TMP" "$OUTPUT_DIR/logs/training.log"
 
