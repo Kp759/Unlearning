@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# RSNR-V1A-PreHead controlled ablation.
+# Same locked seed1/V1.3 five-view corpus and same rank-16 adapter capacity as
+# layer-24 RSNR, but the adapter acts on the final hidden state immediately
+# before the frozen LM head.  No Transformer or LM-head weight is modified.
+# DEVELOPMENT ONLY: seed1 aggregates are already consumed.
+
+OUTPUT_DIR=${1:?fresh RSNR-V1A-PreHead output directory required}
+MODEL_PATH=${MODEL_PATH:?MODEL_PATH is required}
+SOURCE_V13_RUN=${SOURCE_V13_RUN:?SOURCE_V13_RUN is required}
+
+PROTOCOL_DIR="$SOURCE_V13_RUN/protocol"
+VIEWS="$PROTOCOL_DIR/training_visible_multiview_forget.json"
+LOG_TMP="${OUTPUT_DIR}.training.log.tmp"
+
+for path in "$OUTPUT_DIR" "$LOG_TMP"; do
+  if [ -e "$path" ]; then
+    echo "ERROR: RSNR-V1A-PreHead path already exists: $path" >&2
+    exit 1
+  fi
+done
+
+for path in \
+  "$PROTOCOL_DIR/split_manifest.json" \
+  "$PROTOCOL_DIR/training_visible_forget_direct.json" \
+  "$PROTOCOL_DIR/training_visible_protection_fit_direct.json" \
+  "$VIEWS"; do
+  if [ ! -f "$path" ]; then
+    echo "ERROR: required locked V1.3 artifact missing: $path" >&2
+    exit 1
+  fi
+done
+
+# Training firewall: no official held-out eval source is passed to the trainer.
+unset MCF_PATH OFFICIAL OFFICIAL_DIR OFFICIAL_MCF_PATH MCF_OFFICIAL_OUTPUT
+unset RECOVERY RECOVERY_DIR RETAIN_PATH PPL_PATH ALIAS_EVAL_PATH
+unset ADVERSARIAL_EVAL_PATH
+
+python -u scripts/run_mcf_rsnr_v1a_prehead.py \
+  --model-path "$MODEL_PATH" \
+  --protocol-dir "$PROTOCOL_DIR" \
+  --view-corpus "$VIEWS" \
+  --output-dir "$OUTPUT_DIR" \
+  --seed 1 \
+  --forget-num 50 \
+  --dtype bf16 \
+  --steps 800 \
+  --case-batch-size 4 \
+  --check-every 25 \
+  --learning-rate 0.0002 \
+  --weight-decay 0.0 \
+  --adapter-rank 16 \
+  --adapter-alpha 16 \
+  --abstain-weight 1.0 \
+  --unlikelihood-weight 1.0 \
+  --anchor-weight 0.0001 \
+  --grad-clip 1.0 \
+  --minimum-abstain-vs-true-margin 0.1 \
+  --minimum-true-logprob-drop 2.0 \
+  --gate-off-logit-drift-max 0.0 \
+  2>&1 | tee "$LOG_TMP"
+
+mkdir -p "$OUTPUT_DIR/logs"
+mv "$LOG_TMP" "$OUTPUT_DIR/logs/training.log"
+
+printf '\nRSNR-V1A-PreHead finished successfully.\n'
+printf 'Method report: %s\n' "$OUTPUT_DIR/method/rsnr_v1a_prehead.json"
+printf 'Completion: %s\n' "$OUTPUT_DIR/method/completion.json"
+printf 'Adapter: %s\n' "$OUTPUT_DIR/method/rsnr_prehead_oracle_null_adapter.pt"
+printf 'Routing sidecar: %s\n' "$OUTPUT_DIR/method/relation_scoped_null_routing_prehead.json"
+printf 'Final-certification status: DEVELOPMENT ONLY; seed1 aggregates are already consumed.\n'
