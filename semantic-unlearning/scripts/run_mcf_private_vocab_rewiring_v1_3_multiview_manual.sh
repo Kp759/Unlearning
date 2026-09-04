@@ -52,15 +52,18 @@ unset MCF_SOURCE
 VIEWS="$PROTO_TMP/training_visible_multiview_forget.json"
 
 # Generate canonical + 4 synthetic training-only relation views from the
-# sanitized direct forget file.  This script has no --mcf-path argument.
+# sanitized direct forget file. This script has no --mcf-path argument.
+#
+# Keep the semantic acceptance gates unchanged. Hard cases receive a larger
+# generation/search budget rather than weaker filters or any held-out fallback.
 python -u scripts/build_mcf_private_vocab_rewiring_v1_3_training_views.py \
   --model-path "$MODEL_PATH" \
   --forget-direct "$PROTO_TMP/training_visible_forget_direct.json" \
   --out "$VIEWS" \
   --views-per-case 5 \
-  --candidates-per-attempt 10 \
-  --max-attempts 4 \
-  --max-new-tokens 320 \
+  --candidates-per-attempt 12 \
+  --max-attempts 12 \
+  --max-new-tokens 384 \
   --temperature 0.8 \
   --top-p 0.9 \
   --seed 13131 \
