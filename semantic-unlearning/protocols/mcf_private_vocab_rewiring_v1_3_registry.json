@@ -32,6 +32,7 @@
     "enabled": true,
     "views_per_case": 5,
     "canonical_views_per_case": 1,
+    "synthetic_views_per_case": 4,
     "additional_views_per_case": 4,
     "view_source_priority": [
       "training_visible_same_relation_protection_fit_templates",
