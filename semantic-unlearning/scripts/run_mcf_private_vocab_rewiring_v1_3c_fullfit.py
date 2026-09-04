@@ -81,14 +81,43 @@ class AdaptiveForgetRandom(_BASE_RANDOM_CLASS):
             for row in population
             if _LATEST_MARGIN_BY_CASE.get(_case_id(row), float("inf")) < _HARD_MARGIN
         ]
-        hard_target = min(int(k), int(math.ceil(float(k) * _HARD_FRACTION))) if hard else 0
+        easy = [
+            row
+            for row in population
+            if _LATEST_MARGIN_BY_CASE.get(_case_id(row), float("inf")) >= _HARD_MARGIN
+        ]
+
+        hard_target = (
+            min(int(k), int(math.ceil(float(k) * _HARD_FRACTION))) if hard else 0
+        )
         hard_n = min(len(hard), hard_target)
         chosen = super().sample(hard, hard_n) if hard_n else []
-        chosen_ids = {_case_id(row) for row in chosen}
-        remaining = [row for row in population if _case_id(row) not in chosen_ids]
+
+        # Fill the nominal non-hard portion from currently passing/unknown-easy
+        # cases first.  The previous implementation sampled this remainder from
+        # all unchosen records, which could silently turn a 6/8 hard quota into
+        # 7/8 or 8/8 even when plenty of easy cases existed.
         rest_n = int(k) - len(chosen)
+        easy_n = min(len(easy), rest_n)
+        if easy_n:
+            chosen.extend(super().sample(easy, easy_n))
+            rest_n -= easy_n
+
+        # If too few easy cases exist (e.g. nearly every case currently fails),
+        # backfill from hard cases not already selected so the minibatch remains
+        # full and duplicate-free.
         if rest_n:
-            chosen.extend(super().sample(remaining, rest_n))
+            chosen_ids = {_case_id(row) for row in chosen}
+            hard_fallback = [
+                row for row in hard if _case_id(row) not in chosen_ids
+            ]
+            if len(hard_fallback) < rest_n:
+                raise RuntimeError(
+                    f"V1.3c cannot fill forget minibatch: need {rest_n} more rows, "
+                    f"have {len(hard_fallback)} hard fallbacks"
+                )
+            chosen.extend(super().sample(hard_fallback, rest_n))
+
         self.shuffle(chosen)
         return chosen
 
