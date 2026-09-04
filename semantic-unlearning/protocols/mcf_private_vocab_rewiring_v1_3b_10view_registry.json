@@ -5,7 +5,8 @@
   "status": "development_protocol_seed1_consumed_for_prior_eval",
   "parent_experiment": "mcf_private_vocab_rewiring_v1_3_multiview_relation_robust",
   "experimental_change": "increase training views per forget case from 5 to 10 only; keep worst-1 objective and all other scientific constraints unchanged",
-  "generation_format_revision": "subject_slot_v2",
+  "generation_format_revision": "subject_slot_relation_anchored_v3",
+  "generation_repair_scope": "generation only; no optimizer, threshold, architecture, retain-objective, or held-out-access change",
   "architecture": {
     "trainable_parameter_families": ["private_subject_embedding_rows"],
     "private_tokens_per_subject_token": "one_to_one",
@@ -39,13 +40,15 @@
     "additional_views_per_case": 9,
     "view_source_priority": [
       "training_visible_same_relation_protection_fit_templates",
-      "frozen_local_base_model_minimal_paraphrases"
+      "frozen_local_base_model_relation_anchored_minimal_paraphrases"
     ],
     "protection_fit_source": "training_visible_protection_fit_direct.json",
     "protection_fit_relation_match_required": true,
     "generator_subject_slot": "[SUBJECT]",
     "generator_emits_literal_subject": false,
     "subject_slot_substituted_before_semantic_scoring": true,
+    "generation_anchor_source": "canonical plus exact-same-relation training_visible_protection_fit direct templates",
+    "generation_anchor_cycles_across_same_relation_templates": true,
     "generation_format_repair_only": true,
     "generator_receives_target_true": false,
     "generator_receives_target_new": false,
@@ -92,6 +95,7 @@
     "training_view_generator_requires_sanitized_forget_direct_filename": true,
     "training_view_generator_requires_sanitized_protection_fit_direct_filename": true,
     "subject_slot_generation_reads_heldout_text": false,
+    "relation_anchor_generation_reads_heldout_text": false,
     "learner_accepts_full_mcf_path": false,
     "official_paraphrases_serialized_into_training_protocol": false,
     "official_neighborhoods_serialized_into_training_protocol": false,
