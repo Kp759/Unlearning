@@ -1,0 +1,64 @@
+{
+  "protocol": "mcf_rsnr_v1a_oracle_null_adapter",
+  "status": "development_only_seed1",
+  "name": "Relation-Scoped Null Routing (RSNR)",
+  "variant": "V1A oracle gate",
+  "base": {
+    "model": "Llama-3.2-3B-Instruct",
+    "weights_frozen": true,
+    "input_embeddings_frozen": true,
+    "transformer_weights_frozen": true,
+    "lm_head_frozen": true
+  },
+  "routing": {
+    "gate": "oracle_exact_subject_relation_membership",
+    "positive_definition": "(subject, relation_id) in forget set",
+    "negative_same_subject_different_relation": true,
+    "negative_same_relation_different_subject": true,
+    "negative_subject_mentions_without_relation": true,
+    "atomic_factual_queries_only": true,
+    "compound_query_claimed": false
+  },
+  "intervention": {
+    "type": "latent_null_residual_adapter",
+    "decoder_layer": -4,
+    "rank": 16,
+    "alpha": 16.0,
+    "replace_entire_subject_representation": false,
+    "non_target_path": "adapter_off_exact_base_path"
+  },
+  "training": {
+    "forget_cases": 50,
+    "views_per_case": 5,
+    "reuse_exact_v1_3_training_view_corpus": true,
+    "steps": 800,
+    "case_batch_size": 4,
+    "learning_rate": 0.0002,
+    "abstention_text": "I don't know.",
+    "abstention_weight": 1.0,
+    "true_object_unlikelihood_weight": 1.0,
+    "adapter_anchor_weight": 0.0001,
+    "target_new_used": false,
+    "true_aliases_used_for_training": false
+  },
+  "development_gates": {
+    "minimum_worst_abstain_vs_true_margin": 0.1,
+    "minimum_worst_true_logprob_drop": 2.0,
+    "gate_off_max_abs_logit_drift": 0.0
+  },
+  "leakage_contract": {
+    "full_mcf_source_read_by_trainer": false,
+    "official_paraphrase_prompts_read": false,
+    "official_neighborhood_prompts_read": false,
+    "official_retain_records_read": false,
+    "heldout_probe_text_used": false,
+    "seed1_final_certification": false
+  },
+  "claim_boundary": {
+    "relation_scoped_behavioral_unlearning": true,
+    "conditional_knowledge_suppression": true,
+    "latent_knowledge_deletion_claimed": false,
+    "oracle_gate_is_learned": false,
+    "disabling_intervention_can_recover_base_knowledge": true
+  }
+}
