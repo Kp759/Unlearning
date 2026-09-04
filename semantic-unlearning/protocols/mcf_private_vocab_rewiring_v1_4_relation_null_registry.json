@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "protocol": "mcf_private_vocab_rewiring_v1_4_relation_null_routing",
+  "status": "development_protocol_seed1_consumed_for_prior_eval",
+  "parent_experiment": "mcf_private_vocab_rewiring_v1_3_multiview_relation_robust",
+  "architecture": {
+    "trainable_parameter_families": [
+      "per_subject_relation_gate",
+      "private_subject_embedding_rows"
+    ],
+    "private_tokens_per_subject_token": "one_to_one",
+    "subject_token_count_preserved": true,
+    "reserved_vocab_slots_repurposed": true,
+    "vocabulary_size_unchanged": true,
+    "transformer_frozen": true,
+    "input_lm_head_untied": true,
+    "lm_head_frozen_bit_identical": true,
+    "original_input_embedding_rows_frozen": true,
+    "output_rows_trainable": false,
+    "relation_aware_router": true,
+    "runtime_forget_query_classifier": true,
+    "non_sensitive_path": "exact_base_token_ids",
+    "sensitive_path": "same_length_private_reserved_subject_rows",
+    "external_refusal_filter": false
+  },
+  "relation_gate": {
+    "kind": "per_subject_linear_binary_classifier",
+    "feature": "frozen_base_final_prompt_token_hidden_state_l2_normalized",
+    "positive_source": "locked_v1_3_five_view_training_corpus",
+    "positive_views_per_case": 5,
+    "negative_source": "training_visible_protection_fit_different_relation",
+    "negatives_per_case": 16,
+    "forgotten_relation_excluded_from_negatives": true,
+    "targets_used_as_gate_features": false,
+    "target_true_given_to_gate": false,
+    "target_new_given_to_gate": false,
+    "official_eval_text_used": false,
+    "heldout_paraphrase_text_used": false,
+    "threshold_calibration": "per_case_midpoint_between_min_positive_and_max_negative_logit",
+    "training_separation_required": true,
+    "inference_requires_registered_subject_match_first": true,
+    "gate_is_part_of_method": true
+  },
+  "training_multiview": {
+    "views_per_case": 5,
+    "source": "exact_locked_v1_3_training_visible_multiview_forget_corpus",
+    "regeneration_permitted": false,
+    "official_paraphrase_text_used": false,
+    "official_neighborhood_text_used": false,
+    "heldout_fallback_permitted": false
+  },
+  "null_objective": {
+    "internal_null_state": "private_subject_input_rows",
+    "internal_reserved_ids_are_output_targets": false,
+    "abstention_text": "I don't know",
+    "abstention_text_uses_existing_base_vocabulary": true,
+    "target_new_gradient": false,
+    "true_target_suppression": true,
+    "minimum_true_logprob_drop": 2.0,
+    "minimum_abstention_minus_true_margin": 0.1,
+    "objective": "worst_of_5_abstention_minus_true_margin_plus_worst_of_5_true_logprob_drop",
+    "natural_user_facing_abstention": true
+  },
+  "optimization": {
+    "gate_steps": 600,
+    "gate_learning_rate": 0.03,
+    "gate_weight_decay": 0.01,
+    "private_null_steps": 800,
+    "private_null_learning_rate": 0.001,
+    "forget_case_batch_size": 8,
+    "views_per_case": 5,
+    "true_suppression_weight": 1.0,
+    "anchor_weight": 0.001,
+    "relative_private_row_cap": 0.5,
+    "topk_for_initial_equivalence": 64
+  },
+  "specificity_design": {
+    "same_subject_different_relation_prompts_train_private_rows": false,
+    "same_subject_different_relation_prompts_train_gate_as_negatives": true,
+    "gate_negative_behavior": "bypass_private_rows_and_use_exact_base_token_ids",
+    "reason": "avoid forcing one edited subject representation to preserve and forget incompatible relations simultaneously"
+  },
+  "leakage_firewall": {
+    "learner_accepts_full_mcf_path": false,
+    "split_builder_output_only": true,
+    "locked_v1_3_training_view_corpus_only": true,
+    "official_paraphrases_used_for_training": false,
+    "official_neighborhoods_used_for_training": false,
+    "official_generation_prompts_used_for_training": false,
+    "official_retain_text_used_for_training": false,
+    "heldout_text_used_for_gate_threshold_calibration": false,
+    "seed1_final_certification_allowed": false,
+    "reason_seed1_not_final": "seed1 aggregate official metrics were already inspected during development",
+    "final_certification_requires_new_untouched_seed": true
+  },
+  "acceptance": {
+    "gate_training_accuracy": 1.0,
+    "gate_all_cases_training_separable": true,
+    "minimum_abstention_minus_true_margin": 0.1,
+    "minimum_true_logprob_drop": 2.0,
+    "combined_training_failures_required": 0,
+    "relative_private_row_cap": 0.5,
+    "lm_head_bit_identical": true,
+    "all_nonprivate_input_rows_bit_identical": true,
+    "initial_private_route_topk_kl_max": 0.0000001,
+    "heldout_specificity_and_generalization": "must_be_evaluated_separately"
+  },
+  "claim_boundary": {
+    "behavioral_unlearning": true,
+    "latent_knowledge_erasure": false,
+    "relation_aware_routing_is_part_of_method": true,
+    "classifier_is_part_of_method": true,
+    "not_pure_external_access_control": true,
+    "internal_private_ids_not_exposed_to_user": true,
+    "natural_abstention_is_behavioral_target": true,
+    "restoring_original_subject_token_ids_can_bypass_private_path": true
+  }
+}
