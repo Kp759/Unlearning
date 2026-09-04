@@ -13,6 +13,8 @@ set -euo pipefail
 #   - Oracle routing is supplied from known record metadata; learned gating is a
 #     separate later experiment.
 #   - Non-target queries have adapter gate=0 and must be bit/logit identical to Base.
+#   - The strict entrypoint preserves failed-run diagnostics but exits nonzero
+#     unless all 50 facts pass the registered joint 5-view training gate.
 #
 # Required environment:
 #   MODEL_PATH=/home/ec2-user/models/Llama-3.2-3B-Instruct
@@ -52,7 +54,7 @@ unset MCF_PATH OFFICIAL OFFICIAL_DIR OFFICIAL_MCF_PATH MCF_OFFICIAL_OUTPUT
 unset RECOVERY RECOVERY_DIR RETAIN_PATH PPL_PATH ALIAS_EVAL_PATH
 unset ADVERSARIAL_EVAL_PATH
 
-python -u scripts/run_mcf_rsnr_v1a_oracle.py \
+python -u scripts/run_mcf_rsnr_v1a_oracle_strict.py \
   --model-path "$MODEL_PATH" \
   --protocol-dir "$PROTOCOL_DIR" \
   --view-corpus "$VIEWS" \
@@ -80,7 +82,7 @@ python -u scripts/run_mcf_rsnr_v1a_oracle.py \
 mkdir -p "$OUTPUT_DIR/logs"
 mv "$LOG_TMP" "$OUTPUT_DIR/logs/training.log"
 
-printf '\nRSNR-V1A oracle-null run finished.\n'
+printf '\nRSNR-V1A oracle-null run finished with strict training gate.\n'
 printf 'Method report: %s\n' "$OUTPUT_DIR/method/rsnr_v1a_oracle.json"
 printf 'Completion: %s\n' "$OUTPUT_DIR/method/completion.json"
 printf 'Adapter: %s\n' "$OUTPUT_DIR/method/rsnr_oracle_null_adapter.pt"
