@@ -243,7 +243,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     optimizer = torch.optim.AdamW(
         adapter.parameters(), lr=float(args.learning_rate), weight_decay=float(args.weight_decay)
     )
-    rng = random.Random(int(args.seed) + 55019)
+    # Match RSNR-V1A layer-24 case sampling exactly so intervention site is the
+    # intended training difference.
+    rng = random.Random(int(args.seed) + 44017)
     best_state = copy.deepcopy(adapter.state_dict())
     best_key = (10**9, float("inf"), float("inf"))
     training_log: list[dict[str, Any]] = []
