@@ -42,6 +42,22 @@ def test_hard_case_sampler_prefers_current_failures_without_duplicates():
     assert v13c._ACTIVE_TRAIN_VIEWS == 2
 
 
+def test_hard_case_sampler_backfills_from_hard_when_easy_pool_is_too_small():
+    population = [_row(i) for i in range(50)]
+    v13c._FORGET_IDS = set(range(50))
+    # 49 hard, only one easy: the sampler must still return a full unique batch.
+    v13c._LATEST_MARGIN_BY_CASE = {i: (-1.0 if i < 49 else 1.0) for i in range(50)}
+    v13c._TRAIN_STEP = 0
+    v13c._ACTIVE_TRAIN_VIEWS = 2
+    rng = v13c.AdaptiveForgetRandom(321)
+    batch = rng.sample(population, 8)
+    ids = [int(row["case_id"]) for row in batch]
+    assert len(ids) == 8
+    assert len(set(ids)) == 8
+    assert 49 in ids
+    assert sum(i < 49 for i in ids) == 7
+
+
 def test_non_forget_sampling_is_standard():
     v13c._FORGET_IDS = set(range(50))
     rng = v13c.AdaptiveForgetRandom(7)
