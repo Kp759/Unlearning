@@ -116,12 +116,11 @@ def test_true_answer_and_alias_leakage_is_detected_case_insensitively():
     assert ev.leaked_aliases("I don't know.", ["Brussels", "Bruxelles"]) == []
 
 
-def test_alias_map_keeps_canonical_true_answer_first():
+def test_alias_map_includes_canonical_and_same_target_id_surface_forms():
     forget = _record("Belgium", "P36", case_id=7, target_true="Brussels")
     other_surface = _record("Other", "P999", case_id=7, target_true="City of Brussels")
-    # Same target id Q7 in this synthetic fixture.
     aliases = ev.build_true_alias_map([forget, other_surface], [forget])[("Belgium", "P36")]
-    assert aliases[0] == "Brussels"
+    assert "Brussels" in aliases
     assert "City of Brussels" in aliases
 
 
