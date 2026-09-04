@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+from pathlib import Path
+import sys
+
 import torch
 import torch.nn as nn
 
-import scripts.run_mcf_rsnr_v1a_oracle as rsnr
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import run_mcf_rsnr_v1a_oracle as rsnr  # noqa: E402
 
 
 def _record(case_id: int, subject: str, relation: str):
@@ -94,7 +103,7 @@ def test_oracle_hook_edits_only_gated_batch_rows_and_positions():
     assert not torch.equal(edited[0, 2], baseline[0, 2])
 
 
-def test_abstention_is_natural_text_and_not_target_new():
+def test_abstention_is_natural_text_and_target_new_is_not_an_objective():
     assert rsnr.ABSTENTION == "I don't know."
-    source = open(rsnr.__file__, "r", encoding="utf-8").read()
-    assert "target_new_used\": False" in source
+    source = Path(rsnr.__file__).read_text(encoding="utf-8")
+    assert '"target_new_used": False' in source
