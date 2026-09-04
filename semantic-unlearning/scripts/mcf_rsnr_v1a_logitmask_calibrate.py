@@ -8,9 +8,10 @@ Two modes are supported:
 * suppress_plus_idk: additionally choose an IDK-token boost so every fact also
   has worst-of-five logP(IDK)-logP(true) >= 0.1.
 
-No official paraphrase, neighborhood, fresh-retain, alias, target_new objective,
-or held-out probe text is read. The selected values are frozen before official
-evaluation.
+Candidate (penalty, boost) pairs are evaluated in increasing total intervention
+strength and calibration stops at the first passing pair. No official
+paraphrase, neighborhood, fresh-retain, alias, target_new objective, or held-out
+probe text is read.
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ def parse_grid(text: str, *, allow_zero: bool) -> list[float]:
     values = sorted(set(float(v.strip()) for v in str(text).split(",") if v.strip()))
     if not values:
         raise ValueError("grid must be non-empty")
-    if any(v < 0 if allow_zero else v <= 0 for v in values):
+    if any((v < 0 if allow_zero else v <= 0) for v in values):
         raise ValueError("invalid grid value")
     return values
 
@@ -69,7 +70,6 @@ def evaluate_training_views(
     tokenizer: Any,
     forget: Sequence[Mapping[str, Any]],
     view_map: Mapping[int, Sequence[str]],
-    canonical_answers: Mapping[tuple[str, str], str],
     token_sets: Mapping[tuple[str, str], Sequence[int]],
     base_true: Mapping[int, Sequence[float]],
     *,
@@ -84,9 +84,7 @@ def evaluate_training_views(
         prompts, true_answers, owners = rsnr.prompts_for_cases(cases, view_map)
         pairs: list[tuple[str, str]] = []
         for local, row in enumerate(cases):
-            pair = rsnr.fact_key(row)
-            pairs.extend([pair] * sum(owner == local for owner in owners))
-        # prompts_for_cases groups views by case, so this construction aligns.
+            pairs.extend([rsnr.fact_key(row)] * sum(owner == local for owner in owners))
         if len(pairs) != len(prompts):
             raise RuntimeError("training-view pair alignment failed")
         idk_answers = [lm.ABSTENTION] * len(prompts)
@@ -119,8 +117,7 @@ def evaluate_training_views(
 
 def main() -> None:
     args = parse_args()
-    protocol_dir = Path(args.protocol_dir).resolve()
-    protocol = rsnr.load_protocol(protocol_dir, int(args.forget_num))
+    protocol = rsnr.load_protocol(Path(args.protocol_dir).resolve(), int(args.forget_num))
     forget = protocol["forget"]
     view_map, view_meta = rsnr.load_training_views(Path(args.view_corpus).resolve())
     rsnr.validate_case_alignment(forget, view_map)
@@ -143,55 +140,59 @@ def main() -> None:
 
     canonical_answers = lm.canonical_answer_map(forget)
     token_sets = lm.canonical_token_sets(tokenizer, canonical_answers)
-    idk_ids = lm.abstention_token_set(tokenizer)
     hook = lm.DirectLogitMaskHook.install(
-        lm.get_lm_head(model), true_penalty=0.0, idk_boost=0.0, idk_token_ids=idk_ids
+        lm.get_lm_head(model),
+        true_penalty=0.0,
+        idk_boost=0.0,
+        idk_token_ids=lm.abstention_token_set(tokenizer),
     )
-
     base_true = rsnr.base_true_logprobs_for_all_views(
         model, hook, tokenizer, forget, view_map,
         device=device, batch_cases=int(args.batch_cases),
     )
 
+    pairs = sorted(
+        {(float(p), float(b)) for p in args.penalty_grid for b in args.boost_grid},
+        key=lambda x: (x[0] + x[1], x[0], x[1]),
+    )
     candidates = []
     selected = None
     try:
-        for penalty in args.penalty_grid:
-            for boost in args.boost_grid:
-                hook.true_penalty = float(penalty)
-                hook.idk_boost = float(boost)
-                rows = evaluate_training_views(
-                    model, hook, tokenizer, forget, view_map, canonical_answers, token_sets, base_true,
-                    device=device,
-                    batch_cases=int(args.batch_cases),
-                    margin_threshold=float(args.minimum_idk_vs_true_margin),
-                    drop_threshold=float(args.minimum_true_logprob_drop),
-                )
-                drop_passed = sum(bool(r["drop_pass"]) for r in rows)
-                margin_passed = sum(bool(r["margin_pass"]) for r in rows)
-                if args.mode == "suppress_only":
-                    passed = drop_passed == len(rows)
-                else:
-                    passed = drop_passed == len(rows) and margin_passed == len(rows)
-                summary = {
-                    "true_penalty": float(penalty),
-                    "idk_boost": float(boost),
-                    "drop_passed": drop_passed,
-                    "margin_passed": margin_passed,
-                    "minimum_worst_true_logprob_drop": min(r["worst_true_logprob_drop"] for r in rows),
-                    "minimum_worst_idk_vs_true_margin": min(r["worst_idk_vs_true_margin"] for r in rows),
-                    "calibration_passed": bool(passed),
-                }
-                candidates.append(summary)
-                print(json.dumps(summary), flush=True)
-                if passed:
-                    key = (float(penalty) + float(boost), float(penalty), float(boost))
-                    if selected is None or key < selected[0]:
-                        selected = (key, summary, rows)
+        for penalty, boost in pairs:
+            hook.true_penalty = penalty
+            hook.idk_boost = boost
+            rows = evaluate_training_views(
+                model, hook, tokenizer, forget, view_map, token_sets, base_true,
+                device=device,
+                batch_cases=int(args.batch_cases),
+                margin_threshold=float(args.minimum_idk_vs_true_margin),
+                drop_threshold=float(args.minimum_true_logprob_drop),
+            )
+            drop_passed = sum(bool(r["drop_pass"]) for r in rows)
+            margin_passed = sum(bool(r["margin_pass"]) for r in rows)
+            passed = (
+                drop_passed == len(rows)
+                if args.mode == "suppress_only"
+                else drop_passed == len(rows) and margin_passed == len(rows)
+            )
+            summary = {
+                "true_penalty": penalty,
+                "idk_boost": boost,
+                "drop_passed": drop_passed,
+                "margin_passed": margin_passed,
+                "minimum_worst_true_logprob_drop": min(r["worst_true_logprob_drop"] for r in rows),
+                "minimum_worst_idk_vs_true_margin": min(r["worst_idk_vs_true_margin"] for r in rows),
+                "calibration_passed": bool(passed),
+            }
+            candidates.append(summary)
+            print(json.dumps(summary), flush=True)
+            if passed:
+                selected = (summary, rows)
+                break
         if selected is None:
             raise RuntimeError("no direct-logit calibration candidate satisfied the locked training gate")
 
-        _key, best, rows = selected
+        best, rows = selected
         membership = [
             {
                 "case_id": int(row["case_id"]),
@@ -209,6 +210,7 @@ def main() -> None:
             "seed": int(args.seed),
             "development_only": True,
             "calibration_source": "locked training-safe V1.3 five-view corpus only",
+            "calibration_search_order": "ascending true_penalty + idk_boost; first passing pair selected",
             "views_per_case": int(view_meta["views_per_case"]),
             "true_penalty": float(best["true_penalty"]),
             "idk_boost": float(best["idk_boost"]),
@@ -240,10 +242,7 @@ def main() -> None:
         out = Path(args.out).resolve()
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print(json.dumps({
-            "selected": best,
-            "output": str(out),
-        }, indent=2), flush=True)
+        print(json.dumps({"selected": best, "output": str(out)}, indent=2), flush=True)
     finally:
         hook.remove()
 
