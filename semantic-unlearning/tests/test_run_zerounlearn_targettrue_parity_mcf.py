@@ -1,4 +1,14 @@
-from scripts.run_zerounlearn_targettrue_parity_mcf import (
+from pathlib import Path
+import sys
+
+# The parity runner is also executed directly as `python scripts/...py`, so its
+# sibling imports intentionally use script-local module names.  Add the scripts
+# directory here before importing it under pytest from the repository root.
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from run_zerounlearn_targettrue_parity_mcf import (  # noqa: E402
     targettrue_forget_requests,
     validate_targettrue_requests,
 )
