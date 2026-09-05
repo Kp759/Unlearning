@@ -7,7 +7,7 @@ set -euo pipefail
 
 RECOG_OUT_DIR="${RECOG_OUT_DIR:-$PWD/results/retain_anchored_context_head/mcf/seed1_recognition_router_benchmark}"
 
-python scripts/mcf_recognition_router_benchmark_seed1.py \
+python scripts/mcf_recognition_router_benchmark_seed1_fixed.py \
   --model-path "$MODEL_PATH" \
   --mcf-path "$MCF_PATH" \
   --view-corpus "$VIEW_CORPUS" \
