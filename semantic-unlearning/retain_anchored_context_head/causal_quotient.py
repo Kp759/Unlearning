@@ -15,8 +15,8 @@ class CausalDescriptorProjector(nn.Module):
     """Fuse Method-4 final-state context with an intervention-derived channel.
 
     ``channel_basis`` is a frozen orthonormal basis in one intermediate hidden
-    layer.  No Transformer parameter is trained.  Query descriptors concatenate
-    a fixed random projection of the final hidden state with coordinates in the
+    layer. No Transformer parameter is trained. Query descriptors concatenate a
+    fixed random projection of the final hidden state with coordinates in the
     causal channel, then L2-normalize the result so Method-4's radius remains on
     the same unit-sphere distance scale.
     """
@@ -77,12 +77,12 @@ class FactIndexedCausalQuotient(nn.Module):
 
     For fact i we store a unit downstream effect direction ``v_i`` and the
     final hidden state ``n_i`` produced by removing the discovered causal
-    channel on the direct training anchor.  Given contextual coordinates alpha,
+    channel on the direct training anchor. Given contextual coordinates alpha,
 
         h' = h - strength * sum_i alpha_i ((h - n_i)^T v_i) v_i.
 
     At a cardinal forget anchor this removes the downstream component that was
-    actually caused by the discovered channel.  At protected anchors alpha is
+    actually caused by the discovered channel. At protected anchors alpha is
     numerically zero, so the quotient is inactive.
     """
 
@@ -156,7 +156,14 @@ class FactIndexedCausalQuotient(nn.Module):
 
 
 class ContextualCausalQuotientModel(nn.Module):
-    """Method 5: retain-anchored contextual head + causal output quotient."""
+    """Method 5: retain-anchored contextual head + causal output quotient.
+
+    ``quotient_fact_mask`` is fixed from direct training-visible intervention
+    validation. A fact whose channel-removal intervention did not reduce the
+    sensitive-answer log probability keeps the contextual logit correction but
+    does not receive the quotient. This prevents calling an anti-causal effect a
+    causal suppression direction.
+    """
 
     def __init__(
         self,
@@ -166,6 +173,7 @@ class ContextualCausalQuotientModel(nn.Module):
         correction: FactIndexedLogitCorrection,
         quotient: FactIndexedCausalQuotient,
         causal_hidden_index: int,
+        quotient_fact_mask: Tensor | None = None,
         alpha_chunk_size: int = 256,
     ) -> None:
         super().__init__()
@@ -179,6 +187,20 @@ class ContextualCausalQuotientModel(nn.Module):
         self.quotient = quotient
         self.causal_hidden_index = int(causal_hidden_index)
         self.alpha_chunk_size = int(alpha_chunk_size)
+
+        if quotient_fact_mask is None:
+            quotient_fact_mask = torch.ones(
+                correction.num_facts,
+                device=correction.feature_map.forget.device,
+                dtype=correction.feature_map.forget.dtype,
+            )
+        if quotient_fact_mask.shape != (correction.num_facts,):
+            raise ValueError("quotient_fact_mask must have shape [facts]")
+        self.register_buffer(
+            "quotient_fact_mask",
+            quotient_fact_mask.detach().float().clone(),
+            persistent=True,
+        )
 
         for parameter in self.base_model.parameters():
             parameter.requires_grad_(False)
@@ -212,11 +234,12 @@ class ContextualCausalQuotientModel(nn.Module):
         flat_causal = causal_hidden.reshape(batch * seq, dim)
         descriptors = self.descriptor_projector(flat_final, flat_causal)
         alpha = self._alpha(descriptors)
+        enabled_alpha = alpha * self.correction.fact_enabled.float().unsqueeze(0)
+        quotient_alpha = enabled_alpha * self.quotient_fact_mask.unsqueeze(0)
 
         quotiented = self.quotient.apply(
             flat_final,
-            alpha,
-            fact_enabled=self.correction.fact_enabled,
+            quotient_alpha,
         ).reshape(batch, seq, dim)
 
         output_head = self.base_model.get_output_embeddings()
@@ -224,7 +247,7 @@ class ContextualCausalQuotientModel(nn.Module):
             raise RuntimeError("base model does not expose get_output_embeddings()")
         logits = output_head(quotiented)
 
-        selected_delta = alpha @ self.correction.coefficients.transpose(0, 1)
+        selected_delta = enabled_alpha @ self.correction.coefficients.transpose(0, 1)
         selected_delta = selected_delta.reshape(batch, seq, -1).to(dtype=logits.dtype)
         logits = logits.clone()
         logits[..., self.correction.selected_token_ids] += selected_delta
