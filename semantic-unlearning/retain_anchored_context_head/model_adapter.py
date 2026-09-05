@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from typing import Optional
 
 import torch
 from torch import Tensor, nn
@@ -11,13 +10,7 @@ from .contextual_head import FactIndexedLogitCorrection
 
 
 class FrozenRandomProjector(nn.Module):
-    """Fixed random projection used as the channel-free descriptor baseline.
-
-    The matrix is sampled once from a deterministic seed and stored as a buffer.
-    No model or projection parameters are trained.  Inputs and projected outputs
-    are L2-normalized so Euclidean distance corresponds monotonically to cosine
-    distance on the unit sphere.
-    """
+    """Fixed random projection used as the channel-free descriptor baseline."""
 
     def __init__(
         self,
@@ -52,14 +45,10 @@ class FrozenRandomProjector(nn.Module):
 
 
 class ContextualCorrectionModel(nn.Module):
-    """Apply fact-indexed contextual logit corrections to a frozen causal LM.
+    """Apply sparse fact-indexed logit corrections to a frozen causal LM.
 
-    The base model remains unchanged.  The wrapper requests final hidden states,
-    maps them through a fixed descriptor projector, evaluates the retain-anchored
-    feature map, and adds only the selected-token logit corrections.
-
-    This wrapper is intentionally sufficient for teacher-forced official MCF
-    evaluation and perplexity.  It does not claim to implement generation APIs.
+    This prototype is intentionally scoped to teacher-forced MCF evaluation and
+    perplexity.  It does not claim to implement Hugging Face generation APIs.
     """
 
     def __init__(
@@ -77,7 +66,6 @@ class ContextualCorrectionModel(nn.Module):
         self.projector = projector
         self.correction = correction
         self.alpha_chunk_size = int(alpha_chunk_size)
-
         for parameter in self.base_model.parameters():
             parameter.requires_grad_(False)
         self.base_model.eval()
@@ -85,13 +73,6 @@ class ContextualCorrectionModel(nn.Module):
     @property
     def config(self):
         return self.base_model.config
-
-    def _dense_delta(self, descriptors: Tensor) -> Tensor:
-        chunks = []
-        for start in range(0, descriptors.shape[0], self.alpha_chunk_size):
-            stop = min(descriptors.shape[0], start + self.alpha_chunk_size)
-            chunks.append(self.correction.correction_for_descriptors(descriptors[start:stop]))
-        return torch.cat(chunks, dim=0)
 
     def forward(self, *args, **kwargs):
         kwargs = dict(kwargs)
@@ -103,15 +84,23 @@ class ContextualCorrectionModel(nn.Module):
 
         hidden = outputs.hidden_states[-1]
         batch, seq, dim = hidden.shape
-        descriptors = self.projector(hidden.reshape(batch * seq, dim))
-        delta = self._dense_delta(descriptors).reshape(batch, seq, -1)
-        corrected_logits = outputs.logits + delta.to(dtype=outputs.logits.dtype)
-        outputs.logits = corrected_logits
+        flat_hidden = hidden.reshape(batch * seq, dim)
+        flat_logits = outputs.logits.reshape(batch * seq, -1)
+        token_ids = self.correction.selected_token_ids
+
+        # Modify only selected columns.  This avoids allocating an additional
+        # [batch*seq, vocab] dense correction tensor for a 128k-token vocabulary.
+        for start in range(0, flat_hidden.shape[0], self.alpha_chunk_size):
+            stop = min(flat_hidden.shape[0], start + self.alpha_chunk_size)
+            descriptors = self.projector(flat_hidden[start:stop])
+            selected_delta = self.correction.selected_correction_for_descriptors(descriptors)
+            selected_delta = selected_delta.to(dtype=flat_logits.dtype)
+            flat_logits[start:stop, token_ids] += selected_delta
+
+        outputs.logits = flat_logits.reshape(batch, seq, -1)
         return outputs
 
     def train(self, mode: bool = True):
         super().train(mode)
-        # The frozen language model must never enter training mode because this
-        # prototype performs no stochastic base-model training.
         self.base_model.eval()
         return self
