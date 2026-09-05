@@ -4,11 +4,14 @@ from .contextual_head import (
     FactIndexedLogitCorrection,
     sequence_margin_loss,
 )
+from .model_adapter import ContextualCorrectionModel, FrozenRandomProjector
 
 __all__ = [
     "AnchoredFeatureMap",
+    "ContextualCorrectionModel",
     "CorrectionDiagnostics",
     "FactIndexedLogitCorrection",
+    "FrozenRandomProjector",
     "sequence_margin_loss",
     "wendland_c2_kernel",
 ]
