@@ -47,7 +47,12 @@ def test_retain_anchors_are_zero_and_forget_anchors_are_cardinal():
     retain_alpha = fmap.alpha(fmap.retain)
     forget_alpha = fmap.alpha(fmap.forget)
 
-    torch.testing.assert_close(retain_alpha, torch.zeros_like(retain_alpha), atol=1e-10, rtol=0)
+    torch.testing.assert_close(
+        retain_alpha,
+        torch.zeros_like(retain_alpha),
+        atol=1e-10,
+        rtol=0,
+    )
     torch.testing.assert_close(
         forget_alpha,
         torch.eye(fmap.num_facts, dtype=forget_alpha.dtype),
@@ -83,19 +88,44 @@ def test_same_output_token_gets_independent_fact_corrections_and_rollback():
 
     base = torch.zeros((2, 16), dtype=torch.float64)
     corrected = head(base, fmap.forget)
-    assert corrected[0, 7].item() == -6.0
-    assert corrected[1, 7].item() == -9.0
+    torch.testing.assert_close(
+        corrected[0, 7],
+        torch.tensor(-6.0, dtype=corrected.dtype),
+        atol=1e-12,
+        rtol=0,
+    )
+    torch.testing.assert_close(
+        corrected[1, 7],
+        torch.tensor(-9.0, dtype=corrected.dtype),
+        atol=1e-12,
+        rtol=0,
+    )
 
-    # Protected contexts remain exactly at base logits.
+    # Protected contexts remain numerically at base logits.
     protected_base = torch.randn((2, 16), dtype=torch.float64)
     protected_corrected = head(protected_base, fmap.retain)
-    torch.testing.assert_close(protected_corrected, protected_base, atol=1e-10, rtol=0)
+    torch.testing.assert_close(
+        protected_corrected,
+        protected_base,
+        atol=1e-10,
+        rtol=0,
+    )
 
     # Roll back fact 0 only. Fact 1's correction remains unchanged.
     head.rollback_facts([0])
     after_rollback = head(base, fmap.forget)
-    assert abs(after_rollback[0, 7].item()) < 1e-10
-    assert after_rollback[1, 7].item() == -9.0
+    torch.testing.assert_close(
+        after_rollback[0, 7],
+        torch.tensor(0.0, dtype=after_rollback.dtype),
+        atol=1e-10,
+        rtol=0,
+    )
+    torch.testing.assert_close(
+        after_rollback[1, 7],
+        torch.tensor(-9.0, dtype=after_rollback.dtype),
+        atol=1e-12,
+        rtol=0,
+    )
 
 
 def test_margin_loss_is_event_specific_not_global_token_ban():
