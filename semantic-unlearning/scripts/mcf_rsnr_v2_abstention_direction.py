@@ -89,6 +89,44 @@ def attach_abstention_reference(
     return out
 
 
+def abstention_margin_view(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    abstention_text: str = ABSTENTION_TEXT,
+) -> List[Dict[str, Any]]:
+    """Throwaway records whose *reference answer slot* holds the abstention text.
+
+    The margin machinery (``sure_stage2_sparse_repair.mcf_instances``) builds an
+    ``MCFPromptInstance`` with exactly two answer strings and reads the
+    reference one from ``requested_rewrite.target_new``; its ``reference_field``
+    argument only chooses between those two slots, so it cannot be pointed at a
+    third field.  To keep the RSNR contract the reference slot is therefore
+    *filled with the abstention string*, making the direct margin
+
+        NLL(target_true) - NLL(IDK)
+
+    instead of the CounterFact ``NLL(target_true) - NLL(target_new)``.
+
+    The result is a computation-only view.  It must never be persisted or fed
+    to anything that reports ``target_new``, because in these records that field
+    no longer holds the benchmark counterfactual.
+    """
+    if not isinstance(abstention_text, str) or not abstention_text.strip():
+        raise ValueError("abstention_text must be a non-empty string")
+
+    out: List[Dict[str, Any]] = []
+    for position, record in enumerate(records):
+        rr = record.get("requested_rewrite")
+        if not isinstance(rr, Mapping):
+            raise ValueError(f"Record {position} lacks requested_rewrite")
+        copied = deepcopy(dict(record))
+        copied["requested_rewrite"] = dict(copied["requested_rewrite"])
+        copied["requested_rewrite"]["target_new"] = {"str": abstention_text}
+        copied["requested_rewrite"]["_reference_slot_holds"] = "abstention"
+        out.append(copied)
+    return out
+
+
 def assert_target_new_unused(direction_reports: Sequence[Mapping[str, Any]]) -> None:
     """Fail if any direction was built from a target_new-anchored source.
 

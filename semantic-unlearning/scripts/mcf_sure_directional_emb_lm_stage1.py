@@ -371,7 +371,29 @@ def select_stage1_scale(reports: List[Dict[str, Any]]) -> float:
     return float(max(float(r["scale"]) for r in candidates))
 
 
-def _direct_margins(model, tok, records, device, llama_like, batch_size):
+def _direct_margins(
+    model,
+    tok,
+    records,
+    device,
+    llama_like,
+    batch_size,
+    *,
+    reference_anchor="target_new",
+    abstention_text=abstention.ABSTENTION_TEXT,
+):
+    """Direct margin used by the scale gate.
+
+    Re-anchoring only the *direction* would leave this gate still reading
+    target_new, so a run could report target_new_used: False while selecting
+    its scale from a CounterFact margin.  Under abstention anchoring the
+    reference answer slot is filled with the abstention string instead, making
+    the margin NLL(target_true) - NLL(IDK).
+    """
+    if reference_anchor == "abstention":
+        records = abstention.abstention_margin_view(
+            records, abstention_text=abstention_text
+        )
     instances = stage2.mcf_instances(records)
     return stage2.mcf_direct_margins(
         model,
@@ -625,6 +647,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 device,
                 llama_like,
                 int(a.cache_batch_size),
+                reference_anchor=a.reference_anchor,
+                abstention_text=a.abstention_text,
             )
         finally:
             head_handle.remove()
@@ -672,6 +696,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         device,
         llama_like,
         int(a.cache_batch_size),
+        reference_anchor=a.reference_anchor,
+        abstention_text=a.abstention_text,
     )
     final_margins = final_all_margins[:direct_count]
     final_synthetic_margins = final_all_margins[direct_count:]
@@ -722,7 +748,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         ),
         "reference_anchor": a.reference_anchor,
+        # Scope note: this covers Stage 1 only (direction + scale gate). Stage 2
+        # full-row LM-head repair still reads target_new and must be re-anchored
+        # separately before an end-to-end RSNR-V2 run can claim the contract.
         "target_new_used": a.reference_anchor == "target_new",
+        "anchored_components": {
+            "direction": a.reference_anchor,
+            "scale_gate_margin": a.reference_anchor,
+        },
         "abstention_anchor": (
             abstention.summarize_direction_sources(direction_reports)
             if a.reference_anchor == "abstention"

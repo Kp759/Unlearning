@@ -140,6 +140,49 @@ class FirstTokenDegeneracyTest(unittest.TestCase):
         self.assertNotEqual(later_sensitive[0].prompt, later_reference[0].prompt)
 
 
+class AbstentionMarginViewTest(unittest.TestCase):
+    """Re-anchoring only the direction would leave the scale gate on target_new."""
+
+    def test_reference_slot_is_filled_with_the_abstention_text(self):
+        view = anchor.abstention_margin_view(_records())
+        for record in view:
+            rr = record["requested_rewrite"]
+            self.assertEqual(rr["target_new"]["str"], anchor.ABSTENTION_TEXT)
+            self.assertEqual(rr["_reference_slot_holds"], "abstention")
+
+    def test_sensitive_slot_and_prompt_are_untouched(self):
+        source = _records()
+        view = anchor.abstention_margin_view(source)
+        for before, after in zip(source, view):
+            self.assertEqual(
+                after["requested_rewrite"]["target_true"],
+                before["requested_rewrite"]["target_true"],
+            )
+            self.assertEqual(
+                after["requested_rewrite"]["prompt"],
+                before["requested_rewrite"]["prompt"],
+            )
+
+    def test_does_not_mutate_the_input_records(self):
+        source = _records()
+        anchor.abstention_margin_view(source)
+        self.assertEqual(source[0]["requested_rewrite"]["target_new"]["str"], "Rome")
+        self.assertEqual(source[1]["requested_rewrite"]["target_new"]["str"], "guitar")
+
+    def test_margin_helper_consumes_the_view_as_the_reference(self):
+        import sure_stage2_sparse_repair as stage2
+
+        instances = stage2.mcf_instances(anchor.abstention_margin_view(_records()))
+        self.assertTrue(instances)
+        for instance in instances:
+            self.assertEqual(instance.target_new, anchor.ABSTENTION_TEXT)
+        self.assertEqual(instances[0].target_true, "Paris")
+
+    def test_rejects_empty_abstention_text(self):
+        with self.assertRaises(ValueError):
+            anchor.abstention_margin_view(_records(), abstention_text="")
+
+
 class DirectionSourceSummaryTest(unittest.TestCase):
     def _reports(self, **sources):
         return [{"token_id": 42, "direction_sources": dict(sources)}]
