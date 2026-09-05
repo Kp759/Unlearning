@@ -108,6 +108,16 @@ def metric_families(result: Mapping[str, Any]) -> dict[str, Any]:
         "Gen": _macro_correctness(raw, "paraphrase_prompts_correct"),
         "Spe": _macro_correctness(raw, "neighborhood_prompts_correct"),
     }
+    missing = sorted(name for name, value in table.items() if value is None)
+    if missing:
+        # The released-table family is the whole point of this sweep; a silently
+        # null column would only surface after the full multi-seed GPU run.
+        raise RuntimeError(
+            "released-table accuracy metrics unavailable for "
+            f"{missing}: the evaluator produced no *_prompts_correct rows. "
+            "official_test_batch_prediction must be called with "
+            "return_correct=True."
+        )
     return {
         "eq16_style_residual_likelihood_proxy": {
             "Eff": float(eq16["Eff"]),

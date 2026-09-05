@@ -100,13 +100,32 @@ def is_llama_like(model, tok):
 
 
 @torch.no_grad()
-def official_test_batch_prediction(model, tok, prefixes, target_new, target_true, device, llama_like=True):
+def official_test_batch_prediction(
+    model,
+    tok,
+    prefixes,
+    target_new,
+    target_true,
+    device,
+    llama_like=True,
+    return_correct=False,
+):
     """
     Same logic as ZeroUnlearn experiments/py/eval_utils_counterfact.py:
       returns average NLL for target_new and target_true.
+
+    When ``return_correct`` is set, additionally return ZeroUnlearn's
+    teacher-forced top-1 correctness list.  ZeroUnlearn calls
+    ``test_batch_prediction`` with ``which_correct=[1, 1, 1]`` for every prompt
+    group, i.e. ``target_true`` is the "correct" continuation everywhere, so
+    exactly one boolean is produced per prefix: whether the argmax token at
+    every ``target_true`` position equals the ``target_true`` token.  That
+    triple (rewrite / paraphrase / neighborhood) is the released table's
+    Eff / Gen / Spe.  The default return shape is unchanged for the existing
+    NLL-only callers.
     """
     if len(prefixes) == 0:
-        return []
+        return ([], []) if return_correct else []
 
     prefix_lens = [len(x) for x in tok(prefixes)["input_ids"]]
 
@@ -132,6 +151,7 @@ def official_test_batch_prediction(model, tok, prefixes, target_new, target_true
     choice_b_len = len(b_tok)
 
     probs = np.zeros((logits.size(0),), dtype=np.float32)
+    targets_correct = []
 
     for i in range(logits.size(0)):
         cur_tokens = a_tok if i % 2 == 0 else b_tok
@@ -147,13 +167,24 @@ def official_test_batch_prediction(model, tok, prefixes, target_new, target_true
 
         probs[i] /= max(1, cur_len)
 
-    return [
+        # ZeroUnlearn which_correct=1: only the target_true branch scores.
+        if return_correct and i % 2 == 1:
+            correct = True
+            for j in range(cur_len):
+                pos = prefix_lens[i // 2] + j - 1
+                if int(logits[i, pos, :].argmax().item()) != int(cur_tokens[j]):
+                    correct = False
+                    break
+            targets_correct.append(correct)
+
+    out = [
         {
             "target_new": probs[i].item(),
             "target_true": probs[i + 1].item(),
         }
         for i in range(0, len(probs), 2)
     ]
+    return (out, targets_correct) if return_correct else out
 
 
 @torch.no_grad()
@@ -182,7 +213,7 @@ def official_compute_rewrite_quality_counterfact(model, tok, record, device, lla
     for group in prob_prompts:
         flat_prompts.extend(group)
 
-    probs = official_test_batch_prediction(
+    probs, targets_correct = official_test_batch_prediction(
         model=model,
         tok=tok,
         prefixes=flat_prompts,
@@ -190,6 +221,7 @@ def official_compute_rewrite_quality_counterfact(model, tok, record, device, lla
         target_true=target_true,
         device=device,
         llama_like=llama_like,
+        return_correct=True,
     )
 
     cutoffs = [0] + np.cumsum([len(x) for x in prob_prompts]).tolist()
@@ -197,11 +229,19 @@ def official_compute_rewrite_quality_counterfact(model, tok, record, device, lla
         probs[cutoffs[i - 1]: cutoffs[i]]
         for i in range(1, len(cutoffs))
     ]
+    ret_correct = [
+        targets_correct[cutoffs[i - 1]: cutoffs[i]]
+        for i in range(1, len(cutoffs))
+    ]
 
     return {
         "rewrite_prompts_probs": ret_probs[0],
         "paraphrase_prompts_probs": ret_probs[1],
         "neighborhood_prompts_probs": ret_probs[2],
+        # ZeroUnlearn released-table Eff / Gen / Spe source.
+        "rewrite_prompts_correct": ret_correct[0],
+        "paraphrase_prompts_correct": ret_correct[1],
+        "neighborhood_prompts_correct": ret_correct[2],
     }
 
 

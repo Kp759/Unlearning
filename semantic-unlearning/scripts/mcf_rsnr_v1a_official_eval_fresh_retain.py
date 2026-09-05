@@ -315,9 +315,9 @@ def rsnr_test_batch_prediction(
     *,
     llama_like: bool,
 ):
-    """ZeroUnlearn-compatible target NLLs with per-prefix RSNR routing."""
+    """ZeroUnlearn-compatible target NLLs and top-1 correctness with per-prefix RSNR routing."""
     if len(prefixes) == 0:
-        return []
+        return [], []
     if len(prefixes) != len(gated_flags):
         raise ValueError("prefix/gate length mismatch")
 
@@ -351,16 +351,29 @@ def rsnr_test_batch_prediction(
         logits = logits[:, 1:, :]
 
     probs = np.zeros((logits.size(0),), dtype=np.float32)
+    targets_correct: list[bool] = []
     for i in range(logits.size(0)):
         cur_tokens = a_tok if i % 2 == 0 else b_tok
         for j, cur_tok in enumerate(cur_tokens):
             pos = score_prefix_lens[i // 2] + j - 1
             probs[i] += -torch.nn.functional.log_softmax(logits[i, pos, :], dim=0)[cur_tok].item()
         probs[i] /= max(1, len(cur_tokens))
-    return [
-        {"target_new": probs[i].item(), "target_true": probs[i + 1].item()}
-        for i in range(0, len(probs), 2)
-    ]
+        # ZeroUnlearn which_correct=1: only the target_true branch scores.
+        if i % 2 == 1:
+            correct = True
+            for j, cur_tok in enumerate(cur_tokens):
+                pos = score_prefix_lens[i // 2] + j - 1
+                if int(logits[i, pos, :].argmax().item()) != int(cur_tok):
+                    correct = False
+                    break
+            targets_correct.append(correct)
+    return (
+        [
+            {"target_new": probs[i].item(), "target_true": probs[i + 1].item()}
+            for i in range(0, len(probs), 2)
+        ],
+        targets_correct,
+    )
 
 
 @torch.no_grad()
@@ -382,10 +395,12 @@ def compute_record(
     for group, items in routed.items():
         prompts = [item["prompt"] for item in items]
         flags = [bool(item["gated"]) for item in items]
-        out[f"{group}_prompts_probs"] = rsnr_test_batch_prediction(
+        group_probs, group_correct = rsnr_test_batch_prediction(
             model, hook, tok, prompts, target_new, target_true, flags, device,
             llama_like=llama_like,
         )
+        out[f"{group}_prompts_probs"] = group_probs
+        out[f"{group}_prompts_correct"] = group_correct
     return out, routed
 
 
