@@ -39,6 +39,7 @@ import torch
 from torch import nn
 
 import gagd_compare as gagd
+import mcf_rsnr_v2_abstention_direction as abstention
 import mcf_synthetic_paraphrase_templates as synth
 import sure_canonical_core as core
 import sure_context_projection as context
@@ -109,6 +110,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--candidate-scales",
         default="1,.875,.75,.625,.5,.375,.25,.1875,.125,.09375,.0625,.046875,.03125,.015625,.0078125,0",
+    )
+    p.add_argument(
+        "--reference-anchor",
+        choices=("target_new", "abstention"),
+        default="target_new",
+        help=(
+            "What the sensitive direction contrasts against. 'target_new' is "
+            "the original SURE contract. 'abstention' anchors on RSNR's "
+            "\"I don't know.\" string instead, so target_new is never read -- "
+            "required by the RSNR frozen spec's target_new_used: False."
+        ),
+    )
+    p.add_argument(
+        "--abstention-text",
+        default=abstention.ABSTENTION_TEXT,
+        help="Abstention answer used when --reference-anchor=abstention.",
     )
     p.add_argument("--dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
     p.add_argument("--device-map", choices=("single", "auto"), default="single")
@@ -421,8 +438,30 @@ def main(argv: Sequence[str] | None = None) -> None:
     sensitive_cases = context.expand_answer_field_cases(
         all_records, tok, field="target_true", llama_like=llama_like
     )
+    if a.reference_anchor == "abstention":
+        # RSNR contract: never read target_new. Anchor the contrast on the same
+        # abstention string the routed adapter is trained to produce.
+        separability = abstention.check_abstention_separability(
+            tok, all_records, llama_like=llama_like, abstention_text=a.abstention_text
+        )
+        if not separability["separable"]:
+            print(
+                "WARNING: "
+                f"{len(separability['first_token_collisions'])} record(s) share "
+                "their first target_true token with the abstention string; those "
+                "rows have a zero decoder discriminant and will fall through to "
+                "the degenerate branch."
+            )
+        reference_records = abstention.attach_abstention_reference(
+            all_records, abstention_text=a.abstention_text
+        )
+        reference_field = abstention.ABSTENTION_FIELD
+    else:
+        separability = None
+        reference_records = all_records
+        reference_field = "target_new"
     reference_cases = context.expand_answer_field_cases(
-        all_records, tok, field="target_new", llama_like=llama_like
+        reference_records, tok, field=reference_field, llama_like=llama_like
     )
     sensitive_tids_all = core.official_target_ids(
         tok, sensitive_cases, llama_like=llama_like, device=device
@@ -447,6 +486,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         batch_size=int(a.cache_batch_size),
         max_rank=max_rank,
     )
+    if a.reference_anchor == "abstention":
+        if reference_field != abstention.ABSTENTION_FIELD:
+            raise RuntimeError(
+                "abstention anchoring must read the abstention field, not "
+                f"{reference_field!r}"
+            )
+        abstention.assert_target_new_unused(direction_reports)
 
     emb_delta = context.RowSpecificProjectedDelta(
         selected_ids, bases, device=input_layer.weight.device
@@ -667,7 +713,22 @@ def main(argv: Sequence[str] | None = None) -> None:
         "direction_definition": (
             "matched h_target_true - h_target_new; decoder row "
             "w_target_true - w_target_new fallback when hidden contrast is zero"
+            if a.reference_anchor == "target_new"
+            else (
+                "matched h_target_true - h_abstention; decoder row "
+                "w_target_true - w_abstention fallback when hidden contrast is "
+                "zero (always at the first answer token, where both prefixes "
+                "are identical by construction)"
+            )
         ),
+        "reference_anchor": a.reference_anchor,
+        "target_new_used": a.reference_anchor == "target_new",
+        "abstention_anchor": (
+            abstention.summarize_direction_sources(direction_reports)
+            if a.reference_anchor == "abstention"
+            else None
+        ),
+        "abstention_separability": separability,
         "direction_rank_cap": int(a.direction_rank),
         "direction_reports": direction_reports,
         "synthetic_paraphrases_per_record": int(a.synthetic_paraphrases_per_record),
