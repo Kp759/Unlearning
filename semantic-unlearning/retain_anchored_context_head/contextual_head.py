@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Sequence
 
 import torch
 from torch import Tensor, nn
@@ -94,14 +94,15 @@ class FactIndexedLogitCorrection(nn.Module):
         with torch.no_grad():
             self.fact_enabled.fill_(1.0)
 
-    def correction_for_descriptors(self, descriptors: Tensor) -> Tensor:
-        """Return dense vocabulary-logit corrections for descriptor batches."""
-
+    def selected_correction_for_descriptors(self, descriptors: Tensor) -> Tensor:
+        """Return only the selected-token corrections, shape [batch, selected]."""
         alpha = self.feature_map.alpha(descriptors)
         alpha = alpha * self.fact_enabled.unsqueeze(0)
-        # [batch, facts] @ [facts, selected] -> [batch, selected]
-        selected_delta = alpha @ self.coefficients.transpose(0, 1)
+        return alpha @ self.coefficients.transpose(0, 1)
 
+    def correction_for_descriptors(self, descriptors: Tensor) -> Tensor:
+        """Return dense vocabulary-logit corrections for small diagnostic batches."""
+        selected_delta = self.selected_correction_for_descriptors(descriptors)
         delta = torch.zeros(
             descriptors.shape[0],
             self.vocab_size,
