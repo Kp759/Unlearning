@@ -164,13 +164,11 @@ def _load_relation_bank() -> tuple[dict[str, dict[str, str]], dict[str, list[str
             if template.count("{}") != 1:
                 continue
             relation_text = builder.normalize_space(template.format("ENTITY"))
-            # Skip only the most obviously content-free legacy references.
             cues = _cue_stems(relation_text)
             if not cues:
                 continue
             grouped[rid].append(relation_text)
 
-    # Stable dedupe.
     deduped: dict[str, list[str]] = {}
     for rid, texts in grouped.items():
         seen: set[str] = set()
@@ -178,7 +176,8 @@ def _load_relation_bank() -> tuple[dict[str, dict[str, str]], dict[str, list[str
         for text in texts:
             key = builder.normalize_space(text).casefold()
             if key not in seen:
-                seen.add(key); keep.append(builder.normalize_space(text))
+                seen.add(key)
+                keep.append(builder.normalize_space(text))
         deduped[rid] = keep
 
     all_relation_stems: dict[str, set[str]] = {
@@ -260,10 +259,8 @@ _YES_NO = re.compile(r"^(?:does|do|did|is|are|was|were|has|have|had|can|could|wi
 
 def _has_new_named_object(candidate: str, subject: str) -> bool:
     text = candidate.replace(subject, "ENTITY", 1)
-    # All-caps acronyms are usually injected objects (NATO, EU, etc.).
     if re.search(r"\b[A-Z]{2,}\b", text.replace("ENTITY", "")):
         return True
-    # Multi-token proper names such as European Union / United Nations / North Sea.
     proper = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b", text)
     return any(x not in {"General Information"} for x in proper)
 
@@ -271,7 +268,7 @@ def _has_new_named_object(candidate: str, subject: str) -> bool:
 def _fixed_too_vague(candidate: str, subject: str) -> bool:
     if _ORIGINAL_TOO_VAGUE(candidate, subject):
         return True
-    stripped = candidate.strip().lstrip('"\'` ')
+    stripped = candidate.strip().lstrip("\"'` ")
     if _YES_NO.match(stripped):
         return True
     if _has_new_named_object(candidate, subject):
@@ -310,16 +307,13 @@ def _reference_bank_equivalence_margin(
             continue
         value = float((matrix @ c).max().item())
         if value > competitor:
-            competitor = value; competitor_id = rid
+            competitor = value
+            competitor_id = rid
     gap = target - competitor
 
     candidate_stems = _cue_stems(candidate_relation)
     unique_overlap = sorted(candidate_stems & _UNIQUE_STEMS.get(relation_id, set()))
 
-    # Corpus-quality admission rule:
-    # - own relation must be the nearest reference-bank relation;
-    # - target similarity must be reasonably high;
-    # - for near ties (< .02), demand an explicit relation cue unique to target.
     if target < 0.70 or gap < 0.0:
         score = -1.0
     elif gap >= 0.02:
