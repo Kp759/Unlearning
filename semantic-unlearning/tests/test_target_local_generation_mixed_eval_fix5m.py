@@ -139,6 +139,26 @@ def test_mixed_summary_reports_joint_success():
     assert out["integrated"]["joint_success_pct"] == 50.0
 
 
+def test_attribution_aware_summary_keeps_companion_metric_but_scopes_forbidden_metric():
+    overlap = _mixed_row("overlap", "forbidden_first", True, False)
+    overlap["canonical_answer_attribution_ambiguous"] = True
+    nonoverlap = _mixed_row("nonoverlap", "companion_first", True, True)
+    nonoverlap["canonical_answer_attribution_ambiguous"] = False
+    out = guarded.summarize_mixed_attribution_aware([overlap, nonoverlap])
+
+    ov = out["by_overlap_kind"]["overlap"]
+    assert ov["companion_regression_from_base"]["lost_under_integrated_n"] == 1
+    assert ov["canonical_answer_attribution"]["ambiguous_n"] == 1
+    assert ov["attribution_safe_forbidden_and_joint"]["n"] == 0
+    assert ov["attribution_safe_forbidden_and_joint"]["integrated"] is None
+
+    assert out["canonical_answer_attribution"]["unambiguous_n"] == 1
+    assert out["attribution_safe_forbidden_and_joint"]["n"] == 1
+    assert out["attribution_safe_forbidden_and_joint"]["integrated"][
+        "forbidden_canonical_disclosure_pct"
+    ] == 0.0
+
+
 def test_generated_flags_do_not_claim_semantic_aliases():
     flags = core.generated_answer_flags(
         "The city is NYC.",
