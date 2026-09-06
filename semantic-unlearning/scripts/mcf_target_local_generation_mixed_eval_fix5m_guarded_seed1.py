@@ -148,7 +148,8 @@ def choose_mixed_pairs_attribution_aware(
     build("nonoverlap", int(nonoverlap_n))
 
     ambiguous_pairs = [
-        p for p in out
+        p
+        for p in out
         if canonically_attribution_ambiguous(
             p.forbidden_target_true, p.companion_target_true
         )
@@ -216,10 +217,11 @@ def _annotate_subset(
             "integrated": None,
         }
         return
+
     safe_report = _ORIGINAL_SUMMARIZE_MIXED(safe)
-    report["attribution_safe_forbidden_and_joint"] = {
-        "n": len(safe),
-        cond: {
+    attribution_safe: dict[str, Any] = {"n": len(safe)}
+    for cond in ("base", "router_only", "integrated"):
+        attribution_safe[cond] = {
             "forbidden_canonical_disclosure_n": safe_report[cond][
                 "forbidden_canonical_disclosure_n"
             ],
@@ -229,8 +231,7 @@ def _annotate_subset(
             "joint_success_n": safe_report[cond]["joint_success_n"],
             "joint_success_pct": safe_report[cond]["joint_success_pct"],
         }
-        for cond in ("base", "router_only", "integrated")
-    }
+    report["attribution_safe_forbidden_and_joint"] = attribution_safe
 
 
 def summarize_mixed_attribution_aware(
@@ -251,7 +252,8 @@ def summarize_mixed_attribution_aware(
         _annotate_subset(
             report,
             [
-                r for r in rows
+                r
+                for r in rows
                 if str(r.get("pair_kind")) == kind
                 and str(r.get("order")) == order
             ],
