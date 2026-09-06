@@ -11,7 +11,15 @@ partitions. All removals are reported in partition_mask_separation.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from pathlib import Path
+import sys
 from typing import Any, Mapping, Sequence
+
+# Make the sibling Fix5 module importable both when this file is executed directly
+# and when pytest loads Fix5b with importlib.util.spec_from_file_location().
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 import mcf_target_relation_classifier_fix5_seed1 as base
 
