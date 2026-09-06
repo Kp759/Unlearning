@@ -6,7 +6,7 @@ set -euo pipefail
 
 RELATION_V2_CORPUS="${RELATION_V2_CORPUS:-$PWD/outputs/mcf_relation_views_v2_seed1/relation_views_v2.json}"
 
-python scripts/build_mcf_relation_views_v2.py \
+python scripts/build_mcf_relation_views_v2_fixed.py \
   --model-path "$MODEL_PATH" \
   --forget-direct "$FORGET_DIRECT" \
   --out "$RELATION_V2_CORPUS" \
