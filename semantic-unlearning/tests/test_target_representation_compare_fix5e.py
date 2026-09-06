@@ -119,20 +119,14 @@ def test_marking_does_not_insert_relation_label():
 
 def test_feature_index_shares_erased_text_but_not_distinct_marked_subjects():
     erased = [
-        row("a", "A", "P30", masked="TARGET_ENTITY is in"),
-        row("b", "B", "P30", masked="TARGET_ENTITY is in"),
+        row("A is in", "A", "P30", masked="TARGET_ENTITY is in"),
+        row("B is in", "B", "P30", masked="TARGET_ENTITY is in"),
     ]
     texts, idx = m.feature_index({"rows": erased})
     assert len(texts) == 1
     assert idx["rows"] == [0, 0]
 
     marked = m.mark_rows(erased, ["A", "B"])
-    # mark_rows uses original text, so use realistic original strings here.
-    realistic = [
-        row("A is in", "A", "P30", masked="TARGET_ENTITY is in"),
-        row("B is in", "B", "P30", masked="TARGET_ENTITY is in"),
-    ]
-    marked = m.mark_rows(realistic, ["A", "B"])
     texts2, idx2 = m.feature_index({"rows": marked})
     assert len(texts2) == 2
     assert idx2["rows"] == [0, 1]
