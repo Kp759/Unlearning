@@ -1,0 +1,549 @@
+{
+  "schema_version": 1,
+  "catalog_version": "fix5-authored-1",
+  "provenance": "Assistant-authored relation-specific template bank; not LLM-sampled, not human-certified, not benchmark paraphrases.",
+  "basis": "Registered relation IDs from the repository synthetic template bank, with explicit relation definitions and disambiguation.",
+  "repository_source": "https://github.com/Kp759/Unlearning/blob/ee034a2857bfb50f9280395be6b90367f6b262fb/semantic-unlearning/scripts/mcf_synthetic_paraphrase_templates.py",
+  "relations": {
+    "P463": {
+      "label": "member of",
+      "meaning": "An organization, club, or group of which the subject is a member; not its government type, country, employer, or a generic association.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P463",
+      "families": {
+        "wh_question": ["Which organization is {} a member of?"],
+        "possessive_question": ["What is the name of an organization in which {} holds membership?"],
+        "relation_fronted_question": ["With regard to organizational membership, which organization does {} belong to?"],
+        "imperative_identify": ["Name an organization that has {} as a member."],
+        "alternative_question": ["Of which organization is {} a member?"],
+        "reordered_cloze": ["The organization with {} as a member is", "An organization to which {} belongs as a member is"],
+        "nominalized_question": ["In which organization does {} hold membership?"],
+        "conversational_question": ["Please tell me which organization {} belongs to as a member."]
+      }
+    },
+    "P27": {
+      "label": "country of citizenship",
+      "meaning": "Country of citizenship, not birthplace, residence, ethnicity, or native language.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P27",
+      "families": {
+        "wh_question": ["Of which country is {} a citizen?"],
+        "possessive_question": ["What is {}'s country of citizenship?"],
+        "relation_fronted_question": ["Regarding citizenship, which country is associated with {}?"],
+        "imperative_identify": ["Name a country whose citizenship {} holds."],
+        "alternative_question": ["Which country counts {} as one of its citizens?"],
+        "reordered_cloze": ["The citizenship held by {} is that of", "A country in which {} holds citizenship is"],
+        "nominalized_question": ["Which country is indicated by the citizenship of {}?"],
+        "conversational_question": ["Please tell me which country {} is a citizen of."]
+      }
+    },
+    "P30": {
+      "label": "continent",
+      "meaning": "Continent in which the subject is located, not a country or city.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P30",
+      "families": {
+        "wh_question": ["On which continent is {} located?"],
+        "possessive_question": ["What is {}'s continent?"],
+        "relation_fronted_question": ["As for its continent, where is {} located?"],
+        "imperative_identify": ["Name the continent on which {} is situated."],
+        "alternative_question": ["Which continent contains {}?"],
+        "reordered_cloze": ["The continent containing {} is", "When locating {} by continent, the answer is"],
+        "nominalized_question": ["What is the continental location of {}?"],
+        "conversational_question": ["Please tell me which continent {} is on."]
+      }
+    },
+    "P413": {
+      "label": "position played on team",
+      "meaning": "Sports position played by the subject, not the sport, team, occupation, or public office.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P413",
+      "families": {
+        "wh_question": ["What position does {} play in their sport?"],
+        "possessive_question": ["What is {}'s playing position?"],
+        "relation_fronted_question": ["In terms of playing position, what role does {} fill?"],
+        "imperative_identify": ["Name the position played by {}."],
+        "alternative_question": ["Which position is {} fielded in?"],
+        "reordered_cloze": ["The playing position assigned to {} is", "In the lineup, the position played by {} is"],
+        "nominalized_question": ["What is the on-field position of {}?"],
+        "conversational_question": ["Please tell me what sporting position {} plays."]
+      }
+    },
+    "P1412": {
+      "label": "languages spoken, written, or signed",
+      "meaning": "Language used for speaking, writing, or signing. Do not infer native or official language. A writing-specific canonical prompt uses the writing variant.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P1412",
+      "families": {
+        "wh_question": ["Which language does {} use?"],
+        "possessive_question": ["What is a language used by {}?"],
+        "relation_fronted_question": ["Regarding language use, which language does {} communicate in?"],
+        "imperative_identify": ["Name a language used by {}."],
+        "alternative_question": ["In which language does {} communicate?"],
+        "reordered_cloze": ["A language used for communication by {} is", "For {}, one language of communication is"],
+        "nominalized_question": ["What language is associated with the communication of {}?"],
+        "conversational_question": ["Please tell me which language {} uses to communicate."]
+      },
+      "variants": {
+        "writing": {
+          "selector_patterns": ["\\bwrit", "\\bpublish", "\\bauthor", "\\bcompos"],
+          "families": {
+            "wh_question": ["In which language does {} write?"],
+            "possessive_question": ["What is {}'s writing language?"],
+            "relation_fronted_question": ["Regarding written work, which language does {} use?"],
+            "imperative_identify": ["Name a language in which {} writes."],
+            "alternative_question": ["Which language does {} use for writing?"],
+            "reordered_cloze": ["The language used by {} for writing is", "For {}, the language of written work is"],
+            "nominalized_question": ["What is the language of the writing of {}?"],
+            "conversational_question": ["Please tell me which language {} writes in."]
+          }
+        }
+      }
+    },
+    "P103": {
+      "label": "native language",
+      "meaning": "Native language, not any language used later, nationality, or an official language of a country.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P103",
+      "families": {
+        "wh_question": ["What is the native language of {}?"],
+        "possessive_question": ["What is {}'s mother tongue?"],
+        "relation_fronted_question": ["Regarding native language, which language is native to {}?"],
+        "imperative_identify": ["Name the native language of {}."],
+        "alternative_question": ["Which language is the mother tongue of {}?"],
+        "reordered_cloze": ["The language native to {} is", "For {}, the native language is"],
+        "nominalized_question": ["What is the mother tongue associated with {}?"],
+        "conversational_question": ["Please tell me which language is native to {}."]
+      }
+    },
+    "P495": {
+      "label": "country of origin",
+      "meaning": "Country of origin of a work or product, not current location, manufacturer, or language.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P495",
+      "families": {
+        "wh_question": ["Which country does {} originate from?"],
+        "possessive_question": ["What is {}'s country of origin?"],
+        "relation_fronted_question": ["As for national origin, which country does {} come from?"],
+        "imperative_identify": ["Name the country of origin of {}."],
+        "alternative_question": ["From which country does {} originate?"],
+        "reordered_cloze": ["The country from which {} originates is", "For {}, the country of origin is"],
+        "nominalized_question": ["What country is associated with the origin of {}?"],
+        "conversational_question": ["Please tell me the country that {} comes from."]
+      }
+    },
+    "P176": {
+      "label": "manufacturer",
+      "meaning": "Manufacturer of a product, not developer, owner, country of origin, or a film producer.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P176",
+      "families": {
+        "wh_question": ["Who manufactures {}?"],
+        "possessive_question": ["Who is {}'s manufacturer?"],
+        "relation_fronted_question": ["Regarding manufacturing, which entity makes {}?"],
+        "imperative_identify": ["Name the manufacturer of {}."],
+        "alternative_question": ["By whom is {} manufactured?"],
+        "reordered_cloze": ["The entity responsible for manufacturing {} is", "For {}, the manufacturer is"],
+        "nominalized_question": ["Which entity handles the manufacture of {}?"],
+        "conversational_question": ["Please tell me who makes {}."]
+      }
+    },
+    "P17": {
+      "label": "country",
+      "meaning": "Country associated with the subject; in the location setting this is the country where it is situated. Do not substitute continent, citizenship, or administrative region.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P17",
+      "families": {
+        "wh_question": ["In which country is {} located?"],
+        "possessive_question": ["What is {}'s country?"],
+        "relation_fronted_question": ["As for its country, where is {} situated?"],
+        "imperative_identify": ["Name the country in which {} is located."],
+        "alternative_question": ["Which country contains {}?"],
+        "reordered_cloze": ["The country containing {} is", "For {}, the country of location is"],
+        "nominalized_question": ["What is the country location of {}?"],
+        "conversational_question": ["Please tell me which country {} is in."]
+      }
+    },
+    "P136": {
+      "label": "genre",
+      "meaning": "Genre of a creative work or artist, not occupation, language, or record label.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P136",
+      "families": {
+        "wh_question": ["What genre is {} associated with?"],
+        "possessive_question": ["What is {}'s genre?"],
+        "relation_fronted_question": ["In terms of genre, how is {} classified?"],
+        "imperative_identify": ["Name a genre associated with {}."],
+        "alternative_question": ["Under which genre does {} fall?"],
+        "reordered_cloze": ["The genre associated with {} is", "In a genre classification, {} belongs to"],
+        "nominalized_question": ["What is the genre classification of {}?"],
+        "conversational_question": ["Please tell me the genre associated with {}."]
+      }
+    },
+    "P937": {
+      "label": "work location",
+      "meaning": "Place where the subject worked; do not assume city, birthplace, residence, or employer.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P937",
+      "families": {
+        "wh_question": ["Where did {} work?"],
+        "possessive_question": ["What was {}'s work location?"],
+        "relation_fronted_question": ["Regarding work location, where was {} professionally active?"],
+        "imperative_identify": ["Name a place where {} worked."],
+        "alternative_question": ["In which place did {} carry out their work?"],
+        "reordered_cloze": ["A place where {} carried out their work is", "A work location associated with {} is"],
+        "nominalized_question": ["What was the location of the work of {}?"],
+        "conversational_question": ["Please tell me where {} worked."]
+      }
+    },
+    "P106": {
+      "label": "occupation",
+      "meaning": "Occupation or profession, not employer, workplace, or office held.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P106",
+      "families": {
+        "wh_question": ["What is the occupation of {}?"],
+        "possessive_question": ["What is {}'s profession?"],
+        "relation_fronted_question": ["In terms of occupation, what kind of work does {} do?"],
+        "imperative_identify": ["Name an occupation associated with {}."],
+        "alternative_question": ["Which profession does {} practice?"],
+        "reordered_cloze": ["The profession practiced by {} is", "For {}, the occupation is"],
+        "nominalized_question": ["What occupational role is associated with {}?"],
+        "conversational_question": ["Please tell me what {} does professionally."]
+      }
+    },
+    "P20": {
+      "label": "place of death",
+      "meaning": "Place of death, not date, cause of death, or birthplace.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P20",
+      "families": {
+        "wh_question": ["Where did {} die?"],
+        "possessive_question": ["What was {}'s place of death?"],
+        "relation_fronted_question": ["Regarding place of death, where did {} pass away?"],
+        "imperative_identify": ["Name the place where {} died."],
+        "alternative_question": ["In which place did {} die?"],
+        "reordered_cloze": ["The place in which {} died was", "For {}, the place of death was"],
+        "nominalized_question": ["What is the death location recorded for {}?"],
+        "conversational_question": ["Please tell me where {} passed away."]
+      }
+    },
+    "P449": {
+      "label": "original broadcaster",
+      "meaning": "Original broadcaster or broadcasting platform, not production company, producer, or original language.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P449",
+      "families": {
+        "wh_question": ["Which broadcaster originally aired {}?"],
+        "possessive_question": ["What was {}'s original broadcaster?"],
+        "relation_fronted_question": ["Regarding original broadcasting, which broadcaster aired {}?"],
+        "imperative_identify": ["Name the original broadcaster of {}."],
+        "alternative_question": ["On which broadcasting channel or platform did {} originally air?"],
+        "reordered_cloze": ["The broadcaster that originally aired {} was", "For {}, the original broadcaster was"],
+        "nominalized_question": ["What was the original broadcasting outlet for {}?"],
+        "conversational_question": ["Please tell me which broadcaster first aired {}."]
+      }
+    },
+    "P19": {
+      "label": "place of birth",
+      "meaning": "Place of birth, not citizenship, residence, or death location.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P19",
+      "families": {
+        "wh_question": ["Where was {} born?"],
+        "possessive_question": ["What is {}'s birthplace?"],
+        "relation_fronted_question": ["Regarding birthplace, where was {} born?"],
+        "imperative_identify": ["Name the place where {} was born."],
+        "alternative_question": ["In which place was {} born?"],
+        "reordered_cloze": ["The place in which {} was born is", "For {}, the place of birth is"],
+        "nominalized_question": ["What is the birth location recorded for {}?"],
+        "conversational_question": ["Please tell me where {} was born."]
+      }
+    },
+    "P740": {
+      "label": "location of formation",
+      "meaning": "Place where an organization or group was formed, not its headquarters or present location.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P740",
+      "families": {
+        "wh_question": ["Where was {} formed?"],
+        "possessive_question": ["What is {}'s place of formation?"],
+        "relation_fronted_question": ["Regarding its formation, in which place was {} established?"],
+        "imperative_identify": ["Name the place where {} was formed."],
+        "alternative_question": ["In which location was {} founded?"],
+        "reordered_cloze": ["The place in which {} was formed is", "For {}, the location of formation is"],
+        "nominalized_question": ["What is the formation location of {}?"],
+        "conversational_question": ["Please tell me where {} was established."]
+      }
+    },
+    "P159": {
+      "label": "headquarters location",
+      "meaning": "Location of the headquarters, not the place of founding, other offices, or ownership.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P159",
+      "families": {
+        "wh_question": ["Where are the headquarters of {} located?"],
+        "possessive_question": ["What is {}'s headquarters location?"],
+        "relation_fronted_question": ["Regarding headquarters, where is {} based?"],
+        "imperative_identify": ["Name the location of the headquarters of {}."],
+        "alternative_question": ["In which place does {} have its headquarters?"],
+        "reordered_cloze": ["The place housing the headquarters of {} is", "For {}, the headquarters are located in"],
+        "nominalized_question": ["What is the headquarters location associated with {}?"],
+        "conversational_question": ["Please tell me where {} has its headquarters."]
+      }
+    },
+    "P364": {
+      "label": "original language",
+      "meaning": "Original language of a film or television work, not its dubbing language, subtitles, or country of origin.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P364",
+      "families": {
+        "wh_question": ["What is the original language of {}?"],
+        "possessive_question": ["What is {}'s original language?"],
+        "relation_fronted_question": ["Regarding original language, which language was used for {}?"],
+        "imperative_identify": ["Name the original language of {}."],
+        "alternative_question": ["In which language was {} originally produced?"],
+        "reordered_cloze": ["The language in which {} was originally produced is", "For {}, the original language is"],
+        "nominalized_question": ["What was the language of the original version of {}?"],
+        "conversational_question": ["Please tell me the original language of {}."]
+      }
+    },
+    "P131": {
+      "label": "located in administrative territory",
+      "meaning": "Administrative territory in which the subject is located, not an unrestricted location or continent.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P131",
+      "families": {
+        "wh_question": ["In which administrative territory is {} located?"],
+        "possessive_question": ["What is {}'s administrative territory?"],
+        "relation_fronted_question": ["Regarding administrative location, which territory contains {}?"],
+        "imperative_identify": ["Name an administrative territory containing {}."],
+        "alternative_question": ["Which administrative area includes {}?"],
+        "reordered_cloze": ["The administrative territory containing {} is", "For {}, the containing administrative territory is"],
+        "nominalized_question": ["What is the administrative location of {}?"],
+        "conversational_question": ["Please tell me which administrative territory {} is in."]
+      }
+    },
+    "P37": {
+      "label": "official language",
+      "meaning": "Official language of the subject, not merely a widely spoken, native, or original language.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P37",
+      "families": {
+        "wh_question": ["What is an official language of {}?"],
+        "possessive_question": ["What is {}'s official language?"],
+        "relation_fronted_question": ["Regarding official languages, which language has official status in {}?"],
+        "imperative_identify": ["Name an official language of {}."],
+        "alternative_question": ["Which language is designated as official in {}?"],
+        "reordered_cloze": ["A language with official status in {} is", "For {}, an officially designated language is"],
+        "nominalized_question": ["What language has official recognition in {}?"],
+        "conversational_question": ["Please tell me an official language used in {}."]
+      }
+    },
+    "P178": {
+      "label": "developer",
+      "meaning": "Developer of a work or product, not manufacturer, owner, or distributor.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P178",
+      "families": {
+        "wh_question": ["Who developed {}?"],
+        "possessive_question": ["Who is {}'s developer?"],
+        "relation_fronted_question": ["Regarding development, who developed {}?"],
+        "imperative_identify": ["Name the developer of {}."],
+        "alternative_question": ["By whom was {} developed?"],
+        "reordered_cloze": ["The entity responsible for developing {} is", "For {}, the developer is"],
+        "nominalized_question": ["Who was responsible for the development of {}?"],
+        "conversational_question": ["Please tell me who developed {}."]
+      }
+    },
+    "P276": {
+      "label": "location",
+      "meaning": "Location of the subject, not automatically birthplace, work location, headquarters, or country of origin.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P276",
+      "families": {
+        "wh_question": ["Where is {} located?"],
+        "possessive_question": ["What is {}'s location?"],
+        "relation_fronted_question": ["Regarding location, where can {} be found?"],
+        "imperative_identify": ["Name the location of {}."],
+        "alternative_question": ["In which place is {} situated?"],
+        "reordered_cloze": ["The place where {} is located is", "For {}, the location is"],
+        "nominalized_question": ["What location is associated with {}?"],
+        "conversational_question": ["Please tell me where {} is located."]
+      }
+    },
+    "P1303": {
+      "label": "instrument",
+      "meaning": "Musical instrument played by the subject, not the sport or team position.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P1303",
+      "families": {
+        "wh_question": ["Which musical instrument does {} play?"],
+        "possessive_question": ["What is {}'s musical instrument?"],
+        "relation_fronted_question": ["Regarding musical instruments, what does {} play?"],
+        "imperative_identify": ["Name a musical instrument played by {}."],
+        "alternative_question": ["On which musical instrument does {} perform?"],
+        "reordered_cloze": ["A musical instrument played by {} is", "For {}, a performance instrument is"],
+        "nominalized_question": ["What instrument is associated with the musical performance of {}?"],
+        "conversational_question": ["Please tell me which musical instrument {} plays."]
+      }
+    },
+    "P101": {
+      "label": "field of work",
+      "meaning": "Field of work or specialization, not occupation, employer, or place of work.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P101",
+      "families": {
+        "wh_question": ["In which field does {} work?"],
+        "possessive_question": ["What is {}'s field of work?"],
+        "relation_fronted_question": ["Regarding specialization, in which field does {} work?"],
+        "imperative_identify": ["Name a field of work associated with {}."],
+        "alternative_question": ["Which field does {} specialize in?"],
+        "reordered_cloze": ["The field in which {} works is", "For {}, the field of work is"],
+        "nominalized_question": ["What is the area of specialization of {}?"],
+        "conversational_question": ["Please tell me the field in which {} works."]
+      }
+    },
+    "P39": {
+      "label": "position held",
+      "meaning": "Office or position held by the subject, not a sports position or general occupation.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P39",
+      "families": {
+        "wh_question": ["Which office or position has {} held?"],
+        "possessive_question": ["What is an office held by {}?"],
+        "relation_fronted_question": ["Regarding positions held, in which office has {} served?"],
+        "imperative_identify": ["Name an office or position held by {}."],
+        "alternative_question": ["In which office or position has {} served?"],
+        "reordered_cloze": ["An office or position held by {} is", "For {}, one position held is"],
+        "nominalized_question": ["What office-holding role is associated with {}?"],
+        "conversational_question": ["Please tell me an office that {} has held."]
+      }
+    },
+    "P127": {
+      "label": "owned by",
+      "meaning": "Owner of the subject, not something owned by the subject or its manufacturer.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P127",
+      "families": {
+        "wh_question": ["Who owns {}?"],
+        "possessive_question": ["Who is {}'s owner?"],
+        "relation_fronted_question": ["Regarding ownership, who owns {}?"],
+        "imperative_identify": ["Name the owner of {}."],
+        "alternative_question": ["By whom is {} owned?"],
+        "reordered_cloze": ["The entity that owns {} is", "For {}, the owner is"],
+        "nominalized_question": ["Who holds ownership of {}?"],
+        "conversational_question": ["Please tell me who owns {}."]
+      }
+    },
+    "P140": {
+      "label": "religion or worldview",
+      "meaning": "Religion or worldview associated with the subject, not nationality or native language.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P140",
+      "families": {
+        "wh_question": ["What religion or worldview is {} associated with?"],
+        "possessive_question": ["What is {}'s religion or worldview?"],
+        "relation_fronted_question": ["Regarding religious affiliation, what faith or worldview is associated with {}?"],
+        "imperative_identify": ["Name the religion or worldview associated with {}."],
+        "alternative_question": ["Which faith or worldview is associated with {}?"],
+        "reordered_cloze": ["The religion or worldview associated with {} is", "For {}, the religion or worldview is"],
+        "nominalized_question": ["What is the religious or worldview affiliation of {}?"],
+        "conversational_question": ["Please tell me the religion or worldview associated with {}."]
+      },
+      "variants": {
+        "religion": {
+          "selector_patterns": ["\\brelig", "\\bfaith", "\\bworship"],
+          "families": {
+            "wh_question": ["What religion does {} follow?"],
+            "possessive_question": ["What is {}'s religion?"],
+            "relation_fronted_question": ["Regarding religion, which faith is associated with {}?"],
+            "imperative_identify": ["Name the religion associated with {}."],
+            "alternative_question": ["Which religion is {} affiliated with?"],
+            "reordered_cloze": ["The religion followed by {} is", "For {}, the religion is"],
+            "nominalized_question": ["What is the religious affiliation of {}?"],
+            "conversational_question": ["Please tell me which religion {} follows."]
+          }
+        }
+      }
+    },
+    "P108": {
+      "label": "employer",
+      "meaning": "Employer of the subject, not occupation, workplace location, or employees of the subject.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P108",
+      "families": {
+        "wh_question": ["Who employs {}?"],
+        "possessive_question": ["Who is {}'s employer?"],
+        "relation_fronted_question": ["Regarding employment, which employer does {} work for?"],
+        "imperative_identify": ["Name an employer of {}."],
+        "alternative_question": ["By whom is {} employed?"],
+        "reordered_cloze": ["The employer for whom {} works is", "For {}, the employer is"],
+        "nominalized_question": ["Which entity is associated with the employment of {}?"],
+        "conversational_question": ["Please tell me who {} works for."]
+      }
+    },
+    "P641": {
+      "label": "sport",
+      "meaning": "Sport practiced by the subject, not playing position or musical instrument.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P641",
+      "families": {
+        "wh_question": ["Which sport does {} participate in?"],
+        "possessive_question": ["What is {}'s sport?"],
+        "relation_fronted_question": ["Regarding sporting activity, which sport does {} practice?"],
+        "imperative_identify": ["Name the sport associated with {}."],
+        "alternative_question": ["In which sport does {} compete?"],
+        "reordered_cloze": ["The sport practiced by {} is", "For {}, the sporting discipline is"],
+        "nominalized_question": ["What sporting discipline is associated with {}?"],
+        "conversational_question": ["Please tell me which sport {} plays."]
+      }
+    },
+    "P138": {
+      "label": "named after",
+      "meaning": "Person or thing after which the subject is named. Do not reverse the direction or ask who named it.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P138",
+      "families": {
+        "wh_question": ["Who or what is {} named after?"],
+        "possessive_question": ["Who or what is {}'s namesake?"],
+        "relation_fronted_question": ["Regarding its namesake, who or what is {} named after?"],
+        "imperative_identify": ["Identify the namesake of {}."],
+        "alternative_question": ["After whom or what was {} named?"],
+        "reordered_cloze": ["The namesake after which {} was named is", "For {}, the namesake is"],
+        "nominalized_question": ["What is the namesake associated with {}?"],
+        "conversational_question": ["Please tell me who or what {} was named after."]
+      }
+    },
+    "P407": {
+      "label": "language of work or name",
+      "meaning": "Language of the work or name, not automatically the original language of a film, the author's native language, or country.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P407",
+      "families": {
+        "wh_question": ["What language is used in {}?"],
+        "possessive_question": ["What is {}'s language?"],
+        "relation_fronted_question": ["Regarding its language, which language is used in {}?"],
+        "imperative_identify": ["Name the language used in {}."],
+        "alternative_question": ["In which language is {} expressed?"],
+        "reordered_cloze": ["The language used in {} is", "For {}, the language is"],
+        "nominalized_question": ["What is the language associated with {}?"],
+        "conversational_question": ["Please tell me which language is used in {}."]
+      }
+    },
+    "P36": {
+      "label": "capital",
+      "meaning": "Capital of the subject territory, not which country has a city as its capital.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P36",
+      "families": {
+        "wh_question": ["What is the capital of {}?"],
+        "possessive_question": ["What is {}'s capital city?"],
+        "relation_fronted_question": ["Regarding its capital, which city is the capital of {}?"],
+        "imperative_identify": ["Name the capital city of {}."],
+        "alternative_question": ["Which city serves as the capital of {}?"],
+        "reordered_cloze": ["The city serving as the capital of {} is", "For {}, the capital city is"],
+        "nominalized_question": ["What city holds the status of capital for {}?"],
+        "conversational_question": ["Please tell me the capital of {}."]
+      }
+    },
+    "P190": {
+      "label": "twinned administrative body",
+      "meaning": "Sister or twin administrative body, not geographic adjacency.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P190",
+      "families": {
+        "wh_question": ["Which city is {} twinned with?"],
+        "possessive_question": ["What is {}'s sister city?"],
+        "relation_fronted_question": ["Regarding town twinning, which city is paired with {}?"],
+        "imperative_identify": ["Name a sister city of {}."],
+        "alternative_question": ["Which city has a twinning relationship with {}?"],
+        "reordered_cloze": ["A city twinned with {} is", "For {}, a sister city is"],
+        "nominalized_question": ["Which city shares a sister-city relationship with {}?"],
+        "conversational_question": ["Please tell me a city that is twinned with {}."]
+      }
+    },
+    "P264": {
+      "label": "record label",
+      "meaning": "Record label of a musical artist or release, not publisher, genre, or producer.",
+      "definition_url": "https://www.wikidata.org/wiki/Property:P264",
+      "families": {
+        "wh_question": ["Which record label is associated with {}?"],
+        "possessive_question": ["What is {}'s record label?"],
+        "relation_fronted_question": ["Regarding record labels, which label is associated with {}?"],
+        "imperative_identify": ["Name a record label associated with {}."],
+        "alternative_question": ["Under which record label is {} listed?"],
+        "reordered_cloze": ["The record label associated with {} is", "For {}, the record label is"],
+        "nominalized_question": ["What is the record-label affiliation of {}?"],
+        "conversational_question": ["Please tell me the record label associated with {}."]
+      }
+    }
+  }
+}
