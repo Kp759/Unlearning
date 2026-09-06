@@ -15,6 +15,21 @@ MIXED_OVERLAP_PAIRS="${MIXED_OVERLAP_PAIRS:-20}"
 MIXED_NONOVERLAP_PAIRS="${MIXED_NONOVERLAP_PAIRS:-20}"
 ENCODE_BATCH_SIZE="${ENCODE_BATCH_SIZE:-16}"
 
+# Fix5m intentionally creates a fresh output directory. Failed/partial earlier runs
+# can leave that path behind, which would make pathlib.mkdir(exist_ok=False) abort.
+# Preserve rather than delete any existing directory so reruns are safe and auditable.
+if [[ -e "$GENERATION_EVAL_OUT_DIR" ]]; then
+  stamp="$(date +%Y%m%d_%H%M%S)"
+  archived="${GENERATION_EVAL_OUT_DIR}_previous_${stamp}"
+  n=1
+  while [[ -e "$archived" ]]; do
+    archived="${GENERATION_EVAL_OUT_DIR}_previous_${stamp}_${n}"
+    n=$((n + 1))
+  done
+  mv -- "$GENERATION_EVAL_OUT_DIR" "$archived"
+  echo "[Fix5m] Existing output archived to: $archived"
+fi
+
 python scripts/mcf_target_local_generation_mixed_eval_fix5m_guarded_seed1.py \
   --fix5l-output-dir "$FIX5L_SOURCE_DIR" \
   --fix5k-output-dir "$TYPED_TARGET_OUT_DIR" \
