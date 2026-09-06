@@ -11,5 +11,5 @@ python scripts/build_mcf_relation_views_v2_fixed.py \
   --forget-direct "$FORGET_DIRECT" \
   --out "$RELATION_V2_CORPUS" \
   --dtype "${DTYPE:-bf16}" \
-  --min-equivalence-margin "${RELATION_EQ_MARGIN:-0.5}" \
+  --min-equivalence-margin "${RELATION_EQ_MARGIN:-0.02}" \
   --max-jaccard-to-canonical "${RELATION_MAX_JACCARD:-0.82}"
