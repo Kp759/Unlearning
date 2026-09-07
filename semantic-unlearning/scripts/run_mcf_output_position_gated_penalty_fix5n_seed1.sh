@@ -17,10 +17,10 @@ if [ -d "$FIX5N_OUT_DIR" ]; then
     n=$((n + 1))
   done
   mv "$FIX5N_OUT_DIR" "$archive"
-  echo "[Fix5n] Existing output archived to: $archive"
+  echo "[Fix5n-v2] Existing output archived to: $archive"
 fi
 
-python scripts/mcf_output_position_gated_penalty_fix5n_seed1.py \
+python scripts/mcf_output_position_gated_penalty_fix5n_v2_seed1.py \
   --fix5m-output-dir "$FIX5M_SOURCE_DIR" \
   --model-path "$MODEL_PATH" \
   --output-dir "$FIX5N_OUT_DIR" \
