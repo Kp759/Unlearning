@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Fix5o-v2 wrapper: policy-safe metadata for the data-only augmented router experiment.
 
-The core experiment remains Fix5o. This wrapper changes no model, rows, features,
-training hyperparameters, calibration data, or evaluation data. It only ensures:
+The core experiment remains Fix5o. This wrapper changes no model, features, training
+hyperparameters, calibration data, or evaluation data. It only hardens metadata and
+preflight semantics:
   * positive augmented rows for the owner's registered forget binding retain
     forbidden=True metadata;
   * same-subject alternate-relation contrasts remain forbidden=False;
   * the authored augmentation held-out set is treated as a semantic wording probe,
-    not as a policy-permission benchmark.
+    not as a policy-permission benchmark;
+  * held-out leakage filtering may not silently erase augmentation coverage for any
+    relation that had candidate fit rows.
 """
 from __future__ import annotations
 
@@ -24,6 +27,7 @@ for p in (SCRIPT_DIR, ROOT):
 import mcf_target_local_augmented_relation_router_fix5o_seed1 as core
 
 _ORIGINAL_POLICY_REPORT = core.policy_report
+_ORIGINAL_FILTER = core.filter_fit_against_heldout
 
 
 def render_row(
@@ -73,8 +77,37 @@ def policy_report(
     return _ORIGINAL_POLICY_REPORT(rows, logits, views, eta, classes, none_idx, bank)
 
 
+def filter_fit_against_heldout(
+    rows: Sequence[core.Row],
+    views: Sequence[core.RoutingView],
+    heldout_texts: Sequence[str],
+    max_jaccard: float,
+):
+    before_relations = {str(r.relation) for r in rows}
+    kept_rows, kept_views, audit = _ORIGINAL_FILTER(
+        rows, views, heldout_texts, max_jaccard
+    )
+    after_relations = {str(r.relation) for r in kept_rows}
+    missing = sorted(before_relations - after_relations)
+    if missing:
+        raise RuntimeError(
+            "Fix5o leakage filtering removed all augmentation rows for relations: "
+            + ", ".join(missing)
+        )
+    if not kept_rows:
+        raise RuntimeError("Fix5o leakage filtering removed the entire augmentation set")
+    audit = {
+        **dict(audit),
+        "relation_coverage_before_n": len(before_relations),
+        "relation_coverage_after_n": len(after_relations),
+        "relation_coverage_preserved": True,
+    }
+    return kept_rows, kept_views, audit
+
+
 core.render_row = render_row
 core.policy_report = policy_report
+core.filter_fit_against_heldout = filter_fit_against_heldout
 
 
 if __name__ == "__main__":
