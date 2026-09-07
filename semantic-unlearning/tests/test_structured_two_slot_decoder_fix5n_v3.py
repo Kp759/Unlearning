@@ -14,14 +14,17 @@ for p in (ROOT, SCRIPTS):
 import mcf_structured_two_slot_decoder_fix5n_v3_seed1 as v3
 
 
-def test_structured_prompts_insert_controller_owned_boundaries():
+def test_structured_prompts_insert_independent_controller_owned_boundaries():
     q = "First: Q1?\nSecond: Q2?\nAnswer both questions in order."
     p1 = v3.build_slot1_prompt(q)
+    p2 = v3.build_slot2_prompt(q)
     assert p1.endswith("\nFirst:")
+    assert p2.endswith("\nSecond:")
+    assert "Answer only the first question now." in p1
+    assert "Answer only the second question now." in p2
     assert v3.CONTROLLER_INSTRUCTION in p1
-    p2 = v3.build_slot2_prompt(q, "Paris")
-    assert "First: Paris\nSecond:" in p2
-    assert p2.endswith("Second:")
+    assert v3.CONTROLLER_INSTRUCTION in p2
+    assert "Paris" not in p2
 
 
 def test_clean_slot_text_keeps_only_first_controlled_line():
