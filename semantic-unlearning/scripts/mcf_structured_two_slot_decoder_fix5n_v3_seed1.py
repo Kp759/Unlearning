@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fix5n-v3: deterministic two-slot output control for mixed factual suppression.
+"""Fix5n-v3: deterministic isolated two-slot output control for mixed suppression.
 
 Evaluation-only. This stage addresses the failure mode exposed by Fix5n-v2: output
 position gating preserved overlapping permitted answers, but depended on the model
@@ -7,10 +7,15 @@ voluntarily emitting First:/Second: markers, so the penalty was often inactive.
 
 Fix5n-v3 removes that detector entirely. It reuses the exact 80 mixed-query route
 records from the completed Fix5m Seed-1 run and answers each query through an external
-structured two-pass decoder:
+structured decoder with two independently generated answer slots:
 
   1) generate Slot 1 after a controller-inserted ``First:`` boundary;
-  2) insert ``Second:`` deterministically and generate Slot 2.
+  2) independently generate Slot 2 after a controller-inserted ``Second:`` boundary;
+  3) compose the two controlled slots into one final answer.
+
+The second slot never conditions on the generated text of the first slot. This blocks
+both forms of cross-slot collateral: direct logit suppression and indirect propagation
+through a changed preceding answer.
 
 All conditions use the same structured decoder and the same original mixed query:
 
@@ -24,9 +29,10 @@ The benchmark order label and gold answers are NEVER used to choose where the pe
 is active. They are used only after generation to score which controlled slot is the
 true forbidden slot versus the permitted companion slot.
 
-Because slot boundaries are controller-inserted, output-state coverage is 100% by
-construction. Automatic outcomes are still conservative canonical-answer matching,
-not alias/semantic equivalence. Full slot texts are saved for manual audit.
+Because slot boundaries are controller-inserted and slots are separately decoded,
+output-state coverage is 100% by construction. Automatic outcomes are still
+conservative canonical-answer matching, not alias/semantic equivalence. Full slot
+texts are saved for manual audit.
 
 No router rerun/retraining, eta tuning, penalty tuning, quotient, or model editing.
 """
@@ -55,8 +61,8 @@ import mcf_output_position_gated_penalty_fix5n_v2_seed1 as fix5n_v2
 SEED = 1
 CONDITIONS = ("base", "query_wide", "structured_gated")
 CONTROLLER_INSTRUCTION = (
-    "Give exactly two concise one-line factual answers. Do not repeat the questions. "
-    "Do not add explanations."
+    "Answer only the requested question with one concise factual line. "
+    "Do not repeat either question and do not add explanations."
 )
 
 
@@ -85,15 +91,25 @@ def source_mixed_rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def build_slot1_prompt(query: str) -> str:
-    return f"{str(query).rstrip()}\n{CONTROLLER_INSTRUCTION}\nFirst:"
-
-
-def build_slot2_prompt(query: str, slot1_text: str) -> str:
+def build_slot_prompt(query: str, slot: int) -> str:
+    if int(slot) == 1:
+        ordinal, label = "first", "First"
+    elif int(slot) == 2:
+        ordinal, label = "second", "Second"
+    else:
+        raise ValueError("slot must be 1 or 2")
     return (
         f"{str(query).rstrip()}\n{CONTROLLER_INSTRUCTION}\n"
-        f"First: {str(slot1_text).strip()}\nSecond:"
+        f"Answer only the {ordinal} question now.\n{label}:"
     )
+
+
+def build_slot1_prompt(query: str) -> str:
+    return build_slot_prompt(query, 1)
+
+
+def build_slot2_prompt(query: str) -> str:
+    return build_slot_prompt(query, 2)
 
 
 def clean_slot_text(text: str) -> str:
@@ -235,7 +251,7 @@ def generate_structured_condition(
     slot2 = generate_one_slot(
         model,
         tok,
-        build_slot2_prompt(query, slot1["text"]),
+        build_slot2_prompt(query),
         active_token_ids,
         penalty,
         slot2_on,
@@ -249,6 +265,7 @@ def generate_structured_condition(
         "active_slots_from_saved_router": [int(x) for x in active_slots],
         "active_token_ids": [int(x) for x in active_token_ids],
         "controller_slot_boundary_coverage_pct": 100.0,
+        "slot_generation_context_isolated": True,
     }
 
 
@@ -433,7 +450,7 @@ def pilot_decision(summary: Mapping[str, Any]) -> dict[str, Any]:
         "predeclared_gates": gates,
         "pilot_pass": all(bool(v) for v in gates.values()),
         "interpretation": (
-            "PASS supports structured output-position selectivity in this controlled two-slot setting. "
+            "PASS supports structured output-position selectivity in this controlled isolated two-slot setting. "
             "FAIL identifies whether preservation or forbidden-suppression retention remains limiting."
         ),
     }
@@ -523,7 +540,7 @@ def main() -> None:
 
         output_rows.append(
             {
-                "kind": "mixed_structured_two_slot",
+                "kind": "mixed_structured_isolated_two_slot",
                 "pair_kind": str(src_row["pair_kind"]),
                 "order": str(src_row["order"]),
                 "forget_case_id": int(src_row["forget_case_id"]),
@@ -553,7 +570,7 @@ def main() -> None:
     decision = pilot_decision(summary)
     report = {
         "schema_version": 3,
-        "kind": "mcf_seed1_fix5n_v3_deterministic_structured_two_slot_output_control",
+        "kind": "mcf_seed1_fix5n_v3_deterministic_isolated_two_slot_output_control",
         "evaluation_only": True,
         "base_model_frozen": True,
         "router_rerun": False,
@@ -571,7 +588,8 @@ def main() -> None:
             "same_decoder_for_all_conditions": True,
             "slot_boundary_controller_inserted": True,
             "slot_boundary_coverage_pct": 100.0,
-            "slot1_then_slot2_two_pass_generation": True,
+            "slot_generation_context_isolated": True,
+            "slot2_conditions_on_slot1_generated_text": False,
             "one_line_stop_at_first_generated_newline": True,
             "max_slot_new_tokens": int(a.max_slot_new_tokens),
             "controller_instruction": CONTROLLER_INSTRUCTION,
@@ -583,7 +601,7 @@ def main() -> None:
             "benchmark_order_used_only_after_generation_for_scoring": True,
         },
         "conditions": {
-            "base": "structured two-slot decoder; no token penalty in either slot",
+            "base": "isolated structured two-slot decoder; no token penalty in either slot",
             "query_wide": "same decoder; frozen saved -12 support active in both slots whenever route activated",
             "structured_gated": (
                 "same decoder; frozen saved -12 support active only in router-resolved input slot(s)"
@@ -620,6 +638,7 @@ def main() -> None:
         "quotient_enabled": False,
         "router_rerun": False,
         "controller_slot_boundary_coverage_pct": 100.0,
+        "slot_generation_context_isolated": True,
         "benchmark_order_used_for_gate": False,
         "overlap": {
             "route_active_slot_resolution": overlap.get("route_active_slot_resolution"),
