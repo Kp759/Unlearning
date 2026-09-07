@@ -9,6 +9,9 @@ import zipfile
 from pathlib import Path
 
 PACKAGE_FILES = (
+    # v3 reuses the leakage-safe route-active-slot parser from v2. Bundle the exact
+    # dependency so a verified archive is self-contained relative to the Fix5m baseline.
+    "scripts/mcf_output_position_gated_penalty_fix5n_v2_seed1.py",
     "scripts/mcf_structured_two_slot_decoder_fix5n_v3_seed1.py",
     "scripts/run_mcf_structured_two_slot_decoder_fix5n_v3_seed1.sh",
     "tests/test_structured_two_slot_decoder_fix5n_v3.py",
