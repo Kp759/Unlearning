@@ -38,6 +38,11 @@ huggingface-cli login
 
 ## Quick Start
 
+The static trained embedding–MLP–head architecture, with training-only
+localization, overlap-constrained joint optimization and router-free checkpoint
+export, is documented in
+[STATIC_OVERLAP_EDITING.md](STATIC_OVERLAP_EDITING.md).
+
 ```bash
 python scripts/run_pipeline.py --config config/config.yaml
 ```

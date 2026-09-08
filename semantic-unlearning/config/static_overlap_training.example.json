@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "purpose": "training",
+  "facts": [
+    {
+      "id": "forget_language",
+      "subject": "Person A",
+      "relation": "native language",
+      "object": "French",
+      "role": "forget",
+      "aliases": [],
+      "answer_aliases": []
+    },
+    {
+      "id": "retain_occupation",
+      "subject": "Person A",
+      "relation": "occupation",
+      "object": "engineer",
+      "role": "retain"
+    },
+    {
+      "id": "retain_other_person",
+      "subject": "Person B",
+      "relation": "native language",
+      "object": "French",
+      "role": "retain"
+    },
+    {
+      "id": "retain_cuisine",
+      "subject": "Person A",
+      "relation": "preferred cuisine",
+      "object": "French",
+      "role": "retain"
+    },
+    {
+      "id": "retain_restaurant",
+      "subject": "Restaurant C",
+      "relation": "cooking style",
+      "object": "French",
+      "role": "retain"
+    }
+  ],
+  "examples": [
+    {
+      "id": "train_forget_language",
+      "split": "train",
+      "prompt": "The native language of Person A is",
+      "completion": " French",
+      "spans": [
+        {
+          "start": 1,
+          "end": 7,
+          "fact_id": "forget_language"
+        }
+      ]
+    },
+    {
+      "id": "train_retain_occupation",
+      "split": "train",
+      "prompt": "The occupation of Person A is",
+      "completion": " engineer",
+      "spans": [
+        {
+          "start": 1,
+          "end": 9,
+          "fact_id": "retain_occupation"
+        }
+      ]
+    },
+    {
+      "id": "train_retain_other_person",
+      "split": "train",
+      "prompt": "The native language of Person B is",
+      "completion": " French",
+      "spans": [
+        {
+          "start": 1,
+          "end": 7,
+          "fact_id": "retain_other_person"
+        }
+      ]
+    },
+    {
+      "id": "train_retain_cuisine",
+      "split": "train",
+      "prompt": "The preferred cuisine of Person A is",
+      "completion": " French",
+      "spans": [
+        {
+          "start": 1,
+          "end": 7,
+          "fact_id": "retain_cuisine"
+        }
+      ]
+    },
+    {
+      "id": "train_retain_restaurant",
+      "split": "train",
+      "prompt": "The cooking style of Restaurant C is",
+      "completion": " French",
+      "spans": [
+        {
+          "start": 1,
+          "end": 7,
+          "fact_id": "retain_restaurant"
+        }
+      ]
+    },
+    {
+      "id": "train_mixed",
+      "split": "train",
+      "prompt": "Give Person A's native language and preferred cuisine:",
+      "completion": " French; French",
+      "spans": [
+        {
+          "start": 1,
+          "end": 7,
+          "fact_id": "forget_language"
+        },
+        {
+          "start": 9,
+          "end": 15,
+          "fact_id": "retain_cuisine"
+        }
+      ]
+    },
+    {
+      "id": "train_language",
+      "split": "train",
+      "role": "language",
+      "text": "A quiet morning brings warm sunlight into the room."
+    },
+    {
+      "id": "validation_forget_language",
+      "split": "validation",
+      "prompt": "State Person A's native language:",
+      "completion": " French",
+      "spans": [
+        {
+          "start": 1,
+          "end": 7,
+          "fact_id": "forget_language"
+        }
+      ]
+    },
+    {
+      "id": "validation_retain_occupation",
+      "split": "validation",
+      "prompt": "State Person A's occupation:",
+      "completion": " engineer",
+      "spans": [
+        {
+          "start": 1,
+          "end": 9,
+          "fact_id": "retain_occupation"
+        }
+      ]
+    },
+    {
+      "id": "validation_retain_other_person",
+      "split": "validation",
+      "prompt": "State Person B's native language:",
+      "completion": " French",
+      "spans": [
+        {
+          "start": 1,
+          "end": 7,
+          "fact_id": "retain_other_person"
+        }
+      ]
+    },
+    {
+      "id": "validation_retain_cuisine",
+      "split": "validation",
+      "prompt": "State Person A's preferred cuisine:",
+      "completion": " French",
+      "spans": [
+        {
+          "start": 1,
+          "end": 7,
+          "fact_id": "retain_cuisine"
+        }
+      ]
+    },
+    {
+      "id": "validation_retain_restaurant",
+      "split": "validation",
+      "prompt": "State Restaurant C's cooking style:",
+      "completion": " French",
+      "spans": [
+        {
+          "start": 1,
+          "end": 7,
+          "fact_id": "retain_restaurant"
+        }
+      ]
+    },
+    {
+      "id": "validation_mixed",
+      "split": "validation",
+      "prompt": "For Person A, name the native language, then the preferred cuisine:",
+      "completion": " French; French",
+      "spans": [
+        {
+          "start": 1,
+          "end": 7,
+          "fact_id": "forget_language"
+        },
+        {
+          "start": 9,
+          "end": 15,
+          "fact_id": "retain_cuisine"
+        }
+      ]
+    },
+    {
+      "id": "validation_language",
+      "split": "validation",
+      "role": "language",
+      "text": "The evening sky glowed above the trees and houses."
+    }
+  ]
+}
