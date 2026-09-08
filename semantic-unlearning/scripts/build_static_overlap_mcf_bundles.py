@@ -7,10 +7,14 @@ The builder uses the repository's official MCF sampling contract:
   * Python random.sample with the declared seed
 
 Training never uses official forget paraphrase prompts or neighborhood prompts.
-Those remain held out for evaluation.  MCF does not provide same-subject overlap
-controls at useful coverage, so same-relation/different-subject is mandatory;
-same-answer controls are included when naturally available in the sampled retain
-pool and reported separately.
+Those remain held out for evaluation. MCF may contain multiple sampled case IDs
+for the same underlying factual association, so training/evaluation bundles are
+deduplicated by (subject, relation, target_true). Official MCF scoring still uses
+the unchanged sampled cases; the evaluator compares association sets.
+
+MCF does not provide same-subject overlap controls at useful coverage, so
+same-relation/different-subject is mandatory; same-answer controls are included
+when naturally available in the sampled retain pool and reported separately.
 """
 from __future__ import annotations
 
@@ -49,6 +53,26 @@ def relation(rr):
     return str(rr["relation_id"]).strip()
 
 
+def association_key(rr):
+    return (
+        subject(rr).casefold(),
+        relation(rr).casefold(),
+        target(rr).casefold(),
+    )
+
+
+def dedupe_associations(pairs):
+    """Keep the first sampled case for each factual association."""
+    out, seen = [], set()
+    for rec, rr in pairs:
+        key = association_key(rr)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((rec, rr))
+    return out
+
+
 def direct_prompt(rr):
     template = str(rr["prompt"])
     s = subject(rr)
@@ -76,8 +100,6 @@ def heldout_prompt(record, rr, forbidden):
     for prompt in candidates:
         if " ".join(prompt.casefold().split()) not in forbidden:
             return prompt
-    # MCF normally has paraphrases.  Keep a deterministic disjoint fallback so
-    # the builder remains usable while making the fallback explicit in summary.
     prompt = "Held-out restatement: " + direct_prompt(rr)
     if " ".join(prompt.casefold().split()) in forbidden:
         raise ValueError(f"Could not create held-out prompt for case {record.get('case_id')}")
@@ -129,10 +151,10 @@ def mixed_example(example_id, split, prompt_a, answer_a, fid_a, prompt_b, answer
 
 def language_rows(path, train_n=12, validation_n=6, test_n=12):
     ds = load_from_disk(str(path))["train"]
-    texts = [str(row["text"]).strip() for row in ds if str(row["text"]).strip()]
+    texts = unique_texts(str(row["text"]).strip() for row in ds if str(row["text"]).strip())
     need = train_n + validation_n + test_n
     if len(texts) < need:
-        raise ValueError(f"Language corpus has {len(texts)} rows, need {need}")
+        raise ValueError(f"Language corpus has {len(texts)} unique rows, need {need}")
     train = texts[:train_n]
     validation = texts[train_n:train_n + validation_n]
     test = texts[train_n + validation_n:need]
@@ -156,15 +178,15 @@ def main(argv=None):
     forget_raw, retain_raw = sample_official_mcf_records(
         data, args.unlearn_num, args.retain_num, args.seed, strict=True
     )
-    forget = [normalize_record(r) for r in forget_raw]
-    retain = [normalize_record(r) for r in retain_raw]
+    forget_sampled = [normalize_record(r) for r in forget_raw]
+    retain_sampled = [normalize_record(r) for r in retain_raw]
+    forget = dedupe_associations(forget_sampled)
+    retain = dedupe_associations(retain_sampled)
 
     retain_by_relation = defaultdict(list)
     for rec, rr in retain:
         retain_by_relation[relation(rr)].append((rec, rr))
 
-    # One real same-relation/different-subject control per relation represented
-    # by the forget set.  This is the only overlap stratum available at 50/50.
     relation_controls = {}
     for frec, frr in forget:
         rel = relation(frr)
@@ -178,10 +200,18 @@ def main(argv=None):
         relation_controls.setdefault(rel, candidates[0])
 
     selected = {}
-    for rec, rr in relation_controls.values():
+    selected_keys = set()
+
+    def add_selected(rec, rr):
+        key = association_key(rr)
+        if key in selected_keys:
+            return
+        selected_keys.add(key)
         selected[rec.get("case_id")] = (rec, rr)
 
-    # Add naturally available same-answer/different-association controls.
+    for rec, rr in relation_controls.values():
+        add_selected(rec, rr)
+
     optional_answer_control = {}
     for frec, frr in forget:
         fa = target(frr).casefold()
@@ -193,14 +223,13 @@ def main(argv=None):
         ]
         if candidates:
             optional_answer_control[frec.get("case_id")] = candidates[0]
-            rec, rr = candidates[0]
-            selected[rec.get("case_id")] = (rec, rr)
+            add_selected(*candidates[0])
 
-    # Add a small deterministic general-retain set for utility/KL anchoring.
+    base_selected = len(selected)
     for rec, rr in retain:
-        if len(selected) >= len(relation_controls) + len({x[0].get('case_id') for x in optional_answer_control.values()}) + args.general_retain:
+        if len(selected) >= base_selected + args.general_retain:
             break
-        selected.setdefault(rec.get("case_id"), (rec, rr))
+        add_selected(rec, rr)
 
     selected_retain = list(selected.values())
 
@@ -237,8 +266,6 @@ def main(argv=None):
             target(rr), fid,
         ))
 
-    # Mixed training requests pair every forgotten fact with its real
-    # same-relation/different-subject control.
     for rec, rr in forget:
         cid = rec.get("case_id")
         rrec, rrr = relation_controls[relation(rr)]
@@ -321,8 +348,10 @@ def main(argv=None):
     relation_counts = Counter(relation(rr) for _, rr in forget)
     summary = {
         "seed": args.seed,
-        "forget_records": len(forget),
-        "official_retain_pool": len(retain),
+        "official_forget_cases": len(forget_sampled),
+        "unique_forget_associations": len(forget),
+        "official_retain_cases": len(retain_sampled),
+        "unique_retain_associations": len(retain),
         "selected_retain_facts": len(selected_retain),
         "forget_relations": dict(sorted(relation_counts.items())),
         "same_relation_control_coverage": f"{len(forget)}/{len(forget)}",
