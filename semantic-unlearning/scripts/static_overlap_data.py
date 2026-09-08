@@ -7,8 +7,16 @@ import json
 from pathlib import Path
 
 
-OVERLAPS = ("same_subject_other_relation", "same_relation_other_subject",
-            "same_subject_same_answer_other_relation", "same_answer_other_association")
+# MCF does not provide all overlap strata for every fact.
+# Same-relation/different-subject is required for every forget fact.
+# Same-answer and same-subject controls are evaluated when naturally available
+# and in separate targeted stress subsets.
+REQUIRED_OVERLAPS = ("same_relation_other_subject",)
+OPTIONAL_OVERLAPS = (
+    "same_subject_other_relation",
+    "same_subject_same_answer_other_relation",
+    "same_answer_other_association",
+)
 
 
 @dataclass
@@ -129,9 +137,11 @@ def validate_bundle(bundle, purpose="training"):
                 raise ValueError(f"Missing {split} forget supervision for {f['id']}")
             covered = {overlap_kind(f, facts[rid]) for rid in seen[split]
                        if facts[rid]["role"] == "retain"}
-            missing = set(OVERLAPS) - covered
+            missing = set(REQUIRED_OVERLAPS) - covered
             if missing:
-                raise ValueError(f"{f['id']} lacks {split} overlap controls: {sorted(missing)}")
+                raise ValueError(
+                    f"{f['id']} lacks required {split} overlap controls: {sorted(missing)}"
+                )
     return facts
 
 
