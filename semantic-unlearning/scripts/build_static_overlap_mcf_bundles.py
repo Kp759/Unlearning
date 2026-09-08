@@ -149,15 +149,67 @@ def mixed_example(example_id, split, prompt_a, answer_a, fid_a, prompt_b, answer
     }
 
 
-def language_rows(path, train_n=12, validation_n=6, test_n=12):
+def language_split_counts(available, requested):
+    """Proportional deterministic allocation, with at least one row per split."""
+    if len(requested) != 3 or any(type(n) is not int or n <= 0 for n in requested):
+        raise ValueError("Language train/validation/test row counts must be positive integers")
+    if available < 3:
+        raise ValueError(
+            f"Language corpus has {available} unique rows; at least 3 are required "
+            "for disjoint train/validation/test splits. Supply a larger corpus."
+        )
+    need = sum(requested)
+    if available >= need:
+        return list(requested)
+    counts = [1, 1, 1]
+    for _ in range(available - 3):
+        # Integer quota deficits avoid rounding differences. Ties favor the
+        # earlier split; no split receives duplicated text or zero examples.
+        index = max(range(3), key=lambda i: available * requested[i] - counts[i] * need)
+        counts[index] += 1
+    return counts
+
+
+def language_rows(path, train_n=12, validation_n=6, test_n=12, *,
+                  strict=False, return_summary=False):
     ds = load_from_disk(str(path))["train"]
-    texts = unique_texts(str(row["text"]).strip() for row in ds if str(row["text"]).strip())
-    need = train_n + validation_n + test_n
-    if len(texts) < need:
+    if "text" not in ds.column_names:
+        raise ValueError("Language corpus train split must contain a text column")
+    nonempty = [row["text"].strip() for row in ds
+                if isinstance(row["text"], str) and row["text"].strip()]
+    texts = unique_texts(nonempty)
+    requested = [train_n, validation_n, test_n]
+    counts = language_split_counts(len(texts), requested)
+    need = sum(requested)
+    if strict and len(texts) < need:
         raise ValueError(f"Language corpus has {len(texts)} unique rows, need {need}")
-    train = texts[:train_n]
-    validation = texts[train_n:train_n + validation_n]
-    test = texts[train_n + validation_n:need]
+    train_end, validation_end = counts[0], counts[0] + counts[1]
+    train = texts[:train_end]
+    validation = texts[train_end:validation_end]
+    test = texts[validation_end:sum(counts)]
+    names = ("train", "validation", "test")
+    groups = (train, validation, test)
+    # The existing official PPL evaluator uses the first twenty raw rows from
+    # this path. A deduplicated bundle test split does not make THAT test held out.
+    official = set(unique_texts(t for t in ds["text"][:20] if isinstance(t, str)))
+    official_keys = {" ".join(t.casefold().split()) for t in official}
+    overlap = {name: sum(" ".join(t.casefold().split()) in official_keys for t in group)
+               for name, group in zip(names, groups)}
+    summary = {
+        "source": str(path),
+        "raw_rows": len(ds),
+        "nonempty_text_rows": len(nonempty),
+        "unique_rows": len(texts),
+        "duplicate_rows_removed": len(nonempty) - len(texts),
+        "requested_rows": dict(zip(names, requested)),
+        "actual_rows": dict(zip(names, counts)),
+        "reduced_to_available_rows": counts != requested,
+        "split_policy": "deduplicate_then_proportional_nonempty_disjoint_splits",
+        "official_ppl_first_20_overlap_rows": overlap,
+        "official_ppl_held_out_from_fitting_and_validation": not (overlap["train"] or overlap["validation"]),
+    }
+    if return_summary:
+        return train, validation, test, summary
     return train, validation, test
 
 
@@ -172,7 +224,30 @@ def main(argv=None):
     parser.add_argument("--unlearn-num", type=int, default=50)
     parser.add_argument("--retain-num", type=int, default=1000)
     parser.add_argument("--general-retain", type=int, default=24)
+    parser.add_argument("--language-train-rows", type=int, default=12)
+    parser.add_argument("--language-validation-rows", type=int, default=6)
+    parser.add_argument("--language-test-rows", type=int, default=12)
+    parser.add_argument("--require-language-counts", action="store_true",
+                        help="Fail instead of reducing row counts for a small language corpus")
     args = parser.parse_args(argv)
+
+    lang_train, lang_val, lang_test, language_summary = language_rows(
+        args.language_dir, args.language_train_rows, args.language_validation_rows,
+        args.language_test_rows, strict=args.require_language_counts, return_summary=True,
+    )
+    if language_summary["reduced_to_available_rows"]:
+        print(
+            f"Language corpus has {language_summary['unique_rows']} unique texts; "
+            f"using train/validation/test counts {len(lang_train)}/{len(lang_val)}/{len(lang_test)}. "
+            "Counts were reduced for this small corpus; use --require-language-counts for strict runs.",
+            file=sys.stderr,
+        )
+    if not language_summary["official_ppl_held_out_from_fitting_and_validation"]:
+        print(
+            "Language anchors overlap the first 20 rows used by official PPL. "
+            "Use --skip-official-ppl for this corpus, or evaluate official PPL on a separate corpus.",
+            file=sys.stderr,
+        )
 
     data = json.loads(Path(args.mcf_path).read_text())
     forget_raw, retain_raw = sample_official_mcf_records(
@@ -280,7 +355,6 @@ def main(argv=None):
             "Restated: " + direct_prompt(rrr), target(rrr), fact_id("retain", rrec),
         ))
 
-    lang_train, lang_val, lang_test = language_rows(args.language_dir)
     for i, text in enumerate(lang_train):
         training_examples.append({"id": f"train_language_{i}", "split": "train", "role": "language", "text": text})
     for i, text in enumerate(lang_val):
@@ -361,6 +435,7 @@ def main(argv=None):
         "heldout_prompt_fallbacks": fallback_count,
         "training_examples": len(training_examples),
         "evaluation_examples": len(evaluation_examples),
+        "language_corpus": language_summary,
         "train_out": str(train_path),
         "eval_out": str(eval_path),
     }

@@ -184,6 +184,23 @@ outputs = model.generate(**inputs, max_new_tokens=64)
 
 ## Evaluation and interpretation
 
+The MCF bundle builder accepts a small language corpus for smoke testing. It
+deduplicates text before splitting and proportionally reduces the default
+12/6/12 train/validation/test counts when necessary. For example, the bundled
+`data/wikidata` fixture has 200 rows but only ten distinct sentences, producing
+**4/2/4** disjoint language splits. It never repeats sentences to fill a split.
+Fewer than three unique texts still fail. Use `--require-language-counts` to
+require the full counts, or set `--language-train-rows`,
+`--language-validation-rows`, and `--language-test-rows` explicitly.
+
+The builder summary records raw/unique/duplicate counts, requested and actual
+split sizes, and overlap with the first 20 raw rows used by the official PPL
+loader. The small repeated fixture overlaps that official PPL set even though
+the bundle's own three splits are disjoint. Use `--skip-official-ppl` with this
+fixture, or supply a separate evaluation corpus via the evaluator's
+`--wikidata-dir`. This fixture is insufficient for a substantive language-utility
+claim; a successful bundle build only establishes that inputs are usable.
+
 Prepare a separate bundle with `purpose: "evaluation"` and all splits `test`,
 using the same explicit span/association format and the same forget associations.
 Its text must be held out from fitting and validation. All four overlap strata,
