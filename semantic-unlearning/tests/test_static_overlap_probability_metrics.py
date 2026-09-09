@@ -167,7 +167,8 @@ class SeparableFactLM(torch.nn.Module):
         return SimpleNamespace(logits=self.head(self.embedding(input_ids)))
 
 
-def test_training_can_suppress_a_fact_without_stalling_at_kl_boundary():
+@pytest.mark.parametrize("protected_batch_size", [1, 8])
+def test_training_can_suppress_a_fact_without_stalling_at_kl_boundary(protected_batch_size):
     torch.manual_seed(1)
     torch.set_num_threads(1)
     examples = []
@@ -177,10 +178,17 @@ def test_training_can_suppress_a_fact_without_stalling_at_kl_boundary():
             examples.append(Example(f"{split}:{role}", split, role, fact, [prompt, answer], [-100, answer],
                                     str(prompt), str(answer), f"{split}:{fact}"))
     editor = StaticEditor(SeparableFactLM(), [], [5, 7], {}, rank=8)
-    config = TrainConfig(steps=100, learning_rate=.1, epsilon=.005, step_radius=.25)
+    config = TrainConfig(steps=100, learning_rate=.1, epsilon=.005, step_radius=.25,
+                         protected_batch_size=protected_batch_size)
     result = train(editor, examples, config)
     assert result["stop_reason"] == "training_forgetting_target"
     assert result["training_forgetting"]["target_met"]
     assert result["validation_forgetting"]["target_met"]
     assert within_budgets(result["validation"], config)[0]
     assert result["training_forgetting"]["max_token_probability"] < 1e-6
+    assert result["training_protection"]["retention_passed"]
+    assert all(not key.startswith("validation:") for r in result["history"]
+               for key in r["projected_anchor_ids"])
+    if protected_batch_size == 1:
+        assert any(r["discovered_anchor_ids"] for r in result["history"])
+        assert any(r["active_anchor_ids"] for r in result["history"])

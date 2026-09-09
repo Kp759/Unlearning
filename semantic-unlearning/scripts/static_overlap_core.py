@@ -390,13 +390,20 @@ def project_update(proposal, gradients, epsilon, radius, tolerance=1e-7, max_ite
 
 def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
                      radius, backtracks=10, projection_tolerance=1e-7,
-                     fallback_direction=None):
+                     fallback_direction=None, refine_constraints=None,
+                     max_constraint_refinements=4):
     """Project the actual Adam proposal; validate nonlinear budgets and rollback.
 
     ``check`` returns (accepted, diagnostics) for the current full edited model.
     Rejected steps restore both parameters and optimizer moments/step counters.
     Accepted backtracks retain moments computed from the current loss gradient.
+    After a failed check, ``refine_constraints(diagnostics)`` may return an
+    expanded (gradients, allowances) pair. It runs at the ORIGINAL parameters,
+    so new linearizations share the proposal's origin. Reproject the same Adam
+    proposal without another optimizer step before resorting to backtracking.
     """
+    if type(max_constraint_refinements) is not int or max_constraint_refinements < 0:
+        raise ValueError("max_constraint_refinements must be a nonnegative integer")
     before, state = flat_parameters(parameters), deepcopy(optimizer.state_dict())
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
@@ -410,24 +417,40 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
         fallback = fallback_direction / fallback_direction.norm() * proposal.norm().clamp_max(radius)
         proposals.append(("forget_descent", fallback))
     diagnostics = {}
+    refinements, checks = 0, 0
     try:
         for direction, candidate in proposals:
-            projection = project_update(candidate, gradients, epsilon, radius,
-                                        tolerance=projection_tolerance)
-            if projection.converged and projection.delta.norm().item() > projection_tolerance:
-                for trial in range(backtracks + 1):
-                    scale = 0.5 ** trial
-                    set_parameters(parameters, before + scale * projection.delta)
-                    accepted, diagnostics = check()
-                    if accepted:
-                        if direction != "adam":
-                            # No Adam proposal was applied; discard its moments.
-                            optimizer.load_state_dict(state)
-                        return {"accepted": True, "backtracks": trial, "direction": direction,
-                                "proposal_norm": candidate.norm().item(),
-                                "projected_norm": projection.delta.norm().item(),
-                                "step_norm": (scale * projection.delta).norm().item(),
-                                "projection_iterations": projection.iterations, **diagnostics}
+            while True:
+                projection = project_update(candidate, gradients, epsilon, radius,
+                                            tolerance=projection_tolerance)
+                refined = False
+                if projection.converged and projection.delta.norm().item() > projection_tolerance:
+                    for trial in range(backtracks + 1):
+                        scale = 0.5 ** trial
+                        set_parameters(parameters, before + scale * projection.delta)
+                        accepted, diagnostics = check()
+                        checks += 1
+                        if accepted:
+                            if direction != "adam":
+                                # No Adam proposal was applied; discard its moments.
+                                optimizer.load_state_dict(state)
+                            return {"accepted": True, "backtracks": trial, "direction": direction,
+                                    "proposal_norm": candidate.norm().item(),
+                                    "projected_norm": projection.delta.norm().item(),
+                                    "step_norm": (scale * projection.delta).norm().item(),
+                                    "projection_iterations": projection.iterations,
+                                    "constraint_refinements": refinements, "nonlinear_checks": checks,
+                                    **diagnostics}
+                        set_parameters(parameters, before)
+                        if refine_constraints is not None and refinements < max_constraint_refinements:
+                            expanded = refine_constraints(diagnostics)
+                            if expanded is not None:
+                                gradients, epsilon = expanded
+                                refinements += 1
+                                refined = True
+                                break
+                if not refined:
+                    break
     except BaseException:
         set_parameters(parameters, before)
         optimizer.load_state_dict(state)
@@ -438,4 +461,5 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
             "proposal_norm": proposal.norm().item(),
             "projected_norm": projection.delta.norm().item(),
             "projection_iterations": projection.iterations, "step_norm": 0.0,
+            "constraint_refinements": refinements, "nonlinear_checks": checks,
             **diagnostics}

@@ -5,6 +5,49 @@ mean forget NLL change is small, and 10 accepted steps only mean that the old
 retention checks passed. Re-score the base and edited models with the same
 metric implementation before comparing them.
 
+## Matched-base result and active retention projection
+
+The recovered 25-step run failed the forgetting target: Eff changed from
+12.205893% to 11.955799%, Gen from 7.786824% to 7.735833%, and released answer
+accuracy stayed at 22% / 16%. Successful FP32 export established checkpoint
+parity and finite-anchor retention, not forgetting. Re-exporting those saved
+factors cannot improve these scores.
+
+The trainer had a mismatch between its projection and acceptance checks. It
+projected against eight rotating protected examples but validated proposals
+against every training anchor. If an omitted anchor was tight, backtracking
+could shrink an otherwise useful update repeatedly. The observed tiny steps
+and near-boundary NLL are consistent with this mechanism; the old report does
+not identify the responsible anchors, so its contribution to that run cannot
+be quantified from the supplied results alone.
+
+`active_retention_projection_v2` includes all anchors near either budget in
+addition to rotating coverage. After an actual retention violation, it adds the
+worst omitted anchors' NLL/KL gradients and reprojects the same optimizer
+proposal. Gradients are computed after restoring the pre-step parameters.
+There is no extra Adam update. At most `max_constraint_refinements` (default 4)
+rounds add `protected_batch_size` (default 8) anchors each. All near-limit
+anchors are included initially without that cap. Nonlinear checks and
+backtracking still apply, and every accepted step must pass all training
+anchors at the original 0.05 NLL / 0.01 KL budgets.
+
+History now records `active_anchor_ids`, `projected_anchor_ids`,
+`discovered_anchor_ids`, `encountered_violating_anchor_ids`,
+`constraint_refinements`, `nonlinear_checks`, and `retention_rejections`.
+Retention diagnostics identify the maximum-NLL and maximum-KL anchors.
+`training_protection` reports final training-anchor maxima separately from
+validation. These fields show whether omitted constraints caused rejections,
+whether projection repaired them, or whether another bottleneck remains.
+The metric definitions, target probability, model capacity and learning rate
+are unchanged.
+
+This changes optimization and needs a fresh training pilot from the original
+base, in a new output directory. Preserve the recovered checkpoint and its
+evaluation for comparison. Use the training/evaluation commands below, with
+`--require-zero`; do not infer MCF success from local regression tests. Official
+paraphrases remain held out. The small synthetic suppression test verifies
+the optimizer, not Llama generalization or feasibility of 0/0 on the 50 facts.
+
 ## Recover an export failure without retraining
 
 The training runner saves `training_factors.pt`, `training_report.json`, and
@@ -220,6 +263,7 @@ it is not an MCF or Llama result.
 
 ```bash
 python -m pytest -q \
+  tests/test_static_overlap_active_constraints.py \
   tests/test_static_overlap_edit.py \
   tests/test_static_overlap_export_slack.py \
   tests/test_static_overlap_probability_metrics.py \

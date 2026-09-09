@@ -26,6 +26,7 @@ class TrainConfig:
     steps: int = 200
     batch_size: int = 4
     protected_batch_size: int = 8
+    max_constraint_refinements: int = 4
     learning_rate: float = 0.005
     forget_increase: float = 2.0
     lambda_forget: float = 1.0
@@ -54,8 +55,9 @@ class TrainConfig:
         for key in ("steps", "batch_size", "protected_batch_size", "max_stalled_steps"):
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
                 raise ValueError(f"{key} must be a positive integer")
-        if type(self.backtracks) is not int or type(self.seed) is not int:
-            raise ValueError("backtracks and seed must be integers")
+        if any(type(getattr(self, key)) is not int
+               for key in ("backtracks", "seed", "max_constraint_refinements")):
+            raise ValueError("backtracks, seed and max_constraint_refinements must be integers")
         for key in ("learning_rate", "forget_increase", "step_radius", "lambda_forget", "lambda_retain", "lambda_kl"):
             if getattr(self, key) <= 0:
                 raise ValueError(f"{key} must be positive")
@@ -103,11 +105,38 @@ def within_budgets(rows, config):
     protected = [r for r in rows if r["role"] in ("retain", "language")]
     if not protected:
         raise ValueError("Protection cannot pass with an empty anchor set")
-    finite = all(math.isfinite(r[k]) for r in protected for k in ("nll", "base_nll", "kl"))
+    finite = all(math.isfinite(r[k]) for r in protected for k in ("nll", "base_nll", "nll_increase", "kl"))
     max_nll = max(r["nll_increase"] for r in protected)
     max_kl = max(r["kl"] for r in protected)
     passed = finite and max_nll <= config.retain_nll_budget and max_kl <= config.retain_kl_budget
     return passed, {"max_retained_nll_increase": max_nll, "max_retained_kl": max_kl}
+
+
+def near_budget_anchor_ids(rows, config):
+    """Keep tight constraints in the projection even outside rotating coverage.
+
+    The margin selects gradients; it never changes an acceptance budget.
+    """
+    return {r["id"] for r in rows if r["role"] in ("retain", "language")
+            and any(budget - r[key] <= min(config.epsilon, 0.1 * budget)
+                    for key, budget in (("nll_increase", config.retain_nll_budget),
+                                        ("kl", config.retain_kl_budget)))}
+
+
+def training_protection(rows, config):
+    passed, observed = within_budgets(rows, config)
+    protected = [r for r in rows if r["role"] in ("retain", "language")]
+    violations = [r for r in protected
+                  if r["nll_increase"] > config.retain_nll_budget or r["kl"] > config.retain_kl_budget]
+    # Most severe relative violation first; use an absolute scale for a zero
+    # budget. Stable ties preserve the bundle order and deterministic fitting.
+    violations.sort(key=lambda r: max(
+        (r["nll_increase"] - config.retain_nll_budget) / max(config.retain_nll_budget, 1e-12),
+        (r["kl"] - config.retain_kl_budget) / max(config.retain_kl_budget, 1e-12)), reverse=True)
+    return passed, {**observed, "retention_passed": passed,
+                    "max_retained_nll_anchor_id": max(protected, key=lambda r: r["nll_increase"])["id"],
+                    "max_retained_kl_anchor_id": max(protected, key=lambda r: r["kl"])["id"],
+                    "violating_anchor_ids": [r["id"] for r in violations]}
 
 
 def within_export_budgets(rows, config, model_dtype):
@@ -156,6 +185,8 @@ def train(editor, examples, config, log_path=None):
     if any(abs(row["nll_increase"]) > 1e-7 or row["kl"] > 1e-7 for row in baseline):
         raise ValueError("Training must start from zero effective deltas")
     base_nll = {row["id"]: row["base_nll"] for row in baseline}
+    anchor_rows = [row for row in baseline if row["role"] in ("retain", "language")]
+    anchors_by_id = {e.id: e for e in anchors}
     optimizer = torch.optim.Adam(editor.parameters, lr=config.learning_rate)
     rng, history, stalls = random.Random(config.seed), [], 0
     radius = config.step_radius
@@ -181,11 +212,16 @@ def train(editor, examples, config, log_path=None):
         return batch
 
     for step in range(config.steps):
-        protected = [order[(cursor + j) % len(order)]
-                     for j in range(min(config.protected_batch_size, len(order)))]
-        cursor = (cursor + len(protected)) % len(order)
+        rotating = [order[(cursor + j) % len(order)]
+                    for j in range(min(config.protected_batch_size, len(order)))]
+        cursor = (cursor + len(rotating)) % len(order)
+        active_ids = near_budget_anchor_ids(anchor_rows, config)
+        selected_ids = active_ids | {e.id for e in rotating}
+        protected = [e for e in anchors if e.id in selected_ids]
+        projected_ids, discovered_ids = set(), []
         protected_gradients, allowances = [], []
-        for e in protected:
+
+        def add_constraint(e):
             nll = answer_nll(model_logits(editor.model, e), e)
             allowances.append(min(config.epsilon, max(0.0, config.retain_nll_budget
                                                      - (nll.detach().item() - base_nll[e.id]))) * 0.5)
@@ -196,8 +232,27 @@ def train(editor, examples, config, log_path=None):
             allowances.append(min(config.epsilon, max(0.0, config.retain_kl_budget
                                                      - kl.detach().item())) * 0.5)
             protected_gradients.append(flat_gradient(kl, editor.parameters))
-        gradients = torch.stack(protected_gradients)
-        allowances = gradients.new_tensor(allowances)
+            projected_ids.add(e.id)
+
+        def constraint_tensors():
+            gradients = torch.stack(protected_gradients)
+            return gradients, gradients.new_tensor(allowances)
+
+        for e in protected:
+            add_constraint(e)
+        gradients, initial_allowances = constraint_tensors()
+
+        def refine_constraints(diagnostics):
+            missing = [key for key in diagnostics.get("violating_anchor_ids", []) if key not in projected_ids]
+            if not missing:
+                return None
+            # constrained_step restores the original parameters before invoking
+            # us. Never linearize at a rejected trial and apply at another point.
+            for key in missing[:config.protected_batch_size]:
+                add_constraint(anchors_by_id[key])
+                discovered_ids.append(key)
+            return constraint_tensors()
+
         # Accumulate each micro-example separately to bound activation memory.
         # A detached leaf surrogate delivers this aggregate gradient to Adam.
         aggregate = torch.zeros_like(gradients[0])
@@ -232,8 +287,12 @@ def train(editor, examples, config, log_path=None):
         add("delta", config.lambda_delta * editor.norm_sq())
         parameters = torch.cat([p.flatten() for p in editor.parameters])
         surrogate = (parameters * aggregate).sum()
+        checked_anchor_rows = None
+        retention_rejections = 0
+        encountered_violations = set()
 
         def check():
+            nonlocal checked_anchor_rows, retention_rejections
             # All training anchors, including mixed companion spans, checked
             # against BASE budgets after each proposal/backtrack. No ratcheting.
             with torch.no_grad():
@@ -249,16 +308,26 @@ def train(editor, examples, config, log_path=None):
                            "forget_progress": progress, "forget_progress_passed": useful}
             if not useful:
                 return False, diagnostics
-            passed, protection = within_budgets(measure(editor, anchors), config)
+            checked_anchor_rows = measure(editor, anchors)
+            passed, protection = training_protection(checked_anchor_rows, config)
+            if not passed:
+                retention_rejections += 1
+                encountered_violations.update(protection["violating_anchor_ids"])
             return passed, {**diagnostics, **protection}
 
         record = constrained_step(optimizer, editor.parameters, surrogate, gradients, check,
-                                  epsilon=allowances, radius=radius,
-                                  backtracks=config.backtracks, fallback_direction=-forget_gradient)
+                                  epsilon=initial_allowances, radius=radius,
+                                  backtracks=config.backtracks, fallback_direction=-forget_gradient,
+                                  refine_constraints=refine_constraints,
+                                  max_constraint_refinements=config.max_constraint_refinements)
         record.update(step=step + 1, objective=sum(components.values()), components=components,
                       step_radius=radius, forget_examples_seen=len(seen_forget),
-                      forget_examples_total=len(forget))
+                      forget_examples_total=len(forget), active_anchor_ids=sorted(active_ids),
+                      projected_anchor_ids=sorted(projected_ids), discovered_anchor_ids=discovered_ids,
+                      retention_rejections=retention_rejections,
+                      encountered_violating_anchor_ids=sorted(encountered_violations))
         if record["accepted"]:
+            anchor_rows = checked_anchor_rows
             # Keep search room for the projection: the initial radius is a
             # proposal floor, not a minimum accepted step. Actual nonlinear
             # budget checks may backtrack to much smaller updates.
@@ -271,7 +340,8 @@ def train(editor, examples, config, log_path=None):
                 stream.write(json.dumps(record, allow_nan=False) + "\n")
         print(json.dumps({k: record.get(k) for k in (
             "step", "accepted", "objective", "step_norm", "step_radius", "backtracks",
-            "direction", "forget_progress", "max_retained_nll_increase", "max_retained_kl")}), flush=True)
+            "direction", "forget_progress", "constraint_refinements", "retention_rejections",
+            "max_retained_nll_increase", "max_retained_nll_anchor_id", "max_retained_kl")}), flush=True)
         stalls = 0 if record["accepted"] else stalls + 1
         if stalls >= config.max_stalled_steps:
             break
@@ -283,12 +353,14 @@ def train(editor, examples, config, log_path=None):
                 break
     validation = measure(editor, [e for e in examples if e.split == "validation"])
     training_forget = measure(editor, forget)
-    report = {"config": asdict(config), "history": history,
+    report = {"optimizer_version": "active_retention_projection_v2",
+              "config": asdict(config), "history": history,
               "stop_reason": ("training_forgetting_target" if target_reached else
                               "no_useful_feasible_step" if stalls >= config.max_stalled_steps else "step_budget"),
               "accepted_steps": sum(row["accepted"] for row in history),
               "forget_examples_seen": len(seen_forget), "forget_examples_total": len(forget),
               "training_forget": training_forget,
+              "training_protection": training_protection(anchor_rows, config)[1],
               "training_forgetting": forgetting_status(training_forget, config),
               "validation_forgetting": forgetting_status(validation, config),
               "validation": validation}
