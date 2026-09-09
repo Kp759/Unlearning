@@ -45,8 +45,10 @@ To test continuation from the failed run without repeating localization or
 creating an invalid checkpoint, preserve `ACTIVE_OUT` and use a new directory:
 
 ```bash
+cd /home/ec2-user/workspace/Unlearning-static-overlap/semantic-unlearning
 export MODEL_PATH="/home/ec2-user/models/Llama-3.2-3B-Instruct"
 export TRAIN_BUNDLE="data/static_overlap_mcf_seed1_train.json"
+export ACTIVE_OUT="$PWD/outputs/static_overlap_active_20260909_030026"
 export SOLVER_OUT="$PWD/outputs/static_overlap_solver_$(date +%Y%m%d_%H%M%S)"
 set -o pipefail
 
@@ -57,6 +59,12 @@ python scripts/run_static_overlap_edit.py \
   --steps 5 --device cuda --dtype float32 --local-files-only --training-only \
   2>&1 | tee "$SOLVER_OUT.log"
 ```
+
+These assignments are required again in a new shell session. An unset
+`TRAIN_BUNDLE` expands to an empty string, which `Path("")` interprets as `.`.
+The CLI now rejects empty path arguments before reading files or loading a
+model, including an explicitly empty resume path. It also checks that the
+bundle/config are files and that all three resume artifacts exist.
 
 Continuation verifies the bundle hash, architecture, editable rows, dtype,
 base configuration and reproduction of saved base/edited statistics before

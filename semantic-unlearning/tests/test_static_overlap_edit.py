@@ -537,3 +537,30 @@ def test_one_layer_preset_changes_only_block_count_and_selects_highest_training_
         [e for e in examples if e.role == "retain" and e.split == "train"], blocks=1)
     best = min(report, key=lambda layer: (-report[layer]["score"], layer))
     assert list(selected) == [best] and len(selected[best]) == 64
+
+
+@pytest.mark.parametrize("flag", ["--model-path", "--training-bundle", "--output-dir", "--config",
+                                  "--resume-training-run"])
+@pytest.mark.parametrize("value", ["", " \t"])
+def test_cli_rejects_empty_shell_paths_before_loading_or_starting_fresh(flag, value, tmp_path, capsys):
+    from run_static_overlap_edit import parse_args
+    options = {"--model-path": "model", "--training-bundle": str(ROOT / "config/static_overlap_training.example.json"),
+               "--output-dir": str(tmp_path / "out"), flag: value}
+    with pytest.raises(SystemExit) as exc:
+        parse_args([part for pair in options.items() for part in pair])
+    assert exc.value.code == 2
+    assert f"{flag} is empty" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
+
+
+def test_cli_rejects_directory_bundle_and_incomplete_resume_run(tmp_path, capsys):
+    from run_static_overlap_edit import parse_args
+    args = ["--model-path", "model", "--output-dir", str(tmp_path / "out")]
+    with pytest.raises(SystemExit):
+        parse_args(args + ["--training-bundle", str(tmp_path)])
+    assert "--training-bundle must point to an existing file" in capsys.readouterr().err
+    args += ["--training-bundle", str(ROOT / "config/static_overlap_training.example.json")]
+    assert parse_args(args).resume_training_run is None
+    with pytest.raises(SystemExit):
+        parse_args(args + ["--resume-training-run", str(tmp_path)])
+    assert "--resume-training-run is missing manifest.json" in capsys.readouterr().err

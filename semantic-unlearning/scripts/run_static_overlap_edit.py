@@ -28,7 +28,20 @@ def parse_args(argv=None):
     parser.add_argument("--resume-training-run", help="Continue saved factors on the original base, with fresh Adam state")
     parser.add_argument("--training-only", action="store_true",
                         help="Save factors and diagnostics without creating or verifying a native checkpoint")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    for name in ("model_path", "training_bundle", "output_dir", "config", "resume_training_run"):
+        value = getattr(args, name)
+        if value is not None and not value.strip():
+            parser.error(f"--{name.replace('_', '-')} is empty; its shell variable may be unset. "
+                         "Set the variable or pass an explicit path.")
+    for name in ("training_bundle", "config"):
+        if not Path(getattr(args, name)).is_file():
+            parser.error(f"--{name.replace('_', '-')} must point to an existing file: {getattr(args, name)!r}")
+    if args.resume_training_run is not None:
+        for filename in ("manifest.json", "training_report.json", "training_factors.pt"):
+            if not (Path(args.resume_training_run) / filename).is_file():
+                parser.error(f"--resume-training-run is missing {filename}: {args.resume_training_run!r}")
+    return args
 
 
 def load_config(path):
