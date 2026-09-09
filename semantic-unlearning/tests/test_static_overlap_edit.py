@@ -302,6 +302,110 @@ def test_failed_export_has_no_success_marker(bundle, tokenizer, tmp_path):
         export_verified(editor, tokenizer, examples, config, tmp_path / "bad",
                          torch.float32, broken_reload, atol=1e-5, rtol=1e-5)
     assert not (tmp_path / "bad/static_edit_export.json").exists()
+    failure = json.loads((tmp_path / "bad/static_edit_export_failure.json").read_text())
+    assert failure["stage"] == "reload"
+    assert failure["failing_logits"] > 0
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_saved_factors_restore_exactly_and_reject_mismatches(shared):
+    model = tiny(tied=shared)
+    clean = deepcopy(model)
+    editor = make_editor(model)
+    with torch.no_grad():
+        for p in editor.parameters:
+            p.normal_(std=.01)
+    saved = editor.artifact()
+    restored = make_editor(clean)
+    restored.load_artifact(saved)
+    ids = torch.tensor([[2, 5, 7, 6, 8]])
+    torch.testing.assert_close(clean(ids).logits, model(ids).logits, atol=0, rtol=0)
+    before = flat_parameters(restored.parameters).clone()
+    bad = deepcopy(saved)
+    next(iter(bad["writeouts"].values()))["B"][0, 0] = float("nan")
+    with pytest.raises(ValueError, match="Invalid saved factor"):
+        restored.load_artifact(bad)
+    torch.testing.assert_close(flat_parameters(restored.parameters), before, atol=0, rtol=0)
+    bad = deepcopy(saved)
+    next(iter(bad["rows"].values()))["rows"][0] = 0
+    with pytest.raises(ValueError, match="indices differ"):
+        restored.load_artifact(bad)
+
+
+def test_export_failure_identifies_merge_stage(bundle, tokenizer, tmp_path, monkeypatch):
+    editor, examples, config, _ = fitted(bundle, tokenizer, steps=1)
+    merge = editor.merge
+    def broken_merge():
+        model = merge()
+        with torch.no_grad():
+            model.lm_head.weight.add_(50)
+        return model
+    monkeypatch.setattr(editor, "merge", broken_merge)
+    with pytest.raises(RuntimeError, match="stage=merge"):
+        export_verified(editor, tokenizer, examples, config, tmp_path / "bad_merge",
+                        torch.float32, lambda _: pytest.fail("Should not reach reload"), atol=1e-4, rtol=1e-4)
+    failure = json.loads((tmp_path / "bad_merge/static_edit_export_failure.json").read_text())
+    assert failure["stage"] == "merge"
+    assert not (tmp_path / "bad_merge/static_edit_export.json").exists()
+
+
+def test_recovery_rejects_changed_training_statistics(bundle, tokenizer):
+    from export_static_overlap_edit import verify_recovered_statistics
+    editor, examples, _, report = fitted(bundle, tokenizer, steps=1)
+    assert verify_recovered_statistics(editor, examples, report)["matched_examples"] > 0
+    bad = deepcopy(report)
+    bad["validation"][0]["base_nll"] += 1.0
+    with pytest.raises(ValueError, match="Recovered base_nll differs"):
+        verify_recovered_statistics(editor, examples, bad)
+    bad = deepcopy(report)
+    bad["validation"][0]["nll"] += 1.0
+    with pytest.raises(ValueError, match="Recovered nll differs"):
+        verify_recovered_statistics(editor, examples, bad)
+
+
+def test_recover_float32_after_cast_failure_without_retraining(bundle, tokenizer, tmp_path, monkeypatch):
+    import run_static_overlap_edit as runner
+    from export_static_overlap_edit import main as recover
+    from static_overlap_training import sha256_file
+    base = tmp_path / "base"
+    tiny(len(tokenizer), tied=True).save_pretrained(base)
+    tokenizer.save_pretrained(base)
+    settings = json.loads((ROOT / "config/static_overlap_edit.json").read_text())
+    settings["training"].update(steps=1, retain_nll_budget=1.0, retain_kl_budget=.2)
+    settings.update(export_atol=1e-4, export_rtol=1e-4)
+    config_path, bundle_path = tmp_path / "config.json", tmp_path / "bundle.json"
+    config_path.write_text(json.dumps(settings))
+    bundle_path.write_text(json.dumps(bundle))
+    run = tmp_path / "run"
+    with pytest.raises(RuntimeError, match="stage=cast"):
+        runner.main(["--model-path", str(base), "--training-bundle", str(bundle_path),
+                     "--output-dir", str(run), "--config", str(config_path), "--device", "cpu",
+                     "--dtype", "float32", "--deployment-dtype", "bfloat16", "--local-files-only"])
+    failure = json.loads((run / "checkpoint/static_edit_export_failure.json").read_text())
+    assert failure["stage"] == "cast"
+    assert failure["max_abs_error"] > 1e-4
+    assert not (run / "checkpoint/static_edit_export.json").exists()
+    saved_hashes = {name: sha256_file(run / name) for name in
+                    ("training_factors.pt", "training_report.json", "manifest.json")}
+    monkeypatch.setattr(runner, "train", lambda *a, **kw: pytest.fail("Recovery must not train"))
+    monkeypatch.setattr(runner, "localize", lambda *a, **kw: pytest.fail("Recovery must not localize"))
+    args = ["--training-run", str(run), "--device", "cpu", "--local-files-only"]
+    recover(args)
+    checkpoint = run / "checkpoint_float32"
+    report = verify_checkpoint(checkpoint)
+    assert report["deployment_dtype"] == "torch.float32"
+    assert report["training_dtype"] == "torch.float32"
+    assert all(sha256_file(run / name) == digest for name, digest in saved_hashes.items())
+    manifest = json.loads((checkpoint / "training_manifest.json").read_text())
+    assert manifest["recovery"]["optimizer_steps"] == 0
+    assert manifest["recovery"]["reproduction"]["matched_examples"] > 0
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        recover(args)
+    # A different byte-level bundle cannot be paired with these factors.
+    altered = tmp_path / "altered.json"
+    altered.write_text(json.dumps(bundle) + "\n")
+    with pytest.raises(ValueError, match="bundle hash"):
+        recover(args + ["--training-bundle", str(altered), "--output-dir", str(run / "other")])
 
 
 def test_cli_localize_train_export(bundle, tokenizer, tmp_path):

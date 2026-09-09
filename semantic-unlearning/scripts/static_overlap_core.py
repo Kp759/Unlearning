@@ -191,6 +191,36 @@ class StaticEditor:
         }
 
     @torch.no_grad()
+    def load_artifact(self, artifact):
+        """Restore factors onto the original base, validating the whole artifact first."""
+        if self.merged:
+            raise RuntimeError("Cannot restore factors after merge")
+        if (set(artifact) != {"shared_endpoints", "rows", "writeouts"}
+                or artifact["shared_endpoints"] != self.shared
+                or set(artifact["rows"]) != set(self.rows)
+                or set(artifact["writeouts"]) != set(self.downs)):
+            raise ValueError("Saved factor architecture does not match the editor")
+        copies = []
+        for modules, saved, indices in ((self.rows, artifact["rows"], "rows"),
+                                        (self.downs, artifact["writeouts"], "channels")):
+            for key, module in modules.items():
+                state = saved[key]
+                if set(state) != {indices, "A", "B"}:
+                    raise ValueError(f"Invalid saved factor fields: {key}")
+                if (not isinstance(state[indices], torch.Tensor)
+                        or state[indices].dtype != getattr(module, indices).dtype
+                        or not torch.equal(state[indices].cpu(), getattr(module, indices).cpu())):
+                    raise ValueError(f"Saved editable indices differ: {key}")
+                for name in ("A", "B"):
+                    value, parameter = state[name], getattr(module, name)
+                    if (not isinstance(value, torch.Tensor) or value.shape != parameter.shape
+                            or value.dtype != parameter.dtype or not torch.isfinite(value).all()):
+                        raise ValueError(f"Invalid saved factor: {key}.{name}")
+                    copies.append((parameter, value))
+        for parameter, value in copies:
+            parameter.copy_(value)
+
+    @torch.no_grad()
     def merge(self):
         if self.merged:
             raise RuntimeError("Already merged; refusing to add deltas twice")

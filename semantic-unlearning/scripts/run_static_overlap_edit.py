@@ -22,7 +22,7 @@ def parse_args(argv=None):
     parser.add_argument("--config", default=str(Path(__file__).resolve().parents[1] / "config/static_overlap_edit.json"))
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--dtype", choices=("float32", "bfloat16"), default="float32")
-    parser.add_argument("--deployment-dtype", choices=("float32", "bfloat16", "float16"), default="bfloat16")
+    parser.add_argument("--deployment-dtype", choices=("float32", "bfloat16", "float16"), default="float32")
     parser.add_argument("--local-files-only", action="store_true")
     parser.add_argument("--steps", type=int, help="Override the config step count for a coverage pilot")
     return parser.parse_args(argv)

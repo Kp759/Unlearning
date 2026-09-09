@@ -5,6 +5,46 @@ mean forget NLL change is small, and 10 accepted steps only mean that the old
 retention checks passed. Re-score the base and edited models with the same
 metric implementation before comparing them.
 
+## Recover an export failure without retraining
+
+The training runner saves `training_factors.pt`, `training_report.json`, and
+`manifest.json` before export. A failure after step 25 does not require repeating
+those steps. Keep `REPAIR_OUT` pointing to that completed run and recover into a
+new directory:
+
+```bash
+git pull --ff-only origin feat/static-overlap-constrained-editing
+python scripts/export_static_overlap_edit.py \
+  --training-run "$REPAIR_OUT" \
+  --model-path "$MODEL_PATH" --training-bundle "$TRAIN_BUNDLE" \
+  --deployment-dtype float32 --device cuda --local-files-only
+```
+
+The checkpoint is written to `$REPAIR_OUT/checkpoint_float32`. Use that path for
+`--checkpoint` in the evaluation commands below. Recovery checks the exact
+bundle hash, editable indices and factor shapes, then reproduces the saved
+base/edited NLL and KL statistics before merging. It uses the original model
+and tokenizer and performs zero optimizer steps. Existing checkpoint directories
+and training files are not overwritten; specify a new `--output-dir` for another
+attempt. The numerical reproduction check does not retroactively establish a
+cryptographic identity for an older run's unhashed base weights.
+
+Export now verifies merging in the training dtype first, casting second, and
+reload last. Each failed check writes `static_edit_export_failure.json` with its
+stage, example, error magnitude and failing-logit count. The success marker is
+absent on failure. Parity tolerances and retention budgets remain unchanged.
+
+Float32 is the default export dtype because converting the entire model to
+bfloat16 can change logits independently of the edit and can round small weight
+updates away. Bfloat16 export remains available when its verification passes.
+Float32 uses more storage and inference memory. The old combined failure cannot
+establish whether merging or casting caused the discrepancy; the staged check
+now distinguishes them.
+
+Recovered export does not imply successful unlearning. Evaluate the saved run
+against its base. Future training logs also include the proposal radius,
+backtrack count, update direction, forgetting progress and retention maxima.
+
 ## Verified issues and changes
 
 - `evaluate_static_overlap_edit.py` called the legacy CounterFact summary,
@@ -116,7 +156,7 @@ export REPAIR_OUT="$PWD/outputs/static_overlap_mcf_seed1_repair_$(date +%Y%m%d_%
 python scripts/run_static_overlap_edit.py \
   --model-path "$MODEL_PATH" --training-bundle "$TRAIN_BUNDLE" \
   --output-dir "$REPAIR_OUT" --config config/static_overlap_edit.json \
-  --steps 25 --device cuda --dtype float32 --deployment-dtype bfloat16 \
+  --steps 25 --device cuda --dtype float32 --deployment-dtype float32 \
   2>&1 | tee static_overlap_mcf_seed1_repair_train.log
 
 python scripts/evaluate_static_overlap_edit.py \

@@ -224,8 +224,9 @@ def train(editor, examples, config, log_path=None):
                       step_radius=radius, forget_examples_seen=len(seen_forget),
                       forget_examples_total=len(forget))
         if record["accepted"]:
-            # Grow only when actual nonlinear retention AND forgetting pass;
-            # backtracked steps reduce the next radius to their accepted scale.
+            # Keep search room for the projection: the initial radius is a
+            # proposal floor, not a minimum accepted step. Actual nonlinear
+            # budget checks may backtrack to much smaller updates.
             radius = min(config.max_step_radius,
                          max(config.step_radius, radius * 0.5 ** record["backtracks"])
                          * (config.radius_growth if record["backtracks"] == 0 else 1.0))
@@ -233,7 +234,9 @@ def train(editor, examples, config, log_path=None):
         if log_path:
             with Path(log_path).open("a") as stream:
                 stream.write(json.dumps(record, allow_nan=False) + "\n")
-        print(json.dumps({k: record[k] for k in ("step", "accepted", "objective", "step_norm")}), flush=True)
+        print(json.dumps({k: record.get(k) for k in (
+            "step", "accepted", "objective", "step_norm", "step_radius", "backtracks",
+            "direction", "forget_progress", "max_retained_nll_increase", "max_retained_kl")}), flush=True)
         stalls = 0 if record["accepted"] else stalls + 1
         if stalls >= config.max_stalled_steps:
             break
@@ -286,20 +289,31 @@ def export_verified(editor, tokenizer, examples, config, output, deployment_dtyp
             with editor.base():
                 base, _ = selected_logits(model_logits(editor.model, e), e)
             torch.save({"factor": factor.cpu(), "base": base.cpu(), "labels": labels.cpu()}, temporary / f"{i}.pt")
-        editor.merge()
-        editor.model.to(dtype=deployment_dtype)
-        if tied_weights(editor.model) != shared:
-            raise RuntimeError("Casting lost endpoint weight sharing")
+        def fail(stage, message, **diagnostics):
+            failure = {"verified": False, "stage": stage, "message": message, **diagnostics}
+            (output / "static_edit_export_failure.json").write_text(
+                json.dumps(failure, indent=2, allow_nan=False) + "\n")
+            raise RuntimeError(f"{message}; stage={stage}; inspect {output / 'static_edit_export_failure.json'}. "
+                               "Saved training_factors.pt can be re-exported without training.")
 
-        def verify(model):
+        def verify(model, stage):
             rows, max_error = [], 0.0
             for i, e in enumerate(examples):
                 reference = torch.load(temporary / f"{i}.pt", weights_only=True)
                 values, labels = selected_logits(model_logits(model, e), e)
                 values, labels = values.cpu(), labels.cpu()
-                if not torch.isfinite(values).all() or not torch.allclose(values, reference["factor"], atol=atol, rtol=rtol):
-                    raise RuntimeError(f"Merged/cast/reloaded parity failed for {e.id}")
-                max_error = max(max_error, (values - reference["factor"]).abs().max().item())
+                expected = reference["factor"]
+                if not torch.equal(labels, reference["labels"]) or values.shape != expected.shape:
+                    fail(stage, f"Selected token/shape parity failed for {e.id}", example_id=e.id)
+                finite = bool(torch.isfinite(values).all() and torch.isfinite(expected).all())
+                difference = (values - expected).abs()
+                close = torch.isclose(values, expected, atol=atol, rtol=rtol)
+                if not finite or not bool(close.all()):
+                    fail(stage, f"Selected logit parity failed for {e.id}", example_id=e.id,
+                         finite=finite, max_abs_error=difference.max().item() if finite else None,
+                         failing_logits=int((~close).sum()), selected_logits=values.numel(),
+                         atol=atol, rtol=rtol, model_dtype=str(next(model.parameters()).dtype))
+                max_error = max(max_error, difference.max().item())
                 base_logp, logp = reference["base"].log_softmax(-1), values.log_softmax(-1)
                 nll = -logp.gather(-1, labels[:, None]).mean().item()
                 base_nll = -base_logp.gather(-1, labels[:, None]).mean().item()
@@ -308,11 +322,21 @@ def export_verified(editor, tokenizer, examples, config, output, deployment_dtyp
                              "kl": (base_logp.exp() * (base_logp - logp)).sum(-1).mean().clamp_min(0).item()})
             passed, protection = within_budgets(rows, config)
             if not passed:
-                raise RuntimeError(f"Deployment retention budgets failed: {protection}")
+                fail(stage, "Deployment retention budgets failed", protection=protection)
             return {"max_selected_logit_error": max_error, "protection": protection,
                     "forgetting": forgetting_status(rows, config), "metrics": rows}
 
-        merged_report = verify(editor.model)
+        training_dtype = next(editor.model.parameters()).dtype
+        editor.merge()
+        merged_report = verify(editor.model, "merge")
+        deployment_report = merged_report
+        if deployment_dtype != training_dtype:
+            editor.model.to(dtype=deployment_dtype)
+            if tied_weights(editor.model) != shared:
+                fail("cast", "Casting lost endpoint weight sharing")
+            # Casting changes all weights and arithmetic, independently of the
+            # edit. Keep the same strict check; use FP32 recovery if it fails.
+            deployment_report = verify(editor.model, "cast")
         # Do not carry a source checkpoint's generation penalties or hard masks
         # into the native artifact. EOS/BOS/PAD retain their ordinary semantics.
         from transformers import GenerationConfig
@@ -330,14 +354,19 @@ def export_verified(editor, tokenizer, examples, config, output, deployment_dtyp
         reloaded = reload_model(output)
         reloaded.eval()
         if tied_weights(reloaded) != shared:
-            raise RuntimeError("Reload lost endpoint weight sharing")
-        reloaded_report = verify(reloaded)
+            fail("reload", "Reload lost endpoint weight sharing")
+        actual_dtype = next(reloaded.parameters()).dtype
+        if actual_dtype != deployment_dtype:
+            fail("reload", "Reload dtype differs from requested deployment dtype",
+                 expected_dtype=str(deployment_dtype), actual_dtype=str(actual_dtype))
+        reloaded_report = verify(reloaded, "reload")
     files = {p.name: sha256_file(p) for p in output.iterdir() if p.is_file()}
     report = {"verified": True, "runtime_router": False, "runtime_guard": False,
               "verification_scope": "native checkpoint parity and finite-anchor retention, not successful unlearning",
               "forgetting_target_met": reloaded_report["forgetting"]["target_met"],
               "shared_endpoints": shared, "deployment_dtype": str(deployment_dtype),
               "parity_atol": atol, "parity_rtol": rtol,
-              "merged": merged_report, "reloaded": reloaded_report, "file_sha256": files}
+              "training_dtype": str(training_dtype), "merged": merged_report,
+              "deployment": deployment_report, "reloaded": reloaded_report, "file_sha256": files}
     (output / "static_edit_export.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     return report
