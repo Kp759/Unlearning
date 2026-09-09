@@ -5,6 +5,94 @@ mean forget NLL change is small, and 10 accepted steps only mean that the old
 retention checks passed. Re-score the base and edited models with the same
 metric implementation before comparing them.
 
+## Fresh hard-example experiment with retention margins
+
+The five-step solver continuation accepted all steps, but mean fitting token
+probability changed only from 5.0648% to 5.0248%, and the worst example worsened
+from 72.55% to 73.02%. Its final KL was 0.009999802, effectively at the training
+limit. Validation retention remained invalid (NLL increase 0.211648, KL 0.021239).
+These are training-bundle diagnostics, not official Eff/Gen.
+
+The separate `config/static_overlap_hard_examples.json` preset starts from the
+original base and retains the two-layer, rank-8, 64-channel architecture for a
+controlled optimization comparison. It explicitly rejects continuation.
+Existing presets retain their earlier behavior unless the new options are set.
+
+The new mode implements:
+
+- **Detached capped weights.** For each fact, use the maximum token probability
+  across its fitting views, `P_f = max_view(exp(-mean_answer_NLL))`. With `m`
+  equal to `hard_example_mix` and `C` to `hard_example_cap`, the raw fact weight
+  is `1 + m * min(C - 1, P_f / mean_fact(P_f))`. Weights are computed from
+  detached scalars once per optimizer step and held fixed for every candidate
+  and final recheck. With `m=1, C=4`, raw fact weights lie in `[1,4]`. Each
+  fact's weight is divided among its views, then losses are normalized by the
+  included weights. The floor prevents low-probability facts from disappearing.
+- **Coverage.** Each epoch orders the most remembered facts first, then visits
+  every fitting view without replacement. Hard-example mode does not stop for
+  consecutive rejected steps before trying every fitting example once, unless
+  the requested step budget ends first.
+- **Candidate comparison.** Mixed Adam and pure forget descent each search for
+  their first feasible step. Feasible candidates must improve the same fixed,
+  weighted hinge objective over **all training forget examples**, in addition
+  to batch progress and every training retention constraint. The larger global
+  improvement wins. The selected parameters are restored and checked again;
+  Adam state is discarded if pure forget descent wins. This compares two
+  searched directions, not every possible feasible update.
+- **Internal margins.** `retain_nll_safety_margin=0.01` and
+  `retain_kl_safety_margin=0.002` yield fitting limits of **0.04 NLL / 0.008 KL**.
+  They apply to active-anchor selection, remaining projection allowances, and
+  complete nonlinear training checks. Scientific validation limits stay
+  **0.05 / 0.01**. Export retains its separately documented FP32 numerical
+  allowance; the margins do not loosen validation or export checks.
+- **Best valid checkpoint.** After each accepted step, check validation
+  retention without gradients. Eligible states must pass both internal
+  training limits and nominal validation limits. Among eligible states,
+  minimize: largest remaining NLL gap to a fitting suppression target, then
+  maximum fitting token probability, then mean fitting token probability. This
+  score is consistent across steps and does not use the changing hard-example weights.
+  Validation forget examples and official MCF Gen are never selection scores.
+
+Every accepted state is saved under `accepted_checkpoints/step_XXXXXX.pt`, with
+a matching JSON record. At completion, the best eligible state is restored and
+its metrics are recomputed; `training_factors.pt` and the main report refer to
+that state. If it differs from the last accepted state, the latter is preserved
+as `last_training_factors.pt` with `last_training_statistics.json`. The main
+report records `checkpoint_selection.selected_step` and `last_iterate`.
+If no eligible state exists, `selected_step` is null and native export is refused;
+the unedited base is never substituted as a successful result.
+
+Run the next pilot fresh on EC2, with all paths explicit:
+
+```bash
+cd /home/ec2-user/workspace/Unlearning-static-overlap/semantic-unlearning
+export MODEL_PATH="/home/ec2-user/models/Llama-3.2-3B-Instruct"
+export TRAIN_BUNDLE="$PWD/data/static_overlap_mcf_seed1_train.json"
+export HARD_OUT="$PWD/outputs/static_overlap_hard_$(date +%Y%m%d_%H%M%S)"
+set -o pipefail
+
+python scripts/run_static_overlap_edit.py \
+  --model-path "$MODEL_PATH" --training-bundle "$TRAIN_BUNDLE" \
+  --output-dir "$HARD_OUT" --config config/static_overlap_hard_examples.json \
+  --steps 25 --device cuda --dtype float32 --local-files-only --training-only \
+  2>&1 | tee "$HARD_OUT.log"
+```
+
+Inspect `initial_training_forgetting` (not `resume_before_training_forgetting`),
+`training_forgetting`, `training_protection`, `validation_protection`, and
+`checkpoint_selection` in `training_report.json`. History adds
+`forget_batch_ids`, `forget_batch_weights`, `global_forget_progress`, and
+`candidate_results`. `projection_violation` reports the chosen line-search
+step's linear residual. `forget_progress` alone remains a minibatch statistic.
+
+This is an opt-in experiment, not an established Llama 0/0 configuration.
+Margins may help validation generalization but do not guarantee it. Official
+Gen stays entirely held out from fitting, weighting, candidate comparison and
+checkpoint selection. Only evaluate official Eff/Gen after a retention-valid
+checkpoint is available. Local regression experiments verify capped gradients,
+complete coverage, stronger feasible candidate selection, restoration of an
+earlier valid checkpoint, and exact selected-factor recovery.
+
 ## Projection repair and continuation diagnostic
 
 The active-projection run reported nine rejected steps, all ending with
@@ -362,6 +450,7 @@ it is not an MCF or Llama result.
 
 ```bash
 python -m pytest -q \
+  tests/test_static_overlap_forgetting_priority.py \
   tests/test_static_overlap_active_constraints.py \
   tests/test_static_overlap_edit.py \
   tests/test_static_overlap_export_slack.py \

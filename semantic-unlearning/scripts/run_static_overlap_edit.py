@@ -94,6 +94,8 @@ def main(argv=None):
 
     args = parse_args(argv)
     settings, config = load_config(args.config)
+    if args.resume_training_run and config.fresh_start_only:
+        raise ValueError("This experiment requires a fresh start from the original base model; omit --resume-training-run")
     if args.steps is not None:
         config.steps = args.steps
         config.validate()
@@ -175,10 +177,12 @@ def main(argv=None):
                           "initial_training_forgetting": report["initial_training_forgetting"],
                           "training_forgetting": report["training_forgetting"],
                           "training_protection": report["training_protection"],
-                          "validation_protection": report["validation_protection"]}, indent=2), flush=True)
+                          "validation_protection": report["validation_protection"],
+                          "checkpoint_selection": report.get("checkpoint_selection")}, indent=2), flush=True)
         return
     passed, protection = within_budgets(report["validation"], config)
-    if not report["accepted_steps"] or not passed:
+    no_selected_checkpoint = config.select_best_valid_checkpoint and report["checkpoint_selection"]["selected_step"] is None
+    if not report["accepted_steps"] or not passed or no_selected_checkpoint:
         raise RuntimeError(f"No validated edited checkpoint to export; inspect training_report.json: {protection}")
 
     def reload_model(path):

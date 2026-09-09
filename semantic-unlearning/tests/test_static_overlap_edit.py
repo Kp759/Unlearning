@@ -564,3 +564,36 @@ def test_cli_rejects_directory_bundle_and_incomplete_resume_run(tmp_path, capsys
     with pytest.raises(SystemExit):
         parse_args(args + ["--resume-training-run", str(tmp_path)])
     assert "--resume-training-run is missing manifest.json" in capsys.readouterr().err
+
+
+def test_fresh_priority_cli_saves_selected_factors_and_rejects_continuation(bundle, tokenizer, tmp_path):
+    from run_static_overlap_edit import main
+    from export_static_overlap_edit import verify_recovered_statistics
+    base = tmp_path / "base"
+    tiny(len(tokenizer), tied=True).save_pretrained(base)
+    tokenizer.save_pretrained(base)
+    settings = json.loads((ROOT / "config/static_overlap_hard_examples.json").read_text())
+    settings["training"]["steps"] = 2
+    config_path, bundle_path = tmp_path / "config.json", tmp_path / "bundle.json"
+    config_path.write_text(json.dumps(settings))
+    bundle_path.write_text(json.dumps(bundle))
+    output = tmp_path / "priority"
+    args = ["--model-path", str(base), "--training-bundle", str(bundle_path), "--output-dir", str(output),
+            "--config", str(config_path), "--device", "cpu", "--local-files-only", "--training-only"]
+    main(args)
+    report = json.loads((output / "training_report.json").read_text())
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert not report["resumed_from_factors"] and "continuation" not in manifest
+    assert report["checkpoint_selection"]["selected_step"] is not None
+    assert report["training_protection"]["applied_nll_budget"] == .04
+    assert report["training_protection"]["applied_kl_budget"] == .008
+    assert report["validation_protection"]["applied_nll_budget"] == .05
+    assert report["validation_protection"]["applied_kl_budget"] == .01
+    assert not (output / "checkpoint").exists()
+    examples = encode_bundle(bundle, tokenizer)
+    restored = StaticEditor(LlamaForCausalLM.from_pretrained(base), manifest["input_rows"], manifest["output_rows"],
+                            {int(k): v for k, v in manifest["selected_channels"].items()}, rank=8)
+    restored.load_artifact(torch.load(output / "training_factors.pt", weights_only=True))
+    assert verify_recovered_statistics(restored, examples, report)["matched_examples"] > 0
+    with pytest.raises(ValueError, match="fresh start"):
+        main(args + ["--resume-training-run", str(output), "--output-dir", str(tmp_path / "continued")])

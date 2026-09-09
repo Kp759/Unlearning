@@ -437,7 +437,7 @@ def project_update_reduced(proposal, gradients, epsilon, radius, tolerance=1e-7,
 def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
                      radius, backtracks=10, projection_tolerance=1e-7,
                      fallback_direction=None, refine_constraints=None,
-                     max_constraint_refinements=4):
+                     max_constraint_refinements=4, candidate_score=None):
     """Project the actual Adam proposal; validate nonlinear budgets and rollback.
 
     ``check`` returns (accepted, diagnostics) for the current full edited model.
@@ -447,6 +447,9 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
     expanded (gradients, allowances) pair. It runs at the ORIGINAL parameters,
     so new linearizations share the proposal's origin. Reproject the same Adam
     proposal without another optimizer step before resorting to backtracking.
+    If candidate_score is supplied, compare the first feasible step in each
+    direction using that common score (higher is better), then recheck the
+    winner. Only the winner's parameters and appropriate Adam state survive.
     """
     if type(max_constraint_refinements) is not int or max_constraint_refinements < 0:
         raise ValueError("max_constraint_refinements must be a nonnegative integer")
@@ -466,6 +469,8 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
     refinements, checks = 0, 0
     projection_attempts = []
     failure_reason = "no_feasible_step"
+    best = None
+    candidate_results = []
 
     def solve(candidate):
         result = project_update(candidate, gradients, epsilon, radius,
@@ -487,6 +492,7 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
     try:
         for direction, candidate in proposals:
             previous_projection = None
+            direction_accepted = False
             while True:
                 projection = solve(candidate)
                 using_previous = False
@@ -513,20 +519,36 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
                         accepted, diagnostics = check()
                         checks += 1
                         if accepted:
-                            if direction != "adam":
-                                # No Adam proposal was applied; discard its moments.
-                                optimizer.load_state_dict(state)
-                            return {"accepted": True, "backtracks": trial, "direction": direction,
+                            linear_violation = max(0., (gradients @ (scale * projection.delta) - epsilon).max().item()
+                                                   if len(gradients) else 0.,
+                                                   (scale * projection.delta).norm().item() - radius)
+                            accepted_record = {"accepted": True, "backtracks": trial, "direction": direction,
                                     "proposal_norm": candidate.norm().item(),
                                     "projected_norm": projection.delta.norm().item(),
                                     "step_norm": (scale * projection.delta).norm().item(),
                                     "projection_iterations": projection.iterations,
                                     "projection_converged": True,
+                                    "projection_violation": linear_violation,
                                     "constraint_refinements": refinements, "nonlinear_checks": checks,
                                     "projection_attempts": projection_attempts,
                                     "used_previous_projection": using_previous,
                                     "diagnostics_scope": "accepted_step",
                                     **diagnostics}
+                            if candidate_score is None:
+                                if direction != "adam":
+                                    optimizer.load_state_dict(state)
+                                return accepted_record
+                            score = float(candidate_score(diagnostics))
+                            if not math.isfinite(score):
+                                raise ValueError("Candidate comparison requires a finite score")
+                            candidate_results.append({"direction": direction, "accepted": True,
+                                                      "score": score, "step_norm": accepted_record["step_norm"],
+                                                      "backtracks": trial})
+                            if best is None or score > best[0]:
+                                best = (score, flat_parameters(parameters).clone(), accepted_record)
+                            set_parameters(parameters, before)
+                            direction_accepted = True
+                            break
                         failure_reason = "nonlinear_checks_failed"
                         set_parameters(parameters, before)
                         if refine_constraints is not None and refinements < max_constraint_refinements:
@@ -540,6 +562,20 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
                     failure_reason = "zero_projected_step"
                 if not refined:
                     break
+            if candidate_score is not None and not direction_accepted:
+                candidate_results.append({"direction": direction, "accepted": False,
+                                          "failure_reason": failure_reason})
+        if best is not None:
+            set_parameters(parameters, best[1])
+            accepted, diagnostics = check()
+            checks += 1
+            if accepted:
+                if best[2]["direction"] != "adam":
+                    optimizer.load_state_dict(state)
+                return {**best[2], **diagnostics, "candidate_results": candidate_results,
+                        "constraint_refinements": refinements, "nonlinear_checks": checks,
+                        "projection_attempts": projection_attempts}
+            failure_reason = "selected_candidate_recheck_failed"
     except BaseException:
         set_parameters(parameters, before)
         optimizer.load_state_dict(state)
@@ -552,5 +588,6 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
             "projection_iterations": projection.iterations, "step_norm": 0.0,
             "constraint_refinements": refinements, "nonlinear_checks": checks,
             "projection_attempts": projection_attempts, "failure_reason": failure_reason,
+            "candidate_results": candidate_results,
             "diagnostics_scope": "rolled_back", "forget_progress": 0.0,
             "last_rejected_trial": diagnostics}

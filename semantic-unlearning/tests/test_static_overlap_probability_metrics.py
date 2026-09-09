@@ -222,3 +222,72 @@ def test_continuation_measures_forgetting_without_rebasing_or_fitting_failed_val
     assert all(not key.startswith("validation:") for r in after["history"] for key in r["projected_anchor_ids"])
     with pytest.raises(ValueError, match="outside the original training retention budgets"):
         train(editor, examples, TrainConfig(steps=1, retain_nll_budget=0., retain_kl_budget=0.), resume=True)
+
+
+def test_priority_training_preserves_earlier_valid_checkpoint_and_excludes_validation_gradients(tmp_path, monkeypatch):
+    torch.manual_seed(1)
+    examples = []
+    for split in ("train", "validation"):
+        for role, prompt, answer, fact in (("forget", 1, 5, "f"), ("abstain", 1, 7, "f"),
+                                          ("retain", 2 if split == "train" else 1, 5, "r"),
+                                          ("language", 3, 6, None)):
+            examples.append(Example(f"{split}:{role}", split, role, fact, [prompt, answer], [-100, answer],
+                                    str(prompt), str(answer), f"{split}:{fact}"))
+    editor = StaticEditor(SeparableFactLM(), [], [5, 7], {}, rank=8)
+    import static_overlap_training as training
+    original_logits = training.model_logits
+
+    def audited_logits(model, example):
+        if example.split != "train":
+            assert not torch.is_grad_enabled()
+        return original_logits(model, example)
+
+    monkeypatch.setattr(training, "model_logits", audited_logits)
+    config = TrainConfig(steps=40, learning_rate=.01, step_radius=.02, max_step_radius=.02,
+                         radius_growth=1., hard_example_mix=1., compare_forget_candidates=True,
+                         select_best_valid_checkpoint=True, fresh_start_only=True,
+                         retain_nll_safety_margin=.01, retain_kl_safety_margin=.002)
+    result = train(editor, examples, config, tmp_path / "training.jsonl")
+    assert result["checkpoint_selection"]["selected_step"] is not None
+    assert result["checkpoint_selection"]["selected_step"] < result["last_iterate"]["step"]
+    assert result["validation_protection"]["retention_passed"]
+    assert not result["last_iterate"]["validation_protection"]["retention_passed"]
+    assert result["training_protection"]["applied_nll_budget"] == .04
+    assert result["validation_protection"]["applied_nll_budget"] == .05
+    assert (tmp_path / "last_training_factors.pt").is_file()
+    assert len(list((tmp_path / "accepted_checkpoints").glob("*.pt"))) == result["accepted_steps"]
+    snapshot = torch.load(tmp_path / "accepted_checkpoints" / f"step_{result['checkpoint_selection']['selected_step']:06d}.pt",
+                          weights_only=True)
+    restored = StaticEditor(SeparableFactLM(), [], [5, 7], {}, rank=8)
+    restored.load_artifact(snapshot)
+    from static_overlap_training import measure
+    assert measure(restored, examples) == measure(editor, examples)
+    assert all(not key.startswith("validation:") for row in result["history"] for key in row["projected_anchor_ids"])
+    with pytest.raises(ValueError, match="fresh start"):
+        train(editor, examples, config, resume=True)
+
+
+@pytest.mark.parametrize("reject_all", [False, True])
+def test_priority_batches_start_with_most_remembered_fact_and_keep_complete_coverage(monkeypatch, reject_all):
+    torch.manual_seed(1)
+    examples = []
+    for split in ("train", "validation"):
+        for role, prompt, answer, fact in (("forget", 1, 5, "f"), ("abstain", 1, 7, "f"),
+                                          ("forget", 4, 6, "g"), ("abstain", 4, 7, "g"),
+                                          ("retain", 2, 5, "r"), ("language", 3, 6, "l")):
+            examples.append(Example(f"{split}:{role}:{fact}", split, role, fact, [prompt, answer], [-100, answer],
+                                    str(prompt), str(answer), f"{split}:{fact}"))
+    editor = StaticEditor(SeparableFactLM(), [], [5, 6, 7], {}, rank=8)
+    if reject_all:
+        monkeypatch.setattr("static_overlap_training.constrained_step", lambda *a, **kw:
+                            {"accepted": False, "step_norm": 0., "forget_progress": 0.})
+    result = train(editor, examples, TrainConfig(steps=4, batch_size=1, hard_example_mix=1.,
+                                                compare_forget_candidates=True, learning_rate=.01,
+                                                max_stalled_steps=1 if reject_all else 10))
+    assert result["history"][0]["forget_batch_ids"] == ["train:forget:f"]
+    assert result["history"][1]["forget_batch_ids"] == ["train:forget:g"]
+    assert result["forget_examples_seen"] == result["forget_examples_total"] == 2
+    assert all(row["global_forget_progress"] > 0 for row in result["history"] if row["accepted"])
+    if reject_all:
+        assert len(result["history"]) == 2
+        assert result["stop_reason"] == "no_useful_feasible_step"
