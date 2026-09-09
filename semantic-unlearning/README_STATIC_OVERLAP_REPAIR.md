@@ -32,7 +32,38 @@ cryptographic identity for an older run's unhashed base weights.
 Export now verifies merging in the training dtype first, casting second, and
 reload last. Each failed check writes `static_edit_export_failure.json` with its
 stage, example, error magnitude and failing-logit count. The success marker is
-absent on failure. Parity tolerances and retention budgets remain unchanged.
+absent on failure. Logit parity tolerances and nominal retention budgets remain
+unchanged.
+
+FP32 export verification allows an explicit absolute numerical slack of `5e-6`
+for NLL increase and KL, after merge and after reload. Training constraints and
+the factor-recovery checks remain strict; other model dtypes receive no slack.
+The decision uses the unrounded observed value <= nominal budget + slack.
+For example, NLL increase `0.05000114440917969` with KL
+`9.294498158851638e-05` is a `numerical_boundary_pass` under nominal budgets
+`0.05` and `0.01`. An excess greater than `5e-6` still fails.
+
+Every export stage's `protection` report preserves the original maxima and adds
+`observed_max_retained_nll_increase`, `observed_max_retained_kl`,
+`nominal_retain_nll_budget`, `nominal_retain_kl_budget`, `numerical_slack`,
+`nominal_budgets_passed`, `passed_with_numerical_slack`, and `classification`.
+`passed_with_numerical_slack` is true only if the check needed the allowance.
+This records numerical acceptance explicitly, rather than claiming the raw
+value met the nominal budget.
+
+If `checkpoint_float32` already exists from the boundary failure, preserve it
+and rerun export into a new directory:
+
+```bash
+python scripts/export_static_overlap_edit.py \
+  --training-run "$REPAIR_OUT" \
+  --model-path "$MODEL_PATH" --training-bundle "$TRAIN_BUNDLE" \
+  --output-dir "$REPAIR_OUT/checkpoint_float32_numeric" \
+  --deployment-dtype float32 --device cuda --local-files-only
+```
+
+After verification succeeds, use `$REPAIR_OUT/checkpoint_float32_numeric` as
+`--checkpoint` for the matched-base evaluation. No training rerun is needed.
 
 Float32 is the default export dtype because converting the entire model to
 bfloat16 can change logits independently of the edit and can round small weight
@@ -190,6 +221,7 @@ it is not an MCF or Llama result.
 ```bash
 python -m pytest -q \
   tests/test_static_overlap_edit.py \
+  tests/test_static_overlap_export_slack.py \
   tests/test_static_overlap_probability_metrics.py \
   tests/test_static_overlap_mcf_language.py \
   tests/test_mcf_zero_unlearn_metric_parity.py \

@@ -275,6 +275,13 @@ def test_export_native_reload_tying_and_generation(bundle, tokenizer, tmp_path, 
                              reload_model, atol=0.02, rtol=0.02)
     assert report["verified"] and report["shared_endpoints"]
     assert report["forgetting_target_met"] is False
+    assert report["export_retention_policy"]["float32_numeric_slack"] == 5e-6
+    assert report["merged"]["protection"]["numerical_slack"] == 5e-6
+    for stage in ("deployment", "reloaded"):
+        protection = report[stage]["protection"]
+        assert protection["numerical_slack"] == (5e-6 if dtype == torch.float32 else 0.0)
+        assert protection["nominal_retain_nll_budget"] == config.retain_nll_budget
+        assert protection["nominal_retain_kl_budget"] == config.retain_kl_budget
     verify_checkpoint(checkpoint)
     model = reload_model(checkpoint)
     assert model.get_input_embeddings().weight is model.get_output_embeddings().weight
