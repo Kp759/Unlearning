@@ -566,13 +566,21 @@ def test_cli_rejects_directory_bundle_and_incomplete_resume_run(tmp_path, capsys
     assert "--resume-training-run is missing manifest.json" in capsys.readouterr().err
 
 
-def test_fresh_priority_cli_saves_selected_factors_and_rejects_continuation(bundle, tokenizer, tmp_path):
+@pytest.mark.parametrize("preset", ["static_overlap_hard_examples.json", "static_overlap_replay.json"])
+def test_fresh_priority_cli_saves_selected_factors_and_rejects_continuation(bundle, tokenizer, tmp_path, preset):
     from run_static_overlap_edit import main
     from export_static_overlap_edit import verify_recovered_statistics
     base = tmp_path / "base"
     tiny(len(tokenizer), tied=True).save_pretrained(base)
     tokenizer.save_pretrained(base)
-    settings = json.loads((ROOT / "config/static_overlap_hard_examples.json").read_text())
+    settings = json.loads((ROOT / "config" / preset).read_text())
+    if preset == "static_overlap_replay.json":
+        from augment_static_overlap_retention import augment_retention
+        original_encoded = encode_bundle(bundle, tokenizer)
+        bundle, _ = augment_retention(bundle)
+        augmented_encoded = encode_bundle(bundle, tokenizer)
+        assert [e for e in augmented_encoded if e.split == "validation" or e.role in ("forget", "abstain")] == [
+            e for e in original_encoded if e.split == "validation" or e.role in ("forget", "abstain")]
     settings["training"]["steps"] = 2
     config_path, bundle_path = tmp_path / "config.json", tmp_path / "bundle.json"
     config_path.write_text(json.dumps(settings))

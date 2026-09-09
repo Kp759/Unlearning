@@ -46,6 +46,9 @@ class TrainConfig:
     retain_kl_safety_margin: float = 0.0
     hard_example_mix: float = 0.0
     hard_example_cap: float = 4.0
+    hard_replay_size: int = 0
+    lambda_worst_forget: float = 0.0
+    guard_worst_forget: bool = False
     compare_forget_candidates: bool = False
     select_best_valid_checkpoint: bool = False
     fresh_start_only: bool = False
@@ -63,8 +66,8 @@ class TrainConfig:
             if type(getattr(self, key)) is not int or getattr(self, key) <= 0:
                 raise ValueError(f"{key} must be a positive integer")
         if any(type(getattr(self, key)) is not int
-               for key in ("backtracks", "seed", "max_constraint_refinements")):
-            raise ValueError("backtracks, seed and max_constraint_refinements must be integers")
+               for key in ("backtracks", "seed", "max_constraint_refinements", "hard_replay_size")):
+            raise ValueError("backtracks, seed, max_constraint_refinements and hard_replay_size must be integers")
         for key in ("learning_rate", "forget_increase", "step_radius", "lambda_forget", "lambda_retain", "lambda_kl"):
             if getattr(self, key) <= 0:
                 raise ValueError(f"{key} must be positive")
@@ -77,7 +80,7 @@ class TrainConfig:
         if (self.retain_nll_safety_margin > self.retain_nll_budget
                 or self.retain_kl_safety_margin > self.retain_kl_budget):
             raise ValueError("Internal retention margins cannot exceed nominal budgets")
-        for key in ("compare_forget_candidates", "select_best_valid_checkpoint", "fresh_start_only"):
+        for key in ("compare_forget_candidates", "select_best_valid_checkpoint", "fresh_start_only", "guard_worst_forget"):
             if type(getattr(self, key)) is not bool:
                 raise ValueError(f"{key} must be a boolean")
 
@@ -237,6 +240,52 @@ def weighted_forget_loss(nlls, targets, weights):
     return sum(weights[key] * max(0., targets[key] - nlls[key]) for key in weights) / sum(weights.values())
 
 
+def worst_forget_status(nlls, targets):
+    if not nlls or set(nlls) != set(targets) or any(not math.isfinite(v) for v in nlls.values()):
+        raise ValueError("Worst-target checks require all finite fitting forget NLLs")
+    gap_id = max(nlls, key=lambda key: targets[key] - nlls[key])
+    probability_id = min(nlls, key=nlls.get)
+    return {"max_target_gap": max(0., targets[gap_id] - nlls[gap_id]),
+            "min_nll": nlls[probability_id], "max_token_probability": math.exp(-nlls[probability_id]),
+            "max_gap_id": gap_id, "max_probability_id": probability_id}
+
+
+def worst_forget_guard(nlls, targets, before):
+    """No per-step slack/ratcheting: neither worst fitting metric may regress."""
+    after = worst_forget_status(nlls, targets)
+    violations = [key for key in nlls
+                  if max(0., targets[key] - nlls[key]) > before["max_target_gap"]
+                  or nlls[key] < before["min_nll"]]
+    return not violations, {"worst_forget_before": before, "worst_forget_after": after,
+                           "worst_forget_progress": before["max_target_gap"] - after["max_target_gap"],
+                           "worst_forget_passed": not violations,
+                           "worst_forget_violating_ids": violations}
+
+
+def hard_replay_examples(examples, coverage, nlls, targets, count):
+    """Revisit the current worst views while keeping coverage slots intact."""
+    if not count:
+        return []
+    worst = worst_forget_status(nlls, targets)
+    by_id = {e.id: e for e in examples}
+    critical = [worst["max_gap_id"], worst["max_probability_id"]]
+    ranked = critical + sorted(nlls, key=lambda key: targets[key] - nlls[key], reverse=True)
+    seen, facts, replay, remaining = {e.id for e in coverage}, set(), [], []
+    for key in ranked:
+        if key in seen:
+            continue
+        seen.add(key)
+        e = by_id[key]
+        fact = e.fact_id or e.id
+        # Always include the two global extrema; otherwise favor distinct facts.
+        if fact in facts and key not in critical:
+            remaining.append(e)
+        else:
+            replay.append(e)
+            facts.add(fact)
+    return (replay + remaining)[:count]
+
+
 @torch.no_grad()
 def forget_nlls(editor, examples):
     # Original-base targets are already cached. Candidate scoring needs only
@@ -302,7 +351,9 @@ def train(editor, examples, config, log_path=None, *, resume=False):
     base_nll = {row["id"]: row["base_nll"] for row in baseline}
     targets = {e.id: forget_target(base_nll[e.id], config) for e in forget}
     current_forget_nlls = {row["id"]: row["nll"] for row in baseline if row["role"] == "forget"}
-    global_scoring = config.compare_forget_candidates or config.hard_example_mix > 0
+    global_scoring = (config.compare_forget_candidates or config.hard_example_mix > 0
+                      or config.hard_replay_size > 0 or config.guard_worst_forget or config.lambda_worst_forget > 0)
+    forget_by_id = {e.id: e for e in forget}
     selection = ValidCheckpointSelection(config, targets) if config.select_best_valid_checkpoint else None
     if selection is not None and not validation_anchors:
         raise ValueError("Best-valid-checkpoint selection requires validation retention anchors")
@@ -312,6 +363,7 @@ def train(editor, examples, config, log_path=None, *, resume=False):
     rng, history, stalls = random.Random(config.seed), [], 0
     radius = config.step_radius
     forget_order, forget_cursor, seen_forget = [], 0, set()
+    visits = {e.id: 0 for e in forget}
     abstain_by_key = {(e.group, e.fact_id): e for e in abstain}
     order = list(anchors)
     rng.shuffle(order)
@@ -338,13 +390,14 @@ def train(editor, examples, config, log_path=None, *, resume=False):
         # Freeze these weights for every candidate and recheck in this step.
         weights, fact_probabilities = hard_example_weights(forget, current_forget_nlls, config)
         before_global = weighted_forget_loss(current_forget_nlls, targets, weights)
+        before_worst = worst_forget_status(current_forget_nlls, targets)
         rotating = [order[(cursor + j) % len(order)]
                     for j in range(min(config.protected_batch_size, len(order)))]
         cursor = (cursor + len(rotating)) % len(order)
         active_ids = near_budget_anchor_ids(anchor_rows, config)
         selected_ids = active_ids | {e.id for e in rotating}
         protected = [e for e in anchors if e.id in selected_ids]
-        projected_ids, discovered_ids = set(), []
+        projected_ids, discovered_ids, projected_forget_ids = set(), [], set()
         protected_gradients, allowances = [], []
 
         def add_constraint(e):
@@ -360,36 +413,56 @@ def train(editor, examples, config, log_path=None, *, resume=False):
             protected_gradients.append(flat_gradient(kl, editor.parameters))
             projected_ids.add(e.id)
 
+        def add_forget_constraint(e):
+            # h_i = target_i - NLL_i. Linearize h_i <= current worst gap,
+            # and NLL_i >= current minimum NLL, at the unchanged step origin.
+            nll = answer_nll(model_logits(editor.model, e), e)
+            floor = max(targets[e.id] - before_worst["max_target_gap"], before_worst["min_nll"])
+            protected_gradients.append(-flat_gradient(nll, editor.parameters))
+            allowances.append(max(0., nll.detach().item() - floor) * 0.5)
+            projected_forget_ids.add(e.id)
+
         def constraint_tensors():
             gradients = torch.stack(protected_gradients)
             return gradients, gradients.new_tensor(allowances)
 
         for e in protected:
             add_constraint(e)
+        if config.guard_worst_forget:
+            for key in dict.fromkeys((before_worst["max_gap_id"], before_worst["max_probability_id"])):
+                add_forget_constraint(forget_by_id[key])
         gradients, initial_allowances = constraint_tensors()
 
         def refine_constraints(diagnostics):
             missing = [key for key in diagnostics.get("violating_anchor_ids", []) if key not in projected_ids]
-            if not missing:
+            missing_forget = ([key for key in diagnostics.get("worst_forget_violating_ids", [])
+                               if key not in projected_forget_ids] if config.guard_worst_forget else [])
+            if not missing and not missing_forget:
                 return None
             # constrained_step restores the original parameters before invoking
             # us. Never linearize at a rejected trial and apply at another point.
             for key in missing[:config.protected_batch_size]:
                 add_constraint(anchors_by_id[key])
                 discovered_ids.append(key)
+            for key in missing_forget[:config.protected_batch_size]:
+                add_forget_constraint(forget_by_id[key])
             return constraint_tensors()
 
         # Accumulate each micro-example separately to bound activation memory.
         # A detached leaf surrogate delivers this aggregate gradient to Adam.
         aggregate = torch.zeros_like(gradients[0])
-        components = {"forget": 0.0, "abstain": 0.0, "retain": 0.0, "kl": 0.0, "delta": 0.0}
+        components = {"forget": 0.0, "worst_forget": 0.0, "abstain": 0.0, "retain": 0.0, "kl": 0.0, "delta": 0.0}
 
         def add(name, loss):
             nonlocal aggregate
             components[name] += loss.detach().item()
             aggregate += flat_gradient(loss, editor.parameters)
 
-        forget_batch = next_forget_batch(fact_probabilities)
+        coverage_batch = next_forget_batch(fact_probabilities)
+        replay_batch = hard_replay_examples(forget, coverage_batch, current_forget_nlls, targets, config.hard_replay_size)
+        forget_batch = coverage_batch + replay_batch
+        for e in forget_batch:
+            visits[e.id] += 1
         batch_weight = sum(weights[e.id] for e in forget_batch)
         before_forget = 0.0
         for e in forget_batch:
@@ -397,6 +470,11 @@ def train(editor, examples, config, log_path=None, *, resume=False):
             loss = torch.relu(nll.new_tensor(forget_target(base_nll[e.id], config)) - nll)
             before_forget += weights[e.id] * max(0.0, targets[e.id] - nll.detach().item()) / batch_weight
             add("forget", config.lambda_forget * weights[e.id] * loss / batch_weight)
+        if config.lambda_worst_forget:
+            e = forget_by_id[before_worst["max_gap_id"]]
+            visits[e.id] += 1
+            nll = answer_nll(model_logits(editor.model, e), e)
+            add("worst_forget", config.lambda_worst_forget * torch.relu(nll.new_tensor(targets[e.id]) - nll))
         forget_gradient = aggregate.clone()
         if config.lambda_abstain:
             batch = [abstain_by_key[(e.group, e.fact_id)] for e in forget_batch]
@@ -453,6 +531,12 @@ def train(editor, examples, config, log_path=None, *, resume=False):
                                    global_forget_progress=global_progress if math.isfinite(global_progress) else None,
                                    global_forget_progress_passed=global_useful)
                 passed = global_useful
+                if math.isfinite(after_global):
+                    worst_pass, worst_diagnostics = worst_forget_guard(checked_forget_nlls, targets, before_worst)
+                    diagnostics.update(worst_diagnostics)
+                    diagnostics["candidate_forget_score"] = global_progress + config.lambda_worst_forget * worst_diagnostics["worst_forget_progress"]
+                    if config.guard_worst_forget:
+                        passed = passed and worst_pass
             return passed, {**diagnostics, **protection}
 
         record = constrained_step(optimizer, editor.parameters, surrogate, gradients, check,
@@ -460,13 +544,16 @@ def train(editor, examples, config, log_path=None, *, resume=False):
                                   backtracks=config.backtracks, fallback_direction=-forget_gradient,
                                   refine_constraints=refine_constraints,
                                   max_constraint_refinements=config.max_constraint_refinements,
-                                  candidate_score=(lambda d: d["global_forget_progress"])
+                                  candidate_score=(lambda d: d["candidate_forget_score"])
                                   if config.compare_forget_candidates else None)
         record.update(step=step + 1, objective=sum(components.values()), components=components,
                       step_radius=radius, forget_examples_seen=len(seen_forget),
                       forget_examples_total=len(forget), active_anchor_ids=sorted(active_ids),
                       projected_anchor_ids=sorted(projected_ids), discovered_anchor_ids=discovered_ids,
                       retention_rejections=retention_rejections,
+                      coverage_batch_ids=[e.id for e in coverage_batch], replay_batch_ids=[e.id for e in replay_batch],
+                      worst_gradient_id=before_worst["max_gap_id"] if config.lambda_worst_forget else None,
+                      projected_forget_ids=sorted(projected_forget_ids),
                       forget_batch_ids=[e.id for e in forget_batch],
                       forget_batch_weights={e.id: weights[e.id] / batch_weight for e in forget_batch},
                       encountered_violating_anchor_ids=sorted(encountered_violations))
@@ -506,7 +593,8 @@ def train(editor, examples, config, log_path=None, *, resume=False):
             "max_retained_nll_increase", "max_retained_nll_anchor_id", "max_retained_kl",
             "projection_converged", "failure_reason", "nonlinear_checks",
             "projection_attempts", "global_forget_progress", "candidate_results",
-            "selected_checkpoint_step", "validation_retention")}), flush=True)
+            "selected_checkpoint_step", "validation_retention", "replay_batch_ids",
+            "worst_forget_progress", "worst_forget_after")}), flush=True)
         stalls = 0 if record["accepted"] else stalls + 1
         if stalls >= config.max_stalled_steps and (config.hard_example_mix == 0 or len(seen_forget) == len(forget)):
             stalled_out = True
@@ -535,7 +623,7 @@ def train(editor, examples, config, log_path=None, *, resume=False):
         validation = measure(editor, [e for e in examples if e.split == "validation"])
         training_forget = measure(editor, forget)
         anchor_rows = measure(editor, anchors)
-    report = {"optimizer_version": "active_retention_projection_v4",
+    report = {"optimizer_version": "active_retention_projection_v5",
               "config": asdict(config), "history": history,
               "initial_training_forgetting": forgetting_status(baseline, config),
               "initial_training_forget_loss": training_forget_loss(baseline, config),
@@ -546,6 +634,7 @@ def train(editor, examples, config, log_path=None, *, resume=False):
                               "no_useful_feasible_step" if stalled_out else "step_budget"),
               "accepted_steps": sum(row["accepted"] for row in history),
               "forget_examples_seen": len(seen_forget), "forget_examples_total": len(forget),
+              "forget_gradient_visits": visits,
               "training_forget": training_forget,
               "training_protection": training_protection(anchor_rows, config, internal=True)[1],
               "training_forgetting": forgetting_status(training_forget, config),

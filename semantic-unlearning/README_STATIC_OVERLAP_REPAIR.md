@@ -5,6 +5,105 @@ mean forget NLL change is small, and 10 accepted steps only mean that the old
 retention checks passed. Re-score the base and edited models with the same
 metric implementation before comparing them.
 
+## Adaptive replay and retention context experiment
+
+The fresh hard-example run made 25 accepted updates and covered all 100 fitting
+forget examples. Before checkpoint restoration, mean token probability fell
+from 6.6954% to 5.1017%, but maximum probability ended at 82.5591% versus
+82.8683% at base. Validation retention failed at NLL increase 0.201105 and KL
+0.012736. Only steps 1 and 2 were eligible; step 1 was restored because step 2's
+worst fitting score regressed. This is partial average suppression, not a
+near-zero forgetting result.
+
+`config/static_overlap_replay.json` adds three opt-in changes while preserving
+the two-layer/rank-8/64-channel architecture, the repaired projection solver,
+detached capped weights, best-valid checkpoint selection, and a fresh start:
+
+- **Adaptive replay:** four ordinary coverage examples plus up to two extra
+  hard examples per step. Hardness is recomputed from all fitting forget NLLs
+  after accepted steps. The largest target gap and largest residual probability
+  receive priority, then distinct facts. Replay does not consume coverage slots
+  or duplicate an example inside the batch.
+- **Worst-target objective and acceptance:** add a separate hinge loss for
+  the currently largest fitting target gap (`lambda_worst_forget=1`). Its
+  gradient participates in both the mixed Adam and pure forget proposals. This
+  term retains its scale even when capped batch weights normalize similarly.
+  Candidates must still improve the full weighted fitting objective. They
+  must also keep both the largest target gap and largest token probability
+  nonincreasing over **all** fitting forget examples. There is no numerical
+  allowance that can accumulate regression. This is a check on global extrema,
+  not a guarantee that every individual fact improves at every step.
+- **Solver support for the new check:** initially include the gradients of
+  the two fitting extrema. For example `i`, linearize the NLL floor
+  `max(target_i - current_max_gap, current_min_NLL)`. Add missing fitting
+  constraints when nonlinear rechecks find another violating example. Actual
+  nonlinear forgetting and retention checks remain authoritative. Among passing
+  Adam/forget candidates, maximize weighted-average gap reduction plus
+  `lambda_worst_forget * worst_gap_reduction`.
+
+`scripts/augment_static_overlap_retention.py` prepares the retention contexts
+for this experiment. It uses only original **training** retention rows and two
+fixed instruction prefixes. Mixed companion answers are protected after both
+true-answer and neutral/abstention completions. All added labels are retain
+labels; the original forget supervision, facts, language anchors and validation
+examples remain unchanged. It reads no official evaluation file or MCF probes.
+Prompt collisions with validation and repeated augmentation are rejected.
+The sidecar records source/output hashes, templates and every source training
+row. This broadens context coverage; it does not guarantee validation retention.
+
+The scientific validation limits remain **0.05 NLL / 0.01 KL**, with the same
+internal training margins giving **0.04 / 0.008**. Validation is used only to
+determine checkpoint eligibility; official Gen remains entirely held out.
+Stricter worst-target checks can reveal a lack of useful feasible updates.
+The trainer reports that failure instead of weakening its checks.
+
+Run fresh on EC2. The augmented bundle has a new path and hash; do not resume
+the prior factors or overwrite their input bundle:
+
+```bash
+cd /home/ec2-user/workspace/Unlearning-static-overlap/semantic-unlearning
+export MODEL_PATH="/home/ec2-user/models/Llama-3.2-3B-Instruct"
+export TRAIN_BUNDLE="$PWD/data/static_overlap_mcf_seed1_train.json"
+export REPLAY_OUT="$PWD/outputs/static_overlap_replay_$(date +%Y%m%d_%H%M%S)"
+export AUG_BUNDLE="$REPLAY_OUT.training.json"
+set -o pipefail
+
+python scripts/augment_static_overlap_retention.py \
+  --training-bundle "$TRAIN_BUNDLE" --out "$AUG_BUNDLE" &&
+python scripts/run_static_overlap_edit.py \
+  --model-path "$MODEL_PATH" --training-bundle "$AUG_BUNDLE" \
+  --output-dir "$REPLAY_OUT" --config config/static_overlap_replay.json \
+  --steps 25 --device cuda --dtype float32 --local-files-only --training-only \
+  2>&1 | tee "$REPLAY_OUT.log"
+```
+
+The new terminal summary includes `last_iterate`, so the last state cannot be
+confused with the restored selected state. History adds `coverage_batch_ids`,
+`replay_batch_ids`, `worst_gradient_id`, `projected_forget_ids`,
+`worst_forget_before`, `worst_forget_after`, and `worst_forget_progress`.
+The report's `forget_gradient_visits` counts coverage/replay and the separate
+worst-target loss visits, including attempted steps. It excludes gradients used
+only for projection constraints. Candidate scores in replay mode include the
+worst-target reduction and are not the same as `global_forget_progress` alone.
+
+Once the selected state meets the fitting suppression target and both retention
+checks, recover a native FP32 checkpoint using the manifest's saved augmented
+bundle path:
+
+```bash
+python scripts/export_static_overlap_edit.py \
+  --training-run "$REPLAY_OUT" --model-path "$MODEL_PATH" \
+  --deployment-dtype float32 --device cuda --local-files-only
+```
+
+Then use the unchanged official base-versus-edit evaluator on the original
+evaluation bundle. A fitting target pass is not an official Gen pass.
+Local tests exercise two-fact suppression below `1e-6`, monotonic worst fitting
+probability, retention checks, disjoint augmentation, real tiny-Llama CLI
+training, and selected-factor recovery. These tests do not establish Llama-3.2-3B
+Eff/Gen results, and neither evaluation metrics nor inference behavior are
+modified by this experiment.
+
 ## Fresh hard-example experiment with retention margins
 
 The five-step solver continuation accepted all steps, but mean fitting token

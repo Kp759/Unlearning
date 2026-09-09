@@ -291,3 +291,43 @@ def test_priority_batches_start_with_most_remembered_fact_and_keep_complete_cove
     if reject_all:
         assert len(result["history"]) == 2
         assert result["stop_reason"] == "no_useful_feasible_step"
+
+
+def test_replay_training_reaches_probability_target_without_worst_regression(monkeypatch):
+    torch.manual_seed(1)
+    torch.set_num_threads(1)
+    examples = []
+    for split in ("train", "validation"):
+        for role, prompt, answer, fact in (("forget", 1, 5, "f"), ("abstain", 1, 7, "f"),
+                                          ("forget", 4, 6, "g"), ("abstain", 4, 7, "g"),
+                                          ("retain", 2, 5, "r"), ("language", 3, 6, "l")):
+            examples.append(Example(f"{split}:{role}:{fact}", split, role, fact, [prompt, answer], [-100, answer],
+                                    str(prompt), str(answer), f"{split}:{fact}"))
+    import static_overlap_training as training
+    original = training.model_logits
+
+    def audited(model, example):
+        if example.split != "train":
+            assert not torch.is_grad_enabled()
+        return original(model, example)
+
+    monkeypatch.setattr(training, "model_logits", audited)
+    config = TrainConfig(steps=120, batch_size=1, learning_rate=.1, hard_example_mix=1., hard_replay_size=1,
+                         lambda_worst_forget=1., guard_worst_forget=True, compare_forget_candidates=True,
+                         select_best_valid_checkpoint=True, fresh_start_only=True,
+                         retain_nll_safety_margin=.01, retain_kl_safety_margin=.002)
+    editor = StaticEditor(SeparableFactLM(), [], [5, 6, 7], {}, rank=8)
+    result = train(editor, examples, config)
+    assert result["training_forgetting"]["target_met"]
+    assert result["training_forgetting"]["max_token_probability"] < 1e-6
+    assert result["training_protection"]["retention_passed"]
+    assert result["validation_protection"]["retention_passed"]
+    maximum = result["initial_training_forgetting"]["max_token_probability"]
+    for row in result["history"]:
+        if row["accepted"]:
+            assert row["worst_forget_progress"] >= 0
+            assert row["worst_forget_after"]["max_token_probability"] <= maximum
+            maximum = row["worst_forget_after"]["max_token_probability"]
+        assert all(key.startswith("train:") for key in row["projected_forget_ids"])
+    assert all(count > 1 for count in result["forget_gradient_visits"].values())
+    assert result["forget_examples_seen"] == 2
