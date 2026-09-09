@@ -293,7 +293,8 @@ def test_priority_batches_start_with_most_remembered_fact_and_keep_complete_cove
         assert result["stop_reason"] == "no_useful_feasible_step"
 
 
-def test_replay_training_reaches_probability_target_without_worst_regression(monkeypatch):
+@pytest.mark.parametrize("base_cache_mb", [0., 1.])
+def test_replay_training_reaches_probability_target_without_worst_regression(monkeypatch, base_cache_mb):
     torch.manual_seed(1)
     torch.set_num_threads(1)
     examples = []
@@ -313,6 +314,7 @@ def test_replay_training_reaches_probability_target_without_worst_regression(mon
 
     monkeypatch.setattr(training, "model_logits", audited)
     config = TrainConfig(steps=120, batch_size=1, learning_rate=.1, hard_example_mix=1., hard_replay_size=1,
+                         base_cache_mb=base_cache_mb,
                          lambda_worst_forget=1., guard_worst_forget=True, compare_forget_candidates=True,
                          select_best_valid_checkpoint=True, fresh_start_only=True,
                          retain_nll_safety_margin=.01, retain_kl_safety_margin=.002)
@@ -331,3 +333,6 @@ def test_replay_training_reaches_probability_target_without_worst_regression(mon
         assert all(key.startswith("train:") for key in row["projected_forget_ids"])
     assert all(count > 1 for count in result["forget_gradient_visits"].values())
     assert result["forget_examples_seen"] == 2
+    if base_cache_mb:
+        assert result["base_reference_cache"]["hits"] > result["base_reference_cache"]["misses"]
+        assert result["base_reference_cache"]["evictions"] == 0

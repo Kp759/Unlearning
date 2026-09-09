@@ -27,6 +27,7 @@
     "hard_example_cap": 4.0,
     "hard_replay_size": 2,
     "guard_worst_forget": true,
+    "base_cache_mb": 1024,
     "compare_forget_candidates": true,
     "select_best_valid_checkpoint": true,
     "fresh_start_only": true,

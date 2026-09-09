@@ -605,3 +605,68 @@ def test_fresh_priority_cli_saves_selected_factors_and_rejects_continuation(bund
     assert verify_recovered_statistics(restored, examples, report)["matched_examples"] > 0
     with pytest.raises(ValueError, match="fresh start"):
         main(args + ["--resume-training-run", str(output), "--output-dir", str(tmp_path / "continued")])
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_base_reference_cache_preserves_metrics_and_kl_gradients(bundle, tokenizer, monkeypatch, shared):
+    import static_overlap_training as training
+    from static_overlap_core import flat_gradient
+    editor = make_editor(tiny(len(tokenizer), tied=shared))
+    examples = [e for e in encode_bundle(bundle, tokenizer) if e.role in ("retain", "language")]
+    cache = training.BaseReferenceCache(editor, 1.)
+    expected = measure(editor, examples)
+    assert measure(editor, examples, base_cache=cache) == expected
+    base_calls = 0
+    original = training.model_logits
+
+    def counted(model, example):
+        nonlocal base_calls
+        if not editor.edits[0].enabled:
+            base_calls += 1
+        return original(model, example)
+
+    monkeypatch.setattr(training, "model_logits", counted)
+    assert measure(editor, examples, base_cache=cache) == expected
+    assert base_calls == 0
+    with torch.no_grad():
+        for edit in editor.edits:
+            edit.A.normal_(std=.02)
+            edit.B.normal_(std=.02)
+    changed = measure(editor, examples, base_cache=cache)
+    assert changed != expected and base_calls == 0
+    assert measure(editor, examples) == changed
+    e = examples[0]
+    with editor.base(), torch.no_grad():
+        base = model_logits(editor.model, e)
+    old_kl = forward_kl(base, model_logits(editor.model, e), e)
+    old_gradient = flat_gradient(old_kl, editor.parameters)
+    _, log_p = cache.reference(e)
+    cached_kl = training.reference_kl(log_p, model_logits(editor.model, e), e)
+    assert old_kl.item() == cached_kl.item()
+    torch.testing.assert_close(flat_gradient(cached_kl, editor.parameters), old_gradient, rtol=0, atol=0)
+    assert not log_p.requires_grad and log_p.dtype == torch.float32
+    # Same ID with different context or labels must NOT reuse a stale reference.
+    from dataclasses import replace
+    altered = replace(e, input_ids=[e.input_ids[0], 4] + e.input_ids[2:])
+    base_calls = 0
+    cache.reference(altered)
+    assert base_calls == 1
+    altered_labels = [-100 if label == -100 else (label + 1) % len(tokenizer) for label in e.labels]
+    cache.reference(replace(e, labels=altered_labels))
+    assert base_calls == 2
+    assert cache.summary()["bytes"] <= cache.summary()["max_bytes"]
+    with pytest.raises(ValueError, match="another editor"):
+        measure(make_editor(tiny(len(tokenizer))), examples, base_cache=cache)
+
+
+def test_base_cache_eviction_and_oversized_entries_preserve_uncached_answers(bundle, tokenizer):
+    from static_overlap_training import BaseReferenceCache
+    editor = make_editor(tiny(len(tokenizer)))
+    examples = [e for e in encode_bundle(bundle, tokenizer) if e.role == "retain"]
+    one_row_bytes = len(tokenizer) * 4
+    cache = BaseReferenceCache(editor, one_row_bytes / 1024**2)
+    assert measure(editor, examples, base_cache=cache) == measure(editor, examples)
+    assert cache.evictions > 0 and cache.bytes <= cache.limit
+    too_small = BaseReferenceCache(editor, 1. / 1024**2)
+    assert measure(editor, examples, base_cache=too_small) == measure(editor, examples)
+    assert not too_small.entries and too_small.bytes == 0

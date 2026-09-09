@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from collections import OrderedDict
 import hashlib
 import json
 import math
 from pathlib import Path
 import random
 import tempfile
+import time
 
 import torch
 
@@ -49,6 +51,7 @@ class TrainConfig:
     hard_replay_size: int = 0
     lambda_worst_forget: float = 0.0
     guard_worst_forget: bool = False
+    base_cache_mb: float = 0.0
     compare_forget_candidates: bool = False
     select_best_valid_checkpoint: bool = False
     fresh_start_only: bool = False
@@ -112,18 +115,80 @@ def forgetting_status(rows, config):
                               for r in forgotten)}
 
 
+class BaseReferenceCache:
+    """Bounded CPU cache, owned by one training call on one immutable base.
+
+    Keep only FP32 log-probabilities at labeled answer positions, but retain the
+    entire vocabulary there. Keys include actual input IDs AND labels. Never
+    cache edited predictions or carry references into another model/run.
+    """
+    def __init__(self, editor, max_mb):
+        if not math.isfinite(max_mb) or max_mb < 0:
+            raise ValueError("Base cache size must be finite and nonnegative")
+        self.editor = editor
+        self.limit = int(max_mb * 1024 * 1024)
+        self.entries = OrderedDict()
+        self.bytes = self.hits = self.misses = self.evictions = 0
+
+    @torch.no_grad()
+    def reference(self, example):
+        if self.editor.merged:
+            raise RuntimeError("Base reference cache cannot be used after merge")
+        device = next(self.editor.model.parameters()).device
+        key = (tuple(example.input_ids), tuple(example.labels))
+        if key in self.entries:
+            self.hits += 1
+            nll, log_p = self.entries.pop(key)
+            self.entries[key] = (nll, log_p)
+            return nll, log_p.to(device)
+        self.misses += 1
+        with self.editor.base():
+            logits = model_logits(self.editor.model, example)
+        nll = answer_nll(logits, example).item()
+        selected, _ = selected_logits(logits, example)
+        log_p = selected.log_softmax(-1).detach()
+        size = log_p.numel() * log_p.element_size()
+        # Forget/abstention references are measured only at startup/finalization;
+        # do not evict frequently used preservation references for them.
+        if example.role in ("retain", "language") and size <= self.limit:
+            while self.bytes + size > self.limit:
+                _, (_, evicted) = self.entries.popitem(last=False)
+                self.bytes -= evicted.numel() * evicted.element_size()
+                self.evictions += 1
+            self.entries[key] = (nll, log_p.cpu())
+            self.bytes += size
+        return nll, log_p
+
+    def summary(self):
+        return {"hits": self.hits, "misses": self.misses, "evictions": self.evictions,
+                "entries": len(self.entries), "bytes": self.bytes, "max_bytes": self.limit,
+                "storage": "cpu_float32_full_vocabulary_log_probabilities"}
+
+
+def reference_kl(log_p, edited_logits, example):
+    edited, _ = selected_logits(edited_logits, example)
+    log_q = edited.log_softmax(-1)
+    return (log_p.exp() * (log_p - log_q)).sum(-1).mean().clamp_min(0)
+
+
 @torch.no_grad()
-def measure(editor, examples):
+def measure(editor, examples, *, base_cache=None):
+    if base_cache is not None and base_cache.editor is not editor:
+        raise ValueError("Base reference cache belongs to another editor")
     rows = []
     for example in examples:
-        with editor.base():
-            base = model_logits(editor.model, example)
+        if base_cache is None:
+            with editor.base():
+                base = model_logits(editor.model, example)
+            base_nll = answer_nll(base, example).item()
+        else:
+            base_nll, log_p = base_cache.reference(example)
         edited = model_logits(editor.model, example)
-        base_nll = answer_nll(base, example).item()
         nll = answer_nll(edited, example).item()
         rows.append({"id": example.id, "split": example.split, "role": example.role,
                      "base_nll": base_nll, "nll": nll, "nll_increase": nll - base_nll,
-                     "kl": forward_kl(base, edited, example).item()})
+                     "kl": (forward_kl(base, edited, example) if base_cache is None
+                            else reference_kl(log_p, edited, example)).item()})
     return rows
 
 
@@ -333,6 +398,21 @@ def train(editor, examples, config, log_path=None, *, resume=False):
     config.validate()
     if resume and config.fresh_start_only:
         raise ValueError("This experiment requires a fresh start from the original base model")
+    started = time.perf_counter()
+    base_cache = BaseReferenceCache(editor, config.base_cache_mb) if config.base_cache_mb else None
+
+    def measure_current(items):
+        return measure(editor, items, base_cache=base_cache)
+
+    def preservation_kl(example):
+        # Fetch/compute the base before building the edited autograd graph so
+        # cache misses do not increase peak GPU activation memory.
+        if base_cache is not None:
+            _, log_p = base_cache.reference(example)
+            return reference_kl(log_p, model_logits(editor.model, example), example)
+        with editor.base(), torch.no_grad():
+            base = model_logits(editor.model, example)
+        return forward_kl(base, model_logits(editor.model, example), example)
     fitting = [e for e in examples if e.split == "train"]
     forget = [e for e in fitting if e.role == "forget"]
     retain = [e for e in fitting if e.role == "retain"]
@@ -343,7 +423,7 @@ def train(editor, examples, config, log_path=None, *, resume=False):
     if not forget or not retain or not language or (config.lambda_abstain and not abstain):
         raise ValueError("Missing a required training objective role")
     # Fixed per-example targets, set once against the unmodified model.
-    baseline = measure(editor, fitting)
+    baseline = measure_current(fitting)
     if not resume and any(abs(row["nll_increase"]) > 1e-7 or row["kl"] > 1e-7 for row in baseline):
         raise ValueError("Training must start from zero effective deltas")
     if not training_protection(baseline, config, internal=True)[0]:
@@ -387,6 +467,7 @@ def train(editor, examples, config, log_path=None, *, resume=False):
         return batch
 
     for step in range(config.steps):
+        step_started = time.perf_counter()
         # Freeze these weights for every candidate and recheck in this step.
         weights, fact_probabilities = hard_example_weights(forget, current_forget_nlls, config)
         before_global = weighted_forget_loss(current_forget_nlls, targets, weights)
@@ -405,9 +486,7 @@ def train(editor, examples, config, log_path=None, *, resume=False):
             allowances.append(min(config.epsilon, max(0.0, config.training_nll_budget
                                                      - (nll.detach().item() - base_nll[e.id]))) * 0.5)
             protected_gradients.append(flat_gradient(nll, editor.parameters))
-            with editor.base(), torch.no_grad():
-                base = model_logits(editor.model, e)
-            kl = forward_kl(base, model_logits(editor.model, e), e)
+            kl = preservation_kl(e)
             allowances.append(min(config.epsilon, max(0.0, config.training_kl_budget
                                                      - kl.detach().item())) * 0.5)
             protected_gradients.append(flat_gradient(kl, editor.parameters))
@@ -432,6 +511,7 @@ def train(editor, examples, config, log_path=None, *, resume=False):
             for key in dict.fromkeys((before_worst["max_gap_id"], before_worst["max_probability_id"])):
                 add_forget_constraint(forget_by_id[key])
         gradients, initial_allowances = constraint_tensors()
+        constraints_finished = time.perf_counter()
 
         def refine_constraints(diagnostics):
             missing = [key for key in diagnostics.get("violating_anchor_ids", []) if key not in projected_ids]
@@ -486,9 +566,7 @@ def train(editor, examples, config, log_path=None, *, resume=False):
         # Guarantee both answer-prefix and general-language KL in every step.
         batch = sample(retain) + sample(language)
         for e in batch:
-            with editor.base(), torch.no_grad():
-                base = model_logits(editor.model, e)
-            add("kl", config.lambda_kl * forward_kl(base, model_logits(editor.model, e), e) / len(batch))
+            add("kl", config.lambda_kl * preservation_kl(e) / len(batch))
         add("delta", config.lambda_delta * editor.norm_sq())
         parameters = torch.cat([p.flatten() for p in editor.parameters])
         surrogate = (parameters * aggregate).sum()
@@ -496,8 +574,9 @@ def train(editor, examples, config, log_path=None, *, resume=False):
         checked_forget_nlls = None
         retention_rejections = 0
         encountered_violations = set()
+        nonlinear_seconds = 0.0
 
-        def check():
+        def check_candidate():
             nonlocal checked_anchor_rows, checked_forget_nlls, retention_rejections
             # All training anchors, including mixed companion spans, checked
             # against BASE budgets after each proposal/backtrack. No ratcheting.
@@ -514,7 +593,7 @@ def train(editor, examples, config, log_path=None, *, resume=False):
                            "forget_progress": progress, "forget_progress_passed": useful}
             if not useful:
                 return False, diagnostics
-            checked_anchor_rows = measure(editor, anchors)
+            checked_anchor_rows = measure_current(anchors)
             passed, protection = training_protection(checked_anchor_rows, config, internal=True)
             if not passed:
                 retention_rejections += 1
@@ -539,6 +618,15 @@ def train(editor, examples, config, log_path=None, *, resume=False):
                         passed = passed and worst_pass
             return passed, {**diagnostics, **protection}
 
+        def check():
+            nonlocal nonlinear_seconds
+            check_started = time.perf_counter()
+            try:
+                return check_candidate()
+            finally:
+                nonlinear_seconds += time.perf_counter() - check_started
+
+        search_started = time.perf_counter()
         record = constrained_step(optimizer, editor.parameters, surrogate, gradients, check,
                                   epsilon=initial_allowances, radius=radius,
                                   backtracks=config.backtracks, fallback_direction=-forget_gradient,
@@ -546,6 +634,7 @@ def train(editor, examples, config, log_path=None, *, resume=False):
                                   max_constraint_refinements=config.max_constraint_refinements,
                                   candidate_score=(lambda d: d["candidate_forget_score"])
                                   if config.compare_forget_candidates else None)
+        search_finished = time.perf_counter()
         record.update(step=step + 1, objective=sum(components.values()), components=components,
                       step_radius=radius, forget_examples_seen=len(seen_forget),
                       forget_examples_total=len(forget), active_anchor_ids=sorted(active_ids),
@@ -565,7 +654,7 @@ def train(editor, examples, config, log_path=None, *, resume=False):
                 current_forget_nlls = forget_nlls(editor, forget)
             if selection is not None:
                 record.update(selection.consider(editor, step + 1, current_forget_nlls, anchor_rows,
-                                                 measure(editor, validation_anchors)))
+                                                 measure_current(validation_anchors)))
                 if log_path:
                     directory = Path(log_path).parent / "accepted_checkpoints"
                     directory.mkdir(exist_ok=True)
@@ -583,6 +672,15 @@ def train(editor, examples, config, log_path=None, *, resume=False):
             record.update(training_protection(anchor_rows, config, internal=True)[1])
         if selection is not None:
             record["selected_checkpoint_step"] = selection.step
+        record["timing_seconds"] = {
+            "initial_constraints": constraints_finished - step_started,
+            "objective_gradients": search_started - constraints_finished,
+            "candidate_search": search_finished - search_started,
+            "nonlinear_checks_within_search": nonlinear_seconds,
+            "selection_and_save": time.perf_counter() - search_finished,
+            "step_wall": time.perf_counter() - step_started}
+        if base_cache is not None:
+            record["base_reference_cache"] = base_cache.summary()
         history.append(record)
         if log_path:
             with Path(log_path).open("a") as stream:
@@ -594,7 +692,7 @@ def train(editor, examples, config, log_path=None, *, resume=False):
             "projection_converged", "failure_reason", "nonlinear_checks",
             "projection_attempts", "global_forget_progress", "candidate_results",
             "selected_checkpoint_step", "validation_retention", "replay_batch_ids",
-            "worst_forget_progress", "worst_forget_after")}), flush=True)
+            "worst_forget_progress", "worst_forget_after", "timing_seconds", "base_reference_cache")}), flush=True)
         stalls = 0 if record["accepted"] else stalls + 1
         if stalls >= config.max_stalled_steps and (config.hard_example_mix == 0 or len(seen_forget) == len(forget)):
             stalled_out = True
@@ -603,11 +701,11 @@ def train(editor, examples, config, log_path=None, *, resume=False):
                 and (selection is None or record["checkpoint_eligible"])):
             # Only fitting examples may trigger early stopping. Official Gen
             # prompts remain absent from fitting and checkpoint selection.
-            if forgetting_status(measure(editor, forget), config)["target_met"]:
+            if forgetting_status(measure_current(forget), config)["target_met"]:
                 target_reached = True
                 break
-    validation = measure(editor, [e for e in examples if e.split == "validation"])
-    training_forget = measure(editor, forget)
+    validation = measure_current([e for e in examples if e.split == "validation"])
+    training_forget = measure_current(forget)
     last_accepted_step = next((r["step"] for r in reversed(history) if r["accepted"]), None)
     last_iterate = {"step": last_accepted_step, "training_forgetting": forgetting_status(training_forget, config),
                     "training_protection": training_protection(anchor_rows, config, internal=True)[1],
@@ -620,9 +718,9 @@ def train(editor, examples, config, log_path=None, *, resume=False):
                 {**last_iterate, "validation": validation, "training_forget": training_forget},
                 indent=2, allow_nan=False) + "\n")
         set_parameters(editor.parameters, selection.parameters.to(editor.parameters[0]))
-        validation = measure(editor, [e for e in examples if e.split == "validation"])
-        training_forget = measure(editor, forget)
-        anchor_rows = measure(editor, anchors)
+        validation = measure_current([e for e in examples if e.split == "validation"])
+        training_forget = measure_current(forget)
+        anchor_rows = measure_current(anchors)
     report = {"optimizer_version": "active_retention_projection_v5",
               "config": asdict(config), "history": history,
               "initial_training_forgetting": forgetting_status(baseline, config),
@@ -644,6 +742,9 @@ def train(editor, examples, config, log_path=None, *, resume=False):
     if selection is not None:
         report["checkpoint_selection"] = selection.summary()
         report["last_iterate"] = last_iterate
+    report["training_wall_seconds"] = time.perf_counter() - started
+    if base_cache is not None:
+        report["base_reference_cache"] = base_cache.summary()
     return report
 
 

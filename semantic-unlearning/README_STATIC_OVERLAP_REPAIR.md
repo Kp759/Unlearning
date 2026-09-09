@@ -5,6 +5,46 @@ mean forget NLL change is small, and 10 accepted steps only mean that the old
 retention checks passed. Re-score the base and edited models with the same
 metric implementation before comparing them.
 
+## Runtime: cache the immutable base references
+
+The replay pilot added 326 retention rows. Every nonlinear candidate check
+previously made a base and an edited forward for every anchor, individually.
+For roughly 489 retained-answer contexts, thirteen checks entail about 12,700
+forwards before language anchors, gradient computation, all-forget scoring and
+validation selection. A logged optimizer step therefore contains much more
+work than a conventional minibatch update. Projection refinements/backtracking
+repeat those checks, and full FP32 execution remains in use.
+
+The replay preset now sets `base_cache_mb=1024`. A training-call-local cache
+stores the original base NLL and FP32 full-vocabulary log-probabilities at the
+labeled answer positions, in CPU RAM. Cache keys contain the actual input IDs
+and labels. It never caches edited outputs, drops vocabulary entries, quantizes
+references, changes anchors, changes precision, or relaxes an acceptance check.
+References for retain/language examples are reused in candidate checks,
+protection gradients, the KL objective and checkpoint selection. Input/label
+changes miss the cache; LRU eviction and oversized entries fall back to original
+base computation. The cache's tensor storage is bounded by the configured
+limit (plus transient tensors and ordinary Python metadata). Set
+`base_cache_mb=0` to disable it; existing non-replay presets retain that default.
+
+With a warm cache that fits the references, retention checking needs one model
+forward per anchor instead of two. This does **not** promise a twofold total
+speedup: edited forwards, backward passes, host-device transfers, solver work,
+and cache misses remain. Local tests require exact cached/uncached NLL, KL and
+KL-gradient parity, correct input/label invalidation, bounded eviction, and
+successful fresh training with caching both enabled and disabled. Actual EC2
+wall-clock speedup has not been measured here.
+
+Each step now reports `timing_seconds` and cumulative `base_reference_cache`
+statistics. `nonlinear_checks_within_search` is a **subset** of
+`candidate_search`; do not add both when attributing runtime. These use host
+wall-clock timings, with the trainer's existing scalar reads synchronizing
+model results; they are not dedicated GPU kernel timings. `step_wall` excludes
+subsequent epoch-end diagnostics and final report measurement, while
+`training_wall_seconds` includes the full `train()` call. Neither includes
+earlier model loading/localization in the runner. A Python process already
+running the older code is unaffected by fetching this change.
+
 ## Adaptive replay and retention context experiment
 
 The fresh hard-example run made 25 accepted updates and covered all 100 fitting
