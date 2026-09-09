@@ -1,0 +1,31 @@
+{
+  "architecture": {"rank": 8, "blocks": 1, "channels_per_block": 64},
+  "training": {
+    "steps": 200,
+    "batch_size": 4,
+    "protected_batch_size": 8,
+    "max_constraint_refinements": 4,
+    "learning_rate": 0.005,
+    "forget_increase": 2.0,
+    "lambda_forget": 1.0,
+    "lambda_abstain": 1.0,
+    "lambda_retain": 1.0,
+    "lambda_kl": 1.0,
+    "lambda_delta": 0.0001,
+    "epsilon": 0.005,
+    "step_radius": 0.25,
+    "max_step_radius": 2.0,
+    "radius_growth": 2.0,
+    "target_probability": 0.000001,
+    "min_forget_progress": 0.000001,
+    "retain_nll_budget": 0.05,
+    "retain_kl_budget": 0.01,
+    "backtracks": 10,
+    "max_stalled_steps": 10,
+    "seed": 1
+  },
+  "max_length": 512,
+  "abstention": "I don't know.",
+  "export_atol": 0.05,
+  "export_rtol": 0.01
+}

@@ -7,7 +7,8 @@ import pytest
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from static_overlap_core import constrained_step
+import static_overlap_core as core
+from static_overlap_core import Projection, constrained_step, project_update, project_update_reduced
 from static_overlap_training import TrainConfig, near_budget_anchor_ids, training_protection
 
 
@@ -127,3 +128,90 @@ def test_discovered_constraints_also_apply_to_forget_fallback():
     assert p[0].item() > .9 and p[1].item() <= .001
     assert record["constraint_refinements"] == 1
     assert optimizer.state_dict() == state
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_reduced_solver_handles_correlated_constraints_that_stall_dykstra(seed):
+    torch.set_num_threads(1)
+    generator = torch.Generator().manual_seed(seed)
+    proposal = torch.randn(256, generator=generator) * .1
+    gradients = torch.randn(40, 256, generator=generator)
+    gradients[20:] = gradients[:20] + torch.randn(20, 256, generator=generator) * .01
+    budgets = torch.linspace(1e-6, .0025, 40)
+    # The problem is slow convergence, not just FP32 arithmetic.
+    old = project_update(proposal.double(), gradients.double(), budgets.double(), .25)
+    assert not old.converged and old.iterations == 1000
+    result = project_update_reduced(proposal, gradients, budgets, .25)
+    assert result.converged and result.iterations < 100
+    assert (gradients.double() @ result.delta.double() - budgets.double()).max() <= 1e-7
+    assert result.delta.double().norm() <= .25 + 1e-7
+    assert result.delta.norm() > .24
+    if seed == 0:
+        # Independent full-dimensional formulation checks the QR reduction.
+        import numpy as np
+        from scipy.optimize import minimize
+        u, g, b = proposal.double().numpy(), gradients.double().numpy(), budgets.double().numpy()
+        reference = minimize(lambda x: .5 * np.square(x - u).sum(), np.zeros(256),
+                             jac=lambda x: x - u, method="SLSQP", options={"ftol": 1e-12, "maxiter": 1000},
+                             constraints=[{"type": "ineq", "fun": lambda x: b - g @ x,
+                                           "jac": lambda x: -g},
+                                          {"type": "ineq", "fun": lambda x: .25**2 - x @ x,
+                                           "jac": lambda x: -2*x}])
+        assert reference.success
+        np.testing.assert_allclose(result.delta.numpy(), reference.x, atol=2e-6)
+
+
+@pytest.mark.parametrize("gradients", [torch.empty(0, 2), torch.zeros(3, 2),
+                                       torch.tensor([[1., 0.], [1., 0.], [0., 1.]])])
+def test_reduced_solver_handles_empty_zero_and_duplicate_normals(gradients):
+    result = project_update_reduced(torch.tensor([1., 2.]), gradients, .1, .5)
+    assert result.converged
+    assert result.delta.norm() <= .5 + 1e-7
+    if len(gradients):
+        assert (gradients @ result.delta <= .1 + 1e-7).all()
+
+
+def test_reduced_solver_never_applies_nonfinite_or_unconverged_solution():
+    bad = project_update_reduced(torch.tensor([float("nan"), 1.]), torch.eye(2), .1, .5)
+    assert not bad.converged and torch.equal(bad.delta, torch.zeros(2))
+    incomplete = project_update_reduced(torch.tensor([1., 2.]), torch.eye(2), .1, .5, max_iterations=1)
+    assert not incomplete.converged and torch.equal(incomplete.delta, torch.zeros(2))
+
+
+def test_failed_refinement_can_backtrack_previous_direction_under_all_new_constraints(monkeypatch):
+    original = core.project_update
+
+    def slow_solver(proposal, gradients, *args, **kwargs):
+        if len(gradients):
+            return Projection(torch.zeros_like(proposal), False, 1000, 1.)
+        return original(proposal, gradients, *args, **kwargs)
+
+    monkeypatch.setattr(core, "project_update", slow_solver)
+    monkeypatch.setattr(core, "project_update_reduced", slow_solver)
+    p = torch.nn.Parameter(torch.zeros(1))
+    optimizer = torch.optim.Adam([p], lr=1.)
+    expanded = False
+
+    def expand(_):
+        nonlocal expanded
+        if expanded:
+            return None
+        expanded = True
+        return torch.ones(1, 1), torch.tensor([.1])
+
+    result = constrained_step(optimizer, [p], -p.sum(), torch.empty(0, 1),
+                              lambda: (0 < p.item() <= .1, {}), epsilon=0., radius=1.,
+                              refine_constraints=expand)
+    assert result["accepted"] and result["used_previous_projection"]
+    assert result["backtracks"] == 4 and 0 < p.item() <= .1
+
+
+def test_rejected_trial_diagnostics_are_not_reported_as_applied_progress():
+    p = torch.nn.Parameter(torch.zeros(1))
+    result = constrained_step(torch.optim.Adam([p], lr=1.), [p], -p.sum(), torch.empty(0, 1),
+                              lambda: (False, {"forget_progress": 9., "max_retained_kl": .3}),
+                              epsilon=0., radius=1., backtracks=1)
+    assert not result["accepted"] and p.item() == 0
+    assert result["forget_progress"] == 0 and result["diagnostics_scope"] == "rolled_back"
+    assert result["last_rejected_trial"]["forget_progress"] == 9.
+    assert "max_retained_kl" not in result

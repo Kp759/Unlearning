@@ -478,3 +478,62 @@ def test_cli_localize_train_export(bundle, tokenizer, tmp_path):
     heldout_path.write_text(json.dumps(heldout))
     with pytest.raises(ValueError, match="overlaps"):
         evaluate_main(eval_args)
+
+
+def test_cli_continues_saved_factors_without_relocalizing_or_exporting(bundle, tokenizer, tmp_path, monkeypatch):
+    import run_static_overlap_edit as runner
+    from static_overlap_training import sha256_file
+
+    base = tmp_path / "base"
+    tiny(len(tokenizer), tied=True).save_pretrained(base)
+    tokenizer.save_pretrained(base)
+    config = json.loads((ROOT / "config/static_overlap_edit.json").read_text())
+    config["training"].update(steps=2, retain_nll_budget=1.0, retain_kl_budget=.2)
+    config_path, bundle_path = tmp_path / "config.json", tmp_path / "bundle.json"
+    config_path.write_text(json.dumps(config))
+    bundle_path.write_text(json.dumps(bundle))
+    args = ["--model-path", str(base), "--training-bundle", str(bundle_path), "--config", str(config_path),
+            "--device", "cpu", "--dtype", "float32", "--local-files-only", "--training-only"]
+    parent = tmp_path / "parent"
+    runner.main(args + ["--output-dir", str(parent)])
+    original = json.loads((parent / "training_report.json").read_text())
+    assert original["accepted_steps"] > 0
+    hashes = {name: sha256_file(parent / name) for name in
+              ("manifest.json", "training_factors.pt", "training_report.json")}
+    monkeypatch.setattr(runner, "localize", lambda *a, **kw: pytest.fail("Must reuse saved localization"))
+    monkeypatch.setattr(runner, "export_verified", lambda *a, **kw: pytest.fail("Training-only must not export"))
+    output = tmp_path / "continued"
+    runner.main(args + ["--resume-training-run", str(parent), "--output-dir", str(output), "--steps", "1"])
+    result = json.loads((output / "training_report.json").read_text())
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert result["resumed_from_factors"] and result["optimizer_state"] == "reset"
+    assert result["initial_training_forgetting"] == original["training_forgetting"]
+    assert result["initial_training_protection"] == original["training_protection"]
+    assert manifest["continuation"]["retention_reference"] == "original_base_model"
+    assert manifest["continuation"]["reproduction"]["matched_examples"] > 0
+    assert not (output / "checkpoint").exists() and not (parent / "checkpoint").exists()
+    assert all(sha256_file(parent / name) == value for name, value in hashes.items())
+    changed = tmp_path / "changed_bundle.json"
+    changed.write_text(json.dumps(bundle) + "\n")
+    with pytest.raises(ValueError, match="original bundle"):
+        runner.main(args + ["--resume-training-run", str(parent), "--output-dir", str(tmp_path / "bad"),
+                            "--training-bundle", str(changed)])
+    config["architecture"]["blocks"] = 1
+    config_path.write_text(json.dumps(config))
+    with pytest.raises(ValueError, match="original bundle, architecture"):
+        runner.main(args + ["--resume-training-run", str(parent), "--output-dir", str(tmp_path / "bad_arch")])
+
+
+def test_one_layer_preset_changes_only_block_count_and_selects_highest_training_contrast(bundle, tokenizer):
+    from run_static_overlap_edit import load_config
+    one, _ = load_config(ROOT / "config/static_overlap_one_layer.json")
+    two, _ = load_config(ROOT / "config/static_overlap_edit.json")
+    assert one["architecture"]["blocks"] == 1
+    one["architecture"]["blocks"] = 2
+    assert one == two
+    examples = encode_bundle(bundle, tokenizer)
+    selected, report = localize(tiny(len(tokenizer)),
+        [e for e in examples if e.role == "forget" and e.split == "train"],
+        [e for e in examples if e.role == "retain" and e.split == "train"], blocks=1)
+    best = min(report, key=lambda layer: (-report[layer]["score"], layer))
+    assert list(selected) == [best] and len(selected[best]) == 64

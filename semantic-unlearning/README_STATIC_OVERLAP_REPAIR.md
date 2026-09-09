@@ -5,6 +5,97 @@ mean forget NLL change is small, and 10 accepted steps only mean that the old
 retention checks passed. Re-score the base and edited models with the same
 metric implementation before comparing them.
 
+## Projection repair and continuation diagnostic
+
+The active-projection run reported nine rejected steps, all ending with
+`projection_converged=false` at 1,000 iterations. Its final training-anchor
+retention passed, but validation retention failed at NLL increase 0.207899 and
+KL 0.021255. It therefore produced no verified native checkpoint and no
+evaluation JSON. Its worst training forget token probability was 0.725545;
+neither those bundle statistics nor the rejected trial losses establish
+official Eff/Gen success.
+
+The solver now tries 100 Dykstra iterations, then solves the **same** constrained
+projection using FP64 QR reduction and SLSQP (SciPy is already a dependency).
+The solution lies in the span of the proposal and constraint normals, so the
+reduction has at most `number_of_constraints + 1` variables. It does not drop
+constraints or change their allowances. Solver success and the original
+halfspace/radius checks must hold after casting back to the parameter dtype.
+All nonlinear training retention checks still apply before accepting a step.
+Three correlated-constraint regression cases that fail after 1,000 Dykstra
+iterations even in FP64 converge in 10–16 reduced-solver iterations. This is a
+solver test, not evidence of success on the EC2 model.
+
+If both solvers fail after adding constraints, the last converged direction
+may still be backtracked, provided it passes **all expanded linear constraints**
+and the complete nonlinear checks. Failed solver iterates are never applied.
+History includes `projection_attempts` with method, precision, convergence,
+iterations and violation. Rejected trials' measurements are nested under
+`last_rejected_trial`; their top-level `forget_progress` is zero and retention
+maxima describe the unchanged model. A rejected trial with a large forgetting
+loss improvement is not reported as applied progress.
+
+Follow this order: fix the solver, test continuation, measure fitting forgetting,
+then address validation retention if necessary, then evaluate official Eff/Gen.
+Checkpoint selection, safety margins, hard-example weighting, and soft penalties
+are not combined into this solver change. Validation examples still produce no
+gradients. Scientific limits remain 0.05 NLL and 0.01 KL.
+
+To test continuation from the failed run without repeating localization or
+creating an invalid checkpoint, preserve `ACTIVE_OUT` and use a new directory:
+
+```bash
+export MODEL_PATH="/home/ec2-user/models/Llama-3.2-3B-Instruct"
+export TRAIN_BUNDLE="data/static_overlap_mcf_seed1_train.json"
+export SOLVER_OUT="$PWD/outputs/static_overlap_solver_$(date +%Y%m%d_%H%M%S)"
+set -o pipefail
+
+python scripts/run_static_overlap_edit.py \
+  --model-path "$MODEL_PATH" --training-bundle "$TRAIN_BUNDLE" \
+  --resume-training-run "$ACTIVE_OUT" \
+  --output-dir "$SOLVER_OUT" --config config/static_overlap_edit.json \
+  --steps 5 --device cuda --dtype float32 --local-files-only --training-only \
+  2>&1 | tee "$SOLVER_OUT.log"
+```
+
+Continuation verifies the bundle hash, architecture, editable rows, dtype,
+base configuration and reproduction of saved base/edited statistics before
+fitting. The original base remains the reference for targets and retention;
+budgets are not reset around the already edited model. Initial **training**
+retention must pass. Validation failure may remain during this diagnostic.
+Adam is explicitly reset because the earlier artifacts do not contain optimizer
+state. Parent files remain unchanged, and parent hashes and accepted-step
+counts are recorded in the new manifest/report.
+
+`--training-only` saves `training_factors.pt`, `training_report.json`, and
+`manifest.json`. A successful exit means the diagnostic completed, not that
+forgetting or validation passed. No native checkpoint or evaluation JSON is
+created. Compare `initial_training_forgetting` with `training_forgetting`, and
+`initial_training_forget_loss` with `training_forget_loss`. Inspect
+`training_protection`, `validation_protection`, and `projection_attempts` before
+deciding on more training. Five steps diagnose solver behavior but do not cover
+all 100 training examples at batch size four.
+
+## One localized MLP layer ablation
+
+`config/static_overlap_one_layer.json` differs from the two-layer configuration
+only in `architecture.blocks=1`: rank 8, 64 channels, editable subject/alias
+embedding rows, and true-answer/abstention head rows. The selected layer has the
+highest training forget-versus-retain activation-gradient contrast among its
+top channels. It is not chosen arbitrarily or using official paraphrases.
+
+The bounded forget hinge performs GA on forgotten-answer NLL while an example
+is below its suppression target. Retain GD, KL, abstention, and delta penalties
+stay unchanged for this comparison. A single layer may improve or reduce
+feasible forgetting; fewer parameters alone do not guarantee easier constraints.
+
+Run that architecture from the original base with a fresh output directory and
+`--config config/static_overlap_one_layer.json --steps 25 --training-only`.
+Do not resume two-layer factors into it; continuation rejects that mismatch.
+Compare both architectures under the repaired solver and the same retention
+limits. An abstention-off or soft-penalty experiment should be a separate
+ablation, and official held-out paraphrases remain excluded from fitting.
+
 ## Matched-base result and active retention projection
 
 The recovered 25-step run failed the forgetting target: Eff changed from

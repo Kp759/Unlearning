@@ -192,3 +192,33 @@ def test_training_can_suppress_a_fact_without_stalling_at_kl_boundary(protected_
     if protected_batch_size == 1:
         assert any(r["discovered_anchor_ids"] for r in result["history"])
         assert any(r["active_anchor_ids"] for r in result["history"])
+
+
+def test_continuation_measures_forgetting_without_rebasing_or_fitting_failed_validation():
+    torch.manual_seed(1)
+    examples = []
+    for split in ("train", "validation"):
+        for role, prompt, answer, fact in (("forget", 1, 5, "f"), ("abstain", 1, 7, "f"),
+                                          ("retain", 2 if split == "train" else 1, 5, "r"),
+                                          ("language", 3, 6, None)):
+            examples.append(Example(f"{split}:{role}", split, role, fact, [prompt, answer], [-100, answer],
+                                    str(prompt), str(answer), f"{split}:{fact}"))
+    # Deliberately conflicting validation control: a real retention failure,
+    # not permission to use that example's gradient or relax its budget.
+    editor = StaticEditor(SeparableFactLM(), [], [5, 7], {}, rank=8)
+    config = TrainConfig(steps=5, learning_rate=.1)
+    before = train(editor, examples, config)
+    assert not before["validation_protection"]["retention_passed"]
+    assert before["training_protection"]["retention_passed"]
+    with pytest.raises(ValueError, match="zero effective deltas"):
+        train(editor, examples, config)
+    after = train(editor, examples, config, resume=True)
+    assert after["initial_training_forgetting"] == before["training_forgetting"]
+    assert after["initial_training_protection"] == before["training_protection"]
+    assert after["training_forget"][0]["base_nll"] == before["training_forget"][0]["base_nll"]
+    assert after["training_forget_loss"] < after["initial_training_forget_loss"]
+    assert after["training_protection"]["retention_passed"]
+    assert not after["validation_protection"]["retention_passed"]
+    assert all(not key.startswith("validation:") for r in after["history"] for key in r["projected_anchor_ids"])
+    with pytest.raises(ValueError, match="outside the original training retention budgets"):
+        train(editor, examples, TrainConfig(steps=1, retain_nll_budget=0., retain_kl_budget=0.), resume=True)

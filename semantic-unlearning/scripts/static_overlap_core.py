@@ -388,6 +388,52 @@ def project_update(proposal, gradients, epsilon, radius, tolerance=1e-7, max_ite
     return Projection(torch.zeros_like(proposal), False, max_iterations, violation)
 
 
+@torch.no_grad()
+def project_update_reduced(proposal, gradients, epsilon, radius, tolerance=1e-7, max_iterations=1000):
+    """Solve the same projection in span(proposal, constraint normals), in FP64.
+
+    Orthogonal components cannot improve the distance objective or feasibility,
+    so QR reduction is exact. The dense solve has at most anchors*2+1 variables,
+    independent of the number of trainable weights. This handles correlated
+    normals for which cyclic Dykstra may converge too slowly even in FP64.
+    """
+    import numpy as np
+    from scipy.optimize import minimize
+
+    device = "cpu" if proposal.device.type == "mps" else proposal.device
+    u = proposal.to(device=device, dtype=torch.float64)
+    g = gradients.to(device=device, dtype=torch.float64)
+    b = torch.as_tensor(epsilon, device=device, dtype=torch.float64)
+    if (b.ndim > 1 or (b.ndim == 1 and len(b) != len(g)) or not torch.isfinite(b).all()
+            or (b < 0).any() or radius <= 0 or tolerance <= 0 or max_iterations <= 0):
+        raise ValueError("Invalid projection budgets")
+    if not torch.isfinite(u).all() or not torch.isfinite(g).all():
+        return Projection(torch.zeros_like(proposal), False, 0, float("inf"))
+    norms = g.norm(dim=1)
+    nonzero = norms > 0
+    normals = g[nonzero] / norms[nonzero, None]
+    limits = (b.expand(len(g))[nonzero] / norms[nonzero] / radius).cpu().numpy()
+    basis, coordinates = torch.linalg.qr(torch.cat((u[None, :], normals)).T, mode="reduced")
+    target = (coordinates[:, 0] / radius).cpu().numpy()
+    linear = coordinates[:, 1:].T.cpu().numpy()
+    constraints = [{"type": "ineq", "fun": lambda x: 1. - x @ x,
+                    "jac": lambda x: -2. * x}]
+    if len(linear):
+        constraints.append({"type": "ineq", "fun": lambda x: limits - linear @ x,
+                            "jac": lambda x: -linear})
+    result = minimize(lambda x: .5 * (x @ x) - target @ x, np.zeros(len(target)),
+                      jac=lambda x: x - target, method="SLSQP", constraints=constraints,
+                      options={"ftol": 1e-12, "maxiter": max_iterations})
+    delta = (basis @ torch.as_tensor(result.x, device=device) * radius).to(proposal)
+    actual = delta.to(device=device, dtype=torch.float64)
+    finite = bool(torch.isfinite(actual).all())
+    violation = (max(0., (g @ actual - b).max().item() if len(g) else 0.,
+                     actual.norm().item() - radius) if finite else float("inf"))
+    converged = bool(result.success and finite and violation <= tolerance)
+    return Projection(delta if converged else torch.zeros_like(proposal), converged,
+                      int(result.nit), violation)
+
+
 def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
                      radius, backtracks=10, projection_tolerance=1e-7,
                      fallback_direction=None, refine_constraints=None,
@@ -418,15 +464,51 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
         proposals.append(("forget_descent", fallback))
     diagnostics = {}
     refinements, checks = 0, 0
+    projection_attempts = []
+    failure_reason = "no_feasible_step"
+
+    def solve(candidate):
+        result = project_update(candidate, gradients, epsilon, radius,
+                                tolerance=projection_tolerance, max_iterations=100)
+
+        def record(result, dtype, method):
+            projection_attempts.append({"method": method, "dtype": str(dtype), "converged": result.converged,
+                                        "iterations": result.iterations,
+                                        "violation": result.violation if math.isfinite(result.violation) else None})
+
+        record(result, candidate.dtype, "dykstra")
+        if (not result.converged
+                and torch.isfinite(candidate).all() and torch.isfinite(gradients).all()):
+            result = project_update_reduced(candidate, gradients, epsilon, radius,
+                                            tolerance=projection_tolerance)
+            record(result, torch.float64, "reduced_qp")
+        return result
+
     try:
         for direction, candidate in proposals:
+            previous_projection = None
             while True:
-                projection = project_update(candidate, gradients, epsilon, radius,
-                                            tolerance=projection_tolerance)
+                projection = solve(candidate)
+                using_previous = False
+                if projection.converged:
+                    previous_projection = projection
+                elif previous_projection is not None and torch.isfinite(gradients).all():
+                    # A refinement must not discard a direction that can still
+                    # pass at a smaller scale. Recheck every NEW halfspace and
+                    # every nonlinear budget before applying any such update.
+                    projection = previous_projection
+                    using_previous = True
+                else:
+                    failure_reason = "projection_not_converged"
                 refined = False
                 if projection.converged and projection.delta.norm().item() > projection_tolerance:
                     for trial in range(backtracks + 1):
                         scale = 0.5 ** trial
+                        if using_previous and len(gradients):
+                            linear_violation = (gradients @ (scale * projection.delta) - epsilon).max().item()
+                            if linear_violation > projection_tolerance:
+                                failure_reason = "refined_linear_constraints_failed"
+                                continue
                         set_parameters(parameters, before + scale * projection.delta)
                         accepted, diagnostics = check()
                         checks += 1
@@ -439,8 +521,13 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
                                     "projected_norm": projection.delta.norm().item(),
                                     "step_norm": (scale * projection.delta).norm().item(),
                                     "projection_iterations": projection.iterations,
+                                    "projection_converged": True,
                                     "constraint_refinements": refinements, "nonlinear_checks": checks,
+                                    "projection_attempts": projection_attempts,
+                                    "used_previous_projection": using_previous,
+                                    "diagnostics_scope": "accepted_step",
                                     **diagnostics}
+                        failure_reason = "nonlinear_checks_failed"
                         set_parameters(parameters, before)
                         if refine_constraints is not None and refinements < max_constraint_refinements:
                             expanded = refine_constraints(diagnostics)
@@ -449,6 +536,8 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
                                 refinements += 1
                                 refined = True
                                 break
+                elif projection.converged:
+                    failure_reason = "zero_projected_step"
                 if not refined:
                     break
     except BaseException:
@@ -457,9 +546,11 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
         raise
     set_parameters(parameters, before)
     optimizer.load_state_dict(state)
-    return {"accepted": False, "projection_converged": projection.converged,
+    return {"accepted": False, "projection_converged": projection_attempts[-1]["converged"],
             "proposal_norm": proposal.norm().item(),
             "projected_norm": projection.delta.norm().item(),
             "projection_iterations": projection.iterations, "step_norm": 0.0,
             "constraint_refinements": refinements, "nonlinear_checks": checks,
-            **diagnostics}
+            "projection_attempts": projection_attempts, "failure_reason": failure_reason,
+            "diagnostics_scope": "rolled_back", "forget_progress": 0.0,
+            "last_rejected_trial": diagnostics}

@@ -170,7 +170,15 @@ def within_export_budgets(rows, config, model_dtype):
     }
 
 
-def train(editor, examples, config, log_path=None):
+def training_forget_loss(rows, config):
+    forgotten = [r for r in rows if r["role"] == "forget"]
+    if not forgotten or any(not math.isfinite(r["nll"]) for r in forgotten):
+        return float("inf")
+    return sum(max(0., forget_target(r["base_nll"], config) - r["nll"])
+               for r in forgotten) / len(forgotten)
+
+
+def train(editor, examples, config, log_path=None, *, resume=False):
     config.validate()
     fitting = [e for e in examples if e.split == "train"]
     forget = [e for e in fitting if e.role == "forget"]
@@ -182,8 +190,10 @@ def train(editor, examples, config, log_path=None):
         raise ValueError("Missing a required training objective role")
     # Fixed per-example targets, set once against the unmodified model.
     baseline = measure(editor, fitting)
-    if any(abs(row["nll_increase"]) > 1e-7 or row["kl"] > 1e-7 for row in baseline):
+    if not resume and any(abs(row["nll_increase"]) > 1e-7 or row["kl"] > 1e-7 for row in baseline):
         raise ValueError("Training must start from zero effective deltas")
+    if not within_budgets(baseline, config)[0]:
+        raise ValueError("Cannot continue from factors outside the original training retention budgets")
     base_nll = {row["id"]: row["base_nll"] for row in baseline}
     anchor_rows = [row for row in baseline if row["role"] in ("retain", "language")]
     anchors_by_id = {e.id: e for e in anchors}
@@ -334,6 +344,10 @@ def train(editor, examples, config, log_path=None):
             radius = min(config.max_step_radius,
                          max(config.step_radius, radius * 0.5 ** record["backtracks"])
                          * (config.radius_growth if record["backtracks"] == 0 else 1.0))
+        else:
+            # Top-level measurements describe the unchanged model. Failed
+            # proposal measurements live only under last_rejected_trial.
+            record.update(training_protection(anchor_rows, config)[1])
         history.append(record)
         if log_path:
             with Path(log_path).open("a") as stream:
@@ -341,7 +355,9 @@ def train(editor, examples, config, log_path=None):
         print(json.dumps({k: record.get(k) for k in (
             "step", "accepted", "objective", "step_norm", "step_radius", "backtracks",
             "direction", "forget_progress", "constraint_refinements", "retention_rejections",
-            "max_retained_nll_increase", "max_retained_nll_anchor_id", "max_retained_kl")}), flush=True)
+            "max_retained_nll_increase", "max_retained_nll_anchor_id", "max_retained_kl",
+            "projection_converged", "failure_reason", "nonlinear_checks",
+            "projection_attempts")}), flush=True)
         stalls = 0 if record["accepted"] else stalls + 1
         if stalls >= config.max_stalled_steps:
             break
@@ -353,8 +369,13 @@ def train(editor, examples, config, log_path=None):
                 break
     validation = measure(editor, [e for e in examples if e.split == "validation"])
     training_forget = measure(editor, forget)
-    report = {"optimizer_version": "active_retention_projection_v2",
+    report = {"optimizer_version": "active_retention_projection_v3",
               "config": asdict(config), "history": history,
+              "initial_training_forgetting": forgetting_status(baseline, config),
+              "initial_training_forget_loss": training_forget_loss(baseline, config),
+              "training_forget_loss": training_forget_loss(training_forget, config),
+              "initial_training_protection": training_protection(baseline, config)[1],
+              "resumed_from_factors": resume, "optimizer_state": "reset" if resume else "fresh",
               "stop_reason": ("training_forgetting_target" if target_reached else
                               "no_useful_feasible_step" if stalls >= config.max_stalled_steps else "step_budget"),
               "accepted_steps": sum(row["accepted"] for row in history),
@@ -363,6 +384,7 @@ def train(editor, examples, config, log_path=None):
               "training_protection": training_protection(anchor_rows, config)[1],
               "training_forgetting": forgetting_status(training_forget, config),
               "validation_forgetting": forgetting_status(validation, config),
+              "validation_protection": training_protection(validation, config)[1],
               "validation": validation}
     return report
 
