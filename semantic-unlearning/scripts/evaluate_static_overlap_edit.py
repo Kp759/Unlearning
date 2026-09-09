@@ -16,6 +16,50 @@ from static_overlap_data import encode_bundle, load_bundle, overlap_kind, text_f
 from static_overlap_training import sha256_file
 
 
+def apply_mcf_probability_metrics(result):
+    from mcf_zero_unlearn_metric_parity import summarize_probability_metrics
+    for split in ("forget", "retain"):
+        result[split] = summarize_probability_metrics(result[split], result[f"{split}_raw"])
+    result["metric_version"] = "zerounlearn_answer_probability_v2"
+    return result
+
+
+def zero_forgetting_check(metrics, max_probability_percent=0.005):
+    """Check unrounded values, separately from preservation of model utility."""
+    if not 0 < max_probability_percent <= 0.005:
+        raise ValueError("The display-zero ceiling must be positive and at most 0.005 percent")
+    checks = {}
+    for label in ("Eff", "Gen"):
+        probability = metrics.get(label)
+        accuracy = metrics.get(f"ReleasedAccuracy_{label}")
+        checks[f"{label}_probability_below_ceiling"] = (
+            probability is not None and math.isfinite(probability)
+            and 0 <= probability < max_probability_percent)
+        checks[f"{label}_accuracy_is_zero"] = accuracy == 0.0
+    return {"passed": all(checks.values()), "checks": checks,
+            "max_probability_percent_exclusive": max_probability_percent,
+            "scope": "forgetting on scored MCF prompts; utility must be assessed separately",
+            "exact_zero_probability_claimed": False}
+
+
+def compare_to_base(edited, base):
+    if edited["evaluation_bundle_sha256"] != base["evaluation_bundle_sha256"]:
+        raise ValueError("Base and edit must use the same evaluation bundle")
+    comparison = {"bundle": {}}
+    for role, summary in edited["summary"].items():
+        previous = base["summary"][role]
+        comparison["bundle"][role] = {key + "_change": summary[key] - previous[key]
+                                     for key in ("mean_answer_nll", "answer_accuracy")}
+    if "official_mcf" in edited:
+        comparison["official_mcf"] = {}
+        for split in ("forget", "retain"):
+            comparison["official_mcf"][split] = {
+                key + "_change": edited["official_mcf"][split][key] - base["official_mcf"][split][key]
+                for key in ("Eff", "Gen", "Spe", "TokenGeometricMean_Eff", "TokenGeometricMean_Gen",
+                            "ReleasedAccuracy_Eff", "ReleasedAccuracy_Gen")}
+    return comparison
+
+
 def verify_checkpoint(path):
     path = Path(path)
     report = json.loads((path / "static_edit_export.json").read_text())
@@ -35,7 +79,8 @@ def registered_mention(text, spellings):
 
 @torch.no_grad()
 def evaluate_bundle(model, tokenizer, bundle, max_length=512, abstention="I don't know.",
-                    max_new_tokens=64, do_sample=False, temperature=1.0, seed=1):
+                    max_new_tokens=64, do_sample=False, temperature=1.0, seed=1,
+                    generate=True):
     from transformers import GenerationConfig
 
     examples = encode_bundle(bundle, tokenizer, max_length, abstention)
@@ -70,10 +115,10 @@ def evaluate_bundle(model, tokenizer, bundle, max_length=512, abstention="I don'
     if do_sample:
         config.temperature = temperature
     device = next(model.parameters()).device
-    for row in bundle["examples"]:
+    for row in bundle["examples"] if generate else []:
         if row.get("role") == "language":
             continue
-        inputs = tokenizer(row["prompt"], return_tensors="pt").to(device)
+        inputs = tokenizer(row["prompt"], return_tensors="pt", return_token_type_ids=False).to(device)
         generated = model.generate(**inputs, generation_config=config)
         text = tokenizer.decode(generated[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True)
         diagnostic = []
@@ -95,6 +140,7 @@ def evaluate_bundle(model, tokenizer, bundle, max_length=512, abstention="I don'
             "language_tokens": language_tokens, "language_nll": mean_language_nll,
             "language_ppl": math.exp(mean_language_nll) if mean_language_nll is not None and mean_language_nll < 709 else None,
             "decoding": config.to_dict(), "seed": seed,
+            "generation_performed": generate,
             "disclosure_measurement": "Registered-answer mentions only; inspect saved completions with a factual assertion judge. Mixed overlaps, negations and quotations are not resolved by this diagnostic.",
             "runtime_router": False, "runtime_guard": False}
 
@@ -112,14 +158,18 @@ def main(argv=None):
     parser.add_argument("--sample", action="store_true")
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--mcf-path", help="Optional unchanged official MCF preference evaluation, after loading the plain checkpoint")
+    parser.add_argument("--mcf-path", help="MCF probability, released accuracy and preference metrics on the official split")
     parser.add_argument("--wikidata-dir", default="data/wikidata")
     parser.add_argument("--unlearn-num", type=int, default=50)
     parser.add_argument("--retain-num", type=int, default=1000)
     parser.add_argument("--skip-official-ppl", action="store_true")
+    parser.add_argument("--base-model", help="Also score the original model on identical prompts in deployment dtype")
+    parser.add_argument("--require-zero", action="store_true", help="Write results, then exit nonzero unless MCF Eff/Gen display-zero and accuracy-zero checks pass")
     args = parser.parse_args(argv)
     if args.max_new_tokens <= 0 or args.temperature <= 0:
         parser.error("Generation length and temperature must be positive")
+    if args.require_zero and not args.mcf_path:
+        parser.error("--require-zero requires --mcf-path")
     export = verify_checkpoint(args.checkpoint)
     manifest = json.loads((Path(args.checkpoint) / "training_manifest.json").read_text())
     bundle, _, evaluation_hash = load_bundle(args.evaluation_bundle, purpose="evaluation")
@@ -152,12 +202,48 @@ def main(argv=None):
                      r["requested_rewrite"]["target_true"]["str"]) for r in records}
         if trained != official:
             raise ValueError("Official MCF split/target_true associations differ from the trained forget set")
-        report["official_mcf"] = evaluate_loaded_model_official(
+        report["official_mcf"] = apply_mcf_probability_metrics(evaluate_loaded_model_official(
             "static_overlap_edit", model, tokenizer, args.checkpoint, args.mcf_path,
             args.wikidata_dir, unlearn_num=args.unlearn_num, retain_num=args.retain_num,
-            seed=args.seed, skip_ppl=args.skip_official_ppl)
+            seed=args.seed, skip_ppl=args.skip_official_ppl))
+        report["forgetting_check"] = zero_forgetting_check(report["official_mcf"]["forget"])
+    if args.base_model:
+        # Avoid holding two full models on the accelerator at once. The source
+        # checkpoint is loaded as a plain model, without automatic sidecars.
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        base_tokenizer = AutoTokenizer.from_pretrained(args.base_model, use_fast=True)
+        def pipeline(tok):
+            value = json.loads(tok.backend_tokenizer.to_str())
+            # Calls to the fast tokenizer mutate these batching settings.
+            value.pop("padding", None)
+            value.pop("truncation", None)
+            return value
+        if (base_tokenizer.get_vocab() != tokenizer.get_vocab()
+                or pipeline(base_tokenizer) != pipeline(tokenizer)):
+            raise ValueError("Base and edited tokenizer pipelines differ")
+        base_model = AutoModelForCausalLM.from_pretrained(
+            args.base_model, torch_dtype=dtype, attn_implementation="eager").to(args.device).eval()
+        base = evaluate_bundle(base_model, base_tokenizer, bundle, args.max_length,
+                               manifest["settings"]["abstention"], args.max_new_tokens,
+                               args.sample, args.temperature, args.seed, generate=False)
+        base["evaluation_bundle_sha256"] = evaluation_hash
+        base["model_path"] = args.base_model
+        if args.mcf_path:
+            base["official_mcf"] = apply_mcf_probability_metrics(evaluate_loaded_model_official(
+                "static_overlap_base", base_model, base_tokenizer, args.base_model, args.mcf_path,
+                args.wikidata_dir, unlearn_num=args.unlearn_num, retain_num=args.retain_num,
+                seed=args.seed, skip_ppl=args.skip_official_ppl))
+        report["base"] = base
+        report["change_vs_base"] = compare_to_base(report, base)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
+    if args.mcf_path:
+        print(json.dumps({"MCF_forget": report["official_mcf"]["forget"],
+                          "forgetting_check": report["forgetting_check"]}, indent=2), flush=True)
+    if args.require_zero and not report["forgetting_check"]["passed"]:
+        raise SystemExit("MCF forgetting target NOT met; results saved for diagnosis")
 
 
 if __name__ == "__main__":

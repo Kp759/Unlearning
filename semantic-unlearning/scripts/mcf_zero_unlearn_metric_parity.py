@@ -194,3 +194,57 @@ def patch_result_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         "paper_spe_requires_argmax_rerun": True,
     }
     return out
+
+
+def summarize_probability_metrics(summary, metric_data):
+    """Strict Eq. 16 answer likelihood plus explicitly named diagnostics.
+
+    P(y|x) is the product of conditional probabilities of ALL answer tokens,
+    without adding EOS. Legacy raw files lacking lengths cannot recover it.
+    Equal weight is assigned to each case, then each paraphrase within a case.
+    This preserves the repository's case-macro protocol when counts differ.
+    """
+    out = deepcopy(dict(summary))
+    for name in ("Eff", "Gen", "Spe"):
+        out.pop(name, None)
+    out["Legacy_Spe_ProbabilityDiff"] = summary.get("Spe")
+    for label, group in (("Eff", "rewrite"), ("Gen", "paraphrase"), ("Spe", "neighborhood")):
+        sequence, geometric, accuracy = [], [], []
+        for record in metric_data:
+            post = record["post"]
+            rows = post.get(f"{group}_prompts_probs", [])
+            flags = post.get(f"{group}_prompts_correct", [])
+            if not rows or len(rows) != len(flags):
+                raise ValueError(f"Missing {group} probabilities/correctness; rerun evaluation")
+            totals = []
+            for row in rows:
+                total, count = row.get("target_true_nll_sum"), row.get("target_true_tokens")
+                if total is None or type(count) is not int or count <= 0:
+                    raise ValueError("Full answer probability needs NLL sums/token counts; rerun with a fast tokenizer")
+                mean = float(row["target_true"])
+                if (not math.isfinite(total) or total < 0 or not math.isfinite(mean)
+                        or not math.isclose(total / count, mean, abs_tol=1e-6, rel_tol=1e-6)):
+                    raise ValueError("Invalid/inconsistent target likelihood")
+                totals.append(total)
+            if any(type(flag) is not bool for flag in flags):
+                raise ValueError("Correctness must contain boolean outcomes")
+            sequence.append(sum(math.exp(-n) for n in totals) / len(rows))
+            geometric.append(sum(math.exp(-float(r["target_true"])) for r in rows) / len(rows))
+            accuracy.append(sum(flags) / len(flags))
+        if not sequence:
+            raise ValueError("Cannot score an empty evaluation set")
+        probability = 100.0 * sum(sequence) / len(sequence)
+        out[f"AnswerProbability_{label}"] = probability
+        out[f"TokenGeometricMean_{label}"] = 100.0 * sum(geometric) / len(geometric)
+        out[f"ReleasedAccuracy_{label}"] = 100.0 * sum(accuracy) / len(accuracy)
+        out[label] = out[f"ReleasedAccuracy_{label}"] if label == "Spe" else probability
+        if label != "Spe":
+            out[f"SensitivePref_{label}"] = _first(summary, f"post_{group}_sensitive_pref")
+            out[f"CF_EditSuccess_{label}"] = _first(summary, f"post_{group}_success")
+    out["metric_version"] = "zerounlearn_answer_probability_v2"
+    out["Eff_definition"] = "100 * mean_case(P(target_true | rewrite)); P = exp(-sum answer-token NLL), Eq. (16)"
+    out["Gen_definition"] = "100 * mean_case(mean_paraphrase(P(target_true | paraphrase))); same answer likelihood"
+    out["Spe_definition"] = "100 * mean_case(mean_neighborhood(all target_true tokens argmax-correct))"
+    out["source"] = "https://arxiv.org/html/2605.18879#S6.SS1"
+    out["rounding"] = "Raw percentages retained; a displayed 0.00 is not exact zero probability"
+    return out

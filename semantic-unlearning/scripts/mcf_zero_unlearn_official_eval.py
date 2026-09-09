@@ -100,6 +100,52 @@ def is_llama_like(model, tok):
 
 
 @torch.no_grad()
+def _offset_prediction(model, tok, prefixes, target_new, target_true, device,
+                       return_correct):
+    """Score actual continuation tokens, independent of BOS and padding policy.
+
+    Tokenizing the suffix independently and removing its first token based on
+    model family can drop a real answer token. Offsets also handle BPE tokens
+    containing the leading separator space. Never score PAD/BOS/EOS as answers.
+    """
+    texts = [f"{p} {s}" for p in prefixes for s in (target_new, target_true)]
+    encoded = tok(texts, padding=True, return_tensors="pt", return_offsets_mapping=True,
+                  return_token_type_ids=False)
+    offsets = encoded.pop("offset_mapping").tolist()
+    encoded = encoded.to(device)
+    logits = model(**encoded, use_cache=False).logits
+    scores, correct = [], []
+    for i, text in enumerate(texts):
+        start = len(prefixes[i // 2]) + 1
+        positions = [j for j, (a, b) in enumerate(offsets[i])
+                     if b > a and b > start and a < len(text)
+                     and bool(encoded["attention_mask"][i, j])]
+        if not positions or min(positions) == 0:
+            raise ValueError("An answer must contain tokens with preceding context")
+        if any(a < start and text[a:start].strip()
+               for j in positions for a, _ in [offsets[i][j]]):
+            raise ValueError("A token crosses the prompt/answer boundary; cannot score the answer exactly")
+        labels = encoded["input_ids"][i, positions]
+        values = logits[i, [j - 1 for j in positions]].float()
+        losses = -values.log_softmax(-1).gather(-1, labels[:, None]).squeeze(-1)
+        if not torch.isfinite(losses).all():
+            raise ValueError("Non-finite target likelihood")
+        scores.append((losses.double().sum().item(), len(positions)))
+        if i % 2:
+            correct.append(bool((values.argmax(-1) == labels).all()))
+    out = []
+    for i in range(0, len(scores), 2):
+        row = {}
+        for name, (total, count) in zip(("target_new", "target_true"), scores[i:i + 2]):
+            row[name] = total / count
+            if return_correct:
+                row[f"{name}_nll_sum"] = total
+                row[f"{name}_tokens"] = count
+        out.append(row)
+    return (out, correct) if return_correct else out
+
+
+@torch.no_grad()
 def official_test_batch_prediction(
     model,
     tok,
@@ -126,6 +172,10 @@ def official_test_batch_prediction(
     """
     if len(prefixes) == 0:
         return ([], []) if return_correct else []
+
+    if getattr(tok, "is_fast", False):
+        return _offset_prediction(model, tok, prefixes, target_new, target_true,
+                                  device, return_correct)
 
     prefix_lens = [len(x) for x in tok(prefixes)["input_ids"]]
 
@@ -334,6 +384,7 @@ def official_summarize(split_name, metric_data):
     out = {
         "split_name": split_name,
         "num_cases": len(metric_data),
+        "metric_version": "counterfact_sensitive_preference_legacy",
     }
 
     for k, v in vals.items():
@@ -346,7 +397,10 @@ def official_summarize(split_name, metric_data):
                 round(float(np.std(v) * scale), 2),
             ]
 
-    # Paper-style table:
+    # Legacy CounterFact preference aliases (NOT the paper probability or
+    # released-code accuracy). The static evaluator explicitly replaces these
+    # through summarize_probability_metrics; old margin-based callers retain
+    # this versioned contract.
     # Eff/Gen = fraction of forget prompts still favoring the sensitive
     #           target_true over target_new. LOWER is better (0 = forgotten).
     #           This matches build_post_reload_acceptance_gate's

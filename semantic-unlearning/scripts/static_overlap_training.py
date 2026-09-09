@@ -12,7 +12,7 @@ import tempfile
 import torch
 
 from static_overlap_core import (
-    answer_nll, bounded_forget, constrained_step, flat_gradient, forward_kl,
+    answer_nll, constrained_step, flat_gradient, forward_kl,
     model_logits, selected_logits, tied_weights,
 )
 
@@ -22,15 +22,19 @@ class TrainConfig:
     steps: int = 200
     batch_size: int = 4
     protected_batch_size: int = 8
-    learning_rate: float = 1e-3
+    learning_rate: float = 0.005
     forget_increase: float = 2.0
     lambda_forget: float = 1.0
     lambda_abstain: float = 1.0
     lambda_retain: float = 1.0
     lambda_kl: float = 1.0
     lambda_delta: float = 1e-4
-    epsilon: float = 1e-4
-    step_radius: float = 0.01
+    epsilon: float = 0.005
+    step_radius: float = 0.25
+    max_step_radius: float = 2.0
+    radius_growth: float = 2.0
+    target_probability: float = 1e-6
+    min_forget_progress: float = 1e-6
     retain_nll_budget: float = 0.05
     retain_kl_budget: float = 0.01
     backtracks: int = 10
@@ -51,6 +55,29 @@ class TrainConfig:
         for key in ("learning_rate", "forget_increase", "step_radius", "lambda_forget", "lambda_retain", "lambda_kl"):
             if getattr(self, key) <= 0:
                 raise ValueError(f"{key} must be positive")
+        if not 0 < self.target_probability < 1:
+            raise ValueError("target_probability must lie strictly between 0 and 1")
+        if self.max_step_radius < self.step_radius or self.radius_growth < 1:
+            raise ValueError("max_step_radius/radius_growth cannot shrink the initial radius")
+
+
+def forget_target(base_nll, config):
+    # A relative +2 NLL target only multiplies residual token probability by
+    # exp(-2); it cannot establish near-zero residual knowledge. A token-mean
+    # probability ceiling also upper-bounds the full answer probability.
+    return max(base_nll + config.forget_increase, -math.log(config.target_probability))
+
+
+def forgetting_status(rows, config):
+    forgotten = [r for r in rows if r["role"] == "forget"]
+    if not forgotten:
+        raise ValueError("Cannot validate forgetting without forget examples")
+    residual = [math.exp(-r["nll"]) for r in forgotten]
+    return {"count": len(forgotten), "mean_token_probability": sum(residual) / len(residual),
+            "max_token_probability": max(residual),
+            "target_probability": config.target_probability,
+            "target_met": all(math.isfinite(r["nll"]) and r["nll"] >= forget_target(r["base_nll"], config)
+                              for r in forgotten)}
 
 
 @torch.no_grad()
@@ -96,19 +123,46 @@ def train(editor, examples, config, log_path=None):
     base_nll = {row["id"]: row["base_nll"] for row in baseline}
     optimizer = torch.optim.Adam(editor.parameters, lr=config.learning_rate)
     rng, history, stalls = random.Random(config.seed), [], 0
+    radius = config.step_radius
+    forget_order, forget_cursor, seen_forget = [], 0, set()
+    abstain_by_key = {(e.group, e.fact_id): e for e in abstain}
     order = list(anchors)
     rng.shuffle(order)
     cursor = 0
+    target_reached = False
 
     def sample(pool):
         return rng.sample(pool, min(config.batch_size, len(pool)))
+
+    def next_forget_batch():
+        nonlocal forget_order, forget_cursor
+        if forget_cursor >= len(forget_order):
+            forget_order = list(forget)
+            rng.shuffle(forget_order)
+            forget_cursor = 0
+        batch = forget_order[forget_cursor:forget_cursor + config.batch_size]
+        forget_cursor += len(batch)
+        seen_forget.update(e.id for e in batch)
+        return batch
 
     for step in range(config.steps):
         protected = [order[(cursor + j) % len(order)]
                      for j in range(min(config.protected_batch_size, len(order)))]
         cursor = (cursor + len(protected)) % len(order)
-        gradients = torch.stack([flat_gradient(answer_nll(model_logits(editor.model, e), e),
-                                               editor.parameters) for e in protected])
+        protected_gradients, allowances = [], []
+        for e in protected:
+            nll = answer_nll(model_logits(editor.model, e), e)
+            allowances.append(min(config.epsilon, max(0.0, config.retain_nll_budget
+                                                     - (nll.detach().item() - base_nll[e.id]))) * 0.5)
+            protected_gradients.append(flat_gradient(nll, editor.parameters))
+            with editor.base(), torch.no_grad():
+                base = model_logits(editor.model, e)
+            kl = forward_kl(base, model_logits(editor.model, e), e)
+            allowances.append(min(config.epsilon, max(0.0, config.retain_kl_budget
+                                                     - kl.detach().item())) * 0.5)
+            protected_gradients.append(flat_gradient(kl, editor.parameters))
+        gradients = torch.stack(protected_gradients)
+        allowances = gradients.new_tensor(allowances)
         # Accumulate each micro-example separately to bound activation memory.
         # A detached leaf surrogate delivers this aggregate gradient to Adam.
         aggregate = torch.zeros_like(gradients[0])
@@ -119,12 +173,16 @@ def train(editor, examples, config, log_path=None):
             components[name] += loss.detach().item()
             aggregate += flat_gradient(loss, editor.parameters)
 
-        batch = sample(forget)
-        for e in batch:
+        forget_batch = next_forget_batch()
+        before_forget = 0.0
+        for e in forget_batch:
             nll = answer_nll(model_logits(editor.model, e), e)
-            add("forget", config.lambda_forget * bounded_forget(nll, base_nll[e.id], config.forget_increase) / len(batch))
+            loss = torch.relu(nll.new_tensor(forget_target(base_nll[e.id], config)) - nll)
+            before_forget += max(0.0, forget_target(base_nll[e.id], config) - nll.detach().item()) / len(forget_batch)
+            add("forget", config.lambda_forget * loss / len(forget_batch))
+        forget_gradient = aggregate.clone()
         if config.lambda_abstain:
-            batch = sample(abstain)
+            batch = [abstain_by_key[(e.group, e.fact_id)] for e in forget_batch]
             for e in batch:
                 add("abstain", config.lambda_abstain * answer_nll(model_logits(editor.model, e), e) / len(batch))
         batch = sample(retain)
@@ -143,12 +201,34 @@ def train(editor, examples, config, log_path=None):
         def check():
             # All training anchors, including mixed companion spans, checked
             # against BASE budgets after each proposal/backtrack. No ratcheting.
-            return within_budgets(measure(editor, anchors), config)
+            with torch.no_grad():
+                nlls = [answer_nll(model_logits(editor.model, e), e).item() for e in forget_batch]
+                if not all(math.isfinite(nll) for nll in nlls):
+                    return False, {"forget_progress_passed": False, "nonfinite_forget_nll": True}
+                after_forget = sum(max(0.0, forget_target(base_nll[e.id], config) - nll)
+                                   for e, nll in zip(forget_batch, nlls)) / len(forget_batch)
+            progress = before_forget - after_forget
+            useful = (progress >= config.min_forget_progress if before_forget > config.min_forget_progress
+                      else after_forget <= before_forget)
+            diagnostics = {"forget_loss_before": before_forget, "forget_loss_after": after_forget,
+                           "forget_progress": progress, "forget_progress_passed": useful}
+            if not useful:
+                return False, diagnostics
+            passed, protection = within_budgets(measure(editor, anchors), config)
+            return passed, {**diagnostics, **protection}
 
         record = constrained_step(optimizer, editor.parameters, surrogate, gradients, check,
-                                  epsilon=config.epsilon, radius=config.step_radius,
-                                  backtracks=config.backtracks)
-        record.update(step=step + 1, objective=sum(components.values()), components=components)
+                                  epsilon=allowances, radius=radius,
+                                  backtracks=config.backtracks, fallback_direction=-forget_gradient)
+        record.update(step=step + 1, objective=sum(components.values()), components=components,
+                      step_radius=radius, forget_examples_seen=len(seen_forget),
+                      forget_examples_total=len(forget))
+        if record["accepted"]:
+            # Grow only when actual nonlinear retention AND forgetting pass;
+            # backtracked steps reduce the next radius to their accepted scale.
+            radius = min(config.max_step_radius,
+                         max(config.step_radius, radius * 0.5 ** record["backtracks"])
+                         * (config.radius_growth if record["backtracks"] == 0 else 1.0))
         history.append(record)
         if log_path:
             with Path(log_path).open("a") as stream:
@@ -157,10 +237,23 @@ def train(editor, examples, config, log_path=None):
         stalls = 0 if record["accepted"] else stalls + 1
         if stalls >= config.max_stalled_steps:
             break
+        if record["accepted"] and forget_cursor == len(forget_order):
+            # Only fitting examples may trigger early stopping. Official Gen
+            # prompts remain absent from fitting and checkpoint selection.
+            if forgetting_status(measure(editor, forget), config)["target_met"]:
+                target_reached = True
+                break
+    validation = measure(editor, [e for e in examples if e.split == "validation"])
+    training_forget = measure(editor, forget)
     report = {"config": asdict(config), "history": history,
-              "stop_reason": "no_useful_feasible_step" if stalls >= config.max_stalled_steps else "step_budget",
+              "stop_reason": ("training_forgetting_target" if target_reached else
+                              "no_useful_feasible_step" if stalls >= config.max_stalled_steps else "step_budget"),
               "accepted_steps": sum(row["accepted"] for row in history),
-              "validation": measure(editor, [e for e in examples if e.split == "validation"])}
+              "forget_examples_seen": len(seen_forget), "forget_examples_total": len(forget),
+              "training_forget": training_forget,
+              "training_forgetting": forgetting_status(training_forget, config),
+              "validation_forgetting": forgetting_status(validation, config),
+              "validation": validation}
     return report
 
 
@@ -216,7 +309,8 @@ def export_verified(editor, tokenizer, examples, config, output, deployment_dtyp
             passed, protection = within_budgets(rows, config)
             if not passed:
                 raise RuntimeError(f"Deployment retention budgets failed: {protection}")
-            return {"max_selected_logit_error": max_error, "protection": protection, "metrics": rows}
+            return {"max_selected_logit_error": max_error, "protection": protection,
+                    "forgetting": forgetting_status(rows, config), "metrics": rows}
 
         merged_report = verify(editor.model)
         # Do not carry a source checkpoint's generation penalties or hard masks
@@ -240,6 +334,8 @@ def export_verified(editor, tokenizer, examples, config, output, deployment_dtyp
         reloaded_report = verify(reloaded)
     files = {p.name: sha256_file(p) for p in output.iterdir() if p.is_file()}
     report = {"verified": True, "runtime_router": False, "runtime_guard": False,
+              "verification_scope": "native checkpoint parity and finite-anchor retention, not successful unlearning",
+              "forgetting_target_met": reloaded_report["forgetting"]["target_met"],
               "shared_endpoints": shared, "deployment_dtype": str(deployment_dtype),
               "parity_atol": atol, "parity_rtol": rtol,
               "merged": merged_report, "reloaded": reloaded_report, "file_sha256": files}

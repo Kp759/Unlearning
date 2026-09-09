@@ -326,14 +326,17 @@ def project_update(proposal, gradients, epsilon, radius, tolerance=1e-7, max_ite
     Stores one scalar correction per halfspace, plus one vector for the ball.
     Failure returns zero with converged=False; callers must reject that step.
     """
-    if radius <= 0 or epsilon < 0 or tolerance <= 0 or max_iterations <= 0:
+    allowances = torch.as_tensor(epsilon, dtype=proposal.dtype, device=proposal.device)
+    if (allowances.ndim > 1 or (allowances.ndim == 1 and len(allowances) != len(gradients))
+            or not torch.isfinite(allowances).all() or (allowances < 0).any()
+            or radius <= 0 or tolerance <= 0 or max_iterations <= 0):
         raise ValueError("Invalid projection budgets")
     if not torch.isfinite(proposal).all() or not torch.isfinite(gradients).all():
         return Projection(torch.zeros_like(proposal), False, 0, float("inf"))
     norms = gradients.norm(dim=1)
     nonzero = norms > 0
     normals = gradients[nonzero] / norms[nonzero, None]
-    budgets = epsilon / norms[nonzero]
+    budgets = allowances.expand(len(gradients))[nonzero] / norms[nonzero]
     corrections = proposal.new_zeros(len(normals))
     ball_correction = torch.zeros_like(proposal)
     x = proposal.clone()
@@ -348,7 +351,7 @@ def project_update(proposal, gradients, epsilon, radius, tolerance=1e-7, max_ite
         y = x + ball_correction
         x = y * (radius / y.norm().clamp_min(radius))
         ball_correction = y - x
-        violation = max(0.0, (gradients @ x - epsilon).max().item()
+        violation = max(0.0, (gradients @ x - allowances).max().item()
                         if len(gradients) else 0.0, x.norm().item() - radius)
         if (x - previous).norm().item() <= tolerance and violation <= tolerance:
             return Projection(x, True, iteration, violation)
@@ -356,7 +359,8 @@ def project_update(proposal, gradients, epsilon, radius, tolerance=1e-7, max_ite
 
 
 def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
-                     radius, backtracks=10, projection_tolerance=1e-7):
+                     radius, backtracks=10, projection_tolerance=1e-7,
+                     fallback_direction=None):
     """Project the actual Adam proposal; validate nonlinear budgets and rollback.
 
     ``check`` returns (accepted, diagnostics) for the current full edited model.
@@ -369,20 +373,31 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
     optimizer.step()
     proposal = flat_parameters(parameters) - before
     set_parameters(parameters, before)
-    projection = project_update(proposal, gradients, epsilon, radius,
-                                tolerance=projection_tolerance)
+    proposals = [("adam", proposal)]
+    if fallback_direction is not None and fallback_direction.norm().item() > 0:
+        # If the mixed objective/Adam direction harms forgetting, try a pure
+        # forget descent direction at the SAME proposal scale and constraints.
+        fallback = fallback_direction / fallback_direction.norm() * proposal.norm().clamp_max(radius)
+        proposals.append(("forget_descent", fallback))
     diagnostics = {}
     try:
-        if projection.converged and projection.delta.norm().item() > projection_tolerance:
-            for trial in range(backtracks + 1):
-                scale = 0.5 ** trial
-                set_parameters(parameters, before + scale * projection.delta)
-                accepted, diagnostics = check()
-                if accepted:
-                    return {"accepted": True, "backtracks": trial,
-                            "proposal_norm": proposal.norm().item(),
-                            "step_norm": (scale * projection.delta).norm().item(),
-                            "projection_iterations": projection.iterations, **diagnostics}
+        for direction, candidate in proposals:
+            projection = project_update(candidate, gradients, epsilon, radius,
+                                        tolerance=projection_tolerance)
+            if projection.converged and projection.delta.norm().item() > projection_tolerance:
+                for trial in range(backtracks + 1):
+                    scale = 0.5 ** trial
+                    set_parameters(parameters, before + scale * projection.delta)
+                    accepted, diagnostics = check()
+                    if accepted:
+                        if direction != "adam":
+                            # No Adam proposal was applied; discard its moments.
+                            optimizer.load_state_dict(state)
+                        return {"accepted": True, "backtracks": trial, "direction": direction,
+                                "proposal_norm": candidate.norm().item(),
+                                "projected_norm": projection.delta.norm().item(),
+                                "step_norm": (scale * projection.delta).norm().item(),
+                                "projection_iterations": projection.iterations, **diagnostics}
     except BaseException:
         set_parameters(parameters, before)
         optimizer.load_state_dict(state)
@@ -390,5 +405,7 @@ def constrained_step(optimizer, parameters, loss, gradients, check, *, epsilon,
     set_parameters(parameters, before)
     optimizer.load_state_dict(state)
     return {"accepted": False, "projection_converged": projection.converged,
+            "proposal_norm": proposal.norm().item(),
+            "projected_norm": projection.delta.norm().item(),
             "projection_iterations": projection.iterations, "step_norm": 0.0,
             **diagnostics}

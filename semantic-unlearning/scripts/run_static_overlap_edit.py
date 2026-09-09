@@ -24,6 +24,7 @@ def parse_args(argv=None):
     parser.add_argument("--dtype", choices=("float32", "bfloat16"), default="float32")
     parser.add_argument("--deployment-dtype", choices=("float32", "bfloat16", "float16"), default="bfloat16")
     parser.add_argument("--local-files-only", action="store_true")
+    parser.add_argument("--steps", type=int, help="Override the config step count for a coverage pilot")
     return parser.parse_args(argv)
 
 
@@ -53,6 +54,10 @@ def main(argv=None):
 
     args = parse_args(argv)
     settings, config = load_config(args.config)
+    if args.steps is not None:
+        config.steps = args.steps
+        config.validate()
+        settings["training"]["steps"] = args.steps
     bundle, facts, bundle_hash = load_bundle(args.training_bundle)
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=False)
@@ -85,6 +90,7 @@ def main(argv=None):
                 "model_config": model.config.to_dict(), "training_dtype": args.dtype,
                 "deployment_dtype": args.deployment_dtype,
                 "training_bundle_sha256": bundle_hash,
+                "training_bundle_path": str(Path(args.training_bundle).resolve()),
                 "input_rows": input_rows, "output_rows": output_rows,
                 "shared_endpoints": editor.shared, "selected_channels": channels,
                 "localization": scores, "trainable_parameters": sum(p.numel() for p in editor.parameters),
@@ -105,10 +111,12 @@ def main(argv=None):
             local_files_only=True, attn_implementation="eager",
         ).to(args.device)
 
-    export_verified(editor, tokenizer, examples, config, output / "checkpoint",
+    exported = export_verified(editor, tokenizer, examples, config, output / "checkpoint",
                     getattr(torch, args.deployment_dtype), reload_model,
                     atol=settings["export_atol"], rtol=settings["export_rtol"], manifest=manifest)
     print(f"Verified native checkpoint: {output / 'checkpoint'}", flush=True)
+    print(f"Finite-anchor forgetting target met: {exported['forgetting_target_met']}; "
+          "official held-out Eff/Gen still require evaluation", flush=True)
 
 
 if __name__ == "__main__":

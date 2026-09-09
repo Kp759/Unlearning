@@ -198,7 +198,9 @@ def test_data_rejects_leaks_missing_overlaps_and_truncation(bundle, tokenizer):
     with pytest.raises(ValueError, match="Unknown"):
         validate_bundle(bad)
     bad = deepcopy(bundle)
-    bad["examples"] = [r for r in bad["examples"] if r["id"] != "train_retain_restaurant"]
+    # Same-answer restaurant controls are optional in the MCF protocol; the
+    # same-relation/different-subject control remains mandatory.
+    bad["examples"] = [r for r in bad["examples"] if r["id"] != "train_retain_other_person"]
     with pytest.raises(ValueError, match="overlap controls"):
         validate_bundle(bad)
     bad = deepcopy(bundle)
@@ -250,6 +252,10 @@ def fitted(bundle, tokenizer, steps=2, shared=True):
 def test_joint_training_changes_all_sites_and_respects_base_budgets(bundle, tokenizer):
     editor, examples, config, report = fitted(bundle, tokenizer, shared=False)
     assert report["accepted_steps"] > 0
+    assert report["forget_examples_seen"] == report["forget_examples_total"]
+    assert not report["training_forgetting"]["target_met"]
+    assert all(row["forget_progress"] >= config.min_forget_progress
+               for row in report["history"] if row["accepted"])
     assert all(edit.delta().norm().item() > 0 for edit in editor.edits)
     passed, _ = within_budgets(measure(editor, [e for e in examples if e.role in ("retain", "language")]), config)
     assert passed
@@ -268,6 +274,7 @@ def test_export_native_reload_tying_and_generation(bundle, tokenizer, tmp_path, 
     report = export_verified(editor, tokenizer, examples, config, checkpoint, dtype,
                              reload_model, atol=0.02, rtol=0.02)
     assert report["verified"] and report["shared_endpoints"]
+    assert report["forgetting_target_met"] is False
     verify_checkpoint(checkpoint)
     model = reload_model(checkpoint)
     assert model.get_input_embeddings().weight is model.get_output_embeddings().weight
@@ -329,10 +336,32 @@ def test_cli_localize_train_export(bundle, tokenizer, tmp_path):
     heldout_path.write_text(json.dumps(heldout))
     eval_args = ["--checkpoint", str(tmp_path / "run/checkpoint"), "--evaluation-bundle",
                  str(heldout_path), "--out", str(tmp_path / "evaluation.json"),
-                 "--device", "cpu", "--max-new-tokens", "2"]
+                 "--device", "cpu", "--max-new-tokens", "2", "--base-model", str(base)]
     evaluate_main(eval_args)
     evaluation = json.loads((tmp_path / "evaluation.json").read_text())
     assert evaluation["runtime_guard"] is False
+    assert evaluation["base"]["generation_performed"] is False
+    assert "forget" in evaluation["change_vs_base"]["bundle"]
+    # Exercise the actual static CLI's official scoring and failing exit gate.
+    rr = {"subject": "Person A", "relation_id": "native language",
+          "prompt": "The native language of {} is", "target_true": {"str": "French"},
+          "target_new": {"str": "engineer"}}
+    record = {"case_id": 1, "requested_rewrite": rr,
+              "paraphrase_prompts": ["State Person A's native language:"],
+              "neighborhood_prompts": ["The native language of Person B is"]}
+    retained = deepcopy(record)
+    retained["case_id"] = 0
+    retained["requested_rewrite"]["subject"] = "Person B"
+    mcf = tmp_path / "mcf.json"
+    mcf.write_text(json.dumps([retained, record]))
+    with pytest.raises(SystemExit, match="NOT met"):
+        evaluate_main(eval_args + ["--mcf-path", str(mcf), "--unlearn-num", "1", "--retain-num", "1",
+                                  "--skip-official-ppl", "--require-zero"])
+    evaluation = json.loads((tmp_path / "evaluation.json").read_text())
+    assert evaluation["official_mcf"]["forget"]["metric_version"] == "zerounlearn_answer_probability_v2"
+    assert "ReleasedAccuracy_Gen" in evaluation["official_mcf"]["forget"]
+    assert not evaluation["forgetting_check"]["passed"]
+    assert "Gen_change" in evaluation["change_vs_base"]["official_mcf"]["forget"]
     assert evaluation["generation"] and evaluation["language_ppl"] > 0
     heldout["examples"][0]["prompt"] = bundle["examples"][0]["prompt"]
     heldout_path.write_text(json.dumps(heldout))
