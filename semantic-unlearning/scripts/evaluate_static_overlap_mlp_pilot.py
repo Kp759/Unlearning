@@ -12,13 +12,13 @@ from static_overlap_mlp_protocol import claim_evaluation, load_pilot
 from static_overlap_training import sha256_file
 
 
-def main(argv=None):
+def main(argv=None, *, protocol_loader=load_pilot, evaluation_claim=claim_evaluation):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pilot-protocol", required=True)
     parser.add_argument("--wikidata-dir", required=True)
     parser.add_argument("--device", default="cuda")
     args = parser.parse_args(argv)
-    pilot = load_pilot(args.pilot_protocol)
+    pilot = protocol_loader(args.pilot_protocol)
     root = Path(args.pilot_protocol).resolve().parent
     checkpoint = root / "checkpoint"
     report = json.loads((root / "training_report.json").read_text())
@@ -37,7 +37,7 @@ def main(argv=None):
         groups[name], _, _ = load_bundle(frozen["files"][name]["path"], purpose)
         if set(manifest["training_text_fingerprints"]) & set(text_fingerprints(groups[name])):
             raise ValueError("Exploratory development data overlap frozen final inputs")
-    _, identity = claim_evaluation(args.pilot_protocol, checkpoint)
+    _, identity = evaluation_claim(args.pilot_protocol, checkpoint)
     retention_path = root / "exploratory_retention_results.json"
     if retention_path.exists():
         retention = json.loads(retention_path.read_text())
