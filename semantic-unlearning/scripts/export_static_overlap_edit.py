@@ -57,7 +57,8 @@ def main(argv=None):
     run = Path(args.training_run)
     manifest = json.loads((run / "manifest.json").read_text())
     training_report = json.loads((run / "training_report.json").read_text())
-    if manifest["architecture"] != "static_overlap_constrained_embedding_mlp_head_v1":
+    cached_head = manifest["architecture"] == "static_overlap_cached_head_v1"
+    if manifest["architecture"] not in ("static_overlap_constrained_embedding_mlp_head_v1", "static_overlap_cached_head_v1"):
         raise ValueError("Unsupported training artifact architecture")
     settings = manifest["settings"]
     config = TrainConfig(**manifest["training_config"])
@@ -77,7 +78,13 @@ def main(argv=None):
     tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True, local_files_only=args.local_files_only)
     examples = encode_bundle(bundle, tokenizer, settings["max_length"],
                              settings["abstention"] if config.lambda_abstain else "")
-    inputs, outputs = endpoint_rows(facts, examples, tokenizer, bool(config.lambda_abstain))
+    inputs, outputs = endpoint_rows(facts, examples, tokenizer,
+                                   False if cached_head else bool(config.lambda_abstain))
+    if cached_head:
+        inputs = []
+        if (manifest["shared_endpoints"] or manifest["selected_channels"]
+                or settings["architecture"]["rank"] != len(outputs)):
+            raise ValueError("Invalid cached-head artifact support/rank")
     if inputs != manifest["input_rows"] or outputs != manifest["output_rows"]:
         raise ValueError("Recovery tokenizer produces different editable token rows")
     model = AutoModelForCausalLM.from_pretrained(
