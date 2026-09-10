@@ -130,3 +130,40 @@ Recovery repeats the recorded head separation on the original tied base without
 requiring another opt-in flag. It uses the saved augmented bundle and refuses runs that
 failed real-model retention/parity. Inspect `training_report.json`,
 `candidates.jsonl`, and `prefix_conflicts.json` for diagnosis.
+
+## Audit a completed grid without another training run
+
+The default grid starts at strength 0.25. If all 90 candidates fail retention,
+that does not prove every smaller edit is invalid. This diagnostic reuses the
+saved `head_cache.pt`, reconstructs and validates its token ownership, and finds
+the retention boundary along each of the existing fitted directions:
+
+```bash
+python -u scripts/audit_static_overlap_cached_head.py \
+  --training-run "$HEAD_OUT" \
+  --model-path "$MODEL_PATH" \
+  --out "$HEAD_OUT/retention_boundary_audit.json" \
+  --device cuda --local-files-only
+```
+
+No model weights or transformer passes are needed for this boundary scan. NLL
+and KL are convex along a fixed head-update direction, so the code bisects the
+feasible interval starting at the base model. It reports the conservative lower
+boundary and the failing upper boundary after 24 iterations, or notes that the
+requested upper strength still passes. This describes only the searched rays,
+not the optimum over all possible edits. Scientific and internal retention
+limits come from the completed run and are not increased. Validation retention
+is used for selection; validation forget scores never influence fitting or
+selection. A very weak valid edit is not reported as near-zero forgetting.
+
+Add `--verify-best-training` to also load the original base and check the saved
+training-optimal diagnostic delta against real model NLL/KL. This optional phase
+does require model memory and transformer passes. It records both parity and
+actual retention failures; it never merges, saves or approves the invalid delta
+as a native checkpoint. No official Eff/Gen data is read by either phase.
+
+The audit leaves the original run files untouched and writes only a new JSON
+report. Legacy cache metadata is checked against reconstructed token ownership
+and the original baseline summary; this is not a cryptographic proof of the
+identity of model weights. The optional real-model check provides additional
+numerical reproduction evidence.

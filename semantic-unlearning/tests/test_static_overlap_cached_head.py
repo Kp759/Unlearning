@@ -15,13 +15,14 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from test_static_overlap_edit import bundle, tokenizer, tiny, deterministic
 from static_overlap_cached_head import (HeadCache, RetainMetricSolver, augment_contexts,
     audit_prefix_conflicts, cache_head, cached_measure, cached_token_statistics,
-    prepare_independent_head, summarize)
+    feasible_strength, prepare_independent_head, summarize)
 from static_overlap_core import StaticEditor, answer_nll, forward_kl, model_logits, tied_weights
 from static_overlap_data import Example, encode_bundle, endpoint_rows
 from static_overlap_training import TrainConfig, measure
 from run_static_overlap_cached_head import main, parse_args
 from export_static_overlap_edit import main as recover
 from evaluate_static_overlap_edit import verify_checkpoint
+from audit_static_overlap_cached_head import main as audit_main, load_saved_cache
 
 
 def test_cached_full_vocabulary_nll_kl_matches_model_and_merge(bundle, tokenizer):
@@ -186,6 +187,49 @@ def test_validation_failure_cannot_be_selected_even_with_perfect_training_forget
     assert report["validation_protection"]["nominal_retain_kl_budget"] == .01
 
 
+def test_boundary_search_finds_valid_strength_below_original_grid():
+    cache = artificial_cache()
+    cache.hidden[4] = cache.hidden[0]
+    config = TrainConfig()
+    direction = RetainMetricSolver(cache).solve(0, 1e-4)
+    assert not summarize(cached_measure(cache, direction * .25), config)["eligible"]
+    result = feasible_strength(cache, direction, config)
+    assert result["boundary_bracketed"] and 0 < result["strength"] < .25
+    assert result["summary"]["eligible"]
+    assert not result["summary"]["training_forgetting"]["target_met"]
+    assert not summarize(cached_measure(cache, direction * result["infeasible_upper"]), config)["eligible"]
+    # Independent analytic NLL budget: q(true)=.8*exp(-s)/(.2+.8*exp(-s)).
+    q = .8 * math.exp(-.05)
+    expected_logit_shift = math.log(.8*(1-q)/(.2*q))
+    actual_logit_shift = -float(cache.hidden[4] @ direction[0]) * result["strength"]
+    assert actual_logit_shift == pytest.approx(expected_logit_shift, abs=3e-6)
+
+
+def test_boundary_search_reports_when_upper_strength_is_feasible():
+    cache = artificial_cache()
+    direction = RetainMetricSolver(cache).solve(0, 1e-4)
+    result = feasible_strength(cache, direction, TrainConfig(), upper=32)
+    assert result["strength"] == 32 and result["infeasible_upper"] is None
+    assert not result["boundary_bracketed"] and result["summary"]["training_forgetting"]["target_met"]
+
+
+def test_saved_cache_audit_rejects_mismatched_owner_order(bundle, tokenizer, tmp_path):
+    (tmp_path / "training_bundle.json").write_text(json.dumps(bundle))
+    # First save a real cache with its actual selected answer rows.
+    examples = encode_bundle(bundle, tokenizer)
+    _, rows = endpoint_rows({f["id"]: f for f in bundle["facts"]}, examples, tokenizer, False)
+    cache = cache_head(tiny(len(tokenizer)), examples, rows)
+    tensors = {key: getattr(cache, key) for key in
+               ("hidden", "logp_rows", "logp_other", "target_nll", "target_row", "owners", "rows")}
+    torch.save(tensors, tmp_path / "head_cache.pt")
+    restored, _ = load_saved_cache(tmp_path, tokenizer)
+    assert torch.equal(restored.hidden, cache.hidden)
+    tensors["owners"] = tensors["owners"].flip(0)
+    torch.save(tensors, tmp_path / "head_cache.pt")
+    with pytest.raises(ValueError, match="owners"):
+        load_saved_cache(tmp_path, tokenizer)
+
+
 @pytest.mark.parametrize("flag,value", [("--taus", "-1"), ("--ridges", "0"), ("--strengths", "nan")])
 def test_cli_rejects_invalid_grid(tmp_path, flag, value):
     with pytest.raises(SystemExit):
@@ -226,3 +270,13 @@ def test_cli_native_export_and_saved_factor_recovery(bundle, tokenizer, tmp_path
     assert torch.equal(reloaded.get_input_embeddings().weight, model.get_input_embeddings().weight)
     recover(["--training-run", str(out), "--device", "cpu", "--local-files-only"])
     assert verify_checkpoint(out / "checkpoint_float32")["verified"]
+    audit_path = out / "boundary_audit.json"
+    audit_main(["--training-run", str(out), "--model-path", str(base),
+                "--out", str(audit_path), "--local-files-only", "--iterations", "10",
+                "--verify-best-training"])
+    audit = json.loads(audit_path.read_text())
+    assert not audit["native_model_verified"] and not audit["native_checkpoint_created"]
+    assert not audit["official_eff_gen_measured"]
+    assert audit["best_feasible_on_searched_rays"]["summary"]["eligible"]
+    assert audit["training_only_verification"]["cache_model_parity_passed"]
+    assert not audit["training_only_verification"]["native_checkpoint_created"]

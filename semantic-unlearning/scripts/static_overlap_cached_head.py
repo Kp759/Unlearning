@@ -219,6 +219,36 @@ def summarize(rows, config):
             "score": list(score)}
 
 
+@torch.no_grad()
+def feasible_strength(cache, direction, config, upper=32.0, iterations=24):
+    """Bracket the retention boundary on ONE fixed ray; no new fit constraints.
+
+    Along a fixed linear-head direction, every protected NLL increase and
+    KL(base||edit) is convex in strength. Their feasible intersection contains
+    the unedited baseline, so bisection finds the end of that interval. This is
+    not a global feasibility proof and does not use validation forget scores.
+    """
+    if not math.isfinite(upper) or upper <= 0 or type(iterations) is not int or iterations < 1:
+        raise ValueError("Need a finite positive upper strength and positive iteration count")
+    baseline = summarize(cached_measure(cache, torch.zeros_like(direction)), config)
+    if not baseline["eligible"]:
+        raise ValueError("Unedited cached baseline fails retention checks")
+    high_report = summarize(cached_measure(cache, direction * upper), config)
+    if high_report["eligible"]:
+        return {"strength": upper, "infeasible_upper": None, "search_upper": upper,
+                "boundary_bracketed": False, "iterations": 0, "summary": high_report}
+    low, high, low_report = 0.0, upper, baseline
+    for _ in range(iterations):
+        mid = (low + high) / 2
+        report = summarize(cached_measure(cache, direction * mid), config)
+        if report["eligible"]:
+            low, low_report = mid, report
+        else:
+            high = mid
+    return {"strength": low, "infeasible_upper": high, "search_upper": upper,
+            "boundary_bracketed": True, "iterations": iterations, "summary": low_report}
+
+
 class RetainMetricSolver:
     """Regularized least squares in a metric derived ONLY from training retains.
 
