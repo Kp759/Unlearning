@@ -121,7 +121,9 @@ class PairSampler:
                 rs[r.id] = r
             pairs.append((f, list(rs.values())))
         background = {}
-        for eid in hard_r[:plan["background_retain_batch"] // 2]:
+        # Once the full gate discovers hard anchors, keep the entire registered
+        # active-set slice in every subsequent proposal check.
+        for eid in hard_r[:plan["background_retain_batch"]]:
             e = self.by_id[eid]
             if e.role not in ("retain", "language"):
                 raise ValueError("Invalid hard preservation example")
@@ -260,14 +262,14 @@ def fit(editor, examples, references, config, plan, output, *, source, data):
     safe_delta = flat_parameters(editor.parameters).detach().clone()
     safe_rows, safe_step = initial, 0
     last_rows, last_gate = initial, baseline
-    rejected = stale = step = 0
+    rejected = stale = failed_preservation_gates = step = 0
     selected, stop = None, "step_budget"
     previous_mean = sum(r["nll"] for r in initial if r["split"] == "train" and r["role"] == "forget") / sum(
         r["split"] == "train" and r["role"] == "forget" for r in initial)
 
     def check_gate():
         nonlocal safe_delta, safe_rows, safe_step, last_rows, last_gate, hard_f, hard_r
-        nonlocal selected, stop, previous_mean, stale
+        nonlocal selected, stop, previous_mean, stale, failed_preservation_gates
         emit(phase="paired_development_gate_start", step=step, examples=len(examples))
         observed = measure_pilot(editor.model, examples, references)
         gate = development_gate(observed, config)
@@ -282,6 +284,7 @@ def fit(editor, examples, references, config, plan, output, *, source, data):
             safe_delta, safe_rows, safe_step = flat_parameters(editor.parameters).detach().clone(), observed, step
             last_rows, last_gate = observed, gate
         else:
+            failed_preservation_gates += 1
             torch.save(editor.artifact(), output / "last_rejected_block_delta.pt")
             with torch.no_grad():
                 set_parameters(editor.parameters, safe_delta)
@@ -290,10 +293,14 @@ def fit(editor, examples, references, config, plan, output, *, source, data):
         mean = sum(r["nll"] for r in last_rows if r["split"] == "train" and r["role"] == "forget") / sum(
             r["split"] == "train" and r["role"] == "forget" for r in last_rows)
         gain = mean - previous_mean
-        stale = stale + 1 if gain < plan["min_gate_nll_gain"] else 0
+        # A rollback is new constraint discovery, not evidence that the
+        # retention-safe direction has stalled. Retry from the safe state with
+        # the discovered anchors present in every minibatch.
+        stale = (stale + 1 if gain < plan["min_gate_nll_gain"] else 0) if retention_ok else 0
         previous_mean = mean
         record = {"step": step, "gate": gate, "training_preservation_passed": retention_ok,
                   "rolled_back": not retention_ok, "retained_state_step": safe_step,
+                  "failed_preservation_gates": failed_preservation_gates,
                   "training_mean_nll_gain_since_gate": gain}
         gates.append(record)
         (output / f"gate_{step}_metrics.json").write_text(json.dumps(observed, allow_nan=False)+"\n")
@@ -336,6 +343,9 @@ def fit(editor, examples, references, config, plan, output, *, source, data):
                 break
             if stale >= plan["stalled_gates"]:
                 stop = "insufficient_training_forgetting_progress"
+                break
+            if failed_preservation_gates >= plan["max_failed_preservation_gates"]:
+                stop = "active_set_could_not_find_training_safe_direction"
                 break
         if rejected >= plan["max_stalled_steps"]:
             stop = "consecutive_rejected_steps"
