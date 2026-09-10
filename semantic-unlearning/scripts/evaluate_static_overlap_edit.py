@@ -173,7 +173,9 @@ def main(argv=None):
     export = verify_checkpoint(args.checkpoint)
     manifest = json.loads((Path(args.checkpoint) / "training_manifest.json").read_text())
     if manifest.get("exploratory_protocol_path"):
-        if manifest.get("method") == "static_overlap_tied_endpoint_ga_v1":
+        if manifest.get("method") == "static_overlap_untied_paired_ga_gd_v1":
+            from static_overlap_paired_protocol import claim_evaluation
+        elif manifest.get("method") == "static_overlap_tied_endpoint_ga_v1":
             from static_overlap_endpoint_protocol import claim_evaluation
         else:
             from static_overlap_mlp_protocol import claim_evaluation

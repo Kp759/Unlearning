@@ -33,7 +33,7 @@ def compact_gate(gate):
     return result
 
 
-def fit(editor, examples, references, config, plan, output):
+def fit(editor, examples, references, config, plan, output, *, source=None, data=None):
     train_f = [e for e in examples if e.split == "train" and e.role == "forget"]
     train_r = [e for e in examples if e.split == "train" and e.role in ("retain", "language")]
     rng = random.Random(plan["seed"])
@@ -119,14 +119,15 @@ def fit(editor, examples, references, config, plan, output):
     return report()
 
 
-def main(argv=None):
+def main(argv=None, *, protocol_loader=load_pilot, method=METHOD, fit_function=fit,
+         editor_factory=EndpointEditor, prepare_base=None, hash_function=None, verify_function=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pilot-protocol", required=True)
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--local-files-only", action="store_true")
     args = parser.parse_args(argv)
-    p = load_pilot(args.pilot_protocol)
+    p = protocol_loader(args.pilot_protocol)
     if Path(args.model_path).resolve() != Path(p["base_model_path"]).resolve():
         raise ValueError("Start from the original base model")
     output = Path(args.pilot_protocol).resolve().parent
@@ -149,19 +150,23 @@ def main(argv=None):
     if ({f["id"] for f in source["facts"] if f["role"] == "forget"}
             != {f["id"] for f in mask["forget_associations"]}):
         raise ValueError("Overlap mask and development data target different forget facts")
-    emit(phase="load_original_base", model=args.model_path, method=METHOD, examples=len(examples))
+    emit(phase="load_original_base", model=args.model_path, method=method, examples=len(examples))
     model = AutoModelForCausalLM.from_pretrained(args.model_path, torch_dtype=torch.float32,
         local_files_only=args.local_files_only, attn_implementation="eager").to(args.device).eval()
     model.requires_grad_(False)
+    preparation = prepare_base(model, examples) if prepare_base else None
+    if preparation is not None:
+        write_new(output / "endpoint_separation.json", preparation)
+        emit(phase="endpoint_separation", **preparation)
     write_new(output / "encoded_development_examples.json", [asdict(e) for e in examples])
     emit(phase="fingerprint_frozen_weights", editable_rows=len(rows))
-    original = locality_hashes(model, rows)
+    original = hash_function(model, mask) if hash_function else locality_hashes(model, rows)
     write_new(output / "original_frozen_weight_hashes.json", original)
     write_new(output / "endpoint_mask.json", {"input_rows": mask["input_rows"], "output_rows": mask["output_rows"],
-        "shared_rows": rows, "source_manifest_sha256": p["overlap_manifest"]["sha256"]})
+        "source_row_union": rows, "source_manifest_sha256": p["overlap_manifest"]["sha256"]})
     references = References(output / "base_references")
     references.build(model, examples)
-    editor = EndpointEditor(model, mask["input_rows"], mask["output_rows"])
+    editor = editor_factory(model, mask["input_rows"], mask["output_rows"])
     with torch.no_grad():
         actual = model_logits(model, examples[0])
         with editor.base():
@@ -169,30 +174,31 @@ def main(argv=None):
         if not torch.isfinite(actual).all() or not torch.equal(actual, expected):
             raise ValueError("Zero endpoint delta failed exact base parity")
         del actual, expected
-    emit(phase="endpoint_preparation", editable_rows=len(rows), trainable_parameters=editor.edit.delta.numel(),
-         original_tying_preserved=True, rank_restriction=False, original_overlap_mask_exact=True,
+    emit(phase="endpoint_preparation", editable_rows=len(rows), trainable_parameters=sum(p.numel() for p in editor.parameters),
+         shared_endpoints=editor.shared, original_tying_preserved=editor.shared, rank_restriction=False, original_overlap_mask_exact=True,
          transformer_trainable=False, base_logits_exact=True)
     config = TrainConfig(target_probability=plan["target_probability"], retain_nll_budget=.05, retain_kl_budget=.01,
         retain_nll_safety_margin=plan["fitting_nll_margin"], retain_kl_safety_margin=plan["fitting_kl_margin"])
-    report = fit(editor, examples, references, config, plan, output)
+    report = fit_function(editor, examples, references, config, plan, output, source=source, data=data)
     report["pilot_protocol_sha256"] = sha256_file(args.pilot_protocol)
     (output / "training_report.json").write_text(json.dumps(report, indent=2, allow_nan=False)+"\n")
     if report["selected_step"] is None:
         emit(status="no_development_valid_edit", stop_reason=report["stop_reason"],
              report=str(output / "training_report.json"), final_tests_touched=False)
         return 2
-    manifest = {"method": METHOD, "exploratory": True, "model_path": str(Path(args.model_path).resolve()),
+    manifest = {"method": method, "exploratory": True, "model_path": str(Path(args.model_path).resolve()),
         "exploratory_protocol_path": str(Path(args.pilot_protocol).resolve()),
         "exploratory_protocol_sha256": sha256_file(args.pilot_protocol),
         "forget_associations": [f for f in source["facts"] if f["role"] == "forget"],
         "training_text_fingerprints": data["training_text_fingerprints"],
-        "settings": {"abstention": "I don't know.", **plan}, "endpoint_mask": json.loads((output / "endpoint_mask.json").read_text())}
+        "settings": {"abstention": "I don't know.", **plan}, "endpoint_mask": json.loads((output / "endpoint_mask.json").read_text()),
+        "endpoint_separation": preparation}
     write_new(output / "training_manifest.json", manifest)
     locality = {}
     def reload_verified(path):
         loaded = AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch.float32,
             local_files_only=True, attn_implementation="eager").to(args.device).eval()
-        locality.update(verify_locality(loaded, rows, original))
+        locality.update(verify_function(loaded, mask, original) if verify_function else verify_locality(loaded, rows, original))
         return loaded
     emit(phase="merge_reload_strict_verification", selected_step=report["selected_step"])
     export_verified(editor, tokenizer, examples, config, output / "checkpoint", torch.float32,

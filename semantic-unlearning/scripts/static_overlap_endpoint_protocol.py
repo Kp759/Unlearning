@@ -22,10 +22,11 @@ PLAN = {
 }
 
 
-def load_pilot(path):
+def load_pilot(path, *, method=METHOD, plan=None):
+    plan = PLAN if plan is None else plan
     path = Path(path).resolve()
     p = json.loads(path.read_text())
-    if p.get("method") != METHOD or p.get("exploratory") is not True or p.get("plan") != PLAN:
+    if p.get("method") != method or p.get("exploratory") is not True or p.get("plan") != plan:
         raise ValueError("Unexpected tied-endpoint experiment contract")
     if sha256_file(p["development_protocol_path"]) != p["development_protocol_sha256"]:
         raise ValueError("Existing development protocol changed")
@@ -41,10 +42,10 @@ def load_pilot(path):
     return p
 
 
-def claim_evaluation(protocol_path, checkpoint):
-    p = load_pilot(protocol_path)
+def claim_evaluation(protocol_path, checkpoint, *, method=METHOD, protocol_loader=load_pilot):
+    p = protocol_loader(protocol_path)
     manifest = json.loads((Path(checkpoint) / "training_manifest.json").read_text())
-    if (manifest.get("method") != METHOD or
+    if (manifest.get("method") != method or
             manifest.get("exploratory_protocol_sha256") != sha256_file(protocol_path)):
         raise ValueError("Checkpoint belongs to another exploratory experiment")
     identity = {"pilot_protocol_sha256": sha256_file(protocol_path),
@@ -58,7 +59,8 @@ def claim_evaluation(protocol_path, checkpoint):
     return p, identity
 
 
-def main(argv=None):
+def main(argv=None, *, method=METHOD, plan=None):
+    plan = PLAN if plan is None else plan
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--development-protocol", required=True)
     parser.add_argument("--overlap-manifest", required=True)
@@ -75,20 +77,22 @@ def main(argv=None):
     out = Path(args.output_dir).resolve()
     out.mkdir(parents=True, exist_ok=False)
     p = {k: old[k] for k in ("base_model_path", "data", "source_bundle", "head_protocol_path", "head_protocol_sha256")}
-    p.update(method=METHOD, exploratory=True, plan=PLAN,
+    p.update(method=method, exploratory=True, plan=plan,
         development_protocol_path=str(Path(args.development_protocol).resolve()),
         development_protocol_sha256=sha256_file(args.development_protocol),
         overlap_manifest={"path": str(mask_path), "sha256": sha256_file(mask_path)},
         declared_utc=datetime.now(timezone.utc).isoformat(),
         disclosure="Additional exploratory ablation informed by head and MLP failures; development reused, original final sets already observed; no new confirmatory claim.",
         selection_rule="First scheduled checkpoint passing all training/development forgetting and preservation gates; no final scores in selection.",
-        parameterization="Direct dense delta within the original union of endpoint rows; original tying; all transformer weights frozen.")
+        parameterization=("Separate dense input/output deltas within their respective original masks; head cloned before fitting; transformer frozen."
+                          if plan.get("untie_before_optimization") else
+                          "Direct dense delta within the original union of endpoint rows; original tying; all transformer weights frozen."))
     path = out / "pilot_protocol.json"
     write_new(path, p)
     write_new(out / "registered.json", {"pilot_protocol_path": str(path), "pilot_protocol_sha256": sha256_file(path)})
     print(json.dumps({"phase": "endpoint_experiment_registered", "protocol": str(path),
         "editable_rows": len(set(mask["input_rows"]) | set(mask["output_rows"])),
-        "plan": PLAN, "new_final_set_created": False}), flush=True)
+        "plan": plan, "new_final_set_created": False}), flush=True)
 
 
 if __name__ == "__main__":
