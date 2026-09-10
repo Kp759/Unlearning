@@ -120,7 +120,7 @@ def fit(editor, examples, references, config, plan, output, *, source=None, data
 
 
 def main(argv=None, *, protocol_loader=load_pilot, method=METHOD, fit_function=fit,
-         editor_factory=EndpointEditor, prepare_base=None, hash_function=None, verify_function=None):
+         editor_factory=None, prepare_base=None, hash_function=None, verify_function=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pilot-protocol", required=True)
     parser.add_argument("--model-path", required=True)
@@ -166,7 +166,8 @@ def main(argv=None, *, protocol_loader=load_pilot, method=METHOD, fit_function=f
         "source_row_union": rows, "source_manifest_sha256": p["overlap_manifest"]["sha256"]})
     references = References(output / "base_references")
     references.build(model, examples)
-    editor = editor_factory(model, mask["input_rows"], mask["output_rows"])
+    editor = (EndpointEditor(model, mask["input_rows"], mask["output_rows"])
+              if editor_factory is None else editor_factory(model, mask))
     with torch.no_grad():
         actual = model_logits(model, examples[0])
         with editor.base():

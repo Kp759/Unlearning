@@ -93,7 +93,8 @@ def hash_frozen(model, mask):
                   id(model.get_output_embeddings().weight): set(mask["output_rows"])}
     hashes = {}
     for name, parameter in model.named_parameters(remove_duplicate=False):
-        if "model.layers.19.mlp.down_proj" in name:
+        editable_layers = {int(k) for k in mask.get("selected_channels", {})}
+        if any(f"model.layers.{layer}.mlp.down_proj" in name for layer in editable_layers):
             continue
         h = hashlib.sha256()
         if id(parameter) in exclusions:

@@ -7,10 +7,10 @@ from static_overlap_untied_endpoints import prepare_base, hash_frozen, verify_fr
 from static_overlap_core import StaticEditor
 
 
-def editor_factory(model, input_rows, output_rows):
-    # The layer was selected by the prior sensitivity scan; only its localized
-    # 64-channel projection is trainable in this exploratory arm.
-    return StaticEditor(model, input_rows, output_rows, {19: list(range(64))}, rank=8)
+def editor_factory(model, mask):
+    # Reuse the exact overlap-localized MLP support from the original architecture.
+    channels = {int(layer): values for layer, values in mask["selected_channels"].items()}
+    return StaticEditor(model, mask["input_rows"], mask["output_rows"], channels, rank=16)
 
 
 def main(argv=None):

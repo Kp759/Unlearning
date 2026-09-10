@@ -160,7 +160,7 @@ def weighted_examples(pairs, background, plan):
 
 
 def objective(editor, fs, rs, references, config, plan, *, backward=False):
-    gap, retain, kl_total, violation = 0., 0., 0., 0.
+    gap, retain_change, retain_penalty, kl_total, violation = 0., 0., 0., 0., 0.
     for e, weight in fs:
         nll = answer_nll(model_logits(editor.model, e), e)
         loss = weight * torch.relu(nll.new_tensor(forget_target(references.nll[e.id], config)) - nll)
@@ -170,23 +170,37 @@ def objective(editor, fs, rs, references, config, plan, *, backward=False):
     fg = gradient_vector(editor.parameters) if backward else None
     for e, weight in rs:
         increase, kl = retain_values(editor.model, e, references)
-        # Subtracting the fixed base NLL changes only the reported constant.
-        # Its gradient is ordinary GD on the retain answer, even within budget.
+        # Retain GD is activated only when the edited answer NLL is worse than
+        # its base value. This preserves the association without rewarding an
+        # unlimited decrease that can cancel the forget-ascent direction.
+        penalty = torch.relu(increase)
         if backward:
-            (weight * (plan["retain_weight"] * increase + plan["kl_weight"] * kl)).backward()
+            (weight * (plan["retain_weight"] * penalty + plan["kl_weight"] * kl)).backward()
         ni, ki = float(increase.detach()), float(kl.detach())
         if not math.isfinite(ni) or not math.isfinite(ki):
             raise ValueError("Nonfinite paired preservation metric")
-        retain += weight * ni
+        retain_change += weight * ni
+        retain_penalty += weight * max(0., ni)
         kl_total += weight * ki
         violation = max(violation, ni / config.training_nll_budget - 1., ki / config.training_kl_budget - 1.)
-    return {"loss": gap + plan["retain_weight"] * retain + plan["kl_weight"] * kl_total,
-            "forget_gap": gap, "retain_nll_change": retain, "retain_kl": kl_total,
+    return {"loss": gap + plan["retain_weight"] * retain_penalty + plan["kl_weight"] * kl_total,
+            "forget_gap": gap, "retain_nll_change": retain_change, "retain_penalty": retain_penalty,
+            "retain_kl": kl_total,
             "retention_violation": violation}, fg
 
 
 def gradient_vector(parameters):
     return torch.cat([(p.grad.detach() if p.grad is not None else torch.zeros_like(p)).flatten() for p in parameters])
+
+
+def set_gradient(parameters, vector):
+    offset = 0
+    for parameter in parameters:
+        size = parameter.numel()
+        parameter.grad = vector[offset:offset+size].view_as(parameter).clone()
+        offset += size
+    if offset != vector.numel():
+        raise ValueError("Gradient vector shape mismatch")
 
 
 def paired_step(editor, optimizer, pairs, background, references, config, plan):
@@ -196,7 +210,11 @@ def paired_step(editor, optimizer, pairs, background, references, config, plan):
     optimizer.zero_grad(set_to_none=True)
     initial, fg = objective(editor, fs, rs, references, config, plan, backward=True)
     rg = gradient_vector(parameters) - fg
-    cosine = float(torch.sum(fg * rg) / (fg.norm() * rg.norm()).clamp_min(1e-30))
+    dot, r2 = torch.sum(fg * rg), torch.sum(rg * rg)
+    cosine = float(dot / (fg.norm() * rg.norm()).clamp_min(1e-30))
+    projected = fg - torch.minimum(dot, dot.new_zeros(())) / r2.clamp_min(1e-30) * rg
+    combined = projected + rg
+    set_gradient(parameters, combined)
     torch.nn.utils.clip_grad_norm_(parameters, 1., error_if_nonfinite=True)
     optimizer.step()
     proposal = flat_parameters(parameters).detach() - before
