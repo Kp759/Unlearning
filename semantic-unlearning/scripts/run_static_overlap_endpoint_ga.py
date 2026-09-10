@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+import inspect
 import json
 from pathlib import Path
 import random
@@ -180,7 +181,10 @@ def main(argv=None, *, protocol_loader=load_pilot, method=METHOD, fit_function=f
          transformer_trainable=False, base_logits_exact=True)
     config = TrainConfig(target_probability=plan["target_probability"], retain_nll_budget=.05, retain_kl_budget=.01,
         retain_nll_safety_margin=plan["fitting_nll_margin"], retain_kl_safety_margin=plan["fitting_kl_margin"])
-    report = fit_function(editor, examples, references, config, plan, output, source=source, data=data)
+    fit_kwargs = {"source": source, "data": data}
+    if "tokenizer" in inspect.signature(fit_function).parameters:
+        fit_kwargs["tokenizer"] = tokenizer
+    report = fit_function(editor, examples, references, config, plan, output, **fit_kwargs)
     report["pilot_protocol_sha256"] = sha256_file(args.pilot_protocol)
     (output / "training_report.json").write_text(json.dumps(report, indent=2, allow_nan=False)+"\n")
     if report["selected_step"] is None:

@@ -84,9 +84,10 @@ def main(argv=None, *, method=METHOD, plan=None):
         declared_utc=datetime.now(timezone.utc).isoformat(),
         disclosure="Additional exploratory ablation informed by head and MLP failures; development reused, original final sets already observed; no new confirmatory claim.",
         selection_rule="First scheduled checkpoint passing all training/development forgetting and preservation gates; no final scores in selection.",
-        parameterization=("Separate dense input/output deltas within their respective original masks; head cloned before fitting; transformer frozen."
-                          if plan.get("untie_before_optimization") else
-                          "Direct dense delta within the original union of endpoint rows; original tying; all transformer weights frozen."))
+        parameterization=plan.get("parameterization_description", (
+            "Separate dense input/output deltas within their respective original masks; head cloned before fitting; transformer frozen."
+            if plan.get("untie_before_optimization") else
+            "Direct dense delta within the original union of endpoint rows; original tying; all transformer weights frozen.")))
     path = out / "pilot_protocol.json"
     write_new(path, p)
     write_new(out / "registered.json", {"pilot_protocol_path": str(path), "pilot_protocol_sha256": sha256_file(path)})
