@@ -120,6 +120,8 @@ def main(argv=None):
     if args.iterations < 1 or args.max_length < 2:
         p.error("Invalid iteration count or max length")
     source = json.loads((run / "training_report.json").read_text())
+    if source.get("development_protocol"):
+        raise ValueError("This legacy validation-ray audit is not applicable to reclassified development runs")
     if source.get("method") != "static_overlap_cached_head_v1":
         raise ValueError("Expected a cached-head training report")
     prior = source["initial"]

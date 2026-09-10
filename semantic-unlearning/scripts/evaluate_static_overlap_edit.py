@@ -172,6 +172,23 @@ def main(argv=None):
         parser.error("--require-zero requires --mcf-path")
     export = verify_checkpoint(args.checkpoint)
     manifest = json.loads((Path(args.checkpoint) / "training_manifest.json").read_text())
+    if manifest.get("development_protocol"):
+        from freeze_static_overlap_development import load_protocol
+        from evaluate_static_overlap_final_retention import claim_final
+        protocol_path = manifest["development_protocol_path"]
+        protocol = load_protocol(protocol_path)
+        if sha256_file(protocol_path) != manifest["development_protocol_sha256"]:
+            raise ValueError("Frozen protocol differs from the checkpoint")
+        if sha256_file(args.evaluation_bundle) != protocol["files"]["evaluation_bundle"]["sha256"]:
+            raise ValueError("Use the frozen separate evaluation bundle")
+        if (not args.mcf_path or sha256_file(args.mcf_path) != protocol["files"]["mcf"]["sha256"]
+                or any(getattr(args, k) != v for k, v in protocol["official_evaluation"].items())):
+            raise ValueError("Use the frozen official MCF evaluation contract")
+        if not args.base_model or Path(args.base_model).resolve() != Path(manifest["model_path"]).resolve():
+            raise ValueError("Final evaluation requires the recorded original base")
+        claim_final(protocol_path, args.checkpoint)
+        if Path(args.out).exists():
+            raise FileExistsError("Final evaluation output exists; retain the original result")
     bundle, _, evaluation_hash = load_bundle(args.evaluation_bundle, purpose="evaluation")
     trained_facts = {(f["subject"], f["relation"], f["object"]) for f in manifest["forget_associations"]}
     evaluation_facts = {(f["subject"], f["relation"], f["object"]) for f in bundle["facts"] if f["role"] == "forget"}

@@ -21,7 +21,7 @@ def verify_recovered_statistics(editor, examples, training_report):
     Older runs have no base-weight hashes. This is a numerical reproduction
     check, not a cryptographic identity claim about their source model.
     """
-    saved = training_report["validation"] + training_report.get("training_forget", [])
+    saved = training_report.get("development", training_report.get("validation", [])) + training_report.get("training_forget", [])
     expected = {row["id"]: row for row in saved}
     selected = [e for e in examples if e.id in expected]
     if not saved or len(expected) != len(saved) or len(selected) != len(expected):
@@ -63,8 +63,9 @@ def main(argv=None):
     settings = manifest["settings"]
     config = TrainConfig(**manifest["training_config"])
     config.validate()
-    if not training_report["accepted_steps"] or not within_budgets(training_report["validation"], config)[0]:
-        raise ValueError("The saved run has no accepted edit with valid validation retention")
+    preservation = training_report.get("development", training_report.get("validation", []))
+    if not training_report["accepted_steps"] or not within_budgets(preservation, config)[0]:
+        raise ValueError("The saved run has no accepted edit with valid selection preservation")
     bundle_path = args.training_bundle or manifest.get("training_bundle_path")
     if not bundle_path:
         parser.error("This older manifest requires --training-bundle")
@@ -78,6 +79,9 @@ def main(argv=None):
     tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True, local_files_only=args.local_files_only)
     examples = encode_bundle(bundle, tokenizer, settings["max_length"],
                              settings["abstention"] if config.lambda_abstain else "")
+    if manifest.get("development_protocol"):
+        from static_overlap_cached_head import development_examples
+        examples = development_examples(examples)
     inputs, outputs = endpoint_rows(facts, examples, tokenizer,
                                    False if cached_head else bool(config.lambda_abstain))
     if cached_head:

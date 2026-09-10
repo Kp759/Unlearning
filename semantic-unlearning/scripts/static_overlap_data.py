@@ -51,6 +51,8 @@ def overlap_kind(forget, retained):
 
 
 def validate_bundle(bundle, purpose="training"):
+    if purpose not in ("training", "evaluation", "preservation_test"):
+        raise ValueError("Unknown bundle purpose")
     if set(bundle) != {"schema_version", "purpose", "facts", "examples"}:
         raise ValueError("Bundle requires exactly schema_version, purpose, facts, examples")
     if bundle["schema_version"] != 1 or bundle["purpose"] != purpose:
@@ -72,7 +74,10 @@ def validate_bundle(bundle, purpose="training"):
         facts[fact["id"]] = fact
     forgotten = [fact for fact in facts.values() if fact["role"] == "forget"]
     retained = [fact for fact in facts.values() if fact["role"] == "retain"]
-    if not forgotten or not retained:
+    preservation_only = purpose == "preservation_test"
+    if preservation_only and (forgotten or not retained or not bundle["examples"]):
+        raise ValueError("Preservation test requires nonempty retain-only associations/examples")
+    if not preservation_only and (not forgotten or not retained):
         raise ValueError("Both forget and retain associations are required")
     for f in forgotten:
         for r in retained:
@@ -130,6 +135,10 @@ def validate_bundle(bundle, purpose="training"):
             raise ValueError("Duplicate text within/across splits; keep validation disjoint")
         fingerprints[fingerprint] = split
     for split in allowed_splits:
+        if preservation_only:
+            if not seen[split] or set(facts) != seen[split]:
+                raise ValueError("Every final retain association requires a scored example")
+            continue
         if split not in language_splits or split not in mixed_splits:
             raise ValueError(f"{split} requires language anchors and mixed requests")
         for f in forgotten:

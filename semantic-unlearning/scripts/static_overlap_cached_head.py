@@ -1,15 +1,15 @@
 """Frozen-backbone head regression with exact cached softmax accounting.
 
-Only native answer-token LM-head rows change. All fitting inputs come from the
-training split; validation retention can select among a declared finite grid.
-No official paraphrases, validation forget scores, routers or token masks enter
+Only native answer-token LM-head rows change. The default fits training only;
+the explicit development protocol also fits reclassified preservation contexts.
+No official Gen prompts, validation forget scores, routers or token masks enter
 the solve. Cached scores are predictions, verified on the real model at export.
 """
 from __future__ import annotations
 
 from collections import defaultdict
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 import time
 
@@ -208,6 +208,18 @@ def cached_measure(cache, delta):
 
 def summarize(rows, config):
     training = [r for r in rows if r["split"] == "train"]
+    development = [r for r in rows if r["split"] == "development"]
+    if development:
+        if any(r["split"] not in ("train", "development") for r in rows):
+            raise ValueError("Development fitting cannot include held-out rows")
+        if any(r["role"] not in ("retain", "language") for r in development):
+            raise ValueError("Development data must contain preservation constraints only")
+        fit_pass, fit = training_protection(training, config, internal=True)
+        dev_pass, dev = training_protection(development, config, internal=True)
+        forgetting = forgetting_status(training, config)
+        return {"training_forgetting": forgetting, "training_protection": fit,
+                "development_protection": dev, "eligible": fit_pass and dev_pass,
+                "score": [forgetting["max_token_probability"], forgetting["mean_token_probability"]]}
     validation = [r for r in rows if r["split"] == "validation"]
     fit_pass, fit = training_protection(training, config, internal=True)
     val_pass, val = training_protection(validation, config)
@@ -249,16 +261,47 @@ def feasible_strength(cache, direction, config, upper=32.0, iterations=24):
             "boundary_bracketed": True, "iterations": iterations, "summary": low_report}
 
 
+def development_examples(examples):
+    """Reclassify old preservation probes; discard validation forget/abstain rows.
+
+    IDs retain their source spelling for auditability. Split is the authoritative
+    designation, including for companion retain spans after neutral completions.
+    """
+    return [replace(e, split="development") if e.split == "validation" else e
+            for e in examples if (e.split == "train" and e.role in ("forget", "retain", "language"))
+            or (e.split == "validation" and e.role in ("retain", "language"))]
+
+
+def development_cache(cache):
+    examples = development_examples(cache.examples)
+    mapping = {e.id: i for i, e in enumerate(examples)}
+    remap = torch.tensor([mapping.get(e.id, -1) for e in cache.examples], device=cache.owners.device)
+    keep = remap[cache.owners] >= 0
+    return HeadCache(examples, **{key: getattr(cache, key)[keep] for key in
+        ("hidden", "logp_rows", "logp_other", "target_nll", "target_row")},
+        owners=remap[cache.owners[keep]], rows=cache.rows)
+
+
 class RetainMetricSolver:
-    """Regularized least squares in a metric derived ONLY from training retains.
+    """Least squares in the training (or explicit train+development) retain metric.
 
     For normalized hidden matrices F,R and desired row shifts T, solve
     min_D ||F D - T||^2 + ridge * tr(D^T M D), M=I+R^T R/tau.
     tau=0 uses the numerical nullspace of R instead. No explicit inverse.
     """
-    def __init__(self, cache, svd_rtol=1e-6):
+    def __init__(self, cache, svd_rtol=1e-6, *, include_development=False):
         forget = cache.token_mask("train", {"forget"})
         protected = cache.token_mask("train", {"retain", "language"})
+        train_protected = int(protected.sum())
+        development = cache.token_mask("development", {"retain", "language"})
+        if include_development:
+            if (not development.any() or any(e.split not in ("train", "development")
+                    or (e.split == "development" and e.role not in ("retain", "language"))
+                    for e in cache.examples)):
+                raise ValueError("Explicit development solve requires only train/development data")
+            protected = protected | development
+        elif development.any():
+            raise ValueError("Development constraints require explicit inclusion")
         if not forget.any() or not protected.any():
             raise ValueError("Need both training forget and protection features")
         self.scale = cache.hidden[protected].double().norm(dim=1).mean().clamp_min(1e-12)
@@ -274,11 +317,18 @@ class RetainMetricSolver:
             raise ValueError("Every forget answer token must have an editable head row")
         self.T = -F.one_hot(target_rows, num_classes=len(cache.rows)).double()
         self.diagnostics = {"training_forget_tokens": int(forget.sum()),
-                            "training_protected_tokens": int(protected.sum()),
+                            "training_protected_tokens": train_protected,
+                            "development_protected_tokens": int(development.sum()) if include_development else 0,
                             "hidden_size": R.shape[1], "retain_numerical_rank": int(keep.sum()),
                             "retain_nullspace_dimension": R.shape[1]-int(keep.sum()),
                             "svd_rtol": svd_rtol, "feature_scale": float(self.scale),
-                            "validation_used_in_solve": False}
+                            "validation_used_in_solve": False,
+                            "reclassified_validation_retention_used_in_solve": include_development,
+                            "final_test_used_in_solve": False}
+        if include_development:
+            self.diagnostics.pop("validation_used_in_solve")
+            self.diagnostics["development_used_in_solve"] = True
+            self.diagnostics["held_out_data_used_in_solve"] = False
 
     @torch.no_grad()
     def solve(self, tau, ridge):

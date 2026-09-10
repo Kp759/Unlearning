@@ -13,7 +13,8 @@ import time
 import torch
 
 from static_overlap_cached_head import (RetainMetricSolver, augment_contexts,
-    audit_prefix_conflicts, cache_head, cached_measure, prepare_independent_head, summarize)
+    audit_prefix_conflicts, cache_head, cached_measure, development_cache,
+    prepare_independent_head, summarize)
 from static_overlap_core import StaticEditor
 from static_overlap_data import encode_bundle, endpoint_rows, load_bundle, text_fingerprints
 from static_overlap_training import TrainConfig, export_verified, measure
@@ -40,6 +41,7 @@ def parse_args(argv=None):
     p.add_argument("--allow-untied-head", action="store_true",
                    help="Explicitly copy a shared LM head; freeze embeddings and save an untied checkpoint")
     p.add_argument("--training-only", action="store_true")
+    p.add_argument("--development-protocol", help="Frozen protocol.json; requires a passing source parity audit")
     p.add_argument("--no-context-augmentation", action="store_true")
     p.add_argument("--max-length", type=int, default=512)
     p.add_argument("--seed", type=int, default=1)
@@ -80,12 +82,24 @@ def main(argv=None):
                          fresh_start_only=True, select_best_valid_checkpoint=True, seed=args.seed)
     config.validate()
     bundle, facts, source_hash = load_bundle(args.training_bundle)
-    if not args.no_context_augmentation:
+    protocol = None
+    if args.development_protocol:
+        from freeze_static_overlap_development import claim_training, check_parity, load_protocol
+        protocol = load_protocol(args.development_protocol)
+        check_parity(protocol["source_run"], protocol["files"]["parity_audit"]["path"])
+        if source_hash != protocol["files"]["source_bundle"]["sha256"]:
+            raise ValueError("Use the exact source bundle frozen by the development protocol")
+        if not args.no_context_augmentation:
+            raise ValueError("Development mode reuses existing augmented features; use --no-context-augmentation")
+        plan = {k: getattr(args, k) for k in protocol["experiment"]}
+        claim_training(args.development_protocol, args.output_dir, plan)
+    elif not args.no_context_augmentation:
         bundle = augment_contexts(bundle)
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=False)
-    write_json(output / "training_bundle.json", bundle)
-    bundle_hash = hashlib.sha256((output / "training_bundle.json").read_bytes()).hexdigest()
+    bundle_file = output / ("source_bundle.json" if protocol else "training_bundle.json")
+    write_json(bundle_file, bundle)
+    bundle_hash = hashlib.sha256(bundle_file.read_bytes()).hexdigest()
     torch.manual_seed(args.seed)
     emit({"phase": "load_original_base", "model": args.model_path,
           "method": ARCHITECTURE, "fresh_start": True})
@@ -104,19 +118,38 @@ def main(argv=None):
     write_json(output / "prefix_conflicts.json", conflicts)
     emit({"phase": "cache_start", "examples": len(examples), "head_rows": len(rows),
           "exact_training_token_conflicts": len(conflicts)})
-    cache = cache_head(model, examples, rows, emit)
+    if protocol:
+        from audit_static_overlap_cached_head import load_saved_cache
+        cache, _ = load_saved_cache(Path(protocol["source_run"]), tokenizer, args.device, args.max_length)
+        cache = development_cache(cache)
+        examples = cache.examples
+        emit({"phase": "reuse_original_base_cache", "continuation_delta_applied": False,
+              "development_preservation_examples": sum(e.split == "development" for e in examples),
+              "final_test_features_loaded": False})
+        write_json(output / "dataset_membership.json", [{"id": e.id, "split": e.split,
+                   "role": e.role, "fact_id": e.fact_id} for e in examples])
+        write_json(output / "development_examples.json", [asdict(e) for e in examples])
+        write_json(output / "protocol.json", protocol)
+    else:
+        cache = cache_head(model, examples, rows, emit)
     # Save compact sufficient statistics, never full vocabulary caches or GPU tensors.
     torch.save({key: getattr(cache, key).cpu() for key in
                 ("hidden", "logp_rows", "logp_other", "target_nll", "target_row", "owners", "rows")},
                output / "head_cache.pt")
     emit({"phase": "solve_retention_metric", "elapsed_seconds": time.perf_counter()-started})
-    solver = RetainMetricSolver(cache)
+    solver = RetainMetricSolver(cache, include_development=bool(protocol))
     emit({"phase": "retention_metric_ready", **solver.diagnostics})
     zero = torch.zeros(len(rows), cache.hidden.shape[1], device=cache.hidden.device)
     base_stats = cached_measure(cache, zero)
     initial = summarize(base_stats, config)
     best, best_delta = None, None
     diagnostic, diagnostic_delta, history = None, None, []
+    def selection_key(item):
+        if not protocol:
+            return tuple(item["score"])
+        if item["training_forgetting"]["target_met"]:
+            return (0, item["delta_norm"], *item["score"])
+        return (1, *item["score"], item["delta_norm"])
     for tau in args.taus:
         for ridge in args.ridges:
             direction = solver.solve(tau, ridge)
@@ -135,7 +168,7 @@ def main(argv=None):
                 item["eligible"] = summary["eligible"] and improved
                 if diagnostic is None or tuple(item["score"]) < tuple(diagnostic["score"]):
                     diagnostic, diagnostic_delta = item, delta.cpu().clone()
-                if item["eligible"] and (best is None or tuple(item["score"]) < tuple(best["score"])):
+                if item["eligible"] and (best is None or selection_key(item) < selection_key(best)):
                     best, best_delta = item, delta.cpu().clone()
                 history.append(item)
                 with (output / "candidates.jsonl").open("a") as stream:
@@ -144,8 +177,10 @@ def main(argv=None):
                       "tau": tau, "ridge": ridge, "strength": strength, "eligible": item["eligible"],
                       "mean_training_probability": summary["training_forgetting"]["mean_token_probability"],
                       "max_training_probability": summary["training_forgetting"]["max_token_probability"],
-                      "validation_max_nll_increase": summary["validation_protection"]["max_retained_nll_increase"],
-                      "validation_max_kl": summary["validation_protection"]["max_retained_kl"],
+                      ("development_max_nll_increase" if protocol else "validation_max_nll_increase"):
+                          summary["development_protection" if protocol else "validation_protection"]["max_retained_nll_increase"],
+                      ("development_max_kl" if protocol else "validation_max_kl"):
+                          summary["development_protection" if protocol else "validation_protection"]["max_retained_kl"],
                       "selected_candidate": best["candidate"] if best else None})
 
     torch.save({"rows": cache.rows.cpu(), "delta": diagnostic_delta, "candidate": diagnostic},
@@ -155,13 +190,22 @@ def main(argv=None):
                  "score_fields": ["max_training_token_probability", "mean_training_token_probability"],
                  "validation_used_in_solve": False, "validation_forget_used_for_selection": False,
                  "official_evaluation_used_for_selection": False,
-                 "validation_retention_used_for_selection": True}
+                 "validation_retention_used_for_selection": not bool(protocol),
+                 "development_retention_used_for_selection": bool(protocol),
+                 "reclassified_validation_retention_used_in_solve": bool(protocol),
+                 "final_test_used_for_selection": False}
     report = {"method": ARCHITECTURE, "head_preparation": separation,
               "initial": initial, "checkpoint_selection": selection,
               "selected": best, "best_training_only_candidate": diagnostic,
               "solver": solver.diagnostics, "history": history,
               "elapsed_seconds": time.perf_counter()-started,
               "official_eff_gen_measured": False, "native_checkpoint_created": False}
+    if protocol:
+        report["development_protocol"] = protocol
+        selection["rule"] = protocol["selection_rule"]
+        selection.pop("validation_used_in_solve")
+        selection.pop("validation_retention_used_for_selection")
+        selection["development_used_in_solve"] = True
     write_json(output / "training_report.json", report)
     if best is None:
         emit({"status": "no_valid_edit", "report": str(output / "training_report.json"),
@@ -182,12 +226,19 @@ def main(argv=None):
                 "training_dtype": "float32", "deployment_dtype": "float32",
                 "input_rows": [], "output_rows": rows, "shared_endpoints": False,
                 "selected_channels": {}, "training_bundle_sha256": bundle_hash,
-                "training_bundle_path": str((output / "training_bundle.json").resolve()),
+                "training_bundle_path": str(bundle_file.resolve()),
                 "source_bundle_sha256": source_hash, "fresh_start": True,
                 "forget_associations": [f for f in facts.values() if f["role"] == "forget"],
                 "training_text_fingerprints": text_fingerprints(bundle),
                 "grid": {"taus": args.taus, "ridges": args.ridges, "strengths": args.strengths},
                 "solver": solver.diagnostics, "runtime_router": False, "runtime_guard": False}
+    if protocol:
+        manifest["development_protocol"] = protocol
+        manifest["development_protocol_sha256"] = hashlib.sha256(Path(args.development_protocol).read_bytes()).hexdigest()
+        manifest["development_protocol_path"] = str(Path(args.development_protocol).resolve())
+        manifest["active_dataset"] = {"path": str((output / "development_examples.json").resolve()),
+            "sha256": hashlib.sha256((output / "development_examples.json").read_bytes()).hexdigest(),
+            "source_bundle_scope": "immutable source archive; split reclassification and exclusions defined by active_dataset"}
     write_json(output / "manifest.json", manifest)
     torch.save(editor.artifact(), output / "training_factors.pt")
     emit({"phase": "verify_selected_on_real_model", "selected_candidate": best["candidate"]})
@@ -203,8 +254,9 @@ def main(argv=None):
     report.update(selected_actual=actual_summary, cache_model_parity={"passed": parity, "max_abs_errors": errors},
                   actual_training_improved=actual_improved,
                   accepted_steps=int(parity and actual_summary["eligible"] and actual_improved),
-                  validation=[r for r in actual if r["split"] == "validation"],
                   training_forget=[r for r in actual if r["split"] == "train" and r["role"] == "forget"])
+    report["development" if protocol else "validation"] = [r for r in actual
+        if r["split"] == ("development" if protocol else "validation")]
     write_json(output / "training_report.json", report)
     emit({"phase": "real_model_verification", "cache_parity": report["cache_model_parity"], **actual_summary})
     if not report["accepted_steps"]:
