@@ -237,7 +237,7 @@ def training_protection(rows, config, *, internal=False):
                     "violating_anchor_ids": [r["id"] for r in violations]}
 
 
-def within_export_budgets(rows, config, model_dtype):
+def within_export_budgets(rows, config, model_dtype, *, numeric_slack=None):
     """Classify export-only FP32 boundary drift, preserving nominal/raw values.
 
     Training, factor recovery, logit parity, and reduced-precision export checks
@@ -249,6 +249,10 @@ def within_export_budgets(rows, config, model_dtype):
                  for k in ("nll", "base_nll", "nll_increase", "kl"))
     max_nll, max_kl = observed["max_retained_nll_increase"], observed["max_retained_kl"]
     slack = EXPORT_FP32_NUMERIC_SLACK if model_dtype == torch.float32 else 0.0
+    if numeric_slack is not None:
+        if numeric_slack != 0:
+            raise ValueError("Only a stricter zero-slack export override is supported")
+        slack = 0.0
     nominal_pass = bool(nominal_pass and finite)
     passed = bool(finite and max_nll <= config.retain_nll_budget + slack
                   and max_kl <= config.retain_kl_budget + slack)
@@ -758,7 +762,8 @@ def sha256_file(path):
 
 @torch.no_grad()
 def export_verified(editor, tokenizer, examples, config, output, deployment_dtype,
-                    reload_model, atol=0.05, rtol=0.01, manifest=None):
+                    reload_model, atol=0.05, rtol=0.01, manifest=None,
+                    numeric_slack=None, require_forgetting=False):
     """Stream finite-anchor references to disk, merge/cast, reload native HF model.
 
     The success marker is written only after reload parity AND actual base
@@ -809,11 +814,15 @@ def export_verified(editor, tokenizer, examples, config, output, deployment_dtyp
                 rows.append({"id": e.id, "split": e.split, "role": e.role, "nll": nll,
                              "base_nll": base_nll, "nll_increase": nll - base_nll,
                              "kl": (base_logp.exp() * (base_logp - logp)).sum(-1).mean().clamp_min(0).item()})
-            passed, protection = within_export_budgets(rows, config, next(model.parameters()).dtype)
+            passed, protection = within_export_budgets(rows, config, next(model.parameters()).dtype,
+                                                       numeric_slack=numeric_slack)
             if not passed:
                 fail(stage, "Deployment retention budgets failed", protection=protection)
+            forgetting = forgetting_status(rows, config)
+            if require_forgetting and not forgetting["target_met"]:
+                fail(stage, "Deployment forgetting gate failed", forgetting=forgetting)
             return {"max_selected_logit_error": max_error, "protection": protection,
-                    "forgetting": forgetting_status(rows, config), "metrics": rows}
+                    "forgetting": forgetting, "metrics": rows}
 
         training_dtype = next(editor.model.parameters()).dtype
         editor.merge()
@@ -859,7 +868,7 @@ def export_verified(editor, tokenizer, examples, config, output, deployment_dtyp
                   "scope": "export_only",
                   "nominal_retain_nll_budget": config.retain_nll_budget,
                   "nominal_retain_kl_budget": config.retain_kl_budget,
-                  "float32_numeric_slack": EXPORT_FP32_NUMERIC_SLACK,
+                  "float32_numeric_slack": EXPORT_FP32_NUMERIC_SLACK if numeric_slack is None else 0.0,
                   "other_dtypes_numeric_slack": 0.0},
               "training_dtype": str(training_dtype), "merged": merged_report,
               "deployment": deployment_report, "reloaded": reloaded_report, "file_sha256": files}

@@ -172,6 +172,21 @@ def main(argv=None):
         parser.error("--require-zero requires --mcf-path")
     export = verify_checkpoint(args.checkpoint)
     manifest = json.loads((Path(args.checkpoint) / "training_manifest.json").read_text())
+    if manifest.get("exploratory_protocol_path"):
+        from static_overlap_mlp_protocol import claim_evaluation
+        from freeze_static_overlap_development import load_protocol
+        pilot, _ = claim_evaluation(manifest["exploratory_protocol_path"], args.checkpoint)
+        frozen = load_protocol(pilot["head_protocol_path"])
+        if (sha256_file(args.evaluation_bundle) != frozen["files"]["evaluation_bundle"]["sha256"]
+                or not args.mcf_path or sha256_file(args.mcf_path) != frozen["files"]["mcf"]["sha256"]
+                or any(getattr(args, k) != v for k, v in frozen["official_evaluation"].items())):
+            raise ValueError("Exploratory pilot must reuse the unchanged frozen evaluation contract")
+        if not args.base_model or Path(args.base_model).resolve() != Path(manifest["model_path"]).resolve():
+            raise ValueError("Exploratory evaluation requires its recorded original base")
+        if Path(args.out).resolve() != Path(manifest["exploratory_protocol_path"]).resolve().parent / "evaluation_probability_v2.json":
+            raise ValueError("Exploratory official results have one registered output path")
+        if Path(args.out).exists():
+            raise FileExistsError("Exploratory official results already exist; no reevaluation or replacement")
     if manifest.get("development_protocol"):
         from freeze_static_overlap_development import load_protocol
         from evaluate_static_overlap_final_retention import claim_final
@@ -208,6 +223,10 @@ def main(argv=None):
                              args.sample, args.temperature, args.seed)
     report["evaluation_bundle_sha256"] = evaluation_hash
     report["checkpoint"] = str(Path(args.checkpoint).resolve())
+    if manifest.get("exploratory_protocol_path"):
+        report["exploratory"] = True
+        report["exploratory_protocol_sha256"] = manifest["exploratory_protocol_sha256"]
+        report["previously_observed_final_tests"] = True
     if args.mcf_path:
         # Call the scoring function directly: its model loader auto-attaches old
         # scoped sidecars, so it is deliberately NOT used here.
