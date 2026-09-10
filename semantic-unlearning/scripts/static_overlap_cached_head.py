@@ -24,6 +24,50 @@ from static_overlap_training import forgetting_status, training_protection
 CONTEXT_PREFIXES = ("Complete this factual statement:\n", "Recall the following fact:\n")
 
 
+@torch.no_grad()
+def prepare_independent_head(model, example, *, allow_untie=False):
+    """Explicitly separate a tied head without changing the base function.
+
+    Copy the existing Linear (including bias) rather than randomly initializing a
+    replacement or updating the shared embedding. Saving tie_word_embeddings=False
+    is necessary to keep the independent head on native reload. Recovery repeats
+    this preparation on the original tied base, as recorded in the manifest.
+    """
+    shared = tied_weights(model)
+    report = {"source_shared_endpoints": shared, "applied": False,
+              "additional_weight_bytes": 0, "base_logits_exact": None}
+    if not shared:
+        return report
+    if not allow_untie:
+        raise ValueError("The base shares embeddings and LM head. Use --allow-untied-head "
+                         "to explicitly copy the head while freezing the original embedding; "
+                         "the exported checkpoint will have tie_word_embeddings=False.")
+    if not isinstance(model.get_output_embeddings(), torch.nn.Linear):
+        raise ValueError("Head separation requires a native nn.Linear")
+    if example.split != "train":
+        raise ValueError("Use a training example for head-separation parity")
+    before = model_logits(model, example)
+    original_head = model.get_output_embeddings()
+    original_embedding = model.get_input_embeddings()
+    head = deepcopy(original_head)
+    model.set_output_embeddings(head)
+    model.config.tie_word_embeddings = False
+    try:
+        if (tied_weights(model) or model.get_input_embeddings() is not original_embedding
+                or not torch.equal(head.weight, original_embedding.weight)):
+            raise RuntimeError("Head separation changed embedding weights or retained shared storage")
+        if not torch.equal(before, model_logits(model, example)):
+            raise RuntimeError("Head separation failed exact base-logit parity")
+    except Exception:
+        model.set_output_embeddings(original_head)
+        model.config.tie_word_embeddings = True
+        raise
+    report.update(applied=True, base_logits_exact=True, parity_example_id=example.id,
+                  additional_weight_bytes=head.weight.numel() * head.weight.element_size(),
+                  exported_tie_word_embeddings=False)
+    return report
+
+
 def augment_contexts(bundle):
     """Independent context variation for BOTH roles; never consume MCF probes."""
     validate_bundle(bundle, "training")

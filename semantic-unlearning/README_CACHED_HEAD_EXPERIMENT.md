@@ -4,7 +4,14 @@ This is a fresh alternative to the constrained embedding/MLP/head optimizer.
 It changes only the native LM-head rows corresponding to forgotten answer tokens.
 The transformer and embeddings remain fixed, so final hidden states can be
 extracted once. The fitting grid then needs small matrix operations rather than
-repeated transformer passes. It requires untied, unquantized FP32 weights.
+repeated transformer passes. It uses unquantized FP32 weights and an independent
+head. For a base checkpoint with tied embedding/head weights, explicitly pass
+`--allow-untied-head`. The script copies the existing head, verifies exact base
+logits on a training probe, freezes the original embedding, and records the
+preparation in the manifest. The native export has `tie_word_embeddings=False`.
+This changes parameter sharing, not the initial model function. A 128256 x 3072
+FP32 head copy needs about 1.47 GiB of additional weight memory and disk storage.
+Without the flag, a tied model is rejected before fitting.
 
 This is an experiment, not a guarantee of near-zero official Eff/Gen. A successful
 training fit establishes suppression on those training contexts. The transformer
@@ -79,6 +86,7 @@ python -u scripts/run_static_overlap_cached_head.py \
   --training-bundle "$TRAIN_BUNDLE" \
   --output-dir "$HEAD_OUT" \
   --device cuda \
+  --allow-untied-head \
   --local-files-only \
   2>&1 | tee "$HEAD_OUT.log"
 ```
@@ -118,6 +126,7 @@ python scripts/export_static_overlap_edit.py \
   --local-files-only
 ```
 
-Recovery uses the saved augmented bundle automatically and refuses runs that
+Recovery repeats the recorded head separation on the original tied base without
+requiring another opt-in flag. It uses the saved augmented bundle and refuses runs that
 failed real-model retention/parity. Inspect `training_report.json`,
 `candidates.jsonl`, and `prefix_conflicts.json` for diagnosis.

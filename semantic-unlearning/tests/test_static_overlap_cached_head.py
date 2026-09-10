@@ -14,8 +14,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from test_static_overlap_edit import bundle, tokenizer, tiny, deterministic
 from static_overlap_cached_head import (HeadCache, RetainMetricSolver, augment_contexts,
-    audit_prefix_conflicts, cache_head, cached_measure, cached_token_statistics, summarize)
-from static_overlap_core import StaticEditor, answer_nll, forward_kl, model_logits
+    audit_prefix_conflicts, cache_head, cached_measure, cached_token_statistics,
+    prepare_independent_head, summarize)
+from static_overlap_core import StaticEditor, answer_nll, forward_kl, model_logits, tied_weights
 from static_overlap_data import Example, encode_bundle, endpoint_rows
 from static_overlap_training import TrainConfig, measure
 from run_static_overlap_cached_head import main, parse_args
@@ -135,6 +136,42 @@ def test_tied_head_cache_fails_before_fitting(bundle, tokenizer):
         cache_head(tiny(len(tokenizer), tied=True), encode_bundle(bundle, tokenizer), [4])
 
 
+def test_head_separation_preserves_base_logits_and_freezes_embedding(bundle, tokenizer):
+    model = tiny(len(tokenizer), tied=True)
+    examples = encode_bundle(bundle, tokenizer)
+    before = [model_logits(model, e).detach() for e in examples]
+    embedding = model.get_input_embeddings().weight.detach().clone()
+    report = prepare_independent_head(model, examples[0], allow_untie=True)
+    assert report["applied"] and report["base_logits_exact"]
+    assert report["additional_weight_bytes"] == embedding.numel() * embedding.element_size()
+    assert not tied_weights(model) and not model.config.tie_word_embeddings
+    for e, expected in zip(examples, before):
+        assert torch.equal(model_logits(model, e), expected)
+    editor = StaticEditor(model, [], [4], {}, 1)
+    with torch.no_grad():
+        editor.rows["head"].A.fill_(.1)
+        editor.rows["head"].B.fill_(.2)
+    editor.merge()
+    assert torch.equal(model.get_input_embeddings().weight, embedding)
+    assert not torch.equal(model.get_output_embeddings().weight, embedding)
+
+
+def test_head_separation_requires_opt_in_and_preserves_state_on_refusal(bundle, tokenizer):
+    model = tiny(len(tokenizer), tied=True)
+    e = encode_bundle(bundle, tokenizer)[0]
+    before = model_logits(model, e).detach()
+    with pytest.raises(ValueError, match="allow-untied-head"):
+        prepare_independent_head(model, e)
+    assert tied_weights(model) and torch.equal(model_logits(model, e), before)
+
+
+def test_untied_model_preparation_is_noop(bundle, tokenizer):
+    model = tiny(len(tokenizer))
+    head = model.get_output_embeddings()
+    report = prepare_independent_head(model, encode_bundle(bundle, tokenizer)[0], allow_untie=True)
+    assert not report["applied"] and model.get_output_embeddings() is head
+
+
 def test_validation_failure_cannot_be_selected_even_with_perfect_training_forgetting():
     cache = artificial_cache()
     # Validation retain shares the forgotten direction. A training-only solution
@@ -156,13 +193,14 @@ def test_cli_rejects_invalid_grid(tmp_path, flag, value):
                     "--output-dir", str(tmp_path / "new"), flag, value])
 
 
-def test_cli_native_export_and_saved_factor_recovery(bundle, tokenizer, tmp_path):
+@pytest.mark.parametrize("tied", [False, True])
+def test_cli_native_export_and_saved_factor_recovery(bundle, tokenizer, tmp_path, tied):
     # End to end with a real tiny Llama, including its tokenizer, hashes and reload.
     from transformers import LlamaConfig, LlamaForCausalLM
     base = tmp_path / "base"
     model = LlamaForCausalLM(LlamaConfig(vocab_size=len(tokenizer), hidden_size=64,
         intermediate_size=80, num_hidden_layers=1, num_attention_heads=2,
-        num_key_value_heads=2, tie_word_embeddings=False, pad_token_id=0,
+        num_key_value_heads=2, tie_word_embeddings=tied, pad_token_id=0,
         bos_token_id=2, eos_token_id=3, max_position_embeddings=128)).eval()
     model.save_pretrained(base)
     tokenizer.save_pretrained(base)
@@ -172,12 +210,19 @@ def test_cli_native_export_and_saved_factor_recovery(bundle, tokenizer, tmp_path
     result = main(["--model-path", str(base), "--training-bundle", str(source),
                    "--output-dir", str(out), "--device", "cpu", "--local-files-only",
                    "--no-context-augmentation", "--taus", "0.01", "--ridges", "0.01",
-                   "--strengths", "0.01", "0.1", "1"])
+                   "--strengths", "0.01", "0.1", "1"] + (["--allow-untied-head"] if tied else []))
     assert result == 0
     exported = verify_checkpoint(out / "checkpoint")
     assert exported["verified"]
     report = json.loads((out / "training_report.json").read_text())
     assert report["cache_model_parity"]["passed"] and report["native_checkpoint_created"]
     assert report["selected_actual"]["eligible"]
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["source_model_config"]["tie_word_embeddings"] is tied
+    assert manifest["head_preparation"]["applied"] is tied
+    assert manifest["model_config"]["tie_word_embeddings"] is False
+    reloaded = LlamaForCausalLM.from_pretrained(out / "checkpoint")
+    assert not tied_weights(reloaded)
+    assert torch.equal(reloaded.get_input_embeddings().weight, model.get_input_embeddings().weight)
     recover(["--training-run", str(out), "--device", "cpu", "--local-files-only"])
     assert verify_checkpoint(out / "checkpoint_float32")["verified"]

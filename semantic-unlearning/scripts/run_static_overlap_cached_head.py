@@ -13,8 +13,8 @@ import time
 import torch
 
 from static_overlap_cached_head import (RetainMetricSolver, augment_contexts,
-    audit_prefix_conflicts, cache_head, cached_measure, summarize)
-from static_overlap_core import StaticEditor, tied_weights
+    audit_prefix_conflicts, cache_head, cached_measure, prepare_independent_head, summarize)
+from static_overlap_core import StaticEditor
 from static_overlap_data import encode_bundle, endpoint_rows, load_bundle, text_fingerprints
 from static_overlap_training import TrainConfig, export_verified, measure
 
@@ -37,6 +37,8 @@ def parse_args(argv=None):
     p.add_argument("--output-dir", required=True)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--local-files-only", action="store_true")
+    p.add_argument("--allow-untied-head", action="store_true",
+                   help="Explicitly copy a shared LM head; freeze embeddings and save an untied checkpoint")
     p.add_argument("--training-only", action="store_true")
     p.add_argument("--no-context-augmentation", action="store_true")
     p.add_argument("--max-length", type=int, default=512)
@@ -91,9 +93,12 @@ def main(argv=None):
                                               local_files_only=args.local_files_only)
     model = AutoModelForCausalLM.from_pretrained(args.model_path, torch_dtype=torch.float32,
              local_files_only=args.local_files_only, attn_implementation="eager").to(args.device).eval()
-    if tied_weights(model):
-        raise ValueError("This experiment requires untied embeddings and LM head; no silent untying")
+    source_model_config = model.config.to_dict()
     examples = encode_bundle(bundle, tokenizer, args.max_length, "I don't know.")
+    separation = prepare_independent_head(model, next(e for e in examples if e.split == "train"),
+                                          allow_untie=args.allow_untied_head)
+    write_json(output / "head_preparation.json", separation)
+    emit({"phase": "head_preparation", **separation})
     _, rows = endpoint_rows(facts, examples, tokenizer, abstention_enabled=False)
     conflicts = audit_prefix_conflicts(examples)
     write_json(output / "prefix_conflicts.json", conflicts)
@@ -151,7 +156,8 @@ def main(argv=None):
                  "validation_used_in_solve": False, "validation_forget_used_for_selection": False,
                  "official_evaluation_used_for_selection": False,
                  "validation_retention_used_for_selection": True}
-    report = {"method": ARCHITECTURE, "initial": initial, "checkpoint_selection": selection,
+    report = {"method": ARCHITECTURE, "head_preparation": separation,
+              "initial": initial, "checkpoint_selection": selection,
               "selected": best, "best_training_only_candidate": diagnostic,
               "solver": solver.diagnostics, "history": history,
               "elapsed_seconds": time.perf_counter()-started,
@@ -172,6 +178,7 @@ def main(argv=None):
                 "export_atol": 1e-4, "export_rtol": 1e-5, "training": asdict(config)}
     manifest = {"architecture": ARCHITECTURE, "settings": settings, "training_config": asdict(config),
                 "model_path": args.model_path, "model_config": model.config.to_dict(),
+                "source_model_config": source_model_config, "head_preparation": separation,
                 "training_dtype": "float32", "deployment_dtype": "float32",
                 "input_rows": [], "output_rows": rows, "shared_endpoints": False,
                 "selected_channels": {}, "training_bundle_sha256": bundle_hash,

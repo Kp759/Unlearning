@@ -90,10 +90,19 @@ def main(argv=None):
     model = AutoModelForCausalLM.from_pretrained(
         model_path, torch_dtype=getattr(torch, manifest["training_dtype"]),
         local_files_only=args.local_files_only, attn_implementation="eager").to(args.device).eval()
+    source_config = manifest.get("source_model_config", manifest["model_config"]) if cached_head else manifest["model_config"]
     for key in ("model_type", "vocab_size", "hidden_size", "intermediate_size", "num_hidden_layers",
                 "num_attention_heads", "num_key_value_heads", "tie_word_embeddings", "rope_theta", "rope_scaling"):
-        if model.config.to_dict().get(key) != manifest["model_config"].get(key):
+        if model.config.to_dict().get(key) != source_config.get(key):
             raise ValueError(f"Recovery base model configuration differs: {key}")
+    if cached_head:
+        from static_overlap_cached_head import prepare_independent_head
+        preparation = prepare_independent_head(model, next(e for e in examples if e.split == "train"),
+                            allow_untie=manifest.get("head_preparation", {}).get("applied", False))
+        if preparation["applied"] != manifest.get("head_preparation", {}).get("applied", False):
+            raise ValueError("Recovery head preparation differs from the saved run")
+        if model.config.tie_word_embeddings != manifest["model_config"]["tie_word_embeddings"]:
+            raise ValueError("Recovery prepared head configuration differs")
     channels = {int(k): v for k, v in manifest["selected_channels"].items()}
     editor = StaticEditor(model, inputs, outputs, channels, settings["architecture"]["rank"])
     if editor.shared != manifest["shared_endpoints"]:
