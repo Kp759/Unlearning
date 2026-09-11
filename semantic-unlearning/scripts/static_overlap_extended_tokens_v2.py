@@ -335,7 +335,7 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
     emit(
         phase=f"{log_phase}_gate",
         **gates[0],
-        natural_prompt_behavior="bit_exact_base_by_construction",
+        natural_prompt_behavior=plan.get("natural_prompt_behavior", "bit_exact_base_by_construction"),
     )
     rejected = 0
     feasible_gates = 0
@@ -488,7 +488,7 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
             emit(
                 phase=f"{log_phase}_gate",
                 **gate,
-                natural_prompt_behavior="bit_exact_base_by_construction",
+                natural_prompt_behavior=plan.get("natural_prompt_behavior", "bit_exact_base_by_construction"),
             )
             torch.save(editor.artifact(), output / "last_extended_input_rows.pt")
             if globally_feasible:
