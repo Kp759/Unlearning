@@ -10,7 +10,13 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from static_overlap_activation_protocol import PLAN
-from static_overlap_activation_rewire import ActivationRewireEditor, RelationKeyDown, relation_keys
+from static_overlap_activation_rewire import (
+    ActivationRewireEditor,
+    RelationKeyDown,
+    balanced_protection_vectors,
+    relation_keys,
+)
+from static_overlap_activation_protocol_v7 import PLAN as V7_PLAN
 
 
 class ToyMlp(nn.Module):
@@ -88,3 +94,22 @@ def test_editor_artifact_round_trip_and_native_merge():
     assert isinstance(merged.model.layers[0].mlp.down_proj, nn.Linear)
     torch.testing.assert_close(merged.model.layers[0].mlp.down_proj.weight, expected)
     assert not any(parameter.requires_grad for parameter in merged.parameters())
+
+
+def test_balanced_protection_vectors_round_robins_examples():
+    examples = [SimpleNamespace(id="a"), SimpleNamespace(id="b")]
+    bank = {
+        "a": torch.tensor([[1., 0.], [2., 0.], [3., 0.]]),
+        "b": torch.tensor([[0., 1.], [0., 2.]]),
+    }
+    selected = balanced_protection_vectors(examples, bank, 4)
+    torch.testing.assert_close(torch.stack(selected), torch.tensor([
+        [1., 0.], [0., 1.], [2., 0.], [0., 2.],
+    ]))
+
+
+def test_v7_uses_final_layer_and_token_level_protection():
+    assert V7_PLAN["edit_last_selected_layer_only"] is True
+    assert V7_PLAN["activation_protection_positions_per_example"] == 8
+    assert V7_PLAN["activation_protection_rank"] == 4096
+    assert V7_PLAN["require_development_preservation_for_safe_state"] is True

@@ -134,9 +134,11 @@ def labeled_prediction_positions(example, device):
 
 
 @torch.no_grad()
-def collect_activation_means(editor, examples):
-    """Capture one answer-position activation vector per example and layer."""
-    current, captured = {}, {layer: {} for layer in editor.downs}
+def collect_activation_banks(editor, examples, protection_positions_per_example=0):
+    """Capture answer means plus optional individual protection positions."""
+    current = {}
+    captured = {layer: {} for layer in editor.downs}
+    protection = {layer: {} for layer in editor.downs}
     handles = []
     for layer, edit in editor.downs.items():
         handles.append(edit.register_forward_pre_hook(
@@ -151,11 +153,51 @@ def collect_activation_means(editor, examples):
                     raise RuntimeError(f"Layer {layer} activation hook did not run")
                 activation = current[layer]
                 positions = labeled_prediction_positions(example, activation.device)
-                captured[layer][example.id] = activation[0, positions].float().mean(0).detach()
+                values = activation[0, positions].float().detach()
+                captured[layer][example.id] = values.mean(0)
+                if (protection_positions_per_example and example.split == "train"
+                        and example.role in ("retain", "language")):
+                    count = min(protection_positions_per_example, len(values))
+                    if count == len(values):
+                        chosen = torch.arange(len(values), device=values.device)
+                    else:
+                        chosen = torch.linspace(
+                            0, len(values) - 1, count, device=values.device
+                        ).round().long().unique()
+                    protection[layer][example.id] = values[chosen]
     finally:
         for handle in handles:
             handle.remove()
-    return captured
+    return captured, protection
+
+
+def collect_activation_means(editor, examples):
+    """Capture one answer-position activation vector per example and layer."""
+    return collect_activation_banks(editor, examples)[0]
+
+
+def balanced_protection_vectors(examples, bank, limit):
+    """Round-robin token positions so long language rows cannot dominate."""
+    if limit <= 0:
+        raise ValueError("Activation protection rank must be positive")
+    ordered = [example for example in examples if example.id in bank]
+    result = []
+    depth = 0
+    while len(result) < limit:
+        added = False
+        for example in ordered:
+            values = bank[example.id]
+            if depth < len(values):
+                result.append(values[depth])
+                added = True
+                if len(result) == limit:
+                    break
+        if not added:
+            break
+        depth += 1
+    if not result:
+        raise ValueError("No individual fitting protection activations")
+    return result
 
 
 def relation_keys(forget_by_fact, locality_by_fact, retain_vectors, rank,
@@ -165,6 +207,8 @@ def relation_keys(forget_by_fact, locality_by_fact, retain_vectors, rank,
     if len(facts) > rank or set(facts) != set(locality_by_fact) or not retain_vectors:
         raise ValueError("Relation-key construction needs matched facts and retained activations")
     retained = torch.stack(retain_vectors).float()
+    if len(retained) >= retained.shape[1]:
+        raise ValueError("Protection activations leave no explicit relation-key nullspace")
     retained = torch.nn.functional.normalize(retained, dim=1)
     q, triangular = torch.linalg.qr(retained.T, mode="reduced")
     diagonal = triangular.diagonal().abs()
@@ -193,7 +237,8 @@ def relation_keys(forget_by_fact, locality_by_fact, retain_vectors, rank,
     result = retained.new_zeros((rank, width))
     result[:len(keys)] = torch.stack(keys)
     max_retain_overlap = float((retained @ result[:len(keys)].T).abs().max())
-    return result, {"retain_examples": len(retained), "retain_activation_rank": numerical_rank,
+    return result, {"retain_activation_vectors": len(retained),
+                    "retain_activation_rank": numerical_rank,
                     "forget_facts": len(facts), "minimum_residual_ratio": min(
                         report["residual_ratio"] for report in reports),
                     "mean_residual_ratio": sum(report["residual_ratio"] for report in reports) / len(reports),
@@ -202,7 +247,8 @@ def relation_keys(forget_by_fact, locality_by_fact, retain_vectors, rank,
 
 
 def build_and_install_relation_keys(editor, examples, synthetic_ids_by_fact, plan):
-    captured = collect_activation_means(editor, examples)
+    positions = plan.get("activation_protection_positions_per_example", 0)
+    captured, protection = collect_activation_banks(editor, examples, positions)
     forget_examples = [example for example in examples
                        if example.split == "train" and example.role == "forget"]
     preserve_examples = [example for example in examples
@@ -214,11 +260,16 @@ def build_and_install_relation_keys(editor, examples, synthetic_ids_by_fact, pla
             forget[example.fact_id].append(rows[example.id])
         locality = {fact: [rows[eid] for eid in ids]
                     for fact, ids in synthetic_ids_by_fact.items()}
+        retain_vectors = ([rows[example.id] for example in preserve_examples]
+                          if not positions else balanced_protection_vectors(
+                              preserve_examples, protection[layer],
+                              plan["activation_protection_rank"]))
         key, detail = relation_keys(
-            forget, locality, [rows[example.id] for example in preserve_examples],
+            forget, locality, retain_vectors,
             plan["activation_key_rank"], plan["activation_basis_relative_tolerance"],
             plan["minimum_relation_key_residual_ratio"],
         )
+        detail["protection_positions_per_example"] = positions
         keys[layer], report[layer] = key, detail
     editor.set_keys(keys)
     return report
@@ -265,6 +316,7 @@ def activation_step(editor, optimizer, pairs, background, references, config, pl
 
 
 def fit(editor, examples, references, config, plan, output, *, source, data, tokenizer):
+    run_method = plan.get("method_name", METHOD)
     synthetic, locality_audit = build_same_subject_locality(source, data, tokenizer, plan)
     examples.extend(synthetic)
     data["training_text_fingerprints"] = sorted(set(data["training_text_fingerprints"]) | {
@@ -272,14 +324,14 @@ def fit(editor, examples, references, config, plan, output, *, source, data, tok
     } | {normalized(example.prompt + example.completion) for example in synthetic})
     references.build(editor.model, synthetic)
     (output / "same_subject_locality_manifest.json").write_text(json.dumps({
-        "method": METHOD, "rows": locality_audit, "verified_fact_count": 0,
+        "method": run_method, "rows": locality_audit, "verified_fact_count": 0,
         "synthetic_query_count": len(synthetic), "invented_answers_used": False,
     }, indent=2) + "\n")
     synthetic_ids_by_fact = {fact: [row["id"] for row in rows]
                              for fact, rows in locality_audit.items()}
     key_report = build_and_install_relation_keys(editor, examples, synthetic_ids_by_fact, plan)
     (output / "activation_relation_keys.json").write_text(json.dumps({
-        "method": METHOD, "layers": key_report, "invented_answers_used": False,
+        "method": run_method, "layers": key_report, "invented_answers_used": False,
         "keys_are_runtime_router": False,
     }, indent=2) + "\n")
     emit(phase="activation_relation_keys_ready", layers={str(layer): {
@@ -287,7 +339,7 @@ def fit(editor, examples, references, config, plan, output, *, source, data, tok
     } for layer, detail in key_report.items()})
     sampler = PairSampler(examples, source["facts"] + data.get("facts", []), plan["seed"])
     pairing = sampler.manifest()
-    pairing.update(method=METHOD, synthetic_same_subject_locality_queries=len(synthetic),
+    pairing.update(method=run_method, synthetic_same_subject_locality_queries=len(synthetic),
                    same_subject_supervision="base_distribution_distillation_without_answer_claim")
     (output / "pair_manifest.json").write_text(json.dumps(pairing, indent=2) + "\n")
     emit(phase="association_pairs_ready", forget_facts=len(sampler.order),
@@ -317,13 +369,18 @@ def fit(editor, examples, references, config, plan, output, *, source, data, tok
         gate = development_gate(observed, config)
         train = [row for row in observed if row["split"] == "train"]
         retention_ok = training_protection(train, config, internal=True)[1]["retention_passed"]
+        development_retention_ok = gate["development"]["preservation"]["retention_passed"]
+        preservation_ok = retention_ok and (
+            development_retention_ok
+            or not plan.get("require_development_preservation_for_safe_state", False)
+        )
         hard_f = [row["id"] for row in sorted(
             (row for row in train if row["role"] == "forget"), key=lambda row: row["nll"])]
         hard_r = [row["id"] for row in sorted(
             (row for row in train if row["role"] != "forget"),
             key=lambda row: max(row["nll_increase"] / config.training_nll_budget,
                                 row["kl"] / config.training_kl_budget), reverse=True)]
-        if retention_ok:
+        if preservation_ok:
             safe_delta = flat_parameters(editor.parameters).detach().clone()
             safe_rows, safe_step = observed, step
             last_rows, last_gate = observed, gate
@@ -338,10 +395,12 @@ def fit(editor, examples, references, config, plan, output, *, source, data, tok
                    if row["split"] == "train" and row["role"] == "forget") / sum(
             row["split"] == "train" and row["role"] == "forget" for row in last_rows)
         gain = mean - previous_mean
-        stale = (stale + 1 if gain < plan["min_gate_nll_gain"] else 0) if retention_ok else 0
+        stale = (stale + 1 if gain < plan["min_gate_nll_gain"] else 0) if preservation_ok else 0
         previous_mean = mean
         record = {"step": step, "gate": gate, "training_preservation_passed": retention_ok,
-                  "rolled_back": not retention_ok, "retained_state_step": safe_step,
+                  "development_preservation_passed": development_retention_ok,
+                  "preservation_safe_state": preservation_ok,
+                  "rolled_back": not preservation_ok, "retained_state_step": safe_step,
                   "failed_preservation_gates": failed_preservation_gates,
                   "training_mean_nll_gain_since_gate": gain}
         gates.append(record)
@@ -350,12 +409,12 @@ def fit(editor, examples, references, config, plan, output, *, source, data, tok
         torch.save(editor.artifact(), output / "last_endpoint_delta.pt")
         emit(phase="activation_rewire_development_gate",
              **{key: value for key, value in record.items() if key != "gate"}, **compact_gate(gate))
-        if retention_ok and gate["passed"]:
+        if preservation_ok and gate["passed"]:
             selected, stop = step, "development_gate_passed"
             torch.save(editor.artifact(), output / "training_factors.pt")
 
     def report():
-        return {"method": METHOD, "exploratory": True, "stop_reason": stop,
+        return {"method": run_method, "exploratory": True, "stop_reason": stop,
                 "selected_step": selected, "last_gate": last_gate,
                 "last_state_step": safe_step, "baseline_gate": baseline,
                 "history": history, "gates": gates,
@@ -364,6 +423,9 @@ def fit(editor, examples, references, config, plan, output, *, source, data, tok
                 "activation_relation_keys": str(output / "activation_relation_keys.json"),
                 "fitting_forget_seen": len(seen_f), "fitting_preservation_seen": len(seen_r),
                 "development_used_for_gradients": False, "native_checkpoint_created": False,
+                "development_used_for_checkpoint_selection": True,
+                "development_used_as_preservation_rollback_gate": bool(
+                    plan.get("require_development_preservation_for_safe_state", False)),
                 "final_tests_touched": False, "inference_router": False,
                 "embedding_and_lm_head_untied_but_frozen": True,
                 "relation_keys_fixed_before_value_optimization": True}
