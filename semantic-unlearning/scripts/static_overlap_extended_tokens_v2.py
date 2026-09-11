@@ -138,6 +138,14 @@ def batched_answer_nll(model, examples):
         ids[index, :length] = torch.tensor(example.input_ids, device=device)
         attention[index, :length] = 1
         labels[index, :length] = torch.tensor(example.labels, device=device)
+    if hasattr(model, "set_association_prefix_lengths"):
+        prefix_lengths = []
+        for row in labels:
+            positions = (row != -100).nonzero(as_tuple=False).reshape(-1)
+            if int(positions.numel()) == 0:
+                raise ValueError("Association routing needs a labeled answer boundary")
+            prefix_lengths.append(int(positions.min().item()))
+        model.set_association_prefix_lengths(prefix_lengths)
     logits = model(
         input_ids=ids, attention_mask=attention, use_cache=False
     ).logits.float()
