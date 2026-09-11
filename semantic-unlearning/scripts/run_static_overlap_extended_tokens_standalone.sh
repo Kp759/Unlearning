@@ -5,6 +5,7 @@ model_path="${1:?Usage: bash scripts/run_static_overlap_extended_tokens_standalo
 mcf_path="${2:?Provide MultiCounterFact JSON path}"
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+mkdir -p "$PWD/outputs"
 
 out="$PWD/outputs/static_overlap_extended_tokens_standalone_v1_seed1"
 if [[ -e "$out" ]]; then
