@@ -225,8 +225,10 @@ def main(argv=None):
         "lm_head_edited": False,
         "requires_fact_id_token_injection": False,
         "runtime_trigger": (
-            "exact subject-token eligibility AND frozen natural-context semantic key"
+            "complete subject-token eligibility; frozen semantic relation key only "
+            "when the subject owns multiple forgotten associations"
         ),
+        "routing_policy": "hierarchical_subject_then_relation_if_ambiguous",
         "runtime_trigger_uses_object": False,
         "object_role": "suppression target only",
         "official_eff_canonical_training_visible": True,
