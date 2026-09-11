@@ -65,6 +65,12 @@ def test_natural_views_use_canonical_prompt_without_private_tokens():
     assert "SECRET OFFICIAL PARAPHRASE" not in joined
     assert "SECRET OFFICIAL NEIGHBORHOOD" not in joined
     assert "<|forget_assoc_" not in joined
+    assert "grew up speaking" in joined
+    assert any("According to publicly available records," in e.prompt
+               or "As has been noted elsewhere," in e.prompt
+               or "In an earlier account," in e.prompt
+               or "Based on commonly cited sources," in e.prompt
+               for e in examples if e.role == "forget")
 
 
 def test_training_fingerprints_include_prompt_and_completion():
