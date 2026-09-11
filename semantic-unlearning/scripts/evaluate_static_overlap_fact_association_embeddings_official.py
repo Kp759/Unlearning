@@ -103,8 +103,10 @@ def main(argv=None):
         "layer": int(artifact["layer"]),
         "facts": len(artifact["facts"]),
         "runtime_trigger": (
-            "exact subject-token eligibility AND frozen hidden-state semantic key"
+            "complete subject-token eligibility; frozen hidden-state relation key "
+            "only for subjects with multiple forgotten associations"
         ),
+        "routing_policy": "hierarchical_subject_then_relation_if_ambiguous",
         "runtime_counters": bank.counters(),
         "evaluation_group_labels_used_by_gate": False,
         "fact_id_injection_used": False,
