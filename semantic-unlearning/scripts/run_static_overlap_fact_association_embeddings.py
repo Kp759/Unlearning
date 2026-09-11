@@ -37,6 +37,11 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--layer", type=int, default=PLAN["layer"])
     parser.add_argument("--gate-slack", type=float, default=PLAN["gate_slack"])
+    parser.add_argument(
+        "--min-dev-route-recall",
+        type=float,
+        default=PLAN["min_development_route_recall"],
+    )
     args = parser.parse_args(argv)
 
     if args.forget_num != 50 or args.seed != 1:
@@ -174,6 +179,14 @@ def main(argv=None):
         raise RuntimeError(
             "Automatic association gate misses fitting prompts; refusing expensive training"
         )
+    if (
+        route_audit["development"]["correct_row_active_fraction"]
+        < float(args.min_dev_route_recall)
+    ):
+        raise RuntimeError(
+            "Automatic association gate development recall is below the "
+            f"{args.min_dev_route_recall:.3f} preflight floor; refusing expensive training"
+        )
 
     answer_map = {example.id: example for example in examples}
     unknown_map = make_unknown_examples(
@@ -185,6 +198,7 @@ def main(argv=None):
     plan = dict(PLAN)
     plan["layer"] = int(args.layer)
     plan["gate_slack"] = float(args.gate_slack)
+    plan["min_development_route_recall"] = float(args.min_dev_route_recall)
     plan["radius_schedule"] = tuple(tuple(x) for x in PLAN["radius_schedule"])
 
     manifest = {
