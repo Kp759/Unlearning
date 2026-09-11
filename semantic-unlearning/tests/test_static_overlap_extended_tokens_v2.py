@@ -136,12 +136,69 @@ def test_acceptance_is_answer_first_then_target_constrained_abstention():
     assert not v2.proposal_improves(8e-7, 1.0, 1.1e-6, 0.1, target, locked=True)
 
 
-def test_checkpoint_key_uses_global_maximum_before_abstention():
-    metrics = {
-        "train": {"max_token_probability": 2e-6, "unknown_mean_nll": 0.4},
-        "development": {"max_token_probability": 7e-6, "unknown_mean_nll": 0.8},
+def test_checkpoint_key_prioritizes_feasibility_then_abstention():
+    failing = {
+        "train": {
+            "max_token_probability": 2e-6,
+            "unknown_mean_nll": 0.4,
+            "target_probability": 1e-6,
+        },
+        "development": {
+            "max_token_probability": 7e-6,
+            "unknown_mean_nll": 0.8,
+            "target_probability": 1e-6,
+        },
     }
-    assert v2.checkpoint_key(metrics) == pytest.approx((7e-6, 0.6))
+    assert v2.checkpoint_key(failing) == pytest.approx((1, 7e-6, 0.6))
+
+    feasible_a = {
+        "train": {
+            "max_token_probability": 2e-8,
+            "unknown_mean_nll": 4.0,
+            "target_probability": 1e-6,
+        },
+        "development": {
+            "max_token_probability": 3e-8,
+            "unknown_mean_nll": 4.0,
+            "target_probability": 1e-6,
+        },
+    }
+    feasible_b = {
+        "train": {
+            "max_token_probability": 7e-7,
+            "unknown_mean_nll": 0.2,
+            "target_probability": 1e-6,
+        },
+        "development": {
+            "max_token_probability": 8e-7,
+            "unknown_mean_nll": 0.2,
+            "target_probability": 1e-6,
+        },
+    }
+    assert v2.checkpoint_key(feasible_b) < v2.checkpoint_key(feasible_a)
+
+
+def test_locked_constraint_rejects_exact_threshold_boundary():
+    target = 1e-6
+    assert v2.proposal_key(target, 0.1, target, locked=True) is None
+
+
+def test_phase_transition_resets_adam_state_once():
+    parameter = torch.nn.Parameter(torch.tensor([1.0]))
+    optimizer = torch.optim.Adam([parameter], lr=0.1)
+    (parameter.square().sum()).backward()
+    optimizer.step()
+    assert optimizer.state
+
+    reset = v2.reset_optimizer_for_phase_transition(
+        optimizer, was_locked=False, locked=True, mode="phase_lexicographic"
+    )
+    assert reset
+    assert not optimizer.state
+
+    assert not v2.reset_optimizer_for_phase_transition(
+        optimizer, was_locked=True, locked=True, mode="phase_lexicographic"
+    )
 
 
 def test_phase_lexicographic_gradient_ignores_abstention_until_locked():
@@ -170,4 +227,5 @@ def test_v2_1_registers_phase_lexicographic_proposals():
     assert v2_1.METHOD.endswith("v2_1")
     assert v2_1.PLAN["proposal_objective"] == "phase_lexicographic"
     assert v2_1.PLAN["backtracks"] == 12
+    assert v2_1.PLAN["post_feasible_gates"] == 5
     assert v2_1.PLAN["log_phase"] == "extended_token_v2_1"
