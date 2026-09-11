@@ -54,6 +54,7 @@ PLAN = {
     "max_length": 512,
     "gate_slack": 0.04,
     "relation_negative_count": 8,
+    "min_development_route_recall": 0.90,
     "log_phase": "fact_association_embedding",
     "natural_prompt_behavior": (
         "matched subject+relation may receive one learned fact vector; "
