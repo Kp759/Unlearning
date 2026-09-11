@@ -115,7 +115,7 @@ def proposal_improves(before_probability, before_unknown_nll,
     after = proposal_key(
         after_probability, after_unknown_nll, target_probability, locked=locked
     )
-    if after is None or not all(math.isfinite(value) for value in after):
+    if before is None or after is None or not all(math.isfinite(value) for value in after):
         return False
     if locked:
         return after < before
