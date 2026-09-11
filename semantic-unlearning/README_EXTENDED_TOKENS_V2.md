@@ -57,3 +57,33 @@ Natural prompts never contain a private token and therefore remain bit-exact to
 the base model by construction. Official natural-prompt Eff/Gen behavior is not
 changed, and this runner does not start official evaluation or touch final-test
 artifacts.
+
+## V2.1: phase-lexicographic proposals
+
+The v2 run showed that the hard acceptance rule worked, but exposed a conflict
+in the proposed update direction. A few unlocked facts repeatedly proposed no
+acceptable step because their gradient mixed worst-view answer suppression with
+abstention training. Those rows pinned the global maximum even while most other
+training rows reached the threshold.
+
+V2.1 preserves the same facts, authored train/development views, row-wise Adam
+state, adaptive radii, acceptance rule, stopping rule, and maximum-first
+checkpoint selection. It changes only the proposal phase:
+
+- an unlocked row backpropagates only its current worst-view forgetting gap;
+- a locked row backpropagates only mean abstention NLL;
+- every candidate still passes the exact all-training-view lexicographic check;
+- locked rows still cannot cross back above `1e-6`;
+- line search is extended from 8 to 12 backtracks for boundary rows.
+
+Run it in a new output directory with:
+
+```bash
+bash scripts/run_static_overlap_extended_tokens_standalone_v2_1.sh \
+  /path/to/Llama-3.2-3B-Instruct \
+  "$PWD/data/multi_counterfact.json"
+```
+
+V2.1 writes to
+`outputs/static_overlap_extended_tokens_standalone_v2_1_seed1`, leaving the v2
+run intact.

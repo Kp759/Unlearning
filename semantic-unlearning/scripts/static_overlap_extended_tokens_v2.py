@@ -175,6 +175,21 @@ def fact_objective(model, answer_examples, unknown_examples, target_probability,
     }
 
 
+def proposal_objective(objective, *, locked, mode):
+    """Choose the gradient source without weakening lexicographic acceptance.
+
+    ``joint`` preserves the registered v2 proposal direction.  In
+    ``phase_lexicographic`` mode an unlocked row receives only the hardest-view
+    forgetting gradient; abstention becomes the gradient objective only after
+    the row's complete training view set is below the answer threshold.
+    """
+    if mode == "joint":
+        return objective["loss"]
+    if mode == "phase_lexicographic":
+        return objective["unknown_nll"] if locked else objective["forget_gap"]
+    raise ValueError(f"Unknown proposal objective mode: {mode}")
+
+
 @torch.no_grad()
 def _metric_rows(model, routed, batch_size):
     items = list(routed.items())
@@ -297,8 +312,10 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
         "locked_rows": sum(locked.values()),
     }]
     torch.save(editor.artifact(), output / "best_extended_input_rows.pt")
+    log_phase = plan.get("log_phase", "extended_token_v2")
+    proposal_mode = plan.get("proposal_objective", "joint")
     emit(
-        phase="extended_token_v2_gate",
+        phase=f"{log_phase}_gate",
         **gates[0],
         natural_prompt_behavior="bit_exact_base_by_construction",
     )
@@ -326,7 +343,17 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
         )
         before_locked = float(before["max_probability"].detach()) < plan["target_probability"]
         locked[fact_id] = locked[fact_id] or before_locked
-        before["loss"].backward()
+        proposal_source = (
+            "unknown_nll"
+            if locked[fact_id] and proposal_mode == "phase_lexicographic"
+            else "worst_view_forget_gap"
+            if proposal_mode == "phase_lexicographic"
+            else "joint_forget_gap_plus_unknown_nll"
+        )
+        gradient_objective = proposal_objective(
+            before, locked=locked[fact_id], mode=proposal_mode
+        )
+        gradient_objective.backward()
         torch.nn.utils.clip_grad_norm_([row], 1.0, error_if_nonfinite=True)
         optimizer.step()
         proposal = row.detach() - before_row
@@ -386,6 +413,7 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
             "accepted": accepted,
             "backtracks": accepted_backtracks,
             "answer_constraint_locked": locked[fact_id],
+            "proposal_objective": proposal_source,
             "radius": radius,
             "before_worst_view_id": before["worst_view_id"],
             "after_worst_view_id": after["worst_view_id"],
@@ -399,7 +427,7 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
             "elapsed_seconds": time.monotonic() - started,
         }
         history.append(record)
-        emit(phase="extended_token_v2_row_step", **record)
+        emit(phase=f"{log_phase}_row_step", **record)
 
         if step % plan["check_every"] == 0:
             metrics = routed_metrics(
@@ -422,7 +450,7 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
             }
             gates.append(gate)
             emit(
-                phase="extended_token_v2_gate",
+                phase=f"{log_phase}_gate",
                 **gate,
                 natural_prompt_behavior="bit_exact_base_by_construction",
             )

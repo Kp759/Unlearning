@@ -12,6 +12,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import static_overlap_extended_tokens_v2 as v2
+import run_static_overlap_extended_tokens_standalone_v2_1 as v2_1
 from run_static_overlap_extended_tokens_standalone_v2 import (
     DEVELOPMENT_SCAFFOLDS,
     TRAIN_SCAFFOLDS,
@@ -141,3 +142,32 @@ def test_checkpoint_key_uses_global_maximum_before_abstention():
         "development": {"max_token_probability": 7e-6, "unknown_mean_nll": 0.8},
     }
     assert v2.checkpoint_key(metrics) == pytest.approx((7e-6, 0.6))
+
+
+def test_phase_lexicographic_gradient_ignores_abstention_until_locked():
+    forget = torch.tensor(3.0, requires_grad=True)
+    unknown = torch.tensor(5.0, requires_grad=True)
+    objective = {
+        "loss": forget + unknown,
+        "forget_gap": forget,
+        "unknown_nll": unknown,
+    }
+    v2.proposal_objective(
+        objective, locked=False, mode="phase_lexicographic"
+    ).backward()
+    assert forget.grad.item() == 1.0
+    assert unknown.grad is None
+
+    forget.grad = None
+    v2.proposal_objective(
+        objective, locked=True, mode="phase_lexicographic"
+    ).backward()
+    assert forget.grad is None
+    assert unknown.grad.item() == 1.0
+
+
+def test_v2_1_registers_phase_lexicographic_proposals():
+    assert v2_1.METHOD.endswith("v2_1")
+    assert v2_1.PLAN["proposal_objective"] == "phase_lexicographic"
+    assert v2_1.PLAN["backtracks"] == 12
+    assert v2_1.PLAN["log_phase"] == "extended_token_v2_1"

@@ -73,6 +73,8 @@ PLAN = {
     "development_views_per_fact": len(DEVELOPMENT_SCAFFOLDS),
     "unknown_completion": " I don't know.",
     "unknown_weight": 1.0,
+    "proposal_objective": "joint",
+    "log_phase": "extended_token_v2",
     # Evaluated in order.  A row below target remains trainable for abstention,
     # but every accepted proposal must keep its worst answer view below target.
     "radius_schedule": (
@@ -223,7 +225,10 @@ def main(argv=None):
     fact_to_row = {spec["fact_id"]: index for index, spec in enumerate(specs)}
     manifest = {
         "method": METHOD,
-        "architecture": "input_only_extended_association_tokens_row_wise_v2",
+        "architecture": PLAN.get(
+            "registered_architecture",
+            "input_only_extended_association_tokens_row_wise_v2",
+        ),
         "model_path": str(model_path),
         "mcf_path": str(mcf_path),
         "sampling": {
@@ -245,8 +250,9 @@ def main(argv=None):
         "development_scaffolds": list(DEVELOPMENT_SCAFFOLDS),
         "training_prompt_source": "eight independently authored relation-noun templates",
         "development_prompt_source": "four disjoint independently authored relation-noun templates",
-        "optimization": (
-            "one Adam optimizer per fact row; worst answer view plus mean abstention NLL"
+        "optimization": PLAN.get(
+            "optimization_description",
+            "one Adam optimizer per fact row; worst answer view plus mean abstention NLL",
         ),
         "acceptance": (
             "worst answer probability monotonic until target; then target constrained "
@@ -293,7 +299,9 @@ def main(argv=None):
     (output / "training_report.json").write_text(json.dumps(report, indent=2) + "\n")
     torch.save(editor.artifact(), output / "extended_input_rows.pt")
     emit(
-        status="standalone_extended_token_v2_oracle_ablation_complete",
+        status=PLAN.get(
+            "completion_status", "standalone_extended_token_v2_oracle_ablation_complete"
+        ),
         stop_reason=report["stop_reason"],
         best_step=report["best_step"],
         final_metrics=final_metrics,
