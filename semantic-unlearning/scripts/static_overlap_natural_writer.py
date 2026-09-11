@@ -16,6 +16,10 @@ import torch
 
 from freeze_static_overlap_development import rewrite
 from mcf_shadow_relation_prompts import RELATION_NOUN_PHRASES
+from mcf_synthetic_paraphrase_templates import (
+    GENERIC_CONTEXT_PREFIXES,
+    RELATION_ALTERNATE_TEMPLATES,
+)
 from run_static_overlap_extended_tokens_standalone_v2 import (
     DEVELOPMENT_SCAFFOLDS,
     TRAIN_SCAFFOLDS,
@@ -165,6 +169,38 @@ def encode_natural_views(forget_facts, retain_facts, tokenizer, max_length):
                         split,
                         f"authored_{family}",
                         prompt,
+                        tokenizer,
+                        max_length,
+                    )
+                )
+
+        if fact["role"] == "forget":
+            alternatives = RELATION_ALTERNATE_TEMPLATES.get(fact["relation"])
+            if not alternatives:
+                raise ValueError(
+                    f"No independent alternate templates for {fact['relation']}"
+                )
+            for family, template in enumerate(alternatives):
+                alternate = template.format(fact["subject"])
+                examples.append(
+                    _encode_answer_example(
+                        fact,
+                        "train",
+                        f"relation_alternate_{family}",
+                        alternate,
+                        tokenizer,
+                        max_length,
+                    )
+                )
+                prefix = GENERIC_CONTEXT_PREFIXES[
+                    (int(fact["case_id"]) + family) % len(GENERIC_CONTEXT_PREFIXES)
+                ]
+                examples.append(
+                    _encode_answer_example(
+                        fact,
+                        "train",
+                        f"context_relation_alternate_{family}",
+                        f"{prefix} {alternate}",
                         tokenizer,
                         max_length,
                     )
