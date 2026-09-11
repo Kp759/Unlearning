@@ -205,7 +205,7 @@ def main(argv=None):
         retain_nll_safety_margin=PLAN["fitting_nll_margin"],
         retain_kl_safety_margin=PLAN["fitting_kl_margin"],
     )
-    report = fit(editor, examples, references, PLAN, config, output)
+    report = fit(editor, examples, references, PLAN, config, output, method=METHOD)
     report.update({
         "method": METHOD,
         "architecture": "native_sparse_single_mlp_writer_low_rank",
