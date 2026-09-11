@@ -96,7 +96,7 @@ def test_unmatched_input_is_exact_base_and_matched_input_gets_one_vector():
     assert torch.equal(base_out, edited_out)
 
 
-def test_prefix_boundary_prevents_answer_tokens_from_selecting_route():
+def test_unique_subject_routes_without_fragile_semantic_threshold():
     base = _TinyBase()
     base.requires_grad_(False)
     facts = [{
@@ -105,17 +105,43 @@ def test_prefix_boundary_prevents_answer_tokens_from_selecting_route():
         "relation": "P0",
         "object": "object",
     }]
-    # Token 3 is the subject but has low key score; token 4 would match the key.
-    # Prefix length 1 therefore must keep the route inactive even though token 4
-    # appears in the teacher-forced answer suffix.
     bank = FactAssociationBank(
         base_model=base,
         layer=0,
         keys=torch.tensor([[0.0, 1.0]]),
-        thresholds=torch.tensor([0.9]),
+        thresholds=torch.tensor([0.99]),
         subject_patterns=[[(3,)]],
         facts=facts,
         rows=torch.tensor([[2.0, 0.0]]),
+    )
+    for row in bank.rows:
+        row.requires_grad_(False)
+    model = AssociationCausalLM(base, bank)
+    ids = torch.tensor([[3]])
+    out = model(input_ids=ids).logits
+    expected = base.embed(ids).clone()
+    expected[0, 0] += torch.tensor([2.0, 0.0])
+    assert torch.equal(out, expected)
+    assert bank.last_active_fact_indices == [[0]]
+
+
+def test_prefix_boundary_prevents_answer_tokens_from_selecting_ambiguous_route():
+    base = _TinyBase()
+    base.requires_grad_(False)
+    facts = [
+        {"id": "f0", "subject": "same", "relation": "P0", "object": "a"},
+        {"id": "f1", "subject": "same", "relation": "P1", "object": "b"},
+    ]
+    # Prompt token 3 is below both semantic thresholds; answer token 4 would
+    # strongly match relation 1. Prefix length 1 must keep routing inactive.
+    bank = FactAssociationBank(
+        base_model=base,
+        layer=0,
+        keys=torch.tensor([[1.0, 0.0], [0.0, 1.0]]),
+        thresholds=torch.tensor([1.1, 0.9]),
+        subject_patterns=[[(3,)], [(3,)]],
+        facts=facts,
+        rows=torch.tensor([[1.0, 0.0], [0.0, 2.0]]),
     )
     for row in bank.rows:
         row.requires_grad_(False)
@@ -126,7 +152,6 @@ def test_prefix_boundary_prevents_answer_tokens_from_selecting_route():
     expected = base.embed(ids)
     assert torch.equal(out, expected)
     assert bank.last_active_fact_indices == [[]]
-
 
 def test_same_subject_selects_only_best_relation_key():
     base = _TinyBase()
