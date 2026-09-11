@@ -450,6 +450,7 @@ class FactAssociationBank(nn.Module):
         hidden = output[0] if isinstance(output, tuple) else output
         batch, width, _ = hidden.shape
         subject_mask = self._subject_mask(self._input_ids)
+        subject_candidate_counts = subject_mask.sum(dim=-1)
 
         if self._prefix_lengths is not None:
             prefix_lengths = self._prefix_lengths.to(hidden.device, dtype=torch.long)
@@ -483,7 +484,19 @@ class FactAssociationBank(nn.Module):
         scores = scores.masked_fill(~subject_mask, float("-inf"))
         best_score, best_fact = scores.max(dim=-1)
         threshold = self.thresholds.to(hidden.device)[best_fact]
-        active = torch.isfinite(best_score) & (best_score >= threshold)
+
+        # Hierarchical association routing:
+        # 1) the complete subject span narrows the 50-record bank;
+        # 2) when exactly one forgotten association owns that subject, the
+        #    association identity is already unambiguous and no fragile
+        #    paraphrase-similarity threshold is needed;
+        # 3) only genuinely ambiguous subjects (multiple forgotten relations)
+        #    require the frozen semantic relation key.
+        unique_subject = subject_candidate_counts == 1
+        ambiguous_subject = subject_candidate_counts > 1
+        semantic_active = torch.isfinite(best_score) & (best_score >= threshold)
+        active = unique_subject | (ambiguous_subject & semantic_active)
+        active = active & (subject_candidate_counts > 0)
 
         rows = self.extra.to(device=hidden.device, dtype=hidden.dtype)
         selected = F.embedding(best_fact, rows)
@@ -524,7 +537,11 @@ class FactAssociationBank(nn.Module):
             "tokenizer_extended": False,
             "lm_head_edited": False,
             "requires_fact_id_token_injection": False,
-            "runtime_gate_inputs": "ordinary input_ids plus frozen hidden states only",
+            "runtime_gate_inputs": (
+                "complete subject-token eligibility; frozen hidden-state relation "
+                "key only when a subject maps to multiple forgotten associations"
+            ),
+            "routing_policy": "hierarchical_subject_then_relation_if_ambiguous",
             "object_required_in_runtime_input": False,
         }
 
