@@ -49,6 +49,9 @@ guard, sidecar, or LM-head edit.
 - Official retain records: the exact 1,000 official retain records are reserved
   and excluded from fitting.
 - Fitting preservation: 300 different first-half MCF records.
+- Training paraphrase diversity: eight independent relation-noun templates,
+  two relation-specific alternate cloze templates, and deterministic unrelated
+  context prefixes; none are copied from official Gen prompts.
 - Development forgetting: four independent authored relation-noun prompt
   families per forget fact.
 - Development retention: two independent authored relation-noun prompt
@@ -143,6 +146,11 @@ bash scripts/evaluate_static_overlap_natural_writer_official.sh \
   "$PWD/data/multi_counterfact.json" \
   "$PWD/data/wikidata"
 ```
+
+Before opening official prompts, the launcher also reloads the native checkpoint
+in BF16 and writes `bf16_natural_prompt_audit.json` on the saved
+training/development natural prompts. This isolates export/dtype drift from
+true official-prompt generalization.
 
 This uses:
 
