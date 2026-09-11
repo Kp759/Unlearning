@@ -406,6 +406,8 @@ class FactAssociationBank(nn.Module):
         self.subject_patterns = subject_patterns
         self.facts = list(facts)
         self._input_ids = None
+        self._attention_mask = None
+        self._prefix_lengths = None
         self.calls = 0
         self.active_batch_rows = 0
         self.active_token_positions = 0
@@ -418,11 +420,15 @@ class FactAssociationBank(nn.Module):
     def extra(self):
         return torch.stack(list(self.rows))
 
-    def bind(self, input_ids):
+    def bind(self, input_ids, attention_mask=None, prefix_lengths=None):
         self._input_ids = input_ids
+        self._attention_mask = attention_mask
+        self._prefix_lengths = prefix_lengths
 
     def unbind(self):
         self._input_ids = None
+        self._attention_mask = None
+        self._prefix_lengths = None
 
     def _subject_mask(self, input_ids):
         rows = input_ids.detach().cpu().tolist()
@@ -441,34 +447,63 @@ class FactAssociationBank(nn.Module):
         if self._input_ids is None:
             raise RuntimeError("Association bank hook fired without bound input_ids")
         hidden = output[0] if isinstance(output, tuple) else output
+        batch, width, _ = hidden.shape
         subject_mask = self._subject_mask(self._input_ids)
-        query = F.normalize(hidden.float(), dim=-1)
+
+        if self._prefix_lengths is not None:
+            prefix_lengths = self._prefix_lengths.to(hidden.device, dtype=torch.long)
+        elif self._attention_mask is not None:
+            mask = self._attention_mask.to(hidden.device).bool()
+            prefix_lengths = (
+                torch.arange(mask.shape[1], device=hidden.device)[None, :]
+                .expand_as(mask)
+                .masked_fill(~mask, -1)
+                .max(dim=1)
+                .values
+                + 1
+            )
+        else:
+            prefix_lengths = torch.full(
+                (batch,), width, device=hidden.device, dtype=torch.long
+            )
+        if tuple(prefix_lengths.shape) != (batch,):
+            raise ValueError("Association prefix lengths must have one value per sequence")
+        if bool(((prefix_lengths <= 0) | (prefix_lengths > width)).any()):
+            raise ValueError("Association prefix boundary is outside the input sequence")
+
+        prompt_positions = prefix_lengths - 1
+        query = hidden[
+            torch.arange(batch, device=hidden.device),
+            prompt_positions,
+        ].float()
+        query = F.normalize(query, dim=-1)
         keys = F.normalize(self.keys.to(hidden.device), dim=-1)
-        scores = torch.einsum("bth,fh->btf", query, keys)
-        scores = scores.masked_fill(~subject_mask[:, None, :], float("-inf"))
+        scores = query @ keys.T
+        scores = scores.masked_fill(~subject_mask, float("-inf"))
         best_score, best_fact = scores.max(dim=-1)
         threshold = self.thresholds.to(hidden.device)[best_fact]
         active = torch.isfinite(best_score) & (best_score >= threshold)
+
         rows = self.extra.to(device=hidden.device, dtype=hidden.dtype)
-        delta = F.embedding(best_fact, rows)
-        edited = hidden + delta * active.unsqueeze(-1).to(hidden.dtype)
+        selected = F.embedding(best_fact, rows)
+        position_mask = F.one_hot(prompt_positions, num_classes=width).to(hidden.dtype)
+        delta = (
+            position_mask.unsqueeze(-1)
+            * selected.unsqueeze(1)
+            * active[:, None, None].to(hidden.dtype)
+        )
+        edited = hidden + delta
 
         self.calls += 1
         with torch.no_grad():
-            active_rows = active.any(dim=1)
-            self.active_batch_rows += int(active_rows.sum())
+            self.active_batch_rows += int(active.sum())
             self.active_token_positions += int(active.sum())
-            self.last_active_fact_indices = []
-            for batch_index in range(active.shape[0]):
-                ids = sorted({
-                    int(value)
-                    for value in best_fact[batch_index][active[batch_index]]
-                    .detach().cpu().tolist()
-                })
-                self.last_active_fact_indices.append(ids)
-            if bool(active.any()):
-                for fact_index in best_fact[active].detach().cpu().tolist():
-                    self.active_fact_counts[int(fact_index)] += 1
+            self.last_active_fact_indices = [
+                [int(best_fact[index])] if bool(active[index]) else []
+                for index in range(batch)
+            ]
+            for fact_index in best_fact[active].detach().cpu().tolist():
+                self.active_fact_counts[int(fact_index)] += 1
 
         if isinstance(output, tuple):
             return (edited, *output[1:])
@@ -511,6 +546,7 @@ class AssociationCausalLM(nn.Module):
         super().__init__()
         self.base_model = base_model
         self.bank = bank
+        self._next_prefix_lengths = None
 
     @property
     def config(self):
@@ -522,10 +558,22 @@ class AssociationCausalLM(nn.Module):
     def get_output_embeddings(self):
         return self.base_model.get_output_embeddings()
 
+    def set_association_prefix_lengths(self, lengths):
+        self._next_prefix_lengths = torch.as_tensor(lengths, dtype=torch.long)
+
     def forward(self, input_ids=None, **kwargs):
         if input_ids is None:
             raise ValueError("Association model requires input_ids")
-        self.bank.bind(input_ids)
+        attention_mask = kwargs.get("attention_mask")
+        prefix_lengths = self._next_prefix_lengths
+        self._next_prefix_lengths = None
+        if prefix_lengths is not None:
+            prefix_lengths = prefix_lengths.to(input_ids.device)
+        self.bank.bind(
+            input_ids,
+            attention_mask=attention_mask,
+            prefix_lengths=prefix_lengths,
+        )
         try:
             return self.base_model(input_ids=input_ids, **kwargs)
         finally:
