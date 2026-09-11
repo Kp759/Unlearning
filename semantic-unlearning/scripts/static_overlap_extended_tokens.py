@@ -252,7 +252,8 @@ def train_extended_tokens(editor, original_examples, routed_answer, routed_unkno
                 set_parameters(editor.parameters, before + proposal * (.5 ** index))
                 candidate = paired_routed_loss(
                     editor.model, answers, unknowns, base_nll, config, plan)
-            if all(torch.isfinite(value) for value in candidate) and float(candidate[0]) < float(loss) - 1e-7:
+            if (all(bool(torch.isfinite(value).detach()) for value in candidate)
+                    and float(candidate[0].detach()) < float(loss.detach()) - 1e-7):
                 accepted, backtracks, after = True, index, candidate
                 break
         if not accepted:
