@@ -14,12 +14,14 @@ METHOD = "static_overlap_extended_tokens_standalone_v2_1"
 PLAN = {
     **v2.PLAN,
     "backtracks": 12,
+    "post_feasible_gates": 5,
     "proposal_objective": "phase_lexicographic",
     "log_phase": "extended_token_v2_1",
     "registered_architecture": "input_only_extended_association_tokens_row_wise_v2_1",
     "optimization_description": (
         "one Adam optimizer per fact row; pure worst-view answer suppression until "
-        "the row is locked, then mean abstention NLL under the hard answer constraint"
+        "the row is locked, then mean abstention NLL under the hard answer constraint; "
+        "Adam state is reset at the phase boundary and five full feasible gates refine abstention"
     ),
     "completion_status": "standalone_extended_token_v2_1_oracle_ablation_complete",
 }
