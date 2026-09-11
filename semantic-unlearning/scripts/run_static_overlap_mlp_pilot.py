@@ -215,7 +215,7 @@ def fitting_batch(items, step, count, hard_ids=(), *, offset=None):
     return hard + rotating
 
 
-def fit(editor, examples, references, plan, config, output):
+def fit(editor, examples, references, plan, config, output, *, method=METHOD):
     train_f = [e for e in examples if e.split == "train" and e.role == "forget"]
     train_r = [e for e in examples if e.split == "train" and e.role in ("retain", "language")]
     rng = random.Random(plan["seed"])
@@ -271,7 +271,7 @@ def fit(editor, examples, references, plan, config, output):
             rows = measure_pilot(editor.model, examples, references)
             gate = development_gate(rows, config)
             history.append({"step": step, "gate": gate, "elapsed_seconds": time.monotonic()-started})
-            write_report = {"method": METHOD, "exploratory": True, "history": history,
+            write_report = {"method": method, "exploratory": True, "history": history,
                 "selected_step": step if gate["passed"] else None, "last_gate": gate,
                 "fitting_forget_seen": len(seen_f), "fitting_forget_total": len(train_f),
                 "fitting_preservation_seen": len(seen_r), "fitting_preservation_total": len(train_r)}
@@ -288,7 +288,7 @@ def fit(editor, examples, references, plan, config, output):
                                               key=lambda r: r["nll"])[:plan["forget_batch"] // 2]]
             hard_r = [r["id"] for r in sorted((r for r in rows if r["split"] == "train" and r["role"] != "forget"),
                        key=lambda r: max(r["nll_increase"] / .05, r["kl"] / .01), reverse=True)[:plan["retain_batch"] // 2]]
-    return {"method": METHOD, "exploratory": True, "stop_reason": stop, "selected_step": selected,
+    return {"method": method, "exploratory": True, "stop_reason": stop, "selected_step": selected,
             "last_gate": gate, "history": history, "elapsed_seconds": time.monotonic()-started,
             "fitting_forget_seen": len(seen_f), "fitting_forget_total": len(train_f),
             "fitting_preservation_seen": len(seen_r), "fitting_preservation_total": len(train_r),
