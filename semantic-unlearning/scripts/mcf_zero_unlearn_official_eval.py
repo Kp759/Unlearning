@@ -113,6 +113,19 @@ def _offset_prediction(model, tok, prefixes, target_new, target_true, device,
                   return_token_type_ids=False)
     offsets = encoded.pop("offset_mapping").tolist()
     encoded = encoded.to(device)
+    if hasattr(model, "set_association_prefix_lengths"):
+        prefix_lengths = []
+        for i, text in enumerate(texts):
+            start = len(prefixes[i // 2]) + 1
+            positions = [
+                j for j, (a, b) in enumerate(offsets[i])
+                if b > a and b > start and a < len(text)
+                and bool(encoded["attention_mask"][i, j])
+            ]
+            if not positions or min(positions) == 0:
+                raise ValueError("Association routing could not locate prompt boundary")
+            prefix_lengths.append(min(positions))
+        model.set_association_prefix_lengths(prefix_lengths)
     logits = model(**encoded, use_cache=False).logits
     scores, correct = [], []
     for i, text in enumerate(texts):
@@ -192,6 +205,10 @@ def official_test_batch_prediction(
         b_tok = b_tok[1:]
         prefix_lens = [x - 1 for x in prefix_lens]
 
+    if hasattr(model, "set_association_prefix_lengths"):
+        model.set_association_prefix_lengths([
+            length for length in prefix_lens for _ in (0, 1)
+        ])
     logits = model(**prompt_tok).logits
 
     if llama_like:
