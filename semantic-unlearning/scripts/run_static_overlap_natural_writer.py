@@ -74,11 +74,16 @@ def main(argv=None):
         raise ValueError("retain-num must be positive")
 
     output = Path(args.output_dir).resolve()
-    output.mkdir(parents=True, exist_ok=False)
     model_path = Path(args.model_path).resolve()
     mcf_path = Path(args.mcf_path).resolve()
-    if not model_path.is_dir() or not mcf_path.is_file():
-        raise FileNotFoundError("Model directory or MCF JSON is missing")
+    if not model_path.is_dir():
+        raise FileNotFoundError(f"Model directory is missing: {model_path}")
+    if not mcf_path.is_file():
+        raise FileNotFoundError(f"MCF JSON is missing: {mcf_path}")
+    # Validate all external inputs before claiming the fresh output path. This
+    # prevents a typo/placeholder path from leaving an empty run directory that
+    # blocks the next legitimate attempt.
+    output.mkdir(parents=True, exist_ok=False)
 
     records = json.loads(mcf_path.read_text())
     forget_records, official_retain_records = sample_official_mcf_records(
