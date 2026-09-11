@@ -1,9 +1,15 @@
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import torch
 from torch import nn
 
-from scripts.static_overlap_fact_association_embeddings import (
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+from static_overlap_fact_association_embeddings import (
     AssociationCausalLM,
     FactAssociationBank,
     _contains_subsequence,
