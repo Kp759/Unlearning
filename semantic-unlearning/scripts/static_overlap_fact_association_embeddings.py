@@ -410,6 +410,7 @@ class FactAssociationBank(nn.Module):
         self.active_batch_rows = 0
         self.active_token_positions = 0
         self.active_fact_counts = [0 for _ in facts]
+        self.last_active_fact_indices = []
         layer_module = base_model.model.layers[self.layer]
         self._hook_handle = layer_module.register_forward_hook(self._hook)
 
@@ -457,6 +458,14 @@ class FactAssociationBank(nn.Module):
             active_rows = active.any(dim=1)
             self.active_batch_rows += int(active_rows.sum())
             self.active_token_positions += int(active.sum())
+            self.last_active_fact_indices = []
+            for batch_index in range(active.shape[0]):
+                ids = sorted({
+                    int(value)
+                    for value in best_fact[batch_index][active[batch_index]]
+                    .detach().cpu().tolist()
+                })
+                self.last_active_fact_indices.append(ids)
             if bool(active.any()):
                 for fact_index in best_fact[active].detach().cpu().tolist():
                     self.active_fact_counts[int(fact_index)] += 1
@@ -552,6 +561,60 @@ def make_unknown_examples(examples, tokenizer, max_length, completion):
 def make_subject_patterns(tokenizer, facts):
     return [subject_token_patterns(tokenizer, fact["subject"]) for fact in facts]
 
+
+
+@torch.no_grad()
+def audit_runtime_routes(model, bank, tokenizer, examples, fact_to_row, batch_size=16):
+    """Audit automatic routing with zero/nonzero rows without using eval labels."""
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    device = next(model.parameters()).device
+    rows = []
+    for start in range(0, len(examples), int(batch_size)):
+        batch = examples[start:start + int(batch_size)]
+        encoded = tokenizer(
+            [example.prompt for example in batch],
+            padding=True,
+            return_tensors="pt",
+            return_token_type_ids=False,
+        ).to(device)
+        model(**encoded, use_cache=False)
+        active_sets = list(bank.last_active_fact_indices)
+        if len(active_sets) != len(batch):
+            raise RuntimeError("Association route audit did not capture one route set per prompt")
+        for example, active_ids in zip(batch, active_sets):
+            expected = fact_to_row[example.fact_id]
+            rows.append({
+                "id": example.id,
+                "split": example.split,
+                "fact_id": example.fact_id,
+                "expected_row": expected,
+                "active_rows": active_ids,
+                "correct_row_active": expected in active_ids,
+                "any_row_active": bool(active_ids),
+                "wrong_row_active": any(index != expected for index in active_ids),
+            })
+    result = {}
+    for split in ("train", "development"):
+        current = [row for row in rows if row["split"] == split]
+        if not current:
+            raise ValueError(f"Route audit has no {split} prompts")
+        result[split] = {
+            "count": len(current),
+            "correct_row_active_fraction": sum(
+                row["correct_row_active"] for row in current
+            ) / len(current),
+            "any_row_active_fraction": sum(
+                row["any_row_active"] for row in current
+            ) / len(current),
+            "wrong_row_active_fraction": sum(
+                row["wrong_row_active"] for row in current
+            ) / len(current),
+            "failures": [
+                row for row in current if not row["correct_row_active"]
+            ][:20],
+        }
+    return result
 
 def load_artifact_into_model(base_model, artifact):
     bank = FactAssociationBank(
