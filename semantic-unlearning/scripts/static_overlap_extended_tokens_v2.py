@@ -99,7 +99,7 @@ def proposal_key(max_probability, unknown_nll, target_probability, *, locked):
     maximum = float(max_probability)
     unknown = float(unknown_nll)
     if locked:
-        if maximum > float(target_probability):
+        if maximum >= float(target_probability):
             return None
         return unknown, maximum
     return maximum, unknown
@@ -253,16 +253,34 @@ def routed_metrics(model, routed_answer, routed_unknown, target_probability,
 
 
 def checkpoint_key(metrics):
-    """Select by the global worst answer view, then mean abstention NLL."""
+    """Select feasibility first; once feasible, prioritize abstention quality."""
     maximum = max(
         metrics["train"]["max_token_probability"],
         metrics["development"]["max_token_probability"],
     )
+    targets = {
+        float(metrics["train"]["target_probability"]),
+        float(metrics["development"]["target_probability"]),
+    }
+    if len(targets) != 1:
+        raise ValueError("Train/development target probabilities must match")
+    target = targets.pop()
     unknown_nll = (
         metrics["train"]["unknown_mean_nll"]
         + metrics["development"]["unknown_mean_nll"]
     ) / 2
-    return maximum, unknown_nll
+    # Before feasibility: minimize the worst answer probability.
+    # After feasibility: keep the hard constraint satisfied and optimize
+    # abstention first, matching the locked-row lexicographic objective.
+    return (0, unknown_nll, maximum) if maximum < target else (1, maximum, unknown_nll)
+
+
+def reset_optimizer_for_phase_transition(optimizer, *, was_locked, locked, mode):
+    """Drop Adam moments when v2.1 switches from forgetting to abstention."""
+    transitioned = mode == "phase_lexicographic" and locked and not was_locked
+    if transitioned:
+        optimizer.state.clear()
+    return transitioned
 
 
 def _row_state(editor):
@@ -320,6 +338,7 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
         natural_prompt_behavior="bit_exact_base_by_construction",
     )
     rejected = 0
+    feasible_gates = 0
     started = time.monotonic()
     stop_reason = "row_step_budget"
 
@@ -334,15 +353,25 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
         row = editor.embedding.rows[fact_to_row[fact_id]]
         optimizer = optimizers[fact_id]
         before_row = row.detach().clone()
-        optimizer_state = deepcopy(optimizer.state_dict())
 
         editor.model.zero_grad(set_to_none=True)
         before = fact_objective(
             editor.model, answers, unknowns, plan["target_probability"],
             plan["unknown_weight"],
         )
+        was_locked = locked[fact_id]
         before_locked = float(before["max_probability"].detach()) < plan["target_probability"]
         locked[fact_id] = locked[fact_id] or before_locked
+        optimizer_state_reset = reset_optimizer_for_phase_transition(
+            optimizer,
+            was_locked=was_locked,
+            locked=locked[fact_id],
+            mode=proposal_mode,
+        )
+        # Rejections must restore the state for the *current* phase. In
+        # particular, a first locked-row rejection must not resurrect the
+        # forgetting-phase Adam moments that were intentionally discarded.
+        optimizer_state = deepcopy(optimizer.state_dict())
         proposal_source = (
             "unknown_nll"
             if locked[fact_id] and proposal_mode == "phase_lexicographic"
@@ -414,6 +443,7 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
             "backtracks": accepted_backtracks,
             "answer_constraint_locked": locked[fact_id],
             "proposal_objective": proposal_source,
+            "optimizer_state_reset": optimizer_state_reset,
             "radius": radius,
             "before_worst_view_id": before["worst_view_id"],
             "after_worst_view_id": after["worst_view_id"],
@@ -440,6 +470,10 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
                 best_state = _row_state(editor)
                 best_step = step
                 torch.save(editor.artifact(), output / "best_extended_input_rows.pt")
+            globally_feasible = (
+                metrics["train"]["target_met"] and metrics["development"]["target_met"]
+            )
+            feasible_gates = feasible_gates + 1 if globally_feasible else 0
             gate = {
                 "step": step,
                 "metrics": metrics,
@@ -447,6 +481,8 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
                 "selected_as_best": selected,
                 "best_step": best_step,
                 "locked_rows": sum(locked.values()),
+                "globally_feasible": globally_feasible,
+                "consecutive_feasible_gates": feasible_gates,
             }
             gates.append(gate)
             emit(
@@ -455,9 +491,17 @@ def train_row_wise(editor, original_examples, routed_answer, routed_unknown,
                 natural_prompt_behavior="bit_exact_base_by_construction",
             )
             torch.save(editor.artifact(), output / "last_extended_input_rows.pt")
-            if metrics["train"]["target_met"] and metrics["development"]["target_met"]:
-                stop_reason = "global_train_and_development_maximum_target_met"
-                break
+            if globally_feasible:
+                post_feasible = int(plan.get("post_feasible_gates", 0))
+                if post_feasible < 0:
+                    raise ValueError("post_feasible_gates must be non-negative")
+                if feasible_gates > post_feasible:
+                    stop_reason = (
+                        "global_target_met_with_post_feasible_abstention"
+                        if post_feasible
+                        else "global_train_and_development_maximum_target_met"
+                    )
+                    break
         if rejected >= plan["max_stalled_steps"]:
             stop_reason = "consecutive_rejected_row_steps"
             break
