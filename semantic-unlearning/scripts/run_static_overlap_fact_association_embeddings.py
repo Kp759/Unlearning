@@ -17,6 +17,7 @@ from static_overlap_fact_association_embeddings import (
     PLAN,
     FactAssociationBank,
     FactAssociationEditor,
+    audit_runtime_routes,
     build_forget_examples,
     build_semantic_keys,
     make_subject_patterns,
@@ -153,6 +154,27 @@ def main(argv=None):
         if not torch.equal(base_logits, wrapped_logits):
             raise ValueError("Zero association rows changed an unmatched base prompt")
 
+    fact_to_row = {fact["id"]: index for index, fact in enumerate(facts)}
+    route_audit = audit_runtime_routes(
+        editor.model,
+        bank,
+        tokenizer,
+        examples,
+        fact_to_row,
+    )
+    (output / "runtime_route_audit.json").write_text(
+        json.dumps(route_audit, indent=2, allow_nan=False) + "\n"
+    )
+    emit(
+        phase="fact_association_runtime_route_audit",
+        train=route_audit["train"],
+        development=route_audit["development"],
+    )
+    if route_audit["train"]["correct_row_active_fraction"] < 1.0:
+        raise RuntimeError(
+            "Automatic association gate misses fitting prompts; refusing expensive training"
+        )
+
     answer_map = {example.id: example for example in examples}
     unknown_map = make_unknown_examples(
         examples,
@@ -160,8 +182,6 @@ def main(argv=None):
         PLAN["max_length"],
         PLAN["unknown_completion"],
     )
-    fact_to_row = {fact["id"]: index for index, fact in enumerate(facts)}
-
     plan = dict(PLAN)
     plan["layer"] = int(args.layer)
     plan["gate_slack"] = float(args.gate_slack)
@@ -201,6 +221,7 @@ def main(argv=None):
         "development_used_for_gradients": False,
         "development_used_for_key_or_threshold_fitting": False,
         "unmatched_inputs_follow_exact_frozen_base_path": True,
+        "runtime_route_audit": route_audit,
     }
     (output / "association_manifest.json").write_text(
         json.dumps(manifest, indent=2, allow_nan=False) + "\n"
@@ -240,6 +261,7 @@ def main(argv=None):
             "method": METHOD,
             "manifest": manifest,
             "gate_diagnostics": gate_diagnostics,
+            "runtime_route_audit": route_audit,
             "final_metrics": final_metrics,
             "runtime_counters": bank.counters(),
             "unmatched_neutral_logits_exact_base_after_training": True,
