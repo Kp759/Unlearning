@@ -9,13 +9,15 @@ Architecture is unchanged from the successful MCF V1 bank:
   multiple forget facts share a subject.
 
 Data access is ZsRE-locked: only direct rewrite prompts and target_true are used.
-Official rephrases, locality probes, retain records, and target_new/Unknown are
-not loaded by this module.
+Training expands those direct requests into the exact per-token teacher-forced
+contexts used by the official ZsRE evaluator. Official rephrases, locality
+probes, retain records, and target_new/Unknown are not loaded by this module.
 """
 from __future__ import annotations
 
 from collections import defaultdict
 from copy import deepcopy
+from dataclasses import dataclass
 import json
 import math
 import random
@@ -34,7 +36,7 @@ from static_overlap_fact_association_embeddings import (
     extract_prompt_queries,
     make_subject_patterns,
 )
-from static_overlap_natural_writer import _encode_answer_example
+import zsre_zero_unlearn_official_eval as zsre
 
 
 METHOD = "fact_association_embeddings_zsre_v1"
@@ -108,22 +110,74 @@ def facts_from_locked_records(records):
     return facts
 
 
-def encode_direct_examples(facts, tokenizer, max_length):
-    examples = []
-    for fact in facts:
-        examples.append(
-            _encode_answer_example(
-                fact,
-                "train",
-                "canonical_rewrite",
-                fact["canonical_prompt"],
-                tokenizer,
-                max_length,
-            )
+@dataclass(frozen=True)
+class DirectTokenTrainingCase:
+    id: str
+    fact_id: str
+    case_id: int
+    token_index: int
+    prompt: str
+    boundary_prompt: str
+    target_text: str
+
+
+def build_exact_direct_token_cases(records, facts, tokenizer, model):
+    """Mirror the official ZsRE rewrite-token contexts exactly.
+
+    The official evaluator re-encodes each teacher-forced answer prefix as a
+    separate prompt. Training must optimize those same contexts rather than a
+    one-shot full-answer encoding, because BPE decode/re-encode can otherwise
+    produce a different token sequence.
+    """
+    fact_by_case = {int(fact["case_id"]): fact for fact in facts}
+    llama_like = zsre.is_llama_like(model, tokenizer)
+    cases = []
+    for record in records:
+        case_id = int(record["case_id"])
+        fact = fact_by_case[case_id]
+        rr = record["requested_rewrite"]
+        boundary = str(rr["prompt"]).format(str(rr["subject"]))
+        official_cases = zsre.expand_prediction_cases(
+            record,
+            tokenizer,
+            llama_like=llama_like,
+            prompt_types=("rewrite",),
         )
-    if len(examples) != len(facts):
-        raise AssertionError("Expected exactly one training-visible direct prompt per fact")
-    return examples
+        if not official_cases:
+            raise ValueError(f"No direct ZsRE token cases for case {case_id}")
+        for official in official_cases:
+            if official.prompt_type != "rewrite":
+                raise AssertionError("Training opened a non-rewrite ZsRE probe")
+            cases.append(
+                DirectTokenTrainingCase(
+                    id=(
+                        f"{fact['id']}:rewrite_token_{int(official.token_index)}"
+                    ),
+                    fact_id=fact["id"],
+                    case_id=case_id,
+                    token_index=int(official.token_index),
+                    prompt=str(official.prompt),
+                    boundary_prompt=boundary,
+                    target_text=str(official.target_text),
+                )
+            )
+    return cases, llama_like
+
+
+def _strict_prefix_lengths(tokenizer, cases):
+    lengths = []
+    for case in cases:
+        full_ids = zsre._flat_ids(tokenizer, case.prompt)
+        boundary_ids = zsre._flat_ids(tokenizer, case.boundary_prompt)
+        if not boundary_ids or len(boundary_ids) > len(full_ids):
+            raise ValueError("Invalid direct ZsRE association boundary")
+        if full_ids[:len(boundary_ids)] != boundary_ids:
+            raise ValueError(
+                "Locked direct request is not an exact token prefix of the "
+                "official teacher-forced token context"
+            )
+        lengths.append(len(boundary_ids))
+    return lengths
 
 
 @torch.no_grad()
@@ -155,46 +209,38 @@ def build_direct_context_keys(model, tokenizer, facts, layer):
     }
 
 
-def _padded_batch(examples, device):
-    maximum = max(len(example.input_ids) for example in examples)
-    ids = torch.zeros((len(examples), maximum), dtype=torch.long, device=device)
-    attention = torch.zeros_like(ids)
-    labels = torch.full_like(ids, -100)
-    for row, example in enumerate(examples):
-        length = len(example.input_ids)
-        ids[row, :length] = torch.tensor(example.input_ids, device=device)
-        attention[row, :length] = 1
-        labels[row, :length] = torch.tensor(example.labels, device=device)
-    prefix_lengths = []
-    for row in labels:
-        positions = (row != -100).nonzero(as_tuple=False).reshape(-1)
-        if not int(positions.numel()):
-            raise ValueError("ZsRE direct example has no labeled answer tokens")
-        prefix_lengths.append(int(positions.min().item()))
-    return ids, attention, labels, prefix_lengths
-
-
-def sensitive_token_state(model, examples, target_probability):
-    """Return per-token sensitive-answer state under a fixed request boundary."""
-    if not examples:
-        raise ValueError("Cannot score empty ZsRE fact views")
+def sensitive_token_state(
+    model,
+    tokenizer,
+    cases,
+    target_probability,
+    *,
+    llama_like,
+):
+    """Score the exact official direct ZsRE token decisions with fixed boundary."""
+    if not cases:
+        raise ValueError("Cannot score empty ZsRE token cases")
     device = next(model.parameters()).device
-    ids, attention, labels, prefix_lengths = _padded_batch(examples, device)
+    encoded = tokenizer(
+        [case.prompt for case in cases],
+        padding=True,
+        return_tensors="pt",
+    ).to(device)
+    prefix_lengths = _strict_prefix_lengths(tokenizer, cases)
     if hasattr(model, "set_association_prefix_lengths"):
         model.set_association_prefix_lengths(prefix_lengths)
-    logits = model(
-        input_ids=ids,
-        attention_mask=attention,
-        use_cache=False,
-    ).logits.float()
-    shifted_labels = labels[:, 1:]
-    shifted_logits = logits[:, :-1]
-    valid = shifted_labels != -100
-    flat_logits = shifted_logits[valid]
-    targets = shifted_labels[valid]
-    if not int(targets.numel()):
-        raise ValueError("No ZsRE sensitive target tokens")
-    token_nll = F.cross_entropy(flat_logits, targets, reduction="none")
+    output = model(**encoded, use_cache=False)
+    attention = encoded["attention_mask"]
+    last_non_masked = attention.sum(dim=1) - 1
+    batch_indices = torch.arange(len(cases), device=device)
+    final_logits = output.logits[batch_indices, last_non_masked, :].float()
+    targets = zsre.official_target_ids(
+        tokenizer,
+        [case.target_text for case in cases],
+        llama_like=llama_like,
+        device=device,
+    )
+    token_nll = F.cross_entropy(final_logits, targets, reduction="none")
     token_probability = torch.exp(-token_nll)
     worst_index = int(token_probability.detach().argmax().item())
     worst_probability = token_probability[worst_index]
@@ -202,10 +248,10 @@ def sensitive_token_state(model, examples, target_probability):
         -math.log(float(target_probability))
     )
     forget_gap = torch.relu(target_nll - token_nll[worst_index])
-    predicted = flat_logits.argmax(dim=-1)
+    predicted = final_logits.argmax(dim=-1)
     correct = predicted == targets
-    target_logits = flat_logits.gather(-1, targets[:, None]).squeeze(-1)
-    masked = flat_logits.clone()
+    target_logits = final_logits.gather(-1, targets[:, None]).squeeze(-1)
+    masked = final_logits.clone()
     masked.scatter_(-1, targets[:, None], float("-inf"))
     best_other = masked.max(dim=-1).values
     greedy_margin = target_logits - best_other
@@ -219,15 +265,27 @@ def sensitive_token_state(model, examples, target_probability):
         "max_greedy_margin": greedy_margin.max(),
         "mean_token_nll": token_nll.mean(),
         "min_token_nll": token_nll.min(),
+        "worst_token_case_id": cases[worst_index].id,
     }
 
 
 @torch.no_grad()
-def direct_training_metrics(model, examples_by_fact, target_probability):
+def direct_training_metrics(
+    model,
+    tokenizer,
+    cases_by_fact,
+    target_probability,
+    *,
+    llama_like,
+):
     rows = []
-    for fact_id in sorted(examples_by_fact):
+    for fact_id in sorted(cases_by_fact):
         state = sensitive_token_state(
-            model, examples_by_fact[fact_id], target_probability
+            model,
+            tokenizer,
+            cases_by_fact[fact_id],
+            target_probability,
+            llama_like=llama_like,
         )
         rows.append({
             "fact_id": fact_id,
@@ -290,12 +348,19 @@ def _restore_rows(editor, state):
             parameter.copy_(value.to(parameter.device, parameter.dtype))
 
 
-def train_direct_only(editor, examples, fact_to_row, plan, output):
+def train_direct_only(
+    editor,
+    tokenizer,
+    token_cases,
+    fact_to_row,
+    plan,
+    output,
+    *,
+    llama_like,
+):
     by_fact = defaultdict(list)
-    for example in examples:
-        if example.split != "train" or example.role != "forget":
-            raise ValueError("ZsRE trainer accepts direct forget training rows only")
-        by_fact[example.fact_id].append(example)
+    for case in token_cases:
+        by_fact[case.fact_id].append(case)
     facts = sorted(by_fact)
     if set(facts) != set(fact_to_row):
         raise ValueError("Every fact must own exactly one trainable row")
@@ -312,7 +377,11 @@ def train_direct_only(editor, examples, fact_to_row, plan, output):
         for fact_id in facts
     }
     baseline = direct_training_metrics(
-        editor.model, by_fact, plan["target_token_probability"]
+        editor.model,
+        tokenizer,
+        by_fact,
+        plan["target_token_probability"],
+        llama_like=llama_like,
     )
     best_metric = baseline["maximum_sensitive_token_probability"]
     best_state = _row_state(editor)
@@ -345,8 +414,10 @@ def train_direct_only(editor, examples, fact_to_row, plan, output):
         editor.model.zero_grad(set_to_none=True)
         before = sensitive_token_state(
             editor.model,
+            tokenizer,
             by_fact[fact_id],
             plan["target_token_probability"],
+            llama_like=llama_like,
         )
         before_probability = float(before["max_token_probability"].detach())
         if before_probability < float(plan["target_token_probability"]):
@@ -384,8 +455,10 @@ def train_direct_only(editor, examples, fact_to_row, plan, output):
                     row.copy_(before_row + proposal * (0.5 ** backtracks))
                     after = sensitive_token_state(
                         editor.model,
+                        tokenizer,
                         by_fact[fact_id],
                         plan["target_token_probability"],
+                        llama_like=llama_like,
                     )
                 after_probability = float(
                     after["max_token_probability"].detach()
@@ -451,8 +524,10 @@ def train_direct_only(editor, examples, fact_to_row, plan, output):
         if step % int(plan["check_every"]) == 0:
             metrics = direct_training_metrics(
                 editor.model,
+                tokenizer,
                 by_fact,
                 plan["target_token_probability"],
+                llama_like=llama_like,
             )
             current = metrics["maximum_sensitive_token_probability"]
             selected = current < best_metric
@@ -493,7 +568,11 @@ def train_direct_only(editor, examples, fact_to_row, plan, output):
 
     _restore_rows(editor, best_state)
     final = direct_training_metrics(
-        editor.model, by_fact, plan["target_token_probability"]
+        editor.model,
+        tokenizer,
+        by_fact,
+        plan["target_token_probability"],
+        llama_like=llama_like,
     )
     return {
         "stop_reason": stop_reason,
