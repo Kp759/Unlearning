@@ -129,38 +129,7 @@ class DirectTokenTrainingCase:
     target_text: str
 
 
-def build_exact_direct_token_cases(records, facts, tokenizer, model):
-    """Use the exact MQuAKE evaluator token-prefix contexts for direct Eff."""
-    fact_by_case = {int(fact["case_id"]): fact for fact in facts}
-    llama_like = mquake.is_llama_like(model, tokenizer)
-    cases = []
-    for record in records:
-        case_id = int(record["case_id"])
-        fact = fact_by_case[case_id]
-        rr = record["requested_rewrite"]
-        boundary = str(rr["prompt"]).format(str(rr["subject"]))
-        official_cases = mquake.expand_prediction_cases(
-            record,
-            tokenizer,
-            llama_like=llama_like,
-            prompt_types=("rewrite",),
-        )
-        if not official_cases:
-            raise ValueError(f"No direct MQuAKE token cases for case {case_id}")
-        for official in official_cases:
-            cases.append(
-                DirectTokenTrainingCase(
-                    id=f"{fact['id']}:rewrite_token_{int(official.token_index)}",
-                    fact_id=fact["id"],
-                    case_id=case_id,
-                    token_index=int(official.token_index),
-                    prompt=str(official.prompt),
-                    boundary_prompt=boundary,
-                    target_text=str(official.target_text),
-                )
-            )
-    return cases, llama_like
-
+def build_exact_direct_token_cases(records, facts, tokenizer, model):\n    """Mirror only the official MQuAKE rewrite-token contexts.\n\n    The generic evaluator helper constructs the atomic_gen prompt group eagerly,\n    even when callers request only rewrite cases. The locked training artifact\n    intentionally omits atomic_gen_prompt so held-out natural-language questions\n    cannot leak into fitting. Reconstruct only the rewrite branch here using the\n    same public tokenizer helpers as the official evaluator.\n    """\n    fact_by_case = {int(fact["case_id"]): fact for fact in facts}\n    llama_like = mquake.is_llama_like(model, tokenizer)\n    cases = []\n    for record in records:\n        case_id = int(record["case_id"])\n        fact = fact_by_case[case_id]\n        rr = record["requested_rewrite"]\n        boundary = str(rr["prompt"]).format(str(rr["subject"]))\n        sensitive = str(rr["target_true"]["str"])\n        target_ids = mquake.original_answer_token_ids(\n            tokenizer,\n            sensitive,\n            llama_like=llama_like,\n        )\n        if not target_ids:\n            raise ValueError(f"No direct MQuAKE target tokens for case {case_id}")\n\n        # Exactly mirror the rewrite-context construction in\n        # mquake_zero_unlearn_official_eval.expand_prediction_cases.\n        for token_index, token_id in enumerate(target_ids):\n            decoded_prefix = tokenizer.decode(target_ids[:token_index])\n            if llama_like and token_index > 0:\n                evaluated_prompt = boundary + " " + decoded_prefix\n            else:\n                evaluated_prompt = boundary + decoded_prefix\n            cases.append(\n                DirectTokenTrainingCase(\n                    id=f"{fact[\'id\']}:rewrite_token_{token_index}",\n                    fact_id=fact["id"],\n                    case_id=case_id,\n                    token_index=token_index,\n                    prompt=evaluated_prompt,\n                    boundary_prompt=boundary,\n                    target_text=tokenizer.decode([token_id]),\n                )\n            )\n    return cases, llama_like
 
 def strict_prefix_lengths(tokenizer, cases):
     lengths = []
