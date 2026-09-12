@@ -25,6 +25,10 @@ from mcf_zero_unlearn_official_eval import (
     runtime_aligned_perplexity,
 )
 from static_overlap_fact_association_embeddings import load_artifact_into_model
+from mquake_fact_association_embeddings import (
+    association_key_from_record,
+    build_association_facts,
+)
 
 
 def _boundary_text(record, case):
@@ -62,6 +66,7 @@ def predict_cases_fixed_boundary(
     device,
     *,
     llama_like,
+    expected_case_to_row=None,
     batch_size=8,
 ):
     rows = []
@@ -105,6 +110,11 @@ def predict_cases_fixed_boundary(
             routes,
             prefix_lengths,
         ):
+            expected_row = (
+                None
+                if expected_case_to_row is None
+                else expected_case_to_row.get(int(case.case_id))
+            )
             rows.append(
                 {
                     **asdict(case),
@@ -114,6 +124,12 @@ def predict_cases_fixed_boundary(
                     "association_boundary_tokens": int(boundary),
                     "active_fact_rows": route,
                     "association_route_active": bool(route),
+                    "expected_association_row": expected_row,
+                    "association_route_correct": (
+                        None
+                        if expected_row is None
+                        else int(expected_row) in route
+                    ),
                 }
             )
     return rows
@@ -130,13 +146,24 @@ def _route_summary(predicted):
                 "token_decisions": 0,
                 "route_active_fraction": None,
                 "active_token_decisions": 0,
+                "route_correct_fraction": None,
             }
             continue
         active = sum(row["association_route_active"] for row in current)
+        expected = [
+            row["association_route_correct"]
+            for row in current
+            if row.get("association_route_correct") is not None
+        ]
         output[prompt_type] = {
             "token_decisions": len(current),
             "route_active_fraction": active / len(current),
             "active_token_decisions": active,
+            "route_correct_fraction": (
+                None
+                if not expected
+                else sum(bool(value) for value in expected) / len(expected)
+            ),
         }
     return output
 
@@ -152,6 +179,7 @@ def evaluate_split_fixed_boundary(
     split_name,
     batch_size,
     include_atomic_gen,
+    expected_case_to_row=None,
 ):
     prompt_types = (
         ("rewrite", "atomic_gen")
@@ -179,6 +207,7 @@ def evaluate_split_fixed_boundary(
         records_by_id,
         device,
         llama_like=llama_like,
+        expected_case_to_row=expected_case_to_row,
         batch_size=batch_size,
     )
     summary = mquake.summarize_atomic_split(
@@ -261,20 +290,55 @@ def main(argv=None):
         seed=1,
     )
 
-    expected_atomic_case_ids = [
-        int(record["case_id"]) for record in forget_records
+    expected_facts, expected_case_to_fact_id, dedup_diagnostics = (
+        build_association_facts(forget_records)
+    )
+    expected_association_keys = [
+        str(fact["association_key"]) for fact in expected_facts
     ]
-    artifact_atomic_case_ids = [
-        int(fact["case_id"]) for fact in artifact["facts"]
+    artifact_association_keys = [
+        str(fact.get("association_key")) for fact in artifact["facts"]
     ]
-    if artifact_atomic_case_ids != expected_atomic_case_ids:
+    if artifact_association_keys != expected_association_keys:
         raise RuntimeError(
-            "Saved MQuAKE bank is not the exact official seed-1 atomic forget set"
+            "Saved MQuAKE bank is not the exact deduplicated association set "
+            "for the official seed-1 forget records"
         )
-    if int(manifest.get("forget_atomic_fact_count", -1)) != len(
+    if int(manifest.get("forget_atomic_record_count", -1)) != len(
         forget_records
     ):
-        raise RuntimeError("Manifest atomic-fact count no longer matches source split")
+        raise RuntimeError(
+            "Manifest raw atomic-record count no longer matches source split"
+        )
+    if int(manifest.get("unique_forget_association_count", -1)) != len(
+        expected_facts
+    ):
+        raise RuntimeError(
+            "Manifest unique-association count no longer matches source split"
+        )
+    artifact_case_map = {
+        str(key): str(value)
+        for key, value in artifact.get(
+            "atomic_case_to_association_id", {}
+        ).items()
+    }
+    expected_case_map = {
+        str(case_id): str(fact_id)
+        for case_id, fact_id in expected_case_to_fact_id.items()
+    }
+    if artifact_case_map != expected_case_map:
+        raise RuntimeError(
+            "Saved atomic-case to association mapping no longer matches "
+            "official seed-1 MQuAKE"
+        )
+    association_row_by_id = {
+        fact["id"]: index
+        for index, fact in enumerate(expected_facts)
+    }
+    expected_case_to_row = {
+        int(case_id): association_row_by_id[fact_id]
+        for case_id, fact_id in expected_case_to_fact_id.items()
+    }
 
     dtype = dtype_from_str(args.dtype)
     base_model = AutoModelForCausalLM.from_pretrained(
@@ -302,7 +366,17 @@ def main(argv=None):
         split_name="forget",
         batch_size=args.batch_size,
         include_atomic_gen=include_atomic_gen,
+        expected_case_to_row=expected_case_to_row,
     )
+    forget_rewrite_route_correct = forget_routes["rewrite"][
+        "route_correct_fraction"
+    ]
+    if forget_rewrite_route_correct != 1.0:
+        raise RuntimeError(
+            "Reloaded MQuAKE bank failed exact direct association routing: "
+            f"{forget_rewrite_route_correct}"
+        )
+
     retain_summary, retain_raw, retain_routes = evaluate_split_fixed_boundary(
         model,
         bank,
@@ -347,11 +421,19 @@ def main(argv=None):
         "seed": 1,
         "forget_num_instances": 50,
         "retain_num_instances": 1000,
-        "forget_atomic_fact_count": len(forget_records),
-        "retain_atomic_fact_count": len(retain_records),
+        "forget_atomic_record_count": len(forget_records),
+        "unique_forget_association_count": len(expected_facts),
+        "duplicate_forget_records_collapsed": dedup_diagnostics[
+            "duplicate_records_collapsed"
+        ],
+        "retain_atomic_record_count": len(retain_records),
         "architecture": {
             "layer": int(artifact["layer"]),
             "trainable_vectors": len(artifact["facts"]),
+            "storage_identity": (
+                "one vector per unique normalized "
+                "(subject, relation_id, target_true) association"
+            ),
             "base_weights_edited": False,
             "input_embeddings_edited": False,
             "lm_head_edited": False,
@@ -372,6 +454,8 @@ def main(argv=None):
                 "same sensitive-token accuracy on held-out atomic questions; "
                 "extension, not native ZeroUnlearn MQuAKE column"
             ),
+            "duplicate_records_share_one_association_vector": True,
+            "evaluation_preserves_all_original_atomic_records": True,
             "training_target_new_used": False,
             "training_atomic_questions_used": False,
             "training_multihop_questions_used": False,
