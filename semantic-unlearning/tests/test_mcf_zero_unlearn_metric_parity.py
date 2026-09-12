@@ -8,6 +8,7 @@ from scripts.mcf_zero_unlearn_metric_parity import (
     apply_zero_unlearn_eff_gen,
     compute_zero_unlearn_paper_eff_gen,
     patch_result_payload,
+    summarize_probability_metrics,
 )
 
 
@@ -101,3 +102,51 @@ def test_saved_result_patcher_updates_forget_retain_and_legacy_blocks():
 def test_definitions_are_explicit_and_stable():
     assert "exp(-NLL(target_true))" in ZERO_UNLEARN_EFF_DEFINITION
     assert "exp(-NLL(target_true))" in ZERO_UNLEARN_GEN_DEFINITION
+
+
+def test_strict_probability_metrics_use_full_answer_probability_and_accuracy_spe():
+    summary = {
+        "post_rewrite_success": [0.0, 0.0],
+        "post_paraphrase_success": [0.0, 0.0],
+        "post_rewrite_sensitive_pref": [12.0, 0.0],
+        "post_paraphrase_sensitive_pref": [14.0, 0.0],
+        "Spe": 12.55,
+    }
+    # Two-token answer with mean NLL=2 has geometric mean exp(-2), but complete
+    # answer probability exp(-4). The strict helper must use the latter.
+    raw = [{
+        "post": {
+            "rewrite_prompts_probs": [{
+                "target_true": 2.0,
+                "target_true_nll_sum": 4.0,
+                "target_true_tokens": 2,
+                "target_new": 1.0,
+            }],
+            "rewrite_prompts_correct": [False],
+            "paraphrase_prompts_probs": [{
+                "target_true": 2.0,
+                "target_true_nll_sum": 4.0,
+                "target_true_tokens": 2,
+                "target_new": 1.0,
+            }],
+            "paraphrase_prompts_correct": [False],
+            "neighborhood_prompts_probs": [{
+                "target_true": 0.5,
+                "target_true_nll_sum": 1.0,
+                "target_true_tokens": 2,
+                "target_new": 2.0,
+            }],
+            "neighborhood_prompts_correct": [True],
+        }
+    }]
+    out = summarize_probability_metrics(summary, raw)
+    assert out["metric_version"] == "zerounlearn_answer_probability_v2"
+    assert out["Eff"] == pytest.approx(100.0 * math.exp(-4.0))
+    assert out["Gen"] == pytest.approx(100.0 * math.exp(-4.0))
+    assert out["TokenGeometricMean_Eff"] == pytest.approx(100.0 * math.exp(-2.0))
+    assert out["ReleasedAccuracy_Eff"] == 0.0
+    assert out["ReleasedAccuracy_Gen"] == 0.0
+    assert out["Spe"] == 100.0
+    assert out["Legacy_Spe_ProbabilityDiff"] == 12.55
+    assert out["SensitivePref_Eff"] == 12.0
+    assert out["SensitivePref_Gen"] == 14.0
