@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from mcf_zero_unlearn_official_eval import (
     dtype_from_str,
     evaluate_loaded_model_official,
 )
+from mcf_zero_unlearn_metric_parity import summarize_probability_metrics
 from static_overlap_fact_association_embeddings import (
     METHOD,
     load_artifact_into_model,
@@ -110,6 +112,38 @@ def main(argv=None):
         sample_mode="official",
         skip_ppl=args.skip_ppl,
     )
+
+    # Match feat/static-overlap-constrained-editing exactly: the primary Eff/Gen
+    # are complete sensitive-answer probabilities exp(-sum token NLL), Spe is
+    # neighborhood all-token teacher-forced accuracy, and pairwise target_new
+    # preference remains an explicitly named diagnostic.
+    legacy_counterfact = {
+        split: deepcopy(result[split])
+        for split in ("forget", "retain")
+    }
+    for split in ("forget", "retain"):
+        result[split] = summarize_probability_metrics(
+            result[split],
+            result[f"{split}_raw"],
+        )
+    result["legacy_counterfact"] = legacy_counterfact
+    result["metric_version"] = "zerounlearn_answer_probability_v2"
+    forget = result["forget"]
+    result["static_branch_display_zero_check"] = {
+        "definition": (
+            "Eff < 0.005% and Gen < 0.005%, with "
+            "ReleasedAccuracy_Eff == 0 and ReleasedAccuracy_Gen == 0; "
+            "this is display-zero, not exact-zero probability"
+        ),
+        "eff_threshold_percent": 0.005,
+        "gen_threshold_percent": 0.005,
+        "passed": bool(
+            0.0 <= float(forget["Eff"]) < 0.005
+            and 0.0 <= float(forget["Gen"]) < 0.005
+            and float(forget["ReleasedAccuracy_Eff"]) == 0.0
+            and float(forget["ReleasedAccuracy_Gen"]) == 0.0
+        ),
+    }
     result["fact_association_embedding_bank"] = {
         "artifact": str(artifact_path),
         "base_model": str(model_path),
@@ -140,12 +174,20 @@ def main(argv=None):
     out_path.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n")
 
     compact = {
+        "metric_version": result["metric_version"],
         "forget_Eff": result["forget"]["Eff"],
         "forget_Gen": result["forget"]["Gen"],
         "forget_Spe": result["forget"]["Spe"],
+        "forget_ReleasedAccuracy_Eff": result["forget"]["ReleasedAccuracy_Eff"],
+        "forget_ReleasedAccuracy_Gen": result["forget"]["ReleasedAccuracy_Gen"],
+        "forget_TokenGeometricMean_Eff": result["forget"]["TokenGeometricMean_Eff"],
+        "forget_TokenGeometricMean_Gen": result["forget"]["TokenGeometricMean_Gen"],
+        "forget_SensitivePref_Eff": result["forget"]["SensitivePref_Eff"],
+        "forget_SensitivePref_Gen": result["forget"]["SensitivePref_Gen"],
         "retain_Eff": result["retain"]["Eff"],
         "retain_Gen": result["retain"]["Gen"],
         "retain_Spe": result["retain"]["Spe"],
+        "display_zero_check": result["static_branch_display_zero_check"]["passed"],
         "PPL": result.get("forget_PPL"),
         "PPL_metric_version": result.get("PPL_metric_version"),
         "legacy_PPL": result.get("legacy_forget_PPL"),
