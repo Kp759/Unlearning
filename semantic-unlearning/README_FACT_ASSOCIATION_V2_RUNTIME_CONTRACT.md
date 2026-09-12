@@ -37,17 +37,36 @@ Run:
       data/wikidata \
       bfloat16
 
+## Primary metric contract
+
+Primary MCF metrics match feat/static-overlap-constrained-editing via
+summarize_probability_metrics():
+
+- Eff = 100 * case-macro complete target_true answer probability on rewrites,
+  where answer probability is exp(-sum answer-token NLL), no EOS added.
+- Gen = the same complete target_true answer probability on paraphrases,
+  averaging paraphrases within case and then cases.
+- Spe = neighborhood all-target_true-token teacher-forced top-1 accuracy.
+- TokenGeometricMean_Eff/Gen, ReleasedAccuracy_Eff/Gen, and
+  SensitivePref_Eff/Gen remain separate diagnostics.
+
+The matching display-zero acceptance is Eff < 0.005%, Gen < 0.005%, and
+ReleasedAccuracy_Eff = ReleasedAccuracy_Gen = 0. This is not an exact-zero
+probability claim.
+
 ## Four matched development arms
 
-| Arm | Gate | Suppression objective |
-| --- | --- | --- |
-| A | V1 subject-first | absolute threshold |
-| B | V1 subject-first | absolute + actual comparator margin |
-| C | relation-sensitive prototype | absolute threshold |
-| D | relation-sensitive prototype | absolute + actual comparator margin |
+| Arm | Gate | Suppression objective | Role |
+| --- | --- | --- | --- |
+| A | V1 subject-first | absolute threshold | corrected V1 control |
+| B | V1 subject-first | absolute + actual comparator margin | comparator-aware ablation |
+| C | relation-sensitive prototype | absolute threshold | PRIMARY V2 |
+| D | relation-sensitive prototype | absolute + actual comparator margin | comparator-aware V2 ablation |
 
 A/B intentionally retain the V1 unique-subject bypass as a control. C/D never
-bypass relation confirmation for a unique subject.
+bypass relation confirmation for a unique subject. Arm C is the main V2 design
+because complete sensitive-answer probability, not target_new preference, is
+the primary Eff/Gen objective.
 
 The relation gate uses, for candidate fact i:
 
@@ -59,7 +78,7 @@ and requires both u_i >= alpha_i and d_i >= tau_i.
 Prototype construction and threshold calibration use disjoint training-visible
 prompts. Authored development prompts remain held out.
 
-## Comparator-aware constraint
+## Comparator-aware constraint (B/D ablation only)
 
 Let:
 
@@ -82,7 +101,9 @@ recomputes both branches after the update. A row does not lock until every
 training view satisfies both constraints. After locking, abstention updates are
 accepted only if both constraints stay feasible.
 
-target_new is explicitly declared extra comparator supervision in B/D.
+target_new is explicitly declared extra comparator supervision in B/D. It is
+not required for primary Arm C training; A/C use comparator quantities only as
+diagnostics.
 
 ## Run
 
