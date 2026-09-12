@@ -1,7 +1,7 @@
 """Fact-association residual-bank transfer for locked MQuAKE direct facts.
 
 Core architecture is unchanged from the successful MCF/ZsRE bank:
-- one independent hidden-state residual vector per atomic forget fact;
+- one independent hidden-state residual vector per UNIQUE factual association;
 - frozen Llama backbone, input embeddings, and LM head;
 - layer 19 intervention;
 - one edit at the ORIGINAL request-boundary token;
@@ -9,7 +9,7 @@ Core architecture is unchanged from the successful MCF/ZsRE bank:
 - if exactly one fact owns a subject, route directly;
 - if multiple facts share a subject, choose by frozen direct-request key.
 
-Data access is strictly forget-only. Training sees only the direct requested_rewrite
+Repeated MQuAKE atomic records with identical (subject, relation, target_true)\nshare one association vector. Data access is strictly forget-only. Training sees only the direct requested_rewrite
 prompt, subject, relation_id provenance, and original sensitive target_true.
 No target_new/Unknown, atomic natural-language question, multi-hop question,
 retain record, or PPL text is used for fitting or checkpoint selection.
@@ -81,41 +81,181 @@ def load_locked_visible_forget(path):
     return records
 
 
-def facts_from_locked_records(records):
-    facts = []
+def normalized(value):
+    return " ".join(str(value).casefold().split())
+
+
+def association_key_from_record(record):
+    """Stable natural association identity: normalized subject/relation/object."""
+    rr = record["requested_rewrite"]
+    subject = normalized(rr["subject"])
+    relation = str(rr.get("relation_id"))
+    obj = normalized(rr["target_true"]["str"])
+    return f"{subject}\t{relation}\t{obj}"
+
+
+def natural_address_key_from_record(record):
+    """Observable direct-request address, used only to detect true conflicts."""
+    rr = record["requested_rewrite"]
+    subject = str(rr["subject"])
+    relation = str(rr.get("relation_id"))
+    prompt = str(rr["prompt"]).format(subject)
+    return (normalized(subject), relation, normalized(prompt))
+
+
+def build_association_facts(records):
+    """Collapse duplicate MQuAKE records into unique factual associations.
+
+    Exact duplicates are defined by normalized (subject, relation_id, target_true).
+    Every original atomic case remains provenance/training supervision.  If the
+    same observable natural address (subject, relation, direct prompt) points to
+    different target_true objects, fail closed because natural-input routing
+    cannot disambiguate those records without hidden benchmark identity.
+    """
+    grouped = {}
+    address_objects = defaultdict(dict)
+
     for record in records:
         rr = record["requested_rewrite"]
         subject = str(rr["subject"])
         prompt = str(rr["prompt"]).format(subject)
         answer = str(rr["target_true"]["str"])
         if not subject.strip() or not prompt.strip() or not answer.strip():
-            raise ValueError(f"Malformed MQuAKE atomic record {record.get('case_id')}")
+            raise ValueError(
+                f"Malformed MQuAKE atomic record {record.get('case_id')}"
+            )
         if subject.casefold() not in prompt.casefold():
             raise ValueError(
                 f"MQuAKE direct prompt does not contain subject surface: {subject!r}"
             )
-        relation_id = rr.get("relation_id")
-        facts.append(
-            {
-                "id": f"mquake_forget_{int(record['case_id'])}",
-                "role": "forget",
-                "subject": subject,
-                "relation": (
-                    str(relation_id)
-                    if relation_id is not None
-                    else "mquake_direct_request_context"
-                ),
-                "object": answer,
-                "aliases": [],
-                "answer_aliases": [],
-                "case_id": int(record["case_id"]),
-                "mquake_case_id": int(record["mquake_case_id"]),
-                "source_index": int(record["source_index"]),
-                "rewrite_index": int(record["rewrite_index"]),
-                "canonical_prompt": prompt,
-            }
+
+        assoc_key = association_key_from_record(record)
+        address_key = natural_address_key_from_record(record)
+        answer_key = normalized(answer)
+        address_objects[address_key].setdefault(answer_key, []).append(
+            int(record["case_id"])
         )
-    return facts
+        grouped.setdefault(assoc_key, []).append(record)
+
+    conflicts = []
+    for address_key, objects in address_objects.items():
+        if len(objects) > 1:
+            conflicts.append(
+                {
+                    "subject": address_key[0],
+                    "relation": address_key[1],
+                    "prompt": address_key[2],
+                    "objects": [
+                        {"object": obj, "case_ids": case_ids}
+                        for obj, case_ids in sorted(objects.items())
+                    ],
+                }
+            )
+    if conflicts:
+        raise ValueError(
+            "MQuAKE contains natural-address conflicts: identical "
+            "(subject, relation, direct prompt) with different target_true "
+            f"objects. Conflicts: {conflicts[:10]}"
+        )
+
+    facts = []
+    case_to_fact_id = {}
+    case_to_association_key = {}
+    duplicate_groups = []
+
+    for assoc_index, (assoc_key, group) in enumerate(grouped.items()):
+        first = group[0]
+        rr = first["requested_rewrite"]
+        subject = str(rr["subject"])
+        relation_id = rr.get("relation_id")
+        answer = str(rr["target_true"]["str"])
+
+        canonical_prompts = []
+        for record in group:
+            current_rr = record["requested_rewrite"]
+            current_prompt = str(current_rr["prompt"]).format(
+                str(current_rr["subject"])
+            )
+            if current_prompt not in canonical_prompts:
+                canonical_prompts.append(current_prompt)
+
+        occurrence_case_ids = [int(record["case_id"]) for record in group]
+        fact_id = f"mquake_assoc_{occurrence_case_ids[0]}"
+        fact = {
+            "id": fact_id,
+            "role": "forget",
+            "subject": subject,
+            "relation": (
+                str(relation_id)
+                if relation_id is not None
+                else "mquake_direct_request_context"
+            ),
+            "object": answer,
+            "aliases": [],
+            "answer_aliases": [],
+            # Representative IDs are provenance only, never runtime inputs.
+            "case_id": occurrence_case_ids[0],
+            "mquake_case_id": int(first["mquake_case_id"]),
+            "source_index": int(first["source_index"]),
+            "rewrite_index": int(first["rewrite_index"]),
+            "association_key": assoc_key,
+            "association_index": assoc_index,
+            "canonical_prompt": canonical_prompts[0],
+            "canonical_prompts": canonical_prompts,
+            "occurrence_case_ids": occurrence_case_ids,
+            "occurrence_mquake_case_ids": [
+                int(record["mquake_case_id"]) for record in group
+            ],
+            "occurrence_source_indices": [
+                int(record["source_index"]) for record in group
+            ],
+            "occurrence_rewrite_indices": [
+                int(record["rewrite_index"]) for record in group
+            ],
+            "atomic_occurrence_count": len(group),
+        }
+        facts.append(fact)
+        for record in group:
+            case_id = int(record["case_id"])
+            case_to_fact_id[case_id] = fact_id
+            case_to_association_key[case_id] = assoc_key
+        if len(group) > 1:
+            duplicate_groups.append(
+                {
+                    "association_key": assoc_key,
+                    "fact_id": fact_id,
+                    "subject": subject,
+                    "relation": fact["relation"],
+                    "object": answer,
+                    "occurrence_count": len(group),
+                    "case_ids": occurrence_case_ids,
+                    "canonical_prompts": canonical_prompts,
+                }
+            )
+
+    diagnostics = {
+        "raw_atomic_record_count": len(records),
+        "unique_association_count": len(facts),
+        "duplicate_records_collapsed": len(records) - len(facts),
+        "duplicate_association_group_count": len(duplicate_groups),
+        "duplicate_groups": duplicate_groups,
+        "natural_address_conflict_count": 0,
+        "dedup_key": "normalized(subject), relation_id, normalized(target_true)",
+        "case_to_fact_id": {
+            str(case_id): fact_id
+            for case_id, fact_id in case_to_fact_id.items()
+        },
+        "case_to_association_key": {
+            str(case_id): assoc_key
+            for case_id, assoc_key in case_to_association_key.items()
+        },
+    }
+    return facts, case_to_fact_id, diagnostics
+
+
+def facts_from_locked_records(records):
+    """Compatibility helper returning only unique association facts."""
+    return build_association_facts(records)[0]
 
 
 @dataclass(frozen=True)
@@ -130,20 +270,21 @@ class DirectTokenTrainingCase:
 
 
 def build_exact_direct_token_cases(records, facts, tokenizer, model):
-    """Mirror only the official MQuAKE rewrite-token contexts.
-
-    The generic evaluator helper constructs the atomic_gen prompt group eagerly,
-    even when callers request only rewrite cases. The locked training artifact
-    intentionally omits atomic_gen_prompt so held-out natural-language questions
-    cannot leak into fitting. Reconstruct only the rewrite branch here using the
-    same public tokenizer helpers as the official evaluator.
-    """
-    fact_by_case = {int(fact["case_id"]): fact for fact in facts}
+    """Mirror official rewrite-token contexts and bind duplicates to one row."""
+    fact_by_key = {
+        str(fact["association_key"]): fact
+        for fact in facts
+    }
     llama_like = mquake.is_llama_like(model, tokenizer)
     cases = []
     for record in records:
         case_id = int(record["case_id"])
-        fact = fact_by_case[case_id]
+        assoc_key = association_key_from_record(record)
+        if assoc_key not in fact_by_key:
+            raise ValueError(
+                f"No unique association row for MQuAKE case {case_id}"
+            )
+        fact = fact_by_key[assoc_key]
         rr = record["requested_rewrite"]
         boundary = str(rr["prompt"]).format(str(rr["subject"]))
         sensitive = str(rr["target_true"]["str"])
@@ -155,8 +296,6 @@ def build_exact_direct_token_cases(records, facts, tokenizer, model):
         if not target_ids:
             raise ValueError(f"No direct MQuAKE target tokens for case {case_id}")
 
-        # Exactly mirror the rewrite-context construction in
-        # mquake_zero_unlearn_official_eval.expand_prediction_cases.
         for token_index, token_id in enumerate(target_ids):
             decoded_prefix = tokenizer.decode(target_ids[:token_index])
             if llama_like and token_index > 0:
@@ -165,7 +304,10 @@ def build_exact_direct_token_cases(records, facts, tokenizer, model):
                 evaluated_prompt = boundary + decoded_prefix
             cases.append(
                 DirectTokenTrainingCase(
-                    id=f"{fact['id']}:rewrite_token_{token_index}",
+                    id=(
+                        f"{fact['id']}:case_{case_id}:"
+                        f"rewrite_token_{token_index}"
+                    ),
                     fact_id=fact["id"],
                     case_id=case_id,
                     token_index=token_index,
@@ -195,25 +337,53 @@ def strict_prefix_lengths(tokenizer, cases):
 
 @torch.no_grad()
 def build_direct_context_keys(model, tokenizer, facts, layer):
-    prompts = [fact["canonical_prompt"] for fact in facts]
-    keys = extract_prompt_queries(model, tokenizer, prompts, layer).float()
+    """Build one frozen contextual key per UNIQUE association.
+
+    If a repeated association has more than one allowed direct prompt surface,
+    average the normalized layer-19 prompt queries into the single association
+    key. Exact duplicate prompt strings therefore add no redundant key rows.
+    """
+    flattened_prompts = []
+    widths = []
+    for fact in facts:
+        prompts = list(fact.get("canonical_prompts") or [fact["canonical_prompt"]])
+        flattened_prompts.extend(prompts)
+        widths.append(len(prompts))
+
+    prompt_queries = extract_prompt_queries(
+        model,
+        tokenizer,
+        flattened_prompts,
+        layer,
+    ).float()
+    keys = []
+    cursor = 0
+    for width in widths:
+        group = prompt_queries[cursor : cursor + width]
+        cursor += width
+        keys.append(F.normalize(group.mean(dim=0), dim=0))
+    keys = torch.stack(keys)
     thresholds = torch.full((len(facts),), -1.0, dtype=torch.float32)
 
     subjects = defaultdict(list)
     for index, fact in enumerate(facts):
-        normalized = " ".join(fact["subject"].casefold().split())
-        subjects[normalized].append(index)
+        subjects[normalized(fact["subject"])].append(index)
     duplicates = {
         subject: indices
         for subject, indices in subjects.items()
         if len(indices) > 1
     }
     return keys, thresholds, {
-        "key_source": "one locked direct rewrite per atomic fact",
+        "key_source": (
+            "mean of unique locked direct-rewrite prompt queries per unique "
+            "(subject, relation, target_true) association"
+        ),
         "threshold": -1.0,
         "unique_subject_policy": "direct V1 activation",
         "duplicate_subject_policy": "nearest frozen direct-request key",
         "duplicate_subject_groups": duplicates,
+        "unique_association_count": len(facts),
+        "direct_key_prompt_count": len(flattened_prompts),
         "atomic_questions_used": False,
         "multihop_questions_used": False,
         "retain_records_used": False,
@@ -391,13 +561,13 @@ def train_direct_only(
         by_fact[case.fact_id].append(case)
     facts = sorted(by_fact)
     if set(facts) != set(fact_to_row):
-        raise ValueError("Every atomic fact must own exactly one trainable row")
+        raise ValueError("Every unique association must own exactly one trainable row")
 
     steps = int(plan["steps"])
     check_every = int(plan["check_every"])
     if steps % len(facts) or check_every % len(facts):
         raise ValueError(
-            "MQuAKE training budget/checkpoints must end on complete atomic-fact sweeps"
+            "MQuAKE training budget/checkpoints must end on complete association sweeps"
         )
 
     order = list(facts)
