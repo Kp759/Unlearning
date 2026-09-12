@@ -207,6 +207,7 @@ class RelationPrototypeAssociationBank(nn.Module):
         subject_patterns,
         facts,
         rows=None,
+        ambiguity_margin=0.02,
     ):
         super().__init__()
         if len(facts) != len(positive_prototypes) or len(facts) != len(negative_prototypes):
@@ -242,6 +243,9 @@ class RelationPrototypeAssociationBank(nn.Module):
         self.layer = int(layer)
         self.subject_patterns = subject_patterns
         self.facts = list(facts)
+        self.ambiguity_margin = float(ambiguity_margin)
+        if self.ambiguity_margin < 0:
+            raise ValueError("ambiguity_margin must be non-negative")
         self._input_ids = None
         self._attention_mask = None
         self._prefix_lengths = None
@@ -356,6 +360,22 @@ class RelationPrototypeAssociationBank(nn.Module):
         ranked = d.masked_fill(~qualifies, float("-inf"))
         best_d, best_fact = ranked.max(dim=-1)
         active = torch.isfinite(best_d)
+        qualifying_counts = qualifies.sum(dim=-1)
+        if len(self.facts) > 1:
+            top2 = ranked.topk(k=2, dim=-1).values
+            separation = top2[:, 0] - top2[:, 1]
+            # A single qualifying candidate has second score -inf and therefore
+            # passes automatically. Multiple qualifying candidates must have a
+            # declared top-1/top-2 relation-margin separation.
+            ambiguous = (
+                (qualifying_counts > 1)
+                & torch.isfinite(top2[:, 1])
+                & (separation < self.ambiguity_margin)
+            )
+            active = active & ~ambiguous
+        else:
+            separation = torch.full_like(best_d, float("inf"))
+            ambiguous = torch.zeros_like(active)
 
         rows = self.extra.to(device=hidden.device, dtype=hidden.dtype)
         selected = F.embedding(best_fact, rows)
@@ -386,6 +406,12 @@ class RelationPrototypeAssociationBank(nn.Module):
                         float(d[index, best_fact[index]])
                         if bool(active[index]) else None
                     ),
+                    "qualifying_candidates": int(qualifying_counts[index]),
+                    "top1_top2_d_separation": (
+                        float(separation[index])
+                        if bool(torch.isfinite(separation[index])) else None
+                    ),
+                    "rejected_as_ambiguous": bool(ambiguous[index]),
                 }
                 for index in range(batch)
             ]
@@ -409,6 +435,7 @@ class RelationPrototypeAssociationBank(nn.Module):
             "facts": self.facts,
             "routing_policy": "subject_candidate_plus_relation_prototype_confirmation",
             "unique_subject_bypass": False,
+            "ambiguity_margin": self.ambiguity_margin,
             "subject_scan_scope": "prompt_prefix_only",
             "teacher_forced_suffix_can_affect_routing": False,
             "generation_contract": (
@@ -444,6 +471,7 @@ def load_relation_prototype_artifact(base_model, artifact):
         subject_patterns=artifact["subject_patterns"],
         facts=artifact["facts"],
         rows=artifact["rows"],
+        ambiguity_margin=float(artifact.get("ambiguity_margin", 0.02)),
     )
     for row in bank.rows:
         row.requires_grad_(False)
