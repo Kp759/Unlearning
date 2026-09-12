@@ -12,17 +12,27 @@ import torch
 from mquake_fact_association_embeddings import (
     BASE_PLAN,
     METHOD,
+    association_key_from_record,
+    build_association_facts,
     build_editor,
     build_exact_direct_token_cases,
-    facts_from_locked_records,
     load_locked_visible_forget,
     train_direct_only,
 )
 
 
 @torch.no_grad()
-def audit_direct_routes(model, bank, tokenizer, facts, batch_size=16):
-    prompts = [fact["canonical_prompt"] for fact in facts]
+def audit_direct_routes(
+    model,
+    bank,
+    tokenizer,
+    facts,
+    records,
+    case_to_fact_id,
+    batch_size=16,
+):
+    """Require every original atomic record to route to its merged association."""
+    fact_to_row = {fact["id"]: index for index, fact in enumerate(facts)}
     device = next(model.parameters()).device
     rows = []
 
@@ -35,8 +45,14 @@ def audit_direct_routes(model, bank, tokenizer, facts, batch_size=16):
             for i in range(len(tokens) - width + 1)
         )
 
-    for start in range(0, len(facts), int(batch_size)):
-        batch_facts = facts[start : start + int(batch_size)]
+    prompts = [
+        str(record["requested_rewrite"]["prompt"]).format(
+            str(record["requested_rewrite"]["subject"])
+        )
+        for record in records
+    ]
+    for start in range(0, len(records), int(batch_size)):
+        batch_records = records[start : start + int(batch_size)]
         batch_prompts = prompts[start : start + int(batch_size)]
         encoded = tokenizer(
             batch_prompts,
@@ -50,10 +66,17 @@ def audit_direct_routes(model, bank, tokenizer, facts, batch_size=16):
         input_rows = encoded["input_ids"].detach().cpu().tolist()
         mask_rows = encoded["attention_mask"].detach().cpu().bool().tolist()
 
-        for offset, (fact, route, token_row, mask_row) in enumerate(
-            zip(batch_facts, routes, input_rows, mask_rows)
+        for record, prompt, route, token_row, mask_row in zip(
+            batch_records,
+            batch_prompts,
+            routes,
+            input_rows,
+            mask_rows,
         ):
-            expected = start + offset
+            case_id = int(record["case_id"])
+            expected_fact_id = case_to_fact_id[case_id]
+            expected_row = fact_to_row[expected_fact_id]
+            rr = record["requested_rewrite"]
             prompt_tokens = [
                 token for token, keep in zip(token_row, mask_row) if keep
             ]
@@ -69,50 +92,40 @@ def audit_direct_routes(model, bank, tokenizer, facts, batch_size=16):
                 {
                     "row": int(index),
                     "fact_id": facts[index]["id"],
-                    "case_id": int(facts[index]["case_id"]),
+                    "association_key": facts[index]["association_key"],
                     "subject": facts[index]["subject"],
                     "relation": facts[index]["relation"],
-                    "canonical_prompt": facts[index]["canonical_prompt"],
+                    "object": facts[index]["object"],
+                    "occurrence_case_ids": facts[index]["occurrence_case_ids"],
+                    "canonical_prompts": facts[index]["canonical_prompts"],
                 }
                 for index in candidate_rows
             ]
             rows.append(
                 {
-                    "fact_id": fact["id"],
-                    "case_id": fact["case_id"],
-                    "subject": fact["subject"],
-                    "relation": fact["relation"],
-                    "canonical_prompt": fact["canonical_prompt"],
-                    "expected_row": expected,
+                    "case_id": case_id,
+                    "association_key": association_key_from_record(record),
+                    "expected_fact_id": expected_fact_id,
+                    "expected_row": expected_row,
+                    "subject": str(rr["subject"]),
+                    "relation": str(rr.get("relation_id")),
+                    "object": str(rr["target_true"]["str"]),
+                    "canonical_prompt": prompt,
                     "active_rows": route,
                     "candidate_rows_from_subject_scan": candidate_rows,
                     "candidate_facts_from_subject_scan": candidate_facts,
                     "subject_candidate_count": len(candidate_rows),
-                    "correct_row_active": expected in route,
-                    "wrong_row_active": any(index != expected for index in route),
+                    "correct_row_active": expected_row in route,
+                    "wrong_row_active": any(
+                        index != expected_row for index in route
+                    ),
                 }
             )
 
-    normalized_subject_groups = {}
-    canonical_prompt_groups = {}
-    for index, fact in enumerate(facts):
-        subject_key = " ".join(str(fact["subject"]).casefold().split())
-        normalized_subject_groups.setdefault(subject_key, []).append(index)
-        canonical_prompt_groups.setdefault(fact["canonical_prompt"], []).append(index)
-
-    duplicate_subject_groups = {
-        subject: indices
-        for subject, indices in normalized_subject_groups.items()
-        if len(indices) > 1
-    }
-    duplicate_prompt_groups = {
-        prompt: indices
-        for prompt, indices in canonical_prompt_groups.items()
-        if len(indices) > 1
-    }
     failures = [row for row in rows if not row["correct_row_active"]]
     return {
-        "count": len(rows),
+        "atomic_record_count": len(records),
+        "unique_association_count": len(facts),
         "correct_row_active_fraction": (
             sum(row["correct_row_active"] for row in rows) / len(rows)
         ),
@@ -125,8 +138,7 @@ def audit_direct_routes(model, bank, tokenizer, facts, batch_size=16):
         "rows_with_multiple_subject_candidates": sum(
             row["subject_candidate_count"] > 1 for row in rows
         ),
-        "duplicate_normalized_subject_groups": duplicate_subject_groups,
-        "duplicate_canonical_prompt_groups": duplicate_prompt_groups,
+        "failure_count": len(failures),
         "failures": failures,
     }
 
@@ -177,7 +189,9 @@ def main(argv=None):
         raise ValueError(
             f"Expected {expected_atomic} atomic forget facts, got {len(records)}"
         )
-    facts = facts_from_locked_records(records)
+    facts, case_to_fact_id, dedup_diagnostics = build_association_facts(
+        records
+    )
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -208,7 +222,7 @@ def main(argv=None):
         else len(facts) * int(args.row_updates_per_fact)
     )
     if total_steps <= 0 or total_steps % len(facts):
-        raise ValueError("--steps must be a positive multiple of atomic fact count")
+        raise ValueError("--steps must be a positive multiple of unique association count")
     plan.update(
         {
             "seed": int(args.seed),
@@ -236,6 +250,8 @@ def main(argv=None):
         bank,
         tokenizer,
         facts,
+        records,
+        case_to_fact_id,
     )
     route_preflight_path = output / "route_preflight.json"
     route_preflight_path.write_text(
@@ -245,7 +261,8 @@ def main(argv=None):
         json.dumps(
             {
                 "route_preflight": str(route_preflight_path),
-                "count": route_audit["count"],
+                "atomic_record_count": route_audit["atomic_record_count"],
+                "unique_association_count": route_audit["unique_association_count"],
                 "correct_row_active_fraction": route_audit[
                     "correct_row_active_fraction"
                 ],
@@ -258,13 +275,13 @@ def main(argv=None):
                 "rows_with_multiple_subject_candidates": route_audit[
                     "rows_with_multiple_subject_candidates"
                 ],
-                "duplicate_normalized_subject_group_count": len(
-                    route_audit["duplicate_normalized_subject_groups"]
-                ),
-                "duplicate_canonical_prompt_group_count": len(
-                    route_audit["duplicate_canonical_prompt_groups"]
-                ),
-                "failure_count": len(route_audit["failures"]),
+                "duplicate_records_collapsed": dedup_diagnostics[
+                    "duplicate_records_collapsed"
+                ],
+                "duplicate_association_group_count": dedup_diagnostics[
+                    "duplicate_association_group_count"
+                ],
+                "failure_count": route_audit["failure_count"],
                 "first_failures": route_audit["failures"][:10],
             },
             indent=2,
@@ -288,7 +305,8 @@ def main(argv=None):
         "seed": 1,
         "forget_num_instances": 50,
         "retain_num_instances_final_evaluation": 1000,
-        "forget_atomic_fact_count": len(facts),
+        "forget_atomic_record_count": len(records),
+        "unique_forget_association_count": len(facts),
         "model_path": str(model_path),
         "training_visible_path": str(visible_path),
         "split_manifest_path": str(split_manifest_path),
@@ -305,13 +323,18 @@ def main(argv=None):
         "forget_atomic_case_ids": list(
             sampling.get("forget_atomic_case_ids", [])
         ),
+        "atomic_case_to_association_id": {
+            str(case_id): fact_id
+            for case_id, fact_id in case_to_fact_id.items()
+        },
         "architecture": (
-            "one independent residual vector per flattened atomic forget fact; "
+            "one independent residual vector per unique (subject, relation, target_true) association; "
             "frozen Llama; layer 19; one original-request-boundary intervention"
         ),
         "routing_policy": "hierarchical_subject_then_context_if_ambiguous",
         "layer": int(plan["layer"]),
         "trainable_vectors": len(facts),
+        "association_deduplication": dedup_diagnostics,
         "base_parameters_trainable": 0,
         "tokenizer_extended": False,
         "lm_head_edited": False,
@@ -365,7 +388,11 @@ def main(argv=None):
                     "status": "preflight_complete",
                     "optimization_started": False,
                     "forget_instances": 50,
-                    "atomic_facts": len(facts),
+                    "atomic_records": len(records),
+                    "unique_associations": len(facts),
+                    "duplicate_records_collapsed": dedup_diagnostics[
+                        "duplicate_records_collapsed"
+                    ],
                     "route_audit": route_audit,
                     "output_dir": str(output),
                 },
@@ -390,7 +417,13 @@ def main(argv=None):
             "dataset": "MQuAKE-CF-3k-v2",
             "seed": 1,
             "forget_num_instances": 50,
-            "forget_atomic_fact_count": len(facts),
+            "forget_atomic_record_count": len(records),
+            "unique_forget_association_count": len(facts),
+            "association_deduplication": dedup_diagnostics,
+            "atomic_case_to_association_id": {
+                str(case_id): fact_id
+                for case_id, fact_id in case_to_fact_id.items()
+            },
             "target_new_used": False,
             "unknown_or_replacement_target_used": False,
             "training_probe_scope": "direct requested_rewrite only",
@@ -414,7 +447,8 @@ def main(argv=None):
                 "stop_reason": report["stop_reason"],
                 "best_step": report["best_step"],
                 "forget_instances": 50,
-                "atomic_facts": len(facts),
+                "atomic_records": len(records),
+                "unique_associations": len(facts),
                 "final_training_metrics": report["final_training_metrics"],
                 "artifact": str(output / "fact_association_embeddings.pt"),
                 "official_evaluation_started": False,
