@@ -14,6 +14,14 @@ from static_overlap_fact_association_embeddings import (
     FactAssociationBank,
     _contains_subsequence,
 )
+from static_overlap_fact_association_v2_gate import (
+    RelationPrototypeAssociationBank,
+)
+from static_overlap_fact_association_v2_optimizer import candidate_improves
+from mcf_zero_unlearn_official_eval import (
+    official_perplexity,
+    runtime_aligned_perplexity,
+)
 
 
 class _IdentityLayer(nn.Module):
@@ -223,3 +231,130 @@ def test_same_subject_selects_only_best_relation_key():
     expected[0, 1] += torch.tensor([0.0, 2.0])
     assert torch.equal(out, expected)
     assert bank.last_active_fact_indices == [[1]]
+
+
+class _TinyBatch(dict):
+    def to(self, device):
+        return _TinyBatch({
+            key: value.to(device) if torch.is_tensor(value) else value
+            for key, value in self.items()
+        })
+
+
+class _TinyTokenizer:
+    pad_token_id = 0
+    eos_token_id = 0
+    pad_token = "<pad>"
+
+    def __call__(self, text, **kwargs):
+        # Deterministic sequence: forgotten subject token 3, then target token 1.
+        batch = len(text) if isinstance(text, list) else 1
+        ids = torch.tensor([[3, 1]] * batch, dtype=torch.long)
+        return _TinyBatch({
+            "input_ids": ids,
+            "attention_mask": torch.ones_like(ids),
+        })
+
+
+def test_runtime_aligned_ppl_detects_final_boundary_intervention_blind_to_legacy():
+    base = _TinyBase()
+    base.requires_grad_(False)
+    facts = [{
+        "id": "f0",
+        "subject": "subject",
+        "relation": "P0",
+        "object": "object",
+    }]
+    tok = _TinyTokenizer()
+
+    # Baseline.
+    base_legacy = official_perplexity(
+        base, tok, "toy", torch.device("cpu"), max_input_length=2
+    )
+    base_runtime = runtime_aligned_perplexity(
+        base, tok, "toy", torch.device("cpu"), max_input_length=2
+    )["ppl"]
+
+    bank = FactAssociationBank(
+        base_model=base,
+        layer=0,
+        keys=torch.tensor([[1.0, 0.0]]),
+        thresholds=torch.tensor([0.9]),
+        subject_patterns=[[(3,)]],
+        facts=facts,
+        rows=torch.tensor([[0.0, 2.0]]),
+    )
+    for row in bank.rows:
+        row.requires_grad_(False)
+    edited = AssociationCausalLM(base, bank)
+
+    # Whole-sequence legacy scoring injects only at position 1 and then scores
+    # logits at position 0, so it is structurally blind.
+    edited_legacy = official_perplexity(
+        edited, tok, "toy", torch.device("cpu"), max_input_length=2
+    )
+    # Runtime-aligned scoring supplies prefix [3], injects at position 0, and
+    # uses that logit to predict target token 1.
+    edited_runtime = runtime_aligned_perplexity(
+        edited, tok, "toy", torch.device("cpu"), max_input_length=2
+    )["ppl"]
+
+    assert edited_legacy == base_legacy
+    assert edited_runtime != base_runtime
+
+
+def test_v2_unique_subject_still_requires_relation_confirmation():
+    base = _TinyBase()
+    base.requires_grad_(False)
+    facts = [{
+        "id": "f0",
+        "subject": "subject",
+        "relation": "P0",
+        "object": "object",
+    }]
+    bank = RelationPrototypeAssociationBank(
+        base_model=base,
+        layer=0,
+        positive_prototypes=[torch.tensor([[1.0, 0.0]])],
+        negative_prototypes=[torch.tensor([[0.0, 1.0]])],
+        alpha=torch.tensor([0.8]),
+        tau=torch.tensor([0.5]),
+        subject_patterns=[[(3,)]],
+        facts=facts,
+        rows=torch.tensor([[2.0, 0.0]]),
+    )
+    for row in bank.rows:
+        row.requires_grad_(False)
+    model = AssociationCausalLM(base, bank)
+
+    # Subject is present, but final relation/context token 4 matches the
+    # negative prototype, so the unique subject must NOT activate.
+    ids = torch.tensor([[3, 4]])
+    model.set_association_prefix_lengths([2])
+    out = model(input_ids=ids).logits
+    assert bank.last_active_fact_indices == [[]]
+    assert torch.equal(out, base.embed(ids))
+
+
+def _constraint_state(max_v, max_abs, max_margin, unknown, true_nll, margin):
+    return {
+        "max_violation": torch.tensor(float(max_v)),
+        "max_absolute_violation": torch.tensor(float(max_abs)),
+        "max_margin_violation": torch.tensor(float(max_margin)),
+        "unknown_nll": torch.tensor(float(unknown)),
+        "min_true_nll": torch.tensor(float(true_nll)),
+        "min_margin": torch.tensor(float(margin)),
+    }
+
+
+def test_margin_acceptance_rejects_true_suppression_when_comparator_moves_more():
+    # Example delta: true NLL +1 but comparator NLL +2 => margin decreases by 1.
+    before = _constraint_state(
+        max_v=1.0, max_abs=0.0, max_margin=1.0,
+        unknown=3.0, true_nll=15.0, margin=-0.9,
+    )
+    after = _constraint_state(
+        max_v=2.0, max_abs=0.0, max_margin=2.0,
+        unknown=3.0, true_nll=16.0, margin=-1.9,
+    )
+    assert not candidate_improves(before, after, locked=False)
