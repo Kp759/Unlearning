@@ -575,6 +575,13 @@ class FactAssociationBank(nn.Module):
             "routing_policy": "hierarchical_subject_then_relation_if_ambiguous",
             "subject_scan_scope": "prompt_prefix_only",
             "teacher_forced_suffix_can_affect_routing": False,
+            "generation_contract": (
+                "uncached recomputation with fixed original request boundary; "
+                "cached generation intentionally unsupported"
+            ),
+            "utility_scoring_contract": (
+                "score predicted tokens from explicit observed-prefix boundaries"
+            ),
             "object_required_in_runtime_input": False,
         }
 
@@ -611,6 +618,57 @@ class AssociationCausalLM(nn.Module):
 
     def set_association_prefix_lengths(self, lengths):
         self._next_prefix_lengths = torch.as_tensor(lengths, dtype=torch.long)
+
+    @torch.no_grad()
+    def generate_uncached_fixed_boundary(
+        self,
+        input_ids,
+        attention_mask=None,
+        *,
+        max_new_tokens=32,
+        eos_token_id=None,
+    ):
+        """Greedy uncached generation under one fixed request boundary.
+
+        The association route and intervention position are defined by the
+        original request prefix.  Growing continuation tokens never move that
+        boundary or retroactively change the route. Cached generation is
+        intentionally not implemented here because it requires a separate
+        cache-preservation contract.
+        """
+        if input_ids.ndim != 2 or input_ids.shape[0] != 1:
+            raise ValueError(
+                "Fixed-boundary reference generation currently supports batch size 1"
+            )
+        if attention_mask is None:
+            attention_mask = torch.ones_like(input_ids)
+        if attention_mask.shape != input_ids.shape:
+            raise ValueError("attention_mask must match input_ids")
+        prompt_length = int(attention_mask[0].sum().item())
+        if prompt_length <= 0:
+            raise ValueError("Generation prompt is empty")
+        if not bool(attention_mask[0, :prompt_length].all()):
+            raise ValueError("Reference generation requires right-padded prompt input")
+        ids = input_ids[:, :prompt_length].clone()
+        mask = torch.ones_like(ids)
+        eos = (
+            int(eos_token_id)
+            if eos_token_id is not None
+            else getattr(self.config, "eos_token_id", None)
+        )
+        for _ in range(int(max_new_tokens)):
+            self.set_association_prefix_lengths([prompt_length])
+            logits = self.forward(
+                input_ids=ids,
+                attention_mask=mask,
+                use_cache=False,
+            ).logits
+            next_token = logits[:, -1].argmax(-1, keepdim=True)
+            ids = torch.cat([ids, next_token], dim=1)
+            mask = torch.ones_like(ids)
+            if eos is not None and int(next_token.item()) == int(eos):
+                break
+        return ids
 
     def forward(self, input_ids=None, **kwargs):
         if input_ids is None:
