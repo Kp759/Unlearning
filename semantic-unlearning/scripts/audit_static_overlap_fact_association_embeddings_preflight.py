@@ -152,51 +152,92 @@ def authored_top1_summary(model, examples, batch_size=16):
 
 
 @torch.no_grad()
-def prefix_invariance_audit(model, bank, tokenizer, facts):
-    prompt = "A neutral preface discussing arithmetic and weather."
-    suffix_a = " " + str(facts[0]["subject"])
-    suffix_b = " an ordinary continuation with no named entity."
-    a = tokenizer(
-        prompt + suffix_a,
-        return_tensors="pt",
-        return_token_type_ids=False,
-    )
-    b = tokenizer(
-        prompt + suffix_b,
-        return_tensors="pt",
-        return_token_type_ids=False,
-    )
-    ids_a = a["input_ids"][0].tolist()
-    ids_b = b["input_ids"][0].tolist()
-    common = 0
-    for left, right in zip(ids_a, ids_b):
-        if left != right:
-            break
-        common += 1
-    if common <= 1:
-        raise RuntimeError("Could not construct a stable common prompt-token prefix")
-
+def prefix_invariance_audit(model, bank, tokenizer, facts, *, exact_required):
+    """Compare identical prompt prefixes with equal-length candidate suffixes."""
     device = next(model.parameters()).device
-    ta = a.to(device)
-    tb = b.to(device)
-    model.set_association_prefix_lengths([common])
-    la = model(**ta, use_cache=False).logits[:, common - 1].float().cpu()
+    prompt_ids = tokenizer(
+        "A neutral preface discussing arithmetic and weather.",
+        add_special_tokens=True,
+        return_token_type_ids=False,
+    )["input_ids"]
+    subject_suffix = list(bank.subject_patterns[0][0])
+    if not subject_suffix:
+        raise RuntimeError("Forgotten subject pattern is empty")
+
+    # Construct an equal-token-count neutral candidate suffix that cannot match
+    # any registered subject pattern. Equal total shape removes BF16
+    # sequence-length/GEMM-shape differences from this invariance audit.
+    all_subject_tokens = {
+        int(token)
+        for patterns in bank.subject_patterns
+        for pattern in patterns
+        for token in pattern
+    }
+    candidates = tokenizer(
+        " ordinary neutral continuation weather arithmetic documentation",
+        add_special_tokens=False,
+        return_token_type_ids=False,
+    )["input_ids"]
+    neutral_token = next(
+        (
+            int(token)
+            for token in candidates
+            if int(token) not in all_subject_tokens
+        ),
+        None,
+    )
+    if neutral_token is None:
+        raise RuntimeError("Could not construct neutral equal-length suffix")
+    neutral_suffix = [neutral_token] * len(subject_suffix)
+
+    prefix_length = len(prompt_ids)
+    ids_a = torch.tensor(
+        [prompt_ids + subject_suffix],
+        dtype=torch.long,
+        device=device,
+    )
+    ids_b = torch.tensor(
+        [prompt_ids + neutral_suffix],
+        dtype=torch.long,
+        device=device,
+    )
+    attention_a = torch.ones_like(ids_a)
+    attention_b = torch.ones_like(ids_b)
+
+    model.set_association_prefix_lengths([prefix_length])
+    la = model(
+        input_ids=ids_a,
+        attention_mask=attention_a,
+        use_cache=False,
+    ).logits[:, prefix_length - 1].float().cpu()
     route_a = list(bank.last_active_fact_indices)
-    model.set_association_prefix_lengths([common])
-    lb = model(**tb, use_cache=False).logits[:, common - 1].float().cpu()
+
+    model.set_association_prefix_lengths([prefix_length])
+    lb = model(
+        input_ids=ids_b,
+        attention_mask=attention_b,
+        use_cache=False,
+    ).logits[:, prefix_length - 1].float().cpu()
     route_b = list(bank.last_active_fact_indices)
+
+    max_abs = float((la - lb).abs().max())
     exact = torch.equal(la, lb)
+    tolerance = 0.0 if exact_required else 1e-3
+    passed = route_a == route_b and max_abs <= tolerance
     return {
-        "common_prompt_token_count": common,
+        "common_prompt_token_count": prefix_length,
+        "candidate_suffix_token_count": len(subject_suffix),
+        "equal_total_sequence_length": ids_a.shape == ids_b.shape,
         "suffix_a_contains_forgotten_subject": str(facts[0]["subject"]),
         "route_a": route_a,
         "route_b": route_b,
         "route_equal": route_a == route_b,
         "first_answer_logits_bit_exact": exact,
-        "max_abs_first_answer_logit_difference": float((la - lb).abs().max()),
-        "passed": route_a == route_b and exact,
+        "max_abs_first_answer_logit_difference": max_abs,
+        "tolerance": tolerance,
+        "exact_required": bool(exact_required),
+        "passed": passed,
     }
-
 
 
 def compare_prompt_group(
@@ -407,7 +448,11 @@ def main(argv=None):
     object_only["prompt_source"] = "synthetic training-safe object-only mentions"
 
     prefix_invariance = prefix_invariance_audit(
-        edited, bank, tokenizer, facts
+        edited,
+        bank,
+        tokenizer,
+        facts,
+        exact_required=str(args.dtype).lower() in {"float32", "fp32"},
     )
 
     answer_map = {example.id: example for example in examples}
