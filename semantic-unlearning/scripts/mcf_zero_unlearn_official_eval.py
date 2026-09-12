@@ -564,6 +564,101 @@ def official_perplexity(model, tok, text, device, max_input_length=100):
     ).item()
 
 
+
+@torch.no_grad()
+def runtime_aligned_perplexity(
+    model,
+    tok,
+    text,
+    device,
+    max_input_length=100,
+    batch_size=16,
+):
+    """Score next tokens under the deployed one-position intervention contract.
+
+    For target token t, the model receives exactly tokens [:t] as the observed
+    context and, when supported, receives an explicit association boundary t.
+    The learned vector is therefore injected at the context position whose
+    logits predict token t. This avoids the legacy whole-sequence blind spot
+    where a final-position-only intervention is excluded by logits[:, :-1].
+
+    The normalization is the actual number of scored next-token targets, T-1.
+    """
+    encoded = tok(
+        text,
+        return_tensors="pt",
+        max_length=max_input_length,
+        truncation=True,
+        return_token_type_ids=False,
+    )
+    tokens = encoded["input_ids"][0]
+    if int(tokens.numel()) < 2:
+        raise ValueError("Runtime-aligned PPL requires at least two tokens")
+    pad_id = tok.pad_token_id
+    if pad_id is None:
+        pad_id = tok.eos_token_id
+    if pad_id is None:
+        raise ValueError("Tokenizer needs pad/eos token for runtime-aligned PPL")
+
+    total_nll = 0.0
+    scored = 0
+    targets = list(range(1, int(tokens.numel())))
+    for start in range(0, len(targets), int(batch_size)):
+        positions = targets[start:start + int(batch_size)]
+        lengths = positions
+        width = max(lengths)
+        ids = torch.full(
+            (len(positions), width),
+            int(pad_id),
+            dtype=torch.long,
+            device=device,
+        )
+        attention = torch.zeros_like(ids)
+        target_ids = torch.empty(
+            (len(positions),),
+            dtype=torch.long,
+            device=device,
+        )
+        for row, target_position in enumerate(positions):
+            prefix = tokens[:target_position].to(device)
+            ids[row, :target_position] = prefix
+            attention[row, :target_position] = 1
+            target_ids[row] = tokens[target_position].to(device)
+
+        if hasattr(model, "set_association_prefix_lengths"):
+            model.set_association_prefix_lengths(lengths)
+        logits = model(
+            input_ids=ids,
+            attention_mask=attention,
+            use_cache=False,
+        ).logits.float()
+        row_index = torch.arange(len(positions), device=device)
+        last_index = torch.tensor(
+            [length - 1 for length in lengths],
+            dtype=torch.long,
+            device=device,
+        )
+        next_logits = logits[row_index, last_index]
+        losses = -next_logits.log_softmax(-1).gather(
+            -1, target_ids[:, None]
+        ).squeeze(-1)
+        if not bool(torch.isfinite(losses).all()):
+            raise ValueError("Non-finite runtime-aligned PPL loss")
+        total_nll += float(losses.double().sum().item())
+        scored += len(positions)
+
+    return {
+        "ppl": math.exp(total_nll / scored),
+        "total_nll": total_nll,
+        "scored_tokens": scored,
+        "normalization": "T-1 scored next-token targets",
+        "execution": (
+            "prefix recomputation with explicit request boundary at each "
+            "predicted token"
+        ),
+    }
+
+
 def load_official_ppl_text(wikidata_dir):
     wikidata_dir = Path(wikidata_dir)
     if not wikidata_dir.exists():
@@ -761,13 +856,27 @@ def evaluate_loaded_model_official(
     forget_summary, forget_raw = evaluate_record_split(model, tok, forget_records, device, llama_like, "forget")
     retain_summary, retain_raw = evaluate_record_split(model, tok, retain_records, device, llama_like, "retain")
 
-    ppl = None
+    legacy_ppl = None
+    runtime_ppl = None
+    runtime_ppl_details = None
     if not skip_ppl:
         ppl_text = load_official_ppl_text(wikidata_dir)
         if ppl_text is None:
             print(f"[warning] wikidata dir {wikidata_dir} not found. PPL set to null.")
         else:
-            ppl = official_perplexity(model, tok, ppl_text, device, max_input_length=100)
+            # Preserve the historical output for reproducibility, but do not
+            # treat it as deployment utility for boundary-scoped interventions.
+            legacy_ppl = official_perplexity(
+                model, tok, ppl_text, device, max_input_length=100
+            )
+            runtime_ppl_details = runtime_aligned_perplexity(
+                model,
+                tok,
+                ppl_text,
+                device,
+                max_input_length=100,
+            )
+            runtime_ppl = runtime_ppl_details["ppl"]
 
     result = {
         "method": method,
@@ -780,8 +889,17 @@ def evaluate_loaded_model_official(
         "llama_like": llama_like,
         "forget": forget_summary,
         "retain": retain_summary,
-        "forget_PPL": ppl,
-        "retain_PPL": ppl,
+        # Corrected primary utility metric on this branch.
+        "forget_PPL": runtime_ppl,
+        "retain_PPL": runtime_ppl,
+        "PPL_metric_version": "runtime_aligned_prefix_recompute_v1",
+        "runtime_aligned_PPL_details": runtime_ppl_details,
+        # Historical whole-sequence scorer retained only for reproducibility.
+        "legacy_forget_PPL": legacy_ppl,
+        "legacy_retain_PPL": legacy_ppl,
+        "legacy_PPL_metric_version": (
+            "whole_sequence_final_position_intervention_blind_v1"
+        ),
         "forget_raw": forget_raw,
         "retain_raw": retain_raw,
     }
