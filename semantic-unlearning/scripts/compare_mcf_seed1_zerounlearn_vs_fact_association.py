@@ -15,14 +15,19 @@ from __future__ import annotations
 
 import argparse
 import csv
+from contextlib import contextmanager
 from copy import deepcopy
 import gc
 import hashlib
 import json
+import os
 from pathlib import Path
+import random
 import sys
 import time
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
+
+import numpy as np
 
 import torch
 
@@ -251,13 +256,43 @@ def free_model(model) -> None:
         torch.cuda.empty_cache()
 
 
+@contextmanager
+def working_directory(path: Path) -> Iterable[None]:
+    previous = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
+
+
 def import_zero_unlearn(zero_root: Path):
+    """Import vendored ZeroUnlearn under the cwd contract its globals require."""
     root = str(zero_root.resolve())
     if root not in sys.path:
         sys.path.insert(0, root)
-    from ZeroUnlearn import ZeroUnlearnHyperParams, apply_unl_to_model
-
+    try:
+        with working_directory(zero_root):
+            from ZeroUnlearn import ZeroUnlearnHyperParams, apply_unl_to_model
+    except Exception as exc:
+        raise RuntimeError(
+            "Failed to import vendored ZeroUnlearn from its repository root. "
+            "Its util/globals.py reads globals.yml relative to cwd."
+        ) from exc
+    module_name = getattr(apply_unl_to_model, "__module__", "")
+    if module_name != "ZeroUnlearn.ZeroUnlearn_main":
+        raise RuntimeError(
+            "Resolved the wrong ZeroUnlearn implementation: "
+            f"{module_name!r}"
+        )
     return ZeroUnlearnHyperParams, apply_unl_to_model
+
+
+def set_all_seeds(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 
 def validate_common_protocol(
@@ -475,6 +510,8 @@ def main(argv=None):
         "final_evaluation_dtype": FINAL_EVAL_DTYPE,
         "zero_unlearn_edit_dtype": "float32",
         "zero_unlearn_edit_layer_nums": ZERO_EDIT_LAYER_NUMS,
+        "zero_unlearn_rng_seed": SEED,
+        "zero_unlearn_working_directory": str(zero_root),
         "zero_unlearn_common_sensitive_target": (
             "original MCF requested_rewrite.target_true"
         ),
@@ -521,21 +558,26 @@ def main(argv=None):
     )
     zero_retain = records_to_zero_requests(retain_records)
 
+    set_all_seeds(SEED)
     started = time.monotonic()
-    zero_model, _ = apply_unl_to_model(
-        model=zero_model,
-        tok=tokenizer,
-        retain_requests=zero_retain,
-        unlearn_requests=zero_forget,
-        hparams=hparams,
-        copy=False,
-        return_orig_weights=False,
-        cache_template=None,
-        save_path=None,
-        add_retain=False,
-        edit_layer_nums=ZERO_EDIT_LAYER_NUMS,
-        use_h=False,
-    )
+    # ZeroUnlearn's globals.yml defines relative DATA_DIR/STATS_DIR paths.
+    # Keep the entire edit inside its repository root, matching the reviewed
+    # official runner, then return here for the shared evaluator.
+    with working_directory(zero_root):
+        zero_model, _ = apply_unl_to_model(
+            model=zero_model,
+            tok=tokenizer,
+            retain_requests=zero_retain,
+            unlearn_requests=zero_forget,
+            hparams=hparams,
+            copy=False,
+            return_orig_weights=False,
+            cache_template=None,
+            save_path=None,
+            add_retain=False,
+            edit_layer_nums=ZERO_EDIT_LAYER_NUMS,
+            use_h=False,
+        )
     zero_edit_seconds = time.monotonic() - started
     zero_model = zero_model.to(dtype=torch.bfloat16).eval()
     zero_result = evaluate_one(
