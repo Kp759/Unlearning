@@ -207,12 +207,17 @@ def _metric_rows(model, routed, batch_size):
         losses = batched_answer_nll(model, [example for _, example in batch])
         for (original_id, example), loss in zip(batch, losses):
             nll = float(loss.detach())
+            geometric_mean = math.exp(-nll)
             rows.append({
                 "id": original_id,
                 "fact_id": example.fact_id,
                 "split": example.split,
                 "nll": nll,
-                "token_probability": math.exp(-nll),
+                # Historical compatibility name. This is exp(-mean token NLL),
+                # i.e. the geometric mean of teacher-forced answer-token
+                # probabilities, NOT the maximum constituent-token probability.
+                "token_probability": geometric_mean,
+                "geometric_mean_answer_probability": geometric_mean,
             })
     return rows
 
@@ -243,8 +248,16 @@ def routed_metrics(model, routed_answer, routed_unknown, target_probability,
         )
         result[split] = {
             "count": len(answers),
+            "metric_definition": (
+                "token_probability = exp(-mean teacher-forced answer-token NLL), "
+                "the geometric mean answer-token probability"
+            ),
             "mean_token_probability": sum(probabilities) / len(probabilities),
             "max_token_probability": max(probabilities),
+            "mean_geometric_mean_answer_probability": (
+                sum(probabilities) / len(probabilities)
+            ),
+            "max_geometric_mean_answer_probability": max(probabilities),
             "worst_views": worst,
             "target_probability": float(target_probability),
             "target_met": max(probabilities) < float(target_probability),
