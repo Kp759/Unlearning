@@ -3,7 +3,7 @@
 
 A: subject-first gate + absolute suppression
 B: subject-first gate + absolute + actual comparator-margin constraints
-C: relation-prototype gate + absolute suppression
+C: relation-prototype gate + absolute suppression  [PRIMARY V2]
 D: relation-prototype gate + absolute + actual comparator-margin constraints
 
 Seed 1 is development-only because its official failures have already been
@@ -330,6 +330,15 @@ def main(argv=None):
         "method": "static_overlap_fact_association_embeddings_v2_four_arm",
         "arm": args.arm,
         "arm_definition": arm,
+        "primary_metric_version": "zerounlearn_answer_probability_v2",
+        "primary_v2_design": args.arm == "C",
+        "arm_role": (
+            "primary_v2"
+            if args.arm == "C"
+            else "corrected_v1_control"
+            if args.arm == "A"
+            else "comparator_aware_ablation"
+        ),
         "architecture": (
             "50 independent hidden-state fact vectors; frozen Llama; "
             "layer 19; one original-request-boundary intervention"
@@ -350,6 +359,10 @@ def main(argv=None):
             arm["objective"] == "absolute_margin"
         ),
         "target_new_used_for_diagnostics": True,
+        "primary_eff_gen_depend_on_target_new": False,
+        "primary_eff_gen_definition": (
+            "complete target_true answer probability exp(-sum answer-token NLL)"
+        ),
         "comparator_role": (
             "moving edited-model comparator; detached only in proposal gradient "
             "for B/D; freshly recomputed for candidate acceptance"
