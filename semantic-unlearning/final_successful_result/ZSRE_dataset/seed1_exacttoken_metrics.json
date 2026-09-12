@@ -1,0 +1,144 @@
+{
+  "kind": "final_successful_zsre_seed1_exacttoken_fact_association_v1",
+  "dataset": "ZsRE",
+  "model": "meta-llama/Llama-3.2-3B-Instruct",
+  "seed": 1,
+  "forget_num": 50,
+  "retain_num": 1000,
+  "run_dir": "outputs/zsre_fact_assoc_seed1_exacttoken",
+  "official_result": "outputs/zsre_fact_assoc_seed1_exacttoken/official_zsre_eval.json",
+  "forget": {
+    "Eff": 0,
+    "Gen": 0,
+    "Spe": 32.323179
+  },
+  "retain": {
+    "Eff": 31.996101,
+    "Gen": 31.017218,
+    "Spe": 28.271409
+  },
+  "forget_routes": {
+    "rewrite": {
+      "token_decisions": 125,
+      "route_active_fraction": 1,
+      "active_token_decisions": 125
+    },
+    "paraphrase": {
+      "token_decisions": 125,
+      "route_active_fraction": 1,
+      "active_token_decisions": 125
+    },
+    "neighborhood": {
+      "token_decisions": 263,
+      "route_active_fraction": 0,
+      "active_token_decisions": 0
+    }
+  },
+  "retain_routes": {
+    "rewrite": {
+      "token_decisions": 2996,
+      "route_active_fraction": 0,
+      "active_token_decisions": 0
+    },
+    "paraphrase": {
+      "token_decisions": 2996,
+      "route_active_fraction": 0,
+      "active_token_decisions": 0
+    },
+    "neighborhood": {
+      "token_decisions": 6278,
+      "route_active_fraction": 0,
+      "active_token_decisions": 0
+    }
+  },
+  "runtime_aligned_PPL": 11.312981177513604,
+  "runtime_aligned_PPL_route_activity": {
+    "hook_calls": 7,
+    "active_batch_rows": 0,
+    "active_token_positions": 0,
+    "active_fact_counts": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "legacy_PPL": 11.0625,
+  "metric_contract": {
+    "Eff": "100 * case-macro original sensitive target_true token top-1 accuracy on direct rewrite requests; lower is better",
+    "Gen": "100 * case-macro original sensitive target_true token top-1 accuracy on held-out rephrases; lower is better",
+    "Spe": "100 * case-macro locality/neighborhood target token top-1 accuracy; higher is better"
+  },
+  "architecture": {
+    "trainable_state": "50 independent fact-specific hidden-state residual vectors",
+    "backbone": "frozen",
+    "input_embeddings": "frozen",
+    "lm_head": "frozen",
+    "tokenizer_extended": false,
+    "fact_id_injection_used": false,
+    "intervention_layer": 19,
+    "intervention_position": "final token of the ORIGINAL request boundary",
+    "routing": "exact subject eligibility; unique subject activates owner; duplicate subject resolved by frozen contextual key",
+    "training_visible": "50 direct rewrite requests + subject + original sensitive target_true only",
+    "hidden_from_training": [
+      "official rephrases",
+      "official locality/neighborhood probes",
+      "1000 retain records",
+      "target_new/Unknown replacement supervision"
+    ],
+    "exact_token_training_alignment": "direct training expands each sensitive answer into the same per-token teacher-forced contexts used by the official ZsRE evaluator while keeping the residual edit pinned to the original request boundary"
+  },
+  "interpretation": {
+    "Eff_zero": "zero original sensitive-answer token top-1 accuracy on canonical forget requests; not zero probability",
+    "Gen_zero": "zero original sensitive-answer token top-1 accuracy on official held-out rephrases; not zero probability",
+    "Spe": "locality/neighborhood accuracy; unchanged routing path because neighborhood route activity was zero",
+    "ppl": "runtime-aligned PPL equals base on this raw Wikidata fixture because no association route activated; this proves exact no-route base behavior, not zero utility cost when an intervention fires"
+  },
+  "protocol_status": "development seed: seed 1 official result was inspected before the exact-token training alignment fix; use untouched precommitted seeds for publication-grade final multi-seed claims"
+}
