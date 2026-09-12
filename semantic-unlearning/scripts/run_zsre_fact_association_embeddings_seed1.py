@@ -13,7 +13,7 @@ from zsre_fact_association_embeddings import (
     METHOD,
     PLAN,
     build_editor,
-    encode_direct_examples,
+    build_exact_direct_token_cases,
     facts_from_locked_records,
     load_locked_visible_forget,
     train_direct_only,
@@ -137,16 +137,17 @@ def main(argv=None):
         "max_training_seconds": float(args.max_training_seconds),
     })
 
-    examples = encode_direct_examples(
-        facts,
-        tokenizer,
-        int(plan["max_length"]),
-    )
     editor, bank, key_diagnostics = build_editor(
         base_model,
         tokenizer,
         facts,
         plan,
+    )
+    token_cases, llama_like = build_exact_direct_token_cases(
+        records,
+        facts,
+        tokenizer,
+        editor.model,
     )
     route_audit = audit_direct_routes(
         editor.model,
@@ -195,6 +196,7 @@ def main(argv=None):
             "50 direct requested_rewrite prompts",
             "subjects",
             "original sensitive target_true answers",
+            "exact per-token teacher-forced rewrite contexts reconstructed from direct requests",
         ],
         "evaluation_only": [
             "official rephrases",
@@ -203,8 +205,9 @@ def main(argv=None):
             "Wikidata PPL text",
         ],
         "objective": (
-            "absolute suppression of every direct sensitive answer token; "
-            "maximum sensitive-token probability < 1e-6"
+            "absolute suppression of every direct sensitive answer token in the "
+            "exact official rewrite-token contexts; maximum sensitive-token "
+            "probability < 1e-6"
         ),
         "objective_metric_alignment": (
             "ZsRE Eff/Gen are greedy sensitive-token accuracies; a target-token "
@@ -224,8 +227,8 @@ def main(argv=None):
     (output / "association_manifest.json").write_text(
         json.dumps(manifest, indent=2, allow_nan=False) + "\n"
     )
-    (output / "training_examples.json").write_text(
-        json.dumps([asdict(example) for example in examples], indent=2) + "\n"
+    (output / "training_token_cases.json").write_text(
+        json.dumps([asdict(case) for case in token_cases], indent=2) + "\n"
     )
     (output / "route_preflight.json").write_text(
         json.dumps(route_audit, indent=2, allow_nan=False) + "\n"
@@ -242,10 +245,12 @@ def main(argv=None):
 
     report = train_direct_only(
         editor,
-        examples,
+        tokenizer,
+        token_cases,
         fact_to_row,
         plan,
         output,
+        llama_like=llama_like,
     )
     artifact = editor.artifact()
     artifact.update({
