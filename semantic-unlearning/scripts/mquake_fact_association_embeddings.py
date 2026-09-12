@@ -165,7 +165,7 @@ def build_exact_direct_token_cases(records, facts, tokenizer, model):
                 evaluated_prompt = boundary + decoded_prefix
             cases.append(
                 DirectTokenTrainingCase(
-                    id=f"{fact[\'id\']}:rewrite_token_{token_index}",
+                    id=f"{fact['id']}:rewrite_token_{token_index}",
                     fact_id=fact["id"],
                     case_id=case_id,
                     token_index=token_index,
@@ -175,6 +175,8 @@ def build_exact_direct_token_cases(records, facts, tokenizer, model):
                 )
             )
     return cases, llama_like
+
+
 def strict_prefix_lengths(tokenizer, cases):
     lengths = []
     for case in cases:
