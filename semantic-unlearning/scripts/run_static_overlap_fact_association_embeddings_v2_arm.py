@@ -156,6 +156,11 @@ def main(argv=None):
     parser.add_argument("--prototype-u-slack", type=float, default=0.01)
     parser.add_argument("--prototype-d-slack", type=float, default=0.01)
     parser.add_argument("--prototype-ambiguity-margin", type=float, default=0.02)
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Build/audit the gate and constraints, then stop before optimization.",
+    )
     args = parser.parse_args(argv)
 
     if args.forget_num != 50 or args.seed != 1:
@@ -407,6 +412,31 @@ def main(argv=None):
         wrong_relation_route=wrong_relation_route_audit,
         baseline_constraints=baseline_constraints,
     )
+
+    if args.preflight_only:
+        (output / "preflight_complete.json").write_text(
+            json.dumps(
+                {
+                    "arm": args.arm,
+                    "gate": arm["gate"],
+                    "objective": arm["objective"],
+                    "route_audit": route_audit,
+                    "wrong_relation_route_audit": wrong_relation_route_audit,
+                    "gate_diagnostics": gate_diagnostics,
+                    "baseline_constraints": baseline_constraints,
+                    "optimization_started": False,
+                },
+                indent=2,
+                allow_nan=False,
+            ) + "\n"
+        )
+        emit(
+            status="fact_association_v2_preflight_complete",
+            arm=args.arm,
+            optimization_started=False,
+            output=str(output / "preflight_complete.json"),
+        )
+        return 0
 
     if arm["objective"] == "absolute":
         report = train_row_wise(
