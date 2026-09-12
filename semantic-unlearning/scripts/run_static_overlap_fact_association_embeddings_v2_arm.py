@@ -155,6 +155,7 @@ def main(argv=None):
     parser.add_argument("--margin-weight", type=float, default=1.0)
     parser.add_argument("--prototype-u-slack", type=float, default=0.01)
     parser.add_argument("--prototype-d-slack", type=float, default=0.01)
+    parser.add_argument("--prototype-ambiguity-margin", type=float, default=0.02)
     args = parser.parse_args(argv)
 
     if args.forget_num != 50 or args.seed != 1:
@@ -256,6 +257,7 @@ def main(argv=None):
             thresholds=thresholds,
             subject_patterns=subject_patterns,
             facts=facts,
+            ambiguity_margin=args.prototype_ambiguity_margin,
         )
     else:
         (
