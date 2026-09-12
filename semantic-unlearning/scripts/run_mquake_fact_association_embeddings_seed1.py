@@ -25,6 +25,16 @@ def audit_direct_routes(model, bank, tokenizer, facts, batch_size=16):
     prompts = [fact["canonical_prompt"] for fact in facts]
     device = next(model.parameters()).device
     rows = []
+
+    def contains_subsequence(tokens, pattern):
+        width = len(pattern)
+        if width == 0 or width > len(tokens):
+            return False
+        return any(
+            tuple(tokens[i : i + width]) == tuple(pattern)
+            for i in range(len(tokens) - width + 1)
+        )
+
     for start in range(0, len(facts), int(batch_size)):
         batch_facts = facts[start : start + int(batch_size)]
         batch_prompts = prompts[start : start + int(batch_size)]
@@ -36,19 +46,71 @@ def audit_direct_routes(model, bank, tokenizer, facts, batch_size=16):
         ).to(device)
         model(**encoded, use_cache=False)
         routes = list(bank.last_active_fact_indices)
-        for offset, (fact, route) in enumerate(zip(batch_facts, routes)):
+
+        input_rows = encoded["input_ids"].detach().cpu().tolist()
+        mask_rows = encoded["attention_mask"].detach().cpu().bool().tolist()
+
+        for offset, (fact, route, token_row, mask_row) in enumerate(
+            zip(batch_facts, routes, input_rows, mask_rows)
+        ):
             expected = start + offset
+            prompt_tokens = [
+                token for token, keep in zip(token_row, mask_row) if keep
+            ]
+            candidate_rows = [
+                index
+                for index, patterns in enumerate(bank.subject_patterns)
+                if any(
+                    contains_subsequence(prompt_tokens, pattern)
+                    for pattern in patterns
+                )
+            ]
+            candidate_facts = [
+                {
+                    "row": int(index),
+                    "fact_id": facts[index]["id"],
+                    "case_id": int(facts[index]["case_id"]),
+                    "subject": facts[index]["subject"],
+                    "relation": facts[index]["relation"],
+                    "canonical_prompt": facts[index]["canonical_prompt"],
+                }
+                for index in candidate_rows
+            ]
             rows.append(
                 {
                     "fact_id": fact["id"],
                     "case_id": fact["case_id"],
                     "subject": fact["subject"],
+                    "relation": fact["relation"],
+                    "canonical_prompt": fact["canonical_prompt"],
                     "expected_row": expected,
                     "active_rows": route,
+                    "candidate_rows_from_subject_scan": candidate_rows,
+                    "candidate_facts_from_subject_scan": candidate_facts,
+                    "subject_candidate_count": len(candidate_rows),
                     "correct_row_active": expected in route,
                     "wrong_row_active": any(index != expected for index in route),
                 }
             )
+
+    normalized_subject_groups = {}
+    canonical_prompt_groups = {}
+    for index, fact in enumerate(facts):
+        subject_key = " ".join(str(fact["subject"]).casefold().split())
+        normalized_subject_groups.setdefault(subject_key, []).append(index)
+        canonical_prompt_groups.setdefault(fact["canonical_prompt"], []).append(index)
+
+    duplicate_subject_groups = {
+        subject: indices
+        for subject, indices in normalized_subject_groups.items()
+        if len(indices) > 1
+    }
+    duplicate_prompt_groups = {
+        prompt: indices
+        for prompt, indices in canonical_prompt_groups.items()
+        if len(indices) > 1
+    }
+    failures = [row for row in rows if not row["correct_row_active"]]
     return {
         "count": len(rows),
         "correct_row_active_fraction": (
@@ -60,9 +122,12 @@ def audit_direct_routes(model, bank, tokenizer, facts, batch_size=16):
         "wrong_row_active_fraction": (
             sum(row["wrong_row_active"] for row in rows) / len(rows)
         ),
-        "failures": [
-            row for row in rows if not row["correct_row_active"]
-        ],
+        "rows_with_multiple_subject_candidates": sum(
+            row["subject_candidate_count"] > 1 for row in rows
+        ),
+        "duplicate_normalized_subject_groups": duplicate_subject_groups,
+        "duplicate_canonical_prompt_groups": duplicate_prompt_groups,
+        "failures": failures,
     }
 
 
@@ -172,9 +237,45 @@ def main(argv=None):
         tokenizer,
         facts,
     )
+    route_preflight_path = output / "route_preflight.json"
+    route_preflight_path.write_text(
+        json.dumps(route_audit, indent=2, allow_nan=False) + "\n"
+    )
+    print(
+        json.dumps(
+            {
+                "route_preflight": str(route_preflight_path),
+                "count": route_audit["count"],
+                "correct_row_active_fraction": route_audit[
+                    "correct_row_active_fraction"
+                ],
+                "any_row_active_fraction": route_audit[
+                    "any_row_active_fraction"
+                ],
+                "wrong_row_active_fraction": route_audit[
+                    "wrong_row_active_fraction"
+                ],
+                "rows_with_multiple_subject_candidates": route_audit[
+                    "rows_with_multiple_subject_candidates"
+                ],
+                "duplicate_normalized_subject_group_count": len(
+                    route_audit["duplicate_normalized_subject_groups"]
+                ),
+                "duplicate_canonical_prompt_group_count": len(
+                    route_audit["duplicate_canonical_prompt_groups"]
+                ),
+                "failure_count": len(route_audit["failures"]),
+                "first_failures": route_audit["failures"][:10],
+            },
+            indent=2,
+            allow_nan=False,
+        ),
+        flush=True,
+    )
     if route_audit["correct_row_active_fraction"] != 1.0:
         raise RuntimeError(
-            "Locked MQuAKE direct prompts do not route perfectly; refusing training"
+            "Locked MQuAKE direct prompts do not route perfectly; refusing "
+            f"training. Inspect {route_preflight_path}"
         )
 
     fact_to_row = {fact["id"]: index for index, fact in enumerate(facts)}
@@ -255,9 +356,6 @@ def main(argv=None):
     )
     (output / "training_token_cases.json").write_text(
         json.dumps([asdict(case) for case in token_cases], indent=2) + "\n"
-    )
-    (output / "route_preflight.json").write_text(
-        json.dumps(route_audit, indent=2, allow_nan=False) + "\n"
     )
 
     if args.preflight_only:
