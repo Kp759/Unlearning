@@ -78,9 +78,32 @@ def main(argv=None):
     edited_legacy = official_perplexity(
         edited, tok, text, device, max_input_length=100
     )
+    counters_after_legacy = bank.counters()
     edited_runtime = runtime_aligned_perplexity(
         edited, tok, text, device, max_input_length=100
     )
+    counters_after_runtime = bank.counters()
+    runtime_route_delta = {
+        "hook_calls": (
+            counters_after_runtime["hook_calls"]
+            - counters_after_legacy["hook_calls"]
+        ),
+        "active_batch_rows": (
+            counters_after_runtime["active_batch_rows"]
+            - counters_after_legacy["active_batch_rows"]
+        ),
+        "active_token_positions": (
+            counters_after_runtime["active_token_positions"]
+            - counters_after_legacy["active_token_positions"]
+        ),
+        "active_fact_counts": [
+            after - before
+            for after, before in zip(
+                counters_after_runtime["active_fact_counts"],
+                counters_after_legacy["active_fact_counts"],
+            )
+        ],
+    }
     result = {
         "kind": "fact_association_runtime_aligned_ppl_audit_v1",
         "run_dir": str(run_dir),
@@ -99,8 +122,14 @@ def main(argv=None):
             "edited": edited_runtime,
             "delta_ppl": edited_runtime["ppl"] - base_runtime["ppl"],
             "ratio": edited_runtime["ppl"] / base_runtime["ppl"],
+            "route_activity_during_runtime_aligned_scoring": runtime_route_delta,
+            "utility_interpretation": (
+                "stressful_for_the_intervention"
+                if runtime_route_delta["active_batch_rows"] > 0
+                else "no_association_route_fired_on_this_raw_text"
+            ),
         },
-        "runtime_counters": bank.counters(),
+        "runtime_counters_total": bank.counters(),
         "official_mcf_prompt_fields_read": False,
     }
     out = (
