@@ -431,16 +431,42 @@ class FactAssociationBank(nn.Module):
         self._attention_mask = None
         self._prefix_lengths = None
 
-    def _subject_mask(self, input_ids):
+    def _subject_mask(self, input_ids, prefix_lengths, attention_mask=None):
+        """Match complete subject token sequences strictly inside each prompt prefix.
+
+        Teacher-forced answer suffixes are deliberately excluded.  This makes
+        routing a function of the observed prompt only, independent of which
+        candidate continuation is appended for scoring.
+        """
         rows = input_ids.detach().cpu().tolist()
+        prefixes = prefix_lengths.detach().cpu().tolist()
+        attention = (
+            attention_mask.detach().cpu().bool().tolist()
+            if attention_mask is not None
+            else None
+        )
         mask = torch.zeros(
             (len(rows), len(self.facts)),
             dtype=torch.bool,
             device=input_ids.device,
         )
-        for batch_index, tokens in enumerate(rows):
+        for batch_index, (tokens, boundary) in enumerate(zip(rows, prefixes)):
+            boundary = int(boundary)
+            if boundary <= 0 or boundary > len(tokens):
+                raise ValueError("Subject routing prefix boundary is invalid")
+            if attention is None:
+                prompt_tokens = tokens[:boundary]
+            else:
+                prompt_tokens = [
+                    token
+                    for position, token in enumerate(tokens)
+                    if position < boundary and attention[batch_index][position]
+                ]
             for fact_index, patterns in enumerate(self.subject_patterns):
-                if any(_contains_subsequence(tokens, pattern) for pattern in patterns):
+                if any(
+                    _contains_subsequence(prompt_tokens, pattern)
+                    for pattern in patterns
+                ):
                     mask[batch_index, fact_index] = True
         return mask
 
@@ -449,8 +475,6 @@ class FactAssociationBank(nn.Module):
             raise RuntimeError("Association bank hook fired without bound input_ids")
         hidden = output[0] if isinstance(output, tuple) else output
         batch, width, _ = hidden.shape
-        subject_mask = self._subject_mask(self._input_ids)
-        subject_candidate_counts = subject_mask.sum(dim=-1)
 
         if self._prefix_lengths is not None:
             prefix_lengths = self._prefix_lengths.to(hidden.device, dtype=torch.long)
@@ -472,6 +496,13 @@ class FactAssociationBank(nn.Module):
             raise ValueError("Association prefix lengths must have one value per sequence")
         if bool(((prefix_lengths <= 0) | (prefix_lengths > width)).any()):
             raise ValueError("Association prefix boundary is outside the input sequence")
+
+        subject_mask = self._subject_mask(
+            self._input_ids,
+            prefix_lengths,
+            attention_mask=self._attention_mask,
+        )
+        subject_candidate_counts = subject_mask.sum(dim=-1)
 
         prompt_positions = prefix_lengths - 1
         query = hidden[
@@ -542,6 +573,8 @@ class FactAssociationBank(nn.Module):
                 "key only when a subject maps to multiple forgotten associations"
             ),
             "routing_policy": "hierarchical_subject_then_relation_if_ambiguous",
+            "subject_scan_scope": "prompt_prefix_only",
+            "teacher_forced_suffix_can_affect_routing": False,
             "object_required_in_runtime_input": False,
         }
 
