@@ -53,9 +53,9 @@ The architecture is the same fact-specific residual-bank mechanism developed for
 
 For 50 forget facts:
 
-[
-Delta e_1,Delta e_2,ldots,Delta e_{50}
-]
+```text
+Delta e_1, Delta e_2, ..., Delta e_50
+```
 
 are the only learned fact-specific intervention vectors.
 
@@ -109,9 +109,9 @@ All positions other than the configured request-boundary position remain unchang
 
 When no association route activates:
 
-[
+```text
 h' = h
-]
+```
 
 so the execution path is exactly the frozen base model.
 
@@ -140,13 +140,11 @@ For every sensitive answer token (y_t), the deployed contract is:
 
 and:
 
-[
-h'_{19,T_x-1}
-=
-h_{19,T_x-1}+Delta e_i
-]
+```text
+h'_(19,T_x-1) = h_(19,T_x-1) + Delta e_i
+```
 
-where (T_x) is the length of the **original request**, not the growing teacher-forced context.
+where `T_x` is the length of the **original request**, not the growing teacher-forced context.
 
 The evaluator verifies that the original request is an exact token prefix of every teacher-forced evaluation context.
 
@@ -430,11 +428,9 @@ Thus every evaluated retain request followed the no-route frozen-base path.
 
 This gives a structural locality statement:
 
-[
-g(x)=0
-Rightarrow
-h'=h.
-]
+```text
+g(x) = 0  =>  h' = h
+```
 
 It is stronger than merely observing a small average retain-score change because the evaluator directly verifies that the residual intervention never activated on these retain probes.
 
