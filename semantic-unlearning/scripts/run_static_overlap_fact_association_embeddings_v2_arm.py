@@ -12,7 +12,7 @@ inspected. This runner never opens official paraphrase/neighborhood fields.
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import json
 from pathlib import Path
 
@@ -73,15 +73,20 @@ def target_new_by_fact(forget_records):
 
 
 def make_comparator_examples(examples, target_new, tokenizer, max_length):
-    return {
-        example.id: replace_completion(
+    result = {}
+    for example in examples:
+        candidate = replace_completion(
             example,
             " " + target_new[example.fact_id],
             tokenizer,
             max_length,
         )
-        for example in examples
-    }
+        result[example.id] = replace(
+            candidate,
+            id=f"{example.id}:comparator",
+            group=f"{example.group}:comparator",
+        )
+    return result
 
 
 @torch.no_grad()
@@ -439,6 +444,7 @@ def main(argv=None):
         margin_target=plan["margin_target"],
     )
     artifact = editor.artifact()
+    artifact["method"] = "static_overlap_fact_association_embeddings_v2_four_arm"
     artifact["v2_arm"] = args.arm
     artifact["v2_gate"] = arm["gate"]
     artifact["v2_objective"] = arm["objective"]
