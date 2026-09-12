@@ -31,9 +31,9 @@ Each forget fact owns one independent learned residual vector.
 
 For fact (i):
 
-[
+$
 F_i = (s_i, r_i, o_i)
-]
+$
 
 where:
 
@@ -45,9 +45,9 @@ The object is used as the sensitive answer during training. It is **not required
 
 With 50 forget facts:
 
-[
+$
 \Delta e_1, \Delta e_2, \ldots, \Delta e_{50}
-]
+$
 
 are the only learned fact-specific intervention vectors.
 
@@ -101,9 +101,9 @@ Output
 
 If no route activates:
 
-[
+$
 h' = h
-]
+$
 
 so the model follows the exact frozen-base path.
 
@@ -145,39 +145,39 @@ Training suppresses the original sensitive answer itself.
 
 For a prompt (x) and answer tokens
 
-[
+$
 y=(y_1,\ldots,y_m),
-]
+$
 
 the training scorer uses mean teacher-forced answer-token NLL:
 
-[
+$
 \bar L(x,y)
 =
 \frac{1}{m}
 \sum_{t=1}^{m}
--log p(y_t\mid x,y_{<t}).
-]
+-\log p(y_t\mid x,y_{<t}).
+$
 
 The historical training quantity
 
-[
+$
 \exp(-\bar L)
-]
+$
 
 is the geometric mean of the answer-token probabilities.
 
 The V1 absolute suppression target is:
 
-[
+$
 \exp(-\bar L) < 10^{-6},
-]
+$
 
 equivalently:
 
-[
+$
 \bar L > -\log(10^{-6}) \approx 13.8155.
-]
+$
 
 After sufficient sensitive-answer suppression, the optimizer may optimize the abstention completion `" I don't know."` while preserving the suppression constraint.
 
@@ -203,7 +203,7 @@ metric_version = zerounlearn_answer_probability_v2
 
 For each canonical rewrite prompt, the probability of the entire registered sensitive answer continuation is:
 
-[
+$
 P_\theta(y\mid x)
 =
 \prod_{t=1}^{m}
@@ -212,13 +212,13 @@ p_\theta(y_t\mid x,y_{<t})
 \exp\left(
 -\sum_{t=1}^{m}\mathrm{NLL}_t
 \right).
-]
+$
 
 No EOS token is added.
 
 Eff is:
 
-[
+$
 \boxed{
 \mathrm{Eff}
 =
@@ -226,7 +226,7 @@ Eff is:
 \operatorname{mean}_{case}
 P_\theta(y_{true}\mid x_{rewrite})
 }
-]
+$
 
 Lower is better.
 
@@ -240,7 +240,7 @@ For each held-out paraphrase, the same complete sensitive-answer probability is 
 
 Paraphrases are averaged within each case first, followed by averaging across cases:
 
-[
+$
 \boxed{
 \mathrm{Gen}
 =
@@ -251,7 +251,7 @@ Paraphrases are averaged within each case first, followed by averaging across ca
 P_\theta(y_{true}\mid x_{para})
 \right]
 }
-]
+$
 
 Lower is better.
 
@@ -267,7 +267,7 @@ For every neighborhood prompt, the evaluator checks whether every registered tar
 
 Then:
 
-[
+$
 \boxed{
 \mathrm{Spe}
 =
@@ -278,7 +278,7 @@ Then:
 \mathbf{1}(\text{all sensitive-answer tokens are top-1 correct})
 \right]
 }
-]
+$
 
 Higher is better.
 
@@ -305,21 +305,21 @@ Lower is better for forgetting.
 
 These diagnostics use:
 
-[
+$
 100 \times \exp(-\text{mean answer-token NLL}).
-]
+$
 
 They are length-normalized token-likelihood diagnostics and are **not** the primary complete-answer Eff/Gen when an answer contains more than one token.
 
 For a multi-token answer:
 
-[
+$
 P(y\mid x)
 =
 \left(
 \exp(-\bar L)
 \right)^m.
-]
+$
 
 ---
 
@@ -383,27 +383,27 @@ and should not be compared directly with the strict Spe accuracy defined above.
 
 The static-branch acceptance rule is:
 
-[
+$
 \mathrm{Eff}<0.005\%
-]
+$
 
 and
 
-[
+$
 \mathrm{Gen}<0.005\%
-]
+$
 
 together with:
 
-[
+$
 \mathrm{ReleasedAccuracy\_Eff}=0
-]
+$
 
 and
 
-[
+$
 \mathrm{ReleasedAccuracy\_Gen}=0.
-]
+$
 
 For this run:
 
