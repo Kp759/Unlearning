@@ -107,6 +107,8 @@ def main(argv=None):
             "only for subjects with multiple forgotten associations"
         ),
         "routing_policy": "hierarchical_subject_then_relation_if_ambiguous",
+        "subject_scan_scope": "prompt_prefix_only",
+        "teacher_forced_suffix_can_affect_routing": False,
         "runtime_counters": bank.counters(),
         "evaluation_group_labels_used_by_gate": False,
         "fact_id_injection_used": False,
