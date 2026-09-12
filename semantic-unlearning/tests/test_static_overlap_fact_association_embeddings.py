@@ -153,6 +153,48 @@ def test_prefix_boundary_prevents_answer_tokens_from_selecting_ambiguous_route()
     assert torch.equal(out, expected)
     assert bank.last_active_fact_indices == [[]]
 
+
+def test_subject_scan_ignores_teacher_forced_suffix_and_preserves_first_answer_logits():
+    base = _TinyBase()
+    base.requires_grad_(False)
+    facts = [{
+        "id": "f0",
+        "subject": "suffix_subject",
+        "relation": "P0",
+        "object": "object",
+    }]
+    # Token 4 is the forgotten subject token. It appears only in one candidate
+    # suffix; the observed prompt is token 5 in both cases.
+    bank = FactAssociationBank(
+        base_model=base,
+        layer=0,
+        keys=torch.tensor([[1.0, 0.0]]),
+        thresholds=torch.tensor([0.0]),
+        subject_patterns=[[(4,)]],
+        facts=facts,
+        rows=torch.tensor([[2.0, 0.0]]),
+    )
+    for row in bank.rows:
+        row.requires_grad_(False)
+    model = AssociationCausalLM(base, bank)
+
+    with_subject_suffix = torch.tensor([[5, 4]])
+    neutral_suffix = torch.tensor([[5, 6]])
+
+    model.set_association_prefix_lengths([1])
+    a = model(input_ids=with_subject_suffix).logits.detach().clone()
+    route_a = list(bank.last_active_fact_indices)
+
+    model.set_association_prefix_lengths([1])
+    b = model(input_ids=neutral_suffix).logits.detach().clone()
+    route_b = list(bank.last_active_fact_indices)
+
+    # Routing must depend only on the identical one-token prompt.
+    assert route_a == route_b == [[]]
+    # The first-answer distribution is the logit at the final prompt position.
+    assert torch.equal(a[:, 0], b[:, 0])
+    assert torch.equal(a[:, 0], base.embed(torch.tensor([[5]])).squeeze(1))
+
 def test_same_subject_selects_only_best_relation_key():
     base = _TinyBase()
     base.requires_grad_(False)
