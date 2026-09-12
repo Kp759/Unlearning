@@ -229,6 +229,8 @@ def main(argv=None):
             "when the subject owns multiple forgotten associations"
         ),
         "routing_policy": "hierarchical_subject_then_relation_if_ambiguous",
+        "subject_scan_scope": "prompt_prefix_only",
+        "teacher_forced_suffix_can_affect_routing": False,
         "runtime_trigger_uses_object": False,
         "object_role": "suppression target only",
         "official_eff_canonical_training_visible": True,
