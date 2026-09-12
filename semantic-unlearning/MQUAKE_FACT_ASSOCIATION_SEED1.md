@@ -13,7 +13,7 @@ bank to **MQuAKE-CF-3k-v2** without changing the core architecture.
 - forget: 50 instances
 - retain: 1000 instances, evaluation-only
 - flatten `requested_rewrite` only after instance sampling
-- one trainable residual vector per flattened atomic forget fact
+- one trainable residual vector per unique normalized `(subject, relation_id, target_true)` association
 - layer 19
 - frozen transformer, input embeddings, and LM head
 - unchanged tokenizer
@@ -22,8 +22,16 @@ bank to **MQuAKE-CF-3k-v2** without changing the core architecture.
   or PPL text visible to training
 
 Because one MQuAKE instance may contain multiple rewrites, **50 forget instances
-do not imply 50 trainable vectors**. The bank size is the number of flattened
-atomic facts belonging to those 50 instances.
+do not imply 50 trainable vectors**. The 50 instances are first flattened into
+their original atomic records. Repeated records that represent the same
+normalized `(subject, relation_id, target_true)` fact association share one
+residual vector. All original atomic records remain in training supervision and
+official evaluation; only redundant vector storage is collapsed.
+
+The runner also fails closed if the same observable natural address
+`(subject, relation_id, direct prompt)` points to different `target_true`
+objects, because a natural-input router cannot distinguish such conflicts
+without hidden benchmark identity.
 
 ## Training metric alignment
 
@@ -32,10 +40,10 @@ Native ZeroUnlearn-compatible MQuAKE Eff is teacher-forced sensitive
 
 Training reconstructs the exact same per-token direct contexts and fixes the
 residual intervention at the original direct-request boundary while answer
-prefix tokens are appended. Each atomic fact is optimized until its maximum
+prefix tokens are appended. Each unique association is optimized over all of its allowed direct atomic occurrences until its maximum
 sensitive-token probability is below `1e-6`.
 
-The default budget uses 30 row updates per atomic fact, matching the per-vector
+The default budget uses 30 row updates per unique association, matching the per-vector
 budget used by the 1500-step / 50-vector MCF and ZsRE experiments.
 
 ## Evaluation
