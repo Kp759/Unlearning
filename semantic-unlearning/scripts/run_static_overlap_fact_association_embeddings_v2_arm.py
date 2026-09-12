@@ -257,7 +257,6 @@ def main(argv=None):
             thresholds=thresholds,
             subject_patterns=subject_patterns,
             facts=facts,
-            ambiguity_margin=args.prototype_ambiguity_margin,
         )
     else:
         (
@@ -285,6 +284,7 @@ def main(argv=None):
             tau=tau,
             subject_patterns=subject_patterns,
             facts=facts,
+            ambiguity_margin=args.prototype_ambiguity_margin,
         )
 
     editor = FactAssociationEditor(model, bank)
