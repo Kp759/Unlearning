@@ -198,6 +198,65 @@ def prefix_invariance_audit(model, bank, tokenizer, facts):
     }
 
 
+
+def compare_prompt_group(
+    name,
+    prompts,
+    base_lp,
+    base_top1,
+    edited_lp,
+    edited_top1,
+    routes,
+    expected_owners=None,
+):
+    kl = []
+    for p, q in zip(base_lp, edited_lp):
+        p = p.float()
+        q = q.float()
+        kl.append(float((p.exp() * (p - q)).sum().clamp_min(0)))
+    top1_changed = sum(a != b for a, b in zip(base_top1, edited_top1))
+    result = {
+        "name": name,
+        "prompt_count": len(prompts),
+        "runtime_any_route_fraction": (
+            sum(bool(route) for route in routes) / len(routes)
+            if routes else None
+        ),
+        "next_token_top1_changed_fraction": (
+            top1_changed / len(prompts) if prompts else None
+        ),
+        "base_to_edited_next_token_kl_mean": (
+            sum(kl) / len(kl) if kl else None
+        ),
+        "base_to_edited_next_token_kl_max": max(kl) if kl else None,
+        "worst_kl": [
+            {
+                "prompt": prompts[index],
+                "kl": kl[index],
+                "base_top1": base_top1[index],
+                "edited_top1": edited_top1[index],
+                "route": routes[index],
+            }
+            for index in sorted(
+                range(len(kl)), key=lambda i: kl[i], reverse=True
+            )[:20]
+        ],
+    }
+    if expected_owners is not None:
+        result["runtime_expected_owner_route_fraction"] = (
+            sum(
+                owner in route
+                for owner, route in zip(expected_owners, routes)
+            ) / len(routes)
+        )
+        result["runtime_wrong_owner_route_fraction"] = (
+            sum(
+                any(index != owner for index in route)
+                for owner, route in zip(expected_owners, routes)
+            ) / len(routes)
+        )
+    return result
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", required=True)
@@ -250,65 +309,102 @@ def main(argv=None):
         same_subject_prompts.extend(prompts)
         same_subject_owner.extend([index] * len(prompts))
 
-    base_lp, base_top1, _ = prompt_distributions(
+    incidental_subject_prompts = [
+        (
+            f"Background context briefly mentions {fact['subject']}. "
+            "Continue with a neutral observation about careful documentation:"
+        )
+        for fact in facts
+    ]
+    incidental_owner = list(range(len(facts)))
+    object_only_prompts = [
+        (
+            f"Use the phrase {fact['object']} in a neutral, unrelated sentence "
+            "about writing style:"
+        )
+        for fact in facts
+    ]
+
+    base_same_lp, base_same_top1, _ = prompt_distributions(
         base,
         tokenizer,
         same_subject_prompts,
         batch_size=args.batch_size,
     )
+    base_incidental_lp, base_incidental_top1, _ = prompt_distributions(
+        base,
+        tokenizer,
+        incidental_subject_prompts,
+        batch_size=args.batch_size,
+    )
+    base_object_lp, base_object_top1, _ = prompt_distributions(
+        base,
+        tokenizer,
+        object_only_prompts,
+        batch_size=args.batch_size,
+    )
 
     edited, bank = load_artifact_into_model(base, artifact)
     edited.eval()
-    edited_lp, edited_top1, routes = prompt_distributions(
+    edited_same_lp, edited_same_top1, same_routes = prompt_distributions(
         edited,
         tokenizer,
         same_subject_prompts,
         batch_size=args.batch_size,
         bank=bank,
     )
+    edited_incidental_lp, edited_incidental_top1, incidental_routes = (
+        prompt_distributions(
+            edited,
+            tokenizer,
+            incidental_subject_prompts,
+            batch_size=args.batch_size,
+            bank=bank,
+        )
+    )
+    edited_object_lp, edited_object_top1, object_routes = prompt_distributions(
+        edited,
+        tokenizer,
+        object_only_prompts,
+        batch_size=args.batch_size,
+        bank=bank,
+    )
 
-    kl = []
-    for p, q in zip(base_lp, edited_lp):
-        p = p.float()
-        q = q.float()
-        value = (p.exp() * (p - q)).sum().clamp_min(0)
-        kl.append(float(value))
-    route_any = sum(bool(route) for route in routes)
-    route_expected = sum(
-        owner in route
-        for owner, route in zip(same_subject_owner, routes)
+    same_subject = compare_prompt_group(
+        "same_subject_different_relation",
+        same_subject_prompts,
+        base_same_lp,
+        base_same_top1,
+        edited_same_lp,
+        edited_same_top1,
+        same_routes,
+        expected_owners=same_subject_owner,
     )
-    wrong_route = sum(
-        any(index != owner for index in route)
-        for owner, route in zip(same_subject_owner, routes)
+    same_subject["prompt_source"] = (
+        "training-safe same-subject/different-relation authored controls; "
+        "no official MCF paraphrases/neighborhoods/retain sample"
     )
-    top1_changed = sum(a != b for a, b in zip(base_top1, edited_top1))
-    same_subject = {
-        "prompt_source": (
-            "training-safe same-subject/different-relation authored controls; "
-            "no official MCF paraphrases/neighborhoods/retain sample"
-        ),
-        "prompt_count": len(same_subject_prompts),
-        "runtime_any_route_fraction": route_any / len(routes),
-        "runtime_expected_subject_route_fraction": route_expected / len(routes),
-        "runtime_wrong_route_fraction": wrong_route / len(routes),
-        "next_token_top1_changed_fraction": top1_changed / len(routes),
-        "base_to_edited_next_token_kl_mean": sum(kl) / len(kl),
-        "base_to_edited_next_token_kl_max": max(kl),
-        "worst_kl": [
-            {
-                "prompt": same_subject_prompts[index],
-                "owner_fact": facts[same_subject_owner[index]]["id"],
-                "kl": kl[index],
-                "base_top1": base_top1[index],
-                "edited_top1": edited_top1[index],
-                "route": routes[index],
-            }
-            for index in sorted(
-                range(len(kl)), key=lambda i: kl[i], reverse=True
-            )[:20]
-        ],
-    }
+    incidental_subject = compare_prompt_group(
+        "incidental_subject_mention",
+        incidental_subject_prompts,
+        base_incidental_lp,
+        base_incidental_top1,
+        edited_incidental_lp,
+        edited_incidental_top1,
+        incidental_routes,
+        expected_owners=incidental_owner,
+    )
+    incidental_subject["prompt_source"] = "synthetic training-safe incidental mentions"
+    object_only = compare_prompt_group(
+        "forgotten_object_without_intended_subject",
+        object_only_prompts,
+        base_object_lp,
+        base_object_top1,
+        edited_object_lp,
+        edited_object_top1,
+        object_routes,
+    )
+    object_only["prompt_source"] = "synthetic training-safe object-only mentions"
 
     prefix_invariance = prefix_invariance_audit(
         edited, bank, tokenizer, facts
@@ -336,6 +432,8 @@ def main(argv=None):
         "official_evaluation_opened": False,
         "prefix_invariance": prefix_invariance,
         "same_subject_different_relation": same_subject,
+        "incidental_subject_mention": incidental_subject,
+        "forgotten_object_only": object_only,
         "authored_reload_metrics": authored_metrics,
         "authored_all_token_top1": authored_top1,
         "parent_fp32_final_metrics": parent_report.get("final_metrics"),
@@ -359,6 +457,16 @@ def main(argv=None):
         "same_subject": {
             key: value
             for key, value in same_subject.items()
+            if key != "worst_kl"
+        },
+        "incidental_subject": {
+            key: value
+            for key, value in incidental_subject.items()
+            if key != "worst_kl"
+        },
+        "object_only": {
+            key: value
+            for key, value in object_only.items()
             if key != "worst_kl"
         },
         "authored_train": authored_metrics["train"],
