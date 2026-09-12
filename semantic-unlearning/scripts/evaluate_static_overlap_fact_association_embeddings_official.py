@@ -16,6 +16,9 @@ from static_overlap_fact_association_embeddings import (
     METHOD,
     load_artifact_into_model,
 )
+from static_overlap_fact_association_v2_gate import (
+    load_relation_prototype_artifact,
+)
 
 
 def main(argv=None):
@@ -72,7 +75,11 @@ def main(argv=None):
         map_location="cpu",
         weights_only=False,
     )
-    model, bank = load_artifact_into_model(base_model, artifact)
+    architecture = str(artifact.get("architecture", ""))
+    if architecture == "relation_prototype_fact_association_bank_v2":
+        model, bank = load_relation_prototype_artifact(base_model, artifact)
+    else:
+        model, bank = load_artifact_into_model(base_model, artifact)
     model.eval()
 
     out_path = (
@@ -106,7 +113,10 @@ def main(argv=None):
             "complete subject-token eligibility; frozen hidden-state relation key "
             "only for subjects with multiple forgotten associations"
         ),
-        "routing_policy": "hierarchical_subject_then_relation_if_ambiguous",
+        "routing_policy": artifact.get(
+            "routing_policy",
+            "hierarchical_subject_then_relation_if_ambiguous",
+        ),
         "subject_scan_scope": "prompt_prefix_only",
         "teacher_forced_suffix_can_affect_routing": False,
         "runtime_counters": bank.counters(),
@@ -127,6 +137,8 @@ def main(argv=None):
         "retain_Gen": result["retain"]["Gen"],
         "retain_Spe": result["retain"]["Spe"],
         "PPL": result.get("forget_PPL"),
+        "PPL_metric_version": result.get("PPL_metric_version"),
+        "legacy_PPL": result.get("legacy_forget_PPL"),
         "minimum_rewrite_paraphrase_margin": result["forget"].get(
             "minimum_rewrite_paraphrase_margin"
         ),
