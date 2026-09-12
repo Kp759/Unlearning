@@ -90,8 +90,14 @@ def main(argv=None):
     if out_path.exists():
         raise FileExistsError(f"Refusing to overwrite official evaluation: {out_path}")
 
+    evaluation_method = artifact.get(
+        "method",
+        "static_overlap_fact_association_embeddings_v2"
+        if str(artifact.get("v2_arm", ""))
+        else METHOD,
+    )
     result = evaluate_loaded_model_official(
-        method=METHOD,
+        method=evaluation_method,
         model=model,
         tok=tokenizer,
         model_dir=run_dir,
@@ -110,6 +116,10 @@ def main(argv=None):
         "layer": int(artifact["layer"]),
         "facts": len(artifact["facts"]),
         "runtime_trigger": (
+            "complete subject-token eligibility plus relation-prototype "
+            "confirmation for every candidate"
+            if architecture == "relation_prototype_fact_association_bank_v2"
+            else
             "complete subject-token eligibility; frozen hidden-state relation key "
             "only for subjects with multiple forgotten associations"
         ),
