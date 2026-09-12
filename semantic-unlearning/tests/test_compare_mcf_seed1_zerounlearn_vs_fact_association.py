@@ -68,3 +68,10 @@ def test_artifact_case_ids_are_order_sensitive():
         ]
     }
     assert CMP.artifact_case_ids(artifact) == [10, 20, 30]
+
+
+def test_working_directory_restores_cwd(tmp_path):
+    before = Path.cwd()
+    with CMP.working_directory(tmp_path):
+        assert Path.cwd() == tmp_path
+    assert Path.cwd() == before
