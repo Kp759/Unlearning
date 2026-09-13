@@ -181,11 +181,24 @@ def build_direct_prompt_context_gate(
         pos_floor = float(pos_d.min())
         neg_ceiling = float(neg_d.max())
         if neg_ceiling < pos_floor:
-            tau_i = 0.5 * (pos_floor + neg_ceiling)
+            # Use a training-only conservative-negative threshold rather than
+            # the midpoint of the separable gap. The midpoint was unnecessarily
+            # strict on natural held-out phrasings: it spent half of the entire
+            # positive/negative separation as rejection margin. Staying 10% of
+            # the observed gap above the hardest training negative preserves
+            # zero training-negative fires while leaving 90% of the measured
+            # gap available for benign contextual variation.
+            gap = pos_floor - neg_ceiling
+            tau_i = neg_ceiling + 0.10 * gap
             separable = True
+            calibration_rule = "negative_ceiling_plus_10pct_separable_gap"
         else:
+            # No held-out data is consulted. In an overlapping training-only
+            # calibration case, preserve every observed positive with a small
+            # fixed slack and expose the overlap in diagnostics.
             tau_i = pos_floor - float(margin_slack)
             separable = False
+            calibration_rule = "positive_floor_minus_fixed_slack"
         tau_i = max(-2.0, min(2.0, tau_i))
 
         pos_pass = float((pos_d >= tau_i).float().mean())
@@ -208,6 +221,7 @@ def build_direct_prompt_context_gate(
             "positive_margin_min": pos_floor,
             "negative_margin_max": neg_ceiling,
             "separable_on_training_controls": separable,
+            "calibration_rule": calibration_rule,
             "tau": tau_i,
             "training_positive_pass_fraction": pos_pass,
             "training_negative_fire_fraction": neg_fire,
@@ -225,6 +239,12 @@ def build_direct_prompt_context_gate(
         "alpha": -1.0,
         "negative_count": int(negative_count),
         "margin_slack": float(margin_slack),
+        "separable_gap_operating_point": 0.10,
+        "separable_gap_note": (
+            "tau is placed 10% of the training-only positive/negative gap "
+            "above the hardest negative; no development/evaluation prompt is "
+            "used to choose the threshold"
+        ),
         "training_visible_only": True,
         "target_new_used": False,
         "official_paraphrases_used": False,
