@@ -72,6 +72,7 @@ def _negative_prompts_for_fact(
     subject = str(fact["subject"])
     subject_key = _norm(subject)
     negatives = []
+    own_positive = set(positive_prompts_by_fact[fact["id"]])
 
     # Highest-value negatives: other protected relations/contexts for the same
     # subject. These require no synthetic text transformation.
@@ -81,7 +82,7 @@ def _negative_prompts_for_fact(
         if _norm(other["subject"]) != subject_key:
             continue
         for prompt in positive_prompts_by_fact[other["id"]]:
-            if prompt not in negatives:
+            if prompt not in own_positive and prompt not in negatives:
                 negatives.append(prompt)
 
     # Unique-subject facts still need contextual confirmation. Construct safe,
@@ -100,7 +101,11 @@ def _negative_prompts_for_fact(
                 other["subject"],
                 subject,
             )
-            if transplanted and transplanted not in negatives:
+            if (
+                transplanted
+                and transplanted not in own_positive
+                and transplanted not in negatives
+            ):
                 negatives.append(transplanted)
             if len(negatives) >= int(negative_count):
                 break
