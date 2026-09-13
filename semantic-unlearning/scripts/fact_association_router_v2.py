@@ -241,9 +241,9 @@ def build_direct_prompt_context_gate(
         "margin_slack": float(margin_slack),
         "separable_gap_operating_point": 0.10,
         "separable_gap_note": (
-            "tau is placed 10% of the training-only positive/negative gap "
-            "above the hardest negative; no development/evaluation prompt is "
-            "used to choose the threshold"
+            "tau is computed only from training-visible positive/negative "
+            "scores. The 10% operating point is a seed-1 development-stage "
+            "hyperparameter and must be frozen before confirmatory seeds."
         ),
         "training_visible_only": True,
         "target_new_used": False,
