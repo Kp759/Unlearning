@@ -51,6 +51,7 @@ def main(argv=None):
         type=float,
         default=PLAN["min_development_route_recall"],
     )
+    parser.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args(argv)
 
     if args.forget_num != 50 or args.seed != 1:
@@ -260,6 +261,22 @@ def main(argv=None):
     (output / "association_examples.json").write_text(
         json.dumps([asdict(e) for e in examples], indent=2, allow_nan=False) + "\n"
     )
+
+    if args.preflight_only:
+        print(
+            json.dumps(
+                {
+                    "status": "mcf_router_v2_preflight_complete",
+                    "optimization_started": False,
+                    "route_audit": route_audit,
+                    "gate_diagnostics": gate_diagnostics,
+                    "output_dir": str(output),
+                },
+                indent=2,
+                allow_nan=False,
+            )
+        )
+        return 0
 
     # V2.1's optimizer is intentionally reused: one Adam instance per vector,
     # worst-view suppression before the threshold, abstention only after lock.
