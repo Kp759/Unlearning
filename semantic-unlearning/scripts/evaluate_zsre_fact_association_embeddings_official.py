@@ -24,6 +24,9 @@ from mcf_zero_unlearn_official_eval import (
     runtime_aligned_perplexity,
 )
 from static_overlap_fact_association_embeddings import load_artifact_into_model
+from static_overlap_fact_association_v2_gate import (
+    load_relation_prototype_artifact,
+)
 
 
 def _boundary_text(record, case):
@@ -270,7 +273,11 @@ def main(argv=None):
         attn_implementation="eager",
     ).to(args.device).eval()
     base_model.requires_grad_(False)
-    model, bank = load_artifact_into_model(base_model, artifact)
+    architecture = str(artifact.get("architecture", ""))
+    if architecture == "relation_prototype_fact_association_bank_v2":
+        model, bank = load_relation_prototype_artifact(base_model, artifact)
+    else:
+        model, bank = load_artifact_into_model(base_model, artifact)
     model.eval()
     device = next(model.parameters()).device
     llama_like = zsre.is_llama_like(model, tok)
