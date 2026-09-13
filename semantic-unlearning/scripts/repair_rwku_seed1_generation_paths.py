@@ -187,7 +187,7 @@ def repair_one_case(
     plan,
     *,
     updates,
-    direct_probability_multiplier,
+    direct_probability_cap,
 ):
     """Reduce one recovery-completing token while preserving direct top-1 suppression."""
     row_index = int(plan["fact_to_row"][repair_case.fact_id])
@@ -257,11 +257,7 @@ def repair_one_case(
             direct_probability = float(
                 after_direct["max_token_probability"].detach()
             )
-            direct_cap = max(
-                before_direct_probability
-                * float(direct_probability_multiplier),
-                before_direct_probability + 1e-12,
-            )
+            direct_cap = float(direct_probability_cap)
             acceptable = (
                 math.isfinite(repair_probability)
                 and repair_probability < before_probability
@@ -420,6 +416,21 @@ def main(argv=None):
         rows, expected_facts, tokenizer
     )
     direct_by_fact = _direct_cases_by_fact(direct_cases)
+    initial_direct_probability_caps = {}
+    for fact_id, cases in direct_by_fact.items():
+        state = sensitive_token_state(
+            editor.model,
+            tokenizer,
+            cases,
+            float(BASE_PLAN["target_token_probability"]),
+        )
+        initial_probability = float(
+            state["max_token_probability"].detach()
+        )
+        initial_direct_probability_caps[fact_id] = max(
+            1e-6,
+            initial_probability * float(args.direct_probability_multiplier),
+        )
 
     plan = dict(BASE_PLAN)
     plan.update(
@@ -501,7 +512,9 @@ def main(argv=None):
                 optimizers[case.fact_id],
                 plan,
                 updates=args.updates_per_recovery,
-                direct_probability_multiplier=args.direct_probability_multiplier,
+                direct_probability_cap=initial_direct_probability_caps[
+                    case.fact_id
+                ],
             )
             round_history.append(
                 {
@@ -663,6 +676,7 @@ def main(argv=None):
                 "direct_probability_multiplier": float(
                     args.direct_probability_multiplier
                 ),
+                "direct_probability_caps_are_fixed_from_parent": True,
                 "initial_same50_recoveries": len(initial_recoveries),
                 "best_same50_recoveries": best_recovery_count,
                 "best_round": best_round,
