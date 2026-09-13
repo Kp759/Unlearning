@@ -6,7 +6,10 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from rwku_fact_association_embeddings import build_association_facts
+from rwku_fact_association_embeddings import (
+    build_association_facts,
+    rwku_subject_surfaces,
+)
 
 
 class DummyTokenizer:
@@ -57,3 +60,12 @@ def test_same_natural_prompt_different_answer_fails_closed():
         assert "conflicting sensitive answers" in str(exc)
     else:
         raise AssertionError("Expected natural-address conflict")
+
+
+def test_rwku_subject_surfaces_include_surname_without_initials():
+    assert rwku_subject_surfaces("Warren Buffett") == ["Warren Buffett", "Buffett"]
+    assert rwku_subject_surfaces("Christina Aguilera") == [
+        "Christina Aguilera",
+        "Aguilera",
+    ]
+    assert rwku_subject_surfaces("Confucius") == ["Confucius"]
