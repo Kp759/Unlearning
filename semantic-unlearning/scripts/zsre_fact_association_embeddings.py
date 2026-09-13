@@ -29,6 +29,13 @@ from torch.nn import functional as F
 
 from run_static_overlap_mlp_pilot import emit
 from static_overlap_extended_tokens_v2 import radius_for_probability
+from fact_association_router_v2 import (
+    build_direct_prompt_context_gate,
+    prompt_map_from_facts,
+)
+from static_overlap_fact_association_v2_gate import (
+    RelationPrototypeAssociationBank,
+)
 from static_overlap_fact_association_embeddings import (
     AssociationCausalLM,
     FactAssociationBank,
@@ -604,3 +611,34 @@ def build_editor(base_model, tokenizer, facts, plan):
     )
     editor = FactAssociationEditor(base_model, bank)
     return editor, bank, gate_diagnostics
+
+def build_editor_v2(base_model, tokenizer, facts, plan):
+    positive_prompts = prompt_map_from_facts(facts)
+    (
+        positive_prototypes,
+        negative_prototypes,
+        alpha,
+        tau,
+        diagnostics,
+    ) = build_direct_prompt_context_gate(
+        model=base_model,
+        tokenizer=tokenizer,
+        facts=facts,
+        positive_prompts_by_fact=positive_prompts,
+        layer=int(plan["layer"]),
+        negative_count=int(plan.get("router_v2_negative_count", 12)),
+        margin_slack=float(plan.get("router_v2_margin_slack", 0.02)),
+    )
+    bank = RelationPrototypeAssociationBank(
+        base_model=base_model,
+        layer=int(plan["layer"]),
+        positive_prototypes=positive_prototypes,
+        negative_prototypes=negative_prototypes,
+        alpha=alpha,
+        tau=tau,
+        subject_patterns=make_subject_patterns(tokenizer, facts),
+        facts=facts,
+        ambiguity_margin=float(plan.get("router_v2_ambiguity_margin", 0.02)),
+    )
+    return FactAssociationEditor(base_model, bank), bank, diagnostics
+
