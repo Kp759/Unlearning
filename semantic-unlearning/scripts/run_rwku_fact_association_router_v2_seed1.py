@@ -277,8 +277,8 @@ def main(argv=None):
         "rwku_code_revision": split["manifest"]["rwku_code_revision"],
         "rwku_dataset_revision": split["manifest"]["rwku_dataset_revision"],
         "architecture": (
-            "one independent residual vector per selected natural-input RWKU association; Router V2; "
-            "factual association; frozen Llama; layer 19; original request-boundary intervention"
+            "one independent residual vector per selected natural-input RWKU factual association; "
+            "Router V2; frozen Llama; layer 19; original request-boundary intervention"
         ),
         "association_identity": (
             "normalized(subject), normalized(selected query), normalized(sensitive answer); "
