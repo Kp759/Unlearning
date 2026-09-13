@@ -5,7 +5,9 @@ Starting from a completed direct-only RWKU residual-bank run, this stage uses
 ONLY the same 50 training/efficacy probes. For any training prompt whose greedy
 continuation still reconstructs the sensitive answer, it creates one dynamic
 training case at the exact generated prefix immediately before the token that
-first makes the answer recoverable. Only that fact's residual row is updated.
+first makes the answer recoverable. V2 drives that recovery token below its
+strongest alternative by a fixed logit margin while preserving the original
+direct non-top-1 forgetting guard. Only that fact's residual row is updated.
 
 No held-out Level-1/2, paraphrase, Level-3, neighbor, MIA, utility, or PPL data
 is read for training or checkpoint selection.
@@ -178,6 +180,48 @@ def _direct_cases_by_fact(cases):
     return out
 
 
+def recovery_margin_state(model, tokenizer, case, margin_floor):
+    """Score one rollout recovery token by target-vs-best-other logit margin.
+
+    Positive greedy_margin means the recovery token is still top-1. The V2
+    objective drives greedy_margin <= -margin_floor. Unlike a probability
+    target, this keeps a strong gradient even when the recovery token starts at
+    probability near one.
+    """
+    device = next(model.parameters()).device
+    ids = torch.tensor(
+        [case.input_ids], dtype=torch.long, device=device
+    )
+    attention = torch.ones_like(ids)
+    model.set_association_prefix_lengths([int(case.boundary_length)])
+    output = model(
+        input_ids=ids,
+        attention_mask=attention,
+        use_cache=False,
+    )
+    logits = output.logits[0, -1, :].float()
+    target = int(case.target_token_id)
+    target_logit = logits[target]
+    masked = logits.clone()
+    masked[target] = float("-inf")
+    best_other_logit, best_other_id = masked.max(dim=-1)
+    greedy_margin = target_logit - best_other_logit
+    loss = torch.relu(
+        greedy_margin + greedy_margin.new_tensor(float(margin_floor))
+    )
+    probability = logits.softmax(dim=-1)[target]
+    return {
+        "loss": loss,
+        "greedy_margin": greedy_margin,
+        "target_probability": probability,
+        "target_is_top1": bool((greedy_margin >= 0).detach()),
+        "best_other_token_id": int(best_other_id.detach().item()),
+        "best_other_token": tokenizer.decode(
+            [int(best_other_id.detach().item())]
+        ),
+    }
+
+
 def repair_one_case(
     editor,
     tokenizer,
@@ -187,20 +231,26 @@ def repair_one_case(
     plan,
     *,
     updates,
-    direct_probability_cap,
+    margin_floor,
 ):
-    """Reduce one recovery-completing token while preserving direct top-1 suppression."""
+    """Push one recovery token below the best alternative with a margin guard.
+
+    V2 acceptance is intentionally categorical on the original direct cases:
+    every original sensitive token must remain non-top-1. We do not impose an
+    arbitrary probability cap, because V1 showed that such a cap can prevent
+    correction while the direct categorical forgetting criterion still holds.
+    """
     row_index = int(plan["fact_to_row"][repair_case.fact_id])
     row = editor.embedding.rows[row_index]
     history = []
 
     for update in range(1, int(updates) + 1):
         editor.model.zero_grad(set_to_none=True)
-        before_repair = sensitive_token_state(
+        before_repair = recovery_margin_state(
             editor.model,
             tokenizer,
-            [repair_case],
-            plan["repair_target_probability"],
+            repair_case,
+            margin_floor,
         )
         before_direct = sensitive_token_state(
             editor.model,
@@ -208,19 +258,30 @@ def repair_one_case(
             direct_cases,
             plan["target_token_probability"],
         )
+        before_margin = float(before_repair["greedy_margin"].detach())
         before_probability = float(
-            before_repair["max_token_probability"].detach()
+            before_repair["target_probability"].detach()
         )
         before_direct_probability = float(
             before_direct["max_token_probability"].detach()
         )
 
+        if before_margin <= -float(margin_floor):
+            history.append(
+                {
+                    "update": update,
+                    "accepted": False,
+                    "already_margin_safe": True,
+                    "before_recovery_greedy_margin": before_margin,
+                    "before_recovery_token_probability": before_probability,
+                    "before_direct_max_probability": before_direct_probability,
+                }
+            )
+            break
+
         before_row = row.detach().clone()
         optimizer_state = deepcopy(optimizer.state_dict())
 
-        # Use the same probability-gap objective as the direct stage, with a
-        # tighter target because the selected token is currently on a greedy
-        # recovery path.
         before_repair["loss"].backward()
         torch.nn.utils.clip_grad_norm_(
             [row], 1.0, error_if_nonfinite=True
@@ -228,9 +289,10 @@ def repair_one_case(
         optimizer.step()
 
         proposal = row.detach() - before_row
-        radius = radius_for_probability(
-            before_probability, plan["radius_schedule"]
-        )
+        # A recovery token is, by construction, greedy/top-1. Use the largest
+        # existing trust radius, then let backtracking find the smallest safe
+        # step that improves the margin while preserving direct top-1 forgetting.
+        radius = float(plan["radius_schedule"][0][1])
         proposal.mul_(
             min(1.0, radius / max(float(proposal.norm()), 1e-30))
         )
@@ -239,11 +301,11 @@ def repair_one_case(
         for backtracks in range(int(plan["backtracks"]) + 1):
             with torch.no_grad():
                 row.copy_(before_row + proposal * (0.5 ** backtracks))
-                after_repair = sensitive_token_state(
+                after_repair = recovery_margin_state(
                     editor.model,
                     tokenizer,
-                    [repair_case],
-                    plan["repair_target_probability"],
+                    repair_case,
+                    margin_floor,
                 )
                 after_direct = sensitive_token_state(
                     editor.model,
@@ -251,24 +313,24 @@ def repair_one_case(
                     direct_cases,
                     plan["target_token_probability"],
                 )
-            repair_probability = float(
-                after_repair["max_token_probability"].detach()
+            after_margin = float(after_repair["greedy_margin"].detach())
+            after_probability = float(
+                after_repair["target_probability"].detach()
             )
-            direct_probability = float(
+            after_direct_probability = float(
                 after_direct["max_token_probability"].detach()
             )
-            direct_cap = float(direct_probability_cap)
             acceptable = (
-                math.isfinite(repair_probability)
-                and repair_probability < before_probability
+                math.isfinite(after_margin)
+                and after_margin < before_margin
                 and bool(after_direct["all_sensitive_tokens_not_top1"])
-                and direct_probability <= direct_cap
             )
             if acceptable:
                 candidates.append(
                     (
-                        repair_probability,
-                        direct_probability,
+                        after_margin,
+                        after_probability,
+                        after_direct_probability,
                         backtracks,
                         row.detach().clone(),
                         after_repair,
@@ -284,14 +346,16 @@ def repair_one_case(
                 {
                     "update": update,
                     "accepted": False,
+                    "before_recovery_greedy_margin": before_margin,
                     "before_recovery_token_probability": before_probability,
                     "before_direct_max_probability": before_direct_probability,
-                    "reason": "no_backtrack_preserved_direct_guard",
+                    "reason": "no_backtrack_improved_margin_and_preserved_direct_top1",
                 }
             )
             break
 
         (
+            after_margin,
             after_probability,
             after_direct_probability,
             accepted_backtracks,
@@ -307,7 +371,9 @@ def repair_one_case(
                 "update": update,
                 "accepted": True,
                 "backtracks": int(accepted_backtracks),
-                "radius": float(radius),
+                "radius": radius,
+                "before_recovery_greedy_margin": before_margin,
+                "after_recovery_greedy_margin": after_margin,
                 "before_recovery_token_probability": before_probability,
                 "after_recovery_token_probability": after_probability,
                 "before_direct_max_probability": before_direct_probability,
@@ -315,11 +381,14 @@ def repair_one_case(
                 "direct_all_sensitive_tokens_not_top1": bool(
                     after_direct["all_sensitive_tokens_not_top1"]
                 ),
+                "best_other_token_after": after_repair[
+                    "best_other_token"
+                ],
                 "step_norm": float((row.detach() - before_row).norm()),
             }
         )
 
-        if after_probability < float(plan["repair_target_probability"]):
+        if after_margin <= -float(margin_floor):
             break
 
     return history
@@ -336,8 +405,12 @@ def main(argv=None):
     p.add_argument("--max-rounds", type=int, default=5)
     p.add_argument("--updates-per-recovery", type=int, default=10)
     p.add_argument("--max-new-tokens", type=int, default=30)
-    p.add_argument("--repair-target-probability", type=float, default=1e-8)
-    p.add_argument("--direct-probability-multiplier", type=float, default=1.25)
+    p.add_argument(
+        "--repair-margin",
+        type=float,
+        default=0.25,
+        help="Require recovery-token logit margin <= -this value.",
+    )
     p.add_argument("--max-training-seconds", type=float, default=3600.0)
     args = p.parse_args(argv)
 
@@ -416,29 +489,11 @@ def main(argv=None):
         rows, expected_facts, tokenizer
     )
     direct_by_fact = _direct_cases_by_fact(direct_cases)
-    initial_direct_probability_caps = {}
-    for fact_id, cases in direct_by_fact.items():
-        state = sensitive_token_state(
-            editor.model,
-            tokenizer,
-            cases,
-            float(BASE_PLAN["target_token_probability"]),
-        )
-        initial_probability = float(
-            state["max_token_probability"].detach()
-        )
-        initial_direct_probability_caps[fact_id] = max(
-            1e-6,
-            initial_probability * float(args.direct_probability_multiplier),
-        )
-
     plan = dict(BASE_PLAN)
     plan.update(
         {
             "fact_to_row": fact_to_row,
-            "repair_target_probability": float(
-                args.repair_target_probability
-            ),
+            "repair_margin": float(args.repair_margin),
         }
     )
     optimizers = {
@@ -512,9 +567,7 @@ def main(argv=None):
                 optimizers[case.fact_id],
                 plan,
                 updates=args.updates_per_recovery,
-                direct_probability_cap=initial_direct_probability_caps[
-                    case.fact_id
-                ],
+                margin_floor=args.repair_margin,
             )
             round_history.append(
                 {
@@ -636,7 +689,7 @@ def main(argv=None):
     repaired_artifact = editor.artifact()
     repaired_artifact.update(
         {
-            "method": "fact_association_embeddings_rwku_batch50_rollout_repair_v1",
+            "method": "fact_association_embeddings_rwku_batch50_rollout_margin_v2",
             "dataset": "RWKU",
             "protocol_id": parent_manifest["protocol_id"],
             "seed": 1,
@@ -670,13 +723,9 @@ def main(argv=None):
                 "max_rounds": int(args.max_rounds),
                 "updates_per_recovery": int(args.updates_per_recovery),
                 "max_new_tokens": int(args.max_new_tokens),
-                "repair_target_probability": float(
-                    args.repair_target_probability
-                ),
-                "direct_probability_multiplier": float(
-                    args.direct_probability_multiplier
-                ),
-                "direct_probability_caps_are_fixed_from_parent": True,
+                "repair_objective": "recovery_token_greedy_logit_margin",
+                "repair_margin": float(args.repair_margin),
+                "direct_guard": "all original sensitive tokens remain non-top1",
                 "initial_same50_recoveries": len(initial_recoveries),
                 "best_same50_recoveries": best_recovery_count,
                 "best_round": best_round,
