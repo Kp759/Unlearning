@@ -40,6 +40,9 @@ from static_overlap_fact_association_embeddings import (
     FactAssociationBank,
     FactAssociationEditor,
 )
+from static_overlap_fact_association_v2_gate import (
+    RelationPrototypeAssociationBank,
+)
 
 
 def _row_state(editor):
@@ -472,15 +475,30 @@ def main(argv=None):
     base_model.requires_grad_(False)
     base_model.config.use_cache = False
 
-    bank = FactAssociationBank(
-        base_model=base_model,
-        layer=int(artifact["layer"]),
-        keys=artifact["keys"],
-        thresholds=artifact["thresholds"],
-        subject_patterns=artifact["subject_patterns"],
-        facts=artifact["facts"],
-        rows=artifact["rows"],
-    )
+    architecture = str(artifact.get("architecture", ""))
+    if architecture == "relation_prototype_fact_association_bank_v2":
+        bank = RelationPrototypeAssociationBank(
+            base_model=base_model,
+            layer=int(artifact["layer"]),
+            positive_prototypes=artifact["positive_prototypes"],
+            negative_prototypes=artifact["negative_prototypes"],
+            alpha=artifact["alpha"],
+            tau=artifact["tau"],
+            subject_patterns=artifact["subject_patterns"],
+            facts=artifact["facts"],
+            rows=artifact["rows"],
+            ambiguity_margin=float(artifact.get("ambiguity_margin", 0.02)),
+        )
+    else:
+        bank = FactAssociationBank(
+            base_model=base_model,
+            layer=int(artifact["layer"]),
+            keys=artifact["keys"],
+            thresholds=artifact["thresholds"],
+            subject_patterns=artifact["subject_patterns"],
+            facts=artifact["facts"],
+            rows=artifact["rows"],
+        )
     editor = FactAssociationEditor(base_model, bank)
     fact_to_row = {
         fact["id"]: index for index, fact in enumerate(expected_facts)
