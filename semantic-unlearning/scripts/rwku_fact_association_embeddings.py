@@ -28,7 +28,7 @@ from static_overlap_fact_association_embeddings import (
     FactAssociationBank,
     FactAssociationEditor,
     extract_prompt_queries,
-    make_subject_patterns,
+    subject_token_patterns,
 )
 
 
@@ -54,6 +54,39 @@ BASE_PLAN = {
 
 def normalized(value):
     return " ".join(str(value).casefold().split())
+
+
+def rwku_subject_surfaces(subject):
+    """Auditable natural subject surfaces derived only from the public name.
+
+    RWKU Level-1 cloze probes frequently use a surname (Buffett, Aguilera,
+    Crawford) or a longer legal-name surface while the target manifest stores
+    the canonical public name.  We allow the canonical name plus its final
+    name token as an eligibility surface.  This does not choose an association;
+    the frozen contextual key still disambiguates same-person facts.
+    """
+    canonical = " ".join(str(subject).strip().split())
+    if not canonical:
+        raise ValueError("RWKU subject is empty")
+    surfaces = [canonical]
+    words = canonical.split()
+    if len(words) >= 2:
+        surname = words[-1].strip(" ,.;:()[]{}")
+        if surname and normalized(surname) != normalized(canonical):
+            surfaces.append(surname)
+    return surfaces
+
+
+def make_rwku_subject_patterns(tokenizer, facts):
+    result = []
+    for fact in facts:
+        patterns = []
+        for surface in rwku_subject_surfaces(fact["subject"]):
+            for pattern in subject_token_patterns(tokenizer, surface):
+                if pattern not in patterns:
+                    patterns.append(pattern)
+        result.append(patterns)
+    return result
 
 
 def association_key_from_row(row):
@@ -139,7 +172,7 @@ def build_association_facts(rows, tokenizer):
             "subject": str(first["subject"]),
             "relation": "rwku_natural_query_context",
             "object": str(first["answer"]),
-            "aliases": [],
+            "aliases": rwku_subject_surfaces(str(first["subject"]))[1:],
             "answer_aliases": [],
             "association_key": assoc_key,
             "association_index": assoc_index,
@@ -255,7 +288,7 @@ def build_editor(base_model, tokenizer, facts, plan):
         layer=int(plan["layer"]),
         keys=keys,
         thresholds=thresholds,
-        subject_patterns=make_subject_patterns(tokenizer, facts),
+        subject_patterns=make_rwku_subject_patterns(tokenizer, facts),
         facts=facts,
     )
     return FactAssociationEditor(base_model, bank), bank, diagnostics
