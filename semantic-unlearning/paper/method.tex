@@ -1,0 +1,643 @@
+
+\documentclass{article}
+\usepackage{iclr2027_conference,times}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs,array}
+\usepackage{microtype}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\hypersetup{pdftitle={Fact-Addressed Residual Interventions for Selective Behavioral Unlearning},pdfauthor={Anonymous authors}}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\ind}{\mathbf{1}}
+\newcommand{\relu}[1]{\left[#1\right]_{+}}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert_2}
+\newcommand{\bank}{\Delta E}
+\newcommand{\rowvec}{\Delta e}
+\newcommand{\router}{\mathcal{R}}
+\newcommand{\eps}{\varepsilon}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator{\NLL}{NLL}
+\DeclareMathOperator{\clip}{clip}
+
+% Keep true for the evidence supporting this development-stage abstract.
+% Set false when transplanting only the abstract/method into a larger paper.
+\newif\ifincludedevelopmentevidence
+\includedevelopmentevidencetrue
+
+\title{Fact-Addressed Residual Interventions\\for Selective Behavioral Unlearning}
+\author{Anonymous authors}
+% Do not enable \iclrfinalcopy for a double-blind submission.
+
+\begin{document}
+\maketitle
+% Preserve the official review header with recent fancyhdr versions.
+\lhead{Under review as a conference paper at ICLR 2027}
+
+\begin{abstract}
+Behavioral unlearning of designated factual associations should suppress those
+associations while leaving requests about other entities on the base-model
+path. We present sparse, fact-addressed residual interventions in a frozen
+language model. Each unique protected association receives one trainable
+residual vector, while a frozen subject-and-context router selects at most one
+vector from the natural request. Positive and negative contextual prototypes
+determine whether to intervene; ambiguous requests follow the base-model path.
+The selected vector is added at a single transformer block at the original
+request boundary, which remains fixed during teacher-forced scoring and
+reference generation. Row-wise optimization suppresses sensitive-answer
+likelihood without training toward a counterfactual factual answer. In
+single-model, development-seed experiments on MCF, zsRE, MQuAKE, and a
+probe-assisted RWKU extension, the method uses 153,600--322,560 trainable
+parameters. It attains MCF rewrite/paraphrase answer-probability scores of
+$0.00017\%$/$0.00059\%$, zero sensitive-token accuracy on zsRE rewrites
+and rephrases, and zero direct atomic sensitive-token accuracy on MQuAKE.
+An association-level audit reveals that 240 of 1,594 nominal MQuAKE retain
+records duplicate protected associations; on the association-disjoint subset,
+direct retain accuracy is 0.111 percentage points below the base model.
+Measured router activation defines the method's scope: the router abstains on
+all 500 MCF neighborhood prompts, but on RWKU it activates on 90\% of held-out
+probes about protected people that no trained row represents, and on 4.7\% of
+neighbor probes. Intervention is therefore subject-scoped rather than confined
+to the trained associations. Same-subject locality and RWKU generated-answer
+recovery remain limitations. These results support subject-scoped
+retrieval-expression control, not deletion of knowledge from pretrained
+weights; confirmatory multi-seed and multi-model evaluation remains
+outstanding.
+% TODO(kp759): the RWKU activation figures (129/143 held-out, 13/279 neighbor)
+% come from outputs/rwku_fact_assoc_router_v2_seed1_direct. Confirm this is the
+% run behind the RWKU table, or regenerate the table from it.
+\end{abstract}
+
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Problem setting and protected association identity}
+\label{sec:setting}
+
+Let $p_{\theta_0}$ be a pretrained causal language model. We keep $\theta_0$
+fixed, including input embeddings, attention and MLP weights, normalization
+parameters, and the language-model head. A protected association is
+$a_i=(s_i,r_i,o_i)$, where $s_i$ is a subject, $r_i$ is a symbolic relation or
+natural request context, and $o_i$ is the sensitive answer. The goal is to
+reduce expression of $o_i$ on requests concerning $a_i$, while preserving
+permitted behavior. This is a \emph{behavioral} objective for the model with its
+controller attached, not a claim of equivalence to retraining without the
+protected information.
+
+The protected set contains $N$ unique associations, not necessarily $N$ raw
+records or $N$ distinct subjects. MCF uses sampled factual associations from
+Multi-CounterFact. The zsRE adapter uses the direct
+request, subject, and sensitive answer in the MEND evaluation setting MQuAKE identities are normalized
+$(\text{subject},\text{relation\_id},\text{target\_true})$ triples
+duplicate atomic records share a residual. RWKU uses
+$(\text{subject},\text{selected query/context},\text{sensitive answer})$.
+Its Batch-50 adaptation supplies ten selected probes for each of five people,
+and is explicitly \emph{probe-assisted}, unlike native target-only RWKU
+ Source-record identifiers establish provenance but are
+not supplied to the runtime router.
+
+We allocate a zero-initialized bank
+$\bank=[\rowvec_1^\top;\ldots;\rowvec_N^\top]\in\R^{N\times d}$.
+Only these rows receive gradients. Frozen contextual prototypes and threshold
+metadata are additional stored state, not additional trainable parameters.
+In the present Llama-3.2-3B-Instruct experiments, $d=3072$ and $N$ is 50 for
+MCF, zsRE, and RWKU, and 105 for MQuAKE. The corresponding residual parameter
+counts are $Nd=153{,}600$ and $322{,}560$. No vocabulary expansion, private
+fact token, or pretrained-weight modification is introduced.
+
+\subsection{A single intervention at the original request boundary}
+\label{sec:boundary}
+
+Let $x=(x_0,\ldots,x_{b-1})$ be the tokenized, formatted request, and let
+$h_{\ell,t}$ denote the output of transformer block $\ell$ at position $t$,
+before our intervention. Both block and token indices are zero-based. The
+frozen configuration uses $\ell=19$. The router returns
+$\router(x)\in\{1,\ldots,N\}\cup\{\bot\}$, with $\bot$ denoting no selected
+association. Writing $g_i(x)=\ind[\router(x)=i]$, we apply
+\begin{equation}
+ h'_{\ell,t}
+ =h_{\ell,t}+\ind[t=b-1]\sum_{i=1}^{N}g_i(x)\rowvec_i,
+ \qquad \sum_{i=1}^{N}g_i(x)\leq 1.
+ \label{eq:intervention}
+\end{equation}
+The remaining blocks and frozen LM head process the altered representation.
+Only one position is directly changed at the intervention block; downstream
+causal processing can propagate its effect to subsequent positions.
+
+The addressing representation is computed \emph{before} the selected residual
+is added:
+\begin{equation}
+ q(x)=\frac{h_{\ell,b-1}(x)}{\norm{h_{\ell,b-1}(x)}}.
+ \label{eq:query}
+\end{equation}
+Thus the same frozen representation supports addressing throughout row
+optimization. The runtime trigger does not require $o_i$, candidate-answer
+suffixes, or an externally supplied association index.
+
+For a continuation $y$, we write $p_{\theta_0,\bank}(y\mid x;b)$ to make the
+original boundary explicit. Every teacher-forced context uses the same $b$,
+even when answer-prefix tokens have been appended. The uncached reference
+generator likewise recomputes the growing sequence while intervening at
+$b-1$, not at the newest token. Prompt padding is excluded from subject
+eligibility and boundary indexing. Tokenization-specific training adapters
+reconstruct the scored continuation contexts while checking that the original
+request remains the observed prefix. Cached generation is not part of the
+validated reference implementation.
+
+\paragraph{Inactive-path preservation.}
+For deterministic execution with the same tokenization and boundary, router
+abstention makes Equation~\eqref{eq:intervention} the identity. Consequently,
+\begin{equation}
+ \router(x)=\bot
+ \quad\Longrightarrow\quad
+ p_{\theta_0,\bank}(y\mid x;b)=p_{\theta_0}(y\mid x)
+ \label{eq:inactive}
+\end{equation}
+for the fixed-boundary continuation. This is a structural property of the
+inactive path, not a guarantee that the router rejects every permitted
+request. Preservation on routed inputs must be evaluated separately. Removing
+the controller exposes the unchanged base model; the method therefore does
+not establish irreversible weight-level erasure.
+
+\subsection{Router V2: subject eligibility with contextual confirmation}
+\label{sec:router}
+
+\paragraph{Candidate set.}
+Let $\mathcal{S}_i$ contain the permitted tokenized subject surfaces for
+association $i$. We construct
+\begin{equation}
+ \mathcal{C}(x)=\{i:\text{a surface in }\mathcal{S}_i
+                  \text{ occurs in the valid request prefix }x\}.
+ \label{eq:candidates}
+\end{equation}
+Subject occurrence establishes eligibility only. Unlike Router V1, a unique
+eligible subject does not bypass context confirmation. RWKU additionally
+permits a surname surface derived from the supplied public name; this is a
+lexical eligibility rule, not an entity-resolution guarantee.
+
+\paragraph{Frozen prototypes.}
+For each association, positive prompts $\mathcal{X}_i^+$ are drawn only from
+its allowed training-visible requests. The MCF adapter includes its canonical
+rewrite and authored fitting phrasings; the direct-token adapters use their
+registered direct requests. We encode them with Equation~\eqref{eq:query} to
+form $P_i$. Negative prompts first use other protected direct contexts for the
+same subject. Remaining controls are constructed deterministically by
+transplanting the subject into other training-visible prompts. Exact collisions
+with an association's positive prompts are excluded. Up to 12 negative prompts
+are encoded into $N_i$. These controls are intended to distinguish contexts;
+the construction itself does not prove that every synthetic negative is a
+semantically valid different relation. Official paraphrases, locality probes,
+retain records, and utility or adversarial evaluation data do not construct
+these prototype banks.
+
+For normalized query $q$, define
+\begin{align}
+ u_i(q)&=\max_{p\in P_i}\cos(q,p),
+ &v_i(q)&=\max_{n\in N_i}\cos(q,n),\nonumber\\
+ d_i(q)&=u_i(q)-v_i(q).
+ \label{eq:score}
+\end{align}
+The implementation stores an absolute threshold $\alpha_i=-1$, which disables
+absolute-similarity rejection. Qualification therefore depends on the relative
+context score $d_i$, not on a separately tuned positive-cosine floor.
+
+\paragraph{Threshold fitting.}
+Let $d^+_{i,\min}$ be the minimum margin on the positive fitting prompts and
+$d^-_{i,\max}$ the maximum on the negative fitting prompts. The frozen rule is
+\begin{equation}
+ \tau_i=\clip_{[-2,2]}\begin{cases}
+ d^-_{i,\max}+\lambda\bigl(d^+_{i,\min}-d^-_{i,\max}\bigr),
+       &d^-_{i,\max}<d^+_{i,\min},\\
+ d^+_{i,\min}-\sigma,&\text{otherwise},
+ \end{cases}
+ \quad \lambda=0.10,\quad\sigma=0.02.
+ \label{eq:threshold}
+\end{equation}
+The separable-case threshold lies above every observed fitting negative and
+below every observed fitting positive. In the nonseparable case the fallback
+prioritizes positive fitting coverage and can admit negatives. These are
+\emph{in-sample} properties: the current builder reuses prototype-bearing
+prompts for threshold fitting, rather than estimating independent calibration
+error. The 10\% operating point was selected during seed-1 development.
+Confirmatory experiments freeze this rule and its hyperparameters; numerical
+thresholds are constructed from each new bank's allowed fitting data without
+held-out retuning.
+
+\paragraph{Selection and abstention.}
+Let $\mathcal{Q}(x)=\{i\in\mathcal{C}(x):d_i(q(x))\geq\tau_i\}$.
+If $\mathcal{Q}(x)$ is empty, the router returns $\bot$. Otherwise, let $i_1$
+and $i_2$ be the highest- and second-highest-scoring qualifying candidates.
+The selected route is
+\begin{equation}
+ \router(x)=
+ \begin{cases}
+ i_1,&|\mathcal{Q}(x)|=1,\\
+ i_1,&|\mathcal{Q}(x)|>1\ \text{and}\ d_{i_1}-d_{i_2}\geq\mu,\\
+ \bot,&\text{otherwise},
+ \end{cases}
+ \qquad\mu=0.02.
+ \label{eq:selection}
+\end{equation}
+The separation is computed among \emph{qualifying} candidates. An ambiguous
+request receives no residual; this is router abstention, not necessarily a
+verbal refusal by the base model. At most one association is modified per
+request, so simultaneous control of multiple forbidden facts is not guaranteed.
+
+\begin{algorithm}[t]
+\caption{Fixed-boundary inference with Router V2}
+\label{alg:inference}
+\begin{algorithmic}[1]
+\Require Frozen model $\theta_0$, bank $\bank$, frozen prototypes and thresholds,
+formatted request $x$, maximum continuation length $T$
+\State $b\gets |x|$; $z\gets x$
+\For{$k=1,\ldots,T$}
+    \State Run frozen blocks through block $\ell$ on $z$ without a KV cache
+    \State Read $q\gets\operatorname{normalize}(h_{\ell,b-1})$ before intervention
+    \State Compute $\mathcal{C}(x)$ from request tokens only
+    \State Select $i\gets\router(x)$ using Equations~\eqref{eq:score}--\eqref{eq:selection}
+    \If{$i\neq\bot$}
+        \State $h_{\ell,b-1}\gets h_{\ell,b-1}+\rowvec_i$
+    \EndIf
+    \State Run the remaining frozen blocks and LM head
+    \State Append the greedy next token to $z$
+    \If{the configured stopping token is generated}
+        \State \textbf{break}
+    \EndIf
+\EndFor
+\State \Return the continuation $z_{b:}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Row-wise sensitive-answer suppression}
+\label{sec:optimization}
+
+\paragraph{Direct-token objective.}
+For zsRE, MQuAKE, and the RWKU direct stage, let
+$\mathcal{T}_i=\{(c_{ijt},b_{ij},y_{ijt})\}$ contain the allowed teacher-forced
+contexts for association $i$. The context $c_{ijt}$ is reconstructed by the
+dataset adapter for answer token $t$ of fitting request $j$, while $b_{ij}$
+remains the original request boundary. Define
+\begin{align}
+ \ell_{ijt}(\rowvec_i)
+ &=-\log p_{\theta_0,\bank}(y_{ijt}\mid c_{ijt};b_{ij}),\nonumber\\
+ Q_i^{\mathrm{tok}}(\rowvec_i)
+ &=\max_{j,t}\exp(-\ell_{ijt}(\rowvec_i)),\nonumber\\
+ L_i^{\mathrm{tok}}
+ &=\relu{A-\min_{j,t}\ell_{ijt}(\rowvec_i)},
+ \qquad A=-\log\eps,\quad\eps=10^{-6}.
+ \label{eq:tokenloss}
+\end{align}
+The gradient targets the currently most probable sensitive token. This is
+stronger than requiring only one answer token to cease being top-1. Feasibility
+is checked using the strict condition $Q_i^{\mathrm{tok}}<\eps$; a zero hinge
+at equality is not reported as satisfying that strict condition. Feasible rows
+are skipped in these direct-only trainers. No counterfactual answer or
+abstention completion is optimized in those three direct stages.
+
+\paragraph{MCF objective and abstention phase.}
+MCF retains its existing worst-phrasing, mean-token-NLL objective. For a fitting
+view $j$ with $m_{ij}$ scored answer tokens,
+\begin{equation}
+ \bar\ell_{ij}=\frac{1}{m_{ij}}\sum_t\ell_{ijt},\qquad
+ Q_i^{\mathrm{geo}}=\max_j e^{-\bar\ell_{ij}},\qquad
+ L_i^{\mathrm{geo}}=\relu{A-\min_j\bar\ell_{ij}}.
+ \label{eq:mcfloss}
+\end{equation}
+Here $e^{-\bar\ell}$ is a geometric-mean token probability, not the largest
+constituent-token probability or the full-answer probability. Before a row
+satisfies $Q_i^{\mathrm{geo}}<\eps$, proposals follow the suppression loss.
+Afterward, the phase-lexicographic trainer minimizes the mean NLL of the
+ordinary completion ``I don't know.'' while maintaining the suppression
+constraint. The abstention weight is 1.0. This secondary completion supplies an abstention preference rather than
+counterfactual factual supervision. The direct-token adapters omit this phase.
+
+\paragraph{Proposals and acceptance.}
+Each row has a separate Adam optimizer with learning
+rate 0.05. Only the selected row is updated at a row step, and its gradient
+norm is clipped to 1.0. Let $\xi_i$ be the displacement proposed by Adam and
+$Q_i$ the adapter's current worst-case probability score. We rescale
+\begin{equation}
+ \tilde\xi_i=\xi_i\min\left\{1,\frac{r(Q_i)}{\max(\norm{\xi_i},10^{-30})}\right\},
+ \qquad
+ \rowvec_i^{(k)}=\rowvec_i+2^{-k}\tilde\xi_i,\quad k=0,\ldots,12.
+ \label{eq:backtrack}
+\end{equation}
+The radius is 1.00, 0.35, 0.08, or 0.02 as the current probability decreases
+through the $10^{-3}$, $10^{-5}$, and $10^{-6}$ breakpoints; exact boundary
+conventions are specified in Appendix~\ref{app:settings}. This is a bound on
+the \emph{step}, not on the accumulated residual norm.
+
+Candidates are rescored through the complete edited model. The direct-token
+trainers accept a strict decrease in $Q_i^{\mathrm{tok}}$ and select the best
+acceptable backtracking candidate. MCF uses lexicographic candidate ordering:
+$(Q_i^{\mathrm{geo}},L_i^{\mathrm{abst}})$ before feasibility and
+$(L_i^{\mathrm{abst}},Q_i^{\mathrm{geo}})$ afterward, disallowing violation of a
+locked suppression constraint. If no candidate is accepted, both the row and
+its optimizer state are restored. These checks constrain sensitive-answer
+behavior on finite fitting contexts; they impose neither a retained-output KL
+budget nor a universal locality guarantee.
+
+Rows are visited in seeded shuffled sweeps. The nominal budget is 30 attempted
+updates per unique association, subject to the recorded wall-time and stall
+limits. Checkpoint evaluations occur at complete sweeps. The direct-token
+trainers select the smallest maximum training-token probability. MCF selects
+using its train/development worst-view feasibility and secondary abstention
+score; authored development prompts supply no gradients or prototype fitting,
+but do influence checkpoint selection. All trainers restore the selected
+checkpoint. Budget termination, zero measured accuracy, and satisfaction of
+$\eps$ are reported as distinct outcomes.
+
+\subsection{Evaluation contract and association-aware locality}
+\label{sec:evaluation}
+
+The current evidence consists of a single development seed on one pretrained
+model, with separately trained banks for four benchmark adapters. It does not
+constitute transfer of one trained bank across datasets or model families.
+Training uses float32; final evaluation uses the recorded deployment precision,
+with base and edited models matched in tokenizer and scoring protocol. The
+completed snapshot does not include Router V2 rollout hardening or confirmatory
+multi-model runs.
+
+\paragraph{Noninterchangeable forgetting metrics.}
+For MCF, complete-answer probability is
+\begin{equation}
+ P_{\theta_0,\bank}(o_i\mid x;b)
+ =\exp\!\left(-\sum_{t=1}^{m_i}\ell_{it}\right).
+ \label{eq:sequenceprob}
+\end{equation}
+The reported Eff and Gen are 100 times its mean on canonical and paraphrased
+requests, respectively, averaging phrasings within each case before averaging
+cases. EOS is not added to the scored answer. Neighborhood Spe is all-answer-token
+teacher-forced top-1 accuracy. We retain token-geometric likelihood,
+all-token correctness, and true-versus-counterfactual preference as separate
+diagnostics. A display-zero check requires unrounded Eff and Gen below
+$0.005\%$ and zero all-token sensitive-answer accuracy; it does not claim
+mathematically zero probability.
+
+The zsRE adapter instead reports case-macro sensitive-token top-1 accuracy
+for rewrites and rephrases. MQuAKE reports direct atomic sensitive-token
+accuracy and a separate held-out atomic-question score, AtomicGen; neither is
+a multi-hop guarantee. RWKU reports generated-answer recovery and ROUGE-L,
+alongside teacher-forced sensitive-token accuracy, for same-50, held-out,
+paraphrase, adversarial, and neighbor groups. These scores cannot be pooled as
+though Eff or Gen had one definition across all four datasets. The RWKU
+snapshot is direct-stage only, and its zero sensitive-token accuracy coexists
+with nonzero generated-answer recovery.
+
+\paragraph{Overlap-stratified retain evaluation.}
+Let $\mathcal{F}$ be the set of normalized protected atomic identities and
+$\mathcal{R}_{\mathrm{raw}}$ the nominal retain records. We identify
+\begin{equation}
+ \mathcal{R}_{\cap}
+ =\{r\in\mathcal{R}_{\mathrm{raw}}:a(r)\in\mathcal{F}\},\qquad
+ \mathcal{R}_{\setminus}
+ =\mathcal{R}_{\mathrm{raw}}\setminus\mathcal{R}_{\cap}.
+ \label{eq:overlap}
+\end{equation}
+MQuAKE source-instance disjointness does not establish atomic-association
+disjointness. We therefore report the unchanged overall benchmark retain
+score \emph{and} an association-disjoint diagnostic. Within
+$\mathcal{R}_{\setminus}$, we separate same-subject/different-relation records
+from subject-disjoint records. Metadata-level subject disjointness does not
+exclude lexical overlap in a prompt. Exact protected overlaps are reported,
+not silently removed from the official score; the stratification is an
+analysis of what that score measures, not a replacement benchmark.
+
+The development audit finds 240 exact protected overlaps among 1,594 nominal
+retain atomic records, leaving 1,354 association-disjoint records. Of these,
+81 share a protected subject but have another relation, and 1,273 are
+subject-disjoint. This decomposition is especially important when interpreting
+activation rates: intervention on an exact protected association is consistent
+with the specified suppression target, whereas permitted same-subject
+relations provide a harder locality test. The overlap audit was performed
+after observing development results and must be labeled accordingly.
+
+\paragraph{Utility and route diagnostics.}
+A conventional whole-sequence PPL call can miss a last-position-only edit
+because its final logits do not predict an observed token. We therefore also
+score each target from its observed prefix, with the boundary at the position
+predicting that target, normalizing by the actual number of scored targets.
+This is explicitly a \emph{prefix-reset next-token} measurement, not the same
+boundary schedule as a multi-token response to one fixed request. The present
+99-target WikiData fixture has zero route activity; equal PPL there supports
+inactive-path preservation only. For generated answers we retain the
+fixed-boundary schedule of Algorithm~\ref{alg:inference}. Route activation,
+correct association selection, suppression, and retained behavior are distinct
+measurements; none substitutes for the others.
+
+\paragraph{Measured activation scope.}
+Route activation is reported directly rather than inferred from unchanged
+utility scores, because an identical Spe or PPL across methods is equally
+consistent with a local residual and with a router that never fires. On MCF,
+Router~V2 activates on 0 of 500 neighborhood and 0 of 1,000 retain prompts
+(95\% Wilson upper bounds 0.76\% and 0.38\%) and selects the correct
+association on 147 of 150 rewrite and paraphrase prompts, so its neighborhood
+Spe is the inactive path of Equation~\eqref{eq:inactive} by measurement rather
+than by assumption. RWKU differs. Its held-out Level-1, Level-2 and paraphrase
+probes concern the protected people but are content-disjoint from the trained
+probes, so no residual row represents them. Router~V2 nonetheless activates on
+129 of 143 of these probes (90.2\%, 95\% CI 84.2--94.1\%), in each case routing
+to a trained row of the same person, and on 13 of 279 neighbor probes (4.7\%,
+95\% CI 2.7--7.8\%). Subject eligibility followed by context confirmation
+therefore scopes intervention to the protected subject rather than to the
+individual trained association. A decomposition that supplies the ground-truth
+row separates routing from actuation on the trained associations: on the
+RWKU same-50 probes, Router~V2 and ground-truth routing yield identical
+generated-answer recovery, so the residual recovery there is an actuation
+effect.
+% TODO(kp759): add MQuAKE activation on the 81 same-subject/different-relation
+% retain records; it is the same question on a second benchmark.
+
+\subsection{Claim scope and frozen configuration}
+\label{sec:claims}
+
+The method separates natural-input addressing from a small trainable actuator.
+It neither locates exclusive storage of a fact nor removes information from
+$\theta_0$. Literal subject eligibility limits alias and coreference coverage;
+prototype controls do not certify semantic scope; ambiguous or unmatched
+forbidden requests can fall back to a knowledgeable base model. Single-route
+selection also does not establish selective handling of mixed multi-fact
+requests. In particular, the router must not be read as intervening only on
+the associations represented by trained rows: on RWKU it activates on most
+held-out requests about a protected person
+(Section~\ref{sec:evaluation}). Whether suppression of those unlisted facts
+reflects subject-conditioned transfer or generic disruption of generation is
+tested separately, by giving the same held-out probes an equal number of
+residual rows trained on other people's facts.
+% TODO(kp759): insert the cross-person best-of-K control result here. Until it
+% reports, do not describe held-out RWKU suppression as transfer.
+The current results must therefore be interpreted as subject-scoped
+retrieval-expression control under the stated interface.
+
+The development snapshot fixes block 19, the contextual threshold rule,
+negative-control count, ambiguity margin, optimizer, and step-radius schedule
+before confirmatory evaluation. MCF/zsRE/MQuAKE sampling seeds and RWKU's
+deterministic five-person windows are different replication units and should
+be reported separately. The numerical development evidence supporting the
+abstract\ifincludedevelopmentevidence
+ is retained in Appendix~\ref{app:evidence} and\fi
+ does not stand in for the planned seeds 1--10 or additional model families.
+
+
+\appendix
+\section{Implementation settings}
+\label{app:settings}
+
+All entries below describe the frozen development configuration, not a
+hyperparameter search result or an optimality claim. The residual bank starts
+at zero. Contextual prototypes are frozen after construction, and the
+absolute-similarity floor is disabled. With $\alpha=-1$, only the relative context
+score and ambiguity separation reject subject-eligible requests.
+
+\begin{table}[ht]
+\centering
+\caption{Frozen row-training budgets. An update denotes a row-step opportunity,
+not a full-bank update; feasible rows may be skipped.}
+\label{tab:budgets}
+\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Adapter & Raw records & Rows & Nominal steps & Time cap (s) & Max length\\
+\midrule
+MCF & 50 & 50 & 1,500 & 3,600 & 512\\
+zsRE & 50 & 50 & 1,500 & 3,600 & 512\\
+MQuAKE & 127 atomic & 105 & 3,150 & 7,200 & 512\\
+RWKU & 50 probes & 50 & 1,500 & 7,200 & 4,096\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The optimizer uses Adam at learning rate 0.05, gradient clipping at 1.0,
+12 halvings of the initial proposal, and a stall limit of 150 rejected row
+steps. The radius helper checks breakpoints with strict greater-than
+comparisons. Its executable convention is
+\begin{equation}
+ r(Q)=\begin{cases}
+ 1.00,&Q>10^{-3},\\
+ 0.35,&10^{-5}<Q\leq10^{-3},\\
+ 0.08,&10^{-6}<Q\leq10^{-5},\\
+ 0.02,&Q\leq10^{-6}.
+ \end{cases}
+ \label{eq:radius}
+\end{equation}
+% Author review: the snapshot table writes >= at the upper breakpoints;
+% The radius equation follows radius_for_probability() in the pinned source.
+Router V2 uses up to 12 negative controls, $\lambda=0.10$,
+$\sigma=0.02$, and $\mu=0.02$. MCF additionally retains a 0.90 authored-development
+route-recall preflight floor and two post-feasibility checkpoint
+checks. MCF's legacy gate-slack configuration field of 0.04 is not the
+context-margin slack $\sigma$.
+
+\ifincludedevelopmentevidence
+\section{Development evidence supporting the abstract}
+\label{app:evidence}
+
+These are reported seed-1 results from the frozen research snapshot, not
+independently reproduced measurements. Router V2 was selected during this
+development cycle. No multi-seed uncertainty, multi-model result, or superiority
+over external unlearning baselines is claimed here. 
+
+
+
+
+
+
+\begin{table}[t]
+\centering
+\small
+\caption{MCF seed-1 development results on Llama-3.2-3B-Instruct.
+Eff and Gen are complete sensitive-answer probabilities (percent) on rewrite
+and paraphrase requests. Spe is neighborhood all-answer-token teacher-forced
+accuracy (percent). PPL is the prefix-reset next-token measurement.}
+\label{tab:mcf-seed1-eff-gen-spe-ppl}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Method & Eff $\downarrow$ & Gen $\downarrow$ & Spe $\uparrow$ & PPL $\downarrow$ \\
+\midrule
+Frozen base & 12.266065 & 7.766598 & 20.400000 & 11.312981 \\
+Router V1   & 0.000066955 & 0.000230665 & 20.400000 & 11.312981 \\
+Router V2   & 0.000178522 & 0.000595133 & 20.400000 & 11.312981 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\small
+\caption{zsRE seed-1 development results on Llama-3.2-3B-Instruct.
+Eff and Gen are sensitive-answer-token teacher-forced top-1 accuracy (percent)
+on direct and rephrased requests. Spe is locality-token accuracy (percent).
+}
+\label{tab:zsre-seed1-eff-gen-spe-ppl}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Method & Eff $\downarrow$ & Gen $\downarrow$ & Spe $\uparrow$ & PPL $\downarrow$ \\
+\midrule
+Frozen base & 29.966667 & 27.900000 & 32.323179 & 11.312981 \\
+Router V1   & 0.000000 & 0.000000 & 32.323179 & 11.312981 \\
+Router V2   & 0.000000 & 0.000000 & 32.323179 & 11.312981 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\small
+\caption{MQuAKE seed-1 development results on Llama-3.2-3B-Instruct.
+Eff is direct atomic sensitive-token accuracy (percent).
+The Gen column denotes the reported AtomicGen extension: held-out
+atomic-question sensitive-token accuracy (percent), not multi-hop accuracy.
+No separate Spe score is defined in the supplied result contract; a dash means
+not reported, not zero. Overall and association-disjoint retain scores remain
+separate analyses and must not be substituted for Spe.}
+\label{tab:mquake-seed1-eff-gen-spe-ppl}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Method & Eff $\downarrow$ & Gen$^{\dagger}$ $\downarrow$ & Spe & PPL $\downarrow$ \\
+\midrule
+Frozen base & 73.063367 & 50.189351 & --- & 11.312981 \\
+Router V1   & 0.000000 & 1.771654 & --- & 11.312981 \\
+Router V2   & 0.000000 & 2.952756 & --- & 11.312981 \\
+\bottomrule
+\end{tabular}
+\par\smallskip
+\begin{minipage}{0.98\linewidth}
+\footnotesize $^{\dagger}$Gen = AtomicGen; this is not a native multi-hop result.
+\end{minipage}
+\end{table}
+
+\begin{table}[t]
+\centering
+\small
+\caption{RWKU probe-assisted Batch-50 seed-1 development results on
+Llama-3.2-3B-Instruct, direct stage only. To provide the requested column layout,
+Eff denotes same-50 generated-answer recovery; Gen denotes held-out Level-2
+paraphrase recovery; Spe denotes neighbor recovery. All three are percentages.
+These are explicitly mapped RWKU measures, not the MCF metric definitions.
+No rollout-hardened checkpoint is included.}
+\label{tab:rwku-seed1-eff-gen-spe-ppl}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Method & Eff$^{\ddagger}$ $\downarrow$ & Gen$^{\ddagger}$ $\downarrow$ & Spe$^{\ddagger}$ $\uparrow$ & PPL $\downarrow$ \\
+\midrule
+Frozen base & 60.000000 & 62.000000 & 69.175630 & 11.312981 \\
+Router V1   & 10.000000 & 44.000000 & 65.591398 & 11.312981 \\
+Router V2   & 10.000000 & 44.000000 & 65.591398 & 11.312981 \\
+\bottomrule
+\end{tabular}
+\par\smallskip
+\begin{minipage}{0.98\linewidth}
+\footnotesize $^{\ddagger}$Eff = same-50 recovery; Gen = held-out Level-2
+paraphrase recovery; Spe = neighbor recovery. The other held-out levels and
+Level-3 adversarial recovery are not replaced by this three-column summary.
+\end{minipage}
+\end{table}
+
+
+\end{document}

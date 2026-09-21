@@ -1,0 +1,86 @@
+--- method_original.tex	2026-09-21 17:24:57.684876788 -0400
++++ method.tex	2026-09-21 17:25:35.726321166 -0400
+@@ -41,9 +41,9 @@
+ \lhead{Under review as a conference paper at ICLR 2027}
+ 
+ \begin{abstract}
+-Selective behavioral unlearning requires suppressing a designated factual
+-association without indiscriminately changing every request that mentions its
+-subject. We present sparse, fact-addressed residual interventions in a frozen
++Behavioral unlearning of designated factual associations should suppress those
++associations while leaving requests about other entities on the base-model
++path. We present sparse, fact-addressed residual interventions in a frozen
+ language model. Each unique protected association receives one trainable
+ residual vector, while a frozen subject-and-context router selects at most one
+ vector from the natural request. Positive and negative contextual prototypes
+@@ -60,10 +60,18 @@
+ An association-level audit reveals that 240 of 1,594 nominal MQuAKE retain
+ records duplicate protected associations; on the association-disjoint subset,
+ direct retain accuracy is 0.111 percentage points below the base model.
+-Same-subject paraphrase locality and RWKU generated-answer recovery remain
+-limitations. These results support selective retrieval-expression control,
+-not deletion of knowledge from pretrained weights; confirmatory multi-seed
+-and multi-model evaluation remains outstanding.
++Measured router activation defines the method's scope: the router abstains on
++all 500 MCF neighborhood prompts, but on RWKU it activates on 90\% of held-out
++probes about protected people that no trained row represents, and on 4.7\% of
++neighbor probes. Intervention is therefore subject-scoped rather than confined
++to the trained associations. Same-subject locality and RWKU generated-answer
++recovery remain limitations. These results support subject-scoped
++retrieval-expression control, not deletion of knowledge from pretrained
++weights; confirmatory multi-seed and multi-model evaluation remains
++outstanding.
++% TODO(kp759): the RWKU activation figures (129/143 held-out, 13/279 neighbor)
++% come from outputs/rwku_fact_assoc_router_v2_seed1_direct. Confirm this is the
++% run behind the RWKU table, or regenerate the table from it.
+ \end{abstract}
+ 
+ \section{Methodology}
+@@ -423,6 +431,29 @@
+ correct association selection, suppression, and retained behavior are distinct
+ measurements; none substitutes for the others.
+ 
++\paragraph{Measured activation scope.}
++Route activation is reported directly rather than inferred from unchanged
++utility scores, because an identical Spe or PPL across methods is equally
++consistent with a local residual and with a router that never fires. On MCF,
++Router~V2 activates on 0 of 500 neighborhood and 0 of 1,000 retain prompts
++(95\% Wilson upper bounds 0.76\% and 0.38\%) and selects the correct
++association on 147 of 150 rewrite and paraphrase prompts, so its neighborhood
++Spe is the inactive path of Equation~\eqref{eq:inactive} by measurement rather
++than by assumption. RWKU differs. Its held-out Level-1, Level-2 and paraphrase
++probes concern the protected people but are content-disjoint from the trained
++probes, so no residual row represents them. Router~V2 nonetheless activates on
++129 of 143 of these probes (90.2\%, 95\% CI 84.2--94.1\%), in each case routing
++to a trained row of the same person, and on 13 of 279 neighbor probes (4.7\%,
++95\% CI 2.7--7.8\%). Subject eligibility followed by context confirmation
++therefore scopes intervention to the protected subject rather than to the
++individual trained association. A decomposition that supplies the ground-truth
++row separates routing from actuation on the trained associations: on the
++RWKU same-50 probes, Router~V2 and ground-truth routing yield identical
++generated-answer recovery, so the residual recovery there is an actuation
++effect.
++% TODO(kp759): add MQuAKE activation on the 81 same-subject/different-relation
++% retain records; it is the same question on a second benchmark.
++
+ \subsection{Claim scope and frozen configuration}
+ \label{sec:claims}
+ 
+@@ -432,7 +463,16 @@
+ prototype controls do not certify semantic scope; ambiguous or unmatched
+ forbidden requests can fall back to a knowledgeable base model. Single-route
+ selection also does not establish selective handling of mixed multi-fact
+-requests. The current results must therefore be interpreted as selective
++requests. In particular, the router must not be read as intervening only on
++the associations represented by trained rows: on RWKU it activates on most
++held-out requests about a protected person
++(Section~\ref{sec:evaluation}). Whether suppression of those unlisted facts
++reflects subject-conditioned transfer or generic disruption of generation is
++tested separately, by giving the same held-out probes an equal number of
++residual rows trained on other people's facts.
++% TODO(kp759): insert the cross-person best-of-K control result here. Until it
++% reports, do not describe held-out RWKU suppression as transfer.
++The current results must therefore be interpreted as subject-scoped
+ retrieval-expression control under the stated interface.
+ 
+ The development snapshot fixes block 19, the contextual threshold rule,
