@@ -321,10 +321,40 @@ class RandomRouterBank(_RoutingBankBase):
         return eligible[draw]
 
 
+class ForcedRowBank(_RoutingBankBase):
+    """Route to whatever row the caller sets, independent of the prompt.
+
+    `forced_row` is None (abstain), an int (every prompt in the batch), or a
+    list with one entry per batch row. This is the primitive behind genies
+    whose ground truth is not a single prompt->row mapping -- for example the
+    RWKU subject genie, which tries each of a person's trained rows on a
+    held-out probe that has no row of its own and keeps the best one. A prompt
+    hash table cannot express "try row k" without colliding.
+    """
+
+    policy = "forced_row"
+
+    def __init__(self, base_model, layer, rows, subject_patterns, facts):
+        super().__init__(base_model, layer, rows, subject_patterns, facts)
+        self.forced_row = None
+
+    def select(self, batch_index, prompt_tokens):
+        forced = self.forced_row
+        if isinstance(forced, (list, tuple)):
+            forced = forced[batch_index]
+        if forced is None:
+            return None
+        forced = int(forced)
+        if not 0 <= forced < len(self.facts):
+            raise IndexError(f"Forced row {forced} outside the bank")
+        return forced
+
+
 ARMS = {
     "oracle": OracleAssociationBank,
     "subject_only": SubjectOnlyAssociationBank,
     "random": RandomRouterBank,
+    "forced": ForcedRowBank,
 }
 
 
