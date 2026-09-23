@@ -143,6 +143,9 @@ def evaluate_row(model, bank, tokenizer, row, max_new_tokens, score=True):
     }
     if "paraphrase_index" in row:
         item["paraphrase_index"] = row["paraphrase_index"]
+        item["paraphrase_of_source_record_sha256"] = str(
+            row["paraphrase_of_source_record_sha256"]
+        )
         item["paraphrase_method"] = row.get("paraphrase_method")
         item["original_query"] = row.get("original_query")
     if score:
