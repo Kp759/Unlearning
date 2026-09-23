@@ -1,0 +1,696 @@
+From fcfda90d2ec8ec2c7fcc43b17f3a09cf9afb34db Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 23 Sep 2026 15:23:38 -0400
+Subject: [PATCH] Add RWKU reworded-trained-probe evaluation and held-out
+ answer-overlap audit
+
+The paper's Gen columns measure two different things. MCF paraphrases, zsRE
+rephrases and MQuAKE AtomicGen (the natural-language question of the same
+atomic rewrite; training uses the cloze prompt) are unseen wordings of the
+trained associations. RWKU's Gen is held-out probes about other facts of the
+same person: a same-entity scope axis. This adds the like-for-like RWKU
+column and an audit of how disjoint the held-out facts really are.
+
+build_rwku_same50_paraphrases.py
+  Rewords the 50 trained RWKU probes. The same-50 are 8 Level-1 cloze and 2
+  Level-2 questions per person, and paraphrase_query only rewrites questions:
+  on a cloze sentence it wraps the original verbatim, which would leave 40 of
+  50 probes unchanged. Level-2 therefore uses paraphrase_query exactly as the
+  official held-out paraphrases do; Level-1 is rewritten by a local
+  open-weights model (probe_set_backends.LocalBackend, greedy, refuses the
+  evaluated model). Candidates must differ from the original, keep a subject
+  surface V2 accepts, keep exactly one blank (restored to the original blank
+  string), and not contain the answer; rejects are kept with reasons. Output
+  is frozen JSON with a sha256 sidecar and paraphrase_of_source_record_sha256
+  for mapping back to trained rows.
+
+evaluate_rwku_router_decomposition.py
+  --same50-paraphrases adds a same50_paraphrase group with ground-truth rows;
+  genie_exact and routing attribution now cover it, and the decomposition
+  reports its base/V2/genie recovery, correct-route fraction and the
+  rewording gap. Held-out groups are stratified by whether their answer
+  matches a trained answer of the same person (exact, or whole-word
+  containment of >= 3 characters): RWKU's split enforces exact-content
+  disjointness, not fact disjointness, so a held-out question can ask for the
+  same fact as a trained cloze probe. --analyze-rows computes that split from
+  an existing rows file on CPU with no model. --run-dir is now optional only
+  in that mode.
+
+Tested on synthetic inputs: matcher cases (exact, contained, and a
+substring that is not a whole word), the CPU analyzer end to end, and every
+validator rejection path.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01KxT94fEPb8kPX4xFb7nSEW
+---
+ .../scripts/build_rwku_same50_paraphrases.py  | 310 ++++++++++++++++++
+ .../evaluate_rwku_router_decomposition.py     | 233 ++++++++++++-
+ 2 files changed, 533 insertions(+), 10 deletions(-)
+ create mode 100644 semantic-unlearning/scripts/build_rwku_same50_paraphrases.py
+
+diff --git a/semantic-unlearning/scripts/build_rwku_same50_paraphrases.py b/semantic-unlearning/scripts/build_rwku_same50_paraphrases.py
+new file mode 100644
+index 0000000..4416adb
+--- /dev/null
++++ b/semantic-unlearning/scripts/build_rwku_same50_paraphrases.py
+@@ -0,0 +1,310 @@
++#!/usr/bin/env python3
++"""Reworded versions of the 50 trained RWKU probes: the missing Gen column.
++
++Every other benchmark's Gen column measures the TRAINED associations under
++wording the router and residuals never saw: MCF official paraphrases, zsRE
++rephrases, and MQuAKE AtomicGen (the natural-language question of the same
++atomic rewrite, whose training uses the cloze prompt). RWKU's column instead
++reports held-out probes, which ask about other facts of the same person. That
++is a different axis -- how far intervention reaches beyond the trained
++associations -- and reporting it as Gen makes RWKU look like weak forgetting
++next to benchmarks measuring something else.
++
++This script builds the like-for-like set: each of the 50 trained probes,
++reworded, same fact, same answer, same person.
++
++  Level-2 questions (2 per person)
++      The deterministic `paraphrase_query` that built RWKU's official
++      held-out paraphrase set, so the rewording is exactly comparable. A
++      question the rule cannot rewrite falls back to wrapping the original
++      verbatim; those are flagged and excluded, since an unchanged question is
++      not a paraphrase.
++
++  Level-1 fill-in-the-blank (8 per person)
++      `paraphrase_query` has no rule for cloze sentences and would wrap 40 of
++      the 50 probes unchanged, so these are rewritten by a local open-weights
++      model (probe_set_backends.LocalBackend) with greedy decoding, then
++      frozen. The generator is told the answer so the rewrite asks for the
++      same fact; the evaluated model never sees it.
++
++Every candidate must pass, or it is dropped and the reason recorded:
++  - different from the original after normalization
++  - contains a subject surface V2 accepts (full name or surname), so the test
++    changes wording without also removing the lexical cue -- matching MCF,
++    whose official paraphrases name the subject
++  - does not contain the answer
++  - Level-1: exactly one blank, rewritten to the original's blank string
++
++Output is JSON {manifest, rows} with a .sha256 sidecar. Rows keep every
++original field, replace `query`, and add `paraphrase_of_source_record_sha256`
++so evaluation can map each rewrite to its trained residual row. The frozen
++file, not this script, is what the paper cites.
++
++Usage
++-----
++python -u scripts/build_rwku_same50_paraphrases.py \
++  --run-dir outputs/rwku_fact_assoc_router_v2_seed1_direct --data-root data/rwku \
++  --output outputs/rwku_fact_assoc_router_v2_seed1_direct/same50_paraphrases.json \
++  --l1-backend local --generator-model /path/to/Qwen2.5-14B-Instruct \
++  --per-probe 2 --local-files-only --no-download
++"""
++from __future__ import annotations
++
++import argparse
++import hashlib
++import json
++from pathlib import Path
++import re
++
++
++BLANK = re.compile(r"_{2,}")
++FALLBACK_PREFIX = "in different words, provide the answer to this question"
++
++L1_TEMPLATE = """Rewrite the following fill-in-the-blank sentence about {subject}.
++The rewritten sentence must ask for exactly the same missing fact. The missing
++answer is "{answer}".
++
++Rules:
++- Use clearly different wording and sentence structure.
++- Keep the name "{subject}" exactly as written.
++- Keep exactly one blank, written as ___, where the answer goes.
++- Do not write the answer or any part of it anywhere in the sentence.
++
++Sentence: {query}
++
++Output exactly {n} lines, numbered 1 to {n}, one rewritten sentence per line.
++No preamble, no commentary, no blank lines."""
++
++L2_TEMPLATE = """Rewrite the following question about {subject} so it asks for exactly the
++same fact. The answer is "{answer}".
++
++Rules:
++- Use clearly different wording and sentence structure.
++- Keep the name "{subject}" exactly as written.
++- It must remain a question.
++- Do not write the answer or any part of it.
++
++Question: {query}
++
++Output exactly {n} lines, numbered 1 to {n}, one rewritten question per line.
++No preamble, no commentary, no blank lines."""
++
++
++def template_hash():
++    return hashlib.sha256(
++        json.dumps({"l1": L1_TEMPLATE, "l2": L2_TEMPLATE}, sort_keys=True).encode()
++    ).hexdigest()
++
++
++def validate(candidate, row, surfaces, normalize):
++    """Return (accepted_text, None) or (None, reason)."""
++    text = " ".join(str(candidate).split()).strip().strip('"').strip("'").strip()
++    original = str(row["query"])
++    if not text:
++        return None, "empty"
++    if normalize(text) == normalize(original):
++        return None, "identical_to_original"
++    if text.lower().startswith(FALLBACK_PREFIX):
++        return None, "fallback_wrapper_not_a_paraphrase"
++    lowered = text.lower()
++    if not any(surface.lower() in lowered for surface in surfaces):
++        return None, "subject_surface_missing"
++    answer = normalize(str(row["answer"]))
++    if answer and answer in normalize(text):
++        return None, "answer_leaked"
++    if str(row.get("level")) == "1":
++        original_blanks = BLANK.findall(original)
++        found = BLANK.findall(text)
++        if len(found) != 1:
++            return None, f"blank_count_{len(found)}"
++        if original_blanks:
++            text = BLANK.sub(original_blanks[0], text)
++    return text, None
++
++
++def build_rows(rows, paraphrases_by_index, method_by_index):
++    out = []
++    for index, row in enumerate(rows):
++        for position, text in enumerate(paraphrases_by_index.get(index, [])):
++            value = dict(row)
++            value["original_query"] = str(row["query"])
++            value["query"] = text
++            value["paraphrase_of_source_record_sha256"] = str(row["source_record_sha256"])
++            value["paraphrase_method"] = method_by_index[index]
++            value["paraphrase_index"] = position
++            value["batch50_role"] = "same50_reworded"
++            out.append(value)
++    return out
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--run-dir", required=True)
++    parser.add_argument("--data-root", default="data/rwku")
++    parser.add_argument("--output", required=True)
++    parser.add_argument("--l1-backend", choices=("local", "none"), default="local")
++    parser.add_argument(
++        "--l2-backend", choices=("deterministic", "local"), default="deterministic",
++        help="deterministic reuses the rule that built RWKU's official held-out paraphrases",
++    )
++    parser.add_argument("--generator-model", default="")
++    parser.add_argument("--allow-same-model", action="store_true")
++    parser.add_argument("--per-probe", type=int, default=2)
++    parser.add_argument("--temperature", type=float, default=0.0)
++    parser.add_argument("--seed", type=int, default=0)
++    parser.add_argument("--generator-device", default="cuda")
++    parser.add_argument("--generator-dtype", default="bfloat16")
++    parser.add_argument("--generator-batch-size", type=int, default=4)
++    parser.add_argument("--max-new-tokens", type=int, default=256)
++    parser.add_argument("--local-files-only", action="store_true")
++    parser.add_argument("--no-download", action="store_true")
++    parser.add_argument("--dry-run", action="store_true")
++    args = parser.parse_args(argv)
++
++    import rwku_eval as rwku
++    from rwku_batch50 import build_batch_split
++    from rwku_data import paraphrase_query
++    from rwku_fact_association_embeddings import rwku_subject_surfaces
++
++    run_dir = Path(args.run_dir).resolve()
++    manifest = json.loads((run_dir / "association_manifest.json").read_text())
++    split = build_batch_split(
++        data_root=Path(args.data_root).resolve(), batch_seed=1,
++        allow_download=not args.no_download,
++    )
++    rows = list(split["efficacy_forget"])
++    if len(rows) != 50:
++        raise SystemExit(f"Expected the 50 trained probes, found {len(rows)}")
++
++    levels = {"1": [], "2": []}
++    for index, row in enumerate(rows):
++        levels.setdefault(str(row.get("level")), []).append(index)
++    surfaces = {i: rwku_subject_surfaces(str(r["subject"])) for i, r in enumerate(rows)}
++
++    llm_requests = []
++    for index, row in enumerate(rows):
++        level = str(row.get("level"))
++        use_llm = (level == "1" and args.l1_backend == "local") or (
++            level == "2" and args.l2_backend == "local"
++        )
++        if use_llm:
++            template = L1_TEMPLATE if level == "1" else L2_TEMPLATE
++            llm_requests.append((index, template.format(
++                subject=row["subject"], answer=row["answer"],
++                query=row["query"], n=args.per_probe,
++            )))
++
++    output = Path(args.output)
++    output.parent.mkdir(parents=True, exist_ok=True)
++    if args.dry_run:
++        payload = [{"index": i, "level": rows[i].get("level"), "prompt": p} for i, p in llm_requests]
++        path = output.with_suffix(".dryrun.json")
++        path.write_text(json.dumps(payload, indent=2) + "\n")
++        print(json.dumps({
++            "status": "dry_run",
++            "level_counts": {k: len(v) for k, v in levels.items()},
++            "llm_requests": len(llm_requests),
++            "deterministic_level2": args.l2_backend == "deterministic",
++            "payload": str(path),
++        }, indent=2))
++        return 0
++
++    candidates = {i: [] for i in range(len(rows))}
++    method = {}
++    for index, row in enumerate(rows):
++        if str(row.get("level")) == "2" and args.l2_backend == "deterministic":
++            candidates[index].append(paraphrase_query(str(row["query"])))
++            method[index] = "deterministic_paraphrase_query"
++
++    backend_description = None
++    if llm_requests:
++        if not args.generator_model:
++            raise SystemExit("--generator-model is required for a local backend")
++        from probe_set_backends import LocalBackend
++
++        backend = LocalBackend(
++            model_path=args.generator_model,
++            device=args.generator_device,
++            dtype=args.generator_dtype,
++            temperature=args.temperature,
++            max_new_tokens=args.max_new_tokens,
++            seed=args.seed,
++            batch_size=args.generator_batch_size,
++            local_files_only=args.local_files_only,
++            evaluated_model_path=manifest.get("model_path"),
++            allow_same_model=args.allow_same_model,
++        )
++        outputs = backend.generate([p for _, p in llm_requests], expected=args.per_probe)
++        for (index, _), items in zip(llm_requests, outputs):
++            candidates[index].extend(items)
++            method[index] = "local_llm_greedy"
++        backend_description = backend.describe()
++
++    accepted, rejected = {}, []
++    for index, row in enumerate(rows):
++        kept = []
++        for candidate in candidates[index]:
++            text, reason = validate(candidate, row, surfaces[index], rwku.normalize_text)
++            if reason is None and text not in kept:
++                kept.append(text)
++            elif reason is not None:
++                rejected.append({
++                    "index": index, "level": str(row.get("level")),
++                    "original": str(row["query"]), "candidate": str(candidate),
++                    "reason": reason,
++                })
++        accepted[index] = kept[: args.per_probe]
++
++    out_rows = build_rows(rows, accepted, method)
++    covered = {i for i, v in accepted.items() if v}
++    by_level = {
++        level: {
++            "trained_probes": len(indices),
++            "with_accepted_paraphrase": sum(i in covered for i in indices),
++        }
++        for level, indices in levels.items() if indices
++    }
++    reasons = {}
++    for item in rejected:
++        reasons[item["reason"]] = reasons.get(item["reason"], 0) + 1
++
++    result = {
++        "manifest": {
++            "schema_version": "rwku_same50_paraphrases_v1",
++            "purpose": (
++                "reworded trained probes: RWKU's analogue of MCF/zsRE Gen and "
++                "MQuAKE AtomicGen (same fact, unseen wording)"
++            ),
++            "run_dir": str(run_dir),
++            "evaluated_model": manifest.get("model_path"),
++            "l1_backend": args.l1_backend,
++            "l2_backend": args.l2_backend,
++            "per_probe": args.per_probe,
++            "prompt_template_sha256": template_hash(),
++            "generator": backend_description,
++            "coverage_by_level": by_level,
++            "paraphrase_count": len(out_rows),
++            "rejected_count": len(rejected),
++            "rejected_by_reason": reasons,
++            "used_for_training_or_prototypes": False,
++        },
++        "rows": out_rows,
++        "rejected": rejected,
++    }
++    text = json.dumps(result, indent=2, ensure_ascii=False) + "\n"
++    output.write_text(text)
++    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
++    (output.parent / f"{output.stem}.sha256").write_text(f"{digest}  {output.name}\n")
++    print(json.dumps({
++        "status": "same50_paraphrases_complete",
++        "output": str(output),
++        "sha256": digest,
++        "coverage_by_level": by_level,
++        "paraphrases": len(out_rows),
++        "rejected_by_reason": reasons,
++    }, indent=2))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/semantic-unlearning/scripts/evaluate_rwku_router_decomposition.py b/semantic-unlearning/scripts/evaluate_rwku_router_decomposition.py
+index 0763edf..ee05b23 100644
+--- a/semantic-unlearning/scripts/evaluate_rwku_router_decomposition.py
++++ b/semantic-unlearning/scripts/evaluate_rwku_router_decomposition.py
+@@ -68,11 +68,13 @@ python -u scripts/evaluate_rwku_router_decomposition.py \
+ from __future__ import annotations
+ 
+ import argparse
++import hashlib
+ from collections import defaultdict
+ import json
+ import math
+ from pathlib import Path
+ import random
++import re
+ 
+ import torch
+ 
+@@ -94,6 +96,10 @@ from static_overlap_fact_association_v2_gate import (
+ 
+ HELDOUT_GROUPS = ("heldout_level1", "heldout_level2", "heldout_paraphrase")
+ ALL_GROUPS = ("same50", *HELDOUT_GROUPS, "neighbors")
++# Groups whose probes are trained associations and so have a ground-truth row.
++# same50_paraphrase is the reworded trained probes (--same50-paraphrases): the
++# RWKU analogue of MCF/zsRE Gen and MQuAKE AtomicGen.
++GOLD_GROUPS = ("same50", "same50_paraphrase")
+ 
+ 
+ def wilson(successes, total, z=1.96):
+@@ -135,6 +141,10 @@ def evaluate_row(model, bank, tokenizer, row, max_new_tokens, score=True):
+         "routed_row": int(route[0]) if route else None,
+         "fired": bool(route),
+     }
++    if "paraphrase_index" in row:
++        item["paraphrase_index"] = row["paraphrase_index"]
++        item["paraphrase_method"] = row.get("paraphrase_method")
++        item["original_query"] = row.get("original_query")
+     if score:
+         scored = score_answer_fixed_boundary(
+             model, tokenizer, prompt, str(row["answer"])
+@@ -279,6 +289,88 @@ def attribute_heldout(items):
+     return {"counts": dict(table)}
+ 
+ 
++def answers_overlap(a, b):
++    """Same answer, or one contains the other as whole words (>= 3 chars).
++
++    RWKU's split enforces exact-CONTENT disjointness between trained and
++    held-out probes, not fact disjointness. A held-out Level-2 question can ask
++    for the same fact as a trained Level-1 blank ("Where was X born?" vs
++    "X was born in ___"). Its answer then matches a trained answer, and its
++    suppression reflects a reworded trained fact rather than transfer to a new
++    one.
++    """
++    a, b = rwku.normalize_text(a), rwku.normalize_text(b)
++    if not a or not b:
++        return None
++    if a == b:
++        return "exact"
++    short, long = sorted((a, b), key=len)
++    if len(short) >= 3 and re.search(r"\b" + re.escape(short) + r"\b", long):
++        return "contained"
++    return None
++
++
++def trained_answers_by_person(rows):
++    answers = defaultdict(list)
++    for row in rows:
++        person = row.get("person", row.get("_person", row.get("rwku_target_seed")))
++        answers[int(person)].append(str(row["answer"]))
++    return answers
++
++
++def overlap_split(results, trained):
++    """Split every held-out group by whether its answer matches a trained answer.
++
++    `results` is arm -> group -> items; items carry `person` and `answer`.
++    """
++    report = {}
++    for group in HELDOUT_GROUPS:
++        reference = None
++        for arm in results:
++            if results[arm].get(group):
++                reference = results[arm][group]
++                break
++        if not reference:
++            continue
++        flags = {}
++        examples = []
++        for index, item in enumerate(reference):
++            match = None
++            for answer in trained.get(int(item["person"]), []):
++                kind = answers_overlap(item["answer"], answer)
++                if kind:
++                    match = (kind, answer)
++                    if kind == "exact":
++                        break
++            flags[index] = match
++            if match and len(examples) < 15:
++                examples.append({
++                    "query": item["query"], "answer": item["answer"],
++                    "matching_trained_answer": match[1], "match": match[0],
++                })
++        overlapping = [i for i, m in flags.items() if m]
++        block = {
++            "probes": len(reference),
++            "answer_overlaps_trained": len(overlapping),
++            "exact": sum(1 for m in flags.values() if m and m[0] == "exact"),
++            "contained": sum(1 for m in flags.values() if m and m[0] == "contained"),
++            "examples": examples,
++            "by_arm": {},
++        }
++        for arm in results:
++            items = results[arm].get(group)
++            if not items or len(items) != len(reference):
++                continue
++            block["by_arm"][arm] = {
++                "answer_overlaps_trained": summarize([items[i] for i in overlapping]),
++                "new_answer": summarize(
++                    [items[i] for i in range(len(items)) if i not in set(overlapping)]
++                ),
++            }
++        report[group] = block
++    return report
++
++
+ def decompose(summaries, attributions):
+     """Read the arms against each other; this is the section to look at first."""
+     report = {}
+@@ -316,6 +408,34 @@ def decompose(summaries, attributions):
+     same["attribution_v2"] = attributions.get("v2", {}).get("same50")
+     report["same50"] = same
+ 
++    reworded = {
++        "base": rec("base", "same50_paraphrase"),
++        "v2": rec("v2", "same50_paraphrase"),
++        "genie_exact": rec("genie_exact", "same50_paraphrase"),
++    }
++    v2_reworded = summaries.get("v2", {}).get("same50_paraphrase") or {}
++    reworded["v2_correct_route_fraction"] = v2_reworded.get("correct_route_fraction")
++    reworded["v2_route_active_fraction"] = v2_reworded.get("route_active_fraction")
++    if None not in (reworded["base"], reworded["v2"], reworded["genie_exact"]):
++        tol = tolerance(count("v2", "same50_paraphrase"))
++        reworded["v2_minus_genie"] = reworded["v2"] - reworded["genie_exact"]
++        reworded["tolerance_points"] = tol
++        reworded["reading"] = (
++            "routing survives rewording of trained probes; remaining recovery "
++            "is actuation"
++            if abs(reworded["v2_minus_genie"]) <= tol
++            else "rewording costs routing: V2 misses trained associations under "
++            "new wording; see attribution"
++        )
++    if same.get("v2") is not None and reworded["v2"] is not None:
++        reworded["rewording_gap_v2"] = reworded["v2"] - same["v2"]
++    reworded["attribution_v2"] = attributions.get("v2", {}).get("same50_paraphrase")
++    reworded["axis"] = (
++        "unseen wording of trained associations -- comparable to MCF/zsRE Gen "
++        "and MQuAKE AtomicGen"
++    )
++    report["same50_paraphrase"] = reworded
++
+     for group in HELDOUT_GROUPS:
+         block = {
+             "base": rec("base", group),
+@@ -378,13 +498,64 @@ def decompose(summaries, attributions):
+     return report
+ 
+ 
++def analyze_existing_rows(args):
++    """CPU-only: held-out answer-overlap split from a saved rows file."""
++    results = json.loads(Path(args.analyze_rows).read_text())
++    trained_items = next(
++        (results[arm]["same50"] for arm in results if results[arm].get("same50")), None
++    )
++    if not trained_items:
++        raise SystemExit(
++            "The rows file has no same50 group; use the full decomposition run's rows"
++        )
++    split = overlap_split(results, trained_answers_by_person(trained_items))
++    output = Path(args.output_dir)
++    output.mkdir(parents=True, exist_ok=True)
++    (output / "rwku_heldout_answer_overlap.json").write_text(
++        json.dumps(split, indent=2, allow_nan=False) + "\n"
++    )
++    compact = {}
++    for group, block in split.items():
++        compact[group] = {
++            "probes": block["probes"],
++            "answer_overlaps_trained": block["answer_overlaps_trained"],
++            "exact": block["exact"],
++            "contained": block["contained"],
++            "recovery_percent": {
++                arm: {
++                    part: (sub.get("recovery_percent") if sub.get("count") else None)
++                    for part, sub in parts.items()
++                }
++                for arm, parts in block["by_arm"].items()
++            },
++        }
++    print(json.dumps({
++        "status": "answer_overlap_split_complete",
++        "split": compact,
++        "output": str(output / "rwku_heldout_answer_overlap.json"),
++    }, indent=2))
++    return 0
++
++
+ # ----------------------------------------------------------------------- main
+ 
+ def main(argv=None):
+     parser = argparse.ArgumentParser(description=__doc__)
+-    parser.add_argument("--run-dir", required=True)
++    parser.add_argument("--run-dir", default="")
+     parser.add_argument("--data-root", default="data/rwku")
+     parser.add_argument("--output-dir", required=True)
++    parser.add_argument(
++        "--same50-paraphrases",
++        default="",
++        help="frozen JSON from build_rwku_same50_paraphrases.py; adds the "
++        "same50_paraphrase group (reworded trained probes)",
++    )
++    parser.add_argument(
++        "--analyze-rows",
++        default="",
++        help="existing rwku_router_decomposition_rows.json: compute the held-out "
++        "answer-overlap split on CPU without loading a model",
++    )
+     parser.add_argument("--device", default="cuda")
+     parser.add_argument(
+         "--dtype",
+@@ -406,6 +577,11 @@ def main(argv=None):
+     parser.add_argument("--seed", type=int, default=1)
+     args = parser.parse_args(argv)
+ 
++    if args.analyze_rows:
++        return analyze_existing_rows(args)
++    if not args.run_dir:
++        raise SystemExit("--run-dir is required unless --analyze-rows is given")
++
+     run_dir = Path(args.run_dir).resolve()
+     manifest = json.loads((run_dir / "association_manifest.json").read_text())
+     if int(manifest.get("seed", -1)) != 1:
+@@ -480,6 +656,24 @@ def main(argv=None):
+             rows = rows[: int(args.max_rows_per_group)]
+         groups[name] = rows
+ 
++    if args.same50_paraphrases:
++        payload = json.loads(Path(args.same50_paraphrases).read_text())
++        rows = []
++        for source in payload["rows"]:
++            origin = str(source["paraphrase_of_source_record_sha256"])
++            if origin not in source_to_row:
++                raise SystemExit(
++                    f"Paraphrase of {origin[:12]} does not map to a trained row"
++                )
++            row = dict(source)
++            row["_group"] = "same50_paraphrase"
++            row["_person"] = int(row["rwku_target_seed"])
++            row["_gold_row"] = source_to_row[origin]
++            rows.append(row)
++        if args.max_rows_per_group:
++            rows = rows[: int(args.max_rows_per_group)]
++        groups["same50_paraphrase"] = rows
++
+     # Held-out probes must not share a row with training; if one does, the
+     # subject genie would be measuring the trained association, not transfer.
+     for name in HELDOUT_GROUPS:
+@@ -537,13 +731,15 @@ def main(argv=None):
+                     f"base/{name}", choose=lambda row: None,
+                 )
+         elif arm == "genie_exact":
+-            # Only same-50 has a ground-truth row. Everywhere else the exact
+-            # genie abstains, which is the base model, so it is not recomputed.
+-            if "same50" in groups:
+-                results[arm]["same50"] = run_bank(
+-                    model, bank, tokenizer, groups["same50"], args.max_new_tokens,
+-                    "genie_exact/same50", choose=lambda row: row["_gold_row"],
+-                )
++            # Only trained probes (and their rewordings) have a ground-truth
++            # row. Everywhere else the exact genie abstains, which is the base
++            # model, so it is not recomputed.
++            for name in GOLD_GROUPS:
++                if name in groups:
++                    results[arm][name] = run_bank(
++                        model, bank, tokenizer, groups[name], args.max_new_tokens,
++                        f"genie_exact/{name}", choose=lambda row: row["_gold_row"],
++                    )
+         elif arm == "genie_subject":
+             for name in HELDOUT_GROUPS:
+                 if name not in groups:
+@@ -597,7 +793,7 @@ def main(argv=None):
+     if "v2" in results:
+         for name, items in results["v2"].items():
+             attributions["v2"][name] = (
+-                attribute_same50(items) if name == "same50"
++                attribute_same50(items) if name in GOLD_GROUPS
+                 else attribute_heldout(items) if name in HELDOUT_GROUPS
+                 else None
+             )
+@@ -620,10 +816,27 @@ def main(argv=None):
+         "persons": {str(k): len(v) for k, v in sorted(person_rows.items())},
+         "summaries": summaries,
+         "decomposition": decompose(summaries, attributions),
++        "answer_overlap_split": overlap_split(
++            results, trained_answers_by_person(forget_rows)
++        ),
++        "same50_paraphrases": (
++            {
++                "file": str(Path(args.same50_paraphrases).resolve()),
++                "sha256": hashlib.sha256(
++                    Path(args.same50_paraphrases).read_bytes()
++                ).hexdigest(),
++            }
++            if args.same50_paraphrases else None
++        ),
+         "genie_row_use": genie_row_use,
+         "notes": {
+             "recovery": "generated-answer recovery, the paper's RWKU headline metric",
+-            "genie_exact": "same-50 only; elsewhere it equals the base model",
++            "genie_exact": "trained probes and their rewordings only; elsewhere it equals the base model",
++            "generalization_axes": (
++                "same50_paraphrase = unseen wording of trained associations "
++                "(like MCF/zsRE Gen, MQuAKE AtomicGen); held-out groups = other "
++                "facts about the protected people (same-entity scope)"
++            ),
+             "genie_subject": (
+                 "held-out only; best of the same person's trained rows, chosen by "
+                 + args.genie_select
+-- 
+2.43.0

@@ -68,11 +68,13 @@ python -u scripts/evaluate_rwku_router_decomposition.py \
 from __future__ import annotations
 
 import argparse
+import hashlib
 from collections import defaultdict
 import json
 import math
 from pathlib import Path
 import random
+import re
 
 import torch
 
@@ -94,6 +96,10 @@ from static_overlap_fact_association_v2_gate import (
 
 HELDOUT_GROUPS = ("heldout_level1", "heldout_level2", "heldout_paraphrase")
 ALL_GROUPS = ("same50", *HELDOUT_GROUPS, "neighbors")
+# Groups whose probes are trained associations and so have a ground-truth row.
+# same50_paraphrase is the reworded trained probes (--same50-paraphrases): the
+# RWKU analogue of MCF/zsRE Gen and MQuAKE AtomicGen.
+GOLD_GROUPS = ("same50", "same50_paraphrase")
 
 
 def wilson(successes, total, z=1.96):
@@ -135,6 +141,10 @@ def evaluate_row(model, bank, tokenizer, row, max_new_tokens, score=True):
         "routed_row": int(route[0]) if route else None,
         "fired": bool(route),
     }
+    if "paraphrase_index" in row:
+        item["paraphrase_index"] = row["paraphrase_index"]
+        item["paraphrase_method"] = row.get("paraphrase_method")
+        item["original_query"] = row.get("original_query")
     if score:
         scored = score_answer_fixed_boundary(
             model, tokenizer, prompt, str(row["answer"])
@@ -279,6 +289,88 @@ def attribute_heldout(items):
     return {"counts": dict(table)}
 
 
+def answers_overlap(a, b):
+    """Same answer, or one contains the other as whole words (>= 3 chars).
+
+    RWKU's split enforces exact-CONTENT disjointness between trained and
+    held-out probes, not fact disjointness. A held-out Level-2 question can ask
+    for the same fact as a trained Level-1 blank ("Where was X born?" vs
+    "X was born in ___"). Its answer then matches a trained answer, and its
+    suppression reflects a reworded trained fact rather than transfer to a new
+    one.
+    """
+    a, b = rwku.normalize_text(a), rwku.normalize_text(b)
+    if not a or not b:
+        return None
+    if a == b:
+        return "exact"
+    short, long = sorted((a, b), key=len)
+    if len(short) >= 3 and re.search(r"\b" + re.escape(short) + r"\b", long):
+        return "contained"
+    return None
+
+
+def trained_answers_by_person(rows):
+    answers = defaultdict(list)
+    for row in rows:
+        person = row.get("person", row.get("_person", row.get("rwku_target_seed")))
+        answers[int(person)].append(str(row["answer"]))
+    return answers
+
+
+def overlap_split(results, trained):
+    """Split every held-out group by whether its answer matches a trained answer.
+
+    `results` is arm -> group -> items; items carry `person` and `answer`.
+    """
+    report = {}
+    for group in HELDOUT_GROUPS:
+        reference = None
+        for arm in results:
+            if results[arm].get(group):
+                reference = results[arm][group]
+                break
+        if not reference:
+            continue
+        flags = {}
+        examples = []
+        for index, item in enumerate(reference):
+            match = None
+            for answer in trained.get(int(item["person"]), []):
+                kind = answers_overlap(item["answer"], answer)
+                if kind:
+                    match = (kind, answer)
+                    if kind == "exact":
+                        break
+            flags[index] = match
+            if match and len(examples) < 15:
+                examples.append({
+                    "query": item["query"], "answer": item["answer"],
+                    "matching_trained_answer": match[1], "match": match[0],
+                })
+        overlapping = [i for i, m in flags.items() if m]
+        block = {
+            "probes": len(reference),
+            "answer_overlaps_trained": len(overlapping),
+            "exact": sum(1 for m in flags.values() if m and m[0] == "exact"),
+            "contained": sum(1 for m in flags.values() if m and m[0] == "contained"),
+            "examples": examples,
+            "by_arm": {},
+        }
+        for arm in results:
+            items = results[arm].get(group)
+            if not items or len(items) != len(reference):
+                continue
+            block["by_arm"][arm] = {
+                "answer_overlaps_trained": summarize([items[i] for i in overlapping]),
+                "new_answer": summarize(
+                    [items[i] for i in range(len(items)) if i not in set(overlapping)]
+                ),
+            }
+        report[group] = block
+    return report
+
+
 def decompose(summaries, attributions):
     """Read the arms against each other; this is the section to look at first."""
     report = {}
@@ -315,6 +407,34 @@ def decompose(summaries, attributions):
         )
     same["attribution_v2"] = attributions.get("v2", {}).get("same50")
     report["same50"] = same
+
+    reworded = {
+        "base": rec("base", "same50_paraphrase"),
+        "v2": rec("v2", "same50_paraphrase"),
+        "genie_exact": rec("genie_exact", "same50_paraphrase"),
+    }
+    v2_reworded = summaries.get("v2", {}).get("same50_paraphrase") or {}
+    reworded["v2_correct_route_fraction"] = v2_reworded.get("correct_route_fraction")
+    reworded["v2_route_active_fraction"] = v2_reworded.get("route_active_fraction")
+    if None not in (reworded["base"], reworded["v2"], reworded["genie_exact"]):
+        tol = tolerance(count("v2", "same50_paraphrase"))
+        reworded["v2_minus_genie"] = reworded["v2"] - reworded["genie_exact"]
+        reworded["tolerance_points"] = tol
+        reworded["reading"] = (
+            "routing survives rewording of trained probes; remaining recovery "
+            "is actuation"
+            if abs(reworded["v2_minus_genie"]) <= tol
+            else "rewording costs routing: V2 misses trained associations under "
+            "new wording; see attribution"
+        )
+    if same.get("v2") is not None and reworded["v2"] is not None:
+        reworded["rewording_gap_v2"] = reworded["v2"] - same["v2"]
+    reworded["attribution_v2"] = attributions.get("v2", {}).get("same50_paraphrase")
+    reworded["axis"] = (
+        "unseen wording of trained associations -- comparable to MCF/zsRE Gen "
+        "and MQuAKE AtomicGen"
+    )
+    report["same50_paraphrase"] = reworded
 
     for group in HELDOUT_GROUPS:
         block = {
@@ -378,13 +498,64 @@ def decompose(summaries, attributions):
     return report
 
 
+def analyze_existing_rows(args):
+    """CPU-only: held-out answer-overlap split from a saved rows file."""
+    results = json.loads(Path(args.analyze_rows).read_text())
+    trained_items = next(
+        (results[arm]["same50"] for arm in results if results[arm].get("same50")), None
+    )
+    if not trained_items:
+        raise SystemExit(
+            "The rows file has no same50 group; use the full decomposition run's rows"
+        )
+    split = overlap_split(results, trained_answers_by_person(trained_items))
+    output = Path(args.output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "rwku_heldout_answer_overlap.json").write_text(
+        json.dumps(split, indent=2, allow_nan=False) + "\n"
+    )
+    compact = {}
+    for group, block in split.items():
+        compact[group] = {
+            "probes": block["probes"],
+            "answer_overlaps_trained": block["answer_overlaps_trained"],
+            "exact": block["exact"],
+            "contained": block["contained"],
+            "recovery_percent": {
+                arm: {
+                    part: (sub.get("recovery_percent") if sub.get("count") else None)
+                    for part, sub in parts.items()
+                }
+                for arm, parts in block["by_arm"].items()
+            },
+        }
+    print(json.dumps({
+        "status": "answer_overlap_split_complete",
+        "split": compact,
+        "output": str(output / "rwku_heldout_answer_overlap.json"),
+    }, indent=2))
+    return 0
+
+
 # ----------------------------------------------------------------------- main
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-dir", required=True)
+    parser.add_argument("--run-dir", default="")
     parser.add_argument("--data-root", default="data/rwku")
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument(
+        "--same50-paraphrases",
+        default="",
+        help="frozen JSON from build_rwku_same50_paraphrases.py; adds the "
+        "same50_paraphrase group (reworded trained probes)",
+    )
+    parser.add_argument(
+        "--analyze-rows",
+        default="",
+        help="existing rwku_router_decomposition_rows.json: compute the held-out "
+        "answer-overlap split on CPU without loading a model",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument(
         "--dtype",
@@ -405,6 +576,11 @@ def main(argv=None):
     parser.add_argument("--max-rows-per-group", type=int, default=0)
     parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args(argv)
+
+    if args.analyze_rows:
+        return analyze_existing_rows(args)
+    if not args.run_dir:
+        raise SystemExit("--run-dir is required unless --analyze-rows is given")
 
     run_dir = Path(args.run_dir).resolve()
     manifest = json.loads((run_dir / "association_manifest.json").read_text())
@@ -480,6 +656,24 @@ def main(argv=None):
             rows = rows[: int(args.max_rows_per_group)]
         groups[name] = rows
 
+    if args.same50_paraphrases:
+        payload = json.loads(Path(args.same50_paraphrases).read_text())
+        rows = []
+        for source in payload["rows"]:
+            origin = str(source["paraphrase_of_source_record_sha256"])
+            if origin not in source_to_row:
+                raise SystemExit(
+                    f"Paraphrase of {origin[:12]} does not map to a trained row"
+                )
+            row = dict(source)
+            row["_group"] = "same50_paraphrase"
+            row["_person"] = int(row["rwku_target_seed"])
+            row["_gold_row"] = source_to_row[origin]
+            rows.append(row)
+        if args.max_rows_per_group:
+            rows = rows[: int(args.max_rows_per_group)]
+        groups["same50_paraphrase"] = rows
+
     # Held-out probes must not share a row with training; if one does, the
     # subject genie would be measuring the trained association, not transfer.
     for name in HELDOUT_GROUPS:
@@ -537,13 +731,15 @@ def main(argv=None):
                     f"base/{name}", choose=lambda row: None,
                 )
         elif arm == "genie_exact":
-            # Only same-50 has a ground-truth row. Everywhere else the exact
-            # genie abstains, which is the base model, so it is not recomputed.
-            if "same50" in groups:
-                results[arm]["same50"] = run_bank(
-                    model, bank, tokenizer, groups["same50"], args.max_new_tokens,
-                    "genie_exact/same50", choose=lambda row: row["_gold_row"],
-                )
+            # Only trained probes (and their rewordings) have a ground-truth
+            # row. Everywhere else the exact genie abstains, which is the base
+            # model, so it is not recomputed.
+            for name in GOLD_GROUPS:
+                if name in groups:
+                    results[arm][name] = run_bank(
+                        model, bank, tokenizer, groups[name], args.max_new_tokens,
+                        f"genie_exact/{name}", choose=lambda row: row["_gold_row"],
+                    )
         elif arm == "genie_subject":
             for name in HELDOUT_GROUPS:
                 if name not in groups:
@@ -597,7 +793,7 @@ def main(argv=None):
     if "v2" in results:
         for name, items in results["v2"].items():
             attributions["v2"][name] = (
-                attribute_same50(items) if name == "same50"
+                attribute_same50(items) if name in GOLD_GROUPS
                 else attribute_heldout(items) if name in HELDOUT_GROUPS
                 else None
             )
@@ -620,10 +816,27 @@ def main(argv=None):
         "persons": {str(k): len(v) for k, v in sorted(person_rows.items())},
         "summaries": summaries,
         "decomposition": decompose(summaries, attributions),
+        "answer_overlap_split": overlap_split(
+            results, trained_answers_by_person(forget_rows)
+        ),
+        "same50_paraphrases": (
+            {
+                "file": str(Path(args.same50_paraphrases).resolve()),
+                "sha256": hashlib.sha256(
+                    Path(args.same50_paraphrases).read_bytes()
+                ).hexdigest(),
+            }
+            if args.same50_paraphrases else None
+        ),
         "genie_row_use": genie_row_use,
         "notes": {
             "recovery": "generated-answer recovery, the paper's RWKU headline metric",
-            "genie_exact": "same-50 only; elsewhere it equals the base model",
+            "genie_exact": "trained probes and their rewordings only; elsewhere it equals the base model",
+            "generalization_axes": (
+                "same50_paraphrase = unseen wording of trained associations "
+                "(like MCF/zsRE Gen, MQuAKE AtomicGen); held-out groups = other "
+                "facts about the protected people (same-entity scope)"
+            ),
             "genie_subject": (
                 "held-out only; best of the same person's trained rows, chosen by "
                 + args.genie_select
