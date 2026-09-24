@@ -64,6 +64,14 @@ from static_overlap_fact_association_embeddings import (
 
 BENCHMARK_GATE = {"mcf": "threshold", "zsre": "threshold", "mquake": "threshold", "rwku": "subject"}
 NEUTRAL_PROMPT = "A neutral sentence about mathematics and weather."
+# Router internals of the source artifact (V2 / V1 / stochastic) that must not
+# travel with the new router; every other source key is carried over.
+SOURCE_ROUTER_KEYS = {
+    "positive_prototypes", "negative_prototypes", "alpha", "tau", "keys",
+    "thresholds", "ambiguity_margin", "routing_mode", "routing_temperature",
+    "routing_abstain_logit", "routing_query_noise", "routing_hard_zero_below",
+    "routing_seed", "gate_diagnostics", "router_diagnostics",
+}
 
 
 def _floats(text):
@@ -367,6 +375,15 @@ def main(argv=None):
         parity = runtime_parity(model, bank, tokenizer, prompts, offline, args.batch_size, args.device)
 
     artifact = bank.artifact()
+    # Carry the source run's benchmark metadata (e.g. MQuAKE's
+    # atomic_case_to_association_id, ZsRE's dataset / target_new_used): the
+    # official evaluators validate it. Only V2/V1 router internals are dropped.
+    carried = {
+        key: value for key, value in source.items()
+        if key not in artifact and key not in SOURCE_ROUTER_KEYS
+    }
+    artifact.update(carried)
+    artifact["carried_source_keys"] = sorted(carried)
     torch.save(artifact, output / "fact_association_embeddings.pt")
     # Evaluators read only the manifest and the artifact. Copy nothing else
     # from the source run except its training-visible examples: copying its
