@@ -30,7 +30,7 @@ boundary MQuAKE's same-subject retain set (V2: 63/81 fires) and RWKU's
 same-person rows depend on.
 
 **Hyperparameters are chosen by the data, per run.** The L2 strength and PCA
-dimension (grid `1e-5…1` × `{none, 64, 256}`) are selected by grouped
+dimension (grid `1e-7…1` × `{none, 64, 256}`) are selected by grouped
 cross-validation. Each fold holds out whole prompt families, and the score is
 held-out class-balanced log-loss.
 
@@ -53,11 +53,25 @@ held-out Level-2 recovery against neighbor locality.
 | audit | development families `authored_1, authored_3` + donor group 2 | context prefix 3 + donor group 2 | reported numbers only |
 
 A negative control for fact *i* is either a real prompt of another fact with
-the same subject, or a subject transplant (subject *i* put into another fact's
-prompt). Transplants are type-checked, limited to 3 per donor, and skipped when
-(subject *i*, donor relation) is a protected pair.
+the same subject (from every split), or a subject transplant (subject *i* put
+into another fact's prompt).
 
-That last rule fixes a V2 issue. **In the MCF seed-1 sample, fact 27 (P101) takes all 12 of its V2
+**Transplants are split-matched.** A calibration or audit negative is built from
+the donor's prompts in that same development family. So every held-out
+negative is a minimal pair with a held-out positive: same unseen template, same
+subject, different relation.
+
+Transplants are also:
+
+- type-checked;
+- limited to 3 per donor, rotated across template families;
+- skipped when (subject *i*, donor relation) is a protected pair;
+- skipped when the donor relation is in the fact's answer group
+  (`RELATION_ANSWER_GROUPS`, e.g. native language / language used for writing /
+  official language). Those prompts can leak the same answer, so they are
+  neither clean positives nor clean negatives. Ablate with `--no-answer-groups`.
+
+The protected-pair rule fixes a V2 issue. **In the MCF seed-1 sample, fact 27 (P101) takes all 12 of its V2
 "negatives" from a same-relation donor, so they are really paraphrases of its own positive.**
 Official paraphrase, neighborhood, retain, utility and evaluation fields are
 never read.
@@ -92,7 +106,13 @@ router, and the oracle, subject-only and random arms reuse the same rows.
 Useful flags:
 
 - `--gate {auto,threshold,subject}`
-- `--target-fpr 0.0` (calibration false activation; the report includes the operating curve at 0/1/2/5%)
+- `--min-recall 0.98`: recall-first. Picks the lowest calibration false
+  activation with correct-route recall ≥ 0.98. Use this when the benchmark
+  scores forgetting and never shows same-subject prompts (MCF, ZsRE).
+- `--target-fpr 0.0`: selectivity-first. Picks the most correct routes with
+  calibration false activation ≤ target. Use this when same-subject retain
+  prompts are scored (MQuAKE).
+- The report's operating curve covers FPR 0–50% and recall 90–100%.
 - `--ambiguity-margin 0.5`
 - `--split-rule rebalanced` (MCF: relation-alternates become development)
 - `--pca-dims`, `--lambdas`
@@ -107,11 +127,20 @@ Useful flags:
   - calibration and operating curve
   - route outcomes per split, with Wilson intervals
   - **V2 on the same prompts**
+  - `audit_frontier`: both routers swept over all thresholds on the audit
+    split (V2 by shifting every τᵢ together). Includes route AUC, recall at
+    V2's false-activation rate, and false activation at V2's recall. Use it to
+    compare routers at matched operating points only; it is not an operating
+    point.
   - runtime parity (hook vs offline decisions; must be 0 mismatches)
   - neutral-prompt exact-base check
   - dataset diagnostics
-- `linear_router_dataset.json`: every prompt with its split, owner, kind and donor relation
-- the source run's other non-`.pt` files, copied
+- `linear_router_dataset.json`: every prompt with its split, owner, kind, donor
+  relation, linear score, and both routers' decisions (to inspect the
+  highest-scoring negatives)
+- `association_examples.json`, copied. Nothing else from the source run is
+  copied: the evaluators read only the manifest and the artifact, and copying
+  V2's evaluation outputs would place V2 results in this directory.
 
 Report the **audit** split, not calibration: calibration numbers come from the
 split that chose the threshold.

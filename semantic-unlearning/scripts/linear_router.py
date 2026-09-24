@@ -81,7 +81,7 @@ ROUTER_VERSION = "subject_masked_bce_linear_router_v1"
 METHOD = "static_overlap_fact_association_embeddings_linear_router"
 SPLITS = ("fit", "calibration", "audit")
 GATE_MODES = ("threshold", "subject")
-DEFAULT_LAMBDAS = (1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0)
+DEFAULT_LAMBDAS = (1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0)
 DEFAULT_PCA_DIMS = (0, 64, 256)
 _SYMBOLIC_RELATION = re.compile(r"^P\d+$")
 # Tiny fixed penalty on the bias only. It keeps a head whose CV fold happens to
@@ -223,51 +223,92 @@ def _is_symbolic(relation):
     return bool(_SYMBOLIC_RELATION.match(str(relation)))
 
 
+# Wikidata relations whose questions about the SAME subject can reveal the same
+# or an overlapping answer. A transplant from a relation in the fact's own group
+# is neither a clean positive nor a clean negative (e.g. "native language" vs
+# "language used for writing" both answer "French"), so it is not used as a
+# negative. The grouping is a judgement call; ablate with --no-answer-groups.
+RELATION_ANSWER_GROUPS = {
+    "language": ("P103", "P1412", "P37", "P364", "P407"),
+    "country": ("P27", "P17", "P495"),
+    "place": ("P19", "P20", "P937", "P740", "P159", "P131", "P276", "P36", "P190"),
+    "work_role": ("P106", "P101", "P39"),
+    "maker_owner": ("P176", "P178", "P127"),
+    "affiliation": ("P108", "P463"),
+}
+_GROUP_OF = {
+    relation: group
+    for group, relations in RELATION_ANSWER_GROUPS.items()
+    for relation in relations
+}
+
+
+def same_answer_group(relation_a, relation_b):
+    a, b = str(relation_a), str(relation_b)
+    if a == b:
+        return True
+    group = _GROUP_OF.get(a)
+    return group is not None and group == _GROUP_OF.get(b)
+
+
 def _negative_controls_for_fact(
     fact_index,
     facts,
-    fit_positives_by_fact,
-    role_of_prompt,
+    prompts_by_fact_split,
     *,
     count,
     per_donor,
     type_check,
+    answer_groups,
     subject_relation_pairs,
 ):
-    """Same-subject real competitors first, then subject transplants.
+    """Same-subject real competitors, then split-matched subject transplants.
 
     Relative to Router V2's builder:
-      * a donor whose (this subject, donor relation) is itself a protected pair
-        is skipped -- including this fact's OWN relation. V2 can transplant a
-        same-relation donor, i.e. build a paraphrase of the positive and label
-        it negative (fact 27 of the MCF seed-1 sample). Applied only to
-        symbolic Wikidata relations; ZsRE/RWKU carry a placeholder relation;
-      * donors are subject-type-checked unless type_check=False (unknown
-        relations degrade open);
-      * at most `per_donor` prompts per donor, so negatives span relations.
+      * same-subject competitors contribute their prompts from EVERY split, so
+        calibration and audit also contain real same-subject negatives;
+      * a transplant for split s is built from the donor's split-s prompts
+        (train families for fit, the calibration / audit development families
+        otherwise). Each held-out negative is then a minimal pair with a
+        held-out positive: same unseen template, same subject, different
+        relation. Building every negative from train templates would set the
+        threshold on familiar templates and apply it to unfamiliar ones;
+      * donors whose relation is protected for this subject, or (Wikidata
+        relations, answer_groups=True) shares this fact's answer group, are
+        skipped. V2 can transplant a same-relation donor, i.e. label a
+        paraphrase of the positive as negative (fact 27 of MCF seed 1);
+      * donors are subject-type-checked unless type_check=False;
+      * at most `per_donor` prompts per donor, rotated across template
+        families so fit negatives span all families.
     """
     fact = facts[fact_index]
     subject = str(fact["subject"])
     subject_key = _norm(subject)
     relation = str(fact.get("relation", ""))
-    own = set(fit_positives_by_fact.get(fact["id"], []))
+    own = {
+        prompt
+        for rows in prompts_by_fact_split.get(fact["id"], {}).values()
+        for prompt, _ in rows
+    }
     controls, seen = [], set()
     skipped = defaultdict(int)
 
     for other_index, other in enumerate(facts):
         if other_index == fact_index or _norm(other["subject"]) != subject_key:
             continue
-        for prompt in fit_positives_by_fact.get(other["id"], []):
-            if prompt in own or prompt in seen:
-                continue
-            seen.add(prompt)
-            controls.append({
-                "prompt": prompt,
-                "kind": "same_subject_real",
-                "donor_index": other_index,
-                "donor_relation": str(other.get("relation", "")),
-                "group": role_of_prompt.get(prompt, "unknown"),
-            })
+        for split, rows in prompts_by_fact_split.get(other["id"], {}).items():
+            for prompt, family in rows:
+                if prompt in own or prompt in seen:
+                    continue
+                seen.add(prompt)
+                controls.append({
+                    "prompt": prompt,
+                    "kind": "same_subject_real",
+                    "split": split,
+                    "donor_index": other_index,
+                    "donor_relation": str(other.get("relation", "")),
+                    "group": family,
+                })
 
     donor_rank = 0
     transplants = 0
@@ -279,16 +320,25 @@ def _negative_controls_for_fact(
         if _norm(other["subject"]) == subject_key:
             continue
         donor_relation = str(other.get("relation", ""))
-        if _is_symbolic(donor_relation) and (
-            (subject_key, donor_relation) in subject_relation_pairs
-        ):
-            skipped["donor_relation_protected_for_this_subject"] += 1
-            continue
+        if _is_symbolic(donor_relation):
+            if (subject_key, donor_relation) in subject_relation_pairs:
+                skipped["donor_relation_protected_for_this_subject"] += 1
+                continue
+            if answer_groups and same_answer_group(relation, donor_relation):
+                skipped["donor_relation_in_same_answer_group"] += 1
+                continue
         if type_check and not compatible(relation, donor_relation):
             skipped["subject_type_incompatible"] += 1
             continue
+        split = SPLITS[donor_rank % len(SPLITS)]
+        rows = list(prompts_by_fact_split.get(other["id"], {}).get(split, []))
+        if not rows:
+            skipped[f"donor_without_{split}_prompts"] += 1
+            continue
+        start = ((fact_index + donor_rank) * int(per_donor)) % len(rows)
+        rotated = rows[start:] + rows[:start]
         taken = 0
-        for prompt in fit_positives_by_fact.get(other["id"], []):
+        for prompt, family in rotated:
             if taken >= int(per_donor) or transplants >= int(count):
                 break
             transplanted = _replace_subject(prompt, other["subject"], subject)
@@ -301,10 +351,11 @@ def _negative_controls_for_fact(
             controls.append({
                 "prompt": transplanted,
                 "kind": "subject_transplant",
+                "split": split,
                 "donor_index": other_index,
                 "donor_rank": donor_rank,
                 "donor_relation": donor_relation,
-                "group": role_of_prompt.get(prompt, "unknown"),
+                "group": family,
             })
             taken += 1
             transplants += 1
@@ -324,15 +375,19 @@ def assemble_router_dataset(
     negative_count=36,
     per_donor=3,
     type_check=True,
+    answer_groups=True,
 ):
     """Prompts, labels, runtime eligibility and fit/calibration/audit splits.
 
     examples: dicts (or objects) with fact_id, prompt, split in
-    {train, development}, and a prompt family in `group` (or `role`). A prompt lives in exactly one split: a positive
-    keeps its example split (train -> fit; development families alternate
-    calibration/audit); a negative-only prompt is split by donor so audit
-    negatives come from donor relations the head never saw while fitting.
-    Augmented positives that lose subject eligibility are dropped.
+    {train, development}, and a prompt family in `group` (or `role`).
+    A prompt lives in exactly one split. A positive keeps its example split
+    (train -> fit; development families alternate calibration/audit). A
+    transplant negative takes the split of the donor prompts it was built
+    from, so every split's negatives share that split's templates, and donor
+    ranks rotate across splits so audit negatives come from donor relations
+    the head never saw while fitting. Augmented positives that lose subject
+    eligibility are dropped.
     """
     if len(facts) != len(subject_patterns):
         raise ValueError("subject_patterns must align with facts")
@@ -353,8 +408,7 @@ def assemble_router_dataset(
     }
 
     records = {}
-    fit_positives_by_fact = defaultdict(list)
-    role_of_prompt = {}
+    prompts_by_fact_split = defaultdict(lambda: defaultdict(list))
     for example in examples:
         fact_id = str(_value(example, "fact_id"))
         if fact_id not in fact_index:
@@ -382,9 +436,7 @@ def assemble_router_dataset(
             "augmented": bool(_value(example, "augmented", False)),
             "negative_for": [],
         }
-        if split == "fit":
-            fit_positives_by_fact[fact_id].append(prompt)
-            role_of_prompt[prompt] = role
+        prompts_by_fact_split[fact_id][split].append((prompt, role))
 
     subject_relation_pairs = {
         (_norm(fact["subject"]), str(fact.get("relation", ""))) for fact in facts
@@ -394,11 +446,11 @@ def assemble_router_dataset(
         controls, skipped = _negative_controls_for_fact(
             index,
             facts,
-            fit_positives_by_fact,
-            role_of_prompt,
+            prompts_by_fact_split,
             count=negative_count,
             per_donor=per_donor,
             type_check=type_check,
+            answer_groups=answer_groups,
             subject_relation_pairs=subject_relation_pairs,
         )
         added = defaultdict(int)
@@ -410,14 +462,11 @@ def assemble_router_dataset(
                 # for another head: keep its split; never negate its owner.
                 if existing["owner"] != index and index not in existing["negative_for"]:
                     existing["negative_for"].append(index)
+                    added[f"{existing['split']}_shared"] += 1
                 continue
-            split = (
-                "fit" if control["kind"] == "same_subject_real"
-                else SPLITS[int(control["donor_rank"]) % len(SPLITS)]
-            )
             records[prompt] = {
                 "prompt": prompt,
-                "split": split,
+                "split": control["split"],
                 "owner": -1,
                 "kind": control["kind"],
                 "group": control["group"],
@@ -425,7 +474,7 @@ def assemble_router_dataset(
                 "augmented": False,
                 "negative_for": [index],
             }
-            added[split] += 1
+            added[control["split"]] += 1
         per_fact.append({
             "fact_id": fact["id"],
             "relation": fact.get("relation"),
@@ -477,6 +526,14 @@ def assemble_router_dataset(
                 "positives": int((split_mask[split] & has_owner).sum()),
                 "negative_controls": int((split_mask[split] & ~has_owner).sum()),
                 "eligible_pairs": int(eligible[split_mask[split]].sum()),
+                "negative_families": sorted({
+                    r["group"] for r in ordered
+                    if r["split"] == split and r["owner"] < 0
+                }),
+                "positive_families": sorted({
+                    r["group"] for r in ordered
+                    if r["split"] == split and r["owner"] >= 0
+                }),
             }
             for split in SPLITS
         },
@@ -487,6 +544,7 @@ def assemble_router_dataset(
         "negative_count_requested": int(negative_count),
         "per_donor": int(per_donor),
         "type_check": bool(type_check),
+        "answer_groups": bool(answer_groups),
         "per_fact": per_fact,
     }
     return {
@@ -825,114 +883,212 @@ def route_outcomes(logits, eligible, owner, threshold, ambiguity_margin, facts=N
     return result
 
 
+def _threshold_candidates(logits, eligible, max_candidates):
+    """Unique eligible logits (capped by quantiles) plus one that fires nothing.
+
+    Candidates stay in the logits' own dtype: the runtime compares float32
+    logits with the threshold, so a float64 "just above the max" would round
+    back onto the max and still fire it.
+    """
+    values = logits[eligible.bool()].unique()
+    if values.numel() == 0:
+        raise ValueError("Split has no eligible pairs")
+    if max_candidates and values.numel() > int(max_candidates):
+        positions = torch.linspace(0, values.numel() - 1, int(max_candidates)).round().long()
+        values = values[positions].unique()
+    ceiling = torch.nextafter(values.max(), torch.tensor(float("inf"), dtype=values.dtype))
+    return torch.cat([values, ceiling.reshape(1)]).tolist()
+
+
+def _sweep(decide, candidates, owner):
+    """(threshold, false_activation, correct_routes, wrong_rows) per candidate."""
+    negative = owner < 0
+    positive = ~negative
+    rows = []
+    for candidate in candidates:
+        active, chosen = decide(candidate)
+        active, chosen = active.cpu(), chosen.cpu()
+        fpr = float((active & negative).sum()) / max(float(negative.sum()), 1.0)
+        correct = int((positive & active & (chosen == owner)).sum())
+        wrong = int((positive & active & (chosen != owner)).sum())
+        rows.append((candidate, fpr, correct, wrong))
+    return rows
+
+
 def calibrate_threshold(
     logits,
     eligible,
     owner,
     *,
     target_fpr=0.0,
+    min_recall=None,
     ambiguity_margin=0.5,
     placement="midpoint",
+    max_candidates=2000,
 ):
     """One global logit threshold chosen on the calibration split.
 
-    Candidates: every eligible logit on the split plus one value strictly
-    above the largest (fires nothing). The whole rule is evaluated for each
-    candidate because ambiguity rejection makes the false-activation curve
-    non-monotone. Admissible = false activation <= target_fpr on negative
-    controls; among admissible candidates with the most correct routes, the
-    threshold is placed by `placement`:
-      midpoint  middle of that interval (max-margin; default). Taking its top
-                end hugs the weakest calibration positive and rejects unseen
-                positives just below it; its bottom end hugs the hardest
-                calibration negative.
-      high      top end (most conservative)
-      low       bottom end (most permissive)
-    The midpoint is re-checked and falls back to the top end if it is not
-    itself admissible with the same correct count.
+    The whole rule (eligibility, threshold, ambiguity) is evaluated at every
+    candidate, because ambiguity rejection makes the curves non-monotone.
+      target_fpr  (default) most correct routes with false activation on
+                  negative controls <= target_fpr
+      min_recall  (recall-first; overrides target_fpr) lowest false activation
+                  with correct-route recall >= min_recall, then most correct
+    Within the chosen set the threshold is placed by `placement`:
+      midpoint  middle of the equivalent-threshold interval (max-margin);
+      high / low  its top / bottom end.
+    Any threshold in (previous candidate, low] makes the same decisions as
+    `low`, so the midpoint is taken over (previous, high].
     """
     if placement not in ("midpoint", "high", "low"):
         raise ValueError("placement must be midpoint, high or low")
     eligible = eligible.bool()
-    # Candidates live in the logits' own dtype: the runtime compares float32
-    # logits with the threshold, so a float64 "just above the max" would round
-    # back onto the max and still fire it.
-    values = logits[eligible].unique()
-    if values.numel() == 0:
-        raise ValueError("Calibration split has no eligible pairs")
-    ceiling = torch.nextafter(values.max(), torch.tensor(float("inf"), dtype=values.dtype))
-    candidates = torch.cat([values, ceiling.reshape(1)]).tolist()
+    owner = owner.cpu()
     negative = owner < 0
     positive = ~negative
     if not bool(negative.any()):
         raise ValueError("Calibration split has no negative controls")
-    def evaluate(candidate):
+    n_pos = max(int(positive.sum()), 1)
+    candidates = _threshold_candidates(logits, eligible, max_candidates)
+
+    def decide(candidate):
         decision = decide_routes(logits, eligible, candidate, ambiguity_margin)
-        active = decision["active"].cpu()
-        fpr = float((active & negative).sum()) / float(negative.sum())
-        correct = int((positive & active & (decision["fact"].cpu() == owner)).sum())
-        return candidate, fpr, correct
+        return decision["active"], decision["fact"]
 
-    sweep = [evaluate(candidate) for candidate in candidates]
+    sweep = _sweep(decide, candidates, owner)
 
-    def choose(target):
-        admissible = [row for row in sweep if row[1] <= float(target) + 1e-12]
-        best_correct = max(row[2] for row in admissible)
-        interval = sorted(row[0] for row in admissible if row[2] == best_correct)
+    def evaluate(candidate):
+        return _sweep(decide, [candidate], owner)[0]
+
+    def place(pool, fpr_limit, correct_needed):
+        interval = sorted(row[0] for row in pool)
         low, high = interval[0], interval[-1]
         if placement == "low":
             return evaluate(low)
         if placement == "high":
             return evaluate(high)
-        # Any threshold in (previous candidate, low] makes the same decisions
-        # as `low`, so the admissible interval really starts just above the
-        # previous observed logit. Take the middle of (previous, high].
         position = candidates.index(low)
         previous = candidates[position - 1] if position > 0 else low - 1.0
-        middle_value = float(
-            torch.tensor(0.5 * (previous + high), dtype=logits.dtype)
-        )
-        middle = evaluate(middle_value)
-        if middle[1] <= float(target) + 1e-12 and middle[2] == best_correct:
+        middle = evaluate(float(torch.tensor(0.5 * (previous + high), dtype=logits.dtype)))
+        if middle[1] <= fpr_limit + 1e-12 and middle[2] == correct_needed:
             return middle
         return evaluate(high)
 
-    threshold, fpr, _ = choose(target_fpr)
+    def by_fpr(target):
+        admissible = [row for row in sweep if row[1] <= float(target) + 1e-12]
+        best = max(row[2] for row in admissible)
+        pool = [row for row in admissible if row[2] == best]
+        return place(pool, float(target), best), True
+
+    def by_recall(target):
+        need = math.ceil(float(target) * n_pos - 1e-9)
+        admissible = [row for row in sweep if row[2] >= need]
+        met = bool(admissible)
+        if not admissible:
+            best = max(row[2] for row in sweep)
+            admissible = [row for row in sweep if row[2] == best]
+        lowest = min(row[1] for row in admissible)
+        pool = [row for row in admissible if row[1] <= lowest + 1e-12]
+        best = max(row[2] for row in pool)
+        pool = [row for row in pool if row[2] == best]
+        return place(pool, lowest, best), met
+
+    if min_recall is not None:
+        (threshold, fpr, correct, _), met = by_recall(min_recall)
+        rule = "min_false_activation_subject_to_calibration_recall"
+    else:
+        (threshold, fpr, correct, _), met = by_fpr(target_fpr)
+        rule = "max_correct_routes_subject_to_calibration_fpr"
+
     curve = []
-    for target in sorted({0.0, 0.01, 0.02, 0.05, float(target_fpr)}):
-        t, f, c = choose(target)
-        curve.append({
-            "target_fpr": target, "threshold_logit": t,
-            "calibration_fpr": f,
-            "calibration_recall": c / float(positive.sum()) if bool(positive.any()) else None,
-        })
+    for target in sorted({0.0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5}):
+        (t, f, c, _), _ = by_fpr(target)
+        curve.append({"target_fpr": target, "threshold_logit": t,
+                      "calibration_fpr": f, "calibration_recall": c / n_pos})
+    for target in (0.9, 0.95, 0.98, 1.0):
+        (t, f, c, _), ok = by_recall(target)
+        curve.append({"min_recall": target, "threshold_logit": t,
+                      "calibration_fpr": f, "calibration_recall": c / n_pos,
+                      "recall_target_met": ok})
     outcome = route_outcomes(logits, eligible, owner, threshold, ambiguity_margin)
     note = None
-    if 0.0 < float(target_fpr) < 1.0 / float(negative.sum()):
-        note = (
-            f"target_fpr {target_fpr} is below the split's resolution "
-            f"1/{int(negative.sum())}; it acts as zero"
-        )
+    if min_recall is None and 0.0 < float(target_fpr) < 1.0 / float(negative.sum()):
+        note = (f"target_fpr {target_fpr} is below the split's resolution "
+                f"1/{int(negative.sum())}; it acts as zero")
     return float(threshold), {
-        "rule": "max_correct_routes_subject_to_calibration_fpr",
+        "rule": rule,
         "placement": placement,
-        "target_fpr": float(target_fpr),
+        "target_fpr": None if min_recall is not None else float(target_fpr),
+        "min_recall": None if min_recall is None else float(min_recall),
+        "recall_target_met": met if min_recall is not None else None,
         "ambiguity_margin": float(ambiguity_margin),
         "threshold_logit": float(threshold),
         "threshold_probability": float(torch.sigmoid(torch.tensor(threshold))),
         "calibration_fpr": fpr,
+        "calibration_recall": correct / n_pos,
+        "candidates": len(candidates),
         "resolution_note": note,
         "operating_curve": curve,
         "calibration_outcomes_optimistic": outcome,
-        "note": (
-            "Calibration outcomes are measured on the split that chose the "
-            "threshold; report the audit split."
-        ),
+        "note": ("Calibration outcomes are measured on the split that chose "
+                 "the threshold; report the audit split."),
     }
 
 
-def prototype_router_routes(queries, eligible, artifact):
-    """Router V2's decision on the same queries, for a like-for-like audit."""
+def _frontier_summary(sweep, n_pos, reference=None):
+    """Best recall at FPR budgets, best FPR at recall floors, route AUC."""
+    points = sorted({(row[1], row[2] / n_pos) for row in sweep})
+    envelope, best = [], -1.0
+    for fpr, recall in points:
+        if recall > best:
+            envelope.append((fpr, recall))
+            best = recall
+    area, last_fpr, last_recall = 0.0, 0.0, 0.0
+    for fpr, recall in envelope:
+        area += (fpr - last_fpr) * last_recall
+        last_fpr, last_recall = fpr, recall
+    area += (1.0 - last_fpr) * last_recall
+
+    def recall_at(budget):
+        values = [row[2] / n_pos for row in sweep if row[1] <= budget + 1e-12]
+        return max(values) if values else 0.0
+
+    def fpr_at(floor):
+        values = [row[1] for row in sweep if row[2] / n_pos >= floor - 1e-12]
+        return min(values) if values else None
+
+    summary = {
+        "route_auc": area,
+        "recall_at_fpr": {str(b): recall_at(b) for b in (0.0, 0.01, 0.05, 0.1, 0.2, 0.5, 1.0)},
+        "fpr_at_recall": {str(r): fpr_at(r) for r in (0.8, 0.9, 0.95, 0.98, 1.0)},
+    }
+    if reference is not None:
+        ref_fpr, ref_recall = reference
+        summary["at_reference_fpr"] = {"fpr": ref_fpr, "recall": recall_at(ref_fpr)}
+        summary["at_reference_recall"] = {"recall": ref_recall, "fpr": fpr_at(ref_recall)}
+    return summary
+
+
+def linear_route_frontier(logits, eligible, owner, ambiguity_margin, *, reference=None,
+                          max_candidates=2000):
+    """Threshold sweep of the linear router on one split (e.g. audit).
+
+    Choosing a threshold on the audit split is an oracle; this is a curve for
+    comparing routers at matched operating points, not an operating point.
+    """
+    owner = owner.cpu()
+    candidates = _threshold_candidates(logits, eligible, max_candidates)
+    sweep = _sweep(
+        lambda c: (lambda d: (d["active"], d["fact"]))(
+            decide_routes(logits, eligible, c, ambiguity_margin)
+        ),
+        candidates,
+        owner,
+    )
+    return _frontier_summary(sweep, max(int((owner >= 0).sum()), 1), reference)
+
+
+def _v2_scores(queries, artifact):
     q = F.normalize(queries.float(), dim=-1)
     u_columns, d_columns = [], []
     for positive, negative in zip(
@@ -943,12 +1099,15 @@ def prototype_router_routes(queries, eligible, artifact):
         u = (q @ p.T).max(dim=-1).values
         u_columns.append(u)
         d_columns.append(u - (q @ n.T).max(dim=-1).values)
-    u = torch.stack(u_columns, dim=-1)
-    d = torch.stack(d_columns, dim=-1)
+    return torch.stack(u_columns, dim=-1), torch.stack(d_columns, dim=-1)
+
+
+def _v2_decide(u, d, eligible, artifact, shift=0.0):
+    """Router V2's rule; shift moves every tau_i by the same amount."""
     qualifies = (
         eligible.bool()
         & (u >= artifact["alpha"].float()[None, :])
-        & (d >= artifact["tau"].float()[None, :])
+        & (d - artifact["tau"].float()[None, :] >= float(shift))
     )
     ranked = d.masked_fill(~qualifies, float("-inf"))
     best, fact = ranked.max(dim=-1)
@@ -963,6 +1122,12 @@ def prototype_router_routes(queries, eligible, artifact):
         )
         active = active & ~ambiguous
     return active, fact
+
+
+def prototype_router_routes(queries, eligible, artifact):
+    """Router V2's shipped decision on the same queries."""
+    u, d = _v2_scores(queries, artifact)
+    return _v2_decide(u, d, eligible, artifact)
 
 
 def v2_route_outcomes(queries, eligible, owner, artifact):
@@ -981,6 +1146,17 @@ def v2_route_outcomes(queries, eligible, owner, artifact):
             int((negative & active).sum()), int(negative.sum())
         ),
     }
+
+
+def v2_route_frontier(queries, eligible, owner, artifact, *, max_candidates=2000):
+    """V2 swept by shifting every tau_i together (shift 0 = shipped V2)."""
+    owner = owner.cpu()
+    u, d = _v2_scores(queries, artifact)
+    margins = (d - artifact["tau"].float()[None, :])
+    candidates = _threshold_candidates(margins, eligible, max_candidates)
+    candidates = sorted(set(candidates) | {0.0})
+    sweep = _sweep(lambda s: _v2_decide(u, d, eligible, artifact, s), candidates, owner)
+    return _frontier_summary(sweep, max(int((owner >= 0).sum()), 1))
 
 
 # ---------------------------------------------------------------------------

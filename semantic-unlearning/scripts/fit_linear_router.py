@@ -48,10 +48,13 @@ from linear_router import (
     decide_routes,
     examples_from_facts,
     fit_linear_router,
+    linear_route_frontier,
     prompt_family,
+    prototype_router_routes,
     route_outcomes,
     score_queries,
     select_hyperparameters,
+    v2_route_frontier,
     v2_route_outcomes,
 )
 from static_overlap_fact_association_embeddings import (
@@ -177,7 +180,14 @@ def main(argv=None):
     parser.add_argument("--lambdas", default=",".join(str(x) for x in DEFAULT_LAMBDAS))
     parser.add_argument("--pca-dims", default=",".join(str(x) for x in DEFAULT_PCA_DIMS))
     parser.add_argument("--cv-folds", type=int, default=5)
-    parser.add_argument("--target-fpr", type=float, default=0.0)
+    parser.add_argument("--no-answer-groups", action="store_true",
+                        help="allow same-answer-group relations as negatives (ablation)")
+    parser.add_argument("--target-fpr", type=float, default=0.0,
+                        help="threshold gate: max false activation on calibration negatives")
+    parser.add_argument("--min-recall", type=float, default=None,
+                        help="threshold gate, recall-first: lowest false activation with "
+                             "calibration recall >= this (overrides --target-fpr)")
+    parser.add_argument("--max-threshold-candidates", type=int, default=2000)
     parser.add_argument("--ambiguity-margin", type=float, default=0.5,
                         help="logit units; threshold gate only")
     parser.add_argument("--batch-size", type=int, default=16)
@@ -223,6 +233,7 @@ def main(argv=None):
         negative_count=args.negative_count,
         per_donor=args.per_donor,
         type_check=not args.no_type_check,
+        answer_groups=not args.no_answer_groups,
     )
     prompts, labels, eligible, owner = data["prompts"], data["labels"], data["eligible"], data["owner"]
     split = data["split"]
@@ -250,7 +261,9 @@ def main(argv=None):
         cal = masks["calibration"]
         threshold, calibration = calibrate_threshold(
             logits[cal], eligible[cal], owner[cal],
-            target_fpr=args.target_fpr, ambiguity_margin=args.ambiguity_margin,
+            target_fpr=args.target_fpr, min_recall=args.min_recall,
+            ambiguity_margin=args.ambiguity_margin,
+            max_candidates=args.max_threshold_candidates,
         )
         margin = float(args.ambiguity_margin)
     else:
@@ -265,12 +278,43 @@ def main(argv=None):
         name: route_outcomes(logits[m], eligible[m], owner[m], threshold, margin, facts)
         for name, m in masks.items()
     }
-    comparison = None
-    if str(source.get("architecture", "")) == "relation_prototype_fact_association_bank_v2":
+    comparison, frontier, v2_routes = None, None, None
+    audit_mask = masks["audit"]
+    is_v2 = str(source.get("architecture", "")) == "relation_prototype_fact_association_bank_v2"
+    if is_v2:
         comparison = {
             name: v2_route_outcomes(queries[m], eligible[m], owner[m], source)
             for name, m in masks.items()
         }
+        v2_routes = prototype_router_routes(queries, eligible, source)
+    reference = None
+    if comparison is not None:
+        shipped = comparison["audit"]
+        reference = (
+            shipped["false_activation_on_negative_control"]["rate"] or 0.0,
+            shipped["correct_route"]["rate"] or 0.0,
+        )
+    frontier = {
+        "note": ("Threshold sweeps on the audit split. Picking a point on this "
+                 "curve uses audit labels: compare routers at matched operating "
+                 "points, but deploy only the calibrated threshold."),
+        "linear": linear_route_frontier(
+            logits[audit_mask], eligible[audit_mask], owner[audit_mask],
+            float(args.ambiguity_margin), reference=reference,
+            max_candidates=args.max_threshold_candidates,
+        ),
+        "v2_tau_shift": (
+            v2_route_frontier(queries[audit_mask], eligible[audit_mask],
+                              owner[audit_mask], source,
+                              max_candidates=args.max_threshold_candidates)
+            if is_v2 else None
+        ),
+        "v2_shipped_audit_point": (
+            None if reference is None
+            else {"false_activation": reference[0], "correct_route": reference[1]}
+        ),
+    }
+    if comparison is not None:
         gate_file = run_dir / "gate_diagnostics.json"
         if gate_file.is_file():
             seen = {
@@ -290,7 +334,9 @@ def main(argv=None):
         "selected_pca_dim": pca_dim,
         "threshold_logit": threshold if math.isfinite(threshold) else None,
         "ambiguity_margin": margin,
-        "target_fpr": args.target_fpr if gate == "threshold" else None,
+        "target_fpr": calibration.get("target_fpr") if gate == "threshold" else None,
+        "min_recall": calibration.get("min_recall") if gate == "threshold" else None,
+        "answer_groups": not args.no_answer_groups,
         "fit_info": router["info"],
         "audit": {k: v for k, v in outcomes["audit"].items()},
         "source_run_dir": str(run_dir),
@@ -322,9 +368,12 @@ def main(argv=None):
 
     artifact = bank.artifact()
     torch.save(artifact, output / "fact_association_embeddings.pt")
-    for path in run_dir.iterdir():
-        if path.is_file() and path.suffix != ".pt":
-            shutil.copy2(path, output / path.name)
+    # Evaluators read only the manifest and the artifact. Copy nothing else
+    # from the source run except its training-visible examples: copying its
+    # evaluation outputs would put V2 results in a linear-router directory.
+    if (run_dir / "association_examples.json").is_file():
+        shutil.copy2(run_dir / "association_examples.json",
+                     output / "association_examples.json")
     new_manifest = dict(manifest)
     new_manifest.update({
         "architecture": ARCHITECTURE,
@@ -348,22 +397,39 @@ def main(argv=None):
         "calibration": calibration,
         "route_outcomes_by_split": outcomes,
         "v2_same_prompts_by_split": comparison,
+        "audit_frontier": frontier,
         "runtime_parity": parity,
         "neutral_prompt_exact_base": neutral_exact,
         "dataset": data["diagnostics"],
         "command": sys.argv,
     }
     _write_json(output / "linear_router_report.json", report)
-    _write_json(output / "linear_router_dataset.json", [
-        {
+    decision = decide_routes(logits, eligible, threshold, margin)
+    rows_out = []
+    for index, r in enumerate(data["records"]):
+        best = float(decision["best_eligible_logit"][index])
+        row = {
             "prompt": r["prompt"], "split": r["split"],
             "owner_fact_id": facts[r["owner"]]["id"] if r["owner"] >= 0 else None,
             "kind": r["kind"], "group": r["group"],
             "negative_for": [facts[i]["id"] for i in r["negative_for"]],
             "donor_relation": r.get("donor_relation"),
+            "linear_best_eligible_logit": best if math.isfinite(best) else None,
+            "linear_best_eligible_fact_id": (
+                facts[int(decision["best_eligible_fact"][index])]["id"]
+                if math.isfinite(best) else None
+            ),
+            "linear_routes_to": (
+                facts[int(decision["fact"][index])]["id"]
+                if bool(decision["active"][index]) else None
+            ),
         }
-        for r in data["records"]
-    ])
+        if v2_routes is not None:
+            row["v2_routes_to"] = (
+                facts[int(v2_routes[1][index])]["id"] if bool(v2_routes[0][index]) else None
+            )
+        rows_out.append(row)
+    _write_json(output / "linear_router_dataset.json", rows_out)
 
     audit = outcomes["audit"]
     summary = {
@@ -378,6 +444,14 @@ def main(argv=None):
         "v2_audit_correct_route": (comparison or {}).get("audit", {}).get("correct_route", {}).get("rate"),
         "v2_audit_false_activation": (comparison or {}).get("audit", {}).get(
             "false_activation_on_negative_control", {}).get("rate"),
+        "audit_route_auc_linear": frontier["linear"]["route_auc"],
+        "audit_route_auc_v2": (frontier["v2_tau_shift"] or {}).get("route_auc"),
+        "linear_recall_at_v2_false_activation": (
+            frontier["linear"].get("at_reference_fpr", {}).get("recall")
+        ),
+        "linear_false_activation_at_v2_recall": (
+            frontier["linear"].get("at_reference_recall", {}).get("fpr")
+        ),
         "runtime_route_mismatches": None if parity is None else parity["route_mismatches"],
         "neutral_prompt_exact_base": neutral_exact,
         "output_dir": str(output),

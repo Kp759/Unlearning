@@ -25,6 +25,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from linear_router import (  # noqa: E402
     ARCHITECTURE,
+    linear_route_frontier,
+    prototype_router_routes,
+    same_answer_group,
+    v2_route_frontier,
     LinearClassifierAssociationBank,
     assemble_router_dataset,
     calibrate_threshold,
@@ -221,6 +225,58 @@ def test_calibration_can_always_fall_back_to_firing_nothing():
     assert not bool(decision["active"][0])
 
 
+def test_answer_groups():
+    assert same_answer_group("P103", "P1412")
+    assert same_answer_group("P19", "P20")
+    assert not same_answer_group("P19", "P27")
+    assert not same_answer_group("P69", "P106")
+
+
+def test_recall_first_calibration_meets_the_floor():
+    queries, labels, eligible, owner, splits = _synthetic()
+    fit, cal = _mask(splits, "fit"), _mask(splits, "calibration")
+    model = fit_linear_router(queries[fit], labels[fit], eligible[fit], l2=1e-2)
+    logits = score_queries(queries, model["weight"], model["bias"],
+                           model["feature_mean"], model["feature_components"])
+    reachable = route_outcomes(logits[cal], eligible[cal], owner[cal], -1e9, 0.5)
+    ceiling = reachable["correct_route"]["rate"]
+    _, strict = calibrate_threshold(logits[cal], eligible[cal], owner[cal], target_fpr=0.0)
+    _, met = calibrate_threshold(logits[cal], eligible[cal], owner[cal], min_recall=ceiling)
+    assert met["recall_target_met"] and met["calibration_recall"] >= ceiling
+    assert met["calibration_recall"] >= strict["calibration_recall"]
+    if ceiling < 1.0:
+        # Unreachable floor: flagged, and falls back to the best reachable recall.
+        _, unmet = calibrate_threshold(logits[cal], eligible[cal], owner[cal], min_recall=1.0)
+        assert unmet["recall_target_met"] is False
+        assert unmet["calibration_recall"] == ceiling
+
+
+def test_frontiers_are_well_formed_and_v2_shift_zero_is_shipped_v2():
+    queries, labels, eligible, owner, splits = _synthetic()
+    fit, audit = _mask(splits, "fit"), _mask(splits, "audit")
+    model = fit_linear_router(queries[fit], labels[fit], eligible[fit], l2=1e-2)
+    logits = score_queries(queries, model["weight"], model["bias"],
+                           model["feature_mean"], model["feature_components"])
+    linear = linear_route_frontier(logits[audit], eligible[audit], owner[audit], 0.5,
+                                   reference=(0.5, 0.9))
+    assert 0.0 <= linear["route_auc"] <= 1.0
+    recalls = [linear["recall_at_fpr"][k] for k in ("0.0", "0.01", "0.05", "0.1", "0.2", "0.5", "1.0")]
+    assert recalls == sorted(recalls)
+    assert "at_reference_fpr" in linear and "at_reference_recall" in linear
+    # A tiny V2 artifact: positives/negatives are the fit queries per head.
+    positives = [F.normalize(queries[fit & (owner == i)], dim=-1) for i in range(FACTS)]
+    negatives = [F.normalize(queries[fit & (owner < 0) & eligible[:, i]], dim=-1) for i in range(FACTS)]
+    artifact = {"positive_prototypes": positives, "negative_prototypes": negatives,
+                "alpha": torch.full((FACTS,), -1.0), "tau": torch.full((FACTS,), -0.1),
+                "ambiguity_margin": 0.02}
+    v2 = v2_route_frontier(queries[audit], eligible[audit], owner[audit], artifact)
+    assert 0.0 <= v2["route_auc"] <= 1.0
+    active, _ = prototype_router_routes(queries[audit], eligible[audit], artifact)
+    positive = owner[audit] >= 0
+    shipped_fpr = float((active & ~positive).sum()) / float((~positive).sum())
+    assert v2["recall_at_fpr"]["1.0"] >= 0.0 and shipped_fpr <= 1.0
+
+
 def test_grouped_cv_returns_grid_values():
     queries, labels, eligible, _, splits = _synthetic()
     fit = _mask(splits, "fit")
@@ -325,6 +381,8 @@ def _facts():
         ("Dan Brown", "P27", "Dan Brown is a citizen of"),
         ("Eve Adams", "P106", "Eve Adams works as a"),
         ("Frank Moore", "P69", "Frank Moore was educated at"),
+        ("Gina Lopez", "P20", "Gina Lopez died in"),
+        ("Hugo Weber", "P106", "Hugo Weber is employed as a"),
     ]
     return [
         {"id": f"mcf_forget_{i}", "subject": s, "relation": r, "canonical_prompt": p}
@@ -352,12 +410,23 @@ def test_dataset_splits_are_disjoint_and_negatives_are_clean():
                 subject = facts[head]["subject"]
                 protected = {f["relation"] for f in facts if f["subject"] == subject}
                 assert record["donor_relation"] not in protected
-    # Alice P19 gets Alice P27's real prompts as same-subject negatives.
+    # Alice P19 gets Alice P27's real prompts as same-subject negatives, in
+    # every split (so held-out splits also contain same-subject negatives).
     alice_p27 = [
         r for r in data["records"]
         if r["owner"] == 3 and 0 in r["negative_for"]
     ]
-    assert alice_p27 and all(r["split"] == "fit" for r in alice_p27)
+    assert {r["split"] for r in alice_p27} == {"fit", "calibration", "audit"}
+    # Answer groups: P20 (place of death) is never a negative for P19.
+    assert not any(
+        r["kind"] == "subject_transplant" and 0 in r["negative_for"]
+        and r["donor_relation"] == "P20"
+        for r in data["records"]
+    )
+    # Held-out negatives use the same unseen templates as held-out positives.
+    for split in ("calibration", "audit"):
+        stats = data["diagnostics"]["by_split"][split]
+        assert set(stats["negative_families"]) <= set(stats["positive_families"])
     # Every head has at least one fit negative it is eligible for.
     fit = torch.tensor([s == "fit" for s in data["split"]])
     negatives = fit[:, None] & eligible & ~data["labels"]
