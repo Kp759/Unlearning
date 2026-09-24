@@ -25,6 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from linear_router import (  # noqa: E402
     ARCHITECTURE,
+    calibrate_per_head,
+    cosine_arm_artifact,
     linear_route_frontier,
     prototype_router_routes,
     same_answer_group,
@@ -466,3 +468,102 @@ def test_context_prefix_handles_qa_and_chat_prompts():
     assert "Question: As has been noted elsewhere, Who is Ann?" in out
     assert with_context_prefix("<|begin_of_text|>Ann was born in", "X,") is None
     assert with_context_prefix("Ann was born in", "X,") == "X, Ann was born in"
+
+
+# ---------------------------------------------------------------------------
+# Per-head thresholds and the 2x2 arms
+# ---------------------------------------------------------------------------
+
+def test_decide_routes_accepts_per_head_thresholds():
+    logits = torch.tensor([[1.0, 5.0], [1.0, 5.0]])
+    eligible = torch.tensor([[True, False], [False, True]])
+    decision = decide_routes(logits, eligible, torch.tensor([0.5, 6.0]), 0.5)
+    assert decision["active"].tolist() == [True, False]   # head 1 misses its own 6.0
+
+
+def test_per_head_rules():
+    # head 0 separable, head 1 non-separable, head 2 no negatives, head 3 no positives
+    scores = torch.tensor([
+        [4.0, 0.0, 0.0, 0.0],   # positive of head 0
+        [-2.0, 0.0, 0.0, 0.0],  # negative for head 0
+        [0.0, 1.0, 0.0, 0.0],   # positive of head 1
+        [0.0, 3.0, 0.0, 0.0],   # negative for head 1 scoring above it
+        [0.0, 0.0, 2.0, 0.0],   # positive of head 2
+        [0.0, 0.0, 0.0, 7.0],   # negative for head 3
+    ])
+    eligible = torch.tensor([
+        [1, 0, 0, 0], [1, 0, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1],
+    ], dtype=torch.bool)
+    owner = torch.tensor([0, -1, 1, -1, 2, -1])
+    thr, report = calibrate_per_head(scores, eligible, owner, fraction=0.1, slack=0.5, fallback=9.0)
+    assert thr[0].item() == pytest.approx(-2.0 + 0.1 * 6.0)
+    assert thr[1].item() == pytest.approx(0.5)
+    assert thr[2].item() == pytest.approx(1.5)
+    assert thr[3].item() == pytest.approx(9.0)
+    rules = [row["rule"] for row in report["per_head"]]
+    assert rules == [
+        "negative_ceiling_plus_fraction_of_gap",
+        "positive_floor_minus_slack_nonseparable",
+        "positive_floor_minus_slack_no_negative",
+        "fallback_no_calibration_positive",
+    ]
+    shrunk, _ = calibrate_per_head(scores, eligible, owner, fraction=0.1, slack=0.5,
+                                   shrink=2.0, fallback=9.0)
+    # m_0 = 2 prompts, so t_0 moves halfway toward the fallback
+    assert shrunk[0].item() == pytest.approx(0.5 * (-1.4) + 0.5 * 9.0)
+
+
+def test_per_head_threshold_stays_above_hardest_negative():
+    scores = torch.tensor([[1.0], [1.0 - 1e-7]])
+    thr, _ = calibrate_per_head(scores, torch.ones(2, 1, dtype=torch.bool),
+                                torch.tensor([0, -1]), fraction=1e-9, fallback=0.0)
+    assert thr[0] > scores[1, 0]
+
+
+def test_bank_with_per_head_thresholds_routes_and_round_trips():
+    weight = torch.zeros(FACTS, HIDDEN)
+    bias = torch.tensor([1.0, 1.0, 1.0, 1.0])
+    facts = [{"id": f"f{i}", "subject": f"S{i}", "relation": "r"} for i in range(FACTS)]
+    bank = LinearClassifierAssociationBank(
+        _FakeModel(), 0, weight, bias, torch.zeros(HIDDEN), None, 0.0,
+        [[(10 + i,)] for i in range(FACTS)], facts, rows=torch.randn(FACTS, HIDDEN),
+        per_head_thresholds=torch.tensor([0.5, 2.0, 0.5, 0.5]),
+    )
+    hidden, edited = _run(bank)
+    # every logit is 1.0: head 0 clears 0.5, head 1 misses 2.0
+    assert bank.last_active_fact_indices[0] == [0]
+    assert bank.last_active_fact_indices[1] == []
+    assert torch.equal(edited[1], hidden[1])
+    artifact = bank.artifact()
+    assert artifact["threshold_policy"] == "per_head"
+    assert artifact["routing_policy"].endswith("per_head_thresholds")
+    _, restored = load_router_artifact(_FakeModel(), artifact)
+    _, again = _run(restored, hidden=hidden)
+    assert torch.equal(edited, again)
+
+
+def test_cosine_arm_is_a_v2_artifact_with_replaced_tau():
+    torch.manual_seed(0)
+    source = {
+        "architecture": "relation_prototype_fact_association_bank_v2",
+        "layer": 0,
+        "positive_prototypes": [F.normalize(torch.randn(2, HIDDEN), dim=-1) for _ in range(FACTS)],
+        "negative_prototypes": [F.normalize(torch.randn(3, HIDDEN), dim=-1) for _ in range(FACTS)],
+        "alpha": torch.full((FACTS,), -1.0),
+        "tau": torch.full((FACTS,), -0.5),
+        "subject_patterns": [[(10 + i,)] for i in range(FACTS)],
+        "facts": [{"id": f"f{i}", "subject": f"S{i}", "relation": "r"} for i in range(FACTS)],
+        "rows": torch.randn(FACTS, HIDDEN),
+        "ambiguity_margin": 0.02,
+        "dataset": "X",
+    }
+    per_head = cosine_arm_artifact(source, torch.tensor([0.1, 0.2, 0.3, 0.4]),
+                                   arm="cosine_per_head", calibration={})
+    glob = cosine_arm_artifact(source, 0.25, arm="cosine_global", calibration={})
+    assert per_head["tau"].tolist() == pytest.approx([0.1, 0.2, 0.3, 0.4])
+    assert glob["tau"].tolist() == pytest.approx([0.25] * FACTS)
+    assert source["tau"].tolist() == pytest.approx([-0.5] * FACTS)  # source untouched
+    assert per_head["dataset"] == "X"
+    from static_overlap_fact_association_v2_gate import RelationPrototypeAssociationBank
+    _, bank = load_router_artifact(_FakeModel(), per_head)
+    assert isinstance(bank, RelationPrototypeAssociationBank)

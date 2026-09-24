@@ -593,15 +593,25 @@ def score_queries(queries, weight, bias, mean, components):
     return phi @ weight.float().T + bias.float()
 
 
+def _threshold_tensor(threshold, logits):
+    if isinstance(threshold, torch.Tensor):
+        return threshold.to(device=logits.device, dtype=logits.dtype)
+    if isinstance(threshold, (list, tuple)):
+        return torch.tensor(threshold, device=logits.device, dtype=logits.dtype)
+    return torch.tensor(float(threshold), device=logits.device, dtype=logits.dtype)
+
+
 def decide_routes(logits, eligible, threshold, ambiguity_margin):
     """The runtime decision rule. Returns a dict of [B] tensors.
 
-    A head qualifies when it is subject-eligible and its logit is >= the
-    threshold (-inf for the subject gate). The best qualifying head fires
-    unless a second qualifying head is within `ambiguity_margin` logits.
+    threshold is one value (global policy; -inf for the subject gate) or a
+    [N] vector (per-head policy). A head qualifies when it is
+    subject-eligible and its logit is >= its threshold. The best qualifying
+    head by raw score fires (V2's ranking) unless a second qualifying head is
+    within `ambiguity_margin`.
     """
     eligible = eligible.to(logits.device).bool()
-    qualifies = eligible & (logits >= float(threshold))
+    qualifies = eligible & (logits >= _threshold_tensor(threshold, logits))
     ranked = logits.masked_fill(~qualifies, float("-inf"))
     best_logit, best_fact = ranked.max(dim=-1)
     active = qualifies.any(dim=-1)
@@ -660,8 +670,10 @@ def _fit_heads(phi, labels, eligible, l2, balance, max_iter, tolerance):
     """
     phi = phi.double()
     n_heads = labels.shape[1]
-    weight = torch.zeros((n_heads, phi.shape[1]), dtype=torch.float64, requires_grad=True)
-    bias = torch.zeros(n_heads, dtype=torch.float64, requires_grad=True)
+    weight = torch.zeros(
+        (n_heads, phi.shape[1]), dtype=torch.float64, device=phi.device, requires_grad=True
+    )
+    bias = torch.zeros(n_heads, dtype=torch.float64, device=phi.device, requires_grad=True)
     pair_weight = _pair_weights(labels, eligible, balance)
     target = labels.double()
     optimizer = torch.optim.LBFGS(
@@ -713,10 +725,19 @@ def fit_linear_router(
     balance=True,
     max_iter=1000,
     tolerance=1e-9,
+    device=None,
 ):
-    """Fit Linear(d', N) on the rows given. Returns float32 tensors + info."""
+    """Fit Linear(d', N) on the rows given. Returns float32 CPU tensors + info.
+
+    device: where the float64 L-BFGS runs (e.g. "cuda"); None keeps the
+    inputs' device. The optimum does not depend on it.
+    """
     if queries.shape[0] != labels.shape[0] or labels.shape != eligible.shape:
         raise ValueError("queries, labels and eligible must align")
+    if device is not None:
+        queries = queries.to(device)
+        labels = labels.to(device)
+        eligible = eligible.to(device)
     eligible = eligible.bool()
     labels = labels.bool() & eligible
     mean, components = fit_feature_map(queries, pca_dim)
@@ -744,11 +765,12 @@ def fit_linear_router(
         "router_parameters": parameters,
         "fit_pairs_per_parameter": float(eligible.sum()) / float(parameters),
     })
+    info["fit_device"] = str(phi.device)
     return {
-        "weight": weight.float(),
-        "bias": bias.float(),
-        "feature_mean": mean.float(),
-        "feature_components": None if components is None else components.float(),
+        "weight": weight.float().cpu(),
+        "bias": bias.float().cpu(),
+        "feature_mean": mean.float().cpu(),
+        "feature_components": None if components is None else components.float().cpu(),
         "info": info,
     }
 
@@ -775,6 +797,8 @@ def select_hyperparameters(
     folds=5,
     balance=True,
     max_iter=1000,
+    device=None,
+    progress=None,
 ):
     """Pick one (L2, PCA) pair shared by all heads by grouped CV.
 
@@ -802,6 +826,7 @@ def select_hyperparameters(
                 model = fit_linear_router(
                     queries[~held], labels[~held], eligible[~held],
                     l2=l2, pca_dim=pca_dim, balance=balance, max_iter=max_iter,
+                    device=device,
                 )
                 logits = score_queries(
                     queries[held], model["weight"], model["bias"],
@@ -826,6 +851,8 @@ def select_hyperparameters(
                 ),
                 "folds_used": len(losses),
             })
+            if progress is not None:
+                progress(table[-1], len(table), len(pca_dims) * len(lambdas))
     scored = [r for r in table if r["held_out_balanced_log_loss"] is not None]
     if not scored:
         raise ValueError("Grouped CV produced no scorable folds")
@@ -924,6 +951,7 @@ def calibrate_threshold(
     min_recall=None,
     ambiguity_margin=0.5,
     placement="midpoint",
+    placement_fraction=0.5,
     max_candidates=2000,
 ):
     """One global logit threshold chosen on the calibration split.
@@ -942,6 +970,8 @@ def calibrate_threshold(
     """
     if placement not in ("midpoint", "high", "low"):
         raise ValueError("placement must be midpoint, high or low")
+    if not 0.0 <= float(placement_fraction) <= 1.0:
+        raise ValueError("placement_fraction must be in [0,1]")
     eligible = eligible.bool()
     owner = owner.cpu()
     negative = owner < 0
@@ -969,7 +999,7 @@ def calibrate_threshold(
             return evaluate(high)
         position = candidates.index(low)
         previous = candidates[position - 1] if position > 0 else low - 1.0
-        middle = evaluate(float(torch.tensor(0.5 * (previous + high), dtype=logits.dtype)))
+        middle = evaluate(float(torch.tensor((1.0 - float(placement_fraction)) * previous + float(placement_fraction) * high, dtype=logits.dtype)))
         if middle[1] <= fpr_limit + 1e-12 and middle[2] == correct_needed:
             return middle
         return evaluate(high)
@@ -1018,6 +1048,7 @@ def calibrate_threshold(
     return float(threshold), {
         "rule": rule,
         "placement": placement,
+        "placement_fraction": float(placement_fraction),
         "target_fpr": None if min_recall is not None else float(target_fpr),
         "min_recall": None if min_recall is None else float(min_recall),
         "recall_target_met": met if min_recall is not None else None,
@@ -1159,6 +1190,116 @@ def v2_route_frontier(queries, eligible, owner, artifact, *, max_candidates=2000
     return _frontier_summary(sweep, max(int((owner >= 0).sum()), 1))
 
 
+def calibrate_per_head(
+    scores,
+    eligible,
+    owner,
+    *,
+    fraction=0.1,
+    slack=0.5,
+    shrink=0.0,
+    fallback,
+):
+    """Association-specific thresholds from held-out calibration prompts.
+
+    For head i with calibration positives P_i (its own prompts) and negatives
+    N_i (eligible prompts it does not own, including other same-subject
+    heads' prompts):
+      separable       t_i = max(N_i) + fraction * (min(P_i) - max(N_i))
+                      (fraction 0.1 is Router V2's tau rule, here on held-out
+                      data rather than on the prototypes' own prompts)
+      non-separable   t_i = min(P_i) - slack      (V2: recall-first)
+      no negatives    t_i = min(P_i) - slack
+      no positives    t_i = fallback              (the global threshold)
+    shrink > 0 pulls t_i toward the fallback with weight m_i / (m_i + shrink),
+    m_i = number of calibration prompts for head i (a regularised variant).
+    Works for any score: linear logits or V2's cosine margin d.
+    """
+    scores = scores.float()
+    eligible = eligible.bool().to(scores.device)
+    owner = owner.to(scores.device)
+    n_heads = scores.shape[1]
+    thresholds = torch.full((n_heads,), float(fallback), dtype=scores.dtype)
+    per_head, counts = [], defaultdict(int)
+    for head in range(n_heads):
+        column = eligible[:, head]
+        pos = scores[column & (owner == head), head]
+        neg = scores[column & (owner != head), head]
+        if pos.numel() == 0:
+            rule, value = "fallback_no_calibration_positive", float(fallback)
+        elif neg.numel() == 0:
+            rule, value = "positive_floor_minus_slack_no_negative", float(pos.min()) - float(slack)
+        else:
+            p, n = pos.min(), neg.max()
+            if bool(p > n):
+                rule = "negative_ceiling_plus_fraction_of_gap"
+                value = float(n + float(fraction) * (p - n))
+                # stay strictly above the hardest negative after float32 rounding
+                value = max(value, float(torch.nextafter(n, torch.tensor(float("inf")))))
+            else:
+                rule = "positive_floor_minus_slack_nonseparable"
+                value = float(p) - float(slack)
+        m = int(pos.numel() + neg.numel())
+        if float(shrink) > 0 and rule != "fallback_no_calibration_positive":
+            value = (m * value + float(shrink) * float(fallback)) / (m + float(shrink))
+        thresholds[head] = value
+        counts[rule] += 1
+        per_head.append({
+            "head": head, "rule": rule, "threshold": value,
+            "calibration_positives": int(pos.numel()),
+            "calibration_negatives": int(neg.numel()),
+            "positive_floor": float(pos.min()) if pos.numel() else None,
+            "negative_ceiling": float(neg.max()) if neg.numel() else None,
+        })
+    return thresholds, {
+        "policy": "per_head",
+        "fraction": float(fraction),
+        "slack": float(slack),
+        "shrink": float(shrink),
+        "fallback_threshold": float(fallback),
+        "rule_counts": dict(counts),
+        "per_head": per_head,
+    }
+
+
+def v2_effective_scores(queries, artifact):
+    """V2's margin d_i with its alpha condition folded in (-inf where u < alpha)."""
+    u, d = _v2_scores(queries, artifact)
+    alpha = artifact["alpha"].float()[None, :]
+    return d.masked_fill(u < alpha, float("-inf"))
+
+
+def v2_route_outcomes_with_tau(queries, eligible, owner, artifact, tau):
+    """Outcomes of V2's runtime rule after replacing tau (global or per head)."""
+    patched = dict(artifact)
+    tau = torch.as_tensor(tau, dtype=torch.float32)
+    patched["tau"] = tau.expand(len(artifact["facts"])).clone() if tau.ndim == 0 else tau
+    active, chosen = prototype_router_routes(queries, eligible, patched)
+    positive = owner >= 0
+    negative = ~positive
+    return {
+        "correct_route": wilson(int((positive & active & (chosen == owner)).sum()), int(positive.sum())),
+        "wrong_row_on_positive": wilson(int((positive & active & (chosen != owner)).sum()), int(positive.sum())),
+        "abstain_on_positive": wilson(int((positive & ~active).sum()), int(positive.sum())),
+        "false_activation_on_negative_control": wilson(int((negative & active).sum()), int(negative.sum())),
+    }
+
+
+def cosine_arm_artifact(source, tau, *, arm, calibration):
+    """A Router V2 artifact whose tau is replaced by a held-out calibration.
+
+    Same prototypes, rows, subject patterns and runtime bank as the source;
+    loads with the unchanged V2 evaluators.
+    """
+    artifact = dict(source)
+    tau = torch.as_tensor(tau, dtype=torch.float32)
+    artifact["tau"] = tau.expand(len(source["facts"])).clone() if tau.ndim == 0 else tau.clone()
+    artifact["router_arm"] = arm
+    artifact["tau_source"] = "held_out_calibration"
+    artifact["tau_calibration"] = calibration
+    return artifact
+
+
 # ---------------------------------------------------------------------------
 # Runtime bank
 # ---------------------------------------------------------------------------
@@ -1195,6 +1336,7 @@ class LinearClassifierAssociationBank(nn.Module):
         ambiguity_margin=0.5,
         gate_mode="threshold",
         router_fit=None,
+        per_head_thresholds=None,
     ):
         super().__init__()
         n_facts = len(facts)
@@ -1214,6 +1356,14 @@ class LinearClassifierAssociationBank(nn.Module):
             raise ValueError(f"gate_mode must be one of {GATE_MODES}")
         if gate_mode == "threshold" and not math.isfinite(float(threshold)):
             raise ValueError("threshold gate needs a finite threshold")
+        if per_head_thresholds is not None:
+            per_head_thresholds = torch.as_tensor(per_head_thresholds, dtype=torch.float32)
+            if tuple(per_head_thresholds.shape) != (n_facts,):
+                raise ValueError("per_head_thresholds must be [num_facts]")
+            if not bool(torch.isfinite(per_head_thresholds).all()):
+                raise ValueError("per_head_thresholds must be finite")
+            if gate_mode != "threshold":
+                raise ValueError("per-head thresholds need the threshold gate")
         if float(ambiguity_margin) < 0:
             raise ValueError("ambiguity_margin must be non-negative")
 
@@ -1237,6 +1387,11 @@ class LinearClassifierAssociationBank(nn.Module):
         self.gate_mode = str(gate_mode)
         self.threshold = float("-inf") if self.gate_mode == "subject" else float(threshold)
         self.ambiguity_margin = 0.0 if self.gate_mode == "subject" else float(ambiguity_margin)
+        self.threshold_policy = "per_head" if per_head_thresholds is not None else "global"
+        self.register_buffer(
+            "per_head_thresholds",
+            None if per_head_thresholds is None else per_head_thresholds.clone().to(device),
+        )
         self.layer = int(layer)
         self.subject_patterns = subject_patterns
         self.facts = list(facts)
@@ -1252,6 +1407,11 @@ class LinearClassifierAssociationBank(nn.Module):
         self.last_route_scores = []
         layer_module = base_model.model.layers[self.layer]
         self._hook_handle = layer_module.register_forward_hook(self._hook)
+
+    def active_threshold(self, device):
+        if self.per_head_thresholds is not None:
+            return self.per_head_thresholds.to(device)
+        return self.threshold
 
     def router_logits(self, query):
         device = query.device
@@ -1275,7 +1435,9 @@ class LinearClassifierAssociationBank(nn.Module):
         positions = prefix_lengths - 1
         query = hidden[torch.arange(batch, device=hidden.device), positions].float()
         logits = self.router_logits(query)
-        decision = decide_routes(logits, subject_mask, self.threshold, self.ambiguity_margin)
+        decision = decide_routes(
+            logits, subject_mask, self.active_threshold(logits.device), self.ambiguity_margin
+        )
         active = decision["active"]
         best_fact = decision["fact"]
 
@@ -1309,7 +1471,12 @@ class LinearClassifierAssociationBank(nn.Module):
                     "best_eligible_fact": (
                         int(decision["best_eligible_fact"][i]) if has_candidate else None
                     ),
-                    "threshold": _finite_or_none(self.threshold),
+                    "threshold": (
+                        float(self.per_head_thresholds[int(decision["best_eligible_fact"][i])])
+                        if self.per_head_thresholds is not None and has_candidate
+                        else _finite_or_none(self.threshold)
+                    ),
+                    "threshold_policy": self.threshold_policy,
                     "gate_mode": self.gate_mode,
                     "qualifying_candidates": int(decision["qualifying"][i]),
                     "top1_top2_logit_separation": _finite_or_none(decision["separation"][i]),
@@ -1337,6 +1504,11 @@ class LinearClassifierAssociationBank(nn.Module):
             ),
             "gate_mode": self.gate_mode,
             "threshold": self.threshold,
+            "threshold_policy": self.threshold_policy,
+            "per_head_thresholds": (
+                None if self.per_head_thresholds is None
+                else self.per_head_thresholds.detach().cpu()
+            ),
             "ambiguity_margin": self.ambiguity_margin,
             "rows": self.extra.detach().cpu(),
             "subject_patterns": self.subject_patterns,
@@ -1344,7 +1516,11 @@ class LinearClassifierAssociationBank(nn.Module):
             "router_fit": self.router_fit,
             "routing_policy": (
                 "subject_eligibility_mask_plus_linear_bce_heads_top1_"
-                + ("global_threshold" if self.gate_mode == "threshold" else "subject_gate")
+                + (
+                    "subject_gate" if self.gate_mode == "subject"
+                    else "per_head_thresholds" if self.per_head_thresholds is not None
+                    else "global_threshold"
+                )
             ),
             "unique_subject_bypass": self.gate_mode == "subject",
             "subject_scan_scope": "prompt_prefix_only",
@@ -1376,6 +1552,7 @@ def load_linear_classifier_artifact(base_model, artifact):
         ambiguity_margin=float(artifact.get("ambiguity_margin", 0.5)),
         gate_mode=str(artifact.get("gate_mode", "threshold")),
         router_fit=artifact.get("router_fit"),
+        per_head_thresholds=artifact.get("per_head_thresholds"),
     )
     for row in bank.rows:
         row.requires_grad_(False)

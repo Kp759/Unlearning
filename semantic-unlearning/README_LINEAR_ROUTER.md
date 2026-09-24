@@ -155,3 +155,40 @@ split that chose the threshold.
 - `router_fitting_data_v2.rebalanced_split` reads the family from `role`, but
   MCF examples store it in `group` (`role` is `"forget"`), so as shipped it moves
   nothing. `fit_linear_router.py --split-rule rebalanced` passes the family through.
+
+## Threshold policies and the 2×2
+
+One fit run can separate two questions:
+
+1. Does the scorer matter (V2's cosine margin dᵢ vs the linear logit zᵢ)?
+2. Does the calibration policy matter (one global threshold vs per-association thresholds)?
+
+| | Global threshold | Per-head threshold |
+|---|---|---|
+| **Cosine dᵢ** (V2 prototypes, bank, rows) | `arms/cosine_global` | `arms/cosine_per_head` |
+| **Linear zᵢ** | `arms/linear_global` | `arms/linear_per_head` |
+
+- **Same data and rules for every arm.** All four use the same held-out calibration split and the same rules. The per-head rule is Router V2's own τ rule: tᵢ = hardest negative + 0.1·gap. The difference is that here it is applied to prompts the scorer never saw.
+- **Cosine arms change only τᵢ.** They keep V2's prototypes, runtime bank and residual rows, and load with the unchanged evaluators.
+- **Shipped V2 is a fifth reference row** (`v2_shipped_in_sample_tau`). Its τᵢ come from the prototypes' own prompts.
+
+```bash
+python -u scripts/fit_linear_router.py --run-dir <V2 run> --output-dir <new> \
+  --min-recall 0.98 --threshold-placement-fraction 0.1 \
+  --threshold-policy per_head --emit-2x2 --local-files-only
+# then run the benchmark's official evaluator on each <new>/arms/<arm>
+```
+
+**Per-head rule for head i** (on calibration):
+
+- **Separable:** tᵢ = max(negatives) + f·(min(positives) − max(negatives)). Set f with `--per-head-fraction` (default 0.1).
+- **Non-separable, or no negatives:** tᵢ = min(positives) − slack. Set slack with `--per-head-slack` (0.5 logits for the linear scorer; 0.02 for cosine, as in V2).
+- **No positives:** fall back to the global threshold.
+- **Shrinkage:** `--per-head-shrink κ` pulls tᵢ toward the global threshold with weight mᵢ/(mᵢ+κ), where mᵢ is the number of calibration prompts for head i.
+
+Where the global threshold sits within its admissible gap is set by `--threshold-placement-fraction`: 0.5 is the midpoint, 0.1 is V2's placement.
+
+**Other flags:**
+
+- `--fit-device` runs the cross-validation fits on a GPU (it defaults to `--device`).
+- The fit prints one progress line per cross-validation cell.

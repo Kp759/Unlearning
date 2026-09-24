@@ -33,11 +33,16 @@ import math
 from pathlib import Path
 import shutil
 import sys
+import time
 
 import torch
 
 from linear_router import (
     ARCHITECTURE,
+    calibrate_per_head,
+    cosine_arm_artifact,
+    v2_effective_scores,
+    v2_route_outcomes_with_tau,
     DEFAULT_LAMBDAS,
     DEFAULT_PCA_DIMS,
     GATE_MODES,
@@ -196,9 +201,24 @@ def main(argv=None):
                         help="threshold gate, recall-first: lowest false activation with "
                              "calibration recall >= this (overrides --target-fpr)")
     parser.add_argument("--max-threshold-candidates", type=int, default=2000)
+    parser.add_argument("--threshold-policy", choices=("global", "per_head"), default="global",
+                        help="threshold policy of the main artifact (threshold gate only)")
+    parser.add_argument("--per-head-fraction", type=float, default=0.1,
+                        help="per-head t_i = hardest negative + f * gap (0.1 = V2's rule)")
+    parser.add_argument("--per-head-slack", type=float, default=0.5,
+                        help="logit slack below the weakest positive for non-separable heads")
+    parser.add_argument("--per-head-shrink", type=float, default=0.0,
+                        help="shrink per-head thresholds toward the global one (0 = off)")
+    parser.add_argument("--emit-2x2", action="store_true",
+                        help="also write {cosine, linear} x {global, per_head} arm run dirs")
+    parser.add_argument("--threshold-placement-fraction", type=float, default=0.5,
+                        help="where in the admissible gap the threshold sits: 0.5 = "
+                             "midpoint, 0.1 = 10%% above the hardest negative (V2's rule)")
     parser.add_argument("--ambiguity-margin", type=float, default=0.5,
                         help="logit units; threshold gate only")
     parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--fit-device", default=None,
+                        help="device for the classifier fits (default: --device)")
     parser.add_argument("--skip-runtime-parity", action="store_true")
     args = parser.parse_args(argv)
 
@@ -250,14 +270,31 @@ def main(argv=None):
                       "example_source": example_source,
                       "by_split": data["diagnostics"]["by_split"]}), flush=True)
 
+    started = time.time()
+    print(json.dumps({"phase": "extracting_queries", "prompts": len(prompts)}), flush=True)
     queries = extract_prompt_queries(model, tokenizer, prompts, layer, batch_size=args.batch_size)
+    print(json.dumps({"phase": "queries_ready", "seconds": round(time.time() - started, 1)}),
+          flush=True)
+    fit_device = args.fit_device or args.device
     fit = masks["fit"]
     fit_groups = [g for g, flag in zip(data["groups"], fit.tolist()) if flag]
+
+    def progress(row, done, total):
+        print(json.dumps({
+            "phase": "cv", "cell": f"{done}/{total}", "pca_dim": row["pca_dim"],
+            "l2": row["l2"], "held_out_log_loss": row["held_out_balanced_log_loss"],
+            "held_out_pair_auc": row["held_out_pair_auc"],
+            "seconds": round(time.time() - started, 1),
+        }), flush=True)
+
     l2, pca_dim, cv = select_hyperparameters(
         queries[fit], labels[fit], eligible[fit], fit_groups,
         lambdas=_floats(args.lambdas), pca_dims=_ints(args.pca_dims), folds=args.cv_folds,
+        device=fit_device, progress=progress,
     )
-    router = fit_linear_router(queries[fit], labels[fit], eligible[fit], l2=l2, pca_dim=pca_dim)
+    router = fit_linear_router(
+        queries[fit], labels[fit], eligible[fit], l2=l2, pca_dim=pca_dim, device=fit_device,
+    )
     logits = score_queries(
         queries, router["weight"], router["bias"],
         router["feature_mean"], router["feature_components"],
@@ -271,10 +308,18 @@ def main(argv=None):
             logits[cal], eligible[cal], owner[cal],
             target_fpr=args.target_fpr, min_recall=args.min_recall,
             ambiguity_margin=args.ambiguity_margin,
+            placement_fraction=args.threshold_placement_fraction,
             max_candidates=args.max_threshold_candidates,
         )
         margin = float(args.ambiguity_margin)
+        per_head, per_head_report = calibrate_per_head(
+            logits[cal], eligible[cal], owner[cal],
+            fraction=args.per_head_fraction, slack=args.per_head_slack,
+            shrink=args.per_head_shrink, fallback=threshold,
+        )
+        calibration["per_head"] = per_head_report
     else:
+        per_head = None
         threshold, margin = float("-inf"), 0.0
         calibration = {
             "rule": "subject_gate",
@@ -282,8 +327,10 @@ def main(argv=None):
                     "False activation on subject transplants is 1 by design.",
         }
 
+    use_per_head = gate == "threshold" and args.threshold_policy == "per_head"
+    main_threshold = per_head if use_per_head else threshold
     outcomes = {
-        name: route_outcomes(logits[m], eligible[m], owner[m], threshold, margin, facts)
+        name: route_outcomes(logits[m], eligible[m], owner[m], main_threshold, margin, facts)
         for name, m in masks.items()
     }
     comparison, frontier, v2_routes = None, None, None
@@ -295,6 +342,48 @@ def main(argv=None):
             for name, m in masks.items()
         }
         v2_routes = prototype_router_routes(queries, eligible, source)
+
+    # The 2x2: {cosine (V2 d_i), linear (z_i)} x {global, per-head} thresholds,
+    # all calibrated on the same held-out calibration split with the same rule.
+    two_by_two, arm_thresholds = None, {}
+    if gate == "threshold":
+        cal = masks["calibration"]
+        arm_thresholds["linear_global"] = threshold
+        arm_thresholds["linear_per_head"] = per_head
+        two_by_two = {
+            arm: {
+                name: route_outcomes(logits[m], eligible[m], owner[m], arm_thresholds[arm], margin)
+                for name, m in masks.items()
+            }
+            for arm in ("linear_global", "linear_per_head")
+        }
+        if is_v2:
+            d_eff = v2_effective_scores(queries, source)
+            v2_margin = float(source.get("ambiguity_margin", 0.02))
+            cos_global, cos_global_report = calibrate_threshold(
+                d_eff[cal], eligible[cal], owner[cal],
+                target_fpr=args.target_fpr, min_recall=args.min_recall,
+                ambiguity_margin=v2_margin,
+                placement_fraction=args.threshold_placement_fraction,
+                max_candidates=args.max_threshold_candidates,
+            )
+            cos_per_head, cos_per_head_report = calibrate_per_head(
+                d_eff[cal], eligible[cal], owner[cal],
+                fraction=args.per_head_fraction, slack=0.02,
+                shrink=args.per_head_shrink, fallback=cos_global,
+            )
+            arm_thresholds["cosine_global"] = cos_global
+            arm_thresholds["cosine_per_head"] = cos_per_head
+            calibration["cosine_global"] = cos_global_report
+            calibration["cosine_per_head"] = cos_per_head_report
+            for arm in ("cosine_global", "cosine_per_head"):
+                two_by_two[arm] = {
+                    name: v2_route_outcomes_with_tau(
+                        queries[m], eligible[m], owner[m], source, arm_thresholds[arm]
+                    )
+                    for name, m in masks.items()
+                }
+            two_by_two["v2_shipped_in_sample_tau"] = comparison
     reference = None
     if comparison is not None:
         shipped = comparison["audit"]
@@ -344,7 +433,14 @@ def main(argv=None):
         "ambiguity_margin": margin,
         "target_fpr": calibration.get("target_fpr") if gate == "threshold" else None,
         "min_recall": calibration.get("min_recall") if gate == "threshold" else None,
+        "threshold_policy": args.threshold_policy if gate == "threshold" else "subject_gate",
+        "per_head_fraction": args.per_head_fraction if gate == "threshold" else None,
+        "per_head_slack": args.per_head_slack if gate == "threshold" else None,
+        "per_head_shrink": args.per_head_shrink if gate == "threshold" else None,
         "answer_groups": not args.no_answer_groups,
+        "threshold_placement_fraction": (
+            args.threshold_placement_fraction if gate == "threshold" else None
+        ),
         "fit_info": router["info"],
         "audit": {k: v for k, v in outcomes["audit"].items()},
         "source_run_dir": str(run_dir),
@@ -360,6 +456,7 @@ def main(argv=None):
         feature_mean=router["feature_mean"], feature_components=router["feature_components"],
         threshold=threshold, subject_patterns=subject_patterns, facts=facts,
         rows=rows, ambiguity_margin=margin, gate_mode=gate, router_fit=_json_safe(router_fit),
+        per_head_thresholds=per_head if use_per_head else None,
     )
     for row in bank.rows:
         row.requires_grad_(False)
@@ -371,7 +468,7 @@ def main(argv=None):
 
     parity = None
     if not args.skip_runtime_parity:
-        offline = decide_routes(logits, eligible, threshold, margin)
+        offline = decide_routes(logits, eligible, main_threshold, margin)
         parity = runtime_parity(model, bank, tokenizer, prompts, offline, args.batch_size, args.device)
 
     artifact = bank.artifact()
@@ -407,6 +504,42 @@ def main(argv=None):
         "router_uses_official_eval_fields": False,
     })
     _write_json(output / "association_manifest.json", new_manifest)
+
+    arm_dirs = {}
+    if args.emit_2x2 and two_by_two is not None:
+        for arm, value in arm_thresholds.items():
+            arm_dir = output / "arms" / arm
+            arm_dir.mkdir(parents=True, exist_ok=False)
+            if arm.startswith("linear"):
+                arm_artifact = dict(artifact)
+                vector = arm == "linear_per_head"
+                arm_artifact["per_head_thresholds"] = value.clone() if vector else None
+                arm_artifact["threshold"] = float(threshold)
+                arm_artifact["threshold_policy"] = "per_head" if vector else "global"
+                arm_artifact["routing_policy"] = (
+                    "subject_eligibility_mask_plus_linear_bce_heads_top1_"
+                    + ("per_head_thresholds" if vector else "global_threshold")
+                )
+            else:
+                arm_artifact = cosine_arm_artifact(
+                    source, value, arm=arm,
+                    calibration=_json_safe(calibration[arm]),
+                )
+            arm_artifact["router_arm"] = arm
+            torch.save(arm_artifact, arm_dir / "fact_association_embeddings.pt")
+            arm_manifest = dict(new_manifest)
+            arm_manifest.update({
+                "architecture": str(arm_artifact["architecture"]),
+                "routing_policy": arm_artifact.get("routing_policy"),
+                "router_arm": arm,
+                "router_arm_note": (
+                    "Same data, splits and calibration rule for all four arms; "
+                    "cosine arms keep V2's prototypes, bank and rows with tau "
+                    "recalibrated on held-out prompts."
+                ),
+            })
+            _write_json(arm_dir / "association_manifest.json", arm_manifest)
+            arm_dirs[arm] = str(arm_dir)
     report = {
         "schema_version": "linear_router_fit_v1",
         "router_fit": router_fit,
@@ -414,6 +547,7 @@ def main(argv=None):
         "calibration": calibration,
         "route_outcomes_by_split": outcomes,
         "v2_same_prompts_by_split": comparison,
+        "two_by_two_by_split": two_by_two,
         "audit_frontier": frontier,
         "runtime_parity": parity,
         "neutral_prompt_exact_base": neutral_exact,
@@ -421,7 +555,7 @@ def main(argv=None):
         "command": sys.argv,
     }
     _write_json(output / "linear_router_report.json", report)
-    decision = decide_routes(logits, eligible, threshold, margin)
+    decision = decide_routes(logits, eligible, main_threshold, margin)
     rows_out = []
     for index, r in enumerate(data["records"]):
         best = float(decision["best_eligible_logit"][index])
@@ -470,6 +604,15 @@ def main(argv=None):
             frontier["linear"].get("at_reference_recall", {}).get("fpr")
         ),
         "runtime_route_mismatches": None if parity is None else parity["route_mismatches"],
+        "threshold_policy": router_fit["threshold_policy"],
+        "audit_2x2": None if two_by_two is None else {
+            arm: {
+                "correct_route": block["audit"]["correct_route"]["rate"],
+                "false_activation": block["audit"]["false_activation_on_negative_control"]["rate"],
+            }
+            for arm, block in two_by_two.items() if block is not None
+        },
+        "arm_dirs": arm_dirs or None,
         "neutral_prompt_exact_base": neutral_exact,
         "output_dir": str(output),
     }
