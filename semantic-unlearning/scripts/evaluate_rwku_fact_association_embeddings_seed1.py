@@ -35,6 +35,7 @@ from mcf_zero_unlearn_official_eval import (
     official_perplexity,
     runtime_aligned_perplexity,
 )
+from linear_router import load_router_artifact
 from static_overlap_fact_association_embeddings import load_artifact_into_model
 from static_overlap_fact_association_v2_gate import (
     load_relation_prototype_artifact,
@@ -298,10 +299,8 @@ def main(argv=None):
     base_model.requires_grad_(False)
     base_model.config.use_cache = False
     architecture = str(artifact.get("architecture", ""))
-    if architecture == "relation_prototype_fact_association_bank_v2":
-        model, bank = load_relation_prototype_artifact(base_model, artifact)
-    else:
-        model, bank = load_artifact_into_model(base_model, artifact)
+    # Dispatches V1, Router V2, stochastic V2 and the learned linear router.
+    model, bank = load_router_artifact(base_model, artifact)
     model.eval()
 
     fact_to_row = {
@@ -389,6 +388,8 @@ def main(argv=None):
         "forget_train_count": 50,
         "unique_forget_association_count": len(expected_facts),
         "architecture": {
+            "router_architecture": str(artifact.get("architecture", "")),
+            "routing_policy": artifact.get("routing_policy"),
             "layer": int(artifact["layer"]),
             "trainable_vectors": len(artifact["facts"]),
             "base_weights_edited": False,

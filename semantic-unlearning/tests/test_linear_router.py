@@ -1,0 +1,399 @@
+"""Invariants of the learned linear router.
+
+The claims these protect:
+  * Linear(d, N) + masked BCE + row-wise L2 IS N independent logistic
+    regressions (joint fit == per-head fits);
+  * ineligible (prompt, head) pairs cannot influence a head;
+  * only the request-boundary position is edited; a prompt that does not
+    route follows the exact base path;
+  * the runtime hook makes the same decision as the offline rule used for
+    calibration, and an artifact round-trips to the same routes;
+  * the dataset never puts one prompt in two splits and never labels a
+    same-relation transplant (a paraphrase of the positive) as a negative.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+
+import pytest
+import torch
+from torch import nn
+from torch.nn import functional as F
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+from linear_router import (  # noqa: E402
+    ARCHITECTURE,
+    LinearClassifierAssociationBank,
+    assemble_router_dataset,
+    calibrate_threshold,
+    decide_routes,
+    examples_from_facts,
+    fit_linear_router,
+    load_linear_classifier_artifact,
+    load_router_artifact,
+    route_outcomes,
+    score_queries,
+    select_hyperparameters,
+    with_context_prefix,
+)
+from static_overlap_fact_association_embeddings import (  # noqa: E402
+    make_subject_patterns,
+)
+
+
+HIDDEN = 16
+FACTS = 4
+WIDTH = 6
+
+
+# ---------------------------------------------------------------------------
+# Fakes
+# ---------------------------------------------------------------------------
+
+class _Block(nn.Module):
+    def forward(self, hidden):
+        return (hidden,)
+
+
+class _Inner(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layers = nn.ModuleList([_Block()])
+
+
+class _FakeModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.model = _Inner()
+        self.placeholder = nn.Parameter(torch.zeros(1))
+
+
+class _WordTokenizer:
+    """Whitespace tokenizer with a BOS id, enough for subject matching."""
+
+    def __init__(self):
+        self.vocab = {}
+
+    def _id(self, word):
+        return self.vocab.setdefault(word, len(self.vocab) + 10)
+
+    def __call__(self, text, add_special_tokens=True, **_):
+        ids = [self._id(word) for word in str(text).split()]
+        return {"input_ids": ([1] + ids) if add_special_tokens else ids}
+
+
+# ---------------------------------------------------------------------------
+# Synthetic features
+# ---------------------------------------------------------------------------
+
+def _synthetic(per_fact=10, noise=0.35, seed=0):
+    """Facts 0 and 1 share a subject; 2 and 3 are unique.
+
+    Each fact has positives near its own centre and same-subject negatives
+    near a distinct wrong-relation centre. Returns queries, labels, eligible,
+    owner, split.
+    """
+    g = torch.Generator().manual_seed(seed)
+    centres = F.normalize(torch.randn(FACTS, HIDDEN, generator=g), dim=-1)
+    wrong = F.normalize(torch.randn(FACTS, HIDDEN, generator=g), dim=-1)
+    subject_of = [0, 0, 1, 2]
+    queries, owners, eligible_rows, splits = [], [], [], []
+    split_cycle = ["fit", "fit", "fit", "calibration", "audit"]
+    for fact in range(FACTS):
+        same = [i for i in range(FACTS) if subject_of[i] == subject_of[fact]]
+        for k in range(per_fact):
+            for kind, centre in (("pos", centres[fact]), ("neg", wrong[fact])):
+                queries.append(centre + noise * torch.randn(HIDDEN, generator=g))
+                owners.append(fact if kind == "pos" else -1)
+                row = torch.zeros(FACTS, dtype=torch.bool)
+                row[same] = True
+                eligible_rows.append(row)
+                splits.append(split_cycle[k % len(split_cycle)])
+    queries = torch.stack(queries)
+    owner = torch.tensor(owners)
+    eligible = torch.stack(eligible_rows)
+    labels = torch.zeros_like(eligible)
+    positive = owner >= 0
+    labels[positive.nonzero(as_tuple=True)[0], owner[positive]] = True
+    return queries, labels, eligible, owner, splits
+
+
+def _mask(splits, name):
+    return torch.tensor([s == name for s in splits])
+
+
+def _bank(weight=None, bias=None, threshold=0.0, gate_mode="threshold", margin=0.5, seed=0):
+    torch.manual_seed(seed)
+    weight = torch.randn(FACTS, HIDDEN) if weight is None else weight
+    bias = torch.zeros(FACTS) if bias is None else bias
+    facts = [{"id": f"f{i}", "subject": f"S{i}", "relation": "r"} for i in range(FACTS)]
+    return LinearClassifierAssociationBank(
+        _FakeModel(), 0, weight, bias,
+        feature_mean=torch.zeros(HIDDEN), feature_components=None,
+        threshold=threshold, subject_patterns=[[(10 + i,)] for i in range(FACTS)],
+        facts=facts, rows=torch.randn(FACTS, HIDDEN),
+        ambiguity_margin=margin, gate_mode=gate_mode,
+    )
+
+
+def _ids():
+    # Row 2 carries no registered subject token and must never route.
+    return torch.tensor([
+        [10, 1, 2, 3, 4, 5],
+        [11, 1, 2, 3, 4, 5],
+        [99, 1, 2, 3, 4, 5],
+        [10, 11, 2, 3, 4, 5],
+    ])
+
+
+def _run(bank, hidden=None):
+    ids = _ids()
+    bank.bind(ids, attention_mask=torch.ones_like(ids))
+    if hidden is None:
+        torch.manual_seed(7)
+        hidden = torch.randn(ids.shape[0], WIDTH, HIDDEN)
+    edited = bank._hook(None, None, (hidden,))[0]
+    bank.unbind()
+    return hidden, edited
+
+
+# ---------------------------------------------------------------------------
+# Fitting
+# ---------------------------------------------------------------------------
+
+def test_joint_fit_equals_independent_heads():
+    queries, labels, eligible, _, _ = _synthetic()
+    joint = fit_linear_router(queries, labels, eligible, l2=1e-2)
+    for head in range(FACTS):
+        alone = fit_linear_router(
+            queries, labels[:, head:head + 1], eligible[:, head:head + 1], l2=1e-2
+        )
+        assert torch.allclose(joint["weight"][head], alone["weight"][0], atol=1e-4)
+        assert torch.allclose(joint["bias"][head], alone["bias"][0], atol=1e-4)
+
+
+def test_ineligible_labels_cannot_move_a_head():
+    queries, labels, eligible, _, _ = _synthetic()
+    flipped = labels.clone()
+    flipped[~eligible] = ~flipped[~eligible]
+    first = fit_linear_router(queries, labels, eligible, l2=1e-2)
+    second = fit_linear_router(queries, flipped, eligible, l2=1e-2)
+    assert torch.equal(first["weight"], second["weight"])
+    assert torch.equal(first["bias"], second["bias"])
+
+
+def test_fit_is_deterministic():
+    queries, labels, eligible, _, _ = _synthetic()
+    a = fit_linear_router(queries, labels, eligible, l2=1e-3, pca_dim=8)
+    b = fit_linear_router(queries, labels, eligible, l2=1e-3, pca_dim=8)
+    assert torch.equal(a["weight"], b["weight"])
+    assert a["info"]["converged"]
+
+
+def test_same_subject_heads_are_separated_and_threshold_meets_target():
+    queries, labels, eligible, owner, splits = _synthetic()
+    fit, cal, audit = (_mask(splits, s) for s in ("fit", "calibration", "audit"))
+    model = fit_linear_router(queries[fit], labels[fit], eligible[fit], l2=1e-2)
+    logits = score_queries(
+        queries, model["weight"], model["bias"],
+        model["feature_mean"], model["feature_components"],
+    )
+    threshold, report = calibrate_threshold(
+        logits[cal], eligible[cal], owner[cal], target_fpr=0.0, ambiguity_margin=0.5
+    )
+    assert report["calibration_fpr"] == 0.0
+    outcome = route_outcomes(logits[audit], eligible[audit], owner[audit], threshold, 0.5)
+    assert outcome["correct_route"]["rate"] >= 0.75
+    assert outcome["wrong_row_on_positive"]["rate"] == 0.0
+
+
+def test_calibration_can_always_fall_back_to_firing_nothing():
+    # The hardest calibration negative holds the single largest logit.
+    logits = torch.tensor([[3.0000002, -5.0], [1.0, -5.0], [2.5, -5.0]], dtype=torch.float32)
+    eligible = torch.tensor([[True, False], [True, False], [True, False]])
+    owner = torch.tensor([-1, 0, 0])
+    threshold, report = calibrate_threshold(logits, eligible, owner, target_fpr=0.0)
+    assert report["calibration_fpr"] == 0.0
+    assert threshold > 2.5
+    decision = decide_routes(logits, eligible, threshold, 0.5)
+    assert not bool(decision["active"][0])
+
+
+def test_grouped_cv_returns_grid_values():
+    queries, labels, eligible, _, splits = _synthetic()
+    fit = _mask(splits, "fit")
+    groups = [f"family_{i % 3}" for i in range(int(fit.sum()))]
+    l2, pca, table = select_hyperparameters(
+        queries[fit], labels[fit], eligible[fit], groups,
+        lambdas=(1e-3, 1e-1), pca_dims=(0, 8), folds=3,
+    )
+    assert l2 in (1e-3, 1e-1) and pca in (0, 8)
+    assert len(table["table"]) == 4
+
+
+# ---------------------------------------------------------------------------
+# Runtime hook
+# ---------------------------------------------------------------------------
+
+def test_only_the_boundary_position_is_edited():
+    hidden, edited = _run(_bank(threshold=-100.0))
+    delta = (edited - hidden).norm(dim=-1)
+    assert torch.equal(delta[:, :-1], torch.zeros_like(delta[:, :-1]))
+    assert bool((delta[:, -1] > 0).any())
+
+
+def test_ineligible_subject_never_routes():
+    for gate in ("threshold", "subject"):
+        hidden, edited = _run(_bank(threshold=-100.0, gate_mode=gate))
+        assert torch.equal(edited[2], hidden[2])
+
+
+def test_prompt_that_does_not_route_is_exact_base():
+    hidden, edited = _run(_bank(threshold=1e9))
+    assert torch.equal(edited, hidden)
+
+
+def test_ambiguous_top_two_abstains():
+    weight = torch.randn(FACTS, HIDDEN)
+    weight[1] = weight[0]  # heads 0 and 1 give identical logits
+    bank = _bank(weight=weight, bias=torch.full((FACTS,), 50.0), threshold=0.0)
+    hidden, edited = _run(bank)
+    assert bank.last_route_scores[3]["rejected_as_ambiguous"]
+    assert torch.equal(edited[3], hidden[3])
+
+
+def test_subject_gate_fires_on_every_eligible_prompt():
+    bank = _bank(bias=torch.full((FACTS,), -1e6), gate_mode="subject", threshold=123.0)
+    _run(bank)
+    fired = [bool(ids) for ids in bank.last_active_fact_indices]
+    assert fired == [True, True, False, True]
+    assert bank.threshold == float("-inf")
+
+
+def test_hook_matches_offline_decision_rule():
+    bank = _bank(threshold=0.3)
+    hidden, _ = _run(bank)
+    query = hidden[:, -1].float()
+    logits = score_queries(query, bank.router_weight, bank.router_bias, bank.feature_mean, None)
+    eligible = torch.tensor([
+        [True, False, False, False],
+        [False, True, False, False],
+        [False, False, False, False],
+        [True, True, False, False],
+    ])
+    offline = decide_routes(logits, eligible, 0.3, 0.5)
+    expected = [[int(offline["fact"][i])] if bool(offline["active"][i]) else [] for i in range(4)]
+    assert bank.last_active_fact_indices == expected
+
+
+def test_artifact_round_trip_gives_identical_routes():
+    bank = _bank(threshold=0.1)
+    hidden, first = _run(bank)
+    artifact = bank.artifact()
+    assert artifact["architecture"] == ARCHITECTURE
+    _, restored = load_linear_classifier_artifact(_FakeModel(), artifact)
+    _, second = _run(restored, hidden=hidden)
+    assert torch.equal(first, second)
+    _, dispatched = load_router_artifact(_FakeModel(), artifact)
+    assert isinstance(dispatched, LinearClassifierAssociationBank)
+
+
+def test_route_is_deterministic_across_calls():
+    bank = _bank(threshold=0.0)
+    hidden, first = _run(bank)
+    _, second = _run(bank, hidden=hidden)
+    assert torch.equal(first, second)
+
+
+def test_threshold_gate_rejects_infinite_threshold():
+    with pytest.raises(ValueError):
+        _bank(threshold=float("inf"))
+
+
+# ---------------------------------------------------------------------------
+# Dataset
+# ---------------------------------------------------------------------------
+
+def _facts():
+    rows = [
+        ("Alice Smith", "P19", "Alice Smith was born in"),
+        ("Bob Jones", "P19", "Bob Jones was born in"),
+        ("Carol King", "P106", "Carol King works as a"),
+        ("Alice Smith", "P27", "Alice Smith is a citizen of"),
+        ("Dan Brown", "P27", "Dan Brown is a citizen of"),
+        ("Eve Adams", "P106", "Eve Adams works as a"),
+        ("Frank Moore", "P69", "Frank Moore was educated at"),
+    ]
+    return [
+        {"id": f"mcf_forget_{i}", "subject": s, "relation": r, "canonical_prompt": p}
+        for i, (s, r, p) in enumerate(rows)
+    ]
+
+
+def test_dataset_splits_are_disjoint_and_negatives_are_clean():
+    facts = _facts()
+    tokenizer = _WordTokenizer()
+    patterns = make_subject_patterns(tokenizer, facts)
+    examples = examples_from_facts(facts, augment=True)
+    data = assemble_router_dataset(
+        facts, examples, tokenizer, patterns, negative_count=9, per_donor=1
+    )
+    prompts = data["prompts"]
+    assert len(prompts) == len(set(prompts))
+    assert set(data["split"]) <= {"fit", "calibration", "audit"}
+    eligible = data["eligible"]
+    for row, record in enumerate(data["records"]):
+        if record["owner"] >= 0:
+            assert bool(eligible[row, record["owner"]])
+        if record["kind"] == "subject_transplant":
+            for head in record["negative_for"]:
+                subject = facts[head]["subject"]
+                protected = {f["relation"] for f in facts if f["subject"] == subject}
+                assert record["donor_relation"] not in protected
+    # Alice P19 gets Alice P27's real prompts as same-subject negatives.
+    alice_p27 = [
+        r for r in data["records"]
+        if r["owner"] == 3 and 0 in r["negative_for"]
+    ]
+    assert alice_p27 and all(r["split"] == "fit" for r in alice_p27)
+    # Every head has at least one fit negative it is eligible for.
+    fit = torch.tensor([s == "fit" for s in data["split"]])
+    negatives = fit[:, None] & eligible & ~data["labels"]
+    assert bool(negatives.any(dim=0).all())
+    by_split = data["diagnostics"]["by_split"]
+    assert by_split["calibration"]["positives"] > 0 and by_split["audit"]["positives"] > 0
+
+
+def test_mcf_examples_take_the_family_from_group_not_role():
+    # MCF association_examples.json: role is the fact role, group the family.
+    facts = _facts()
+    tokenizer = _WordTokenizer()
+    patterns = make_subject_patterns(tokenizer, facts)
+    examples = []
+    for fact in facts:
+        p = fact["canonical_prompt"]
+        for split, family, prompt in (
+            ("train", "canonical_rewrite", p),
+            ("train", "authored_0", f"Recall that {p}"),
+            ("development", "authored_0", f"Note that {p}"),
+            ("development", "authored_1", f"Consider that {p}"),
+        ):
+            examples.append({"fact_id": fact["id"], "prompt": prompt, "split": split,
+                             "role": "forget", "group": family})
+    data = assemble_router_dataset(facts, examples, tokenizer, patterns, negative_count=6)
+    assert data["diagnostics"]["development_family_split"] == {
+        "authored_0": "calibration", "authored_1": "audit",
+    }
+    assert {r["group"] for r in data["records"] if r["owner"] >= 0} == {
+        "canonical_rewrite", "authored_0", "authored_1",
+    }
+
+
+def test_context_prefix_handles_qa_and_chat_prompts():
+    qa = "<|start|>user\nPlease briefly answer the following question.\nQuestion: Who is Ann?\nAnswer:"
+    out = with_context_prefix(qa, "As has been noted elsewhere,")
+    assert "Question: As has been noted elsewhere, Who is Ann?" in out
+    assert with_context_prefix("<|begin_of_text|>Ann was born in", "X,") is None
+    assert with_context_prefix("Ann was born in", "X,") == "X, Ann was born in"

@@ -57,6 +57,7 @@ import torch
 from torch.nn import functional as F
 
 from mcf_sampling import sample_official_mcf_records
+from linear_router import load_router_artifact
 from oracle_router_gate import build_oracle_table, load_arm
 from static_overlap_fact_association_embeddings import (
     load_artifact_into_model,
@@ -438,11 +439,9 @@ def main(argv=None):
 
 
 def _load_shipped(base_model, artifact):
-    if str(artifact.get("architecture", "")) == (
-        "relation_prototype_fact_association_bank_v2"
-    ):
-        return load_relation_prototype_artifact(base_model, artifact)
-    return load_artifact_into_model(base_model, artifact)
+    # The "v2" arm is whatever router the artifact ships: Router V2, V1, or the
+    # learned linear router. Oracle/subject-only/random arms reuse its rows.
+    return load_router_artifact(base_model, artifact)
 
 
 if __name__ == "__main__":
