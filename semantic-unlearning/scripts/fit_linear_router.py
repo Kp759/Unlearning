@@ -39,6 +39,7 @@ import torch
 
 from linear_router import (
     ARCHITECTURE,
+    training_positive_floor,
     calibrate_per_head,
     cosine_arm_artifact,
     v2_effective_scores,
@@ -312,10 +313,12 @@ def main(argv=None):
             max_candidates=args.max_threshold_candidates,
         )
         margin = float(args.ambiguity_margin)
+        fit_mask = masks["fit"]
         per_head, per_head_report = calibrate_per_head(
             logits[cal], eligible[cal], owner[cal],
             fraction=args.per_head_fraction, slack=args.per_head_slack,
             shrink=args.per_head_shrink, fallback=threshold,
+            ceiling=training_positive_floor(logits[fit_mask], eligible[fit_mask], owner[fit_mask]),
         )
         calibration["per_head"] = per_head_report
     else:
@@ -367,10 +370,14 @@ def main(argv=None):
                 placement_fraction=args.threshold_placement_fraction,
                 max_candidates=args.max_threshold_candidates,
             )
+            fit_mask = masks["fit"]
             cos_per_head, cos_per_head_report = calibrate_per_head(
                 d_eff[cal], eligible[cal], owner[cal],
                 fraction=args.per_head_fraction, slack=0.02,
                 shrink=args.per_head_shrink, fallback=cos_global,
+                ceiling=training_positive_floor(
+                    d_eff[fit_mask], eligible[fit_mask], owner[fit_mask], epsilon=1e-4
+                ),
             )
             arm_thresholds["cosine_global"] = cos_global
             arm_thresholds["cosine_per_head"] = cos_per_head

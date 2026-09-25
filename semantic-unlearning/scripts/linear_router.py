@@ -1199,6 +1199,7 @@ def calibrate_per_head(
     slack=0.5,
     shrink=0.0,
     fallback,
+    ceiling=None,
 ):
     """Association-specific thresholds from held-out calibration prompts.
 
@@ -1213,6 +1214,10 @@ def calibrate_per_head(
       no positives    t_i = fallback              (the global threshold)
     shrink > 0 pulls t_i toward the fallback with weight m_i / (m_i + shrink),
     m_i = number of calibration prompts for head i (a regularised variant).
+    ceiling ([N], optional): t_i is capped at ceiling_i. Pass the lowest score
+    of each head's own TRAINING positives minus a small epsilon so a fact's
+    own direct prompt always routes (Router V2 enforces the same invariant,
+    and the MQuAKE evaluator requires it).
     Works for any score: linear logits or V2's cosine margin d.
     """
     scores = scores.float()
@@ -1242,10 +1247,16 @@ def calibrate_per_head(
         m = int(pos.numel() + neg.numel())
         if float(shrink) > 0 and rule != "fallback_no_calibration_positive":
             value = (m * value + float(shrink) * float(fallback)) / (m + float(shrink))
+        capped = False
+        if ceiling is not None and bool(torch.isfinite(ceiling[head])):
+            if value > float(ceiling[head]):
+                value, capped = float(ceiling[head]), True
+                counts["capped_at_training_positive"] += 1
         thresholds[head] = value
         counts[rule] += 1
         per_head.append({
             "head": head, "rule": rule, "threshold": value,
+            "capped_at_training_positive": capped,
             "calibration_positives": int(pos.numel()),
             "calibration_negatives": int(neg.numel()),
             "positive_floor": float(pos.min()) if pos.numel() else None,
@@ -1258,8 +1269,22 @@ def calibrate_per_head(
         "shrink": float(shrink),
         "fallback_threshold": float(fallback),
         "rule_counts": dict(counts),
+        "ceiling_applied": ceiling is not None,
         "per_head": per_head,
     }
+
+
+def training_positive_floor(scores, eligible, owner, epsilon=1e-3):
+    """[N] lowest score of each head's own (eligible) positives, minus epsilon."""
+    scores = scores.float()
+    n_heads = scores.shape[1]
+    floor = torch.full((n_heads,), float("inf"))
+    for head in range(n_heads):
+        own = scores[eligible[:, head].bool() & (owner == head), head]
+        own = own[torch.isfinite(own)]
+        if own.numel():
+            floor[head] = float(own.min()) - float(epsilon)
+    return floor
 
 
 def v2_effective_scores(queries, artifact):

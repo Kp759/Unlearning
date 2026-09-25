@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from linear_router import (  # noqa: E402
     ARCHITECTURE,
+    training_positive_floor,
     calibrate_per_head,
     cosine_arm_artifact,
     linear_route_frontier,
@@ -567,3 +568,24 @@ def test_cosine_arm_is_a_v2_artifact_with_replaced_tau():
     from static_overlap_fact_association_v2_gate import RelationPrototypeAssociationBank
     _, bank = load_router_artifact(_FakeModel(), per_head)
     assert isinstance(bank, RelationPrototypeAssociationBank)
+
+
+def test_per_head_threshold_never_rejects_a_training_positive():
+    # calibration says t_0 = -2 + 0.1 * 6 = -1.4, but the fact's own training
+    # prompt scores -1.5, so the threshold is capped just below it.
+    cal_scores = torch.tensor([[4.0], [-2.0]])
+    cal_owner = torch.tensor([0, -1])
+    fit_scores = torch.tensor([[-1.5], [3.0]])
+    fit_owner = torch.tensor([0, 0])
+    ones = torch.ones(2, 1, dtype=torch.bool)
+    ceiling = training_positive_floor(fit_scores, ones, fit_owner, epsilon=1e-3)
+    thr, report = calibrate_per_head(cal_scores, ones, cal_owner, fraction=0.1,
+                                     fallback=0.0, ceiling=ceiling)
+    assert thr[0].item() == pytest.approx(-1.501)
+    assert report["per_head"][0]["capped_at_training_positive"]
+    assert decide_routes(fit_scores[:1], ones[:1], thr, 0.5)["active"].item()
+    # an uncapped head is unchanged
+    thr2, report2 = calibrate_per_head(cal_scores, ones, cal_owner, fraction=0.1,
+                                       fallback=0.0, ceiling=torch.tensor([10.0]))
+    assert thr2[0].item() == pytest.approx(-1.4)
+    assert not report2["per_head"][0]["capped_at_training_positive"]
