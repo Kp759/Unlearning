@@ -100,3 +100,23 @@ sbatch mquake_layer_sweep_genie.slurm     # outputs/mquake_layer_sweep_linear_ge
 - No router-vs-genie decomposition for MQuAKE (that script is MCF-only). The training
   report has final metrics under classifier routing for comparison.
 - 24 h wall time: 7 layers × up to 2 h training + eval.
+
+## ZsRE
+
+```bash
+sbatch zsre_layer_sweep_regular.slurm   # outputs/zsre_layer_sweep_linear_regular_v1
+sbatch zsre_layer_sweep_genie.slurm     # outputs/zsre_layer_sweep_linear_genie_v1
+```
+
+Same four stages as MQuAKE: `prepare_zsre_association_source.py` -> `fit_linear_router.py`
+(settings from `outputs/zsre_linear_2x2_seed1/linear_router_report.json` when present) ->
+`train_direct_linear_router_rows.py --dataset zsre` (shipped ZsRE optimizer, 30
+updates/fact, 3600 s cap) -> official ZsRE eval (Eff, Gen, Spe, retain, PPL). 14 h wall time.
+
+## Untrainable facts (all benchmarks, regular mode)
+
+A fact whose training prompts the linear classifier never sends to its own row
+cannot be edited. Such facts keep a zero row and are listed in
+`untrainable_fact_ids`; the rest of the layer trains and is evaluated
+(`facts_trained` in the summary). This matters most for ZsRE and MQuAKE, where
+a fact has a single direct prompt.

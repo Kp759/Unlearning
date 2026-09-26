@@ -127,7 +127,7 @@ def main(argv=None):
         examples, tokenizer, PLAN["max_length"], PLAN["unknown_completion"]
     )
 
-    excluded = []
+    excluded, untrainable = [], []
     if args.training_route == "oracle":
         bank.set_oracle_routes(oracle_route_map(tokenizer, (answer_map, unknown_map), fact_to_row))
         training_examples = list(examples)
@@ -138,12 +138,14 @@ def main(argv=None):
         training_examples = [e for e in examples if routed[e.id]]
         excluded = [e.id for e in examples if not routed[e.id]]
         kept = Counter(e.fact_id for e in training_examples if e.split == "train")
-        missing = [f["id"] for f in facts if kept[f["id"]] == 0]
-        if missing:
-            raise RuntimeError(
-                f"The linear router routes no training view to rows {missing}; "
-                "those rows cannot be trained at this layer"
-            )
+        # A fact with no routed training view keeps a zero row (reported),
+        # instead of aborting the whole layer.
+        untrainable = [f["id"] for f in facts if kept[f["id"]] == 0]
+        training_examples = [e for e in training_examples if e.fact_id not in untrainable]
+        excluded += [e.id for e in examples
+                     if e.fact_id in untrainable and e.id not in excluded]
+        if len(untrainable) == len(facts):
+            raise RuntimeError("The linear router routes no training view to its own row")
         if not any(e.split == "development" for e in training_examples):
             raise RuntimeError("The linear router routes no development view correctly")
     kept_ids = {e.id for e in training_examples}
@@ -164,8 +166,15 @@ def main(argv=None):
                           route_audit["development"]["correct_row_active_fraction"]}),
           flush=True)
 
+    trainable_rows = {fid: row for fid, row in fact_to_row.items() if fid not in untrainable}
+    n_trained = len(trainable_rows)
     plan = dict(PLAN)
     plan["layer"] = layer
+    # Same updates per row as the shipped plan (1500 steps / 50 facts), with
+    # checkpoints on complete sweeps over the rows actually trained.
+    updates_per_row = int(PLAN["steps"]) // int(PLAN["check_every"])
+    plan["steps"] = n_trained * updates_per_row
+    plan["check_every"] = n_trained
     plan["radius_schedule"] = tuple(
         (float(upper), float(radius) * norm_scale) for upper, radius in PLAN["radius_schedule"]
     )
@@ -175,7 +184,7 @@ def main(argv=None):
         original_examples=training_examples,
         routed_answer=train_answer,
         routed_unknown=train_unknown,
-        fact_to_row=fact_to_row,
+        fact_to_row=trainable_rows,
         plan=plan,
         output=output,
     )
@@ -214,6 +223,7 @@ def main(argv=None):
         "plan": {**plan, "radius_schedule": [list(x) for x in plan["radius_schedule"]]},
         "training_coverage": coverage,
         "views_excluded_unrouted": excluded,
+        "untrainable_fact_ids": untrainable,
         "pre_training_route_audit": route_audit,
         "layer_representation": representation,
     })
@@ -229,6 +239,7 @@ def main(argv=None):
         "layer_representation": representation,
         "training_coverage": coverage,
         "views_excluded_unrouted": excluded,
+        "untrainable_fact_ids": untrainable,
         "final_metrics_training_routing": training_metrics,
         "final_metrics_classifier_routing_all_views": classifier_metrics,
         "unmatched_neutral_logits_exact_base_after_training": True,

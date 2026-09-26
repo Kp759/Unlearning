@@ -105,6 +105,34 @@ def collect(run_dir, label):
         for key in ("forget_Gen", "forget_Spe", "retain_Gen", "display_zero",
                     "train_views_used", "dev_views_used"):
             row.pop(key, None)
+    zsre = _load(run_dir / "official_zsre_eval.json")
+    if zsre is not None or manifest.get("dataset") == "ZsRE":
+        row.update({
+            "dataset": "zsre",
+            "forget_Eff": _get(zsre, "forget", "Eff"),
+            "forget_Gen": _get(zsre, "forget", "Gen"),
+            "forget_Spe": _get(zsre, "forget", "Spe"),
+            "retain_Eff": _get(zsre, "retain", "Eff"),
+            "retain_Gen": _get(zsre, "retain", "Gen"),
+            "PPL": _get(zsre, "runtime_aligned_PPL"),
+            "legacy_PPL": _get(zsre, "legacy_PPL"),
+            "forget_rewrite_route_active": _get(
+                zsre, "forget_route_summary", "rewrite", "route_active_fraction"),
+            "forget_paraphrase_route_active": _get(
+                zsre, "forget_route_summary", "paraphrase", "route_active_fraction"),
+            "forget_neighborhood_route_active": _get(
+                zsre, "forget_route_summary", "neighborhood", "route_active_fraction"),
+            "status": (
+                "complete" if zsre else "router_only" if router else
+                "missing" if not manifest else "rows_only"
+            ),
+        })
+        for key in ("display_zero", "train_views_used", "dev_views_used"):
+            row.pop(key, None)
+    for key in ("facts_trained", "facts_total"):
+        value = _get(training, "training_coverage", key)
+        if value is not None:
+            row[key] = value
     gap = (decomposition or {}).get("v2_to_oracle_gap") or {}
     for group, values in sorted(gap.items()):
         row[f"router_prob[{group}]"] = values.get("v2_mean_answer_prob")
@@ -150,12 +178,19 @@ def main(argv=None):
         "audit_false_activation", "audit_route_auc", "row_to_boundary_norm_ratio",
         "training_route", "training_stop_reason", "status",
     ]
-    if any(r.get("dataset") == "mquake" for r in rows):
+    if any(r.get("dataset") == "zsre" for r in rows):
+        headline = [
+            "label", "layer", "relative_depth", "forget_Eff", "forget_Gen",
+            "forget_Spe", "retain_Eff", "retain_Gen", "PPL",
+            "forget_rewrite_route_active", "forget_paraphrase_route_active",
+            "forget_neighborhood_route_active", "facts_trained", "audit_correct_route",
+        ] + tail
+    elif any(r.get("dataset") == "mquake" for r in rows):
         headline = [
             "label", "layer", "relative_depth", "forget_Eff", "forget_AtomicGen",
             "retain_Eff", "retain_AtomicGen", "PPL", "forget_rewrite_route_correct",
             "forget_atomicgen_route_correct", "retain_atomicgen_route_active",
-            "audit_correct_route",
+            "facts_trained", "audit_correct_route",
         ] + tail
     else:
         headline = [
