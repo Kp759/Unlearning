@@ -255,9 +255,6 @@ class RelationPrototypeAssociationBank(nn.Module):
         self.active_fact_counts = [0 for _ in facts]
         self.last_active_fact_indices = []
         self.last_route_scores = []
-        # Training-only oracle routing (layer-wise study). None = the gate
-        # decides, which is the only mode ever saved or evaluated.
-        self.route_override = None
         layer_module = base_model.model.layers[self.layer]
         self._hook_handle = layer_module.register_forward_hook(self._hook)
 
@@ -380,9 +377,6 @@ class RelationPrototypeAssociationBank(nn.Module):
             separation = torch.full_like(best_d, float("inf"))
             ambiguous = torch.zeros_like(active)
 
-        if self.route_override is not None:
-            best_fact, active = self._oracle_routes(prefix_lengths, hidden.device)
-
         rows = self.extra.to(device=hidden.device, dtype=hidden.dtype)
         selected = F.embedding(best_fact, rows)
         position_mask = F.one_hot(positions, num_classes=width).to(hidden.dtype)
@@ -428,48 +422,7 @@ class RelationPrototypeAssociationBank(nn.Module):
             return (edited, *output[1:])
         return edited
 
-    def set_oracle_routes(self, prompt_to_fact):
-        """Route by ground truth: {prompt-prefix token tuple: fact index}.
-
-        Used only while training the residual rows at a layer whose gate is
-        not yet trusted, so that the write layer can be studied separately
-        from the read layer. A prompt that is not in the map receives no row.
-        Pass None to restore gate routing before saving or evaluating.
-        """
-        if prompt_to_fact is None:
-            self.route_override = None
-            return
-        mapping = {tuple(int(t) for t in key): int(value)
-                   for key, value in prompt_to_fact.items()}
-        if any(not 0 <= value < len(self.facts) for value in mapping.values()):
-            raise ValueError("Oracle route points outside the association bank")
-        self.route_override = mapping
-
-    def _oracle_routes(self, prefix_lengths, device):
-        rows = self._input_ids.detach().cpu().tolist()
-        prefixes = prefix_lengths.detach().cpu().tolist()
-        attention = (
-            self._attention_mask.detach().cpu().bool().tolist()
-            if self._attention_mask is not None
-            else None
-        )
-        best, active = [], []
-        for batch_index, (tokens, boundary) in enumerate(zip(rows, prefixes)):
-            prompt = tuple(
-                token
-                for position, token in enumerate(tokens[: int(boundary)])
-                if attention is None or attention[batch_index][position]
-            )
-            fact = self.route_override.get(prompt)
-            best.append(0 if fact is None else fact)
-            active.append(fact is not None)
-        return (
-            torch.tensor(best, dtype=torch.long, device=device),
-            torch.tensor(active, dtype=torch.bool, device=device),
-        )
-
     def artifact(self):
-        # Oracle routes are never serialized: a saved bank always routes by gate.
         return {
             "architecture": "relation_prototype_fact_association_bank_v2",
             "layer": self.layer,

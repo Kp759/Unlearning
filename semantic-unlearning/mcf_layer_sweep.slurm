@@ -1,10 +1,11 @@
 #!/bin/bash
-# MCF layer-wise study on Wulver: one array task per layer.
-#   sbatch mcf_layer_sweep.slurm
-# Llama-3.2-3B has 28 blocks (0-27). Task -> layer:
-#   0:1 (first)  1:3 (early)  2:7  3:13 (middle)  4:19 (shipped, oracle-trained control)
-#   5:23  6:27 (last block, pre final norm)
-# Override the list with:  sbatch --export=ALL,LAYERS="2 9 16 27" --array=0-3 mcf_layer_sweep.slurm
+# MCF layer-wise study on Wulver, linear classifier only (no Router V2).
+# One array task per layer. Llama-3.2-3B has 28 blocks (0-27):
+#   task 0..6 -> layers 1 3 7 13 19 23 27 (27 = last block, pre final norm)
+#
+#   Genie   : sbatch mcf_layer_sweep.slurm
+#   Regular : sbatch --export=ALL,TRAINING_ROUTE=router,NORM_SCALE=1,WITH_DECOMPOSITION=0,SWEEP_TAG=layer_sweep_linear_regular_v1 mcf_layer_sweep.slurm
+#   Layers  : sbatch --export=ALL,LAYERS="2 9 16 27" --array=0-3 mcf_layer_sweep.slurm
 #SBATCH --job-name=mcf_layers
 #SBATCH --partition=gpu
 #SBATCH --qos=standard

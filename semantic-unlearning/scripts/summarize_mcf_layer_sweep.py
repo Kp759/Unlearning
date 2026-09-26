@@ -5,15 +5,15 @@
         --sweep-dir outputs/mcf_layer_sweep_v1 \
         --reference outputs/mcf_linear_2x2_seed1_v24/arms/linear_global
 
-One row per layer, read from each L??/linear_global run:
+One row per layer, read from each L??/linear_global run (linear classifier, no V2):
   official MCF   forget Eff/Gen (lower), forget Spe, retain Eff/Gen, PPL
   router (audit) correct route, false activation, route AUC, runtime mismatches
   geometry       boundary norm, row norm, row/boundary ratio, norm scale
   decomposition  learned-router vs oracle mean answer prob per group (if run)
 
-The reference row is the shipped layer-19 run (gate-trained, unscaled). The
-sweep's own layer-19 row is oracle-trained; the two should agree closely, and
-that agreement is what licenses reading the other layers as a layer effect.
+The reference row is the shipped layer-19 run (rows trained under V2, then the
+linear router fit on top). The sweep's own layer-19 row is the same method
+with the linear classifier fit first; the two should agree closely.
 """
 from __future__ import annotations
 
@@ -43,14 +43,14 @@ def collect(run_dir, label):
     router = _load(run_dir / "linear_router_report.json")
     decomposition = _load(run_dir / "decomposition" / "router_decomposition.json")
     representation = manifest.get("layer_representation") or {}
-    training = _load(run_dir.parent / "rows" / "training_report.json") or {}
+    training = _load(run_dir / "training_report.json") or {}
     representation = {**representation, **(training.get("layer_representation") or {})}
     audit = _get(router, "route_outcomes_by_split", "audit") or {}
     row = {
         "label": label,
         "layer": _get(manifest, "plan", "layer"),
         "relative_depth": representation.get("relative_depth"),
-        "training_route": manifest.get("training_route", "gate"),
+        "training_route": manifest.get("training_route", "v2_gate (shipped)"),
         "norm_scale": representation.get("norm_scale", 1.0),
         "forget_Eff": _get(official, "forget", "Eff"),
         "forget_Gen": _get(official, "forget", "Gen"),
@@ -71,6 +71,8 @@ def collect(run_dir, label):
             "row_to_boundary_norm_ratio_median"
         ),
         "training_stop_reason": training.get("stop_reason"),
+        "train_views_used": _get(training, "training_coverage", "train", "used_for_training"),
+        "dev_views_used": _get(training, "training_coverage", "development", "used_for_training"),
         "status": (
             "complete" if official else "router_only" if router else
             "missing" if not manifest else "rows_only"
@@ -121,7 +123,7 @@ def main(argv=None):
         "label", "layer", "relative_depth", "forget_Eff", "forget_Gen",
         "forget_Spe", "retain_Eff", "retain_Gen", "PPL", "audit_correct_route",
         "audit_false_activation", "audit_route_auc", "row_to_boundary_norm_ratio",
-        "status",
+        "training_route", "training_stop_reason", "status",
     ]
     lines = [
         "| " + " | ".join(headline) + " |",

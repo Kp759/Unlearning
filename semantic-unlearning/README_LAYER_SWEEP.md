@@ -1,52 +1,78 @@
-# MCF layer-wise study (read = write layer)
+# MCF layer-wise study (linear classifier, read = write layer)
 
 SURE reads the request (router) and writes the residual row at the same block,
 fixed at 19 so far. This sweep moves that block and reruns the full MCF method.
+**Router V2 is not used anywhere**: the linear classifier is fit first at each
+layer, and the rows are trained under it.
 
 ## Run on Wulver
 
 ```bash
 cd /scratch/yl258/kp759/Unlearning
-git fetch origin feat/mcf-layer-sweep && git switch feat/mcf-layer-sweep
+git fetch origin feat/mcf-layer-sweep && git switch feat/mcf-layer-sweep && git pull --ff-only
 cd semantic-unlearning
-sbatch mcf_layer_sweep.slurm                 # layers 1 3 7 13 19 23 27, 3 GPUs at a time
-# after all tasks finish:
-python scripts/summarize_mcf_layer_sweep.py \
-  --sweep-dir outputs/mcf_layer_sweep_v1 \
-  --reference outputs/mcf_linear_2x2_seed1_v24/arms/linear_global
+
+# Regular SURE (rows trained under the linear classifier's own routing)
+for LAYER in 1 3 7 13 19 23 27; do
+  SWEEP_TAG=layer_sweep_linear_regular_v1 TRAINING_ROUTE=router NORM_SCALE=1 \
+  WITH_DECOMPOSITION=0 bash scripts/run_mcf_layer_sweep_one.sh "$LAYER" \
+    || echo "L$LAYER failed"
+done
+
+# Genie (rows trained under ground-truth routing, norm-matched steps)
+for LAYER in 1 3 7 13 19 23 27; do
+  SWEEP_TAG=layer_sweep_linear_genie_v1 TRAINING_ROUTE=oracle NORM_SCALE=auto \
+  bash scripts/run_mcf_layer_sweep_one.sh "$LAYER" || echo "L$LAYER failed"
+done
+
+# Summaries
+for TAG in layer_sweep_linear_regular_v1 layer_sweep_linear_genie_v1; do
+  python scripts/summarize_mcf_layer_sweep.py --sweep-dir outputs/mcf_$TAG \
+    --reference outputs/mcf_linear_2x2_seed1_v24/arms/linear_global
+done
 ```
 
-Custom layers: `sbatch --export=ALL,LAYERS="0 5 10 27" --array=0-3 mcf_layer_sweep.slurm`.
-A timed-out task can be resubmitted; finished stages are skipped.
+The array job `mcf_layer_sweep.slurm` runs the same thing 3 layers at a time;
+its header has the regular/genie `--export` lines. Stopped runs can be
+restarted: finished stages are skipped.
 
 ## Per layer (`scripts/run_mcf_layer_sweep_one.sh L`)
 
-1. **Rows** — `run_mcf_fact_association_router_v2_seed1.py --layer L --training-route oracle --norm-scale auto`
-2. **Router** — `fit_linear_router.py` at L: global threshold, `--min-recall 0.98`, placement 0.1 (the frozen seed-1 MCF policy)
-3. **Official MCF eval** (bf16) → `official_mcf_eval.json`
-4. **Decomposition** — learned router vs oracle route → read-vs-write attribution
+| Stage | Script | Output |
+|---|---|---|
+| 1. Data + untrained rows at L | `prepare_mcf_association_source.py` | `L??/prep` |
+| 2. Linear classifier at L (global, `--min-recall 0.98`, placement 0.1) | `fit_linear_router.py` | `L??/router` |
+| 3. Train rows | `train_mcf_linear_router_rows.py` | `L??/linear_global` |
+| 4. Official MCF eval (bf16, linear classifier routing) | unchanged evaluator | `official_mcf_eval.json` |
+| 5. Linear classifier vs genie on the same rows (genie sweep only) | `evaluate_router_decomposition.py` | `decomposition/` |
 
-Outputs: `outputs/mcf_layer_sweep_v1/L{LL}/{rows,linear_global}`.
+Stage 3 modes:
 
-## Controls, and why
+- `TRAINING_ROUTE=router` (**regular**): the classifier routes every training
+  prompt. Views it does not send to their own row cannot be edited, so they
+  are left out of the objective and checkpoint selection (counts in
+  `training_coverage`); the official eval still scores them. If a fact has no
+  routed training view, the layer stops with an explicit error.
+- `TRAINING_ROUTE=oracle` (**genie**): ground-truth routing on
+  training-visible prompts. It separates "can layer L be written" from "can
+  layer L be read". `NORM_SCALE=auto` scales LR and trust radii by
+  median‖h_L‖ / median‖h_19‖ so each step is the same fraction of the
+  residual stream.
 
-| Control | What it removes |
-|---|---|
-| `--training-route oracle` | Rows are trained with ground-truth routing on training-visible prompts (train + development). Otherwise a weak V2 gate at an early layer would decide which prompts get a row and abort the preflight. The saved artifact routes by gate; the linear router is refit at L. |
-| `--norm-scale auto` | Learning rate and trust radii are scaled by median‖h_L‖ / median‖h_19‖ at the boundary token, so each step is the same fraction of the residual stream at every depth. `row_to_boundary_norm_ratio` is reported. |
-| Layer 19 in the sweep | Oracle-trained with scale 1.0. It should match the shipped L19 reference; if not, the oracle protocol itself moves the numbers. |
+The saved artifact always routes by the linear classifier.
 
 ## Fix included: last-block features
 
-`extract_prompt_queries` read `output_hidden_states[L+1]`. HF makes the last
-entry the **final-norm** output, while the runtime hook edits the **raw** block
-output. For L = 27 the router was fit on a different tensor from the one it
-scores at runtime. Features now come from a hook on `model.model.layers[L]`.
-This is identical for L < 27 (tested) and changes only the last block, for all
-benchmarks.
+`extract_prompt_queries` read `output_hidden_states[L+1]`, which HF sets to the
+**final-norm** output for the last block, while the runtime hook edits the
+**raw** block output. Features now come from a hook on `model.model.layers[L]`
+(identical for L < 27, tested; runtime parity is 0 mismatches at the last block).
 
 ## Caveats
 
-- Seed 1 only (the runner is registered to seed 1). Confirmatory seeds come after the layer choice is frozen.
-- Wall-clock cap is 3600 s training per layer (the PLAN budget). Early layers may hit it; see `training_stop_reason`.
-- Read and write stay tied. Decoupling them (read at 19, write at L) is a follow-up; `sweep_router_read_layer.py` already covers read-only separability.
+- Seed 1 only.
+- Training is capped at 3600 s per layer (PLAN budget); check
+  `training_stop_reason` (`wall_time_budget` = time-limited, not converged).
+- The sweep's L19 differs from the shipped L19 only in training the rows under
+  the linear classifier instead of V2; compare it with the reference row.
+- Read and write stay tied; decoupling them is a follow-up.

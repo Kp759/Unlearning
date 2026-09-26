@@ -12,9 +12,7 @@ from torch.nn import functional as F
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from static_overlap_fact_association_embeddings import extract_prompt_queries  # noqa: E402
-from static_overlap_fact_association_v2_gate import (  # noqa: E402
-    RelationPrototypeAssociationBank,
-)
+from linear_router import LinearClassifierAssociationBank  # noqa: E402
 
 HIDDEN = 8
 FACTS = 3
@@ -103,14 +101,12 @@ class _FakeModel(nn.Module):
         self.placeholder = nn.Parameter(torch.zeros(1))
 
 
-def _bank(tau=10.0):
+def _bank():
     torch.manual_seed(0)
-    return RelationPrototypeAssociationBank(
-        base_model=_FakeModel(), layer=0,
-        positive_prototypes=[torch.randn(2, HIDDEN) for _ in range(FACTS)],
-        negative_prototypes=[torch.randn(2, HIDDEN) for _ in range(FACTS)],
-        alpha=torch.full((FACTS,), -1.0),
-        tau=torch.full((FACTS,), tau),  # unreachable: the gate never fires
+    return LinearClassifierAssociationBank(
+        _FakeModel(), 0, torch.randn(FACTS, HIDDEN),
+        torch.full((FACTS,), -100.0),  # heads never fire on their own
+        feature_mean=torch.zeros(HIDDEN), feature_components=None, threshold=0.0,
         subject_patterns=[[(10 + i,)] for i in range(FACTS)],
         facts=[{"id": f"f{i}", "subject": f"S{i}", "relation": "r"} for i in range(FACTS)],
         rows=torch.randn(FACTS, HIDDEN),
@@ -118,7 +114,7 @@ def _bank(tau=10.0):
 
 
 def _forward(bank, ids, attention, prefix):
-    hidden = torch.zeros(ids.shape[0], ids.shape[1], HIDDEN)
+    hidden = torch.ones(ids.shape[0], ids.shape[1], HIDDEN)
     bank.bind(ids, attention_mask=attention, prefix_lengths=torch.tensor(prefix))
     try:
         return bank._hook(None, None, (hidden,))[0]
@@ -126,15 +122,16 @@ def _forward(bank, ids, attention, prefix):
         bank.unbind()
 
 
-def test_oracle_routes_replace_gate_only_while_set():
+def test_genie_routes_replace_the_linear_classifier_only_while_set():
     bank = _bank()
     ids = torch.tensor([[1, 10, 5, 6, 0], [1, 11, 7, 0, 0], [1, 12, 9, 9, 4]])
     attention = torch.tensor([[1, 1, 1, 1, 0], [1, 1, 1, 0, 0], [1, 1, 1, 1, 1]])
     prefix = [3, 3, 4]
 
+    base = torch.ones(3, 5, HIDDEN)
     gate_out = _forward(bank, ids, attention, prefix)
     assert bank.last_active_fact_indices == [[], [], []]
-    assert torch.count_nonzero(gate_out) == 0
+    assert torch.equal(gate_out, base)
 
     # Row 0 -> fact 2 (deliberately not its subject), row 1 -> fact 1,
     # row 2's prefix is unmapped and must stay on the exact base path.
@@ -142,10 +139,10 @@ def test_oracle_routes_replace_gate_only_while_set():
     out = _forward(bank, ids, attention, prefix)
     assert bank.last_active_fact_indices == [[2], [1], []]
     rows = bank.extra.detach()
-    assert torch.equal(out[0, 2], rows[2])
-    assert torch.equal(out[1, 2], rows[1])
-    assert torch.count_nonzero(out[2]) == 0
-    assert torch.count_nonzero(out[0, :2]) == 0  # boundary position only
+    assert torch.equal(out[0, 2], 1 + rows[2])
+    assert torch.equal(out[1, 2], 1 + rows[1])
+    assert torch.equal(out[2], base[2])
+    assert torch.equal(out[0, :2], base[0, :2])  # boundary position only
 
     assert "route_override" not in bank.artifact()
     bank.set_oracle_routes(None)
@@ -157,7 +154,7 @@ def test_oracle_routes_replace_gate_only_while_set():
 
 
 def test_oracle_route_map_and_norm_scale():
-    runner = pytest.importorskip("run_mcf_fact_association_router_v2_seed1")
+    import layer_sweep_utils as runner
     from static_overlap_data import Example
 
     class _Tok:
