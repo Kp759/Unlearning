@@ -76,3 +76,27 @@ The saved artifact always routes by the linear classifier.
 - The sweep's L19 differs from the shipped L19 only in training the rows under
   the linear classifier instead of V2; compare it with the reference row.
 - Read and write stay tied; decoupling them is a follow-up.
+
+## MQuAKE
+
+Same pipeline, MQuAKE's own data and trainer (no V2):
+
+```bash
+sbatch mquake_layer_sweep_regular.slurm   # outputs/mquake_layer_sweep_linear_regular_v1
+sbatch mquake_layer_sweep_genie.slurm     # outputs/mquake_layer_sweep_linear_genie_v1
+```
+
+| Stage | Script |
+|---|---|
+| 1. Locked seed-1 forget associations + untrained rows at L | `prepare_mquake_association_source.py` |
+| 2. Linear classifier at L (settings copied from `outputs/mquake_linear_2x2_seed1_v24/linear_router_report.json` when present) | `fit_linear_router.py` |
+| 3. Rows: shipped MQuAKE optimizer (`train_direct_only`, 30 updates/association, 7200 s cap) | `train_mquake_linear_router_rows.py` |
+| 4. Official MQuAKE eval (Eff, AtomicGen, retain, PPL) | evaluator with `--allow-imperfect-direct-routing` |
+
+- Model and locked-split paths come from `outputs/mquake_fact_assoc_router_v2_seed1` (paths only).
+- `--allow-imperfect-direct-routing` is new and opt-in: the evaluator normally aborts unless
+  every direct rewrite routes to its own row; in the sweep that fraction is recorded
+  (`forget_rewrite_route_correct`) instead, so an early layer still gets numbers.
+- No router-vs-genie decomposition for MQuAKE (that script is MCF-only). The training
+  report has final metrics under classifier routing for comparison.
+- 24 h wall time: 7 layers × up to 2 h training + eval.

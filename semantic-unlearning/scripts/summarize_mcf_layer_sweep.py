@@ -78,6 +78,33 @@ def collect(run_dir, label):
             "missing" if not manifest else "rows_only"
         ),
     }
+    mquake = _load(run_dir / "official_mquake_eval.json")
+    if mquake is not None or manifest.get("dataset") == "MQuAKE-CF-3k-v2":
+        row.update({
+            "dataset": "mquake",
+            "forget_Eff": _get(mquake, "forget", "Eff"),
+            "forget_AtomicGen": _get(mquake, "forget", "AtomicGen"),
+            "retain_Eff": _get(mquake, "retain", "Eff"),
+            "retain_AtomicGen": _get(mquake, "retain", "AtomicGen"),
+            "PPL": _get(mquake, "runtime_aligned_PPL"),
+            "legacy_PPL": _get(mquake, "legacy_PPL"),
+            "forget_rewrite_route_correct": _get(
+                mquake, "forget_routes", "rewrite", "route_correct_fraction"),
+            "forget_atomicgen_route_correct": _get(
+                mquake, "forget_routes", "atomic_gen", "route_correct_fraction"),
+            "retain_rewrite_route_active": _get(
+                mquake, "retain_routes", "rewrite", "route_active_fraction"),
+            "retain_atomicgen_route_active": _get(
+                mquake, "retain_routes", "atomic_gen", "route_active_fraction"),
+            "token_contexts_used": _get(training, "training_coverage", "used_for_training"),
+            "status": (
+                "complete" if mquake else "router_only" if router else
+                "missing" if not manifest else "rows_only"
+            ),
+        })
+        for key in ("forget_Gen", "forget_Spe", "retain_Gen", "display_zero",
+                    "train_views_used", "dev_views_used"):
+            row.pop(key, None)
     gap = (decomposition or {}).get("v2_to_oracle_gap") or {}
     for group, values in sorted(gap.items()):
         row[f"router_prob[{group}]"] = values.get("v2_mean_answer_prob")
@@ -119,12 +146,22 @@ def main(argv=None):
         writer.writeheader()
         writer.writerows(rows)
 
-    headline = [
-        "label", "layer", "relative_depth", "forget_Eff", "forget_Gen",
-        "forget_Spe", "retain_Eff", "retain_Gen", "PPL", "audit_correct_route",
+    tail = [
         "audit_false_activation", "audit_route_auc", "row_to_boundary_norm_ratio",
         "training_route", "training_stop_reason", "status",
     ]
+    if any(r.get("dataset") == "mquake" for r in rows):
+        headline = [
+            "label", "layer", "relative_depth", "forget_Eff", "forget_AtomicGen",
+            "retain_Eff", "retain_AtomicGen", "PPL", "forget_rewrite_route_correct",
+            "forget_atomicgen_route_correct", "retain_atomicgen_route_active",
+            "audit_correct_route",
+        ] + tail
+    else:
+        headline = [
+            "label", "layer", "relative_depth", "forget_Eff", "forget_Gen",
+            "forget_Spe", "retain_Eff", "retain_Gen", "PPL", "audit_correct_route",
+        ] + tail
     lines = [
         "| " + " | ".join(headline) + " |",
         "|" + "---|" * len(headline),

@@ -253,6 +253,15 @@ def main(argv=None):
     p.add_argument("--local-files-only", action="store_true")
     p.add_argument("--skip-ppl", action="store_true")
     p.add_argument("--skip-atomic-gen", action="store_true")
+    p.add_argument(
+        "--allow-imperfect-direct-routing",
+        action="store_true",
+        help=(
+            "Record, instead of aborting on, direct rewrites the router does not "
+            "send to their own row (layer sweeps: early layers may not read "
+            "every rewrite). The fraction is reported under forget_routes."
+        ),
+    )
     args = p.parse_args(argv)
 
     run_dir = Path(args.run_dir).resolve()
@@ -377,7 +386,7 @@ def main(argv=None):
     forget_rewrite_route_correct = forget_routes["rewrite"][
         "route_correct_fraction"
     ]
-    if forget_rewrite_route_correct != 1.0:
+    if forget_rewrite_route_correct != 1.0 and not args.allow_imperfect_direct_routing:
         raise RuntimeError(
             "Reloaded MQuAKE bank failed exact direct association routing: "
             f"{forget_rewrite_route_correct}"
@@ -473,6 +482,7 @@ def main(argv=None):
         "retain": retain_summary,
         "forget_routes": forget_routes,
         "retain_routes": retain_routes,
+        "imperfect_direct_routing_allowed": bool(args.allow_imperfect_direct_routing),
         "legacy_PPL": legacy_ppl,
         "runtime_aligned_PPL": runtime_ppl,
         "runtime_aligned_PPL_route_activity": runtime_ppl_route_activity,
