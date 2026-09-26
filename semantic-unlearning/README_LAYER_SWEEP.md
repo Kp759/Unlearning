@@ -9,7 +9,7 @@ fixed at 19 so far. This sweep moves that block and reruns the full MCF method.
 cd /scratch/yl258/kp759/Unlearning
 git fetch origin feat/mcf-layer-sweep && git switch feat/mcf-layer-sweep
 cd semantic-unlearning
-sbatch mcf_layer_sweep.slurm                 # layers 3 7 13 19 23 27, 3 GPUs at a time
+sbatch mcf_layer_sweep.slurm                 # layers 1 3 7 13 19 23 27, 3 GPUs at a time
 # after all tasks finish:
 python scripts/summarize_mcf_layer_sweep.py \
   --sweep-dir outputs/mcf_layer_sweep_v1 \
