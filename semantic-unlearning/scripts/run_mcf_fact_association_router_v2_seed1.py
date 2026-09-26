@@ -18,6 +18,7 @@ from static_overlap_fact_association_embeddings import (
     FactAssociationBank,
     FactAssociationEditor,
     audit_runtime_routes,
+    block_output_capture,
     build_forget_examples,
     build_semantic_keys,
     make_subject_patterns,
@@ -33,6 +34,74 @@ from static_overlap_fact_association_v2_gate import (
 )
 
 METHOD_V2 = "static_overlap_fact_association_embeddings_router_v2"
+
+
+@torch.no_grad()
+def boundary_norms(model, tokenizer, prompts, layers, batch_size=16):
+    """L2 norm of each block's raw output at the final prompt token."""
+    device = next(model.parameters()).device
+    result = {int(layer): [] for layer in layers}
+    for start in range(0, len(prompts), int(batch_size)):
+        encoded = tokenizer(
+            prompts[start:start + int(batch_size)],
+            padding=True,
+            return_tensors="pt",
+            return_token_type_ids=False,
+        ).to(device)
+        captures = [block_output_capture(model, layer) for layer in result]
+        try:
+            model(**encoded, use_cache=False)
+        finally:
+            for _, handle in captures:
+                handle.remove()
+        mask = encoded["attention_mask"].bool()
+        positions = (
+            torch.arange(mask.shape[1], device=device)[None, :]
+            .expand_as(mask)
+            .masked_fill(~mask, -1)
+            .max(dim=1)
+            .values
+        )
+        index = torch.arange(mask.shape[0], device=device)
+        for layer, (captured, _) in zip(result, captures):
+            hidden = captured["hidden"].float()[index, positions]
+            result[layer].extend(hidden.norm(dim=-1).cpu().tolist())
+    return {layer: torch.tensor(values) for layer, values in result.items()}
+
+
+def oracle_route_map(tokenizer, example_maps, fact_to_row):
+    """{prompt-prefix tokens: row} for every training-visible prompt.
+
+    Two spellings per example: the teacher-forced prefix the trainer binds
+    (tokens before the first labelled position) and the bare tokenized prompt
+    the route audit uses. A prefix owned by two facts is an error.
+    """
+    mapping = {}
+    for examples in example_maps:
+        for example in examples.values():
+            row = fact_to_row[example.fact_id]
+            first = next(
+                i for i, label in enumerate(example.labels) if label != -100
+            )
+            keys = (
+                tuple(example.input_ids[:first]),
+                tuple(tokenizer(example.prompt)["input_ids"]),
+            )
+            for key in keys:
+                if mapping.setdefault(key, row) != row:
+                    raise ValueError(
+                        f"Prompt prefix is shared by two facts: {example.prompt!r}"
+                    )
+    return mapping
+
+
+def resolve_norm_scale(value, norms, layer, reference_layer):
+    if str(value).strip().lower() == "auto":
+        return float(norms[layer].median() / norms[reference_layer].median())
+    scale = float(value)
+    if not scale > 0:
+        raise ValueError("--norm-scale must be positive or 'auto'")
+    return scale
 
 
 def main(argv=None):
@@ -52,6 +121,31 @@ def main(argv=None):
         default=PLAN["min_development_route_recall"],
     )
     parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument(
+        "--training-route",
+        choices=("gate", "oracle"),
+        default="gate",
+        help=(
+            "gate: rows are trained under Router V2 routing at --layer (shipped). "
+            "oracle: rows are trained with ground-truth routing on the "
+            "training-visible prompts, so the write layer can be varied without "
+            "the read layer's quality deciding which prompts get a row. The "
+            "saved artifact always routes by gate."
+        ),
+    )
+    parser.add_argument(
+        "--norm-scale",
+        default="1",
+        help=(
+            "Multiply the learning rate and every trust radius by this factor. "
+            "'auto' = median boundary-token norm at --layer divided by that at "
+            "--norm-reference-layer, so the per-step edit is the same fraction "
+            "of the residual stream at every layer."
+        ),
+    )
+    parser.add_argument(
+        "--norm-reference-layer", type=int, default=PLAN["layer"]
+    )
     args = parser.parse_args(argv)
 
     if args.forget_num != 50 or args.seed != 1:
@@ -81,6 +175,10 @@ def main(argv=None):
         attn_implementation="eager",
     ).to(args.device).eval()
     model.requires_grad_(False)
+    block_count = len(model.model.layers)
+    for name in ("layer", "norm_reference_layer"):
+        if not 0 <= int(getattr(args, name)) < block_count:
+            raise ValueError(f"--{name.replace('_', '-')} must lie in [0, {block_count - 1}]")
 
     records = json.loads(mcf_path.read_text())
     forget_records, _ = sample_official_mcf_records(
@@ -105,6 +203,30 @@ def main(argv=None):
         private_tokens=False,
         base_weights_trainable=False,
     )
+
+    train_prompts = [e.prompt for e in examples if e.split == "train"]
+    norms = boundary_norms(
+        model, tokenizer, train_prompts, sorted({args.layer, args.norm_reference_layer})
+    )
+    norm_scale = resolve_norm_scale(
+        args.norm_scale, norms, args.layer, args.norm_reference_layer
+    )
+    representation = {
+        "layer": int(args.layer),
+        "block_count": block_count,
+        "relative_depth": round(args.layer / max(block_count - 1, 1), 4),
+        "boundary_norm_median": float(norms[args.layer].median()),
+        "boundary_norm_mean": float(norms[args.layer].mean()),
+        "reference_layer": int(args.norm_reference_layer),
+        "reference_boundary_norm_median": float(
+            norms[args.norm_reference_layer].median()
+        ),
+        "norm_scale_argument": str(args.norm_scale),
+        "norm_scale": norm_scale,
+        "training_route": args.training_route,
+        "hidden_source": "raw decoder-block output (pre final norm)",
+    }
+    emit(phase="layer_representation_ready", **representation)
 
     positive_prompts = prompt_map_from_examples(examples, split="train")
     (
@@ -183,18 +305,30 @@ def main(argv=None):
         train=route_audit["train"],
         development=route_audit["development"],
     )
-    if route_audit["train"]["correct_row_active_fraction"] < 1.0:
-        raise RuntimeError(
-            "Automatic association gate misses fitting prompts; refusing expensive training"
-        )
-    if (
-        route_audit["development"]["correct_row_active_fraction"]
-        < float(args.min_dev_route_recall)
-    ):
-        raise RuntimeError(
-            "Automatic association gate development recall is below the "
-            f"{args.min_dev_route_recall:.3f} preflight floor; refusing expensive training"
-        )
+    preflight = {
+        "train_recall_complete": (
+            route_audit["train"]["correct_row_active_fraction"] >= 1.0
+        ),
+        "development_recall_above_floor": (
+            route_audit["development"]["correct_row_active_fraction"]
+            >= float(args.min_dev_route_recall)
+        ),
+    }
+    if args.training_route == "gate":
+        if not preflight["train_recall_complete"]:
+            raise RuntimeError(
+                "Automatic association gate misses fitting prompts; refusing expensive training"
+            )
+        if not preflight["development_recall_above_floor"]:
+            raise RuntimeError(
+                "Automatic association gate development recall is below the "
+                f"{args.min_dev_route_recall:.3f} preflight floor; refusing expensive training"
+            )
+    else:
+        # The V2 gate's quality at this layer is a read-side result, recorded
+        # rather than enforced: under oracle training it does not decide
+        # which prompts receive a row, and the learned router is refit later.
+        emit(phase="oracle_training_gate_preflight", **preflight)
 
     answer_map = {example.id: example for example in examples}
     unknown_map = make_unknown_examples(
@@ -207,7 +341,13 @@ def main(argv=None):
     plan["layer"] = int(args.layer)
     plan["gate_slack"] = float(args.gate_slack)
     plan["min_development_route_recall"] = float(args.min_dev_route_recall)
-    plan["radius_schedule"] = tuple(tuple(x) for x in PLAN["radius_schedule"])
+    plan["radius_schedule"] = tuple(
+        (float(upper), float(radius) * norm_scale)
+        for upper, radius in PLAN["radius_schedule"]
+    )
+    plan["learning_rate"] = float(PLAN["learning_rate"]) * norm_scale
+    plan["training_route"] = args.training_route
+    plan["norm_scale"] = norm_scale
 
     manifest = {
         "method": METHOD_V2,
@@ -254,6 +394,13 @@ def main(argv=None):
         "router_v2_target_new_or_eval_probe_use": False,
         "unmatched_inputs_follow_exact_frozen_base_path": True,
         "runtime_route_audit": route_audit,
+        "gate_preflight": preflight,
+        "training_route": args.training_route,
+        "oracle_routes_used_for": (
+            "row training and checkpoint selection on training-visible prompts only"
+            if args.training_route == "oracle" else None
+        ),
+        "layer_representation": representation,
     }
     (output / "association_manifest.json").write_text(
         json.dumps(manifest, indent=2, allow_nan=False) + "\n"
@@ -280,6 +427,10 @@ def main(argv=None):
 
     # V2.1's optimizer is intentionally reused: one Adam instance per vector,
     # worst-view suppression before the threshold, abstention only after lock.
+    if args.training_route == "oracle":
+        bank.set_oracle_routes(
+            oracle_route_map(tokenizer, (answer_map, unknown_map), fact_to_row)
+        )
     report = train_row_wise(
         editor=editor,
         original_examples=examples,
@@ -294,6 +445,14 @@ def main(argv=None):
         answer_map,
         unknown_map,
         plan["target_probability"],
+    )
+    final_metrics_routing = args.training_route
+    bank.set_oracle_routes(None)
+    row_norms = bank.extra.detach().float().norm(dim=-1).cpu()
+    representation["row_norm_median"] = float(row_norms.median())
+    representation["row_norm_max"] = float(row_norms.max())
+    representation["row_to_boundary_norm_ratio_median"] = float(
+        row_norms.median() / norms[args.layer].median()
     )
 
     # Unmatched natural text must remain exactly base after nonzero training.
@@ -311,6 +470,8 @@ def main(argv=None):
             "gate_diagnostics": gate_diagnostics,
             "runtime_route_audit": route_audit,
             "final_metrics": final_metrics,
+            "final_metrics_routing": final_metrics_routing,
+            "layer_representation": representation,
             "runtime_counters": bank.counters(),
             "unmatched_neutral_logits_exact_base_after_training": True,
             "official_evaluation_started": False,

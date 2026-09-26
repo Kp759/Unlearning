@@ -197,13 +197,34 @@ def _contains_subsequence(tokens, pattern):
 
 
 @torch.no_grad()
+def block_output_capture(model, layer):
+    """Capture the raw output of decoder block ``layer`` via a forward hook.
+
+    This is the exact tensor the association banks edit at runtime. It is
+    deliberately NOT ``output_hidden_states[layer + 1]``: HF replaces the last
+    entry of that tuple with the final-norm output, so for the last block the
+    two differ (RMSNorm's elementwise weight also changes the direction), and
+    router features fit offline would not match the runtime hook.
+    """
+    captured = {}
+
+    def hook(_module, _args, output):
+        captured["hidden"] = output[0] if isinstance(output, tuple) else output
+
+    handle = model.model.layers[int(layer)].register_forward_hook(hook)
+    return captured, handle
+
+
 def extract_prompt_queries(model, tokenizer, prompts, layer, batch_size=16):
-    """Return normalized hidden state at the final non-padding prompt token."""
+    """Return normalized block-``layer`` output at the final non-padding prompt token."""
     if not prompts:
         raise ValueError("Prompt query extraction requires prompts")
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     device = next(model.parameters()).device
+    num_layers = len(model.model.layers)
+    if not 0 <= int(layer) < num_layers:
+        raise ValueError(f"layer must lie in [0, {num_layers - 1}], got {layer}")
     rows = []
     for start in range(0, len(prompts), int(batch_size)):
         batch = prompts[start:start + int(batch_size)]
@@ -213,13 +234,12 @@ def extract_prompt_queries(model, tokenizer, prompts, layer, batch_size=16):
             return_tensors="pt",
             return_token_type_ids=False,
         ).to(device)
-        result = model(
-            **encoded,
-            use_cache=False,
-            output_hidden_states=True,
-            return_dict=True,
-        )
-        hidden = result.hidden_states[int(layer) + 1].float()
+        captured, handle = block_output_capture(model, layer)
+        try:
+            model(**encoded, use_cache=False, return_dict=True)
+        finally:
+            handle.remove()
+        hidden = captured["hidden"].float()
         mask = encoded["attention_mask"].bool()
         positions = (
             torch.arange(mask.shape[1], device=device)[None, :]
