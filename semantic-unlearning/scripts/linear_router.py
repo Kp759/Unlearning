@@ -29,12 +29,21 @@ Its negatives are therefore same-subject / different-relation prompts: real
 competing associations of the same subject (MQuAKE, RWKU) and subject
 transplants into other relations' prompts (all benchmarks).
 
+Two-stage fit (the decision rule is the standard p >= 0.5)
+----------------------------------------------------------
+    stage 1    W and b by BCE on the training templates
+    stage 2    b re-fit on held-out calibration prompts with W frozen:
+               b' = b - t, t the calibrated cutoff (one value, or one per
+               association). The router then fires the best eligible head when
+               sigmoid(w.phi + b') >= 0.5. There is no separate threshold at
+               runtime; `explicit_threshold` artifacts (b and t kept apart) still
+               load and give the same routes under a global cutoff.
+
 Two gates, one set of heads
 ---------------------------
     threshold  (MCF, ZsRE, MQuAKE; association-level forgetting)
-               fire the best eligible head if its logit clears one global
-               threshold, calibrated on held-out controls; reject ambiguous
-               top-1/top-2 pairs.
+               fire the best eligible head if its calibrated probability is
+               >= 0.5; reject ambiguous top-1/top-2 pairs.
     subject    (RWKU; entity-level forgetting)
                any prompt containing a protected subject fires; the heads only
                choose WHICH of that subject's residual rows to inject. A
@@ -599,6 +608,60 @@ def _threshold_tensor(threshold, logits):
     if isinstance(threshold, (list, tuple)):
         return torch.tensor(threshold, device=logits.device, dtype=logits.dtype)
     return torch.tensor(float(threshold), device=logits.device, dtype=logits.dtype)
+
+
+DECISION_RULES = ("calibrated_bias", "explicit_threshold")
+
+
+def fold_threshold_into_bias(bias, threshold):
+    """Stage 2 of the two-stage fit: absorb the calibrated cutoff into the bias.
+
+    z_i >= t_i  <=>  w_i . phi + (b_i - t_i) >= 0, so with b' = b - t the
+    standard logistic rule sigma(z') >= 0.5 (z' >= 0) fires exactly when the
+    calibrated cutoff did. `threshold` is one value (global) or [N] values
+    (per association). Returns (b' as float32, the per-head shift as float32).
+
+    Global: every bias moves by the same amount, so the top-1 ranking and the
+    ambiguity margin are unchanged and routing is identical. Per association:
+    each head still qualifies on exactly the same prompts, but the best head
+    is now ranked by its calibrated logit z'_i = z_i - t_i.
+    """
+    stage1 = torch.as_tensor(bias).detach().to(torch.float64).cpu()
+    shift = torch.as_tensor(threshold, dtype=torch.float64).detach().cpu()
+    if shift.ndim == 0:
+        shift = shift.expand_as(stage1).clone()
+    if tuple(shift.shape) != tuple(stage1.shape):
+        raise ValueError("per-head thresholds must match the bias shape")
+    if not bool(torch.isfinite(shift).all()):
+        raise ValueError("Only a finite calibrated cutoff can be folded into the bias "
+                         "(the subject gate has no cutoff)")
+    return (stage1 - shift).float(), shift.float()
+
+
+def routing_policy_name(gate_mode, decision_rule, policy):
+    prefix = "subject_eligibility_mask_plus_linear_bce_heads_top1_"
+    if gate_mode == "subject":
+        return prefix + "subject_gate"
+    if decision_rule == "calibrated_bias":
+        return prefix + f"calibrated_bias_{policy}_p_ge_0.5"
+    return prefix + ("per_head_thresholds" if policy == "per_head" else "global_threshold")
+
+
+def bias_calibration_record(policy, stage1_bias, shift):
+    """Provenance of a calibrated bias, stored in the artifact."""
+    shift = torch.as_tensor(shift).detach().float().cpu()
+    uniform = bool(shift.numel()) and bool(torch.all(shift == shift[0]))
+    return {
+        "policy": str(policy),
+        "stage1": "weights and bias fit on training templates (masked, class-balanced BCE)",
+        "stage2": ("bias re-fit on held-out calibration prompts with the weights frozen: "
+                   "b' = b - t, t the calibrated cutoff"),
+        "runtime_rule": ("fire the best subject-eligible head if sigmoid(z') >= 0.5, "
+                         "i.e. z' = w.phi + b' >= 0"),
+        "shift": shift.clone(),
+        "global_shift": float(shift[0]) if uniform else None,
+        "stage1_bias": torch.as_tensor(stage1_bias).detach().float().cpu().clone(),
+    }
 
 
 def decide_routes(logits, eligible, threshold, ambiguity_margin):
@@ -1362,9 +1425,19 @@ class LinearClassifierAssociationBank(nn.Module):
         gate_mode="threshold",
         router_fit=None,
         per_head_thresholds=None,
+        bias_calibration=None,
     ):
         super().__init__()
         n_facts = len(facts)
+        if bias_calibration is not None:
+            # The calibrated cutoff already lives in the bias: standard rule only.
+            if gate_mode != "threshold":
+                raise ValueError("a calibrated bias needs the threshold gate")
+            if per_head_thresholds is not None or float(threshold) != 0.0:
+                raise ValueError(
+                    "a calibrated-bias router fires at logit >= 0 (p >= 0.5); "
+                    "pass threshold=0.0 and no per-head thresholds"
+                )
         if len(subject_patterns) != n_facts:
             raise ValueError("subject_patterns must align with facts")
         if weight.ndim != 2 or weight.shape[0] != n_facts:
@@ -1412,7 +1485,11 @@ class LinearClassifierAssociationBank(nn.Module):
         self.gate_mode = str(gate_mode)
         self.threshold = float("-inf") if self.gate_mode == "subject" else float(threshold)
         self.ambiguity_margin = 0.0 if self.gate_mode == "subject" else float(ambiguity_margin)
-        self.threshold_policy = "per_head" if per_head_thresholds is not None else "global"
+        self.bias_calibration = None if bias_calibration is None else dict(bias_calibration)
+        if self.bias_calibration is not None:
+            self.threshold_policy = str(self.bias_calibration.get("policy", "global"))
+        else:
+            self.threshold_policy = "per_head" if per_head_thresholds is not None else "global"
         self.register_buffer(
             "per_head_thresholds",
             None if per_head_thresholds is None else per_head_thresholds.clone().to(device),
@@ -1514,6 +1591,16 @@ class LinearClassifierAssociationBank(nn.Module):
             return (edited, *output[1:])
         return edited
 
+    def decision_rule(self):
+        if self.gate_mode == "subject":
+            return "subject_gate"
+        if self.bias_calibration is not None:
+            return "calibrated_bias"
+        return "explicit_threshold"
+
+    def routing_policy(self):
+        return routing_policy_name(self.gate_mode, self.decision_rule(), self.threshold_policy)
+
     def artifact(self):
         return {
             "architecture": ARCHITECTURE,
@@ -1539,14 +1626,9 @@ class LinearClassifierAssociationBank(nn.Module):
             "subject_patterns": self.subject_patterns,
             "facts": self.facts,
             "router_fit": self.router_fit,
-            "routing_policy": (
-                "subject_eligibility_mask_plus_linear_bce_heads_top1_"
-                + (
-                    "subject_gate" if self.gate_mode == "subject"
-                    else "per_head_thresholds" if self.per_head_thresholds is not None
-                    else "global_threshold"
-                )
-            ),
+            "bias_calibration": self.bias_calibration,
+            "decision_rule": self.decision_rule(),
+            "routing_policy": self.routing_policy(),
             "unique_subject_bypass": self.gate_mode == "subject",
             "subject_scan_scope": "prompt_prefix_only",
             "teacher_forced_suffix_can_affect_routing": False,
@@ -1578,6 +1660,7 @@ def load_linear_classifier_artifact(base_model, artifact):
         gate_mode=str(artifact.get("gate_mode", "threshold")),
         router_fit=artifact.get("router_fit"),
         per_head_thresholds=artifact.get("per_head_thresholds"),
+        bias_calibration=artifact.get("bias_calibration"),
     )
     for row in bank.rows:
         row.requires_grad_(False)

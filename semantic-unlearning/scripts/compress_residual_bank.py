@@ -124,17 +124,21 @@ def check_frozen_config(artifact, allow_per_head=False):
             f"Expected a linear-router artifact ({LINEAR_ARCHITECTURE}); got {architecture!r}. "
             "Fit one with scripts/fit_linear_router.py first."
         )
-    if artifact.get("per_head_thresholds") is not None and not allow_per_head:
+    gate = str(artifact.get("gate_mode", "threshold"))
+    # Per-association calibration either as explicit thresholds or folded into
+    # the biases (calibrated_bias runs keep the policy name).
+    per_head = (
+        artifact.get("per_head_thresholds") is not None
+        or str(artifact.get("threshold_policy", "")) == "per_head"
+    )
+    if per_head and gate == "threshold" and not allow_per_head:
         raise ValueError(
             "This run uses per-head thresholds. The frozen configuration is a global "
             "threshold (or the subject gate); pass --allow-per-head to compress it anyway."
         )
     if "residual_compact" in artifact:
         raise ValueError("This run is already a compressed variant; compress the source run.")
-    gate = str(artifact.get("gate_mode", "threshold"))
-    policy = "subject_gate" if gate == "subject" else (
-        "per_head" if artifact.get("per_head_thresholds") is not None else "global"
-    )
+    policy = "subject_gate" if gate == "subject" else ("per_head" if per_head else "global")
     return gate, policy
 
 
@@ -630,6 +634,7 @@ def main(argv=None):
         "benchmark": benchmark,
         "gate_mode": gate,
         "threshold_policy": policy,
+        "decision_rule": artifact.get("decision_rule", "explicit_threshold"),
         "threshold": artifact.get("threshold"),
         "n_facts": int(n),
         "hidden": int(hidden),

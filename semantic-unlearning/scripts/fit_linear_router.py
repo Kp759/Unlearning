@@ -39,6 +39,10 @@ import torch
 
 from linear_router import (
     ARCHITECTURE,
+    DECISION_RULES,
+    bias_calibration_record,
+    fold_threshold_into_bias,
+    routing_policy_name,
     training_positive_floor,
     calibrate_per_head,
     cosine_arm_artifact,
@@ -143,6 +147,37 @@ def _write_json(path, payload):
 
 
 @torch.no_grad()
+def fold_report(stage1_logits, deployed_logits, eligible, cutoff, margin):
+    """How the calibrated-bias rule compares with the explicit-cutoff rule.
+
+    A head qualifies on exactly the same prompts either way (z >= t iff
+    z - t >= 0); only float rounding at the boundary could differ. With one
+    global cutoff the routes are identical too. With per-association cutoffs
+    the best qualifying head is ranked by z - t_i instead of z, so a few
+    routes can change; they are counted here.
+    """
+    eligible = eligible.bool()
+    t = torch.as_tensor(cutoff, dtype=stage1_logits.dtype)
+    explicit_q = eligible & (stage1_logits >= t)
+    folded_q = eligible & (deployed_logits >= 0)
+    explicit = decide_routes(stage1_logits, eligible, cutoff, margin)
+    folded = decide_routes(deployed_logits, eligible, 0.0, margin)
+    changed = (explicit["active"] != folded["active"]) | (
+        explicit["active"] & folded["active"] & (explicit["fact"] != folded["fact"])
+    )
+    return {
+        "prompts": int(stage1_logits.shape[0]),
+        "qualifying_pair_mismatches": int((explicit_q != folded_q).sum()),
+        "route_changes_vs_explicit_cutoff": int(changed.sum()),
+        "max_abs_deployed_minus_shifted_logit": float(
+            (deployed_logits - (stage1_logits - t)).abs().max()
+        ),
+        "note": ("0 route changes expected for a global cutoff; per-association "
+                 "cutoffs re-rank the qualifying heads by their calibrated logit."),
+    }
+
+
+@torch.no_grad()
 def runtime_parity(model, bank, tokenizer, prompts, offline, batch_size, device):
     """Run the real hook on every prompt with the extraction's batching.
 
@@ -217,6 +252,10 @@ def main(argv=None):
                              "midpoint, 0.1 = 10%% above the hardest negative (V2's rule)")
     parser.add_argument("--ambiguity-margin", type=float, default=0.5,
                         help="logit units; threshold gate only")
+    parser.add_argument("--decision-rule", choices=DECISION_RULES, default="calibrated_bias",
+                        help="calibrated_bias: fold the calibrated cutoff into each head's "
+                             "bias (b' = b - t) and fire at p >= 0.5 (two-stage fit); "
+                             "explicit_threshold: keep b and t apart (earlier runs)")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--fit-device", default=None,
                         help="device for the classifier fits (default: --device)")
@@ -331,9 +370,36 @@ def main(argv=None):
         }
 
     use_per_head = gate == "threshold" and args.threshold_policy == "per_head"
-    main_threshold = per_head if use_per_head else threshold
+    calibrated_cutoff = per_head if use_per_head else threshold
+    fold = gate == "threshold" and args.decision_rule == "calibrated_bias"
+    policy = ("per_head" if use_per_head else "global") if gate == "threshold" else "subject_gate"
+
+    def deploy(cutoff, arm_policy):
+        """(bias, logits, runtime threshold, bias_calibration) the runtime uses.
+
+        Stage 2 of the two-stage fit: with the weights frozen, the calibrated
+        cutoff moves into the bias and the runtime rule becomes p >= 0.5.
+        """
+        if not fold:
+            return router["bias"], logits, cutoff, None
+        bias, shift = fold_threshold_into_bias(router["bias"], cutoff)
+        deployed = score_queries(
+            queries, router["weight"], bias,
+            router["feature_mean"], router["feature_components"],
+        )
+        return bias, deployed, 0.0, bias_calibration_record(arm_policy, router["bias"], shift)
+
+    deployed_bias, deployed_logits, main_threshold, bias_calibration = deploy(
+        calibrated_cutoff, policy
+    )
+    if fold:
+        calibration["bias_folding"] = fold_report(
+            logits, deployed_logits, eligible, calibrated_cutoff, margin
+        )
     outcomes = {
-        name: route_outcomes(logits[m], eligible[m], owner[m], main_threshold, margin, facts)
+        name: route_outcomes(
+            deployed_logits[m], eligible[m], owner[m], main_threshold, margin, facts
+        )
         for name, m in masks.items()
     }
     comparison, frontier, v2_routes = None, None, None
@@ -348,14 +414,18 @@ def main(argv=None):
 
     # The 2x2: {cosine (V2 d_i), linear (z_i)} x {global, per-head} thresholds,
     # all calibrated on the same held-out calibration split with the same rule.
-    two_by_two, arm_thresholds = None, {}
+    two_by_two, arm_thresholds, arm_deploy = None, {}, {}
     if gate == "threshold":
         cal = masks["calibration"]
         arm_thresholds["linear_global"] = threshold
         arm_thresholds["linear_per_head"] = per_head
+        arm_deploy["linear_global"] = deploy(threshold, "global")
+        arm_deploy["linear_per_head"] = deploy(per_head, "per_head")
         two_by_two = {
             arm: {
-                name: route_outcomes(logits[m], eligible[m], owner[m], arm_thresholds[arm], margin)
+                name: route_outcomes(
+                    arm_deploy[arm][1][m], eligible[m], owner[m], arm_deploy[arm][2], margin
+                )
                 for name, m in masks.items()
             }
             for arm in ("linear_global", "linear_per_head")
@@ -437,6 +507,21 @@ def main(argv=None):
         "selected_l2": l2,
         "selected_pca_dim": pca_dim,
         "threshold_logit": threshold if math.isfinite(threshold) else None,
+        "decision_rule": args.decision_rule if gate == "threshold" else "subject_gate",
+        "calibrated_cutoff_folded_into_bias": fold,
+        "runtime_threshold_logit": (
+            main_threshold if isinstance(main_threshold, float) and math.isfinite(main_threshold)
+            else None
+        ),
+        "bias_shift": (
+            None if bias_calibration is None
+            else bias_calibration["global_shift"] if bias_calibration["global_shift"] is not None
+            else {
+                "min": float(bias_calibration["shift"].min()),
+                "mean": float(bias_calibration["shift"].mean()),
+                "max": float(bias_calibration["shift"].max()),
+            }
+        ),
         "ambiguity_margin": margin,
         "target_fpr": calibration.get("target_fpr") if gate == "threshold" else None,
         "min_recall": calibration.get("min_recall") if gate == "threshold" else None,
@@ -459,11 +544,13 @@ def main(argv=None):
         base_logits = model(**neutral, use_cache=False).logits.detach().clone()
     bank = LinearClassifierAssociationBank(
         base_model=model, layer=layer,
-        weight=router["weight"], bias=router["bias"],
+        weight=router["weight"], bias=deployed_bias,
         feature_mean=router["feature_mean"], feature_components=router["feature_components"],
-        threshold=threshold, subject_patterns=subject_patterns, facts=facts,
+        threshold=0.0 if fold else threshold,
+        subject_patterns=subject_patterns, facts=facts,
         rows=rows, ambiguity_margin=margin, gate_mode=gate, router_fit=_json_safe(router_fit),
-        per_head_thresholds=per_head if use_per_head else None,
+        per_head_thresholds=per_head if (use_per_head and not fold) else None,
+        bias_calibration=bias_calibration,
     )
     for row in bank.rows:
         row.requires_grad_(False)
@@ -475,7 +562,7 @@ def main(argv=None):
 
     parity = None
     if not args.skip_runtime_parity:
-        offline = decide_routes(logits, eligible, main_threshold, margin)
+        offline = decide_routes(deployed_logits, eligible, main_threshold, margin)
         parity = runtime_parity(model, bank, tokenizer, prompts, offline, args.batch_size, args.device)
 
     artifact = bank.artifact()
@@ -501,9 +588,16 @@ def main(argv=None):
         "routing_policy": artifact["routing_policy"],
         "runtime_trigger": (
             "complete subject-token eligibility plus learned linear BCE head "
-            + ("above one calibrated global threshold" if gate == "threshold"
-               else "row selection (subject gate)")
+            + (
+                "row selection (subject gate)" if gate != "threshold"
+                else f"with a calibrated bias ({policy}; b' = b - t re-fit on held-out "
+                     "prompts), firing at p >= 0.5" if fold
+                else "above one calibrated global threshold" if policy == "global"
+                else "above its per-association calibrated threshold"
+            )
         ),
+        "decision_rule": artifact["decision_rule"],
+        "bias_calibration": _json_safe(bias_calibration),
         "router": _json_safe(router_fit),
         "router_source_run_dir": str(run_dir),
         "router_source_architecture": str(source.get("architecture", "")),
@@ -520,13 +614,23 @@ def main(argv=None):
             if arm.startswith("linear"):
                 arm_artifact = dict(artifact)
                 vector = arm == "linear_per_head"
-                arm_artifact["per_head_thresholds"] = value.clone() if vector else None
-                arm_artifact["threshold"] = float(threshold)
-                arm_artifact["threshold_policy"] = "per_head" if vector else "global"
-                arm_artifact["routing_policy"] = (
-                    "subject_eligibility_mask_plus_linear_bce_heads_top1_"
-                    + ("per_head_thresholds" if vector else "global_threshold")
+                arm_policy = "per_head" if vector else "global"
+                arm_artifact["threshold_policy"] = arm_policy
+                arm_artifact["decision_rule"] = args.decision_rule
+                arm_artifact["routing_policy"] = routing_policy_name(
+                    gate, args.decision_rule, arm_policy
                 )
+                if fold:
+                    arm_bias, _, _, arm_record = arm_deploy[arm]
+                    arm_artifact["router_bias"] = arm_bias.clone()
+                    arm_artifact["threshold"] = 0.0
+                    arm_artifact["per_head_thresholds"] = None
+                    arm_artifact["bias_calibration"] = arm_record
+                else:
+                    arm_artifact["router_bias"] = router["bias"].clone()
+                    arm_artifact["per_head_thresholds"] = value.clone() if vector else None
+                    arm_artifact["threshold"] = float(threshold)
+                    arm_artifact["bias_calibration"] = None
             else:
                 arm_artifact = cosine_arm_artifact(
                     source, value, arm=arm,
@@ -538,6 +642,8 @@ def main(argv=None):
             arm_manifest.update({
                 "architecture": str(arm_artifact["architecture"]),
                 "routing_policy": arm_artifact.get("routing_policy"),
+                "decision_rule": arm_artifact.get("decision_rule"),
+                "bias_calibration": _json_safe(arm_artifact.get("bias_calibration")),
                 "router_arm": arm,
                 "router_arm_note": (
                     "Same data, splits and calibration rule for all four arms; "
@@ -562,17 +668,21 @@ def main(argv=None):
         "command": sys.argv,
     }
     _write_json(output / "linear_router_report.json", report)
-    decision = decide_routes(logits, eligible, main_threshold, margin)
+    decision = decide_routes(deployed_logits, eligible, main_threshold, margin)
+    stage1_best = logits.masked_fill(~eligible.bool(), float("-inf")).max(dim=-1).values
     rows_out = []
     for index, r in enumerate(data["records"]):
         best = float(decision["best_eligible_logit"][index])
+        stage1 = float(stage1_best[index])
         row = {
             "prompt": r["prompt"], "split": r["split"],
             "owner_fact_id": facts[r["owner"]]["id"] if r["owner"] >= 0 else None,
             "kind": r["kind"], "group": r["group"],
             "negative_for": [facts[i]["id"] for i in r["negative_for"]],
             "donor_relation": r.get("donor_relation"),
+            # Deployed logit: with the calibrated bias it fires at >= 0.
             "linear_best_eligible_logit": best if math.isfinite(best) else None,
+            "linear_best_eligible_stage1_logit": stage1 if math.isfinite(stage1) else None,
             "linear_best_eligible_fact_id": (
                 facts[int(decision["best_eligible_fact"][index])]["id"]
                 if math.isfinite(best) else None
@@ -612,6 +722,16 @@ def main(argv=None):
         ),
         "runtime_route_mismatches": None if parity is None else parity["route_mismatches"],
         "threshold_policy": router_fit["threshold_policy"],
+        "decision_rule": router_fit["decision_rule"],
+        "runtime_rule": (
+            "p >= 0.5 with calibrated bias b' = b - t" if fold
+            else "logit >= calibrated threshold" if gate == "threshold"
+            else "subject gate"
+        ),
+        "bias_shift": router_fit["bias_shift"],
+        "fold_route_changes_vs_explicit_cutoff": (
+            calibration["bias_folding"]["route_changes_vs_explicit_cutoff"] if fold else None
+        ),
         "audit_2x2": None if two_by_two is None else {
             arm: {
                 "correct_route": block["audit"]["correct_route"]["rate"],

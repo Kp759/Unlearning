@@ -11,7 +11,7 @@ Router V2's own code and data.
 | | Router V2 | Linear router |
 |---|---|---|
 | Score for association *i* | `max cos(q,P_i) − max cos(q,N_i)` | `z_i = w_i·φ(q) + b_i`, one output of `Linear(3072, N)` |
-| Threshold | per-fact τ_i, in-sample (reduces to `−0.8(1−c_i)`) | one global logit threshold, set on a held-out calibration split |
+| Threshold | per-fact τ_i, in-sample (reduces to `−0.8(1−c_i)`) | none at runtime: the cutoff calibrated on a held-out split is folded into each bias, and the head fires at p ≥ 0.5 |
 | Stored for routing (MCF) | ~1,246 prototype vectors ≈ 15 MB | `W,b` ≈ 0.6 MB (+ PCA basis if selected) |
 | Probability / ROC / operating point | none | yes |
 | Route | deterministic | deterministic (hard gate; inactive path bit-exact) |
@@ -34,11 +34,29 @@ dimension (grid `1e-7…1` × `{none, 64, 256}`) are selected by grouped
 cross-validation. Each fold holds out whole prompt families, and the score is
 held-out class-balanced log-loss.
 
+## Two-stage fit: the calibrated bias
+
+Each head is a logistic regression, zᵢ = wᵢ·φ + bᵢ, and fires under the standard rule σ(zᵢ) ≥ 0.5. There is no separate threshold.
+
+1. **Stage 1 (fit split):** wᵢ and bᵢ by masked, class-balanced BCE on the training templates.
+2. **Stage 2 (calibration split, weights frozen):** the bias is re-fit on held-out prompts, bᵢ′ = bᵢ − t. Here t is the lowest cutoff that routes ≥ 98% of held-out forget prompts correctly with the fewest false activations. It is one value for all heads (`--threshold-policy global`) or one per head (`per_head`).
+
+Why stage 2 is needed: the training templates are almost separable, so the stage-1 bias only has to put 0 somewhere in a wide gap between training positives and negatives. The class balancing also assumes half the prompts are positives. Unseen paraphrases land inside that gap. For example, MCF's calibrated shift is +3.78 logits, so bᵢ′ = bᵢ + 3.78.
+
+**Equivalence with the earlier explicit threshold.** zᵢ ≥ t is the same as zᵢ − t ≥ 0.
+- *Global:* every bias moves by the same amount, so every route is identical. The fit reports `fold_route_changes_vs_explicit_cutoff` (expected 0), and the official MCF evaluator gives identical numbers on both forms.
+- *Per head:* each head fires on exactly the same prompts, but when two heads qualify, the best one is ranked by its calibrated logit zᵢ − tᵢ. Re-evaluate once.
+
+Commands:
+- `fit_linear_router.py` uses this by default (`--decision-rule calibrated_bias`). `--decision-rule explicit_threshold` reproduces earlier runs.
+- `scripts/fold_linear_router_bias.py --run-dir <old run> --output-dir <new>` folds an existing run without refitting.
+- The artifact keeps the stage-1 bias and the shift under `bias_calibration`.
+
 ## Gates
 
 | Benchmark | Default gate | Meaning |
 |---|---|---|
-| MCF, ZsRE, MQuAKE | `threshold` | Association-level. The best eligible head fires if its logit clears the global threshold; ambiguous top-1/top-2 (< 0.5 logit) abstains. |
+| MCF, ZsRE, MQuAKE | `threshold` | Association-level. The best eligible head fires if its calibrated probability is ≥ 0.5; ambiguous top-1/top-2 (< 0.5 logit apart) abstains. |
 | RWKU | `subject` | Entity-level. Every prompt naming a protected person fires; the heads choose which of that person's rows to inject. A threshold gate would learn to abstain on unseen questions about the same person, and those are RWKU's held-out forget probes. |
 
 For RWKU, run both gates (`--gate threshold` and the default) and compare
@@ -49,7 +67,7 @@ held-out Level-2 recovery against neighbor locality.
 | Split | MCF | ZsRE / MQuAKE / RWKU | Used for |
 |---|---|---|---|
 | fit | train families (646 prompts) + donor group 0 | canonical prompts + context prefixes 0,1 + donor group 0 | weights, CV |
-| calibration | development families `authored_0, authored_2` + donor group 1 | context prefix 2 + donor group 1 | the global threshold |
+| calibration | development families `authored_0, authored_2` + donor group 1 | context prefix 2 + donor group 1 | the bias shift (stage 2) |
 | audit | development families `authored_1, authored_3` + donor group 2 | context prefix 3 + donor group 2 | reported numbers only |
 
 A negative control for fact *i* is either a real prompt of another fact with
