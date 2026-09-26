@@ -12,7 +12,11 @@
 # evaluator scores the result exactly as for layer 19.
 #
 # Env overrides: SWEEP_TAG (default layer_sweep_v1), NORM_SCALE (default auto),
-# TRAINING_ROUTE (default oracle), WITH_DECOMPOSITION (default 1).
+# TRAINING_ROUTE (default oracle), WITH_DECOMPOSITION (default 1),
+# MIN_DEV_ROUTE_RECALL (default 0.90; the V2 gate's development-recall floor
+# in gate mode. V2 only schedules training here -- the evaluated router is the
+# linear classifier refit at LAYER -- so 0 lets a layer where V2 reads poorly
+# still be trained and evaluated. Train recall must still be 1.0.)
 set -euo pipefail
 
 LAYER="${1:?Usage: bash scripts/run_mcf_layer_sweep_one.sh LAYER}"
@@ -20,6 +24,7 @@ SWEEP_TAG="${SWEEP_TAG:-layer_sweep_v1}"
 NORM_SCALE="${NORM_SCALE:-auto}"
 TRAINING_ROUTE="${TRAINING_ROUTE:-oracle}"
 WITH_DECOMPOSITION="${WITH_DECOMPOSITION:-1}"
+MIN_DEV_ROUTE_RECALL="${MIN_DEV_ROUTE_RECALL:-0.90}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -53,7 +58,8 @@ if [[ ! -f "$TRAIN/fact_association_embeddings.pt" ]]; then
     --local-files-only \
     --layer "$LAYER" \
     --training-route "$TRAINING_ROUTE" \
-    --norm-scale "$NORM_SCALE"
+    --norm-scale "$NORM_SCALE" \
+    --min-dev-route-recall "$MIN_DEV_ROUTE_RECALL"
 fi
 
 if [[ ! -f "$ROUTER/fact_association_embeddings.pt" ]]; then
