@@ -16,7 +16,7 @@
 #
 # Env overrides: SWEEP_TAG (default layer_sweep_linear_v1), TRAINING_ROUTE
 # (router|oracle, default oracle), NORM_SCALE (default auto),
-# WITH_DECOMPOSITION (default 1).
+# WITH_DECOMPOSITION (default 1), MOVE_INCOMPLETE (default 1).
 set -euo pipefail
 
 LAYER="${1:?Usage: bash scripts/run_mcf_layer_sweep_one.sh LAYER}"
@@ -46,10 +46,21 @@ FINAL="$BASE/linear_global"
 mkdir -p "$BASE"
 
 # Each stage is skipped once its output exists, so a stopped run can be
-# restarted. Nothing is ever overwritten; a half-written stage must be moved.
+# restarted. Nothing is ever overwritten or deleted: a half-written stage from
+# an interrupted run is renamed to <dir>.incomplete_<timestamp> and redone
+# (set MOVE_INCOMPLETE=0 to stop instead).
+MOVE_INCOMPLETE="${MOVE_INCOMPLETE:-1}"
 stage_ready() {  # dir, marker
   if [[ -f "$1/$2" ]]; then return 0; fi
-  test ! -e "$1" || { echo "Incomplete stage dir (move it aside first): $1" >&2; exit 2; }
+  if [[ -e "$1" ]]; then
+    if [[ "$MOVE_INCOMPLETE" == "1" ]]; then
+      local aside="$1.incomplete_$(date +%Y%m%d_%H%M%S)"
+      echo "Moving incomplete stage dir aside: $1 -> $aside" >&2
+      mv "$1" "$aside"
+    else
+      echo "Incomplete stage dir (move it aside first): $1" >&2; exit 2
+    fi
+  fi
   return 1
 }
 
