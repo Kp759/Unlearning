@@ -16,10 +16,29 @@
 
 set -uo pipefail
 
-module purge
-module load Miniforge3
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate /scratch/yl258/kp759/conda_envs/semantic_unlearning
+# Environment. On a compute node `module load Miniforge3` can fail after a
+# purge (Lmod needs its parent module), so try the usual routes and fall back
+# to putting the env's own bin/ first on PATH. Then stop at once if the env is
+# not usable, instead of failing every layer in seconds.
+ENV_DIR=/scratch/yl258/kp759/conda_envs/semantic_unlearning
+module purge 2>/dev/null || true
+module load wulver 2>/dev/null || true
+module load Miniforge3 2>/dev/null || true
+if command -v conda >/dev/null 2>&1; then
+  set +u  # conda's activate scripts reference unset variables
+  source "$(conda info --base)/etc/profile.d/conda.sh"
+  conda activate "$ENV_DIR"
+  set -u
+else
+  export PATH="$ENV_DIR/bin:$PATH"
+  export CONDA_PREFIX="$ENV_DIR"
+fi
+echo "python: $(command -v python)"
+python -c "import torch, transformers, datasets; print('torch', torch.__version__, '| transformers', transformers.__version__, '| cuda', torch.cuda.is_available())" \
+  || { echo "Python env is not usable on $(hostname); aborting before any layer runs" >&2; exit 3; }
+python -c "import torch; assert torch.cuda.is_available()" \
+  || { echo "No CUDA device visible; aborting" >&2; exit 3; }
+command -v jq >/dev/null || { echo "jq not found on PATH; aborting" >&2; exit 3; }
 
 cd /scratch/yl258/kp759/Unlearning/semantic-unlearning
 mkdir -p logs
