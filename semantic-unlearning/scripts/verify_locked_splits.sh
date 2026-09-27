@@ -40,16 +40,23 @@ for SEED in ${SEEDS:-2 3 4 5}; do
         # manifests may record the output path; compare them without it
         if [[ $f == split_manifest.json ]] && python - "$INSTALLED/$f" "$CHECK/$DS$SEED/$f" <<'EOF'
 import json, sys
+# Compare the manifest's substance; ignore path-like strings (the rebuild
+# writes to a temp dir and may spell the dataset path differently).
 def strip(x):
     if isinstance(x, dict):
-        return {k: strip(v) for k, v in x.items() if "path" not in k and "dir" not in k}
+        return {k: strip(v) for k, v in x.items()}
     if isinstance(x, list):
         return [strip(v) for v in x]
+    if isinstance(x, str) and "/" in x:
+        return "<path>"
     return x
 a, b = (strip(json.load(open(p))) for p in sys.argv[1:3])
+if a != b:
+    diff = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+    print("    differing keys:", diff)
 sys.exit(0 if a == b else 1)
 EOF
-        then echo "seed $SEED $DS $f: OK (paths differ only)"
+        then echo "seed $SEED $DS $f: OK (only recorded paths differ)"
         else echo "seed $SEED $DS $f: MISMATCH"; STATUS=1; fi
       fi
     done
