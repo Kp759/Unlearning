@@ -48,17 +48,27 @@ test -f "$ZSRE_PATH" || { echo "Missing $ZSRE_PATH" >&2; exit 2; }
 
 if [[ -n "$SEED" && "$SEED" != "1" ]]; then
   SPLIT_DIR="$ROOT/outputs/zsre_locked_split_seed$SEED"
-  (
-    flock -w 3600 9 || { echo "Timed out waiting for the split lock" >&2; exit 2; }
-    if [[ ! -f "$SPLIT_DIR/training_visible_forget.json" || ! -f "$SPLIT_DIR/split_manifest.json" ]]; then
-      echo "===== building locked zsre split for seed $SEED ====="
-      rm -rf "$SPLIT_DIR.tmp"
-      python -u scripts/build_zsre_zerounlearn_locked_no_neutral_split.py \
-        --zsre-path "$ZSRE_PATH" --output-dir "$SPLIT_DIR.tmp" \
-        --seed "$SEED" --forget-num 50 --retain-num 1000
-      mv "$SPLIT_DIR.tmp" "$SPLIT_DIR"
+  # Race-free on GPFS, where flock does not hold across nodes: every process
+  # builds into its own temporary dir, then renames it into place. rename(2)
+  # is atomic, and it fails if another process got there first, in which case
+  # that (identical, deterministic) split is used and ours is discarded.
+  if [[ ! -f "$SPLIT_DIR/training_visible_forget.json" || ! -f "$SPLIT_DIR/split_manifest.json" ]]; then
+    TMP_SPLIT="$SPLIT_DIR.tmp.${SLURM_JOB_ID:-local}.$$"
+    echo "===== building locked zsre split for seed $SEED (into $TMP_SPLIT) ====="
+    rm -rf "$TMP_SPLIT"
+    python -u scripts/build_zsre_zerounlearn_locked_no_neutral_split.py \
+      --zsre-path "$ZSRE_PATH" --output-dir "$TMP_SPLIT" \
+      --seed "$SEED" --forget-num 50 --retain-num 1000
+    if mv -T "$TMP_SPLIT" "$SPLIT_DIR" 2>/dev/null; then
+      echo "installed $SPLIT_DIR"
+    else
+      echo "another job installed $SPLIT_DIR first; using it" >&2
+      rm -rf "$TMP_SPLIT"
     fi
-  ) 9>"$ROOT/outputs/.zsre_split_seed$SEED.lock"
+  fi
+  for f in training_visible_forget.json split_manifest.json; do
+    test -s "$SPLIT_DIR/$f" || { echo "Split file missing or empty: $SPLIT_DIR/$f" >&2; exit 2; }
+  done
   VISIBLE="$SPLIT_DIR/training_visible_forget.json"
   SPLIT="$SPLIT_DIR/split_manifest.json"
 fi

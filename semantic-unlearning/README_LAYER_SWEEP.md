@@ -143,6 +143,8 @@ Changes from the seed-1 exploratory sweep:
 - **MCF regular runs the decomposition** (linear classifier vs genie at eval on the same rows).
 - **Seeds = different forget/retain samples** (ZeroUnlearn sampling). Seed 1 reuses the
   shipped ZsRE/MQuAKE locked splits; seeds 2-5 build theirs on first use
-  (`outputs/{zsre,mquake}_locked_split_seed<S>`, under a file lock so the regular and
-  genie jobs never race). All official evaluators take `--seed` (default: the run manifest's).
+  (`outputs/{zsre,mquake}_locked_split_seed<S>`). Each job builds into its own temp
+  dir and installs it with an atomic rename; the first job wins and the others reuse
+  it (`flock` is not used: on GPFS it does not hold across nodes).
+  `bash scripts/verify_locked_splits.sh` rebuilds each split and checks it byte-for-byte. All official evaluators take `--seed` (default: the run manifest's).
 - Router calibration settings are the frozen seed-1 ones; the router is refit per seed and layer.
