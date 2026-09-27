@@ -36,6 +36,11 @@ def _get(tree, *keys):
     return tree
 
 
+def _ppl(value):
+    """Runtime-aligned PPL is a dict ({'ppl': ...}) in the ZsRE/MQuAKE evals."""
+    return value.get("ppl") if isinstance(value, dict) else value
+
+
 def collect(run_dir, label):
     run_dir = Path(run_dir)
     manifest = _load(run_dir / "association_manifest.json") or {}
@@ -86,7 +91,7 @@ def collect(run_dir, label):
             "forget_AtomicGen": _get(mquake, "forget", "AtomicGen"),
             "retain_Eff": _get(mquake, "retain", "Eff"),
             "retain_AtomicGen": _get(mquake, "retain", "AtomicGen"),
-            "PPL": _get(mquake, "runtime_aligned_PPL"),
+            "PPL": _ppl(_get(mquake, "runtime_aligned_PPL")),
             "legacy_PPL": _get(mquake, "legacy_PPL"),
             "forget_rewrite_route_correct": _get(
                 mquake, "forget_routes", "rewrite", "route_correct_fraction"),
@@ -114,7 +119,7 @@ def collect(run_dir, label):
             "forget_Spe": _get(zsre, "forget", "Spe"),
             "retain_Eff": _get(zsre, "retain", "Eff"),
             "retain_Gen": _get(zsre, "retain", "Gen"),
-            "PPL": _get(zsre, "runtime_aligned_PPL"),
+            "PPL": _ppl(_get(zsre, "runtime_aligned_PPL")),
             "legacy_PPL": _get(zsre, "legacy_PPL"),
             "forget_rewrite_route_active": _get(
                 zsre, "forget_route_summary", "rewrite", "route_active_fraction"),
