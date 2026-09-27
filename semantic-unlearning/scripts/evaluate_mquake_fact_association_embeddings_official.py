@@ -247,6 +247,9 @@ def main(argv=None):
     p.add_argument("--mquake-path", required=True)
     p.add_argument("--wikidata-dir", default="data/wikidata")
     p.add_argument("--out", default=None)
+    p.add_argument("--seed", type=int, default=None,
+                   help="Split seed (default: the run manifest's seed, else 1). The "
+             "run manifest must declare the same seed.")
     p.add_argument("--device", default="cuda")
     p.add_argument("--dtype", default="bfloat16")
     p.add_argument("--batch-size", type=int, default=8)
@@ -268,8 +271,11 @@ def main(argv=None):
     manifest = json.loads(
         (run_dir / "association_manifest.json").read_text()
     )
-    if int(manifest.get("seed", -1)) != 1:
-        raise ValueError("Registered MQuAKE evaluator requires seed 1")
+    seed = int(args.seed if args.seed is not None else manifest.get("seed", 1))
+    if int(manifest.get("seed", -1)) != seed:
+        raise ValueError(
+            f"Run manifest must declare MQuAKE seed {seed} (got {manifest.get('seed')})"
+        )
     if int(manifest.get("forget_num_instances", -1)) != 50:
         raise ValueError("Registered MQuAKE evaluator requires 50 forget instances")
     if int(
@@ -300,7 +306,7 @@ def main(argv=None):
         tok,
         forget_num=50,
         retain_num=1000,
-        seed=1,
+        seed=seed,
     )
 
     expected_facts, expected_case_to_fact_id, dedup_diagnostics = (
@@ -315,7 +321,7 @@ def main(argv=None):
     if artifact_association_keys != expected_association_keys:
         raise RuntimeError(
             "Saved MQuAKE bank is not the exact deduplicated association set "
-            "for the official seed-1 forget records"
+            f"for the official seed-{seed} forget records"
         )
     if int(manifest.get("forget_atomic_record_count", -1)) != len(
         forget_records
@@ -342,7 +348,7 @@ def main(argv=None):
     if artifact_case_map != expected_case_map:
         raise RuntimeError(
             "Saved atomic-case to association mapping no longer matches "
-            "official seed-1 MQuAKE"
+            f"official seed-{seed} MQuAKE"
         )
     association_row_by_id = {
         fact["id"]: index
@@ -433,7 +439,7 @@ def main(argv=None):
         "method": "FactAssociationBank",
         "dataset": mquake.MQUAKE_FILENAME,
         "dataset_revision": mquake.MQUAKE_REV,
-        "seed": 1,
+        "seed": seed,
         "forget_num_instances": 50,
         "retain_num_instances": 1000,
         "forget_atomic_record_count": len(forget_records),
@@ -460,7 +466,7 @@ def main(argv=None):
         },
         "protocol": {
             "sampling": (
-                "first-half retain / second-half forget; seed 1; sample forget "
+                f"first-half retain / second-half forget; seed {seed}; sample forget "
                 "first then retain; flatten requested_rewrite after sampling"
             ),
             "native_Eff": (

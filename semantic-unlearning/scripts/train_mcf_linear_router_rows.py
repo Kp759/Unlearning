@@ -62,6 +62,8 @@ def main(argv=None):
              "of this layer to --norm-reference-layer.",
     )
     parser.add_argument("--norm-reference-layer", type=int, default=PLAN["layer"])
+    parser.add_argument("--max-training-seconds", type=float, default=None,
+                        help="default: PLAN (3600). Raise it so the step budget binds.")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--local-files-only", action="store_true")
     args = parser.parse_args(argv)
@@ -81,7 +83,8 @@ def main(argv=None):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     model_path = Path(manifest["model_path"])
-    torch.manual_seed(1)
+    seed = int((manifest.get("sampling") or {}).get("seed", 1))
+    torch.manual_seed(seed)
     tokenizer = AutoTokenizer.from_pretrained(
         model_path, use_fast=True, local_files_only=args.local_files_only
     )
@@ -93,7 +96,7 @@ def main(argv=None):
     ).to(args.device).eval()
     model.requires_grad_(False)
 
-    _, facts, examples = load_mcf_forget_data(tokenizer, manifest["mcf_path"])
+    _, facts, examples = load_mcf_forget_data(tokenizer, manifest["mcf_path"], seed=seed)
     if [f["id"] for f in facts] != [f["id"] for f in source["facts"]]:
         raise ValueError("Rebuilt MCF facts do not match the router artifact")
 
@@ -170,6 +173,9 @@ def main(argv=None):
     n_trained = len(trainable_rows)
     plan = dict(PLAN)
     plan["layer"] = layer
+    plan["seed"] = seed
+    if args.max_training_seconds is not None:
+        plan["max_training_seconds"] = float(args.max_training_seconds)
     # Same updates per row as the shipped plan (1500 steps / 50 facts), with
     # checkpoints on complete sweeps over the rows actually trained.
     updates_per_row = int(PLAN["steps"]) // int(PLAN["check_every"])

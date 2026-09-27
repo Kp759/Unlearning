@@ -28,8 +28,8 @@ ARCHITECTURE = "untrained_association_rows_v1"
 
 def load_zsre_forget(training_visible, split_manifest_path):
     split_manifest = json.loads(Path(split_manifest_path).read_text())
-    if int(split_manifest.get("seed", -1)) != 1:
-        raise ValueError("Locked ZsRE split must be seed 1")
+    if int(split_manifest.get("seed", -1)) < 1:
+        raise ValueError("Locked ZsRE split manifest has no seed")
     sampling = split_manifest.get("sampling", {})
     if int(sampling.get("forget_num", -1)) != 50:
         raise ValueError("Locked ZsRE split must have 50 forget records")
@@ -60,6 +60,7 @@ def main(argv=None):
     output = Path(args.output_dir).resolve()
     output.mkdir(parents=True, exist_ok=False)
     split_manifest, sampling, records, facts = load_zsre_forget(visible_path, split_path)
+    seed = int(split_manifest["seed"])
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -99,7 +100,7 @@ def main(argv=None):
         "rows": torch.zeros((len(facts), int(model.config.hidden_size)), dtype=torch.float32),
         # Metadata the official ZsRE evaluator validates (carried through the router fit).
         "dataset": "ZsRE",
-        "seed": 1,
+        "seed": seed,
         "forget_num": 50,
         "target_new_used": False,
         "unknown_or_replacement_target_used": False,
@@ -113,7 +114,7 @@ def main(argv=None):
         "method": "sure_linear_router_layer_sweep_zsre",
         "architecture": ARCHITECTURE,
         "dataset": "ZsRE",
-        "seed": 1,
+        "seed": seed,
         "forget_num": 50,
         "retain_num_final_evaluation": 1000,
         "model_path": str(model_path),

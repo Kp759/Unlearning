@@ -35,8 +35,8 @@ ARCHITECTURE = "untrained_association_rows_v1"
 
 def load_mquake_forget(training_visible, split_manifest_path):
     split_manifest = json.loads(Path(split_manifest_path).read_text())
-    if int(split_manifest.get("seed", -1)) != 1:
-        raise ValueError("Locked MQuAKE split must be seed 1")
+    if int(split_manifest.get("seed", -1)) < 1:
+        raise ValueError("Locked MQuAKE split manifest has no seed")
     sampling = split_manifest.get("sampling", {})
     if int(sampling.get("forget_num_instances", -1)) != 50:
         raise ValueError("Locked MQuAKE split must have 50 forget instances")
@@ -70,6 +70,7 @@ def main(argv=None):
     split_manifest, sampling, records, facts, case_to_fact_id, dedup = load_mquake_forget(
         visible_path, split_path
     )
+    seed = int(split_manifest["seed"])
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -115,7 +116,7 @@ def main(argv=None):
         # Metadata the official MQuAKE evaluator validates; carried through
         # fit_linear_router.py into the router artifact.
         "dataset": "MQuAKE-CF-3k-v2",
-        "seed": 1,
+        "seed": seed,
         "forget_num_instances": 50,
         "forget_atomic_record_count": len(records),
         "unique_forget_association_count": len(facts),
@@ -133,7 +134,7 @@ def main(argv=None):
         "method": "sure_linear_router_layer_sweep_mquake",
         "architecture": ARCHITECTURE,
         "dataset": "MQuAKE-CF-3k-v2",
-        "seed": 1,
+        "seed": seed,
         "forget_num_instances": 50,
         "retain_num_instances_final_evaluation": 1000,
         "forget_atomic_record_count": len(records),

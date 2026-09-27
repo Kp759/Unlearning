@@ -50,6 +50,7 @@ def main(argv=None):
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--layer", type=int, required=True)
     parser.add_argument("--reference-layer", type=int, default=PLAN["layer"])
+    parser.add_argument("--seed", type=int, default=1, help="MCF forget-sample seed")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--local-files-only", action="store_true")
     args = parser.parse_args(argv)
@@ -76,7 +77,7 @@ def main(argv=None):
         if not 0 <= int(getattr(args, name)) < block_count:
             raise ValueError(f"--{name.replace('_', '-')} must lie in [0, {block_count - 1}]")
 
-    forget_records, facts, examples = load_mcf_forget_data(tokenizer, mcf_path)
+    forget_records, facts, examples = load_mcf_forget_data(tokenizer, mcf_path, seed=args.seed)
     hidden_size = int(model.config.hidden_size)
     train_prompts = [e.prompt for e in examples if e.split == "train"]
     norms = boundary_norms(
@@ -107,10 +108,10 @@ def main(argv=None):
         "model_path": str(model_path),
         "mcf_path": str(mcf_path),
         "sampling": {
-            "forget_num": 50, "retain_num": 0, "seed": 1,
+            "forget_num": 50, "retain_num": 0, "seed": int(args.seed),
             "convention": "ZeroUnlearn/official MCF forget split",
         },
-        "plan": {**PLAN, "layer": int(args.layer),
+        "plan": {**PLAN, "layer": int(args.layer), "seed": int(args.seed),
                  "radius_schedule": [list(x) for x in PLAN["radius_schedule"]]},
         "facts": facts,
         "forget_case_ids": [int(r["case_id"]) for r in forget_records],

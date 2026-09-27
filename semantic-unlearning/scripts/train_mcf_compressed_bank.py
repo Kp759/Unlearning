@@ -139,7 +139,9 @@ def main(argv=None):
     ).to(args.device).eval()
     model.requires_grad_(False)
 
-    _, facts, examples = load_mcf_forget_data(tokenizer, manifest["mcf_path"])
+    _, facts, examples = load_mcf_forget_data(
+        tokenizer, manifest["mcf_path"], seed=int((manifest.get("sampling") or {}).get("seed", 1))
+    )
     if [f["id"] for f in facts] != [f["id"] for f in source["facts"]]:
         raise ValueError("Rebuilt MCF facts do not match the router artifact")
     fact_to_row = {fact["id"]: index for index, fact in enumerate(facts)}

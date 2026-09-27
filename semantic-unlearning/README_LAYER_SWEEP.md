@@ -120,3 +120,29 @@ cannot be edited. Such facts keep a zero row and are listed in
 `untrainable_fact_ids`; the rest of the layer trains and is evaluated
 (`facts_trained` in the summary). This matters most for ZsRE and MQuAKE, where
 a fact has a single direct prompt.
+
+## Multi-seed (seeds 1-5), regular and genie
+
+Six SLURM array jobs, one task per seed (1-5); submit all six at once:
+
+```bash
+sbatch mcf_multiseed_regular.slurm    ; sbatch mcf_multiseed_genie.slurm      # 36 h
+sbatch zsre_multiseed_regular.slurm   ; sbatch zsre_multiseed_genie.slurm     # 14 h
+sbatch mquake_multiseed_regular.slurm ; sbatch mquake_multiseed_genie.slurm   # 20 h
+# aggregate (mean ± std per layer, per mode):
+for D in mcf zsre mquake; do python scripts/summarize_layer_sweep_seeds.py --dataset $D; done
+```
+
+Outputs: `outputs/<dataset>_multiseed_<mode>_v1/seed<S>/L??/...`, summaries in
+`outputs/<dataset>_multiseed_<mode>_v1/multiseed_summary.md`.
+
+Changes from the seed-1 exploratory sweep:
+- **NORM_SCALE=1 in both modes**, so regular and genie differ only in training routing.
+- **MCF: step budget binds.** `MAX_TRAIN_SECONDS=10800`; seed-1 runs all stopped
+  on the 3600 s cap, which gives different step counts at different depths.
+- **MCF regular runs the decomposition** (linear classifier vs genie at eval on the same rows).
+- **Seeds = different forget/retain samples** (ZeroUnlearn sampling). Seed 1 reuses the
+  shipped ZsRE/MQuAKE locked splits; seeds 2-5 build theirs on first use
+  (`outputs/{zsre,mquake}_locked_split_seed<S>`, under a file lock so the regular and
+  genie jobs never race). All official evaluators take `--seed` (default: the run manifest's).
+- Router calibration settings are the frozen seed-1 ones; the router is refit per seed and layer.

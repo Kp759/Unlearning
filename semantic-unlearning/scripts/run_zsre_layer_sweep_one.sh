@@ -21,6 +21,10 @@ TRAINING_ROUTE="${TRAINING_ROUTE:-oracle}"
 NORM_SCALE="${NORM_SCALE:-auto}"
 MAX_TRAIN_SECONDS="${MAX_TRAIN_SECONDS:-3600}"
 MOVE_INCOMPLETE="${MOVE_INCOMPLETE:-1}"
+# SEED: sample seed. Unset = seed 1 with the shipped locked split and the
+# original output layout; set = that seed's locked split (built once, under a
+# lock, if missing) and outputs under .../seed<SEED>/.
+SEED="${SEED:-}"
 case "$TRAINING_ROUTE" in router|oracle) ;; *)
   echo "TRAINING_ROUTE must be router or oracle, got '$TRAINING_ROUTE'" >&2; exit 2;;
 esac
@@ -42,6 +46,23 @@ SPLIT="$(jq -r '.split_manifest_path' "$REF/association_manifest.json")"
 ZSRE_PATH="$ROOT/data/zsre_mend_eval.json"
 test -f "$ZSRE_PATH" || { echo "Missing $ZSRE_PATH" >&2; exit 2; }
 
+if [[ -n "$SEED" && "$SEED" != "1" ]]; then
+  SPLIT_DIR="$ROOT/outputs/zsre_locked_split_seed$SEED"
+  (
+    flock -w 3600 9 || { echo "Timed out waiting for the split lock" >&2; exit 2; }
+    if [[ ! -f "$SPLIT_DIR/training_visible_forget.json" || ! -f "$SPLIT_DIR/split_manifest.json" ]]; then
+      echo "===== building locked zsre split for seed $SEED ====="
+      rm -rf "$SPLIT_DIR.tmp"
+      python -u scripts/build_zsre_zerounlearn_locked_no_neutral_split.py \
+        --zsre-path "$ZSRE_PATH" --output-dir "$SPLIT_DIR.tmp" \
+        --seed "$SEED" --forget-num 50 --retain-num 1000
+      mv "$SPLIT_DIR.tmp" "$SPLIT_DIR"
+    fi
+  ) 9>"$ROOT/outputs/.zsre_split_seed$SEED.lock"
+  VISIBLE="$SPLIT_DIR/training_visible_forget.json"
+  SPLIT="$SPLIT_DIR/split_manifest.json"
+fi
+
 # Router calibration: copy the shipped ZsRE linear router's settings.
 ROUTER_REPORT="$ROOT/outputs/zsre_linear_2x2_seed1/linear_router_report.json"
 ROUTER_ARGS=(--threshold-policy global --threshold-placement-fraction 0.1)
@@ -61,7 +82,9 @@ else
   echo "No shipped ZsRE router report; using ${ROUTER_ARGS[*]}"
 fi
 
-BASE="$ROOT/outputs/zsre_${SWEEP_TAG}/L$(printf '%02d' "$LAYER")"
+SEED_DIR=""
+[[ -n "$SEED" ]] && SEED_DIR="/seed$SEED"
+BASE="$ROOT/outputs/zsre_${SWEEP_TAG}${SEED_DIR}/L$(printf '%02d' "$LAYER")"
 PREP="$BASE/prep"
 ROUTER="$BASE/router"
 FINAL="$BASE/linear_global"
@@ -109,7 +132,7 @@ if [[ ! -f "$FINAL/official_zsre_eval.json" ]]; then
   python -u scripts/evaluate_zsre_fact_association_embeddings_official.py \
     --run-dir "$FINAL" --zsre-path "$ZSRE_PATH" \
     --wikidata-dir "$ROOT/data/wikidata" \
-    --device cuda --dtype bfloat16 --batch-size 8 --local-files-only
+    --seed "${SEED:-1}" --device cuda --dtype bfloat16 --batch-size 8 --local-files-only
 fi
 
 echo "===== [ZsRE L$LAYER] COMPLETE -> $BASE ====="

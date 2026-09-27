@@ -230,6 +230,9 @@ def main(argv=None):
     parser.add_argument("--zsre-path", required=True)
     parser.add_argument("--wikidata-dir", default="data/wikidata")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Split seed (default: the run manifest's seed, else 1). The "
+             "run manifest must declare the same seed.")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--batch-size", type=int, default=8)
@@ -241,10 +244,14 @@ def main(argv=None):
     manifest = json.loads(
         (run_dir / "association_manifest.json").read_text()
     )
-    if int(manifest.get("seed", -1)) != 1 or int(
+    seed = int(args.seed if args.seed is not None else manifest.get("seed", 1))
+    if int(manifest.get("seed", -1)) != seed or int(
         manifest.get("forget_num", -1)
     ) != 50:
-        raise ValueError("This evaluator is registered for ZsRE seed1 / forget50")
+        raise ValueError(
+            f"Run manifest must declare ZsRE seed {seed} / forget50 "
+            f"(got seed={manifest.get('seed')}, forget_num={manifest.get('forget_num')})"
+        )
     artifact = torch.load(
         run_dir / "fact_association_embeddings.pt",
         map_location="cpu",
@@ -286,7 +293,7 @@ def main(argv=None):
         tok,
         forget_num=50,
         retain_num=1000,
-        seed=1,
+        seed=seed,
     )
     expected_forget = list(manifest.get("forget_case_ids", []))
     expected_retain = list(
@@ -355,7 +362,7 @@ def main(argv=None):
             "one layer-19 intervention stays at that request boundary while "
             "teacher-forced answer-prefix tokens are appended"
         ),
-        "seed": 1,
+        "seed": seed,
         "unlearn_num": 50,
         "retain_num": 1000,
         "metric_definition": {

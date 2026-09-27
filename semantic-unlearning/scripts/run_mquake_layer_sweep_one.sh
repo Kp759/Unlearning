@@ -22,6 +22,10 @@ TRAINING_ROUTE="${TRAINING_ROUTE:-oracle}"
 NORM_SCALE="${NORM_SCALE:-auto}"
 MAX_TRAIN_SECONDS="${MAX_TRAIN_SECONDS:-7200}"
 MOVE_INCOMPLETE="${MOVE_INCOMPLETE:-1}"
+# SEED: sample seed. Unset = seed 1 with the shipped locked split and the
+# original output layout; set = that seed's locked split (built once, under a
+# lock, if missing) and outputs under .../seed<SEED>/.
+SEED="${SEED:-}"
 case "$TRAINING_ROUTE" in router|oracle) ;; *)
   echo "TRAINING_ROUTE must be router or oracle, got '$TRAINING_ROUTE'" >&2; exit 2;;
 esac
@@ -42,6 +46,23 @@ SPLIT="$(jq -r '.split_manifest_path' "$REF/association_manifest.json")"
 MQUAKE_PATH="$ROOT/data/MQuAKE-CF-3k-v2.json"
 test -f "$MQUAKE_PATH" || { echo "Missing $MQUAKE_PATH" >&2; exit 2; }
 
+if [[ -n "$SEED" && "$SEED" != "1" ]]; then
+  SPLIT_DIR="$ROOT/outputs/mquake_locked_split_seed$SEED"
+  (
+    flock -w 3600 9 || { echo "Timed out waiting for the split lock" >&2; exit 2; }
+    if [[ ! -f "$SPLIT_DIR/training_visible_forget.json" || ! -f "$SPLIT_DIR/split_manifest.json" ]]; then
+      echo "===== building locked mquake split for seed $SEED ====="
+      rm -rf "$SPLIT_DIR.tmp"
+      python -u scripts/build_mquake_zerounlearn_locked_no_neutral_split.py \
+        --mquake-path "$MQUAKE_PATH" --output-dir "$SPLIT_DIR.tmp" \
+        --seed "$SEED" --forget-num 50 --retain-num 1000
+      mv "$SPLIT_DIR.tmp" "$SPLIT_DIR"
+    fi
+  ) 9>"$ROOT/outputs/.mquake_split_seed$SEED.lock"
+  VISIBLE="$SPLIT_DIR/training_visible_forget.json"
+  SPLIT="$SPLIT_DIR/split_manifest.json"
+fi
+
 # Router calibration: copy the shipped MQuAKE linear router's settings.
 ROUTER_REPORT="$ROOT/outputs/mquake_linear_2x2_seed1_v24/linear_router_report.json"
 ROUTER_ARGS=(--threshold-policy global --threshold-placement-fraction 0.1)
@@ -61,7 +82,9 @@ else
   echo "No shipped MQuAKE router report; using ${ROUTER_ARGS[*]}"
 fi
 
-BASE="$ROOT/outputs/mquake_${SWEEP_TAG}/L$(printf '%02d' "$LAYER")"
+SEED_DIR=""
+[[ -n "$SEED" ]] && SEED_DIR="/seed$SEED"
+BASE="$ROOT/outputs/mquake_${SWEEP_TAG}${SEED_DIR}/L$(printf '%02d' "$LAYER")"
 PREP="$BASE/prep"
 ROUTER="$BASE/router"
 FINAL="$BASE/linear_global"
@@ -109,7 +132,7 @@ if [[ ! -f "$FINAL/official_mquake_eval.json" ]]; then
   python -u scripts/evaluate_mquake_fact_association_embeddings_official.py \
     --run-dir "$FINAL" --mquake-path "$MQUAKE_PATH" \
     --wikidata-dir "$ROOT/data/wikidata" \
-    --device cuda --dtype bfloat16 --batch-size 8 --local-files-only \
+    --seed "${SEED:-1}" --device cuda --dtype bfloat16 --batch-size 8 --local-files-only \
     --allow-imperfect-direct-routing
 fi
 

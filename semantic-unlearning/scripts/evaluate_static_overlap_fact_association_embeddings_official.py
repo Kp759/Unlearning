@@ -34,6 +34,9 @@ def main(argv=None):
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--skip-ppl", action="store_true")
     parser.add_argument("--local-files-only", action="store_true")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="MCF sampling seed (default: the run manifest's "
+                             "sampling.seed, else 1)")
     args = parser.parse_args(argv)
 
     run_dir = Path(args.run_dir).resolve()
@@ -44,6 +47,10 @@ def main(argv=None):
     if not manifest_path.is_file():
         raise FileNotFoundError(f"Missing association manifest: {manifest_path}")
     manifest = json.loads(manifest_path.read_text())
+    manifest_seed = (manifest.get("sampling") or {}).get("seed")
+    seed = int(args.seed if args.seed is not None else (manifest_seed or 1))
+    if manifest_seed is not None and int(manifest_seed) != seed:
+        raise ValueError(f"--seed {seed} differs from the run manifest's seed {manifest_seed}")
     model_path = Path(manifest["model_path"]).resolve()
     if not model_path.is_dir():
         raise FileNotFoundError(f"Base model is missing: {model_path}")
@@ -107,7 +114,7 @@ def main(argv=None):
         out_path=None,
         unlearn_num=50,
         retain_num=1000,
-        seed=1,
+        seed=seed,
         sample_mode="official",
         skip_ppl=args.skip_ppl,
     )

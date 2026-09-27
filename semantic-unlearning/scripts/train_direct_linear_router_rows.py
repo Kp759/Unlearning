@@ -144,7 +144,8 @@ def main(argv=None):
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    torch.manual_seed(1)
+    seed = int(manifest.get("seed", 1))
+    torch.manual_seed(seed)
     model_path = Path(manifest["model_path"])
     tokenizer = AutoTokenizer.from_pretrained(
         model_path, use_fast=True, local_files_only=args.local_files_only
@@ -214,7 +215,7 @@ def main(argv=None):
     plan = dict(adapter["plan"])
     plan.update({
         "layer": layer,
-        "seed": 1,
+        "seed": seed,
         "steps": n * updates,
         "check_every": n,
         "row_updates_per_fact": updates,
