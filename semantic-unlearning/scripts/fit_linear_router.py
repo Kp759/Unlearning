@@ -84,6 +84,52 @@ SOURCE_ROUTER_KEYS = {
 }
 
 
+def relation_head_index(facts):
+    """One shared head per distinct relation, in first-seen order."""
+    names, index = [], []
+    for fact in facts:
+        relation = str(fact.get("relation", ""))
+        if relation not in names:
+            names.append(relation)
+        index.append(names.index(relation))
+    return torch.tensor(index, dtype=torch.long), names
+
+
+def collapse_heads(labels, eligible, head_index, n_heads):
+    """[P, N] per-fact targets -> [P, R] per-shared-head targets.
+
+    A prompt is eligible for head r if it is eligible for any fact using r,
+    and positive if it is a positive for any of them.
+    """
+    member = torch.zeros((labels.shape[1], n_heads), dtype=torch.float64)
+    member[torch.arange(labels.shape[1]), head_index] = 1.0
+    eligible = eligible.bool()
+    shared_eligible = (eligible.double() @ member) > 0
+    shared_labels = ((labels.bool() & eligible).double() @ member) > 0
+    return shared_labels & shared_eligible, shared_eligible
+
+
+def same_head_collisions(facts, head_index):
+    seen, pairs = {}, []
+    for index, fact in enumerate(facts):
+        key = (" ".join(str(fact["subject"]).casefold().split()), int(head_index[index]))
+        if key in seen:
+            pairs.append([facts[seen[key]]["id"], fact["id"]])
+        else:
+            seen[key] = index
+    return pairs
+
+
+def compact_heads(weight, bias, head_index):
+    """Per-fact rows that share a head -> the R distinct heads (checked equal)."""
+    n_heads = int(head_index.max()) + 1
+    first = [int((head_index == h).nonzero()[0]) for h in range(n_heads)]
+    shared_w, shared_b = weight[first].clone(), bias[first].clone()
+    if not torch.equal(shared_w[head_index], weight) or not torch.equal(shared_b[head_index], bias):
+        raise RuntimeError("Facts sharing a head ended up with different head parameters")
+    return shared_w, shared_b
+
+
 def _floats(text):
     return tuple(float(x) for x in str(text).split(",") if x.strip())
 
@@ -260,7 +306,16 @@ def main(argv=None):
     parser.add_argument("--fit-device", default=None,
                         help="device for the classifier fits (default: --device)")
     parser.add_argument("--skip-runtime-parity", action="store_true")
+    parser.add_argument(
+        "--head-sharing", choices=("fact", "relation"), default="fact",
+        help="fact: one head per association (shipped). relation: one head per "
+             "relation, shared by every fact with that relation; the subject-token "
+             "match picks the entity and the relation head picks the fact. Stored "
+             "router = R heads + a per-fact head index. Global threshold only.",
+    )
     args = parser.parse_args(argv)
+    if args.head_sharing != "fact" and (args.threshold_policy != "global" or args.emit_2x2):
+        parser.error("--head-sharing relation needs --threshold-policy global and no --emit-2x2")
 
     run_dir = Path(args.run_dir).resolve()
     output = Path(args.output_dir).resolve()
@@ -327,14 +382,37 @@ def main(argv=None):
             "seconds": round(time.time() - started, 1),
         }), flush=True)
 
+    head_index, head_sharing_report = None, None
+    fit_labels, fit_eligible = labels, eligible
+    if args.head_sharing == "relation":
+        head_index, head_names = relation_head_index(facts)
+        fit_labels, fit_eligible = collapse_heads(labels, eligible, head_index, len(head_names))
+        head_sharing_report = {
+            "mode": "relation",
+            "heads": len(head_names),
+            "facts": len(facts),
+            "head_names": head_names,
+            "same_subject_same_relation_pairs": same_head_collisions(facts, head_index),
+            "note": ("two facts with the same subject and relation get identical "
+                     "logits and are rejected as ambiguous at runtime"),
+        }
+        print(json.dumps({"phase": "head_sharing", **{k: v for k, v in
+                          head_sharing_report.items() if k != "head_names"}}), flush=True)
     l2, pca_dim, cv = select_hyperparameters(
-        queries[fit], labels[fit], eligible[fit], fit_groups,
+        queries[fit], fit_labels[fit], fit_eligible[fit], fit_groups,
         lambdas=_floats(args.lambdas), pca_dims=_ints(args.pca_dims), folds=args.cv_folds,
         device=fit_device, progress=progress,
     )
     router = fit_linear_router(
-        queries[fit], labels[fit], eligible[fit], l2=l2, pca_dim=pca_dim, device=fit_device,
+        queries[fit], fit_labels[fit], fit_eligible[fit], l2=l2, pca_dim=pca_dim,
+        device=fit_device,
     )
+    if head_index is not None:
+        # Expand to one row per fact so calibration, reports and parity run
+        # unchanged; the bank below stores the R shared heads + head_index.
+        router["shared_weight"] = router["weight"]
+        router["weight"] = router["weight"][head_index]
+        router["bias"] = router["bias"][head_index]
     logits = score_queries(
         queries, router["weight"], router["bias"],
         router["feature_mean"], router["feature_components"],
@@ -536,15 +614,19 @@ def main(argv=None):
         "fit_info": router["info"],
         "audit": {k: v for k, v in outcomes["audit"].items()},
         "source_run_dir": str(run_dir),
+        "head_sharing": head_sharing_report or {"mode": "fact"},
     }
     # Exact base path for a prompt with no protected subject, with trained rows:
     # base logits first, before any hook is attached.
     neutral = tokenizer(NEUTRAL_PROMPT, return_tensors="pt").to(args.device)
     with torch.no_grad():
         base_logits = model(**neutral, use_cache=False).logits.detach().clone()
+    bank_weight, bank_bias = router["weight"], deployed_bias
+    if head_index is not None:
+        bank_weight, bank_bias = compact_heads(router["weight"], deployed_bias, head_index)
     bank = LinearClassifierAssociationBank(
         base_model=model, layer=layer,
-        weight=router["weight"], bias=deployed_bias,
+        weight=bank_weight, bias=bank_bias, head_index=head_index,
         feature_mean=router["feature_mean"], feature_components=router["feature_components"],
         threshold=0.0 if fold else threshold,
         subject_patterns=subject_patterns, facts=facts,

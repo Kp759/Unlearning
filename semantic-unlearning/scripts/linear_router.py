@@ -1426,9 +1426,22 @@ class LinearClassifierAssociationBank(nn.Module):
         router_fit=None,
         per_head_thresholds=None,
         bias_calibration=None,
+        head_index=None,
     ):
         super().__init__()
         n_facts = len(facts)
+        # head_index: shared heads (e.g. one per relation). weight/bias hold
+        # one row per HEAD and fact i uses head head_index[i]. None keeps the
+        # original one-head-per-fact layout, unchanged.
+        if head_index is not None:
+            head_index = torch.as_tensor(head_index, dtype=torch.long)
+            if tuple(head_index.shape) != (n_facts,):
+                raise ValueError("head_index must have one entry per fact")
+            if int(head_index.min()) < 0 or int(head_index.max()) >= weight.shape[0]:
+                raise ValueError("head_index points outside the shared heads")
+            if per_head_thresholds is not None:
+                raise ValueError("shared heads use the global threshold only")
+        n_heads = n_facts if head_index is None else int(weight.shape[0])
         if bias_calibration is not None:
             # The calibrated cutoff already lives in the bias: standard rule only.
             if gate_mode != "threshold":
@@ -1440,10 +1453,10 @@ class LinearClassifierAssociationBank(nn.Module):
                 )
         if len(subject_patterns) != n_facts:
             raise ValueError("subject_patterns must align with facts")
-        if weight.ndim != 2 or weight.shape[0] != n_facts:
-            raise ValueError("weight must be [num_facts, feature_dim]")
-        if tuple(bias.shape) != (n_facts,):
-            raise ValueError("bias must be [num_facts]")
+        if weight.ndim != 2 or weight.shape[0] != n_heads:
+            raise ValueError("weight must be [num_heads, feature_dim]")
+        if tuple(bias.shape) != (n_heads,):
+            raise ValueError("bias must be [num_heads]")
         hidden_size = int(feature_mean.shape[-1])
         if feature_components is not None and int(feature_components.shape[1]) != hidden_size:
             raise ValueError("feature_components must be [k, hidden_size]")
@@ -1476,6 +1489,9 @@ class LinearClassifierAssociationBank(nn.Module):
         self.rows = nn.ParameterList(nn.Parameter(row.clone()) for row in initial)
         self.register_buffer("router_weight", weight.detach().float().clone().to(device))
         self.register_buffer("router_bias", bias.detach().float().clone().to(device))
+        self.register_buffer(
+            "head_index", None if head_index is None else head_index.clone().to(device)
+        )
         self.register_buffer("feature_mean", feature_mean.detach().float().clone().to(device))
         self.register_buffer(
             "feature_components",
@@ -1556,13 +1572,16 @@ class LinearClassifierAssociationBank(nn.Module):
 
     def router_logits(self, query):
         device = query.device
-        return score_queries(
+        logits = score_queries(
             query,
             self.router_weight.to(device),
             self.router_bias.to(device),
             self.feature_mean.to(device),
             None if self.feature_components is None else self.feature_components.to(device),
         )
+        if self.head_index is not None:
+            logits = logits[:, self.head_index.to(device)]
+        return logits
 
     def _hook(self, module, args, output):
         if self._input_ids is None:
@@ -1650,6 +1669,9 @@ class LinearClassifierAssociationBank(nn.Module):
             "layer": self.layer,
             "router_weight": self.router_weight.detach().cpu(),
             "router_bias": self.router_bias.detach().cpu(),
+            "head_index": (
+                None if self.head_index is None else self.head_index.detach().cpu()
+            ),
             "feature_mean": self.feature_mean.detach().cpu(),
             "feature_components": (
                 None if self.feature_components is None
@@ -1678,6 +1700,7 @@ class LinearClassifierAssociationBank(nn.Module):
             "generation_contract": "uncached recomputation with fixed original request boundary",
             "trainable_parameters": sum(row.numel() for row in self.rows),
             "router_parameters": int(self.router_weight.numel() + self.router_bias.numel()),
+            "router_heads": int(self.router_weight.shape[0]),
             "base_parameters_trainable": 0,
             "tokenizer_extended": False,
             "lm_head_edited": False,
@@ -1702,6 +1725,7 @@ def load_linear_classifier_artifact(base_model, artifact):
         router_fit=artifact.get("router_fit"),
         per_head_thresholds=artifact.get("per_head_thresholds"),
         bias_calibration=artifact.get("bias_calibration"),
+        head_index=artifact.get("head_index"),
     )
     for row in bank.rows:
         row.requires_grad_(False)
