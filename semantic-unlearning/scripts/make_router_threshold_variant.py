@@ -29,10 +29,16 @@ def make(run_dir, variant, out_dir):
     if artifact.get("per_head_thresholds") is not None:
         raise ValueError("per-head thresholds: not supported")
     old = float(artifact["threshold"])
+    calibrated = artifact.get("bias_calibration") is not None
     if variant == "subject":
         artifact["gate_mode"] = "subject"
         artifact["threshold"] = float("-inf")
         artifact["ambiguity_margin"] = 0.0
+        artifact["bias_calibration"] = None  # the subject gate has no cutoff
+    elif calibrated:
+        # The cutoff lives in the bias (fires at logit >= 0): moving the cutoff
+        # by x is b' = b - x, identical to thresholding the old logits at x.
+        artifact["router_bias"] = artifact["router_bias"] - float(variant)
     else:
         artifact["threshold"] = old + float(variant)
     artifact["router_cutoff_variant"] = {
@@ -43,7 +49,7 @@ def make(run_dir, variant, out_dir):
     out_dir.mkdir(parents=True, exist_ok=False)
     torch.save(artifact, out_dir / "fact_association_embeddings.pt")
     shutil.copy2(run_dir / "association_manifest.json", out_dir / "association_manifest.json")
-    print(f"{out_dir}: threshold {old} -> {artifact['threshold']} (gate {artifact.get('gate_mode')})")
+    print(f"{out_dir}: variant {variant} (calibrated bias: {calibrated}; gate {artifact.get('gate_mode')})")
 
 
 def summarize(root):

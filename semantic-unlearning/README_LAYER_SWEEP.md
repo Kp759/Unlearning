@@ -163,3 +163,32 @@ classified as routed_correct / wrong_fact / ambiguous / below_threshold /
 not_eligible (subject tokens not found; `subject_in_text` flags casing or
 tokenization misses); and a threshold what-if (paraphrase recall vs false
 firing on neighborhood and retain requests) from the captured logits.
+
+## ZsRE router fix: reworded router training
+
+The decomposition showed ZsRE rows already generalise (genie Gen ~1 at L19/L23)
+and every missed paraphrase is a head score below the cutoff; lowering the
+cutoff buys recall only by firing on the same subject's other relations
+(L19: -4 -> 80% paraphrases routed, 17% same-subject false fire). Fix: train
+the classifier on rewordings of each direct question.
+
+```bash
+sbatch zsre_reworded.slurm            # seeds 1-5, layers 19 23
+python scripts/make_router_threshold_variant.py --summarize --root outputs/zsre_multiseed_reworded_v1
+python scripts/evaluate_zsre_router_decomposition.py --summarize \
+  --run-dirs 'outputs/zsre_multiseed_reworded_v1/seed*/L??/linear_global'
+```
+
+- `scripts/zsre_router_rewordings.py generate`: 6 rewordings per fact from the base
+  model (generic few-shot examples; input = the training-visible direct question;
+  rejects rewordings that drop the subject, contain the answer, or repeat).
+  `examples` writes them as router families: 4 train, 2 development
+  (calibration / audit), plus the usual context-prefix families.
+- `linear_global_swap`: preview, the regular run's trained rows behind the new
+  router (`scripts/swap_router_rows.py`). `linear_global`: full method, rows
+  retrained under the new router. Report the full one.
+- `run_zsre_layer_sweep_one.sh` gained `REWORDINGS=<file>` and `STOP_AFTER=router`.
+
+Post-hoc cutoff variants (no retraining): `sbatch zsre_threshold_variant.slurm`
+(`scripts/make_router_threshold_variant.py`; for calibrated-bias routers the
+shift is folded into the bias).

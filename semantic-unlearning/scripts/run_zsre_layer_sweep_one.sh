@@ -121,11 +121,23 @@ if ! stage_ready "$PREP" fact_association_embeddings.pt; then
     --output-dir "$PREP" --layer "$LAYER" --device cuda --local-files-only
 fi
 
+# REWORDINGS=<file>: router fix, train the classifier on generated rewordings of
+# each direct question (scripts/zsre_router_rewordings.py). Rows are unaffected.
+if [[ -n "${REWORDINGS:-}" && ! -f "$PREP/association_examples.json" ]]; then
+  test -f "$ROUTER/fact_association_embeddings.pt" && {
+    echo "Router already fit without rewordings: $ROUTER (move it aside)" >&2; exit 2; }
+  python -u scripts/zsre_router_rewordings.py examples --prep-dir "$PREP" --rewordings "$REWORDINGS"
+fi
+
 if ! stage_ready "$ROUTER" fact_association_embeddings.pt; then
   echo "===== [ZsRE L$LAYER] 2/4 FIT linear classifier router ====="
   python -u scripts/fit_linear_router.py \
     --run-dir "$PREP" --output-dir "$ROUTER" \
     --device cuda --local-files-only "${ROUTER_ARGS[@]}"
+fi
+
+if [[ "${STOP_AFTER:-}" == "router" ]]; then
+  echo "===== [ZsRE L$LAYER] stopping after router (STOP_AFTER=router) -> $ROUTER ====="; exit 0
 fi
 
 if ! stage_ready "$FINAL" fact_association_embeddings.pt; then
