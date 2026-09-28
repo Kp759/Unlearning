@@ -45,7 +45,8 @@ from linear_router import decide_routes, load_router_artifact
 
 OUT_NAME = "zsre_decomposition.json"
 CATEGORIES = ("routed_correct", "wrong_fact", "ambiguous", "below_threshold", "not_eligible")
-SHIFTS = (0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0, -8.0)
+SHIFTS = (4.0, 3.0, 2.0, 1.5, 1.0, 0.5, 0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0, -8.0)
+MATCHED_FPR = (0.02, 0.03, 0.05, 0.10)
 
 
 def _run_dirs(patterns):
@@ -111,7 +112,7 @@ def classify(logits, eligible, own, threshold, margin):
     return out
 
 
-def threshold_whatif(para, neigh, retain, base_threshold, margin, same_subject=None):
+def threshold_whatif(para, neigh, retain, base_threshold, margin, same_subject=None, common=None):
     """Lower cutoffs, then the subject gate (any eligible head fires, no margin).
 
     same_subject: the router's own held-out negative controls (calibration +
@@ -132,7 +133,8 @@ def threshold_whatif(para, neigh, retain, base_threshold, margin, same_subject=N
         rows.append({"threshold_shift": shift, "threshold": None if gate else t,
                      "paraphrase_routed_correct": correct, "paraphrase_wrong_fact": wrong,
                      "neighborhood_false_fire": fire(neigh), "retain_false_fire": fire(retain),
-                     "same_subject_false_fire": fire(same_subject)})
+                     "same_subject_false_fire": fire(same_subject),
+                     "common_same_subject_false_fire": fire(common)})
     return rows
 
 
@@ -213,6 +215,25 @@ def run_one(run_dir, base_model, tok, args, records_cache):
             if controls:
                 same_subject = block(controls, [None] * len(controls))
                 same_subject_n = len(controls)
+        # Common same-subject negatives: the held-out controls of several
+        # routers for this seed/layer (e.g. regular and reworded), so two
+        # routers are compared on the same prompts.
+        common, common_sources = None, {}
+        if args.negative_sets:
+            layer_dir, seed_dir = run_dir.parent.name, run_dir.parent.parent.name
+            prompts = []
+            for spec in args.negative_sets:
+                name, root = spec.split("=", 1)
+                f = Path(root) / seed_dir / layer_dir / "router" / "linear_router_dataset.json"
+                if not f.exists():
+                    raise FileNotFoundError(f"negative set {name}: {f}")
+                got = [r["prompt"] for r in json.loads(f.read_text())
+                       if r.get("kind") != "positive" and r.get("split") in ("calibration", "audit")]
+                common_sources[name] = len(got)
+                prompts.extend(got)
+            prompts = list(dict.fromkeys(prompts))
+            common = block(prompts, [None] * len(prompts))
+            common_sources["union"] = len(prompts)
         cats = classify(para["logits"], para["eligible"], para_own, threshold, margin)
 
         # Per-paraphrase token accuracy under router and genie (case-macro inside).
@@ -256,10 +277,11 @@ def run_one(run_dir, base_model, tok, args, records_cache):
                       "routes": genie_routes},
             "paraphrase_categories": by_cat,
             "threshold_whatif": threshold_whatif(
-                {**para, "own": para_own}, neigh, ret, threshold, margin, same_subject),
+                {**para, "own": para_own}, neigh, ret, threshold, margin, same_subject, common),
             "counts": {"paraphrases": len(para_texts), "neighborhood_requests": len(neigh_texts),
                        "retain_requests": len(retain_texts),
-                       "same_subject_negative_controls": same_subject_n},
+                       "same_subject_negative_controls": same_subject_n,
+                       "common_negative_sets": common_sources},
             "missed_paraphrases": [p for p in per_prompt if p["category"] != "routed_correct"],
         }
         (run_dir / OUT_NAME).write_text(json.dumps(result, indent=2) + "\n")
@@ -324,6 +346,28 @@ def summarize(run_dirs):
                          f"{m(w, 'same_subject_false_fire'):.1f} / {other:.1f}")
         print(f"| L{layer:02d} | " + " | ".join(cells) + " |")
 
+    if any(w.get("common_same_subject_false_fire") is not None
+           for rs in by_layer.values() for r in rs for w in r["threshold_whatif"]):
+        print("\n### On the COMMON same-subject negatives: paraphrase routed-correct % at the "
+              "shipped cutoff, and the best reachable at matched false fire (mean over seeds)\n")
+        head = ["layer", "shipped: routed / false fire"] + [f"FF <= {t:.0%}" for t in MATCHED_FPR]
+        print("| " + " | ".join(head) + " |\n|" + "---|" * len(head))
+        for layer in sorted(by_layer):
+            rs = by_layer[layer]
+            ship = [next(w for w in r["threshold_whatif"] if w["threshold_shift"] == 0.0) for r in rs]
+            cells = [f"L{layer:02d}", f"{m(ship, 'paraphrase_routed_correct'):.0f} / "
+                                      f"{m(ship, 'common_same_subject_false_fire'):.1f}"]
+            for target in MATCHED_FPR:
+                best = []
+                for r in rs:
+                    ok = [w["paraphrase_routed_correct"] for w in r["threshold_whatif"]
+                          if w["threshold_shift"] != "subject_gate"
+                          and w.get("common_same_subject_false_fire") is not None
+                          and w["common_same_subject_false_fire"] <= target]
+                    best.append(max(ok) if ok else 0.0)
+                cells.append(f"{st.mean(best) * 100:.0f}")
+            print("| " + " | ".join(cells) + " |")
+
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__,
@@ -337,6 +381,9 @@ def main(argv=None):
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--max-retain-requests", type=int, default=0)
     parser.add_argument("--local-files-only", action="store_true")
+    parser.add_argument("--negative-sets", nargs="*", default=[],
+                        help="NAME=SWEEP_ROOT ...: also score the held-out same-subject controls "
+                             "of these sweeps' routers (same seed/layer), as one common set")
     args = parser.parse_args(argv)
 
     run_dirs = _run_dirs(args.run_dirs)
