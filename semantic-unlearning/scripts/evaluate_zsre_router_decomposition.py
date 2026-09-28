@@ -45,7 +45,7 @@ from linear_router import decide_routes, load_router_artifact
 
 OUT_NAME = "zsre_decomposition.json"
 CATEGORIES = ("routed_correct", "wrong_fact", "ambiguous", "below_threshold", "not_eligible")
-SHIFTS = (0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0)
+SHIFTS = (0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0, -8.0)
 
 
 def _run_dirs(patterns):
@@ -111,21 +111,28 @@ def classify(logits, eligible, own, threshold, margin):
     return out
 
 
-def threshold_whatif(para, neigh, retain, base_threshold, margin):
+def threshold_whatif(para, neigh, retain, base_threshold, margin, same_subject=None):
+    """Lower cutoffs, then the subject gate (any eligible head fires, no margin).
+
+    same_subject: the router's own held-out negative controls (calibration +
+    audit): the forgotten subjects in OTHER relations' prompts. These are the
+    only negatives a lower cutoff can hurt on ZsRE, since official neighborhood
+    and retain requests never contain a forget subject.
+    """
     rows = []
-    for shift in SHIFTS:
-        t = base_threshold + shift
-        a, f, _ = _decisions(para["logits"], para["eligible"], t, margin)
+    for shift in SHIFTS + ("subject_gate",):
+        gate = shift == "subject_gate"
+        t, m = (float("-inf"), 0.0) if gate else (base_threshold + shift, margin)
+        fire = lambda blk: (float(_decisions(blk["logits"], blk["eligible"], t, m)[0].float().mean())
+                            if blk is not None and len(blk["own"]) else None)
+        a, f, _ = _decisions(para["logits"], para["eligible"], t, m)
         own = torch.tensor(para["own"])
         correct = float(((a) & (f == own)).float().mean())
         wrong = float(((a) & (f != own)).float().mean())
-        n_fire = float(_decisions(neigh["logits"], neigh["eligible"], t, margin)[0].float().mean()) \
-            if len(neigh["own"]) else None
-        r_fire = float(_decisions(retain["logits"], retain["eligible"], t, margin)[0].float().mean()) \
-            if len(retain["own"]) else None
-        rows.append({"threshold_shift": shift, "threshold": t,
+        rows.append({"threshold_shift": shift, "threshold": None if gate else t,
                      "paraphrase_routed_correct": correct, "paraphrase_wrong_fact": wrong,
-                     "neighborhood_false_fire": n_fire, "retain_false_fire": r_fire})
+                     "neighborhood_false_fire": fire(neigh), "retain_false_fire": fire(retain),
+                     "same_subject_false_fire": fire(same_subject)})
     return rows
 
 
@@ -198,6 +205,14 @@ def run_one(run_dir, base_model, tok, args, records_cache):
         para = block(para_texts, para_own)
         neigh = block(neigh_texts, [None] * len(neigh_texts))
         ret = block(retain_texts, [None] * len(retain_texts))
+        same_subject, same_subject_n = None, 0
+        router_rows = run_dir.parent / "router" / "linear_router_dataset.json"
+        if router_rows.exists():
+            controls = [r["prompt"] for r in json.loads(router_rows.read_text())
+                        if r.get("kind") != "positive" and r.get("split") in ("calibration", "audit")]
+            if controls:
+                same_subject = block(controls, [None] * len(controls))
+                same_subject_n = len(controls)
         cats = classify(para["logits"], para["eligible"], para_own, threshold, margin)
 
         # Per-paraphrase token accuracy under router and genie (case-macro inside).
@@ -241,9 +256,10 @@ def run_one(run_dir, base_model, tok, args, records_cache):
                       "routes": genie_routes},
             "paraphrase_categories": by_cat,
             "threshold_whatif": threshold_whatif(
-                {**para, "own": para_own}, neigh, ret, threshold, margin),
+                {**para, "own": para_own}, neigh, ret, threshold, margin, same_subject),
             "counts": {"paraphrases": len(para_texts), "neighborhood_requests": len(neigh_texts),
-                       "retain_requests": len(retain_texts)},
+                       "retain_requests": len(retain_texts),
+                       "same_subject_negative_controls": same_subject_n},
             "missed_paraphrases": [p for p in per_prompt if p["category"] != "routed_correct"],
         }
         (run_dir / OUT_NAME).write_text(json.dumps(result, indent=2) + "\n")
@@ -289,17 +305,23 @@ def summarize(run_dirs):
         n = sum(r["paraphrase_categories"]["not_eligible"]["count"] for r in rs)
         s = sum(r["paraphrase_categories"]["not_eligible"]["subject_in_text"] for r in rs)
         print(f"L{layer:02d}: {s}/{n}")
-    print("\n### Threshold what-if (mean over seeds): paraphrase routed-correct / "
-          "neighborhood false fire / retain false fire, %\n")
+    print("\n### Threshold what-if (mean over seeds), %: paraphrase routed-correct / "
+          "same-subject other-relation false fire / neighborhood + retain false fire\n")
     shifts = [w["threshold_shift"] for w in next(iter(by_layer.values()))[0]["threshold_whatif"]]
-    print("| layer | " + " | ".join(f"{s:+.1f}" for s in shifts) + " |\n|" + "---|" * (len(shifts) + 1))
+    label = lambda s: s if isinstance(s, str) else f"{s:+.1f}"
+    print("| layer | " + " | ".join(label(s) for s in shifts) + " |\n|" + "---|" * (len(shifts) + 1))
+
+    def m(w, k):
+        vals = [x.get(k) for x in w if x.get(k) is not None]
+        return st.mean(vals) * 100 if vals else float("nan")
+
     for layer in sorted(by_layer):
         cells = []
         for i in range(len(shifts)):
             w = [r["threshold_whatif"][i] for r in by_layer[layer]]
-            m = lambda k: st.mean([x[k] for x in w if x[k] is not None]) * 100
-            cells.append(f"{m('paraphrase_routed_correct'):.0f} / {m('neighborhood_false_fire'):.1f}"
-                         f" / {m('retain_false_fire'):.1f}")
+            other = max(m(w, "neighborhood_false_fire"), m(w, "retain_false_fire"))
+            cells.append(f"{m(w, 'paraphrase_routed_correct'):.0f} / "
+                         f"{m(w, 'same_subject_false_fire'):.1f} / {other:.1f}")
         print(f"| L{layer:02d} | " + " | ".join(cells) + " |")
 
 

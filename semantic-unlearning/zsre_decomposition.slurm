@@ -2,6 +2,7 @@
 # ZsRE: router vs genie on the same trained rows + why each paraphrase misses +
 # threshold what-if. Evaluation only (no training). One model load for all runs.
 #   sbatch zsre_decomposition.slurm
+#   sbatch --export=ALL,OVERWRITE=1 zsre_decomposition.slurm   # recompute existing results
 #   sbatch --export=ALL,RUN_GLOB='outputs/zsre_multiseed_regular_v1/seed1/L19/linear_global' zsre_decomposition.slurm
 # Writes <run>/zsre_decomposition.json (skips runs that already have one) and
 # prints the summary tables at the end of the log.
@@ -47,7 +48,8 @@ RUN_GLOB="${RUN_GLOB:-outputs/zsre_multiseed_regular_v1/seed*/L??/linear_global}
 echo "ZsRE decomposition | job $SLURM_JOB_ID | $(hostname) | $(date) | commit $(git rev-parse HEAD) | $RUN_GLOB"
 python -u scripts/evaluate_zsre_router_decomposition.py \
   --run-dirs "$RUN_GLOB" --zsre-path data/zsre_mend_eval.json \
-  --device cuda --dtype bfloat16 --batch-size 16 --local-files-only
+  --device cuda --dtype bfloat16 --batch-size 16 --local-files-only \
+  ${OVERWRITE:+--overwrite}
 STATUS=$?
 echo "Finish: $(date) | exit $STATUS"
 exit $STATUS
