@@ -148,3 +148,18 @@ Changes from the seed-1 exploratory sweep:
   it (`flock` is not used: on GPFS it does not hold across nodes).
   `bash scripts/verify_locked_splits.sh` rebuilds each split and checks it byte-for-byte. All official evaluators take `--seed` (default: the run manifest's).
 - Router calibration settings are the frozen seed-1 ones; the router is refit per seed and layer.
+
+## ZsRE decomposition (why Gen is high)
+
+```bash
+sbatch zsre_decomposition.slurm      # all seeds x layers of the regular multiseed sweep, eval only
+python scripts/evaluate_zsre_router_decomposition.py --summarize \
+  --run-dirs 'outputs/zsre_multiseed_regular_v1/seed*/L??/linear_global'
+```
+
+Per run, on the same trained rows: official forget Eff/Gen under the linear
+classifier vs under ground-truth (genie) routing; each forget paraphrase
+classified as routed_correct / wrong_fact / ambiguous / below_threshold /
+not_eligible (subject tokens not found; `subject_in_text` flags casing or
+tokenization misses); and a threshold what-if (paraphrase recall vs false
+firing on neighborhood and retain requests) from the captured logits.
