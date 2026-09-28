@@ -18,7 +18,11 @@ Data contract: rewordings come from the base model, prompted with the
 training-visible direct question only and generic few-shot examples written
 here. The official ZsRE rephrases, locality prompts and retain records are
 never read. Rewordings that contain the answer string, drop the subject, or
-repeat the direct question are discarded.
+repeat the direct question are discarded. v2 adds two filters:
+answer consistency (--consistency-margin: the base model must find the fact's
+own answer about as likely after the rewording as after the direct question;
+drops rewordings that drift to another relation of the subject) and
+near-duplicates (--max-jaccard on word sets).
 
 Families written to association_examples.json (the router's split rule:
 train -> fit; development families alternate calibration / audit):
@@ -70,6 +74,28 @@ def _prompt(question, shots):
     return "".join(lines)
 
 
+def _words(text):
+    return set(re.findall(r"[a-z0-9]+", text.casefold()))
+
+
+def _jaccard(a, b):
+    a, b = _words(a), _words(b)
+    return len(a & b) / max(1, len(a | b))
+
+
+@torch.no_grad()
+def answer_logprob(model, tok, prompt, answer, device):
+    """Mean per-token log-prob of " answer" right after the prompt (ZsRE's
+    scoring format: prompt tokens with BOS, then the answer's tokens)."""
+    p_ids = tok(prompt)["input_ids"]
+    a_ids = tok(" " + answer, add_special_tokens=False)["input_ids"]
+    ids = torch.tensor([p_ids + a_ids], device=device)
+    logp = torch.log_softmax(model(input_ids=ids).logits[0, :-1].float(), dim=-1)
+    target = ids[0, 1:]
+    per_token = logp.gather(-1, target[:, None])[:, 0][len(p_ids) - 1:]
+    return float(per_token.mean())
+
+
 def _load_prep(prep_dir):
     prep_dir = Path(prep_dir).resolve()
     artifact = torch.load(prep_dir / "fact_association_embeddings.pt", map_location="cpu",
@@ -97,6 +123,8 @@ def generate(args):
     torch.manual_seed(seed)
     need = TRAIN_REWORDINGS + DEV_REWORDINGS
     out, stats = {}, {"facts": len(facts), "facts_full": 0, "kept": 0, "rejected": {}}
+    scores = {}
+    use_consistency = args.consistency_margin is not None and args.consistency_margin >= 0
 
     def reject(reason):
         stats["rejected"][reason] = stats["rejected"].get(reason, 0) + 1
@@ -108,6 +136,8 @@ def generate(args):
         shots = FEW_SHOT[index % len(FEW_SHOT):] + FEW_SHOT[: index % len(FEW_SHOT)]
         text = _prompt(question, shots[:6])
         kept, seen = [], {question.casefold()}
+        direct_lp = answer_logprob(model, tok, question, answer, args.device) if use_consistency else None
+        kept_scores = []
         for round_ in range(args.max_rounds):
             enc = tok([text] * args.samples, return_tensors="pt").to(args.device)
             gen = model.generate(**enc, do_sample=True, temperature=args.temperature,
@@ -125,20 +155,40 @@ def generate(args):
                 if not bool(eligibility_matrix(tok, [cand], [patterns[index]])[0, 0]):
                     reject("subject_tokens_not_matched"); continue
                 seen.add(cand.casefold())
+                if args.max_jaccard < 1.0 and any(
+                        _jaccard(cand, other) > args.max_jaccard for other in [question] + kept):
+                    reject("near_duplicate"); continue
+                delta = None
+                if use_consistency:
+                    # Same question => the model should find the fact's own
+                    # answer about as likely as after the direct question. A
+                    # rewording that asks something else about the subject
+                    # (relation drift) makes that answer much less likely.
+                    delta = answer_logprob(model, tok, cand, answer, args.device) - direct_lp
+                    if delta < -args.consistency_margin:
+                        reject("answer_inconsistent"); continue
                 kept.append(cand)
+                kept_scores.append(delta)
             if len(kept) >= need:
                 break
-        kept = kept[:need]
+        kept, kept_scores = kept[:need], kept_scores[:need]
+        scores[fact["id"]] = {"direct_answer_logprob": direct_lp, "delta_per_rewording": kept_scores}
         stats["kept"] += len(kept)
         stats["facts_full"] += int(len(kept) == need)
         out[fact["id"]] = kept
         print(f"[{index + 1}/{len(facts)}] {len(kept)} | {question}  ->  {kept[:2]}", flush=True)
     payload = {"seed": seed, "model_path": str(model_path), "per_fact": out, "stats": stats,
                "data_contract": {"inputs": "training-visible direct question, subject, answer "
-                                           "(answer only to reject leaks)",
+                                           "(answer only to reject leaks and, with the "
+                                           "consistency filter, to score whether a rewording "
+                                           "still asks for it)",
                                  "official_rephrases_used": False,
                                  "official_locality_used": False, "retain_records_used": False},
-               "few_shot": FEW_SHOT, "temperature": args.temperature}
+               "few_shot": FEW_SHOT, "temperature": args.temperature,
+               "filters": {"consistency_margin_nats_per_token": args.consistency_margin if use_consistency else None,
+                           "max_jaccard": args.max_jaccard, "samples": args.samples,
+                           "max_rounds": args.max_rounds},
+               "answer_consistency": scores}
     out_path = Path(args.out)
     tmp = out_path.with_suffix(out_path.suffix + f".tmp{os.getpid()}")
     tmp.write_text(json.dumps(payload, indent=2) + "\n")
@@ -186,6 +236,13 @@ def main(argv=None):
     g.add_argument("--device", default="cuda")
     g.add_argument("--samples", type=int, default=12)
     g.add_argument("--max-rounds", type=int, default=3)
+    g.add_argument("--consistency-margin", type=float, default=None,
+                   help="keep a rewording only if the mean per-token log-prob of the fact's "
+                        "answer after it is at most this many nats below that after the direct "
+                        "question (off by default; v2 uses 1.0)")
+    g.add_argument("--max-jaccard", type=float, default=1.0,
+                   help="reject a rewording whose word-set Jaccard with the question or a kept "
+                        "rewording exceeds this (1.0 = off; v2 uses 0.8)")
     g.add_argument("--temperature", type=float, default=0.9)
     g.add_argument("--local-files-only", action="store_true")
     e = sub.add_parser("examples")

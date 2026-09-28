@@ -3,6 +3,8 @@
 # direct question (official rephrases never read), one array task per seed.
 #   sbatch zsre_reworded.slurm
 #   sbatch --export=ALL,LAYERS="19" zsre_reworded.slurm
+#   v2 (answer-consistency + near-duplicate filters on the rewordings):
+#   sbatch --export=ALL,REWORD_TAG=reworded_v2,GEN_ARGS="--consistency-margin 1.0 --max-jaccard 0.8 --samples 16 --max-rounds 4" zsre_reworded.slurm
 # Per seed:
 #   0. rewordings.json (base model, training-visible direct questions only)
 #   1. per layer: prep + reworded router, then a PREVIEW: the existing trained
@@ -10,7 +12,7 @@
 #   2. per layer: the full method, rows retrained under the new router
 #      (linear_global) + official eval
 #   3. decomposition (router vs genie, miss categories, same-subject false fire)
-# Outputs: outputs/zsre_multiseed_reworded_v1/seed<S>/...
+# Outputs: outputs/zsre_multiseed_<REWORD_TAG>/seed<S>/...  (REWORD_TAG default reworded_v1)
 #SBATCH --job-name=zsr_rew
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
@@ -51,21 +53,23 @@ command -v jq >/dev/null || { echo "jq not found on PATH; aborting" >&2; exit 3;
 cd /scratch/yl258/kp759/Unlearning/semantic-unlearning
 mkdir -p logs
 export SEED="${SLURM_ARRAY_TASK_ID}"
-export SWEEP_TAG=multiseed_reworded_v1
+REWORD_TAG="${REWORD_TAG:-reworded_v1}"
+GEN_ARGS="${GEN_ARGS:-}"
+export SWEEP_TAG=multiseed_$REWORD_TAG
 export TRAINING_ROUTE=router
 export NORM_SCALE=1
-ROOT_OUT=outputs/zsre_multiseed_reworded_v1/seed$SEED
+ROOT_OUT=outputs/zsre_multiseed_$REWORD_TAG/seed$SEED
 REG=outputs/zsre_multiseed_regular_v1/seed$SEED
 mkdir -p "$ROOT_OUT"
 export REWORDINGS="$PWD/$ROOT_OUT/rewordings.json"
-echo "ZsRE reworded router | seed $SEED | job ${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID} | $(hostname) | $(date) | commit $(git rev-parse HEAD)"
+echo "ZsRE reworded router ($REWORD_TAG; gen args: ${GEN_ARGS:-none}) | seed $SEED | job ${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID} | $(hostname) | $(date) | commit $(git rev-parse HEAD)"
 LAYER_LIST="${LAYERS:-19 23}"
 FAILED=()
 
 if [[ ! -f "$REWORDINGS" ]]; then
   echo "===== rewordings (seed $SEED) | $(date) ====="
   python -u scripts/zsre_router_rewordings.py generate --prep-dir "$REG/L19/prep" \
-    --out "$REWORDINGS" --device cuda --local-files-only || { echo "rewording generation failed"; exit 1; }
+    --out "$REWORDINGS" --device cuda --local-files-only $GEN_ARGS || { echo "rewording generation failed"; exit 1; }
 fi
 
 for L in $LAYER_LIST; do
@@ -96,6 +100,6 @@ for RUN in linear_global_swap linear_global; do
     --zsre-path data/zsre_mend_eval.json --device cuda --dtype bfloat16 --batch-size 16 --local-files-only \
     || FAILED+=("decomposition/$RUN")
 done
-python scripts/make_router_threshold_variant.py --summarize --root outputs/zsre_multiseed_reworded_v1 || true
+python scripts/make_router_threshold_variant.py --summarize --root outputs/zsre_multiseed_$REWORD_TAG || true
 echo "Finish seed $SEED: $(date) | failed: ${FAILED[*]:-none}"
 [[ ${#FAILED[@]} -eq 0 ]]

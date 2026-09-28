@@ -192,3 +192,18 @@ python scripts/evaluate_zsre_router_decomposition.py --summarize \
 Post-hoc cutoff variants (no retraining): `sbatch zsre_threshold_variant.slurm`
 (`scripts/make_router_threshold_variant.py`; for calibrated-bias routers the
 shift is folded into the bias).
+
+### v2 rewordings (answer-consistency filter)
+
+v1 rewordings sometimes drift to another relation of the subject ("performer
+of Soul Merchant" -> "who played the role of Soul Merchant"), which labels a
+same-subject/other-relation prompt as a positive. v2 keeps a rewording only if
+the base model finds the fact's own answer about as likely after it as after
+the direct question (mean per-token log-prob within 1 nat), and drops
+near-duplicates (word-set Jaccard > 0.8).
+
+```bash
+sbatch --export=ALL,REWORD_TAG=reworded_v2,GEN_ARGS="--consistency-margin 1.0 --max-jaccard 0.8 --samples 16 --max-rounds 4" zsre_reworded.slurm
+# after it finishes: all three routers on common same-subject negatives
+sbatch --export=ALL,TAGS="regular_v1 reworded_v1 reworded_v2" zsre_router_compare.slurm
+```

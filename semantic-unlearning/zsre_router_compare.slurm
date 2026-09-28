@@ -2,7 +2,8 @@
 # ZsRE: regular vs reworded router on the SAME same-subject negatives (the union
 # of both routers' held-out controls), full cutoff curves, and the paraphrase
 # recall each reaches at matched same-subject false fire. Evaluation only.
-#   sbatch zsre_router_compare.slurm
+#   sbatch zsre_router_compare.slurm                                   # regular vs reworded_v1
+#   sbatch --export=ALL,TAGS="regular_v1 reworded_v1 reworded_v2" zsre_router_compare.slurm
 #SBATCH --job-name=zsr_cmp
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
@@ -41,12 +42,12 @@ command -v jq >/dev/null || { echo "jq not found on PATH; aborting" >&2; exit 3;
 
 cd /scratch/yl258/kp759/Unlearning/semantic-unlearning
 mkdir -p logs
-REG=outputs/zsre_multiseed_regular_v1
-REW=outputs/zsre_multiseed_reworded_v1
-NEG=(regular=$REG reworded=$REW)
+TAGS="${TAGS:-regular_v1 reworded_v1}"
+NEG=(); SWEEPS=()
+for T in $TAGS; do SWEEPS+=("outputs/zsre_multiseed_$T"); NEG+=("$T=outputs/zsre_multiseed_$T"); done
 echo "ZsRE router compare | job $SLURM_JOB_ID | $(hostname) | $(date) | commit $(git rev-parse HEAD)"
 STATUS=0
-for SWEEP in $REG $REW; do
+for SWEEP in "${SWEEPS[@]}"; do
   echo "================ $SWEEP ================"
   python -u scripts/evaluate_zsre_router_decomposition.py \
     --run-dirs "$SWEEP/seed*/L19/linear_global" "$SWEEP/seed*/L23/linear_global" \
