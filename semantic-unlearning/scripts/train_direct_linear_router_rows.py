@@ -90,6 +90,30 @@ def dataset_adapter(name):
             "fact_key": "association_key", "updates_per_fact": 30,
             "max_seconds": 7200.0, "method": "sure_linear_router_multifact_person",
         }
+    if name == "evaldu":
+        # Eval-DU+ (FT-Mul-Chunk): the MQuAKE row optimizer on the forget facts'
+        # UL prefixes; facts and token cases from evaldu_plus_data.py.
+        from types import SimpleNamespace
+        import mquake_fact_association_embeddings as mq
+        import mquake_zero_unlearn_official_eval as official
+        import evaldu_plus_data as evaldu
+
+        module = SimpleNamespace(
+            build_exact_direct_token_cases=evaldu.build_direct_token_cases,
+            train_direct_only=mq.train_direct_only,
+            direct_training_metrics=mq.direct_training_metrics,
+        )
+
+        def load(manifest):
+            split = json.loads(Path(manifest["split_manifest_path"]).read_text())
+            return evaldu.bank_facts(split)
+
+        return {
+            "module": module, "official": official, "load": load,
+            "plan": mq.BASE_PLAN, "prefix_lengths": mq.strict_prefix_lengths,
+            "fact_key": "id", "updates_per_fact": 30,
+            "max_seconds": 7200.0, "method": "sure_linear_router_evaldu_plus",
+        }
     raise ValueError(f"Unknown dataset {name!r}")
 
 
@@ -121,7 +145,7 @@ def routes_for_cases(model, bank, tokenizer, cases, fact_to_row, prefix_lengths_
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", choices=("mquake", "zsre", "multifact"), required=True)
+    parser.add_argument("--dataset", choices=("mquake", "zsre", "multifact", "evaldu"), required=True)
     parser.add_argument("--router-dir", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--training-route", choices=("router", "oracle"), required=True)
