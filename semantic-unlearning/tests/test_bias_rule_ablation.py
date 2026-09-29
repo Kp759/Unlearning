@@ -135,7 +135,28 @@ def test_comparison_picks_the_better_rule_per_metric(tmp_path):
     assert rows["forget_Spe"]["better[raw]"] == "raw"         # higher is better
     assert rows["forget_Eff"]["better[raw]"] == "tie"
     assert result["router"]["by_split"]["audit"]["positives_rescued_by_calibration"] == 1
-    assert any("folded better on forget_Gen" in line for line in result["overall"])
+    assert any(line.startswith("rows retrained: with calibrated threshold (folded) better on forget_Gen")
+               for line in result["overall"])
+    assert any(line.startswith("same rows, only the rule changed:") for line in result["overall"])
     assert cmp.main(["--collect", str(tmp_path / "abl")]) == 0
     summary = (tmp_path / "abl" / "bias_rule_summary.md").read_text()
     assert "raw, rows retrained" in summary and "folded (shipped)" in summary
+
+
+def test_swap_only_comparison_needs_no_retrained_run(tmp_path):
+    router = tmp_path / "router_raw"
+    router.mkdir()
+    (router / "bias_rule_ablation.json").write_text(json.dumps({"folded_cutoff_t": -3.0, "by_split": {}}))
+    _run_dir(tmp_path / "folded", gen=2.0, spe=40.0)
+    _run_dir(tmp_path / "raw_swap", gen=4.0, spe=44.0)
+    prefix = tmp_path / "out" / "comparison"
+    cmp.main(["--dataset", "mcf", "--optimizer", "lbfgs",
+              "--folded-router", str(tmp_path / "folded"), "--folded-run", str(tmp_path / "folded"),
+              "--raw-router", str(router), "--raw-swap-run", str(tmp_path / "raw_swap"),
+              "--out-prefix", str(prefix)])
+    result = json.loads(prefix.with_suffix(".json").read_text())
+    rows = {r["metric"]: r for r in result["metrics"]}
+    assert rows["forget_Gen"]["better[raw_swap]"] == "folded"
+    assert rows["forget_Spe"]["better[raw_swap]"] == "raw"
+    assert result["training_views"] is None
+    assert len(result["overall"]) == 1 and "same rows" in result["overall"][0]

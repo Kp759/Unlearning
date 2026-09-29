@@ -115,18 +115,21 @@ def overall(table, router):
                 f"{_fmt(audit['correct_route']['raw'])}; false activation folded "
                 f"{_fmt(audit['false_activation']['folded'])} vs raw {_fmt(audit['false_activation']['raw'])} "
                 f"(cutoff t = {_fmt(t) if isinstance(t, float) else 'per head'})")
-    wins = {"folded": [], "raw": [], "tie": []}
-    for row in table:
-        verdict = row.get("better[raw]")
-        if verdict in wins:
-            wins[verdict].append(row["metric"])
-    if any(wins.values()):
-        lines.append("full method (rows retrained): folded better on "
-                     + (", ".join(wins["folded"]) or "none") + "; raw better on "
-                     + (", ".join(wins["raw"]) or "none")
-                     + (f"; tie on {', '.join(wins['tie'])}" if wins["tie"] else ""))
-    else:
-        lines.append("full method (rows retrained): not evaluated yet")
+    arms = (("raw_swap", "same rows, only the rule changed"), ("raw", "rows retrained"))
+    for arm, label in arms:
+        wins = {"folded": [], "raw": [], "tie": []}
+        for row in table:
+            verdict = row.get(f"better[{arm}]")
+            if verdict in wins:
+                wins[verdict].append(row["metric"])
+        if any(wins.values()):
+            lines.append(f"{label}: with calibrated threshold (folded) better on "
+                         + (", ".join(wins["folded"]) or "none")
+                         + "; without (plain p >= 0.5) better on "
+                         + (", ".join(wins["raw"]) or "none")
+                         + (f"; tie on {', '.join(wins['tie'])}" if wins["tie"] else ""))
+        elif arm == "raw_swap":
+            lines.append(f"{label}: not evaluated yet")
     return lines
 
 
