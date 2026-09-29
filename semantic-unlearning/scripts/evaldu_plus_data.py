@@ -278,9 +278,16 @@ def subject_patterns(tokenizer, facts):
     return patterns
 
 
-def build_direct_token_cases(records, facts, tokenizer, model):
-    """Row-training token cases in the official MQuAKE convention (the direct
-    trainer's contract): boundary = the prefix, one case per completion token."""
+def build_direct_token_cases(records, facts, tokenizer, model, *, first_token_only=True):
+    """Row-training token cases (the MQuAKE direct trainer's contract):
+    boundary = the prefix.
+
+    first_token_only (default): one case per prefix, the completion's first
+    token, the token the boundary row predicts. Teacher-forced continuation
+    tokens ("Ross" after "... Zachary") stay near 1 in the fine-tuned model
+    whatever the boundary row does, so as training targets they only pin the
+    fact's worst token. They are still scored by the knowledge score (geometric
+    mean over the completion's tokens)."""
     from mquake_fact_association_embeddings import DirectTokenTrainingCase
     import mquake_zero_unlearn_official_eval as official
 
@@ -292,6 +299,8 @@ def build_direct_token_cases(records, facts, tokenizer, model):
             raise ValueError(f"No bank row for {record['fact_id']}")
         target_ids = official.original_answer_token_ids(
             tokenizer, record["completion"], llama_like=llama_like)
+        if first_token_only:
+            target_ids = target_ids[:1]
         for index, token_id in enumerate(target_ids):
             decoded = tokenizer.decode(target_ids[:index])
             prompt = record["prefix"] + ((" " + decoded) if (llama_like and index > 0) else decoded)

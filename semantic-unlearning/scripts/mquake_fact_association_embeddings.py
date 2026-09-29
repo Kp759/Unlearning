@@ -767,7 +767,15 @@ def train_direct_only(
                 llama_like=llama_like,
             )
             current = metrics["maximum_sensitive_token_probability"]
-            selected = current < best_metric
+            # Default (MQuAKE, ZsRE, multifact): a strictly lower global worst
+            # token. Opt-in tie rule: a row step is accepted only if it lowers
+            # its own fact's worst token and routing does not read the rows, so
+            # the latest sweep is never worse on any fact; take it on a tie so
+            # one stuck fact cannot pin every row to step 0.
+            selected = current < best_metric or (
+                bool(plan.get("checkpoint_ties_select_latest", False))
+                and current <= best_metric
+            )
             if selected:
                 best_metric = current
                 best_state = _row_state(editor)

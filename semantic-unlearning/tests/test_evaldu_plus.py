@@ -142,7 +142,10 @@ def test_bank_facts_and_token_cases(tmp_path):
     rows, skipped = ed.knowledge_scores(model, tok, [probe, chunk], torch.device("cpu"))
     assert len(rows) == 2 and not skipped and all(0.0 < r["score"] <= 1.0 for r in rows)
     cases, llama_like = ed.build_direct_token_cases(records, facts, tok, model)
-    assert llama_like and all(c.prompt.startswith(c.boundary_prompt) for c in cases)
+    assert llama_like and all(c.prompt == c.boundary_prompt and c.token_index == 0 for c in cases)
+    assert len(cases) == len(records)                          # first completion token only
+    every, _ = ed.build_direct_token_cases(records, facts, tok, model, first_token_only=False)
+    assert len(every) > len(cases) and all(c.prompt.startswith(c.boundary_prompt) for c in every)
 
 
 def test_summary_groups_and_normalization(tmp_path):

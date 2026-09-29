@@ -108,9 +108,12 @@ def dataset_adapter(name):
             split = json.loads(Path(manifest["split_manifest_path"]).read_text())
             return evaldu.bank_facts(split)
 
+        # First-token cases only (see evaldu.build_direct_token_cases) and the
+        # tie rule for checkpoints, so one stuck fact cannot restore zero rows.
         return {
             "module": module, "official": official, "load": load,
-            "plan": mq.BASE_PLAN, "prefix_lengths": mq.strict_prefix_lengths,
+            "plan": {**mq.BASE_PLAN, "checkpoint_ties_select_latest": True},
+            "prefix_lengths": mq.strict_prefix_lengths,
             "fact_key": "id", "updates_per_fact": 30,
             "max_seconds": 7200.0, "method": "sure_linear_router_evaldu_plus",
         }
