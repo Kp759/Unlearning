@@ -36,6 +36,9 @@ SGD_ARGS="${SGD_ARGS:-}"
 REUSE_SGD="${REUSE_SGD:-1}"
 SGD_REUSE_TAG="${SGD_REUSE_TAG:-optimizer_ablation_v1}"
 MOVE_INCOMPLETE="${MOVE_INCOMPLETE:-1}"
+# RETRAIN_RAW=0: no row retraining. Only the raw router + the existing folded rows
+# behind it (raw_swap) + official eval, compared with the folded run (~1 h per task).
+RETRAIN_RAW="${RETRAIN_RAW:-1}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -178,20 +181,24 @@ if [[ -f "$OUT/router_raw/fact_association_embeddings.pt" ]]; then
       evaluate "$OUT/raw_swap" || FAILED+=(raw_swap_eval)
     fi
   fi
-  if ! stage_ready "$OUT/raw" fact_association_embeddings.pt; then
-    echo "===== [$OPTIMIZER $DATASET s$SEED L$LL] rows retrained under raw router | $(date) ====="
-    train_rows "$OUT/router_raw" "$OUT/raw" || FAILED+=(raw)
-  fi
-  if [[ -f "$OUT/raw/fact_association_embeddings.pt" ]]; then
-    evaluate "$OUT/raw" || FAILED+=(raw_eval)
+  if [[ "$RETRAIN_RAW" == "1" ]]; then
+    if ! stage_ready "$OUT/raw" fact_association_embeddings.pt; then
+      echo "===== [$OPTIMIZER $DATASET s$SEED L$LL] rows retrained under raw router | $(date) ====="
+      train_rows "$OUT/router_raw" "$OUT/raw" || FAILED+=(raw)
+    fi
+    if [[ -f "$OUT/raw/fact_association_embeddings.pt" ]]; then
+      evaluate "$OUT/raw" || FAILED+=(raw_eval)
+    fi
   fi
 fi
+RAW_RUN_ARGS=()
+if [[ "$RETRAIN_RAW" == "1" ]]; then RAW_RUN_ARGS=(--raw-run "$OUT/raw"); fi
 
 echo "===== [$OPTIMIZER $DATASET s$SEED L$LL] comparison | $(date) ====="
 python -u scripts/compare_bias_rules.py --dataset "$DATASET" --optimizer "$OPTIMIZER" \
   --seed "$SEED" --layer "$LAYER" \
   --folded-router "$FOLDED_ROUTER" --folded-run "$FOLDED_RUN" \
-  --raw-router "$OUT/router_raw" --raw-swap-run "$OUT/raw_swap" --raw-run "$OUT/raw" \
+  --raw-router "$OUT/router_raw" --raw-swap-run "$OUT/raw_swap" ${RAW_RUN_ARGS[@]+"${RAW_RUN_ARGS[@]}"} \
   --out-prefix "$OUT/comparison" || FAILED+=(comparison)
 
 echo "===== [$OPTIMIZER $DATASET s$SEED L$LL] done -> $OUT | failed: ${FAILED[*]:-none} ====="
