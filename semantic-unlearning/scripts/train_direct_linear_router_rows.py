@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Layer sweep, step 3 for direct-rewrite benchmarks (MQuAKE, ZsRE).
+"""Layer sweep, step 3 for direct-rewrite benchmarks (MQuAKE, ZsRE, multi-fact person).
 
 Loads a fitted linear-classifier router (rows all zero) and trains one row per
 fact with the benchmark's own shipped optimizer (`train_direct_only`): worst
@@ -71,6 +71,25 @@ def dataset_adapter(name):
             "max_seconds": float(plan["max_training_seconds"]),
             "method": "sure_linear_router_layer_sweep_zsre",
         }
+    if name == "multifact":
+        # Multi-fact person benchmark: MQuAKE direct-record format and machinery,
+        # its own locked split and fact identity (multifact_person_data.py).
+        import mquake_fact_association_embeddings as module
+        import mquake_zero_unlearn_official_eval as official
+        from multifact_person_data import load_multifact_forget
+
+        def load(manifest):
+            _, _, records, facts, _, _ = load_multifact_forget(
+                manifest["training_visible_path"], manifest["split_manifest_path"]
+            )
+            return records, facts
+
+        return {
+            "module": module, "official": official, "load": load,
+            "plan": module.BASE_PLAN, "prefix_lengths": module.strict_prefix_lengths,
+            "fact_key": "association_key", "updates_per_fact": 30,
+            "max_seconds": 7200.0, "method": "sure_linear_router_multifact_person",
+        }
     raise ValueError(f"Unknown dataset {name!r}")
 
 
@@ -102,7 +121,7 @@ def routes_for_cases(model, bank, tokenizer, cases, fact_to_row, prefix_lengths_
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", choices=("mquake", "zsre"), required=True)
+    parser.add_argument("--dataset", choices=("mquake", "zsre", "multifact"), required=True)
     parser.add_argument("--router-dir", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--training-route", choices=("router", "oracle"), required=True)
