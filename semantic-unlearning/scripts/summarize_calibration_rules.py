@@ -63,6 +63,7 @@ def main(argv=None):
         for layer in a.layers:
             L = f"L{int(layer):02d}"
             table = defaultdict(lambda: defaultdict(list))
+            met = defaultdict(list)
             seeds_seen = set()
             for seed_dir in sorted((root / a.out_tag / ds).glob("seed*")):
                 arm_dirs = sorted(d for d in (seed_dir / L).glob("*")
@@ -81,8 +82,10 @@ def main(argv=None):
                 }
                 for d in arm_dirs:
                     rec = json.loads((d / "recalibration.json").read_text())
-                    sources[f"{d.name} (validation = cal + audit)"] = (
-                        d, rec["by_split"]["validation"]["new"], rec["cutoff_t"]["new"])
+                    label = f"{d.name} (validation = cal + audit)"
+                    sources[label] = (d, rec["by_split"]["validation"]["new"], rec["cutoff_t"]["new"])
+                    if rec.get("constraint_status"):
+                        met[label].append(rec["constraint_status"] == "recall_and_false_fire_met")
                 for label, (run, val, t) in sources.items():
                     row = collect(run, label) if run.is_dir() else {}
                     if row.get("status") == "complete":
@@ -94,11 +97,12 @@ def main(argv=None):
             if not seeds_seen:
                 continue
             cols = TEST[ds] + [k for k, _ in VAL] + ["cutoff t"]
-            names = TEST[ds] + [n for _, n in VAL] + ["cutoff t"]
+            names = TEST[ds] + [n for _, n in VAL] + ["cutoff t", "recall AND false-fire targets met (seeds)"]
             print(f"\n### {ds.upper()} {L}  (seeds: {', '.join(sorted(seeds_seen))})\n")
             print("| rule | " + " | ".join(names) + " |\n|" + "---|" * (len(names) + 1))
             for label, vals in table.items():
-                print(f"| {label} | " + " | ".join(_fmt(vals[c]) for c in cols) + " |")
+                both = f"{sum(met[label])}/{len(met[label])}" if met[label] else "–"
+                print(f"| {label} | " + " | ".join(_fmt(vals[c]) for c in cols) + f" | {both} |")
     return 0
 
 

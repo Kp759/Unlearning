@@ -19,6 +19,12 @@ chosen again, on the VALIDATION prompts = calibration + audit splits by default
                hard prompts, cannot set the cutoff for all); --macro prompt pools.
   target_fpr   most correct routes with false fire <= --target-fpr (pooled)
   min_recall   the shipped rule: lowest false fire with recall >= --min-recall
+  constrained  all three at once: among cutoffs with recall >= --min-recall AND
+               false fire <= --target-fpr, maximise balanced accuracy. With
+               --macro fact every term is per-fact first (positives vs negatives
+               and facts all weighted equally). If no cutoff meets both, the
+               false-fire cap stays hard and recall is maximised under it (ties:
+               balanced accuracy); `constraint_status` records which case held.
 
 recall = a positive routed to its own row; false fire = a same-subject negative
 control that activates any row. Among tied cutoffs the highest one (fewest
@@ -52,7 +58,7 @@ from linear_router import (  # noqa: E402
     score_queries,
 )
 
-OBJECTIVES = ("balanced", "target_fpr", "min_recall")
+OBJECTIVES = ("balanced", "target_fpr", "min_recall", "constrained")
 
 
 def _json_safe(value):
@@ -151,6 +157,22 @@ def choose_cutoff(z, eligible, owner, margin, objective, macro="fact",
         pool = [r for r in ok if r[1]["false_fire"] <= low + 1e-12]
         best = max(r[1]["correct"] for r in pool)
         tied = [r for r in pool if r[1]["correct"] == best]
+    elif objective == "constrained":
+        rk, fk, bk = (("macro_recall", "macro_false_fire", "macro_balanced_accuracy")
+                      if macro == "fact" else ("recall", "false_fire", "balanced_accuracy"))
+        usable = [r for r in rows if None not in (r[1][rk], r[1][fk], r[1][bk])]
+        capped = [r for r in usable if r[1][fk] <= target_fpr + 1e-12]
+        both = [r for r in capped if r[1][rk] >= min_recall - 1e-12]
+        if both:
+            status = "recall_and_false_fire_met"
+            best = max(r[1][bk] for r in both)
+            tied = [r for r in both if r[1][bk] >= best - 1e-12]
+        else:
+            status = "false_fire_cap_met_recall_short"
+            best_r = max(r[1][rk] for r in capped)
+            pool = [r for r in capped if r[1][rk] >= best_r - 1e-12]
+            best = max(r[1][bk] for r in pool)
+            tied = [r for r in pool if r[1][bk] >= best - 1e-12]
     else:
         raise ValueError(f"objective must be one of {OBJECTIVES}")
     # The highest tied cutoff fires least; place t inside (previous candidate, c],
@@ -162,6 +184,8 @@ def choose_cutoff(z, eligible, owner, margin, objective, macro="fact",
     if not (prev < t <= c):
         t = c
     chosen = outcomes(z, eligible, owner, t, margin)
+    if objective == "constrained":
+        chosen["constraint_status"] = status
     return t, chosen
 
 
@@ -227,7 +251,7 @@ def main(argv=None):
     val = torch.tensor([s in a.validation_splits for s in splits])
     if not bool(val.any()):
         raise ValueError(f"no rows in validation splits {a.validation_splits}")
-    t_new, _ = choose_cutoff(z[val], eligible[val], owner[val], margin, a.objective,
+    t_new, chosen_val = choose_cutoff(z[val], eligible[val], owner[val], margin, a.objective,
                              macro=a.macro, target_fpr=a.target_fpr, min_recall=a.min_recall)
 
     shipped = decide_routes(z, eligible, shipped_t, margin)
@@ -255,9 +279,11 @@ def main(argv=None):
     art["bias_calibration"] = bias_calibration_record("global", stage1, shift)
     fit = copy.deepcopy(art.get("router_fit") or {})
     fit.update({"recalibration": {
-        "objective": a.objective, "macro": a.macro if a.objective == "balanced" else None,
-        "target_fpr": a.target_fpr if a.objective == "target_fpr" else None,
-        "min_recall": a.min_recall if a.objective == "min_recall" else None,
+        "objective": a.objective,
+        "macro": a.macro if a.objective in ("balanced", "constrained") else None,
+        "target_fpr": a.target_fpr if a.objective in ("target_fpr", "constrained") else None,
+        "min_recall": a.min_recall if a.objective in ("min_recall", "constrained") else None,
+        "constraint_status": chosen_val.get("constraint_status"),
         "validation_splits": a.validation_splits, "cutoff_t": t_new,
         "shipped_cutoff_t": shipped_t, "weights_changed": False,
         "rows_changed": False}})
@@ -288,6 +314,8 @@ def main(argv=None):
     result = {"schema_version": "router_recalibration_v1", "router_dir": str(router_dir),
               "rows_from": str(base_dir) if a.rows_from else None,
               "objective": a.objective, "macro": a.macro, "validation_splits": a.validation_splits,
+              "min_recall": a.min_recall, "target_fpr": a.target_fpr,
+              "constraint_status": chosen_val.get("constraint_status"),
               "cutoff_t": {"shipped": shipped_t, "raw": 0.0, "new": t_new},
               "shipped_routes_recomputed_vs_stored_mismatches": mismatches,
               "runtime_parity_validation_mismatches": parity_mismatches,

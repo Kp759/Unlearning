@@ -7,10 +7,10 @@
 #
 # Env: SEED (1), LAYER (19), REF_TAG (multiseed_regular_v1), OUT_TAG
 # (calibration_rules_v1), OBJECTIVE (balanced | target_fpr | min_recall),
-# MACRO (fact | prompt, balanced only), TARGET_FPR (0.1), MIN_RECALL (0.98).
+# MACRO (fact | prompt; balanced and constrained), TARGET_FPR (0.1), MIN_RECALL (0.98).
 # Output: outputs/<OUT_TAG>/<dataset>/seed<S>/L<LL>/<arm>/{fact_association_embeddings.pt,
 #   recalibration.json, official_<dataset>_eval.json}; arm = balanced_fact |
-#   balanced_prompt | fpr<X> | recall<X>. Resumable.
+#   balanced_prompt | fpr<X> | recall<X> | constrained_r<R>_f<F>_<macro>. Resumable.
 set -euo pipefail
 DATASET="${1:?Usage: bash scripts/run_recalibration_one.sh mcf|zsre|mquake}"
 case "$DATASET" in mcf|zsre|mquake) ;; *) echo "unknown dataset '$DATASET'" >&2; exit 2;; esac
@@ -22,7 +22,8 @@ case "$OBJECTIVE" in
   balanced)   ARM="balanced_${MACRO}" ;;
   target_fpr) ARM="fpr${TARGET_FPR}" ;;
   min_recall) ARM="recall${MIN_RECALL}" ;;
-  *) echo "OBJECTIVE must be balanced, target_fpr or min_recall" >&2; exit 2 ;;
+  constrained) ARM="constrained_r${MIN_RECALL}_f${TARGET_FPR}_${MACRO}" ;;
+  *) echo "OBJECTIVE must be balanced, target_fpr, min_recall or constrained" >&2; exit 2 ;;
 esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

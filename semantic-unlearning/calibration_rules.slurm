@@ -6,6 +6,8 @@
 #   sbatch calibration_rules.slurm
 #   sbatch --export=ALL,ARMS="balanced:fact target_fpr:0.1 target_fpr:0.05 min_recall:0.98" calibration_rules.slurm
 # ARMS entries: balanced:fact | balanced:prompt | target_fpr:<x> | min_recall:<x>
+#              constrained:<macro>:<min_recall>:<target_fpr>  e.g. constrained:fact:0.98:0.1
+#   (balanced accuracy maximised subject to recall >= R and false fire <= F on validation)
 # Summary: python scripts/summarize_calibration_rules.py
 #SBATCH --job-name=cal_rules
 #SBATCH --partition=gpu
@@ -58,6 +60,10 @@ for ARM in ${ARMS:-balanced:fact balanced:prompt}; do
     balanced)   OBJECTIVE=balanced MACRO="$VAL" bash scripts/run_recalibration_one.sh "$DATASET" || FAILED+=("$ARM") ;;
     target_fpr) OBJECTIVE=target_fpr TARGET_FPR="$VAL" bash scripts/run_recalibration_one.sh "$DATASET" || FAILED+=("$ARM") ;;
     min_recall) OBJECTIVE=min_recall MIN_RECALL="$VAL" bash scripts/run_recalibration_one.sh "$DATASET" || FAILED+=("$ARM") ;;
+    constrained)
+      IFS=: read -r _ C_MACRO C_RECALL C_FPR <<< "$ARM"
+      OBJECTIVE=constrained MACRO="${C_MACRO:-fact}" MIN_RECALL="${C_RECALL:-0.98}" TARGET_FPR="${C_FPR:-0.1}" \
+        bash scripts/run_recalibration_one.sh "$DATASET" || FAILED+=("$ARM") ;;
     *) echo "unknown arm $ARM"; FAILED+=("$ARM") ;;
   esac
 done
