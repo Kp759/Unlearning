@@ -207,3 +207,21 @@ sbatch --export=ALL,REWORD_TAG=reworded_v2,GEN_ARGS="--consistency-margin 1.0 --
 # after it finishes: all three routers on common same-subject negatives
 sbatch --export=ALL,TAGS="regular_v1 reworded_v1 reworded_v2" zsre_router_compare.slurm
 ```
+
+## Router bias rules: balanced validation calibration
+
+Same weights and rows; only the bias is re-picked, on the VALIDATION set =
+calibration + audit splits merged (held-out prompt families of the forget facts;
+~80/20 train/validation overall). `balanced` maximises (recall + 1 - false fire)/2
+with positives and negatives weighted equally; `--macro fact` averages per fact
+first so every fact counts equally. Also: `target_fpr:<x>` (most recall with
+false fire <= x) and `min_recall:<x>` (the shipped rule, on the merged set).
+
+```bash
+sbatch calibration_rules.slurm                         # balanced:fact + balanced:prompt, 30 tasks
+sbatch --export=ALL,ARMS="target_fpr:0.1 target_fpr:0.05 min_recall:0.98" calibration_rules.slurm
+python scripts/summarize_calibration_rules.py          # shipped vs raw vs recalibrated, test + validation
+```
+`scripts/recalibrate_router.py` checks that the recomputed shipped routes match
+the stored ones and that the saved artifact reproduces the chosen decisions
+through the runtime hook (both reported as mismatches, expected 0).
