@@ -17,8 +17,9 @@ chosen again, on the VALIDATION prompts = calibration + audit splits by default
                recall over facts and specificity over facts first, so every
                fact also counts equally (a fact with many negatives, or two
                hard prompts, cannot set the cutoff for all); --macro prompt pools.
-  target_fpr   most correct routes with false fire <= --target-fpr (pooled)
+  target_fpr   most recall with false fire <= --target-fpr
   min_recall   the shipped rule: lowest false fire with recall >= --min-recall
+               (both pooled by default; --macro fact uses per-fact averaged rates)
   constrained  all three at once: among cutoffs with recall >= --min-recall AND
                false fire <= --target-fpr, maximise balanced accuracy. With
                --macro fact every term is per-fact first (positives vs negatives
@@ -145,10 +146,26 @@ def choose_cutoff(z, eligible, owner, margin, objective, macro="fact",
         key = "macro_balanced_accuracy" if macro == "fact" else "balanced_accuracy"
         best = max(r[1][key] for r in rows if r[1][key] is not None)
         tied = [r for r in rows if r[1][key] is not None and r[1][key] >= best - 1e-12]
+    elif objective == "target_fpr" and macro == "fact":
+        # Per-fact rates: false fire averaged over facts <= cap, then the
+        # highest per-fact-averaged recall (every fact counts equally).
+        ok = [r for r in rows if r[1]["macro_false_fire"] is not None
+              and r[1]["macro_false_fire"] <= target_fpr + 1e-12]
+        best = max(r[1]["macro_recall"] for r in ok)
+        tied = [r for r in ok if r[1]["macro_recall"] >= best - 1e-12]
     elif objective == "target_fpr":
         ok = [r for r in rows if r[1]["false_fire"] <= target_fpr + 1e-12]
         best = max(r[1]["correct"] for r in ok)
         tied = [r for r in ok if r[1]["correct"] == best]
+    elif objective == "min_recall" and macro == "fact":
+        # Per-fact rates: recall averaged over facts >= target, then the
+        # lowest per-fact-averaged false fire.
+        ok = [r for r in rows if r[1]["macro_recall"] is not None
+              and r[1]["macro_recall"] >= min_recall - 1e-12] or rows
+        low = min(r[1]["macro_false_fire"] for r in ok)
+        pool = [r for r in ok if r[1]["macro_false_fire"] <= low + 1e-12]
+        best = max(r[1]["macro_recall"] for r in pool)
+        tied = [r for r in pool if r[1]["macro_recall"] >= best - 1e-12]
     elif objective == "min_recall":
         n_pos = rows[0][1]["positives"]
         need = math.ceil(min_recall * n_pos - 1e-9)
@@ -197,7 +214,10 @@ def main(argv=None):
                    help="trained run whose artifact (rows) gets the new bias; output is evaluable")
     p.add_argument("--output-dir", required=True)
     p.add_argument("--objective", choices=OBJECTIVES, default="balanced")
-    p.add_argument("--macro", choices=("fact", "prompt"), default="fact")
+    p.add_argument("--macro", choices=("fact", "prompt"), default=None,
+                   help="fact: per-fact rates averaged over facts (every fact and both classes "
+                        "count equally); prompt: pooled over prompts. Default: fact for "
+                        "balanced/constrained, prompt for min_recall/target_fpr")
     p.add_argument("--target-fpr", type=float, default=0.1)
     p.add_argument("--min-recall", type=float, default=0.98)
     p.add_argument("--validation-splits", nargs="+", default=["calibration", "audit"])
@@ -206,6 +226,8 @@ def main(argv=None):
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--local-files-only", action="store_true")
     a = p.parse_args(argv)
+    if a.macro is None:
+        a.macro = "fact" if a.objective in ("balanced", "constrained") else "prompt"
 
     router_dir, output = Path(a.router_dir).resolve(), Path(a.output_dir).resolve()
     router = torch.load(router_dir / "fact_association_embeddings.pt", map_location="cpu",
@@ -280,7 +302,7 @@ def main(argv=None):
     fit = copy.deepcopy(art.get("router_fit") or {})
     fit.update({"recalibration": {
         "objective": a.objective,
-        "macro": a.macro if a.objective in ("balanced", "constrained") else None,
+        "macro": a.macro,
         "target_fpr": a.target_fpr if a.objective in ("target_fpr", "constrained") else None,
         "min_recall": a.min_recall if a.objective in ("min_recall", "constrained") else None,
         "constraint_status": chosen_val.get("constraint_status"),

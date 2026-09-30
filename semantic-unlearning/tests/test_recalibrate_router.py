@@ -62,3 +62,11 @@ def test_constrained_keeps_fpr_cap_when_infeasible():
                               min_recall=1.0, target_fpr=0.0)
     assert chosen["constraint_status"] == "false_fire_cap_met_recall_short"
     assert chosen["macro_false_fire"] == 0.0
+
+
+def test_per_fact_rules():
+    z, e, o = _toy()
+    t, c = choose_cutoff(z, e, o, 0.0, "target_fpr", macro="fact", target_fpr=0.125)
+    assert c["macro_false_fire"] <= 0.125
+    t, c = choose_cutoff(z, e, o, 0.0, "min_recall", macro="fact", min_recall=0.75)
+    assert c["macro_recall"] >= 0.75

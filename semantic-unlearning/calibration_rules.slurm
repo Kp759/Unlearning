@@ -5,7 +5,10 @@
 # router (multiseed_reworded_v2); MCF and MQuAKE the multiseed_regular_v1 runs.
 #   sbatch calibration_rules.slurm
 #   sbatch --export=ALL,ARMS="balanced:fact target_fpr:0.1 target_fpr:0.05 min_recall:0.98" calibration_rules.slurm
-# ARMS entries: balanced:fact | balanced:prompt | target_fpr:<x> | min_recall:<x>
+#   sbatch --export=ALL,ARMS="min_recall:0.98:fact" calibration_rules.slurm   # 98% recall, balanced validation
+#   sbatch --export=ALL,ARMS="target_fpr:0.1:fact" calibration_rules.slurm    # false fire <= 10%, balanced validation
+# ARMS entries: balanced:fact | balanced:prompt | target_fpr:<x>[:fact] | min_recall:<x>[:fact]
+#   (:fact = per-fact balanced rates: every fact and both classes weighted equally)
 #              constrained:<macro>:<min_recall>:<target_fpr>  e.g. constrained:fact:0.98:0.1
 #   (balanced accuracy maximised subject to recall >= R and false fire <= F on validation)
 # Summary: python scripts/summarize_calibration_rules.py
@@ -58,8 +61,12 @@ for ARM in ${ARMS:-balanced:fact balanced:prompt}; do
   OBJ="${ARM%%:*}"; VAL="${ARM#*:}"
   case "$OBJ" in
     balanced)   OBJECTIVE=balanced MACRO="$VAL" bash scripts/run_recalibration_one.sh "$DATASET" || FAILED+=("$ARM") ;;
-    target_fpr) OBJECTIVE=target_fpr TARGET_FPR="$VAL" bash scripts/run_recalibration_one.sh "$DATASET" || FAILED+=("$ARM") ;;
-    min_recall) OBJECTIVE=min_recall MIN_RECALL="$VAL" bash scripts/run_recalibration_one.sh "$DATASET" || FAILED+=("$ARM") ;;
+    target_fpr)
+      IFS=: read -r _ X M <<< "$ARM"
+      OBJECTIVE=target_fpr TARGET_FPR="$X" MACRO="${M:-prompt}" bash scripts/run_recalibration_one.sh "$DATASET" || FAILED+=("$ARM") ;;
+    min_recall)
+      IFS=: read -r _ X M <<< "$ARM"
+      OBJECTIVE=min_recall MIN_RECALL="$X" MACRO="${M:-prompt}" bash scripts/run_recalibration_one.sh "$DATASET" || FAILED+=("$ARM") ;;
     constrained)
       IFS=: read -r _ C_MACRO C_RECALL C_FPR <<< "$ARM"
       OBJECTIVE=constrained MACRO="${C_MACRO:-fact}" MIN_RECALL="${C_RECALL:-0.98}" TARGET_FPR="${C_FPR:-0.1}" \
