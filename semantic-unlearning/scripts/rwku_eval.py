@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import string
 import zlib
@@ -171,6 +172,14 @@ def rouge_l_recall(prediction: str, reference: str) -> float:
 def chat_prompt(tokenizer: Any, user_content: str) -> str:
     messages = [{"role": "user", "content": user_content}]
     apply_template = getattr(tokenizer, "apply_chat_template", None)
+    # Llama-3.x templates write "Today Date: <today>" into the system header.
+    # RWKU_CHAT_DATE_STRING pins it (e.g. "26 Jul 2024", the template's own
+    # fallback) so a job crossing midnight keeps identical prompts. Unset =
+    # the template's default behaviour, as in the earlier RWKU runs.
+    extra = {}
+    pinned_date = os.environ.get("RWKU_CHAT_DATE_STRING", "").strip()
+    if pinned_date:
+        extra["date_string"] = pinned_date
     if callable(apply_template):
         try:
             return str(
@@ -178,6 +187,7 @@ def chat_prompt(tokenizer: Any, user_content: str) -> str:
                     messages,
                     tokenize=False,
                     add_generation_prompt=True,
+                    **extra,
                 )
             )
         except (TypeError, ValueError):

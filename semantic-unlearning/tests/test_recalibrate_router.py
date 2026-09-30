@@ -70,3 +70,17 @@ def test_per_fact_rules():
     assert c["macro_false_fire"] <= 0.125
     t, c = choose_cutoff(z, e, o, 0.0, "min_recall", macro="fact", min_recall=0.75)
     assert c["macro_recall"] >= 0.75
+
+
+def test_min_recall_unreachable_keeps_the_highest_recall():
+    # With a 0.5-logit ambiguity margin the two fact-1 heads tie on row 2, so
+    # recall 1.0 is unreachable; the rule must fall back to the best reachable
+    # recall (as the shipped calibrate_threshold does), not fire nothing.
+    z, e, o = _toy()
+    z[2, 0], e[2, 0] = 2.4, True
+    for macro in ("fact", "prompt"):
+        t, chosen = choose_cutoff(z, e, o, 0.5, "min_recall", macro=macro, min_recall=1.0)
+        assert chosen["recall_target_met"] is False
+        assert chosen["correct"] == 3 and chosen["recall"] == 0.75
+    t, chosen = choose_cutoff(z, e, o, 0.0, "min_recall", macro="fact", min_recall=0.5)
+    assert chosen["recall_target_met"] is True and chosen["macro_recall"] >= 0.5

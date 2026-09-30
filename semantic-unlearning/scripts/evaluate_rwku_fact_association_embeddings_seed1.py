@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate the saved RWKU Batch-50 seed-1 fact-association residual bank.
+"""Evaluate a saved RWKU Batch-50 fact-association residual bank (seed 1 registered; any batch seed via the run manifest).
 
 Headline RWKU-style outputs:
 - same-50 efficacy recovery/ROUGE-L plus sensitive-answer probability;
@@ -246,12 +246,20 @@ def main(argv=None):
     p.add_argument("--skip-level3", action="store_true")
     p.add_argument("--skip-neighbors", action="store_true")
     p.add_argument("--out", default=None)
+    p.add_argument("--seed", type=int, default=None,
+                   help="RWKU batch seed; default: the run manifest's seed (the registered run is 1)")
+    p.add_argument("--allow-imperfect-direct-routing", action="store_true",
+                   help="record, instead of failing on, same-50 probes the router does not "
+                        "send to their own row (threshold-gate layer sweeps)")
     args = p.parse_args(argv)
 
     run_dir = Path(args.run_dir).resolve()
     manifest = json.loads((run_dir / "association_manifest.json").read_text())
-    if int(manifest.get("seed", -1)) != 1:
-        raise ValueError("Registered RWKU evaluator requires seed 1")
+    batch_seed = int(manifest.get("seed", -1)) if args.seed is None else int(args.seed)
+    if batch_seed != int(manifest.get("seed", -1)):
+        raise ValueError(f"--seed {batch_seed} does not match the run manifest seed {manifest.get('seed')}")
+    if not 0 <= batch_seed <= 9:
+        raise ValueError("RWKU batch seed must be in [0, 9]")
     if int(manifest.get("forget_train_count", -1)) != 50:
         raise ValueError("Registered RWKU evaluator requires 50 forget rows")
 
@@ -275,7 +283,7 @@ def main(argv=None):
 
     split = build_batch_split(
         data_root=Path(args.data_root).resolve(),
-        batch_seed=1,
+        batch_seed=batch_seed,
         allow_download=not args.no_download,
     )
     forget_rows = list(split["efficacy_forget"])
@@ -286,7 +294,7 @@ def main(argv=None):
     artifact_keys = [str(f.get("association_key")) for f in artifact["facts"]]
     if artifact_keys != expected_keys:
         raise RuntimeError(
-            "Saved RWKU association bank no longer matches the frozen seed-1 Batch-50 split"
+            f"Saved RWKU association bank no longer matches the frozen seed-{batch_seed} Batch-50 split"
         )
 
     dtype = dtype_from_str(args.dtype)
@@ -319,7 +327,7 @@ def main(argv=None):
         expected_source_to_row=expected_source_to_row,
         score_answers=True,
     )
-    if same50["route_correct_fraction"] != 1.0:
+    if same50["route_correct_fraction"] != 1.0 and not args.allow_imperfect_direct_routing:
         raise RuntimeError(
             "Reloaded RWKU bank failed exact same-50 routing: "
             f"{same50['route_correct_fraction']}"
@@ -382,7 +390,7 @@ def main(argv=None):
         "dataset": "RWKU",
         "protocol_id": manifest["protocol_id"],
         "protocol_status": manifest["protocol_status"],
-        "seed": 1,
+        "seed": batch_seed,
         "target_seeds": split["manifest"]["target_seeds"],
         "subjects": [item["subject"] for item in split["manifest"]["targets"]],
         "forget_train_count": 50,

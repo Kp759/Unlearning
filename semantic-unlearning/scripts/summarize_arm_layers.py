@@ -3,6 +3,7 @@
 
     python scripts/summarize_arm_layers.py --arm recall0.98_fact
     python scripts/summarize_arm_layers.py --arm fpr0.1_fact --datasets zsre --layers 19 23
+    python scripts/summarize_arm_layers.py --arm recall0.98_fact --datasets rwku
 
 Reads outputs/<out-tag>/<dataset>/seed*/L??/<arm>/{official_<dataset>_eval.json,
 recalibration.json}. Official TEST metrics per layer, plus the rule's VALIDATION
@@ -24,6 +25,8 @@ TEST = {
              "forget_paraphrase_route_active"],
     "mquake": ["forget_Eff", "forget_AtomicGen", "retain_Eff", "retain_AtomicGen", "PPL",
                "forget_atomicgen_route_correct"],
+    "rwku": ["forget_Eff", "forget_GenL1", "forget_GenL2", "forget_GenPara", "forget_L3",
+             "neighbor", "PPL", "heldout_route_active", "neighbor_route_active"],
 }
 VAL = [("macro_recall", "val recall"), ("macro_false_fire", "val same-subject false fire")]
 
@@ -52,11 +55,11 @@ def main(argv=None):
     a = p.parse_args(argv)
 
     for ds in a.datasets:
-        head = ["layer", "n"] + TEST[ds] + [n for _, n in VAL] + ["cutoff t"]
+        head = ["layer", "n"] + TEST[ds] + [n for _, n in VAL] + ["cutoff t", "recall target met"]
         lines = []
         for layer in a.layers:
             L = f"L{int(layer):02d}"
-            rows, vals, cuts = [], {k: [] for k, _ in VAL}, []
+            rows, vals, cuts, met = [], {k: [] for k, _ in VAL}, [], []
             for run in sorted(Path(a.root, a.out_tag, ds).glob(f"seed*/{L}/{a.arm}")):
                 row = collect(run, a.arm)
                 if row.get("status") != "complete":
@@ -68,10 +71,13 @@ def main(argv=None):
                     for k, _ in VAL:
                         vals[k].append(_num(rec["by_split"]["validation"]["new"].get(k)))
                     cuts.append(_num(rec["cutoff_t"]["new"]))
+                    if rec.get("recall_target_met") is not None:
+                        met.append(bool(rec["recall_target_met"]))
             if not rows:
                 continue
             cells = [L, str(len(rows))] + [_fmt([_num(r.get(m)) for r in rows]) for m in TEST[ds]]
             cells += [_fmt(vals[k]) for k, _ in VAL] + [_fmt(cuts)]
+            cells += [f"{sum(met)}/{len(met)}" if met else "–"]
             lines.append("| " + " | ".join(cells) + " |")
         if lines:
             print(f"\n### {ds.upper()} — rule `{a.arm}` (validation = calibration + audit)\n")

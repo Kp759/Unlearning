@@ -160,8 +160,14 @@ def choose_cutoff(z, eligible, owner, margin, objective, macro="fact",
     elif objective == "min_recall" and macro == "fact":
         # Per-fact rates: recall averaged over facts >= target, then the
         # lowest per-fact-averaged false fire.
-        ok = [r for r in rows if r[1]["macro_recall"] is not None
-              and r[1]["macro_recall"] >= min_recall - 1e-12] or rows
+        usable = [r for r in rows if r[1]["macro_recall"] is not None]
+        ok = [r for r in usable if r[1]["macro_recall"] >= min_recall - 1e-12]
+        recall_met = bool(ok)
+        if not ok:
+            # Target unreachable: keep the highest reachable recall, as the
+            # shipped calibrate_threshold does (not "fire nothing").
+            top = max(r[1]["macro_recall"] for r in usable)
+            ok = [r for r in usable if r[1]["macro_recall"] >= top - 1e-12]
         low = min(r[1]["macro_false_fire"] for r in ok)
         pool = [r for r in ok if r[1]["macro_false_fire"] <= low + 1e-12]
         best = max(r[1]["macro_recall"] for r in pool)
@@ -169,7 +175,11 @@ def choose_cutoff(z, eligible, owner, margin, objective, macro="fact",
     elif objective == "min_recall":
         n_pos = rows[0][1]["positives"]
         need = math.ceil(min_recall * n_pos - 1e-9)
-        ok = [r for r in rows if r[1]["correct"] >= need] or rows
+        ok = [r for r in rows if r[1]["correct"] >= need]
+        recall_met = bool(ok)
+        if not ok:
+            top = max(r[1]["correct"] for r in rows)
+            ok = [r for r in rows if r[1]["correct"] == top]
         low = min(r[1]["false_fire"] for r in ok)
         pool = [r for r in ok if r[1]["false_fire"] <= low + 1e-12]
         best = max(r[1]["correct"] for r in pool)
@@ -203,6 +213,8 @@ def choose_cutoff(z, eligible, owner, margin, objective, macro="fact",
     chosen = outcomes(z, eligible, owner, t, margin)
     if objective == "constrained":
         chosen["constraint_status"] = status
+    if objective == "min_recall":
+        chosen["recall_target_met"] = recall_met
     return t, chosen
 
 
@@ -306,6 +318,7 @@ def main(argv=None):
         "target_fpr": a.target_fpr if a.objective in ("target_fpr", "constrained") else None,
         "min_recall": a.min_recall if a.objective in ("min_recall", "constrained") else None,
         "constraint_status": chosen_val.get("constraint_status"),
+        "recall_target_met": chosen_val.get("recall_target_met"),
         "validation_splits": a.validation_splits, "cutoff_t": t_new,
         "shipped_cutoff_t": shipped_t, "weights_changed": False,
         "rows_changed": False}})
@@ -338,6 +351,7 @@ def main(argv=None):
               "objective": a.objective, "macro": a.macro, "validation_splits": a.validation_splits,
               "min_recall": a.min_recall, "target_fpr": a.target_fpr,
               "constraint_status": chosen_val.get("constraint_status"),
+              "recall_target_met": chosen_val.get("recall_target_met"),
               "cutoff_t": {"shipped": shipped_t, "raw": 0.0, "new": t_new},
               "shipped_routes_recomputed_vs_stored_mismatches": mismatches,
               "runtime_parity_validation_mismatches": parity_mismatches,

@@ -28,10 +28,13 @@ TEST = {
     "zsre": ["forget_Gen", "forget_paraphrase_route_active", "forget_Spe", "retain_Gen"],
     "mquake": ["forget_AtomicGen", "forget_atomicgen_route_correct", "retain_AtomicGen",
                "retain_atomicgen_route_active"],
+    "rwku": ["forget_GenL1", "forget_GenL2", "heldout_route_active", "neighbor",
+             "neighbor_route_active"],
 }
 VAL = [("macro_recall", "val recall (macro)"), ("macro_false_fire", "val false fire (macro)"),
        ("recall", "val recall (pooled)"), ("false_fire", "val false fire (pooled)")]
-REF = {"mcf": "multiseed_regular_v1", "mquake": "multiseed_regular_v1", "zsre": "multiseed_reworded_v2"}
+REF = {"mcf": "multiseed_regular_v1", "mquake": "multiseed_regular_v1", "zsre": "multiseed_reworded_v2",
+       "rwku": "multiseed_regular_v1"}
 RAW = {"mcf": "bias_rule_ablation_v1", "mquake": "bias_rule_ablation_v1",
        "zsre": "bias_rule_ablation_reworded_v2"}
 
@@ -77,9 +80,10 @@ def main(argv=None):
                     "shipped (recall ≥ 0.98, calibration split)":
                         (root / f"{ds}_{REF[ds]}" / seed_dir.name / L / "linear_global", val0["shipped"],
                          rec0["cutoff_t"]["shipped"]),
-                    "raw (p ≥ 0.5, no calibration)":
-                        (root / RAW[ds] / "lbfgs" / ds / seed_dir.name / L / "raw_swap", val0["raw"], 0.0),
                 }
+                if ds in RAW:
+                    sources["raw (p ≥ 0.5, no calibration)"] = (
+                        root / RAW[ds] / "lbfgs" / ds / seed_dir.name / L / "raw_swap", val0["raw"], 0.0)
                 for d in arm_dirs:
                     rec = json.loads((d / "recalibration.json").read_text())
                     label = f"{d.name} (validation = cal + audit)"

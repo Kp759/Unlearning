@@ -225,3 +225,39 @@ python scripts/summarize_calibration_rules.py          # shipped vs raw vs recal
 `scripts/recalibrate_router.py` checks that the recomputed shipped routes match
 the stored ones and that the saved artifact reproduces the chosen decisions
 through the runtime hook (both reported as mismatches, expected 0).
+
+`min_recall` when the target is unreachable on validation (e.g. ambiguous
+same-subject heads at shallow layers) now keeps the highest reachable recall,
+as the shipped `calibrate_threshold` does; before this fix it fell back to the
+cutoff with the least false fire, i.e. firing (almost) nothing. The outcome is
+recorded as `recall_target_met` in `recalibration.json` and shown in
+`summarize_arm_layers.py` ("recall target met").
+
+## RWKU (seeds 1-5, layers 1 3 7 13 19 23 27)
+
+RWKU-Batch-50-v1: batch seed s = people s..s+4 of RWKU's first ten targets, ten
+Level-1/Level-2 probes each (50 forget rows). Eff = recovery on those 50; Gen =
+recovery on held-out Level-1/Level-2 probes about the same people (+ paraphrase,
+Level-3 adversarial); neighbours = locality (higher is better). Recovery = % of
+greedy generations containing the answer, lower is better on forget sets.
+
+Two gates, same data and row optimizer:
+- `threshold` (`rwku_multiseed_regular_v1`): the current rule of the other
+  sweeps, recall >= 0.98 on the calibration split; then the same 98% rule on the
+  merged per-fact validation set (`calibration_rules_v1/rwku/.../recall0.98_fact`).
+- `subject` (`rwku_multiseed_subject_v1`): RWKU's native entity-level gate;
+  every prompt naming a protected person fires, the heads choose the row. Its
+  "false fire" is 1 by design: for RWKU, other questions about a protected
+  person are forget probes, not negatives.
+
+```bash
+# login node, once: fetch the pinned RWKU files for batch seeds 1-5 (people 1-9)
+for s in 1 2 3 4 5; do python scripts/rwku_batch50.py --seed $s > /dev/null; done
+sbatch rwku_multiseed.slurm            # 70 tasks = 2 gates x 5 seeds x 7 layers
+python scripts/summarize_layer_sweep_seeds.py --dataset rwku --modes regular subject
+python scripts/summarize_arm_layers.py --arm recall0.98_fact --datasets rwku
+```
+The first row of each RWKU table is the unedited model (the router's all-zero
+rows through the same evaluator, `rwku_multiseed_base_v1`). Prompts use the
+Llama chat template with the date pinned (`RWKU_CHAT_DATE_STRING`, default in the
+driver `26 Jul 2024`) so tasks that cross midnight see identical prompts.

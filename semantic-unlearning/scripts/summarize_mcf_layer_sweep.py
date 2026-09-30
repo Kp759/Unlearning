@@ -134,6 +134,46 @@ def collect(run_dir, label):
         })
         for key in ("display_zero", "train_views_used", "dev_views_used"):
             row.pop(key, None)
+    rwku = _load(run_dir / "official_rwku_eval.json")
+    if rwku is not None or manifest.get("dataset") == "RWKU":
+        def _rec(split, key="recovery_accuracy"):
+            return _get(rwku, split, key)
+
+        l1, l2 = _get(rwku, "heldout_level1") or {}, _get(rwku, "heldout_level2") or {}
+        n1, n2 = l1.get("count") or 0, l2.get("count") or 0
+        a1, a2 = l1.get("route_active_fraction"), l2.get("route_active_fraction")
+        row.update({
+            "dataset": "rwku",
+            # recovery = % of generations containing the answer; lower is better on forget sets
+            "forget_Eff": _rec("same_50_efficacy"),
+            "forget_GenL1": _rec("heldout_level1"),
+            "forget_GenL2": _rec("heldout_level2"),
+            "forget_GenPara": _rec("heldout_level2_paraphrase"),
+            "forget_L3": _rec("adversarial_level3"),
+            "neighbor": _rec("neighbors"),
+            "forget_Eff_rougeL": _rec("same_50_efficacy", "rouge_l_recall"),
+            "forget_GenL1_rougeL": _rec("heldout_level1", "rouge_l_recall"),
+            "forget_GenL2_rougeL": _rec("heldout_level2", "rouge_l_recall"),
+            "forget_L3_rougeL": _rec("adversarial_level3", "rouge_l_recall"),
+            "neighbor_rougeL": _rec("neighbors", "rouge_l_recall"),
+            "same50_answer_prob": _rec("same_50_efficacy", "answer_geometric_probability"),
+            "PPL": _ppl(_get(rwku, "runtime_aligned_PPL")),
+            "legacy_PPL": _get(rwku, "legacy_PPL"),
+            "same50_route_correct": _rec("same_50_efficacy", "route_correct_fraction"),
+            "heldout_route_active": (
+                (n1 * a1 + n2 * a2) / (n1 + n2)
+                if n1 + n2 and a1 is not None and a2 is not None else None
+            ),
+            "neighbor_route_active": _rec("neighbors", "route_active_fraction"),
+            "gate_mode": _get(router, "router_fit", "gate_mode"),
+            "status": (
+                "complete" if rwku else "router_only" if router else
+                "missing" if not manifest else "rows_only"
+            ),
+        })
+        for key in ("forget_Gen", "forget_Spe", "retain_Eff", "retain_Gen", "display_zero",
+                    "train_views_used", "dev_views_used"):
+            row.pop(key, None)
     for key in ("facts_trained", "facts_total"):
         value = _get(training, "training_coverage", key)
         if value is not None:
@@ -189,6 +229,12 @@ def main(argv=None):
             "forget_Spe", "retain_Eff", "retain_Gen", "PPL",
             "forget_rewrite_route_active", "forget_paraphrase_route_active",
             "forget_neighborhood_route_active", "facts_trained", "audit_correct_route",
+        ] + tail
+    elif any(r.get("dataset") == "rwku" for r in rows):
+        headline = [
+            "label", "layer", "forget_Eff", "forget_GenL1", "forget_GenL2", "forget_GenPara",
+            "forget_L3", "neighbor", "PPL", "same50_route_correct", "heldout_route_active",
+            "neighbor_route_active", "facts_trained", "audit_correct_route",
         ] + tail
     elif any(r.get("dataset") == "mquake" for r in rows):
         headline = [

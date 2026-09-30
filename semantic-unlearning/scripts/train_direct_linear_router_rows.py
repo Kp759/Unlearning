@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Layer sweep, step 3 for direct-rewrite benchmarks (MQuAKE, ZsRE, multi-fact person).
+"""Layer sweep, step 3 for direct-rewrite benchmarks (MQuAKE, ZsRE, RWKU, multi-fact person).
 
 Loads a fitted linear-classifier router (rows all zero) and trains one row per
 fact with the benchmark's own shipped optimizer (`train_direct_only`): worst
@@ -39,7 +39,7 @@ def dataset_adapter(name):
         import mquake_zero_unlearn_official_eval as official
         from prepare_mquake_association_source import load_mquake_forget
 
-        def load(manifest):
+        def load(manifest, tokenizer=None):
             _, _, records, facts, _, _ = load_mquake_forget(
                 manifest["training_visible_path"], manifest["split_manifest_path"]
             )
@@ -56,7 +56,7 @@ def dataset_adapter(name):
         import zsre_zero_unlearn_official_eval as official
         from prepare_zsre_association_source import load_zsre_forget
 
-        def load(manifest):
+        def load(manifest, tokenizer=None):
             _, _, records, facts = load_zsre_forget(
                 manifest["training_visible_path"], manifest["split_manifest_path"]
             )
@@ -78,7 +78,7 @@ def dataset_adapter(name):
         import mquake_zero_unlearn_official_eval as official
         from multifact_person_data import load_multifact_forget
 
-        def load(manifest):
+        def load(manifest, tokenizer=None):
             _, _, records, facts, _, _ = load_multifact_forget(
                 manifest["training_visible_path"], manifest["split_manifest_path"]
             )
@@ -104,7 +104,7 @@ def dataset_adapter(name):
             direct_training_metrics=mq.direct_training_metrics,
         )
 
-        def load(manifest):
+        def load(manifest, tokenizer=None):
             split = json.loads(Path(manifest["split_manifest_path"]).read_text())
             return evaldu.bank_facts(split)
 
@@ -117,13 +117,56 @@ def dataset_adapter(name):
             "fact_key": "id", "updates_per_fact": 30,
             "max_seconds": 7200.0, "method": "sure_linear_router_evaldu_plus",
         }
+    if name == "rwku":
+        # RWKU-Batch-50-v1: the shipped RWKU row optimizer on the batch's 50
+        # selected probes. Token cases carry input_ids + boundary_length (no
+        # prompt string), so routing and genie keys use the prompt token ids.
+        from types import SimpleNamespace
+        import rwku_fact_association_embeddings as rw
+        from prepare_rwku_association_source import load_rwku_forget
+
+        def load(manifest, tokenizer=None):
+            if tokenizer is None:
+                raise ValueError("RWKU association identity needs the tokenizer")
+            _, rows, facts, _, _ = load_rwku_forget(
+                manifest["data_root"], int(manifest["seed"]), tokenizer, allow_download=False
+            )
+            return rows, facts
+
+        module = SimpleNamespace(
+            build_exact_direct_token_cases=(
+                lambda records, facts, tokenizer, model: (
+                    rw.build_exact_direct_token_cases(records, facts, tokenizer), None)
+            ),
+            train_direct_only=(
+                lambda editor, tokenizer, cases, fact_to_row, plan, output, llama_like=None:
+                rw.train_direct_only(editor, tokenizer, cases, fact_to_row, plan, output)
+            ),
+            direct_training_metrics=(
+                lambda model, tokenizer, by_fact, target, llama_like=None:
+                rw.direct_training_metrics(model, tokenizer, by_fact, target)
+            ),
+        )
+        return {
+            "module": module, "official": None, "load": load,
+            "plan": rw.BASE_PLAN, "prefix_lengths": None,
+            "routes": routes_for_token_id_cases, "genie_key": token_id_genie_key,
+            "fact_key": "association_key", "updates_per_fact": 30,
+            "max_seconds": 14400.0, "method": "sure_linear_router_layer_sweep_rwku",
+        }
     raise ValueError(f"Unknown dataset {name!r}")
 
 
-def genie_route_map(official, tokenizer, cases, fact_to_row):
+def token_id_genie_key(tokenizer, case):
+    """Prompt tokens of a case that stores ids (RWKU): the ids before the boundary."""
+    return tuple(int(t) for t in case.input_ids[: int(case.boundary_length)])
+
+
+def genie_route_map(official, tokenizer, cases, fact_to_row, key_fn=None):
     mapping = {}
     for case in cases:
-        key = tuple(official._flat_ids(tokenizer, case.boundary_prompt))
+        key = (key_fn(tokenizer, case) if key_fn is not None
+               else tuple(official._flat_ids(tokenizer, case.boundary_prompt)))
         row = fact_to_row[case.fact_id]
         if mapping.setdefault(key, row) != row:
             raise ValueError(f"Direct request shared by two facts: {case.boundary_prompt!r}")
@@ -146,9 +189,32 @@ def routes_for_cases(model, bank, tokenizer, cases, fact_to_row, prefix_lengths_
     return routed
 
 
+@torch.no_grad()
+def routes_for_token_id_cases(model, bank, tokenizer, cases, fact_to_row, batch_size=16):
+    """Route each distinct prompt (ids before the boundary) once, as training binds it."""
+    device = next(model.parameters()).device
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    prefixes = list(dict.fromkeys(token_id_genie_key(tokenizer, c) for c in cases))
+    route_of = {}
+    for start in range(0, len(prefixes), batch_size):
+        batch = prefixes[start:start + batch_size]
+        width = max(len(p) for p in batch)
+        ids = torch.full((len(batch), width), int(pad_id), dtype=torch.long, device=device)
+        mask = torch.zeros_like(ids)
+        for i, prefix in enumerate(batch):
+            ids[i, :len(prefix)] = torch.tensor(prefix, dtype=torch.long, device=device)
+            mask[i, :len(prefix)] = 1
+        model.set_association_prefix_lengths([len(p) for p in batch])
+        model(input_ids=ids, attention_mask=mask, use_cache=False)
+        for prefix, active in zip(batch, bank.last_active_fact_indices):
+            route_of[prefix] = list(active)
+    return {c.id: route_of[token_id_genie_key(tokenizer, c)] == [fact_to_row[c.fact_id]]
+            for c in cases}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", choices=("mquake", "zsre", "multifact", "evaldu"), required=True)
+    parser.add_argument("--dataset", choices=("mquake", "zsre", "multifact", "evaldu", "rwku"), required=True)
     parser.add_argument("--router-dir", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--training-route", choices=("router", "oracle"), required=True)
@@ -158,7 +224,7 @@ def main(argv=None):
     parser.add_argument("--row-updates-per-fact", type=int, default=None,
                         help="default: the benchmark's shipped budget (30)")
     parser.add_argument("--max-training-seconds", type=float, default=None,
-                        help="default: the benchmark's shipped cap (MQuAKE 7200, ZsRE 3600)")
+                        help="default: the benchmark's shipped cap (MQuAKE 7200, ZsRE 3600, RWKU 14400)")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--local-files-only", action="store_true")
     args = parser.parse_args(argv)
@@ -183,11 +249,6 @@ def main(argv=None):
         )
     output.mkdir(parents=True, exist_ok=False)
 
-    records, facts = adapter["load"](manifest)
-    key = adapter["fact_key"]
-    if [f[key] for f in facts] != [f[key] for f in source["facts"]]:
-        raise ValueError("Rebuilt facts do not match the router artifact")
-
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     seed = int(manifest.get("seed", 1))
@@ -199,6 +260,11 @@ def main(argv=None):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
+
+    records, facts = adapter["load"](manifest, tokenizer)
+    key = adapter["fact_key"]
+    if [f[key] for f in facts] != [f[key] for f in source["facts"]]:
+        raise ValueError("Rebuilt facts do not match the router artifact")
     model = AutoModelForCausalLM.from_pretrained(
         model_path, dtype=torch.float32, local_files_only=args.local_files_only,
         attn_implementation="eager",
@@ -231,8 +297,11 @@ def main(argv=None):
     token_cases, llama_like = module.build_exact_direct_token_cases(
         records, facts, tokenizer, editor.model
     )
-    routed = routes_for_cases(editor.model, bank, tokenizer, token_cases, fact_to_row,
-                              adapter["prefix_lengths"])
+    if adapter.get("routes") is not None:
+        routed = adapter["routes"](editor.model, bank, tokenizer, token_cases, fact_to_row)
+    else:
+        routed = routes_for_cases(editor.model, bank, tokenizer, token_cases, fact_to_row,
+                                  adapter["prefix_lengths"])
     pre_training_routing = {
         "token_contexts": len(token_cases),
         "routed_to_own_row": sum(routed.values()),
@@ -241,7 +310,8 @@ def main(argv=None):
 
     excluded, untrainable = [], []
     if args.training_route == "oracle":
-        bank.set_oracle_routes(genie_route_map(official, tokenizer, token_cases, fact_to_row))
+        bank.set_oracle_routes(genie_route_map(official, tokenizer, token_cases, fact_to_row,
+                                               key_fn=adapter.get("genie_key")))
         training_cases = list(token_cases)
     else:
         training_cases = [c for c in token_cases if routed[c.id]]

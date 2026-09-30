@@ -3,6 +3,7 @@
 
     python scripts/summarize_layer_sweep_seeds.py --dataset mcf
     python scripts/summarize_layer_sweep_seeds.py --dataset zsre --modes regular genie
+    python scripts/summarize_layer_sweep_seeds.py --dataset rwku --modes regular subject
 
 Reads outputs/<dataset>_multiseed_<mode>_v1/seed*/L??/linear_global with the
 single-run collector (summarize_mcf_layer_sweep.collect) and writes, per mode,
@@ -30,7 +31,13 @@ METRICS = {
                "forget_rewrite_route_correct", "forget_atomicgen_route_correct",
                "retain_atomicgen_route_active", "audit_correct_route",
                "audit_false_activation", "row_to_boundary_norm_ratio"],
+    # RWKU: recovery %, lower = better forgetting except `neighbor` (locality, higher = better)
+    "rwku": ["forget_Eff", "forget_GenL1", "forget_GenL2", "forget_GenPara", "forget_L3",
+             "neighbor", "PPL", "same50_route_correct", "heldout_route_active",
+             "neighbor_route_active", "audit_correct_route", "audit_false_activation"],
 }
+# RWKU's base model (all-zero rows) per seed, printed as the first row of each table.
+BASE_SWEEP = {"rwku": "rwku_multiseed_base_v1"}
 
 
 def _stats(values):
@@ -85,6 +92,19 @@ def main(argv=None):
             print(f"(skip) {sweep} not found")
             continue
         table, seeds = summarize(sweep, metrics)
+        base_dir = Path(args.root) / BASE_SWEEP.get(args.dataset, "__none__")
+        if base_dir.is_dir():
+            base_rows = [collect(d, d.name) for d in sorted(base_dir.glob("seed*"))
+                         if (d / "official_rwku_eval.json").is_file() and d.name in seeds]
+            if base_rows:
+                entry = {"layer": "base", "n": len(base_rows), "seeds": [r["label"] for r in base_rows],
+                         "stop_reasons": ["no unlearning"]}
+                for metric in metrics:
+                    # zero rows: routing columns describe no edit, so leave them blank
+                    skip = "route" in metric or metric.startswith("audit_")
+                    mean, std, n = (None, None, 0) if skip else _stats(r.get(metric) for r in base_rows)
+                    entry[metric] = {"mean": mean, "std": std, "n": n}
+                table.insert(0, entry)
         (sweep / "multiseed_summary.json").write_text(json.dumps(table, indent=2) + "\n")
         with (sweep / "multiseed_summary.csv").open("w", newline="") as handle:
             writer = csv.writer(handle)

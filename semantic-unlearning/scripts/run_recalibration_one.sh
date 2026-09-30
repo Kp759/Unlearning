@@ -4,6 +4,8 @@
 #
 #   SEED=1 LAYER=19 bash scripts/run_recalibration_one.sh mcf
 #   REF_TAG=multiseed_reworded_v2 SEED=3 LAYER=23 bash scripts/run_recalibration_one.sh zsre
+#   OBJECTIVE=min_recall MACRO=fact SEED=2 LAYER=7 bash scripts/run_recalibration_one.sh rwku
+#   (RWKU: threshold-gate reference runs only; the subject gate has no cutoff)
 #
 # Env: SEED (1), LAYER (19), REF_TAG (multiseed_regular_v1), OUT_TAG
 # (calibration_rules_v1), OBJECTIVE (balanced | target_fpr | min_recall),
@@ -13,8 +15,8 @@
 #   recalibration.json, official_<dataset>_eval.json}; arm = balanced_fact |
 #   balanced_prompt | fpr<X>[_fact] | recall<X>[_fact] | constrained_r<R>_f<F>_<macro>. Resumable.
 set -euo pipefail
-DATASET="${1:?Usage: bash scripts/run_recalibration_one.sh mcf|zsre|mquake}"
-case "$DATASET" in mcf|zsre|mquake) ;; *) echo "unknown dataset '$DATASET'" >&2; exit 2;; esac
+DATASET="${1:?Usage: bash scripts/run_recalibration_one.sh mcf|zsre|mquake|rwku}"
+case "$DATASET" in mcf|zsre|mquake|rwku) ;; *) echo "unknown dataset '$DATASET'" >&2; exit 2;; esac
 SEED="${SEED:-1}"; LAYER="${LAYER:-19}"
 REF_TAG="${REF_TAG:-multiseed_regular_v1}"; OUT_TAG="${OUT_TAG:-calibration_rules_v1}"
 OBJECTIVE="${OBJECTIVE:-balanced}"
@@ -65,6 +67,11 @@ if [[ ! -f "$OUT/$EVAL_JSON" ]]; then
         --run-dir "$OUT" --mquake-path "$ROOT/data/MQuAKE-CF-3k-v2.json" \
         --wikidata-dir "$ROOT/data/wikidata" --seed "$SEED" --device cuda \
         --dtype bfloat16 --batch-size 8 --local-files-only --allow-imperfect-direct-routing ;;
+    rwku)
+      python -u scripts/evaluate_rwku_fact_association_embeddings_seed1.py \
+        --run-dir "$OUT" --data-root "$ROOT/data/rwku" --wikidata-dir "$ROOT/data/wikidata" \
+        --seed "$SEED" --device cuda --dtype bfloat16 --local-files-only --no-download \
+        --allow-imperfect-direct-routing --out "$OUT/$EVAL_JSON" ;;
   esac
 fi
 echo "===== [$DATASET s$SEED L$LL $ARM] done -> $OUT ====="
