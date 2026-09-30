@@ -47,11 +47,15 @@ command -v jq >/dev/null || { echo "jq not found on PATH; aborting" >&2; exit 3;
 
 cd /scratch/yl258/kp759/Unlearning/semantic-unlearning
 mkdir -p logs
-DATASETS=(mcf zsre mquake); LAYERS=(19 23)
+# Task index -> (dataset, seed, layer). DATASET_LIST / LAYER_LIST override the
+# defaults; the array must then be 0..(#datasets * 5 * #layers - 1), e.g. all
+# 7 layers x 3 datasets: --array=0-104.
+DATASETS=(${DATASET_LIST:-mcf zsre mquake}); LAYERS=(${LAYER_LIST:-19 23}); NL=${#LAYERS[@]}
 i=${SLURM_ARRAY_TASK_ID:-0}
-DATASET=${DATASETS[$(( i / 10 ))]}
-export SEED=$(( (i % 10) / 2 + 1 ))
-export LAYER=${LAYERS[$(( i % 2 ))]}
+(( i < ${#DATASETS[@]} * 5 * NL )) || { echo "task $i out of range for ${#DATASETS[@]} datasets x 5 seeds x $NL layers"; exit 0; }
+DATASET=${DATASETS[$(( i / (5 * NL) ))]}
+export SEED=$(( (i % (5 * NL)) / NL + 1 ))
+export LAYER=${LAYERS[$(( i % NL ))]}
 if [[ "$DATASET" == zsre ]]; then export REF_TAG="${ZSRE_REF_TAG:-multiseed_reworded_v2}"
 else export REF_TAG="${REF_TAG:-multiseed_regular_v1}"; fi
 export OUT_TAG="${OUT_TAG:-calibration_rules_v1}"
