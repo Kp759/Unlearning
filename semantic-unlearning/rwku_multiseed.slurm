@@ -6,7 +6,8 @@
 #              98% rule on the merged, per-fact-balanced validation set
 #              (-> outputs/calibration_rules_v1/rwku/.../recall0.98_fact)
 #   subject    RWKU's native entity-level gate (-> outputs/rwku_multiseed_subject_v1)
-# Rows trained under the router (regular), NORM_SCALE=1, shipped RWKU optimizer.
+# Rows trained under the router (regular; TRAINING_ROUTE=oracle -> genie, outputs
+# rwku_multiseed_genie_v1 / rwku_multiseed_subject_genie_v1), NORM_SCALE=1, shipped RWKU optimizer.
 # Batch seed s = people s..s+4 of RWKU's first ten targets.
 #
 # BEFORE submitting, fetch the pinned RWKU files once on the LOGIN node:
@@ -16,6 +17,9 @@
 #   sbatch --array=0-34 rwku_multiseed.slurm                                 # threshold gate only
 #   sbatch --array=0-34 --export=ALL,GATE_LIST=subject rwku_multiseed.slurm  # subject gate only
 #   sbatch --array=0-9 --export=ALL,GATE_LIST=threshold,LAYER_LIST="19 23" rwku_multiseed.slurm
+#   sbatch --array=0-19 --export=ALL,TRAINING_ROUTE=oracle,LAYER_LIST="19 23" rwku_multiseed.slurm  # genie
+#   sbatch --array=0-13 --export=ALL,SEED_LIST=5 rwku_multiseed.slurm      # one seed, both gates
+# Final table: python scripts/summarize_rwku_final.py
 # Task i -> GATE=GATES[i/(NS*NL)], SEED=SEEDS[(i%(NS*NL))/NL], LAYER=LAYERS[i%NL].
 # Resumable: finished stages are skipped. Tables:
 #   python scripts/summarize_layer_sweep_seeds.py --dataset rwku --modes regular subject
@@ -66,7 +70,7 @@ fi
 export GATE="${GATES[i / (NS * NL)]}"
 export SEED="${SEEDS[(i % (NS * NL)) / NL]}"
 LAYER="${LAYERS[i % NL]}"
-export TRAINING_ROUTE=router NORM_SCALE=1 MIN_RECALL="${MIN_RECALL:-0.98}"
+export TRAINING_ROUTE="${TRAINING_ROUTE:-router}" NORM_SCALE=1 MIN_RECALL="${MIN_RECALL:-0.98}"
 export RWKU_CHAT_DATE_STRING="26 Jul 2024"
 # One base-model (all-zero rows) evaluation per seed, on the first gate's layer-19 task.
 export BASE_EVAL=0
@@ -84,7 +88,7 @@ print("RWKU batch", sys.argv[1], [t["subject"] for t in split["manifest"]["targe
       len(split["heldout_level1"]), len(split["heldout_level2"]), len(split["heldout_paraphrase"]))
 EOF
 
-echo "RWKU multiseed | gate $GATE | seed $SEED | layer $LAYER | base_eval $BASE_EVAL | job ${SLURM_ARRAY_JOB_ID:-?}_$i | $(hostname) | $(date) | commit $(git rev-parse HEAD)"
+echo "RWKU multiseed | gate $GATE | route $TRAINING_ROUTE | seed $SEED | layer $LAYER | base_eval $BASE_EVAL | job ${SLURM_ARRAY_JOB_ID:-?}_$i | $(hostname) | $(date) | commit $(git rev-parse HEAD)"
 nvidia-smi
 bash scripts/run_rwku_layer_sweep_one.sh "$LAYER"
 status=$?

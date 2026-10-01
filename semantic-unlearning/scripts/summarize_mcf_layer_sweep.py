@@ -166,6 +166,9 @@ def collect(run_dir, label):
             ),
             "neighbor_route_active": _rec("neighbors", "route_active_fraction"),
             "gate_mode": _get(router, "router_fit", "gate_mode"),
+            # rows whose worst sensitive-token prob reached the 1e-6 target
+            "facts_converged": _get(training, "final_metrics_classifier_routing_all_contexts",
+                                    "facts_passing_probability_constraint"),
             "status": (
                 "complete" if rwku else "router_only" if router else
                 "missing" if not manifest else "rows_only"
