@@ -65,6 +65,33 @@ def compare(base, sure):
     return out
 
 
+def routing_breakdown(base_rows, sure_rows, facts, forget, probes_by_id):
+    """Forget probes whose prefix names the person, by route outcome x completion
+    kind (person vs value / relation word): probes, mean base and SURE score,
+    and the share of the summed SURE score (what is left to forget)."""
+    forget = set(forget)
+    base = {r["id"]: r["score"] for r in base_rows}
+    out = {}
+    for probe_set in sorted({r["set"] for r in sure_rows}):
+        cells = {}
+        for r in sure_rows:
+            probe = probes_by_id[r["id"]]
+            if r["set"] != probe_set or r["fact"] not in forget or not probe.get("person_in_prefix"):
+                continue
+            route = ("own_row" if r["routed_to_own_row"] else
+                     "wrong_row" if r["route_active"] else "no_fire")
+            kind = "person" if probe["completion"] in facts[r["fact"]]["people"] else "value_or_relation"
+            cells.setdefault(f"{route}|{kind}", []).append((base[r["id"]], r["score"]))
+        total = sum(s for v in cells.values() for _, s in v) or 1.0
+        out[probe_set] = {
+            key: {"probes": len(v), "base": sum(b for b, _ in v) / len(v),
+                  "sure": sum(s for _, s in v) / len(v),
+                  "share_of_remaining_forget_score": sum(s for _, s in v) / total}
+            for key, v in sorted(cells.items())
+        }
+    return out
+
+
 def markdown(result):
     lines = [f"# Eval-DU+ (FT-Mul-Chunk) — SURE, split {result['split']}, seed {result['seed']}, "
              f"L{result['layer']}", "",
@@ -97,6 +124,18 @@ def markdown(result):
         lines += [f"Retained same-person facts stated AFTER a forgotten fact in the same chunk: base "
                   f"{_fmt(extra_b['knowledge_score'])} → SURE {_fmt(extra_s['knowledge_score'])} "
                   f"({extra_s['probes']} probes).", ""]
+    for probe_set in ("test", "chunk"):
+        cells = (result.get("routing_breakdown") or {}).get(probe_set)
+        if not cells:
+            continue
+        lines += [f"## Where the forget score is left ({probe_set}, prefix names the person)", "",
+                  "| route | completion | probes | base | SURE | share of remaining |",
+                  "|---|---|---|---|---|---|"]
+        for key, c in cells.items():
+            route, kind = key.split("|")
+            lines.append(f"| {route} | {kind} | {c['probes']} | {_fmt(c['base'])} | {_fmt(c['sure'])} | "
+                         f"{_fmt(c['share_of_remaining_forget_score'], 2)} |")
+        lines.append("")
     lines.append(f"PPL (runtime-aligned): base {_fmt(result['base']['runtime_aligned_PPL'], 2)} → "
                  f"SURE {_fmt(result['sure']['runtime_aligned_PPL'], 2)}")
     return "\n".join(lines) + "\n"
@@ -184,6 +223,7 @@ def main(argv=None):
             "fact_level": "mean over a fact's probes, then mean over facts in the group",
         },
         "comparison": compare(base_summary, sure_summary),
+        "routing_breakdown": routing_breakdown(base_rows, sure_rows, facts, forget, probes_by_id),
         "base": {"summary": base_summary, "runtime_aligned_PPL": base_ppl},
         "sure": {"summary": sure_summary, "runtime_aligned_PPL": sure_ppl},
         "rows": {"base": base_rows, "sure": sure_rows},

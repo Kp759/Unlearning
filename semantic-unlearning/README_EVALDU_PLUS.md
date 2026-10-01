@@ -30,6 +30,27 @@ cat outputs/evaldu_plus_v1/seed1/L19/linear_global/official_evaldu_eval.md
 | rows | `train_direct_linear_router_rows.py --dataset evaldu` | MQuAKE row optimizer, 30 updates / fact |
 | eval | `evaluate_evaldu_plus.py` | fine-tuned model vs SURE on the same probes |
 
+## Router trained on rewordings (`REWORD=1`)
+
+Seed 1 (default router): when the fact's own row fires, held-out forget
+paraphrases drop ~88%, but the own row fires on only 45% of them and 41% do
+not fire at all (73% of the remaining forget score). The router saw 2-3 UL
+prefixes per fact, and its cutoff was calibrated on context-prefix copies of
+them. `REWORD=1` applies the ZsRE v2 recipe (`scripts/evaldu_router_rewordings.py`):
+the fine-tuned model rewrites each forget fact's UL prefixes (names kept
+verbatim, completion not leaked, answer-consistency margin 1.0 nat/token,
+Jaccard <= 0.8); 4 rewordings join training and 2 join calibration / audit.
+Only forget prefixes are read; test paraphrases, chunks and retain facts never.
+Rows are trained exactly as before.
+
+```bash
+sbatch --export=ALL,REWORD=1 evaldu_plus_seed1.slurm
+cat outputs/evaldu_plus_v1/seed1/L19_reworded/linear_global/official_evaldu_eval.md
+```
+
+The report's last tables split the remaining forget score by route outcome
+(no fire / wrong row / own row).
+
 ## Metric (the paper's)
 
 Knowledge score = exp(mean log-prob) of the completion word's tokens given the

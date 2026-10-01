@@ -15,7 +15,11 @@
 #
 # Env: SEED (1), LAYER (19), TAG (evaldu_plus_v1), SPLIT (facts100 | people12),
 # UNLEARN_DATA (mul | single), FT_ARGS (extra flags for the fine-tune, e.g. "--epochs 8"),
-# TRAINING_ROUTE (router), NORM_SCALE (1), MAX_TRAIN_SECONDS (7200), MOVE_INCOMPLETE (1).
+# TRAINING_ROUTE (router), NORM_SCALE (1), MAX_TRAIN_SECONDS (7200), MOVE_INCOMPLETE (1),
+# REWORD (0 | 1): router trained and calibrated on generated rewordings of the
+#   forget facts' UL prefixes (scripts/evaldu_router_rewordings.py); own dirs
+#   L<LL>_reworded; rewordings shared per split/seed; rows unchanged.
+# REWORD_GEN_ARGS ("--consistency-margin 1.0 --max-jaccard 0.8 --samples 16 --max-rounds 4").
 set -euo pipefail
 
 SEED="${SEED:-1}"
@@ -28,6 +32,8 @@ TRAINING_ROUTE="${TRAINING_ROUTE:-router}"
 NORM_SCALE="${NORM_SCALE:-1}"
 MAX_TRAIN_SECONDS="${MAX_TRAIN_SECONDS:-7200}"
 MOVE_INCOMPLETE="${MOVE_INCOMPLETE:-1}"
+REWORD="${REWORD:-0}"
+REWORD_GEN_ARGS="${REWORD_GEN_ARGS:---consistency-margin 1.0 --max-jaccard 0.8 --samples 16 --max-rounds 4}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -52,6 +58,8 @@ if [[ "$SPLIT" != "facts100" || "$UNLEARN_DATA" != "mul" ]]; then
 fi
 DATA="$OUT/$SPLIT_TAG/data"
 BASE="$OUT/$SPLIT_TAG/L${LL}"
+REWORDINGS="$OUT/$SPLIT_TAG/rewordings_v1.json"
+if [[ "$REWORD" == "1" ]]; then BASE="${BASE}_reworded"; fi
 PREP="$BASE/prep"
 ROUTER="$BASE/router"
 FINAL="$BASE/linear_global"
@@ -104,6 +112,17 @@ if ! stage_ready "$PREP" fact_association_embeddings.pt; then
     --layer "$LAYER" --device cuda --local-files-only
 fi
 
+if [[ "$REWORD" == "1" && ! -f "$PREP/association_examples.json" ]]; then
+  test ! -e "$BASE/router" || { echo "Router already fit without rewordings: $BASE/router (move it aside)" >&2; exit 2; }
+  if [[ ! -s "$REWORDINGS" ]]; then
+    echo "===== [evaldu $SPLIT_TAG] 3b/6 REWORDINGS of the forget prefixes | $(date) ====="
+    # shellcheck disable=SC2086
+    python -u scripts/evaldu_router_rewordings.py generate --prep-dir "$PREP" --out "$REWORDINGS" \
+      --device cuda --local-files-only $REWORD_GEN_ARGS
+  fi
+  python -u scripts/evaldu_router_rewordings.py examples --prep-dir "$PREP" --rewordings "$REWORDINGS"
+fi
+
 ROUTER_REPORT="$ROOT/outputs/mquake_linear_2x2_seed1_v24/linear_router_report.json"
 ROUTER_ARGS=(--threshold-policy global --decision-rule calibrated_bias)
 if [[ -f "$ROUTER_REPORT" ]]; then
@@ -122,7 +141,7 @@ else
 fi
 
 if ! stage_ready "$ROUTER" fact_association_embeddings.pt; then
-  echo "===== [evaldu $SPLIT_TAG L$LL] 4/6 ROUTER: linear classifier (L-BFGS, folded bias) | $(date) ====="
+  echo "===== [evaldu $SPLIT_TAG L$LL] 4/6 ROUTER: linear classifier (L-BFGS, folded bias, reword=$REWORD) | $(date) ====="
   python -u scripts/fit_linear_router.py --run-dir "$PREP" --output-dir "$ROUTER" \
     --device cuda --local-files-only "${ROUTER_ARGS[@]}"
 fi

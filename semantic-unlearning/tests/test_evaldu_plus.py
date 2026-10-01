@@ -167,3 +167,37 @@ def test_summary_groups_and_normalization(tmp_path):
     half = [{**r, "score": r["score"] / 2} for r in rows]
     comparison = ev.compare(summary, ed.summarize(half, facts, [0], by_id)[0])
     assert comparison["test"]["all"]["forget"]["normalized"] == pytest.approx(0.5)
+    breakdown = ev.routing_breakdown(rows, half, facts, [0], by_id)["test"]
+    own = breakdown["own_row|person"]
+    assert own["probes"] == 3 and own["base"] == pytest.approx(0.5) and own["sure"] == pytest.approx(0.25)
+    assert own["share_of_remaining_forget_score"] == pytest.approx(1.0)
+
+
+def test_rewording_filters_and_router_families():
+    import evaldu_router_rewordings as rw
+
+    assert rw.clean(' "The wife of Zane Ross is." \nmore') == "The wife of Zane Ross is"
+    people = ["Sloane Lee", "Zane Ross"]
+    src = "Sloane Lee holds the place of Zane Ross's"
+    common = dict(source=src, completion="wife", people=people, blocked={src.casefold()}, seen=set())
+    assert rw.screen("In relation to Zane Ross, Sloane Lee is his", **common) is None
+    assert rw.screen("In relation to Zane, Sloane Lee is his", **common) == "name_changed"
+    assert rw.screen("Sloane Lee, the wife of Zane Ross, is his", **common) == "contains_completion"
+    assert rw.screen(src, **common) == "copies_a_training_prefix"
+    # a family name already in the source may repeat ("Ross" in "Avery Ross" and "Zane Ross")
+    fam = dict(source="Avery Ross's father is", completion="Zane Ross", people=["Zane Ross", "Avery Ross"],
+               blocked=set(), seen=set())
+    assert rw.screen("The father of Avery Ross is", **fam) is None
+    assert rw.screen("The father of Avery Ross is Mr Ross, i.e.", **fam) == "contains_completion"
+    assert rw.screen("Zane Ross is the father of Avery Ross, i.e.", **fam) == "contains_completion"
+
+    facts = [{"id": "evaldu_fact_0", "canonical_prompt": src, "canonical_prompts": [src, "Zane Ross counts Sloane Lee as his"]}]
+    words = [f"reword {k} about Sloane Lee and Zane Ross" for k in range(6)]
+    rows = rw.example_rows(facts, {"evaldu_fact_0": words})
+    groups = {r["group"]: r["split"] for r in rows}
+    assert groups["canonical_0"] == groups["canonical_1"] == "train"
+    assert groups["reword_3"] == "train" and "reword_4" not in groups
+    assert groups["reword_dev_0"] == groups["reword_dev_1"] == "development"
+    assert groups["context_prefix_2"] == "development"
+    dev_families = {r["group"] for r in rows if r["split"] == "development"}
+    assert len(dev_families) == 4
