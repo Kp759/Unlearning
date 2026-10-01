@@ -27,6 +27,9 @@ Per run, <run>/route_collisions.json. Forget prompts with >= 2 qualifying heads:
 Must-not-route prompts (neighborhood, retain) with >= 2 qualifying heads:
   negative_ambiguous_blocked   the margin prevented a false fire
   negative_fired               a row fired anyway
+resolved_wrong is split by whether the applied row forgets the SAME answer as the
+prompt's own fact (wrong_same_answer: duplicate records, harmless) or not
+(wrong_diff_answer: a real misroute).
 Counterfactual "margin 0" (always take top-1): forget prompts recovered and
 must-not-route prompts that would newly fire.
 """
@@ -291,6 +294,7 @@ def run_one(run_dir, base_model, tok, args):
                                 else float(threshold)),
                   "gate_mode": getattr(bank, "gate_mode", None), "facts": len(bank.facts),
                   "hook_parity_mismatches": parity, "summary": summarize_rows(rows),
+                  "fact_answers": fact_answers(bank.facts),
                   "collisions": [r for r in rows if r["n_qualifying"] >= 2]}
         (run_dir / OUT_NAME).write_text(json.dumps(result, indent=2) + "\n")
         return result
@@ -298,8 +302,35 @@ def run_one(run_dir, base_model, tok, args):
         bank._hook_handle.remove()
 
 
+def _norm(text):
+    return " ".join(str(text).casefold().split())
+
+
+def fact_answers(facts):
+    """The answer each bank row forgets (normalised), in row order."""
+    return [_norm(f.get("object", f.get("answer", ""))) for f in facts]
+
+
+def split_wrong(result):
+    """resolved_wrong -> same answer as the own fact (a duplicate: the applied row
+    forgets the same answer) or a different answer (a real misroute)."""
+    answers = result.get("fact_answers")
+    if answers is None:  # results written before fact_answers was recorded
+        art = torch.load(Path(result["run_dir"]) / "fact_association_embeddings.pt",
+                         map_location="cpu", weights_only=False)
+        answers = fact_answers(art["facts"])
+    same = diff = 0
+    for c in result["collisions"]:
+        if c["category"] == "resolved_wrong":
+            if answers[c["chosen"]] and answers[c["chosen"]] == answers[c["owner"]]:
+                same += 1
+            else:
+                diff += 1
+    return {"wrong_same_answer": same, "wrong_diff_answer": diff}
+
+
 COLS = ("forget_prompts", "forget_multi_qualifying", "resolved_correct", "resolved_wrong",
-        "ambiguous_leak", "ambiguous_other", "negative_multi_qualifying",
+        "wrong_same_answer", "wrong_diff_answer", "ambiguous_leak", "ambiguous_other", "negative_multi_qualifying",
         "negative_ambiguous_blocked", "margin0_forget_recovered", "margin0_negative_newly_fire")
 
 
@@ -312,7 +343,7 @@ def print_table(run_dirs):
     print("|" + "---|" * (len(COLS) + 4))
     totals = defaultdict(Counter)
     for r in sorted(results, key=lambda x: (x["dataset"], x["layer"], x["seed"])):
-        s = r["summary"]
+        s = {**r["summary"], **split_wrong(r)}
         print(f"| {r['dataset']} | {r['seed']} | {r['layer']} | {r['ambiguity_margin']:g} | "
               + " | ".join(str(s[c]) for c in COLS) + " |")
         for c in COLS:

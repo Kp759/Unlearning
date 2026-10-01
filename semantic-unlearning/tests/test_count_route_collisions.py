@@ -74,3 +74,21 @@ def test_per_head_threshold_vector():
     assert rows[3]["n_qualifying"] == 1 and rows[3]["active"] and rows[3]["chosen"] == 0
     assert rows[4]["n_qualifying"] == 2 and rows[4]["top2"] == [0, 2]
     assert rows[4]["category"] == "resolved_wrong"
+
+
+def test_split_wrong_by_answer(tmp_path):
+    from count_route_collisions import fact_answers, split_wrong
+
+    answers = fact_answers([{"object": "Alzheimer's disease"}, {"object": " alzheimer's  Disease"},
+                            {"object": "England"}])
+    result = {"run_dir": str(tmp_path), "fact_answers": answers, "collisions": [
+        {"category": "resolved_wrong", "owner": 0, "chosen": 1},     # same answer
+        {"category": "resolved_wrong", "owner": 0, "chosen": 2},     # different answer
+        {"category": "resolved_correct", "owner": 2, "chosen": 2},
+    ]}
+    assert split_wrong(result) == {"wrong_same_answer": 1, "wrong_diff_answer": 1}
+    # Older results without fact_answers: answers come from the saved artifact.
+    torch.save({"facts": [{"object": "x"}, {"object": "X"}, {"object": "y"}]},
+               tmp_path / "fact_association_embeddings.pt")
+    del result["fact_answers"]
+    assert split_wrong(result) == {"wrong_same_answer": 1, "wrong_diff_answer": 1}
