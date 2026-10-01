@@ -69,3 +69,8 @@ def test_rwku_subject_surfaces_include_surname_without_initials():
         "Aguilera",
     ]
     assert rwku_subject_surfaces("Confucius") == ["Confucius"]
+    assert rwku_subject_surfaces("Prince Harry, Duke of Sussex") == [
+        "Prince Harry, Duke of Sussex",
+        "Prince Harry",
+        "Sussex",
+    ]

@@ -76,6 +76,12 @@ def rwku_subject_surfaces(subject):
     if not canonical:
         raise ValueError("RWKU subject is empty")
     surfaces = [canonical]
+    # A titled name ("Prince Harry, Duke of Sussex") is asked about by the part
+    # before the comma; its final token ("Sussex") alone rarely appears.
+    if "," in canonical:
+        short = canonical.split(",", 1)[0].strip()
+        if short and normalized(short) != normalized(canonical):
+            surfaces.append(short)
     words = canonical.split()
     if len(words) >= 2:
         surname = words[-1].strip(" ,.;:()[]{}")
