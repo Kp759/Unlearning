@@ -54,6 +54,15 @@ def _run_dirs(patterns):
     return [d for d in dirs if (d / "fact_association_embeddings.pt").exists()]
 
 
+def manifest_seed(manifest):
+    """Sample seed: top-level `seed` (ZsRE/MQuAKE/RWKU) or sampling/plan seed (MCF sweep)."""
+    for value in (manifest.get("seed"), (manifest.get("sampling") or {}).get("seed"),
+                  (manifest.get("plan") or {}).get("seed")):
+        if value is not None:
+            return int(value)
+    raise ValueError("run manifest records no sample seed")
+
+
 def dataset_of(artifact, manifest, run_dir):
     for v in (artifact.get("dataset"), manifest.get("dataset"), manifest.get("benchmark")):
         if v:
@@ -90,6 +99,8 @@ def requests_zsre(args, tok, bank, seed, model):
     forget, retain = zsre.load_official_eval_records(
         Path(args.zsre_path), tok, forget_num=50, retain_num=1000, seed=seed)
     row_of = {int(f["case_id"]): i for i, f in enumerate(bank.facts)}
+    if sorted(row_of) != sorted(int(r["case_id"]) for r in forget):
+        raise ValueError("ZsRE forget sample differs from the bank's facts (seed?)")
     llama_like = zsre.is_llama_like(model, tok)
     out = []
     for rec in forget:
@@ -243,7 +254,7 @@ def run_one(run_dir, base_model, tok, args):
     artifact = torch.load(run_dir / "fact_association_embeddings.pt", map_location="cpu",
                           weights_only=False)
     ds = dataset_of(artifact, manifest, run_dir)
-    seed = int(manifest.get("seed", 1))
+    seed = manifest_seed(manifest)
     model, bank = load_router_artifact(base_model, artifact)
     try:
         device = next(model.parameters()).device
