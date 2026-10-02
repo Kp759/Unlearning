@@ -228,9 +228,17 @@ def main(argv=None):
     parser.add_argument("--checkpoint-ties-select-latest", action="store_true",
                         help="restore the latest gate when the worst fact is stuck (tie), "
                              "instead of the last gate where it improved")
+    parser.add_argument("--alias-targets", action="store_true",
+                        help="MQuAKE only: also push each answer alias's first token below the "
+                             "target probability (worst case over answer and aliases); aliases "
+                             "from the dataset's own hops (mquake_answer_aliases.py)")
+    parser.add_argument("--mquake-path", default=None,
+                        help="MQuAKE-CF-3k-v2.json for --alias-targets (default data/ under the repo)")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--local-files-only", action="store_true")
     args = parser.parse_args(argv)
+    if args.alias_targets and args.dataset != "mquake":
+        raise ValueError("--alias-targets is implemented for MQuAKE only")
     adapter = dataset_adapter(args.dataset)
     module, official = adapter["module"], adapter["official"]
     updates = int(args.row_updates_per_fact or adapter["updates_per_fact"])
@@ -300,6 +308,18 @@ def main(argv=None):
     token_cases, llama_like = module.build_exact_direct_token_cases(
         records, facts, tokenizer, editor.model
     )
+    alias_info = None
+    if args.alias_targets:
+        import mquake_answer_aliases as aliases_mod
+        mquake_path = Path(args.mquake_path or Path(__file__).resolve().parents[1]
+                           / "data" / "MQuAKE-CF-3k-v2.json")
+        alias_cases, alias_info = aliases_mod.alias_token_cases(
+            records, facts, tokenizer, llama_like=llama_like,
+            table=aliases_mod.alias_table(aliases_mod.load_raw(mquake_path)),
+        )
+        token_cases = list(token_cases) + alias_cases
+        print(json.dumps({"phase": "alias_targets", **{k: v for k, v in alias_info.items()
+                                                        if k != "aliases_by_fact"}}), flush=True)
     if adapter.get("routes") is not None:
         routed = adapter["routes"](editor.model, bank, tokenizer, token_cases, fact_to_row)
     else:
@@ -392,6 +412,8 @@ def main(argv=None):
         "untrainable_fact_ids": untrainable,
         "pre_training_routing": pre_training_routing,
         "layer_representation": representation,
+        "alias_targets": bool(args.alias_targets),
+        "alias_targets_info": alias_info,
     })
     (output / "association_manifest.json").write_text(
         json.dumps(new_manifest, indent=2, allow_nan=False) + "\n"
@@ -415,6 +437,8 @@ def main(argv=None):
         "pre_training_routing": pre_training_routing,
         "final_metrics_classifier_routing_all_contexts": classifier_metrics,
         "unmatched_neutral_logits_exact_base_after_training": True,
+        "alias_targets": bool(args.alias_targets),
+        "alias_targets_info": alias_info,
     })
     (output / "training_report.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     print(json.dumps({
