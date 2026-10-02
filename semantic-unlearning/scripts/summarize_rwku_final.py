@@ -27,6 +27,9 @@ CONFIGS = [
     ("98% recall (merged validation, per fact)", "regular", "calibration_rules_v1/rwku/{seed}/{L}/recall0.98_fact"),
     ("subject gate", "regular", "rwku_multiseed_subject_v1/{seed}/{L}/linear_global"),
     ("subject gate, genie rows", "genie", "rwku_multiseed_subject_genie_v1/{seed}/{L}/linear_global"),
+    # CKPT_LATEST=1 reruns (rows keep the latest sweep when the worst fact is stuck)
+    ("98% recall, latest-checkpoint rows", "regular", "rwku_multiseed_regular_ckpt_v1/{seed}/{L}/linear_global"),
+    ("subject gate, latest-checkpoint rows", "regular", "rwku_multiseed_subject_ckpt_v1/{seed}/{L}/linear_global"),
 ]
 COLS = [("forget_Eff", "Eff ↓"), ("forget_GenL1", "Gen L1 ↓"), ("forget_GenL2", "Gen L2 ↓"),
         ("forget_GenPara", "Para ↓"), ("forget_L3", "L3 ↓"), ("neighbor", "Neighbour ↑"),
@@ -80,6 +83,7 @@ def main(argv=None):
                 else:
                     missing.append(f"{label} {L} {s}")
             if not rows:
+                missing = [m for m in missing if not m.startswith(f"{label} {L} ")]
                 continue
             cells = [label, L, str(len(rows))]
             for key, _ in COLS:
