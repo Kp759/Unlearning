@@ -261,3 +261,16 @@ The first row of each RWKU table is the unedited model (the router's all-zero
 rows through the same evaluator, `rwku_multiseed_base_v1`). Prompts use the
 Llama chat template with the date pinned (`RWKU_CHAT_DATE_STRING`, default in the
 driver `26 Jul 2024`) so tasks that cross midnight see identical prompts.
+
+### RWKU genie: training-time vs evaluation-time
+
+`TRAINING_ROUTE=oracle` (rwku_multiseed_genie_v1, "genie rows") only changes which
+cases train each row; evaluation still uses the router, so it equals regular
+whenever the router routes all 50 training probes. The paper's Table 6 genie is
+evaluation-time (`evaluate_rwku_router_decomposition.py`): same-50 = exact trained
+row forced (E); held-out = best of the same person's 10 rows, chosen with the
+answer (S), an upper bound no router can reach.
+```bash
+sbatch rwku_decomposition.slurm                      # subject gate, seeds 1-5, L19 L23
+python scripts/summarize_rwku_decomposition.py
+```

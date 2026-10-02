@@ -167,6 +167,26 @@ def test_rwku_layer_sweep_pipeline(tmp_path, monkeypatch):
     assert all(b <= a for a, b in zip(worst, worst[1:]))
     assert report["best_step"] == report["gates"][-1]["step"]
 
+    # Evaluation-time genie (Table 6) on a linear subject-gate run of batch seed 2.
+    import evaluate_rwku_router_decomposition as dec
+    from summarize_rwku_decomposition import main as summarize_dec
+    monkeypatch.setattr(dec, "build_batch_split", fake_build_batch_split)
+    run = tmp_path / "rwku_multiseed_subject_v1" / "seed2" / "L02" / "linear_global"
+    run.parent.mkdir(parents=True)
+    import shutil
+    shutil.copytree(sub / "linear_global", run)
+    assert dec.main(["--run-dir", str(run), "--data-root", str(tmp_path / "data"),
+                     "--output-dir", str(run / "decomposition"), "--device", "cpu",
+                     "--dtype", "float32", "--local-files-only", "--no-download",
+                     "--max-rows-per-group", "4", "--max-new-tokens", "4"]) == 0
+    rep = json.loads((run / "decomposition" / "rwku_router_decomposition.json").read_text())
+    assert rep["batch_seed"] == 2 and rep["gate_mode"] == "subject"
+    for arm in ("base", "v2", "genie_exact", "genie_subject", "genie_subject_random"):
+        assert arm in rep["summaries"]
+    # the subject genie is a best-of over the same person's rows, chosen per probe
+    assert rep["genie_row_use"]["heldout_level1"]["probes"] == 4
+    assert summarize_dec(["--root", str(tmp_path), "--layers", "2"]) == 0
+
     thr = tmp_path / "threshold"
     assert recal.main(["--router-dir", str(thr / "router"), "--rows-from", str(thr / "linear_global"),
                        "--output-dir", str(thr / "recall0.98_fact"), "--objective", "min_recall",

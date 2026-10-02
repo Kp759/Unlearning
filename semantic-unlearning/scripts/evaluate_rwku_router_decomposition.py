@@ -89,9 +89,6 @@ from oracle_router_gate import ForcedRowBank
 from rwku_batch50 import build_batch_split
 from rwku_fact_association_embeddings import build_association_facts
 from static_overlap_fact_association_embeddings import AssociationCausalLM
-from static_overlap_fact_association_v2_gate import (
-    load_relation_prototype_artifact,
-)
 
 
 HELDOUT_GROUPS = ("heldout_level1", "heldout_level2", "heldout_paraphrase")
@@ -587,15 +584,20 @@ def main(argv=None):
 
     run_dir = Path(args.run_dir).resolve()
     manifest = json.loads((run_dir / "association_manifest.json").read_text())
-    if int(manifest.get("seed", -1)) != 1:
-        raise SystemExit("This registered RWKU run is seed 1 only")
+    batch_seed = int(manifest.get("seed", -1))
+    if not 0 <= batch_seed <= 9:
+        raise SystemExit(f"RWKU batch seed must be in [0, 9], manifest says {batch_seed}")
     artifact = torch.load(
         run_dir / "fact_association_embeddings.pt",
         map_location="cpu",
         weights_only=False,
     )
-    if str(artifact.get("architecture", "")) != "relation_prototype_fact_association_bank_v2":
-        raise SystemExit("Expected a Router V2 artifact")
+    # The "v2" arm is the run's own router: Router V2 (the registered seed-1
+    # run) or the learned linear router of the layer sweeps.
+    from linear_router import ARCHITECTURE as LINEAR_ARCHITECTURE, load_router_artifact
+    architecture = str(artifact.get("architecture", ""))
+    if architecture not in ("relation_prototype_fact_association_bank_v2", LINEAR_ARCHITECTURE):
+        raise SystemExit(f"Expected a Router V2 or linear-router artifact, got {architecture!r}")
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -609,7 +611,7 @@ def main(argv=None):
 
     split = build_batch_split(
         data_root=Path(args.data_root).resolve(),
-        batch_seed=1,
+        batch_seed=batch_seed,
         allow_download=not args.no_download,
     )
     forget_rows = list(split["efficacy_forget"])
@@ -620,7 +622,7 @@ def main(argv=None):
         str(f.get("association_key")) for f in artifact["facts"]
     ]:
         raise SystemExit(
-            "Saved RWKU bank no longer matches the frozen seed-1 Batch-50 split"
+            f"Saved RWKU bank no longer matches the frozen seed-{batch_seed} Batch-50 split"
         )
     fact_to_row = {fact["id"]: i for i, fact in enumerate(expected_facts)}
     source_to_row = {
@@ -716,7 +718,7 @@ def main(argv=None):
     for arm in arms:
         print(f"=== arm {arm} ===", flush=True)
         if arm == "v2":
-            model, bank = load_relation_prototype_artifact(base_model, artifact)
+            model, bank = load_router_artifact(base_model, artifact)
             model.eval()
             for name, rows in groups.items():
                 results[arm][name] = run_bank(
@@ -812,6 +814,9 @@ def main(argv=None):
     report = {
         "schema_version": "rwku_router_decomposition_v1",
         "run_dir": str(run_dir),
+        "batch_seed": batch_seed,
+        "router_architecture": architecture,
+        "gate_mode": artifact.get("gate_mode"),
         "dtype": args.dtype,
         "genie_select": args.genie_select,
         "arms": arms,
