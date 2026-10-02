@@ -1,0 +1,38 @@
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from generate_after_unlearning import contains_answer, first_line, limit_retain, summarize  # noqa: E402
+
+
+def test_contains_answer_is_case_and_space_insensitive():
+    assert contains_answer(" the  FRENCH language", "French")
+    assert not contains_answer("English", "French")
+    assert not contains_answer("anything", "")
+
+
+def test_first_line_and_retain_limit():
+    assert first_line("  Paris.\nMore text") == "Paris."
+    prompts = [{"group": "rewrite"}] + [{"group": "retain", "i": i} for i in range(10)]
+    kept = limit_retain(prompts, 3, seed=1)
+    assert sum(p["group"] == "retain" for p in kept) == 3 and kept[0]["group"] == "rewrite"
+    assert limit_retain(prompts, 0, seed=1) == prompts
+
+
+def test_summary_counts_removed_and_changed():
+    def run(out, has, row=None, fid=None):
+        return {"output": out, "has_answer": has, "routed_row": row, "routed_fact_id": fid,
+                "routed_answer": None}
+    rows = [
+        {"group": "rewrite", "fact_id": "f1", "base_output": "French", "base_has_answer": True,
+         "runs": {"A": run("a language", False, 0, "f1")}},
+        {"group": "paraphrase", "fact_id": "f1", "base_output": "French", "base_has_answer": True,
+         "runs": {"A": run("French", True)}},
+        {"group": "retain", "fact_id": None, "base_output": "Paris", "base_has_answer": True,
+         "runs": {"A": run("Paris", True)}},
+    ]
+    s = summarize(rows, ["A"])["A"]
+    assert s["rewrite"] == {"prompts": 1, "base_has_answer": 1, "unlearned_has_answer": 0,
+                            "removed": 1, "output_changed": 1, "row_fired": 1, "fired_own_row": 1}
+    assert s["paraphrase"]["unlearned_has_answer"] == 1 and s["paraphrase"]["row_fired"] == 0
+    assert s["retain"]["removed"] == 0 and s["retain"]["output_changed"] == 0
