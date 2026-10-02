@@ -201,3 +201,22 @@ def test_rewording_filters_and_router_families():
     assert groups["context_prefix_2"] == "development"
     dev_families = {r["group"] for r in rows if r["split"] == "development"}
     assert len(dev_families) == 4
+
+
+def test_rewordings_shared_by_two_facts_are_dropped():
+    import evaldu_router_rewordings as rw
+
+    facts = [{"id": "a", "canonical_prompt": "Scott Gray has a sister named",
+              "canonical_prompts": ["Scott Gray has a sister named"]},
+             {"id": "b", "canonical_prompt": "Scott Gray's younger sister is",
+              "canonical_prompts": ["Scott Gray's younger sister is"]}]
+    per = {"a": ["The sibling of Scott Gray is", "Scott Gray's sister is called", "x Scott Gray a"],
+           "b": ["the sibling of Scott Gray is", "Scott Gray has a sister named", "y Scott Gray b"]}
+    assert rw.shared_rewordings(facts, per) == {"the sibling of scott gray is", "scott gray has a sister named"}
+    rows = rw.example_rows(facts, per)
+    reworded = [r for r in rows if r["group"].startswith("reword")]
+    assert [(r["fact_id"], r["prompt"]) for r in reworded] == [
+        ("a", "Scott Gray's sister is called"), ("a", "x Scott Gray a"), ("b", "y Scott Gray b")]
+    prompts = {}
+    for r in rows:                       # every positive prompt has one owner
+        assert prompts.setdefault(r["prompt"], r["fact_id"]) == r["fact_id"]

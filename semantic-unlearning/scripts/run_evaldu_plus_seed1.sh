@@ -112,8 +112,10 @@ if ! stage_ready "$PREP" fact_association_embeddings.pt; then
     --layer "$LAYER" --device cuda --local-files-only
 fi
 
-if [[ "$REWORD" == "1" && ! -f "$PREP/association_examples.json" ]]; then
-  test ! -e "$BASE/router" || { echo "Router already fit without rewordings: $BASE/router (move it aside)" >&2; exit 2; }
+# Router families are rewritten (deterministic, cheap) whenever the router is not
+# complete yet, so a fix to the examples step applies on rerun; an incomplete
+# router dir is moved aside by stage_ready below.
+if [[ "$REWORD" == "1" && ! -f "$ROUTER/fact_association_embeddings.pt" ]]; then
   if [[ ! -s "$REWORDINGS" ]]; then
     echo "===== [evaldu $SPLIT_TAG] 3b/6 REWORDINGS of the forget prefixes | $(date) ====="
     # shellcheck disable=SC2086

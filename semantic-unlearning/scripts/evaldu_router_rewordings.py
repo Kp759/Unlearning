@@ -233,13 +233,32 @@ def generate(args):
     print(json.dumps(stats, indent=2))
 
 
+def shared_rewordings(facts, per_fact):
+    """Rewordings (case-insensitive) that cannot name one fact: generated for
+    two or more facts (e.g. two forgotten sisters of one person both get "The
+    sibling of Scott Gray is"), or equal to any fact's training prefix."""
+    owners = {}
+    for fact in facts:
+        for text in dict.fromkeys(t.casefold() for t in per_fact.get(fact["id"], [])):
+            owners.setdefault(text, set()).add(fact["id"])
+    canonical = {str(p).strip().casefold() for f in facts
+                 for p in (f.get("canonical_prompts") or [f["canonical_prompt"]])}
+    return {t for t, ids in owners.items() if len(ids) > 1} | (set(owners) & canonical)
+
+
 def example_rows(facts, per_fact):
-    """Default families (canonical + context prefixes) plus rewording families."""
+    """Default families (canonical + context prefixes) plus rewording families.
+
+    A rewording shared by two facts is dropped from both (the router needs one
+    owner per positive prompt); the rest keep their order (4 train, 2 dev).
+    """
     from linear_router import examples_from_facts
 
     rows = examples_from_facts(facts, augment=True)
+    shared = shared_rewordings(facts, per_fact)
     for fact in facts:
-        words = list(per_fact.get(fact["id"], []))
+        words = list(dict.fromkeys(t for t in per_fact.get(fact["id"], [])
+                                   if t.casefold() not in shared))
         for k, text in enumerate(words[:TRAIN_REWORDINGS]):
             rows.append({"fact_id": fact["id"], "prompt": text, "split": "train",
                          "role": f"reword_{k}", "group": f"reword_{k}", "augmented": True})
@@ -256,10 +275,12 @@ def examples(args):
     artifact = torch.load(prep / "fact_association_embeddings.pt", map_location="cpu",
                           weights_only=False)
     payload = json.loads(Path(args.rewordings).read_text())
+    shared = shared_rewordings(artifact["facts"], payload["per_fact"])
     rows = example_rows(artifact["facts"], payload["per_fact"])
     target = prep / "association_examples.json"
     target.write_text(json.dumps(rows, indent=2) + "\n")
     counts = Counter(r["group"] for r in rows)
+    print(f"dropped {len(shared)} rewording(s) shared by two facts: {sorted(shared)[:10]}")
     print(f"wrote {len(rows)} examples to {target}: {dict(sorted(counts.items()))}")
 
 
