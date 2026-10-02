@@ -25,6 +25,7 @@
 # Env: SEED (1), GATE (threshold), TRAINING_ROUTE (router), SWEEP_TAG (by gate/route:
 # multiseed_regular_v1 | multiseed_genie_v1 | multiseed_subject_v1 |
 # multiseed_subject_genie_v1), MIN_RECALL (0.98), NORM_SCALE (1),
+# ROW_UPDATES (30 updates per association, the shipped budget),
 # MAX_TRAIN_SECONDS (14400, the shipped RWKU cap), MODEL_PATH (default: from an
 # earlier RWKU/MQuAKE run), BASE_EVAL (0), RECAL (1), MOVE_INCOMPLETE (1).
 set -euo pipefail
@@ -36,6 +37,7 @@ TRAINING_ROUTE="${TRAINING_ROUTE:-router}"
 MIN_RECALL="${MIN_RECALL:-0.98}"
 NORM_SCALE="${NORM_SCALE:-1}"
 MAX_TRAIN_SECONDS="${MAX_TRAIN_SECONDS:-14400}"
+ROW_UPDATES="${ROW_UPDATES:-}"
 BASE_EVAL="${BASE_EVAL:-0}"
 RECAL="${RECAL:-1}"
 MOVE_INCOMPLETE="${MOVE_INCOMPLETE:-1}"
@@ -133,6 +135,7 @@ if ! stage_ready "$FINAL" fact_association_embeddings.pt; then
     --router-dir "$ROUTER" --output-dir "$FINAL" \
     --training-route "$TRAINING_ROUTE" --norm-scale "$NORM_SCALE" \
     --max-training-seconds "$MAX_TRAIN_SECONDS" \
+    ${ROW_UPDATES:+--row-updates-per-fact "$ROW_UPDATES"} \
     --device cuda --local-files-only
 fi
 
