@@ -637,7 +637,15 @@ def train_direct_only(editor, tokenizer, token_cases, fact_to_row, plan, output)
                 plan["target_token_probability"],
             )
             current = metrics["maximum_sensitive_token_probability"]
-            selected = current < best_metric
+            # Rows are independent and a step is accepted only if it lowers its
+            # own fact's worst probability, so the latest sweep is never worse
+            # on any fact. With the flag, a tie (the worst fact stuck) takes the
+            # latest sweep instead of rolling every row back to the last gate
+            # where the worst fact still moved. Off = the shipped RWKU rule.
+            selected = current < best_metric or (
+                bool(plan.get("checkpoint_ties_select_latest", False))
+                and current <= best_metric
+            )
             if selected:
                 best_metric = current
                 best_state = _row_state(editor)

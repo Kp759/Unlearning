@@ -153,6 +153,20 @@ def test_rwku_layer_sweep_pipeline(tmp_path, monkeypatch):
             # entity-level gate: every held-out probe naming a protected person fires
             assert row["heldout_route_active"] == 1.0 and row["same50_route_correct"] is not None
 
+    # Latest-on-tie checkpoint rule: rows are independent and steps are accepted
+    # only when they lower their own fact's worst probability, so the global
+    # worst probability never rises and the latest gate is always restored.
+    sub = tmp_path / "subject"
+    assert rows_mod.main(["--dataset", "rwku", "--router-dir", str(sub / "router"),
+                          "--output-dir", str(sub / "rows_latest"), "--training-route", "router",
+                          "--row-updates-per-fact", "3", "--max-training-seconds", "120",
+                          "--checkpoint-ties-select-latest", "--device", "cpu",
+                          "--local-files-only"]) == 0
+    report = json.loads((sub / "rows_latest" / "training_report.json").read_text())
+    worst = [g["metrics"]["maximum_sensitive_token_probability"] for g in report["gates"]]
+    assert all(b <= a for a, b in zip(worst, worst[1:]))
+    assert report["best_step"] == report["gates"][-1]["step"]
+
     thr = tmp_path / "threshold"
     assert recal.main(["--router-dir", str(thr / "router"), "--rows-from", str(thr / "linear_global"),
                        "--output-dir", str(thr / "recall0.98_fact"), "--objective", "min_recall",

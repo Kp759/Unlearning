@@ -225,6 +225,9 @@ def main(argv=None):
                         help="default: the benchmark's shipped budget (30)")
     parser.add_argument("--max-training-seconds", type=float, default=None,
                         help="default: the benchmark's shipped cap (MQuAKE 7200, ZsRE 3600, RWKU 14400)")
+    parser.add_argument("--checkpoint-ties-select-latest", action="store_true",
+                        help="restore the latest gate when the worst fact is stuck (tie), "
+                             "instead of the last gate where it improved")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--local-files-only", action="store_true")
     args = parser.parse_args(argv)
@@ -336,6 +339,10 @@ def main(argv=None):
         "check_every": n,
         "row_updates_per_fact": updates,
         "max_training_seconds": max_seconds,
+        "checkpoint_ties_select_latest": bool(
+            args.checkpoint_ties_select_latest
+            or adapter["plan"].get("checkpoint_ties_select_latest", False)
+        ),
         "learning_rate": float(adapter["plan"]["learning_rate"]) * norm_scale,
         "radius_schedule": tuple(
             (float(upper), float(radius) * norm_scale)
