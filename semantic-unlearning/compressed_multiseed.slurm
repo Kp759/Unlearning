@@ -4,6 +4,9 @@
 #   sbatch --array=0-14 --export=ALL,DATASETS=mquake compressed_multiseed.slurm   # later: MQuAKE (15 tasks)
 #   Batch-size sweep (facts per optimizer step; 8 is the default run above), full + tied_answer:
 #   for B in 1 25 50; do sbatch --array=0-19%10 --export=ALL,BATCH_FACTS=$B,MODES="full tied_answer" compressed_multiseed.slurm; done
+#   Abstention ("I don't know.") ablation, full values: ZsRE/MQuAKE gain it, MCF loses it:
+#   sbatch --array=0-14%10 --export=ALL,DATASETS="mcf zsre mquake",MODES=full,ABSTAIN=flip compressed_multiseed.slurm
+#   (ABSTAIN=flip = off for MCF, on for ZsRE/MQuAKE; ABSTAIN=on|off applies to every dataset)
 # Task i -> (dataset, seed, mode) with mode fastest, then seed, then dataset.
 # The --array range must equal len(DATASETS) x len(SEEDS) x len(MODES) - 1.
 # Resumable: finished tasks are skipped. Summary:
@@ -57,8 +60,11 @@ MODE="${MODES_A[$(( I % ${#MODES_A[@]} ))]}"
 SEED="${SEEDS_A[$(( (I / ${#MODES_A[@]}) % ${#SEEDS_A[@]} ))]}"
 DATASET="${DS[$(( I / (${#MODES_A[@]} * ${#SEEDS_A[@]}) ))]}"
 
-echo "compressed multiseed | job ${SLURM_ARRAY_JOB_ID}_${I} | $DATASET seed $SEED $MODE batch ${BATCH_FACTS:-8} | node $(hostname) | $(date) | commit $(git rev-parse HEAD)"
+echo "compressed multiseed | job ${SLURM_ARRAY_JOB_ID}_${I} | $DATASET seed $SEED $MODE batch ${BATCH_FACTS:-8} abstain ${ABSTAIN:-default} | node $(hostname) | $(date) | commit $(git rev-parse HEAD)"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+if [[ "${ABSTAIN:-}" == flip ]]; then
+  if [[ "$DATASET" == mcf ]]; then export ABSTAIN=off; else export ABSTAIN=on; fi
+fi
 bash scripts/run_compressed_multiseed_one.sh "$DATASET" "$SEED" "$MODE"
 STATUS=$?
 echo "Finish: $(date) | status $STATUS"

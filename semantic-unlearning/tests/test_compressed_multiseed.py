@@ -72,3 +72,53 @@ def test_summary_table(tmp_path, capsys):
     assert lines[2].startswith("| full | 2 |") and lines[2].endswith("| 3072 | 0 | 2/2 |")
     assert lines[3].startswith("| tied_answer | 2 |") and "| 40/41 | 2/2 |" in lines[3]
     assert lines[4].startswith("| answer_fixed | 1 |") and lines[4].endswith("| 0/1 |")
+
+
+class _Tok:
+    """Characters -> ids; BOS=1 added unless add_special_tokens=False; pad=0."""
+    pad_token_id, eos_token_id = 0, 2
+
+    def __call__(self, text, add_special_tokens=True):
+        ids = [3 + (ord(c) % 20) for c in text]
+        return {"input_ids": ([1] if add_special_tokens else []) + ids}
+
+
+class _Model(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        torch.manual_seed(0)
+        self.emb = torch.nn.Embedding(32, 8)
+        self.out = torch.nn.Linear(8, 32)
+        self.prefix = None
+
+    def set_association_prefix_lengths(self, lengths):
+        self.prefix = list(lengths)
+
+    def forward(self, input_ids, attention_mask=None, use_cache=False):
+        return SimpleNamespace(logits=self.out(self.emb(input_ids)))
+
+
+def test_abstain_nll_scores_only_the_completion_after_each_boundary():
+    from train_direct_compressed_bank import abstain_batch, abstain_nll
+
+    tok, model = _Tok(), _Model()
+    batch = abstain_batch(tok, ["ab?", "abcd?"], " ok", "cpu")
+    assert batch["prefix"] == [4, 6] and batch["k"] == 3
+    nll = abstain_nll(model, batch)
+    assert model.prefix == [4, 6]                      # edit bound to each request end
+    logits = model(batch["ids"]).logits
+    manual = sum(torch.nn.functional.cross_entropy(logits[i, p - 1:p + 2], batch["ids"][i, p:p + 3])
+                 for i, p in enumerate([4, 6])) / 2
+    assert torch.allclose(nll, manual)
+    nll.backward()                                     # differentiable
+    assert model.out.weight.grad is not None
+
+
+def test_checkpoint_key_with_abstention_prefers_lower_nll_once_feasible():
+    ok = {"facts_total": 50, "facts_passing_probability_constraint": 50,
+          "maximum_sensitive_token_probability": 5e-7}
+    deeper = dict(ok, maximum_sensitive_token_probability=1e-9)
+    failing = dict(ok, facts_passing_probability_constraint=49)
+    assert checkpoint_key(ok, 0.5) < checkpoint_key(deeper, 2.0)   # abstention wins once feasible
+    assert checkpoint_key(deeper, 2.0) < checkpoint_key(failing, 0.1)  # feasibility first
+    assert checkpoint_key(ok) == (0, 5e-7)                         # unchanged without abstention

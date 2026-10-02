@@ -9,10 +9,17 @@ objective trains those compact parameters jointly across facts:
   direct-rewrite token contexts, driven below 1e-6
   (<module>.sensitive_token_state, the same loss the shipped row optimizer uses)
 
+Optional abstention (--abstain-text " I don't know."): adds weight x the
+teacher-forced NLL of that completion after each fact's request, the same term
+MCF's objective already has (PLAN["unknown_completion"], weight 1). The answer
+hinge is unchanged, so the true answer is still driven below 1e-6; abstention
+only decides what the model says instead.
+
 Checkpoints are picked on the training contexts with the shipped metric
 (<module>.direct_training_metrics): fewest failing facts, then the lowest
-worst-token probability. The router (weights, bias, subject patterns) is the
-fitted router in --router-dir, unchanged.
+worst-token probability. With abstention, once every fact meets the target the
+lowest abstention NLL wins (MCF's checkpoint rule). The router (weights, bias,
+subject patterns) is the fitted router in --router-dir, unchanged.
 
     python -u scripts/train_direct_compressed_bank.py --dataset zsre \
         --router-dir outputs/zsre_multiseed_reworded_v2/seed1/L19/router \
@@ -39,6 +46,7 @@ import shutil
 import time
 
 import torch
+from torch.nn import functional as F
 
 from compressed_value_bank import CompressedValues, answer_directions, parse_value_mode
 from linear_router import ARCHITECTURE
@@ -50,10 +58,49 @@ NEUTRAL_PROMPT = "A neutral sentence about mathematics and weather."
 DIRECT = ("zsre", "mquake")
 
 
-def checkpoint_key(metrics):
-    """Fewest facts over the target, then the lowest worst-token probability."""
+def checkpoint_key(metrics, abstain_nll=None):
+    """Fewest facts over the target, then the lowest worst-token probability.
+
+    With abstention (abstain_nll given): once every fact meets the target, the
+    lowest abstention NLL wins (MCF's rule); before that, as without it."""
     failing = int(metrics["facts_total"]) - int(metrics["facts_passing_probability_constraint"])
-    return (failing, float(metrics["maximum_sensitive_token_probability"]))
+    worst = float(metrics["maximum_sensitive_token_probability"])
+    if abstain_nll is None:
+        return (failing, worst)
+    return (0, float(abstain_nll), worst) if failing == 0 else (1, failing, worst)
+
+
+def abstain_batch(tok, prompts, completion, device):
+    """Right-padded [prompt + completion] ids for one fact's requests.
+
+    The request boundary (where the edit applies) is the prompt's own token
+    length, tokenized exactly as routing tokenizes it (special tokens on)."""
+    comp = list(tok(completion, add_special_tokens=False)["input_ids"])
+    if not comp:
+        raise ValueError(f"Abstention text {completion!r} has no tokens")
+    seqs, plen = [], []
+    for prompt in prompts:
+        ids = list(tok(prompt)["input_ids"])
+        plen.append(len(ids))
+        seqs.append(ids + comp)
+    width = max(len(x) for x in seqs)
+    pad = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
+    ids = torch.full((len(seqs), width), int(pad), dtype=torch.long)
+    mask = torch.zeros_like(ids)
+    for i, seq in enumerate(seqs):
+        ids[i, :len(seq)] = torch.tensor(seq, dtype=torch.long)
+        mask[i, :len(seq)] = 1
+    return {"ids": ids.to(device), "mask": mask.to(device), "prefix": plen, "k": len(comp)}
+
+
+def abstain_nll(model, batch):
+    """Mean NLL of the abstention completion right after each request boundary."""
+    model.set_association_prefix_lengths(batch["prefix"])
+    logits = model(input_ids=batch["ids"], attention_mask=batch["mask"], use_cache=False).logits
+    k, total = batch["k"], 0.0
+    for i, p in enumerate(batch["prefix"]):
+        total = total + F.cross_entropy(logits[i, p - 1:p - 1 + k].float(), batch["ids"][i, p:p + k])
+    return total / len(batch["prefix"])
 
 
 def first_answer_tokens(official, tokenizer, cases, facts, llama_like, device):
@@ -86,6 +133,9 @@ def main(argv=None):
     p.add_argument("--max-training-seconds", type=float, default=None,
                    help="default: the benchmark's shipped cap")
     p.add_argument("--clip", type=float, default=1.0)
+    p.add_argument("--abstain-text", default="",
+                   help='e.g. " I don\'t know." (MCF\'s unknown completion); empty = no abstention term')
+    p.add_argument("--abstain-weight", type=float, default=1.0)
     p.add_argument("--device", default="cuda")
     p.add_argument("--local-files-only", action="store_true")
     args = p.parse_args(argv)
@@ -169,6 +219,11 @@ def main(argv=None):
     for c in training_cases:
         by_fact[c.fact_id].append(c)
     fact_ids = sorted(by_fact)
+    abstain = {}
+    if args.abstain_text:
+        for fid in fact_ids:
+            prompts = list(dict.fromkeys(c.boundary_prompt for c in by_fact[fid]))
+            abstain[fid] = abstain_batch(tok, prompts, args.abstain_text, args.device)
     scalar = [q for n, q in values.named_parameters() if n in SCALAR_PARAMS]
     vector = [q for n, q in values.named_parameters() if n not in SCALAR_PARAMS]
     groups = [g for g in ({"params": vector, "lr": args.lr}, {"params": scalar, "lr": args.scale_lr})
@@ -181,6 +236,8 @@ def main(argv=None):
                       "value_mode": args.value_mode, "seed": seed, "facts_trained": len(fact_ids),
                       "untrainable_facts": len(untrainable), "pre_training_routing": pre_routing,
                       "answer_groups": int(values.answer_groups),
+                      "abstain_text": args.abstain_text or None,
+                      "abstain_weight": args.abstain_weight if args.abstain_text else 0.0,
                       "trainable_parameters": sum(q.numel() for q in params),
                       "storage": {k: storage[k] for k in ("per_fact_floats", "shared_floats",
                                                           "ratio_to_full_rows")}}), flush=True)
@@ -190,8 +247,15 @@ def main(argv=None):
             return module.direct_training_metrics(wrapped, tok, by_fact, target,
                                                   llama_like=llama_like)
 
+    def abstain_mean():
+        if not abstain:
+            return None
+        with torch.no_grad():
+            return float(sum(float(abstain_nll(wrapped, b)) for b in abstain.values()) / len(abstain))
+
     first = metrics()
-    best_key, best_state, best_epoch = checkpoint_key(first), values.compact_state(), 0
+    best_key = checkpoint_key(first, abstain_mean())
+    best_state, best_epoch = values.compact_state(), 0
     gates, feasible_streak, stop_reason = [], 0, "epoch_budget"
     started, rng = time.monotonic(), random.Random(seed)
     for epoch in range(1, args.epochs + 1):
@@ -207,13 +271,17 @@ def main(argv=None):
             for fid in batch:
                 state = module.sensitive_token_state(wrapped, tok, by_fact[fid], target,
                                                      llama_like=llama_like)
-                (state["loss"] / len(batch)).backward()
-                epoch_loss += float(state["loss"].detach())
+                loss = state["loss"]
+                if abstain:
+                    loss = loss + args.abstain_weight * abstain_nll(wrapped, abstain[fid])
+                (loss / len(batch)).backward()
+                epoch_loss += float(loss.detach())
             torch.nn.utils.clip_grad_norm_(params, args.clip, error_if_nonfinite=True)
             optimizer.step()
         if epoch % args.eval_every == 0 or epoch == args.epochs:
             m = metrics()
-            k = checkpoint_key(m)
+            a_nll = abstain_mean()
+            k = checkpoint_key(m, a_nll)
             selected = k < best_key
             if selected:
                 best_key, best_state, best_epoch = k, values.compact_state(), epoch
@@ -224,6 +292,7 @@ def main(argv=None):
                     "mean_epoch_loss": epoch_loss / max(len(order), 1),
                     "facts_passing": m["facts_passing_probability_constraint"],
                     "max_token_prob": m["maximum_sensitive_token_probability"],
+                    "abstain_mean_nll": a_nll,
                     "row_norm_median": float(norms.median()), "selected_as_best": selected}
             gates.append(gate)
             print(json.dumps({"phase": "compressed_gate", **gate}), flush=True)
@@ -269,6 +338,8 @@ def main(argv=None):
     new_manifest.update({
         "method": f"sure_linear_router_compressed_bank_{args.dataset}",
         "value_mode": args.value_mode, "training_route": args.training_route,
+        "abstain_text": args.abstain_text or None,
+        "abstain_weight": args.abstain_weight if args.abstain_text else 0.0,
         "router_v2_used": False, "training_coverage": coverage,
         "untrainable_fact_ids": untrainable, "value_storage": storage,
         "router_storage": router_storage(source),
@@ -288,8 +359,12 @@ def main(argv=None):
         "final_metrics_classifier_routing_all_contexts": classifier_metrics,
         "value_storage": storage, "router_storage": router_storage(source),
         "answer_groups": int(values.answer_groups),
+        "abstain_text": args.abstain_text or None,
+        "abstain_weight": args.abstain_weight if args.abstain_text else 0.0,
+        "final_abstain_mean_nll_training_requests": abstain_mean(),
         "hyperparameters": {k: getattr(args, k) for k in (
-            "lr", "scale_lr", "batch_facts", "epochs", "eval_every", "post_feasible_gates", "clip")},
+            "lr", "scale_lr", "batch_facts", "epochs", "eval_every", "post_feasible_gates", "clip",
+            "abstain_text", "abstain_weight")},
         "max_training_seconds": max_seconds,
         "reconstruction_max_abs_diff_vs_trained": drift,
     }

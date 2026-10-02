@@ -15,7 +15,11 @@
 # Output: outputs/<OUT_TAG>/<dataset>/seed<S>/L<LL>/<mode>/{fact_association_embeddings.pt,
 #   training_report.json, official_<dataset>_eval.json}. Resumable.
 # Env: LAYER (19), BATCH_FACTS (8: facts whose gradients form one optimizer step),
-# OUT_TAG (compressed_multiseed_v1 for BATCH_FACTS=8, else compressed_multiseed_bf<N>_v1),
+# ABSTAIN (unset = each dataset's shipped objective: MCF trains toward " I don't know."
+#   (weight 1), ZsRE/MQuAKE only suppress the answer; on = add the abstention term,
+#   off = drop it), ABSTAIN_TEXT (" I don't know."), ABSTAIN_WEIGHT (1.0),
+# OUT_TAG (compressed_multiseed[_bf<N>][_idk|_noidk]_v1: suffixes only when BATCH_FACTS != 8
+#   or ABSTAIN differs from the dataset's default, so default runs reuse compressed_multiseed_v1),
 # REF_TAG (per dataset: mcf/mquake multiseed_regular_v1, zsre multiseed_reworded_v2),
 # MOVE_INCOMPLETE (1).
 set -euo pipefail
@@ -25,8 +29,18 @@ MODE="${3:?value mode}"
 case "$DATASET" in mcf|zsre|mquake) ;; *) echo "DATASET must be mcf, zsre or mquake" >&2; exit 2;; esac
 LAYER="${LAYER:-19}"
 BATCH_FACTS="${BATCH_FACTS:-8}"
-if [[ "$BATCH_FACTS" == 8 ]]; then OUT_TAG="${OUT_TAG:-compressed_multiseed_v1}"
-else OUT_TAG="${OUT_TAG:-compressed_multiseed_bf${BATCH_FACTS}_v1}"; fi
+DEFAULT_ABSTAIN_TEXT=" I don't know."
+ABSTAIN_TEXT="${ABSTAIN_TEXT:-$DEFAULT_ABSTAIN_TEXT}"
+ABSTAIN_WEIGHT="${ABSTAIN_WEIGHT:-1.0}"
+DEFAULT_ABSTAIN=off; [[ "$DATASET" == mcf ]] && DEFAULT_ABSTAIN=on
+ABSTAIN="${ABSTAIN:-$DEFAULT_ABSTAIN}"
+case "$ABSTAIN" in on|off) ;; *) echo "ABSTAIN must be on or off" >&2; exit 2;; esac
+TAG="compressed_multiseed"
+[[ "$BATCH_FACTS" != 8 ]] && TAG="${TAG}_bf${BATCH_FACTS}"
+if [[ "$ABSTAIN" != "$DEFAULT_ABSTAIN" ]]; then
+  [[ "$ABSTAIN" == on ]] && TAG="${TAG}_idk" || TAG="${TAG}_noidk"
+fi
+OUT_TAG="${OUT_TAG:-${TAG}_v1}"
 MOVE_INCOMPLETE="${MOVE_INCOMPLETE:-1}"
 case "$DATASET" in
   zsre) REF_TAG="${REF_TAG:-multiseed_reworded_v2}" ;;
@@ -43,7 +57,7 @@ EVAL_JSON="official_${DATASET}_eval.json"
 for f in "$ROUTER/fact_association_embeddings.pt" "$ROUTER/association_manifest.json"; do
   test -f "$f" || { echo "Missing router from the multiseed sweep: $f" >&2; exit 2; }
 done
-echo "[$DATASET s$SEED L$LL $MODE batch=$BATCH_FACTS] router $ROUTER -> $OUT"
+echo "[$DATASET s$SEED L$LL $MODE batch=$BATCH_FACTS abstain=$ABSTAIN] router $ROUTER -> $OUT"
 
 if [[ ! -f "$OUT/training_report.json" ]]; then
   if [[ -e "$OUT" ]]; then
@@ -53,13 +67,17 @@ if [[ ! -f "$OUT/training_report.json" ]]; then
   mkdir -p "$(dirname "$OUT")"
   echo "===== [$DATASET s$SEED L$LL $MODE] 1/2 TRAIN compressed values in the loop ====="
   if [[ "$DATASET" == mcf ]]; then
+    # MCF's objective already has the " I don't know." term (PLAN unknown_weight 1).
+    UNKNOWN_WEIGHT="$ABSTAIN_WEIGHT"; [[ "$ABSTAIN" == off ]] && UNKNOWN_WEIGHT=0
     python -u scripts/train_mcf_compressed_bank.py --router-dir "$ROUTER" --output-dir "$OUT" \
       --value-mode "$MODE" --training-route router --batch-facts "$BATCH_FACTS" \
-      --device cuda --local-files-only
+      --unknown-weight "$UNKNOWN_WEIGHT" --device cuda --local-files-only
   else
+    ABSTAIN_ARGS=()
+    [[ "$ABSTAIN" == on ]] && ABSTAIN_ARGS=(--abstain-text "$ABSTAIN_TEXT" --abstain-weight "$ABSTAIN_WEIGHT")
     python -u scripts/train_direct_compressed_bank.py --dataset "$DATASET" --router-dir "$ROUTER" \
       --output-dir "$OUT" --value-mode "$MODE" --training-route router --batch-facts "$BATCH_FACTS" \
-      --device cuda --local-files-only
+      ${ABSTAIN_ARGS[@]+"${ABSTAIN_ARGS[@]}"} --device cuda --local-files-only
   fi
 fi
 

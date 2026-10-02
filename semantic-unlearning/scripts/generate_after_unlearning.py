@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""What does the model actually generate after unlearning? MCF and ZsRE.
+"""What does the model actually generate after unlearning? MCF, ZsRE and MQuAKE.
 
 Greedy generations for the official evaluation prompts, from the base model and
 from one or more unlearned banks of the same dataset and seed, side by side:
@@ -11,15 +11,18 @@ from one or more unlearned banks of the same dataset and seed, side by side:
 
 Prompt groups (the official samples for the run's seed):
   rewrite, paraphrase   forget prompts: the true answer should be GONE
+  atomic_gen            MQuAKE's forget question form: the answer should be GONE
   neighborhood          other subjects (MCF: same answer; ZsRE: unrelated NQ
                         questions): output should be UNCHANGED
-  retain                retained facts: the answer should STAY
+  retain                retained facts: the answer should STAY (MQuAKE: rewrite and
+                        atomic_gen of retained records)
 Generation uses the bank's own contract: uncached greedy decoding with the edit
 bound to the original request boundary (AssociationCausalLM.
 generate_uncached_fixed_boundary). The base model is decoded the same way.
 
 Per prompt it records the continuation, whether the true answer appears
-(case-insensitive substring), and which bank row fired (and that row's answer).
+(case-insensitive substring), whether the model abstains ("I don't know",
+"unknown", ...), and which bank row fired (and that row's answer).
 Writes <out>.jsonl (every prompt) and <out>.md (summary + examples).
 """
 from __future__ import annotations
@@ -35,7 +38,10 @@ import torch
 
 from linear_router import load_router_artifact
 
-FORGET = ("rewrite", "paraphrase")
+FORGET = ("rewrite", "paraphrase", "atomic_gen")
+GROUP_ORDER = ("rewrite", "paraphrase", "atomic_gen", "neighborhood", "retain")
+ABSTAIN_MARKERS = ("i don't know", "i do not know", "don't know", "unknown", "not known",
+                   "no information", "i'm not sure", "i am not sure")
 
 
 def norm(text):
@@ -45,6 +51,11 @@ def norm(text):
 def contains_answer(text, answer):
     a = norm(answer)
     return bool(a) and a in norm(text)
+
+
+def abstains(text):
+    t = norm(str(text).replace("\u2019", "'"))
+    return any(m in t for m in ABSTAIN_MARKERS)
 
 
 def first_line(text, limit=120):
@@ -63,11 +74,13 @@ def manifest_seed(manifest):
 def dataset_of(manifest, artifact, run_dir):
     for v in (artifact.get("dataset"), manifest.get("dataset"), str(run_dir)):
         v = str(v or "").lower()
+        if "mquake" in v:
+            return "mquake"
         if "zsre" in v:
             return "zsre"
         if "mcf" in v or "counterfact" in v:
             return "mcf"
-    raise ValueError(f"cannot tell whether {run_dir} is MCF or ZsRE")
+    raise ValueError(f"cannot tell whether {run_dir} is MCF, ZsRE or MQuAKE")
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +130,34 @@ def prompts_zsre(args, seed, tok):
     return out
 
 
+def prompts_mquake(args, seed, tok, artifact):
+    import mquake_zero_unlearn_official_eval as mquake
+
+    forget, retain = mquake.load_official_eval_records(
+        Path(args.mquake_path), tok, forget_num=50, retain_num=1000, seed=seed)
+    case_map = {str(k): str(v) for k, v in artifact.get("atomic_case_to_association_id", {}).items()}
+    if not case_map:
+        raise ValueError("MQuAKE artifact has no atomic_case_to_association_id")
+    out = []
+    for split, records in (("forget", forget), ("retain", retain)):
+        for rec in records:
+            rr = rec["requested_rewrite"]
+            fid = case_map[str(rec["case_id"])] if split == "forget" else None
+            ans = rr["target_true"]["str"]
+            for g, prompt in (("rewrite", str(rr["prompt"]).format(rr["subject"])),
+                              ("atomic_gen", str(rec["atomic_gen_prompt"]))):
+                out.append({"group": g if split == "forget" else "retain", "prompt": prompt,
+                            "answer": ans, "fact_id": fid, "about_fact": None})
+    # One association can back several atomic records: keep each distinct forget prompt once.
+    seen, unique = set(), []
+    for q in out:
+        key = (q["group"], q["prompt"], q["fact_id"])
+        if key not in seen:
+            seen.add(key)
+            unique.append(q)
+    return unique
+
+
 def limit_retain(prompts, n, seed):
     keep = [p for p in prompts if p["group"] != "retain"]
     retain = [p for p in prompts if p["group"] == "retain"]
@@ -160,6 +201,8 @@ def summarize(rows, labels):
             c["prompts"] += 1
             c["base_has_answer"] += base_has
             c["unlearned_has_answer"] += run["has_answer"]
+            c["base_abstains"] += abstains(r["base_output"])
+            c["unlearned_abstains"] += run["abstains"]
             c["removed"] += base_has and not run["has_answer"]
             c["output_changed"] += run["output"].strip() != r["base_output"].strip()
             c["row_fired"] += run["routed_row"] is not None
@@ -176,15 +219,17 @@ def write_markdown(path, meta, summary, rows, labels, examples):
          "Answer present = the true answer appears in the continuation (case-insensitive).", ""]
     for label in labels:
         L += [f"## {label}", f"`{meta['runs'][label]}`", "",
-              "| group | prompts | answer in base | answer after | removed | output changed | row fired | fired own row |",
-              "|---|---|---|---|---|---|---|---|"]
-        for g in ("rewrite", "paraphrase", "neighborhood", "retain"):
+              "| group | prompts | answer in base | answer after | removed | abstains (base → after) "
+              "| output changed | row fired | fired own row |",
+              "|---|---|---|---|---|---|---|---|---|"]
+        for g in GROUP_ORDER:
             c = summary[label].get(g)
             if not c:
                 continue
             own = c.get("fired_own_row", "–")
             L.append(f"| {g} | {c['prompts']} | {c['base_has_answer']} | {c['unlearned_has_answer']} | "
-                     f"{c['removed']} | {c['output_changed']} | {c['row_fired']} | {own} |")
+                     f"{c['removed']} | {c['base_abstains']} → {c['unlearned_abstains']} | "
+                     f"{c['output_changed']} | {c['row_fired']} | {own} |")
         L.append("")
     L += ["## Examples", ""]
     shown = Counter()
@@ -199,7 +244,8 @@ def write_markdown(path, meta, summary, rows, labels, examples):
             fired = (f" _(row {run['routed_row']} → {run['routed_answer']})_"
                      if run["routed_row"] is not None else " _(no row)_")
             L.append(f"- {label}: {first_line(run['output'])}"
-                     + (" ⚠️ answer" if run["has_answer"] else "") + fired)
+                     + (" ⚠️ answer" if run["has_answer"] else "")
+                     + (" 🛑 abstains" if run["abstains"] else "") + fired)
         L.append("")
     Path(path).write_text("\n".join(L) + "\n")
 
@@ -211,7 +257,8 @@ def main(argv=None):
     p.add_argument("--labels", nargs="+", default=None, help="one label per run dir")
     p.add_argument("--mcf-path", default="data/multi_counterfact.json")
     p.add_argument("--zsre-path", default="data/zsre_mend_eval.json")
-    p.add_argument("--groups", nargs="+", default=["rewrite", "paraphrase", "neighborhood", "retain"])
+    p.add_argument("--mquake-path", default="data/MQuAKE-CF-3k-v2.json")
+    p.add_argument("--groups", nargs="+", default=list(GROUP_ORDER))
     p.add_argument("--neighborhood-per-fact", type=int, default=1)
     p.add_argument("--retain", type=int, default=50, help="retain prompts sampled (0 = all 1000)")
     p.add_argument("--max-new-tokens", type=int, default=24)
@@ -245,7 +292,12 @@ def main(argv=None):
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     tok.padding_side = "right"
-    prompts = prompts_mcf(a, seed) if ds == "mcf" else prompts_zsre(a, seed, tok)
+    if ds == "mcf":
+        prompts = prompts_mcf(a, seed)
+    elif ds == "zsre":
+        prompts = prompts_zsre(a, seed, tok)
+    else:
+        prompts = prompts_mquake(a, seed, tok, artifacts[0])
     prompts = [q for q in limit_retain(prompts, a.retain, seed) if q["group"] in a.groups]
     known = set(fact_ids[0])
     missing = {q["fact_id"] for q in prompts if q["fact_id"] and q["fact_id"] not in known}
@@ -283,6 +335,7 @@ def main(argv=None):
                 row = int(active[0]) if active else None
                 r["runs"][label] = {
                     "output": text, "has_answer": contains_answer(text, r["answer"]),
+                    "abstains": abstains(text),
                     "routed_row": row,
                     "routed_fact_id": str(facts[row]["id"]) if row is not None else None,
                     "routed_answer": str(facts[row].get("object", "")) if row is not None else None,
