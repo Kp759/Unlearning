@@ -2,6 +2,8 @@
 # Shared-vector banks on all 5 seeds: does combining facts into one vector keep the results?
 #   sbatch compressed_multiseed.slurm                       # MCF + ZsRE: 2 x 5 seeds x 3 modes = 30 tasks
 #   sbatch --array=0-14 --export=ALL,DATASETS=mquake compressed_multiseed.slurm   # later: MQuAKE (15 tasks)
+#   Batch-size sweep (facts per optimizer step; 8 is the default run above), full + tied_answer:
+#   for B in 1 25 50; do sbatch --array=0-19%10 --export=ALL,BATCH_FACTS=$B,MODES="full tied_answer" compressed_multiseed.slurm; done
 # Task i -> (dataset, seed, mode) with mode fastest, then seed, then dataset.
 # The --array range must equal len(DATASETS) x len(SEEDS) x len(MODES) - 1.
 # Resumable: finished tasks are skipped. Summary:
@@ -55,7 +57,7 @@ MODE="${MODES_A[$(( I % ${#MODES_A[@]} ))]}"
 SEED="${SEEDS_A[$(( (I / ${#MODES_A[@]}) % ${#SEEDS_A[@]} ))]}"
 DATASET="${DS[$(( I / (${#MODES_A[@]} * ${#SEEDS_A[@]}) ))]}"
 
-echo "compressed multiseed | job ${SLURM_ARRAY_JOB_ID}_${I} | $DATASET seed $SEED $MODE | node $(hostname) | $(date) | commit $(git rev-parse HEAD)"
+echo "compressed multiseed | job ${SLURM_ARRAY_JOB_ID}_${I} | $DATASET seed $SEED $MODE batch ${BATCH_FACTS:-8} | node $(hostname) | $(date) | commit $(git rev-parse HEAD)"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 bash scripts/run_compressed_multiseed_one.sh "$DATASET" "$SEED" "$MODE"
 STATUS=$?

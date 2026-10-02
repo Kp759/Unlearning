@@ -14,15 +14,19 @@
 #
 # Output: outputs/<OUT_TAG>/<dataset>/seed<S>/L<LL>/<mode>/{fact_association_embeddings.pt,
 #   training_report.json, official_<dataset>_eval.json}. Resumable.
-# Env: LAYER (19), OUT_TAG (compressed_multiseed_v1), REF_TAG (per dataset: mcf/mquake
-# multiseed_regular_v1, zsre multiseed_reworded_v2), MOVE_INCOMPLETE (1).
+# Env: LAYER (19), BATCH_FACTS (8: facts whose gradients form one optimizer step),
+# OUT_TAG (compressed_multiseed_v1 for BATCH_FACTS=8, else compressed_multiseed_bf<N>_v1),
+# REF_TAG (per dataset: mcf/mquake multiseed_regular_v1, zsre multiseed_reworded_v2),
+# MOVE_INCOMPLETE (1).
 set -euo pipefail
 DATASET="${1:?Usage: run_compressed_multiseed_one.sh DATASET SEED VALUE_MODE}"
 SEED="${2:?seed}"
 MODE="${3:?value mode}"
 case "$DATASET" in mcf|zsre|mquake) ;; *) echo "DATASET must be mcf, zsre or mquake" >&2; exit 2;; esac
 LAYER="${LAYER:-19}"
-OUT_TAG="${OUT_TAG:-compressed_multiseed_v1}"
+BATCH_FACTS="${BATCH_FACTS:-8}"
+if [[ "$BATCH_FACTS" == 8 ]]; then OUT_TAG="${OUT_TAG:-compressed_multiseed_v1}"
+else OUT_TAG="${OUT_TAG:-compressed_multiseed_bf${BATCH_FACTS}_v1}"; fi
 MOVE_INCOMPLETE="${MOVE_INCOMPLETE:-1}"
 case "$DATASET" in
   zsre) REF_TAG="${REF_TAG:-multiseed_reworded_v2}" ;;
@@ -39,7 +43,7 @@ EVAL_JSON="official_${DATASET}_eval.json"
 for f in "$ROUTER/fact_association_embeddings.pt" "$ROUTER/association_manifest.json"; do
   test -f "$f" || { echo "Missing router from the multiseed sweep: $f" >&2; exit 2; }
 done
-echo "[$DATASET s$SEED L$LL $MODE] router $ROUTER -> $OUT"
+echo "[$DATASET s$SEED L$LL $MODE batch=$BATCH_FACTS] router $ROUTER -> $OUT"
 
 if [[ ! -f "$OUT/training_report.json" ]]; then
   if [[ -e "$OUT" ]]; then
@@ -50,10 +54,12 @@ if [[ ! -f "$OUT/training_report.json" ]]; then
   echo "===== [$DATASET s$SEED L$LL $MODE] 1/2 TRAIN compressed values in the loop ====="
   if [[ "$DATASET" == mcf ]]; then
     python -u scripts/train_mcf_compressed_bank.py --router-dir "$ROUTER" --output-dir "$OUT" \
-      --value-mode "$MODE" --training-route router --device cuda --local-files-only
+      --value-mode "$MODE" --training-route router --batch-facts "$BATCH_FACTS" \
+      --device cuda --local-files-only
   else
     python -u scripts/train_direct_compressed_bank.py --dataset "$DATASET" --router-dir "$ROUTER" \
-      --output-dir "$OUT" --value-mode "$MODE" --training-route router --device cuda --local-files-only
+      --output-dir "$OUT" --value-mode "$MODE" --training-route router --batch-facts "$BATCH_FACTS" \
+      --device cuda --local-files-only
   fi
 fi
 
