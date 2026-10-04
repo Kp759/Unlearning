@@ -18,10 +18,14 @@
 # ABSTAIN (unset = each dataset's shipped objective: MCF trains toward " I don't know."
 #   (weight 1), ZsRE/MQuAKE only suppress the answer; on = add the abstention term,
 #   off = drop it), ABSTAIN_TEXT (" I don't know."), ABSTAIN_WEIGHT (1.0),
-# OUT_TAG (compressed_multiseed[_bf<N>][_idk|_noidk]_v1: suffixes only when BATCH_FACTS != 8
-#   or ABSTAIN differs from the dataset's default, so default runs reuse compressed_multiseed_v1),
+# ABSTAIN_EOS (0; 1 = end the abstention with the tokenizer's end token so generation stops
+#   right after "I don't know." instead of continuing and naming the answer; needs ABSTAIN=on),
 # REF_TAG (per dataset: mcf/mquake/rwku multiseed_regular_v1, zsre multiseed_reworded_v2;
 #   RWKU subject gate: REF_TAG=multiseed_subject_v1),
+# OUT_TAG (compressed_multiseed[_bf<N>][_idk|_noidk|_idk_eos][_<router>]_v1: _idk/_noidk only
+#   when ABSTAIN differs from the dataset's default, _idk_eos whenever ABSTAIN_EOS=1, _<router>
+#   (e.g. _subject) when REF_TAG is not the dataset's default; default runs reuse
+#   compressed_multiseed_v1),
 # MOVE_INCOMPLETE (1).
 set -euo pipefail
 DATASET="${1:?Usage: run_compressed_multiseed_one.sh DATASET SEED VALUE_MODE}"
@@ -39,17 +43,23 @@ ABSTAIN_WEIGHT="${ABSTAIN_WEIGHT:-1.0}"
 DEFAULT_ABSTAIN=off; [[ "$DATASET" == mcf ]] && DEFAULT_ABSTAIN=on
 ABSTAIN="${ABSTAIN:-$DEFAULT_ABSTAIN}"
 case "$ABSTAIN" in on|off) ;; *) echo "ABSTAIN must be on or off" >&2; exit 2;; esac
+ABSTAIN_EOS="${ABSTAIN_EOS:-0}"
+case "$ABSTAIN_EOS" in 0|1) ;; *) echo "ABSTAIN_EOS must be 0 or 1" >&2; exit 2;; esac
+[[ "$ABSTAIN_EOS" == 1 && "$ABSTAIN" != on ]] && { echo "ABSTAIN_EOS=1 needs ABSTAIN=on" >&2; exit 2; }
+DEFAULT_REF_TAG=multiseed_regular_v1; [[ "$DATASET" == zsre ]] && DEFAULT_REF_TAG=multiseed_reworded_v2
+REF_TAG="${REF_TAG:-$DEFAULT_REF_TAG}"
 TAG="compressed_multiseed"
 [[ "$BATCH_FACTS" != 8 ]] && TAG="${TAG}_bf${BATCH_FACTS}"
-if [[ "$ABSTAIN" != "$DEFAULT_ABSTAIN" ]]; then
+if [[ "$ABSTAIN_EOS" == 1 ]]; then
+  TAG="${TAG}_idk_eos"
+elif [[ "$ABSTAIN" != "$DEFAULT_ABSTAIN" ]]; then
   [[ "$ABSTAIN" == on ]] && TAG="${TAG}_idk" || TAG="${TAG}_noidk"
+fi
+if [[ "$REF_TAG" != "$DEFAULT_REF_TAG" ]]; then
+  ROUTER_NAME="${REF_TAG#multiseed_}"; TAG="${TAG}_${ROUTER_NAME%_v[0-9]*}"
 fi
 OUT_TAG="${OUT_TAG:-${TAG}_v1}"
 MOVE_INCOMPLETE="${MOVE_INCOMPLETE:-1}"
-case "$DATASET" in
-  zsre) REF_TAG="${REF_TAG:-multiseed_reworded_v2}" ;;
-  *)    REF_TAG="${REF_TAG:-multiseed_regular_v1}" ;;
-esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -61,7 +71,7 @@ EVAL_JSON="official_${DATASET}_eval.json"
 for f in "$ROUTER/fact_association_embeddings.pt" "$ROUTER/association_manifest.json"; do
   test -f "$f" || { echo "Missing router from the multiseed sweep: $f" >&2; exit 2; }
 done
-echo "[$DATASET s$SEED L$LL $MODE batch=$BATCH_FACTS abstain=$ABSTAIN] router $ROUTER -> $OUT"
+echo "[$DATASET s$SEED L$LL $MODE batch=$BATCH_FACTS abstain=$ABSTAIN eos=$ABSTAIN_EOS] router $ROUTER -> $OUT"
 
 if [[ ! -f "$OUT/training_report.json" ]]; then
   if [[ -e "$OUT" ]]; then
@@ -73,12 +83,15 @@ if [[ ! -f "$OUT/training_report.json" ]]; then
   if [[ "$DATASET" == mcf ]]; then
     # MCF's objective already has the " I don't know." term (PLAN unknown_weight 1).
     UNKNOWN_WEIGHT="$ABSTAIN_WEIGHT"; [[ "$ABSTAIN" == off ]] && UNKNOWN_WEIGHT=0
+    EOS_ARGS=(); [[ "$ABSTAIN_EOS" == 1 ]] && EOS_ARGS=(--unknown-eos)
     python -u scripts/train_mcf_compressed_bank.py --router-dir "$ROUTER" --output-dir "$OUT" \
       --value-mode "$MODE" --training-route router --batch-facts "$BATCH_FACTS" \
-      --unknown-weight "$UNKNOWN_WEIGHT" --device cuda --local-files-only
+      --unknown-weight "$UNKNOWN_WEIGHT" --unknown-completion "$ABSTAIN_TEXT" \
+      ${EOS_ARGS[@]+"${EOS_ARGS[@]}"} --device cuda --local-files-only
   else
     ABSTAIN_ARGS=()
     [[ "$ABSTAIN" == on ]] && ABSTAIN_ARGS=(--abstain-text "$ABSTAIN_TEXT" --abstain-weight "$ABSTAIN_WEIGHT")
+    [[ "$ABSTAIN_EOS" == 1 ]] && ABSTAIN_ARGS+=(--abstain-eos)
     python -u scripts/train_direct_compressed_bank.py --dataset "$DATASET" --router-dir "$ROUTER" \
       --output-dir "$OUT" --value-mode "$MODE" --training-route router --batch-facts "$BATCH_FACTS" \
       ${ABSTAIN_ARGS[@]+"${ABSTAIN_ARGS[@]}"} --device cuda --local-files-only

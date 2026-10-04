@@ -11,6 +11,10 @@
 #   sbatch --array=0-4 --time=10:00:00 --export=ALL,DATASETS=rwku,MODES=full,ABSTAIN=on compressed_multiseed.slurm
 #   sbatch --array=0-4 --time=10:00:00 --export=ALL,DATASETS=rwku,MODES=full compressed_multiseed.slurm
 #   (subject-gate router instead: add REF_TAG=multiseed_subject_v1)
+#   "I don't know." + end token (generation stops after the abstention), all four datasets:
+#   sbatch --array=0-14%10 --export=ALL,DATASETS="mcf zsre mquake",MODES=full,ABSTAIN=on,ABSTAIN_EOS=1 compressed_multiseed.slurm
+#   sbatch --array=0-4 --time=10:00:00 --export=ALL,DATASETS=rwku,MODES=full,ABSTAIN=on,ABSTAIN_EOS=1 compressed_multiseed.slurm
+#   sbatch --array=0-4 --time=10:00:00 --export=ALL,DATASETS=rwku,MODES=full,ABSTAIN=on,ABSTAIN_EOS=1,REF_TAG=multiseed_subject_v1 compressed_multiseed.slurm
 # Task i -> (dataset, seed, mode) with mode fastest, then seed, then dataset.
 # The --array range must equal len(DATASETS) x len(SEEDS) x len(MODES) - 1.
 # Resumable: finished tasks are skipped. Summary:
@@ -64,7 +68,7 @@ MODE="${MODES_A[$(( I % ${#MODES_A[@]} ))]}"
 SEED="${SEEDS_A[$(( (I / ${#MODES_A[@]}) % ${#SEEDS_A[@]} ))]}"
 DATASET="${DS[$(( I / (${#MODES_A[@]} * ${#SEEDS_A[@]}) ))]}"
 
-echo "compressed multiseed | job ${SLURM_ARRAY_JOB_ID}_${I} | $DATASET seed $SEED $MODE batch ${BATCH_FACTS:-8} abstain ${ABSTAIN:-default} | node $(hostname) | $(date) | commit $(git rev-parse HEAD)"
+echo "compressed multiseed | job ${SLURM_ARRAY_JOB_ID}_${I} | $DATASET seed $SEED $MODE batch ${BATCH_FACTS:-8} abstain ${ABSTAIN:-default} eos ${ABSTAIN_EOS:-0} ref ${REF_TAG:-default} | node $(hostname) | $(date) | commit $(git rev-parse HEAD)"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 if [[ "${ABSTAIN:-}" == flip ]]; then
   if [[ "$DATASET" == mcf ]]; then export ABSTAIN=off; else export ABSTAIN=on; fi

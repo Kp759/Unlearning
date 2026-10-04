@@ -76,19 +76,26 @@ def checkpoint_key(metrics, abstain_nll=None):
     return (0, float(abstain_nll), worst) if failing == 0 else (1, failing, worst)
 
 
-def abstain_batch(tok, prompts, completion, device):
+def abstain_batch(tok, prompts, completion, device, eos=False):
     """Right-padded [prompt + completion] ids for one fact's requests.
 
     The request boundary (where the edit applies) is the prompt's own token
-    length, tokenized exactly as routing tokenizes it (special tokens on)."""
-    return abstain_batch_ids(tok, [list(tok(p)["input_ids"]) for p in prompts], completion, device)
+    length, tokenized exactly as routing tokenizes it (special tokens on).
+    eos=True appends the tokenizer's end token, so decoding stops right after
+    the abstention instead of continuing (and possibly naming the answer)."""
+    return abstain_batch_ids(tok, [list(tok(p)["input_ids"]) for p in prompts], completion,
+                             device, eos=eos)
 
 
-def abstain_batch_ids(tok, prefixes, completion, device):
+def abstain_batch_ids(tok, prefixes, completion, device, eos=False):
     """As abstain_batch, from request token ids (RWKU cases carry ids, not strings)."""
     comp = list(tok(completion, add_special_tokens=False)["input_ids"])
     if not comp:
         raise ValueError(f"Abstention text {completion!r} has no tokens")
+    if eos:
+        if tok.eos_token_id is None:
+            raise ValueError("eos=True needs a tokenizer eos_token_id")
+        comp.append(int(tok.eos_token_id))
     seqs, plen = [], []
     for prefix in prefixes:
         ids = [int(t) for t in prefix]
@@ -150,6 +157,8 @@ def main(argv=None):
     p.add_argument("--abstain-text", default="",
                    help='e.g. " I don\'t know." (MCF\'s unknown completion); empty = no abstention term')
     p.add_argument("--abstain-weight", type=float, default=1.0)
+    p.add_argument("--abstain-eos", action="store_true",
+                   help="end the abstention with the tokenizer's end token (generation stops after it)")
     p.add_argument("--device", default="cuda")
     p.add_argument("--local-files-only", action="store_true")
     args = p.parse_args(argv)
@@ -250,10 +259,12 @@ def main(argv=None):
             if rwku:
                 prefixes = list(dict.fromkeys(tuple(c.input_ids[:int(c.boundary_length)])
                                               for c in by_fact[fid]))
-                abstain[fid] = abstain_batch_ids(tok, prefixes, args.abstain_text, args.device)
+                abstain[fid] = abstain_batch_ids(tok, prefixes, args.abstain_text, args.device,
+                                                 eos=args.abstain_eos)
             else:
                 prompts = list(dict.fromkeys(c.boundary_prompt for c in by_fact[fid]))
-                abstain[fid] = abstain_batch(tok, prompts, args.abstain_text, args.device)
+                abstain[fid] = abstain_batch(tok, prompts, args.abstain_text, args.device,
+                                             eos=args.abstain_eos)
     scalar = [q for n, q in values.named_parameters() if n in SCALAR_PARAMS]
     vector = [q for n, q in values.named_parameters() if n not in SCALAR_PARAMS]
     groups = [g for g in ({"params": vector, "lr": args.lr}, {"params": scalar, "lr": args.scale_lr})
@@ -403,7 +414,7 @@ def main(argv=None):
         "final_abstain_mean_nll_training_requests": abstain_mean(),
         "hyperparameters": {k: getattr(args, k) for k in (
             "lr", "scale_lr", "batch_facts", "epochs", "eval_every", "post_feasible_gates", "clip",
-            "abstain_text", "abstain_weight")},
+            "abstain_text", "abstain_weight", "abstain_eos")},
         "max_training_seconds": max_seconds,
         "reconstruction_max_abs_diff_vs_trained": drift,
     }

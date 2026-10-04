@@ -141,3 +141,18 @@ def test_rwku_token_id_abstention_and_first_tokens():
              SimpleNamespace(fact_id="a", token_index=0, target_token_id=7),
              SimpleNamespace(fact_id="b", token_index=0, target_token_id=8)]
     assert first_answer_tokens(None, tok, cases, [{"id": "a"}, {"id": "b"}], None, "cpu") == [7, 8]
+
+
+def test_abstention_can_end_with_the_end_token():
+    from train_direct_compressed_bank import abstain_batch, abstain_batch_ids, abstain_nll
+
+    tok, model = _Tok(), _Model()
+    plain = abstain_batch(tok, ["ab?"], " ok", "cpu")
+    ended = abstain_batch(tok, ["ab?"], " ok", "cpu", eos=True)
+    assert ended["k"] == plain["k"] + 1
+    p, k = ended["prefix"][0], ended["k"]
+    assert ended["ids"][0, p + k - 1].item() == tok.eos_token_id      # last trained token = end
+    assert ended["ids"][0, :p + k - 1].tolist() == plain["ids"][0, :p + k - 1].tolist()
+    ids = abstain_batch_ids(tok, [(1, 5)], " ok", "cpu", eos=True)
+    assert ids["ids"][0, 2 + ids["k"] - 1].item() == tok.eos_token_id
+    assert torch.isfinite(abstain_nll(model, ended))

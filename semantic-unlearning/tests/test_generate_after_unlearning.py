@@ -91,3 +91,22 @@ def test_summarize_rwku_outputs(tmp_path, capsys):
     assert "| forget: trained probes (Eff) | base | 1 | 1 (100%) | 0 (0%) | – |" in out
     assert "| neighbours (should stay) | joint_idk | 1 | 1 (100%) | 0 (0%) | 0 (0%) |" in out
     assert "joint_idk: I don't know. 🛑 abstains" in out and "shipped: Alice" in out
+
+
+def test_summarize_rwku_lists_eos_and_subject_arms(tmp_path, capsys):
+    import json
+    import summarize_rwku_outputs as sr
+
+    def write(path, pred):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        item = {"query": "q", "answer": "Bob", "prediction": pred,
+                "recovery_success": "Bob" in pred, "route_active": True}
+        path.write_text(json.dumps({"details": {"same_50_efficacy": [item]}}))
+
+    write(tmp_path / "compressed_multiseed_idk_eos_v1/rwku/seed1/L19/full/official_rwku_eval.json", "I don't know.")
+    write(tmp_path / "compressed_multiseed_idk_eos_subject_v1/rwku/seed1/L19/full/official_rwku_eval.json",
+          "I don't know.")
+    sr.main(["--root", str(tmp_path), "--seeds", "1"])
+    out = capsys.readouterr().out
+    assert "| joint_idk_eos | 1 | 0 (0%) | 1 (100%) |" in out
+    assert "| joint_idk_eos_subject | 1 | 0 (0%) | 1 (100%) |" in out

@@ -8,6 +8,7 @@
 #                MCF trains toward " I don't know.", ZsRE/MQuAKE only suppress the answer)
 #   joint_idk    outputs/compressed_multiseed_idk_v1/...   (ZsRE/MQuAKE + " I don't know." term)
 #   joint_noidk  outputs/compressed_multiseed_noidk_v1/... (MCF without its " I don't know." term)
+#   joint_idk_eos outputs/compressed_multiseed_idk_eos_v1/... (" I don't know." + end token: stops after it)
 # Output: outputs/generations/<ds>_seed<S>.{md,jsonl} (overwritten on rerun).
 #SBATCH --job-name=generations
 #SBATCH --partition=gpu
@@ -63,6 +64,7 @@ add shipped     "outputs/${DATASET}_${REF}/seed${SEED}/L${LL}/linear_global"
 add joint       "outputs/compressed_multiseed_v1/${DATASET}/seed${SEED}/L${LL}/full"
 add joint_idk   "outputs/compressed_multiseed_idk_v1/${DATASET}/seed${SEED}/L${LL}/full"
 add joint_noidk "outputs/compressed_multiseed_noidk_v1/${DATASET}/seed${SEED}/L${LL}/full"
+add joint_idk_eos "outputs/compressed_multiseed_idk_eos_v1/${DATASET}/seed${SEED}/L${LL}/full"
 (( ${#DIRS[@]} )) || { echo "no run dirs for $DATASET seed $SEED" >&2; exit 2; }
 
 echo "generations | job ${SLURM_ARRAY_JOB_ID}_${I} | $DATASET seed $SEED | arms: ${LABELS[*]} | node $(hostname) | $(date) | commit $(git rev-parse HEAD)"

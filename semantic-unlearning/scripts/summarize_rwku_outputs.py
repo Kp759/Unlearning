@@ -14,6 +14,9 @@ Arms (included when the eval file exists):
   shipped     outputs/rwku_<REF>/seed<S>/L<LL>/linear_global
   joint       outputs/compressed_multiseed_v1/rwku/seed<S>/L<LL>/full
   joint_idk   outputs/compressed_multiseed_idk_v1/rwku/seed<S>/L<LL>/full
+  joint_idk_eos          outputs/compressed_multiseed_idk_eos_v1/rwku/...  (+ end token)
+  shipped_subject        outputs/rwku_multiseed_subject_v1/seed<S>/L<LL>/linear_global
+  joint_idk_eos_subject  outputs/compressed_multiseed_idk_eos_subject_v1/rwku/...  (subject gate)
 """
 from __future__ import annotations
 
@@ -44,6 +47,12 @@ def arm_paths(root, ref, seed, L):
         "joint": root / "compressed_multiseed_v1" / "rwku" / f"seed{seed}" / L / "full" / "official_rwku_eval.json",
         "joint_idk": root / "compressed_multiseed_idk_v1" / "rwku" / f"seed{seed}" / L / "full"
                      / "official_rwku_eval.json",
+        "joint_idk_eos": root / "compressed_multiseed_idk_eos_v1" / "rwku" / f"seed{seed}" / L / "full"
+                         / "official_rwku_eval.json",
+        "shipped_subject": root / "rwku_multiseed_subject_v1" / f"seed{seed}" / L / "linear_global"
+                           / "official_rwku_eval.json",
+        "joint_idk_eos_subject": root / "compressed_multiseed_idk_eos_subject_v1" / "rwku" / f"seed{seed}"
+                                 / L / "full" / "official_rwku_eval.json",
     }
 
 
@@ -76,7 +85,8 @@ def main(argv=None):
                     c["abstains"] += abstains(pred)
                     c["fired"] += bool(item.get("route_active"))
                     outputs[(seed, split, item.get("query"), item.get("answer"))][arm] = item
-    arms = [x for x in ("base", "shipped", "joint", "joint_idk") if seeds_of.get(x)]
+    arms = [x for x in ("base", "shipped", "joint", "joint_idk", "joint_idk_eos", "shipped_subject",
+                        "joint_idk_eos_subject") if seeds_of.get(x)]
     if not arms:
         print("no RWKU eval files found")
         return 1

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
+from dataclasses import replace
 import json
 from pathlib import Path
 import random
@@ -107,6 +108,11 @@ def main(argv=None):
     parser.add_argument("--eval-every", type=int, default=5, help="epochs between checkpoints")
     parser.add_argument("--max-training-seconds", type=float, default=float(PLAN["max_training_seconds"]))
     parser.add_argument("--unknown-weight", type=float, default=float(PLAN["unknown_weight"]))
+    parser.add_argument("--unknown-completion", default=str(PLAN["unknown_completion"]),
+                        help='abstention text the unknown term trains (default " I don\'t know.")')
+    parser.add_argument("--unknown-eos", action="store_true",
+                        help="end the abstention with the tokenizer's end token, so generation stops "
+                             "right after it instead of continuing (and possibly naming the answer)")
     parser.add_argument("--clip", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--device", default="cuda")
@@ -147,8 +153,15 @@ def main(argv=None):
     fact_to_row = {fact["id"]: index for index, fact in enumerate(facts)}
     answer_map = {example.id: example for example in examples}
     unknown_map = make_unknown_examples(
-        examples, tokenizer, PLAN["max_length"], PLAN["unknown_completion"]
+        examples, tokenizer, PLAN["max_length"], args.unknown_completion
     )
+    if args.unknown_eos:
+        eos = tokenizer.eos_token_id
+        if eos is None:
+            raise ValueError("--unknown-eos needs a tokenizer eos_token_id")
+        unknown_map = {k: replace(v, input_ids=list(v.input_ids) + [int(eos)],
+                                  labels=list(v.labels) + [int(eos)])
+                       for k, v in unknown_map.items()}
 
     # First answer token of each fact, from its canonical training example.
     answer_token = {}
@@ -340,7 +353,8 @@ def main(argv=None):
         "router_storage": router_storage(source),
         "hyperparameters": {k: getattr(args, k) for k in (
             "lr", "scale_lr", "batch_facts", "epochs", "eval_every",
-            "max_training_seconds", "unknown_weight", "clip", "seed")},
+            "max_training_seconds", "unknown_weight", "unknown_completion", "unknown_eos",
+            "clip", "seed")},
         "reconstruction_max_abs_diff_vs_trained": reconstruction_max_abs_diff,
     }
     (output / "training_report.json").write_text(json.dumps(report, indent=2) + "\n")

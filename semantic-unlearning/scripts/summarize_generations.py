@@ -20,6 +20,7 @@ from pathlib import Path
 from generate_after_unlearning import abstains
 
 GROUPS = ("rewrite", "paraphrase", "atomic_gen", "neighborhood", "retain")
+ORDER = ("shipped", "joint", "joint_noidk", "joint_idk", "joint_idk_eos")
 
 
 def short(text, n=70):
@@ -63,8 +64,7 @@ def main(argv=None):
 
     for ds in sorted(seeds):
         labels = ["base"] + sorted({k[1] for k in totals if k[0] == ds and k[1] != "base"},
-                                   key=lambda x: ("shipped", "joint", "joint_idk", "joint_noidk").index(x)
-                                   if x in ("shipped", "joint", "joint_idk", "joint_noidk") else 9)
+                                   key=lambda x: ORDER.index(x) if x in ORDER else 9)
         print(f"\n### {ds.upper()} (seeds {', '.join(map(str, sorted(seeds[ds])))})\n")
         print("| group | arm | prompts | true answer in output | abstains | output changed vs base |")
         print("|---|---|---|---|---|---|")
