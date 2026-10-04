@@ -2,7 +2,7 @@
 # Shared-vector (compressed) banks on the multiseed sweep's own routers, one task:
 #
 #   bash scripts/run_compressed_multiseed_one.sh DATASET SEED VALUE_MODE
-#     DATASET     mcf | zsre | mquake
+#     DATASET     mcf | zsre | mquake | rwku
 #     VALUE_MODE  full | tied_answer | answer_fixed | lowrank:K | answer_map:r ...
 #
 # The router is reused unchanged from outputs/<dataset>_<REF_TAG>/seed<S>/L<LL>/router
@@ -20,13 +20,17 @@
 #   off = drop it), ABSTAIN_TEXT (" I don't know."), ABSTAIN_WEIGHT (1.0),
 # OUT_TAG (compressed_multiseed[_bf<N>][_idk|_noidk]_v1: suffixes only when BATCH_FACTS != 8
 #   or ABSTAIN differs from the dataset's default, so default runs reuse compressed_multiseed_v1),
-# REF_TAG (per dataset: mcf/mquake multiseed_regular_v1, zsre multiseed_reworded_v2),
+# REF_TAG (per dataset: mcf/mquake/rwku multiseed_regular_v1, zsre multiseed_reworded_v2;
+#   RWKU subject gate: REF_TAG=multiseed_subject_v1),
 # MOVE_INCOMPLETE (1).
 set -euo pipefail
 DATASET="${1:?Usage: run_compressed_multiseed_one.sh DATASET SEED VALUE_MODE}"
 SEED="${2:?seed}"
 MODE="${3:?value mode}"
-case "$DATASET" in mcf|zsre|mquake) ;; *) echo "DATASET must be mcf, zsre or mquake" >&2; exit 2;; esac
+case "$DATASET" in mcf|zsre|mquake|rwku) ;; *) echo "DATASET must be mcf, zsre, mquake or rwku" >&2; exit 2;; esac
+# RWKU prompts use Llama-3's chat template, which embeds a date: pin it as the RWKU sweep does,
+# so training contexts and the evaluator see identical requests.
+[[ "$DATASET" == rwku ]] && export RWKU_CHAT_DATE_STRING="${RWKU_CHAT_DATE_STRING:-26 Jul 2024}"
 LAYER="${LAYER:-19}"
 BATCH_FACTS="${BATCH_FACTS:-8}"
 DEFAULT_ABSTAIN_TEXT=" I don't know."
@@ -99,6 +103,12 @@ if [[ ! -f "$OUT/$EVAL_JSON" ]]; then
         --run-dir "$OUT" --mquake-path "$ROOT/data/MQuAKE-CF-3k-v2.json" \
         --wikidata-dir "$ROOT/data/wikidata" --seed "$SEED" --device cuda \
         --dtype bfloat16 --batch-size 8 --local-files-only --allow-imperfect-direct-routing ;;
+    rwku)
+      # Generation-based RWKU eval; per-probe outputs land in details.*.prediction.
+      python -u scripts/evaluate_rwku_fact_association_embeddings_seed1.py \
+        --run-dir "$OUT" --data-root "$ROOT/data/rwku" --wikidata-dir "$ROOT/data/wikidata" \
+        --seed "$SEED" --device cuda --dtype bfloat16 --local-files-only --no-download \
+        --allow-imperfect-direct-routing --out "$OUT/$EVAL_JSON" ;;
   esac
 fi
 echo "===== [$DATASET s$SEED L$LL $MODE] COMPLETE -> $OUT ====="

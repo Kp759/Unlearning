@@ -25,9 +25,10 @@ METRICS = {
     "mcf": ["forget_Eff", "forget_Gen", "display_zero", "forget_Spe", "retain_Gen", "PPL"],
     "zsre": ["forget_Eff", "forget_Gen", "forget_Spe", "retain_Gen", "PPL"],
     "mquake": ["forget_Eff", "forget_AtomicGen", "retain_AtomicGen", "PPL"],
+    "rwku": ["forget_Eff", "forget_GenL1", "forget_GenL2", "forget_GenPara", "neighbor", "PPL"],
 }
 REF = {"mcf": "multiseed_regular_v1", "zsre": "multiseed_reworded_v2",
-       "mquake": "multiseed_regular_v1"}
+       "mquake": "multiseed_regular_v1", "rwku": "multiseed_regular_v1"}
 MODE_ORDER = ("full", "tied_answer", "answer_fixed")
 TARGET_MET = ("global_train_and_development_target_met", "global_target_met")
 
@@ -51,7 +52,9 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--root", default="outputs")
     p.add_argument("--out-tag", default="compressed_multiseed_v1")
-    p.add_argument("--datasets", nargs="+", default=["mcf", "zsre", "mquake"])
+    p.add_argument("--datasets", nargs="+", default=["mcf", "zsre", "mquake", "rwku"])
+    p.add_argument("--ref-tag", default=None,
+                   help="shipped sweep tag for every dataset (e.g. RWKU subject gate: multiseed_subject_v1)")
     p.add_argument("--layer", default="19")
     p.add_argument("--seeds", nargs="+", default=["1", "2", "3", "4", "5"])
     a = p.parse_args(argv)
@@ -69,7 +72,8 @@ def main(argv=None):
         print("| values | seeds done | " + " | ".join(cols)
               + " | floats / fact | shared vectors | target met |")
         print("|" + "---|" * (len(cols) + 5))
-        arms = [("shipped (row-wise, per fact)", lambda s: root / f"{ds}_{REF[ds]}" / f"seed{s}" / L / "linear_global")]
+        ref = a.ref_tag or REF[ds]
+        arms = [("shipped (row-wise, per fact)", lambda s: root / f"{ds}_{ref}" / f"seed{s}" / L / "linear_global")]
         arms += [(m, (lambda s, m=m: base / f"seed{s}" / L / m)) for m in modes]
         for label, path_of in arms:
             vals = {c: [] for c in cols}

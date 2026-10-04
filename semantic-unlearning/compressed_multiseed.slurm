@@ -7,6 +7,10 @@
 #   Abstention ("I don't know.") ablation, full values: ZsRE/MQuAKE gain it, MCF loses it:
 #   sbatch --array=0-14%10 --export=ALL,DATASETS="mcf zsre mquake",MODES=full,ABSTAIN=flip compressed_multiseed.slurm
 #   (ABSTAIN=flip = off for MCF, on for ZsRE/MQuAKE; ABSTAIN=on|off applies to every dataset)
+#   RWKU (needs a longer --time: row training cap 4 h + generation-based eval), joint with and without IDK:
+#   sbatch --array=0-4 --time=10:00:00 --export=ALL,DATASETS=rwku,MODES=full,ABSTAIN=on compressed_multiseed.slurm
+#   sbatch --array=0-4 --time=10:00:00 --export=ALL,DATASETS=rwku,MODES=full compressed_multiseed.slurm
+#   (subject-gate router instead: add REF_TAG=multiseed_subject_v1)
 # Task i -> (dataset, seed, mode) with mode fastest, then seed, then dataset.
 # The --array range must equal len(DATASETS) x len(SEEDS) x len(MODES) - 1.
 # Resumable: finished tasks are skipped. Summary:

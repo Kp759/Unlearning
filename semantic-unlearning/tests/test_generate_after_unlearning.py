@@ -66,3 +66,28 @@ def test_summarize_generations_table(tmp_path, capsys):
     assert "| rewrite | shipped | 1 | 0 (0%) | 0 (0%) | 1 (100%) |" in out
     assert "| retain | joint_idk | 1 | 1 (100%) | 0 (0%) | 0 (0%) |" in out
     assert "joint_idk: I don't know." in out
+
+
+def test_summarize_rwku_outputs(tmp_path, capsys):
+    import json
+    import summarize_rwku_outputs as sr
+
+    def write(path, pred, recovered, fired):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        item = {"query": "Who is X's father?", "answer": "Bob", "prediction": pred,
+                "recovery_success": recovered, "route_active": fired}
+        nb = {"query": "Capital of Y?", "answer": "Z", "prediction": "Z", "recovery_success": True,
+              "route_active": False}
+        path.write_text(json.dumps({"details": {"same_50_efficacy": [item], "neighbors": [nb]}}))
+
+    write(tmp_path / "rwku_multiseed_base_v1/seed1/official_rwku_eval.json", "Bob", True, False)
+    write(tmp_path / "rwku_multiseed_regular_v1/seed1/L19/linear_global/official_rwku_eval.json",
+          "Alice", False, True)
+    write(tmp_path / "compressed_multiseed_idk_v1/rwku/seed1/L19/full/official_rwku_eval.json",
+          "I don't know.", False, True)
+    sr.main(["--root", str(tmp_path), "--seeds", "1"])
+    out = capsys.readouterr().out
+    assert "| forget: trained probes (Eff) | joint_idk | 1 | 0 (0%) | 1 (100%) | 1 (100%) |" in out
+    assert "| forget: trained probes (Eff) | base | 1 | 1 (100%) | 0 (0%) | – |" in out
+    assert "| neighbours (should stay) | joint_idk | 1 | 1 (100%) | 0 (0%) | 0 (0%) |" in out
+    assert "joint_idk: I don't know. 🛑 abstains" in out and "shipped: Alice" in out

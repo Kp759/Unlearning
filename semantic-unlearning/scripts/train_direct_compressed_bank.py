@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compressed residual bank trained in the loop on direct-rewrite benchmarks (ZsRE, MQuAKE).
+"""Compressed residual bank trained in the loop on direct-rewrite benchmarks (ZsRE, MQuAKE, RWKU).
 
 The direct-objective counterpart of train_mcf_compressed_bank.py. Rows are
 CompressedValues(mode)(compact params) and the benchmark's own differentiable
@@ -51,11 +51,17 @@ from torch.nn import functional as F
 from compressed_value_bank import CompressedValues, answer_directions, parse_value_mode
 from linear_router import ARCHITECTURE
 from static_overlap_fact_association_embeddings import AssociationCausalLM
-from train_direct_linear_router_rows import dataset_adapter, genie_route_map, routes_for_cases
+from train_direct_linear_router_rows import (
+    dataset_adapter,
+    genie_route_map,
+    routes_for_cases,
+    routes_for_token_id_cases,
+    token_id_genie_key,
+)
 from train_mcf_compressed_bank import SCALAR_PARAMS, bank_from_artifact, router_storage
 
 NEUTRAL_PROMPT = "A neutral sentence about mathematics and weather."
-DIRECT = ("zsre", "mquake")
+DIRECT = ("zsre", "mquake", "rwku")
 
 
 def checkpoint_key(metrics, abstain_nll=None):
@@ -75,12 +81,17 @@ def abstain_batch(tok, prompts, completion, device):
 
     The request boundary (where the edit applies) is the prompt's own token
     length, tokenized exactly as routing tokenizes it (special tokens on)."""
+    return abstain_batch_ids(tok, [list(tok(p)["input_ids"]) for p in prompts], completion, device)
+
+
+def abstain_batch_ids(tok, prefixes, completion, device):
+    """As abstain_batch, from request token ids (RWKU cases carry ids, not strings)."""
     comp = list(tok(completion, add_special_tokens=False)["input_ids"])
     if not comp:
         raise ValueError(f"Abstention text {completion!r} has no tokens")
     seqs, plen = [], []
-    for prompt in prompts:
-        ids = list(tok(prompt)["input_ids"])
+    for prefix in prefixes:
+        ids = [int(t) for t in prefix]
         plen.append(len(ids))
         seqs.append(ids + comp)
     width = max(len(x) for x in seqs)
@@ -108,10 +119,13 @@ def first_answer_tokens(official, tokenizer, cases, facts, llama_like, device):
     first = {}
     for case in cases:
         if int(case.token_index) == 0 and case.fact_id not in first:
-            first[case.fact_id] = case.target_text
+            first[case.fact_id] = (int(case.target_token_id) if hasattr(case, "target_token_id")
+                                   else case.target_text)
     missing = [f["id"] for f in facts if f["id"] not in first]
     if missing:
         raise ValueError(f"No first-token context for facts {missing[:5]}")
+    if official is None:  # RWKU cases carry the target token id itself
+        return [int(first[f["id"]]) for f in facts]
     ids = official.official_target_ids(
         tokenizer, [first[f["id"]] for f in facts], llama_like=llama_like, device=device)
     return [int(t) for t in ids.tolist()]
@@ -142,6 +156,10 @@ def main(argv=None):
     mode, rank = parse_value_mode(args.value_mode)
     adapter = dataset_adapter(args.dataset)
     module, official = adapter["module"], adapter["official"]
+    rwku = args.dataset == "rwku"
+    if rwku:
+        # RWKU: token-id cases (chat-formatted requests), token-id routing and genie keys.
+        import rwku_fact_association_embeddings as rw
     max_seconds = float(args.max_training_seconds or adapter["max_seconds"])
 
     router_dir, output = Path(args.router_dir).resolve(), Path(args.output_dir).resolve()
@@ -180,7 +198,10 @@ def main(argv=None):
         base_logits = model(**neutral, use_cache=False).logits.detach().clone()
 
     # Token cases need a model with the association hook only for llama_like detection.
-    token_cases, llama_like = module.build_exact_direct_token_cases(records, facts, tok, model)
+    if rwku:
+        token_cases, llama_like = rw.build_exact_direct_token_cases(records, facts, tok), None
+    else:
+        token_cases, llama_like = module.build_exact_direct_token_cases(records, facts, tok, model)
     answer_token_ids = first_answer_tokens(official, tok, token_cases, facts, llama_like,
                                            args.device)
     hidden = int(model.config.hidden_size)
@@ -193,13 +214,17 @@ def main(argv=None):
         if not torch.equal(base_logits, wrapped(**neutral, use_cache=False).logits):
             raise ValueError("Unmatched neutral prompt left the exact base path")
 
-    routed = routes_for_cases(wrapped, bank, tok, token_cases, fact_to_row,
-                              adapter["prefix_lengths"])
+    if rwku:
+        routed = routes_for_token_id_cases(wrapped, bank, tok, token_cases, fact_to_row)
+    else:
+        routed = routes_for_cases(wrapped, bank, tok, token_cases, fact_to_row,
+                                  adapter["prefix_lengths"])
     pre_routing = {"token_contexts": len(token_cases), "routed_to_own_row": sum(routed.values()),
                    "fraction": sum(routed.values()) / len(token_cases)}
     excluded, untrainable = [], []
     if args.training_route == "oracle":
-        bank.set_oracle_routes(genie_route_map(official, tok, token_cases, fact_to_row))
+        bank.set_oracle_routes(genie_route_map(official, tok, token_cases, fact_to_row,
+                                               key_fn=token_id_genie_key if rwku else None))
         training_cases = list(token_cases)
     else:
         training_cases = [c for c in token_cases if routed[c.id]]
@@ -222,8 +247,13 @@ def main(argv=None):
     abstain = {}
     if args.abstain_text:
         for fid in fact_ids:
-            prompts = list(dict.fromkeys(c.boundary_prompt for c in by_fact[fid]))
-            abstain[fid] = abstain_batch(tok, prompts, args.abstain_text, args.device)
+            if rwku:
+                prefixes = list(dict.fromkeys(tuple(c.input_ids[:int(c.boundary_length)])
+                                              for c in by_fact[fid]))
+                abstain[fid] = abstain_batch_ids(tok, prefixes, args.abstain_text, args.device)
+            else:
+                prompts = list(dict.fromkeys(c.boundary_prompt for c in by_fact[fid]))
+                abstain[fid] = abstain_batch(tok, prompts, args.abstain_text, args.device)
     scalar = [q for n, q in values.named_parameters() if n in SCALAR_PARAMS]
     vector = [q for n, q in values.named_parameters() if n not in SCALAR_PARAMS]
     groups = [g for g in ({"params": vector, "lr": args.lr}, {"params": scalar, "lr": args.scale_lr})
@@ -242,10 +272,21 @@ def main(argv=None):
                       "storage": {k: storage[k] for k in ("per_fact_floats", "shared_floats",
                                                           "ratio_to_full_rows")}}), flush=True)
 
+    def state_of(cases):
+        """The benchmark's differentiable worst-token hinge for one fact's contexts."""
+        if rwku:
+            return rw.sensitive_token_state(wrapped, tok, cases, target)
+        return module.sensitive_token_state(wrapped, tok, cases, target, llama_like=llama_like)
+
+    def metrics_of(cases_by_fact):
+        if rwku:
+            return rw.direct_training_metrics(wrapped, tok, cases_by_fact, target)
+        return module.direct_training_metrics(wrapped, tok, cases_by_fact, target,
+                                              llama_like=llama_like)
+
     def metrics():
         with torch.no_grad():
-            return module.direct_training_metrics(wrapped, tok, by_fact, target,
-                                                  llama_like=llama_like)
+            return metrics_of(by_fact)
 
     def abstain_mean():
         if not abstain:
@@ -269,8 +310,7 @@ def main(argv=None):
             batch = order[start:start + args.batch_facts]
             optimizer.zero_grad(set_to_none=True)
             for fid in batch:
-                state = module.sensitive_token_state(wrapped, tok, by_fact[fid], target,
-                                                     llama_like=llama_like)
+                state = state_of(by_fact[fid])
                 loss = state["loss"]
                 if abstain:
                     loss = loss + args.abstain_weight * abstain_nll(wrapped, abstain[fid])
@@ -320,8 +360,7 @@ def main(argv=None):
     for c in token_cases:
         all_by_fact[c.fact_id].append(c)
     with torch.no_grad():
-        classifier_metrics = module.direct_training_metrics(wrapped, tok, all_by_fact, target,
-                                                            llama_like=llama_like)
+        classifier_metrics = metrics_of(all_by_fact)
 
     artifact = dict(source)
     artifact["rows"] = rows

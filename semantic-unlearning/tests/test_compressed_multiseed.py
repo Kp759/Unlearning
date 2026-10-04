@@ -122,3 +122,22 @@ def test_checkpoint_key_with_abstention_prefers_lower_nll_once_feasible():
     assert checkpoint_key(ok, 0.5) < checkpoint_key(deeper, 2.0)   # abstention wins once feasible
     assert checkpoint_key(deeper, 2.0) < checkpoint_key(failing, 0.1)  # feasibility first
     assert checkpoint_key(ok) == (0, 5e-7)                         # unchanged without abstention
+
+
+def test_rwku_token_id_abstention_and_first_tokens():
+    from train_direct_compressed_bank import abstain_batch, abstain_batch_ids, abstain_nll
+
+    tok, model = _Tok(), _Model()
+    by_ids = abstain_batch_ids(tok, [(1, 5, 6, 7), (1, 5)], " ok", "cpu")
+    assert by_ids["prefix"] == [4, 2] and by_ids["k"] == 3
+    assert by_ids["ids"][1, :5].tolist() == [1, 5] + tok(" ok", add_special_tokens=False)["input_ids"]
+    # The string path is the id path on the tokenized prompt.
+    s = abstain_batch(tok, ["ab?"], " ok", "cpu")
+    i = abstain_batch_ids(tok, [tok("ab?")["input_ids"]], " ok", "cpu")
+    assert torch.equal(s["ids"], i["ids"]) and s["prefix"] == i["prefix"]
+    assert torch.isfinite(abstain_nll(model, by_ids))
+    # RWKU cases carry target_token_id; no official tokenizer helper is needed.
+    cases = [SimpleNamespace(fact_id="a", token_index=1, target_token_id=9),
+             SimpleNamespace(fact_id="a", token_index=0, target_token_id=7),
+             SimpleNamespace(fact_id="b", token_index=0, target_token_id=8)]
+    assert first_answer_tokens(None, tok, cases, [{"id": "a"}, {"id": "b"}], None, "cpu") == [7, 8]
