@@ -111,7 +111,7 @@ def _tiny_model(tmp_path):
     return model_dir, tok
 
 
-def test_rwku_layer_sweep_pipeline(tmp_path, monkeypatch):
+def test_rwku_layer_sweep_pipeline(tmp_path, monkeypatch, capsys):
     pytest.importorskip("datasets")
     monkeypatch.setattr(rwku_batch50, "build_batch_split", fake_build_batch_split)
     monkeypatch.setenv("RWKU_CHAT_DATE_STRING", "26 Jul 2024")
@@ -186,6 +186,31 @@ def test_rwku_layer_sweep_pipeline(tmp_path, monkeypatch):
     # the subject genie is a best-of over the same person's rows, chosen per probe
     assert rep["genie_row_use"]["heldout_level1"]["probes"] == 4
     assert summarize_dec(["--root", str(tmp_path), "--layers", "2"]) == 0
+    # Any other bank layout (e.g. the compressed "I don't know." banks) via --pattern.
+    other = tmp_path / "compressed_x" / "rwku" / "seed2" / "L02" / "full" / "decomposition"
+    other.mkdir(parents=True)
+    shutil.copy2(run / "decomposition" / "rwku_router_decomposition.json", other)
+    capsys.readouterr()
+    assert summarize_dec(["--root", str(tmp_path), "--layers", "2", "--pattern",
+                          "compressed_x/rwku/seed*/{L}/full/decomposition/rwku_router_decomposition.json"]) == 0
+    table = capsys.readouterr().out
+    assert "RWKU compressed_x L02" in table and "seeds: seed2" in table and "| Trained same-50 |" in table
+
+    # The same genie runs on a compressed "I don't know." + end-token bank
+    # (train_direct_compressed_bank.py output), as rwku_decomposition.slurm's RUN_TEMPLATE does.
+    import train_direct_compressed_bank as cb
+    idk = tmp_path / "compressed_idk" / "rwku" / "seed2" / "L02" / "full"
+    assert cb.main(["--dataset", "rwku", "--router-dir", str(sub / "router"), "--output-dir", str(idk),
+                    "--value-mode", "full", "--epochs", "2", "--eval-every", "1",
+                    "--abstain-text", " I don't know.", "--abstain-eos",
+                    "--device", "cpu", "--local-files-only"]) == 0
+    assert dec.main(["--run-dir", str(idk), "--data-root", str(tmp_path / "data"),
+                     "--output-dir", str(idk / "decomposition"), "--device", "cpu",
+                     "--dtype", "float32", "--local-files-only", "--no-download",
+                     "--max-rows-per-group", "4", "--max-new-tokens", "4"]) == 0
+    rep = json.loads((idk / "decomposition" / "rwku_router_decomposition.json").read_text())
+    for arm in ("base", "v2", "genie_exact", "genie_subject", "genie_subject_random"):
+        assert arm in rep["summaries"]
 
     thr = tmp_path / "threshold"
     assert recal.main(["--router-dir", str(thr / "router"), "--rows-from", str(thr / "linear_global"),

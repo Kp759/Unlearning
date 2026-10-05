@@ -3,6 +3,8 @@
 
     python scripts/summarize_rwku_decomposition.py                       # subject gate, L19 L23
     python scripts/summarize_rwku_decomposition.py --tag multiseed_regular_v1 --layers 23
+    python scripts/summarize_rwku_decomposition.py --layers 19 \
+        --pattern 'compressed_multiseed_idk_eos_subject_v1/rwku/seed*/{L}/full/decomposition/rwku_router_decomposition.json'
 
 Reads outputs/rwku_<tag>/seed*/L??/linear_global/decomposition/rwku_router_decomposition.json
 (from evaluate_rwku_router_decomposition.py / rwku_decomposition.slurm). Columns:
@@ -43,13 +45,16 @@ def main(argv=None):
     p.add_argument("--root", default="outputs")
     p.add_argument("--tag", default="multiseed_subject_v1")
     p.add_argument("--layers", nargs="+", default=["19", "23"])
+    p.add_argument("--pattern", default=None,
+                   help="glob under --root with {L} for the layer (default: the layer-sweep runs of --tag)")
     a = p.parse_args(argv)
     for layer in a.layers:
         L = f"L{int(layer):02d}"
         reports = []
-        for f in sorted(Path(a.root, f"rwku_{a.tag}").glob(
-                f"seed*/{L}/linear_global/decomposition/rwku_router_decomposition.json")):
-            reports.append((f.parts[-5], json.loads(f.read_text())))
+        pattern = a.pattern or f"rwku_{a.tag}/seed*/{{L}}/linear_global/decomposition/rwku_router_decomposition.json"
+        for f in sorted(Path(a.root).glob(pattern.replace("{L}", L))):
+            seed = next((x for x in f.parts if x.startswith("seed")), f.parts[-5])
+            reports.append((seed, json.loads(f.read_text())))
         if not reports:
             continue
 
@@ -59,7 +64,8 @@ def main(argv=None):
 
         seeds = ", ".join(s for s, _ in reports)
         select = sorted({r.get("genie_select") for _, r in reports})
-        print(f"\n### RWKU {a.tag} {L} — evaluation-time genie (seeds: {seeds}; "
+        name = a.tag if a.pattern is None else a.pattern.split("/")[0]
+        print(f"\n### RWKU {name} {L} — evaluation-time genie (seeds: {seeds}; "
               f"genie row chosen by {', '.join(map(str, select))})\n")
         print("| Group | n (per seed) | Base | Router | Genie | Random same-person row |")
         print("|---|---|---|---|---|---|")

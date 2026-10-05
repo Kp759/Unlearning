@@ -8,7 +8,12 @@
 #   sbatch rwku_decomposition.slurm
 #   sbatch --export=ALL,SWEEP_TAG=multiseed_regular_v1 rwku_decomposition.slurm   # 98% threshold runs
 #   sbatch --export=ALL,GENIE_SELECT=generation rwku_decomposition.slurm          # exact best-of (≈10x slower)
+#   Any other bank via RUN_TEMPLATE ({S} = seed, {LL} = 2-digit layer), e.g. the
+#   "I don't know." + end-token subject-gate banks (5 tasks, layer 19):
+#   sbatch --array=0-4 --export=ALL,LAYER_LIST=19,GENIE_SELECT=generation,RUN_TEMPLATE='outputs/compressed_multiseed_idk_eos_subject_v1/rwku/seed{S}/L{LL}/full' rwku_decomposition.slurm
 # Table: python scripts/summarize_rwku_decomposition.py [--tag multiseed_regular_v1]
+#        python scripts/summarize_rwku_decomposition.py --layers 19 \
+#          --pattern 'compressed_multiseed_idk_eos_subject_v1/rwku/seed*/{L}/full/decomposition/rwku_router_decomposition.json'
 #SBATCH --job-name=rwku_dec
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
@@ -43,7 +48,9 @@ i="${SLURM_ARRAY_TASK_ID:?run as an array job}"
 (( i < ${#SEEDS[@]} * NL )) || { echo "task $i out of range"; exit 0; }
 SEED="${SEEDS[i / NL]}"; LAYER="${LAYERS[i % NL]}"
 LL="$(printf '%02d' "$LAYER")"
-RUN="outputs/rwku_${SWEEP_TAG}/seed${SEED}/L${LL}/linear_global"
+DEFAULT_RUN="outputs/rwku_${SWEEP_TAG}/seed{S}/L{LL}/linear_global"
+RUN_TEMPLATE="${RUN_TEMPLATE:-$DEFAULT_RUN}"
+RUN="${RUN_TEMPLATE//\{S\}/$SEED}"; RUN="${RUN//\{LL\}/$LL}"
 OUT="$RUN/decomposition"
 # Same chat-template date as training and the official eval of these runs.
 export RWKU_CHAT_DATE_STRING="26 Jul 2024"
