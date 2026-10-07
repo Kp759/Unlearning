@@ -274,3 +274,23 @@ answer (S), an upper bound no router can reach.
 sbatch rwku_decomposition.slurm                      # subject gate, seeds 1-5, L19 L23
 python scripts/summarize_rwku_decomposition.py
 ```
+
+## Inspecting the trained rows (`scripts/inspect_h_delta.py`)
+
+What the 50 residual rows Δe_i look like, whether they are the same, and whether one
+vector could replace them all:
+
+```bash
+sbatch inspect_h_delta.slurm      # default RUN_DIR: outputs/mcf_layer_sweep_linear_regular_v1/L19/linear_global
+# other run:  sbatch --export=ALL,RUN_DIR=<run>/linear_global,OUT_DIR=<out> inspect_h_delta.slurm
+# rows only (no model, seconds):
+python -u scripts/inspect_h_delta.py --rows-only --run-dir <run>/linear_global --out-dir <out>
+```
+
+| Part | Question | Output |
+|---|---|---|
+| 1. rows (no model) | Same value? (‖Δe_i − Δe_j‖ / norm) Same direction? (pairwise cos, cos to mean row, SVD energy) | `rows_summary.csv`, `rows_cosine.csv`, `rows_vectors.pt`, `rows_heatmap.png`, `rows_cosine.png`, `rows_norms.png`, `rows_spectrum.png` |
+| 2. interchange | Can one vector replace all? Each forget view gets own row / zero / mean row / mean row at own norm / another fact's row / random direction at own norm, added at the training boundary (oracle routing); scored with the training metric (worst-view p(true) < 1e-6) | `report.json` → `interchange` |
+| 3. per prompt | What h_L → h_L + Δe does under linear-classifier routing: norms, cos, angle, most-moved coords, logit lens, P(true), P(" I"); unrouted prompts must keep h' == h exactly | `report.json` → `prompts` |
+
+The part-2 hook matches the runtime bank edit (checked: max relative difference ~1e-6 on routed-correct views).
