@@ -277,6 +277,10 @@ python scripts/summarize_rwku_decomposition.py
 
 ## Inspecting the trained rows (`scripts/inspect_h_delta.py`)
 
+For a separately trained single vector shared by all 50 seed-1 MCF facts, see
+[the shared-vector experiment](README_SHARED_VECTOR.md). It compares against an
+existing 50-vector IDK + end-token run using the same frozen router.
+
 What the 50 residual rows Δe_i look like, whether they are the same, and whether one
 vector could replace them all:
 

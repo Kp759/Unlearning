@@ -80,7 +80,7 @@ def test_shared_head_bank_routes_like_expanded_bank():
     assert shared.artifact()["head_index"].tolist() == index.tolist()
 
 
-@pytest.mark.parametrize("mode", ["full", "lowrank:2", "tied_answer", "tied_relation",
+@pytest.mark.parametrize("mode", ["full", "shared", "lowrank:2", "tied_answer", "tied_relation",
                                   "answer_fixed", "answer_map:3", "relation_plus_answer"])
 def test_value_modes_are_trainable_and_account_storage(mode):
     name, rank = parse_value_mode(mode)

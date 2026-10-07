@@ -8,6 +8,7 @@ embedding) are therefore learned for forgetting, not fitted to rows afterwards.
 Value modes (d = hidden size, N facts):
 
   full                 P[N, d]                       per fact: d       (reference)
+  shared               v[d], identical for every fact per fact: 0      shared: d
   lowrank:K            codes[N, K] @ basis[K, d]     per fact: K       shared: K*d
   tied_answer          s[N] * D[answer(i)]           per fact: 1       shared: A*d
   tied_relation        s[N] * D[relation(i)]         per fact: 1       shared: R*d
@@ -34,7 +35,7 @@ from torch.nn import functional as F
 from linear_router import LinearClassifierAssociationBank
 
 VALUE_MODES = (
-    "full", "lowrank", "tied_answer", "tied_relation",
+    "full", "shared", "lowrank", "tied_answer", "tied_relation",
     "answer_fixed", "answer_map", "relation_plus_answer",
 )
 
@@ -92,6 +93,8 @@ class CompressedValues(nn.Module):
             self.register_buffer("answer_dirs", answer_dirs.float().clone())
         if mode == "full":
             self.rows_param = nn.Parameter(torch.zeros(n, d))
+        elif mode == "shared":
+            self.shared_vector = nn.Parameter(torch.zeros(d))
         elif mode == "lowrank":
             k = int(rank)
             basis = torch.linalg.qr(torch.randn(d, k, generator=g))[0].T.contiguous()
@@ -119,6 +122,8 @@ class CompressedValues(nn.Module):
         m = self.mode
         if m == "full":
             return self.rows_param
+        if m == "shared":
+            return self.shared_vector.unsqueeze(0).expand(self.n, -1)
         if m == "lowrank":
             return self.codes @ self.basis
         if m == "tied_answer":
@@ -140,6 +145,7 @@ class CompressedValues(nn.Module):
         n, d, k = self.n, self.d, self.rank
         per_fact_floats, shared_floats, per_fact_ints = {
             "full": (d, 0, 0),
+            "shared": (0, d, 0),
             "lowrank": (k, (k or 0) * d, 0),
             "tied_answer": (1, self.answer_groups * d, 1),
             "tied_relation": (1, self.relation_groups * d, 1),
@@ -166,7 +172,7 @@ class CompressedValues(nn.Module):
                 str(size): (
                     size * d if self.mode == "full"
                     else size * per_fact_floats + shared_floats
-                    if self.mode in ("lowrank", "answer_map", "answer_fixed")
+                    if self.mode in ("shared", "lowrank", "answer_map", "answer_fixed")
                     else None
                 )
                 for size in (1_000, 10_000, 100_000)

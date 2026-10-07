@@ -97,7 +97,7 @@ def main(argv=None):
     parser.add_argument("--router-dir", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--value-mode", required=True,
-                        help="full | lowrank:K | tied_answer | tied_relation | answer_fixed | "
+                        help="full | shared | lowrank:K | tied_answer | tied_relation | answer_fixed | "
                              "answer_map:r | relation_plus_answer")
     parser.add_argument("--training-route", choices=("router", "oracle"), default="router")
     parser.add_argument("--lr", type=float, default=0.05, help="Adam lr for vector parameters")
@@ -119,6 +119,10 @@ def main(argv=None):
     parser.add_argument("--local-files-only", action="store_true")
     args = parser.parse_args(argv)
     mode, rank = parse_value_mode(args.value_mode)
+    if min(args.batch_facts, args.epochs, args.eval_every) < 1:
+        parser.error("batch-facts, epochs and eval-every must be positive")
+    if args.max_training_seconds <= 0:
+        parser.error("max-training-seconds must be positive")
 
     router_dir = Path(args.router_dir).resolve()
     output = Path(args.output_dir).resolve()
@@ -198,10 +202,13 @@ def main(argv=None):
         excluded = [e.id for e in examples if e.id not in {x.id for x in training_examples}]
         if not training_examples:
             raise RuntimeError("The linear router routes no training view to its own row")
-    # Facts that cannot be trained keep an exactly-zero row, whatever is shared.
+    # Keep the baseline's own-row training coverage for a controlled comparison.
+    # A single shared vector must nevertheless fire for EVERY active route at
+    # inference, including a fact with no correctly routed training views.
     mask = torch.ones(len(facts), device=args.device)
-    for fid in untrainable:
-        mask[fact_to_row[fid]] = 0.0
+    if mode != "shared":
+        for fid in untrainable:
+            mask[fact_to_row[fid]] = 0.0
     base_rows = values.rows
 
     def masked_rows():
@@ -296,6 +303,8 @@ def main(argv=None):
         )
         rebuilt.load_state_dict({k: v.cpu() for k, v in best_state.items()})
         rows = (rebuilt.rows() * mask.cpu()[:, None]).float().contiguous()
+        if mode == "shared" and not torch.equal(rows, rows[:1].expand_as(rows)):
+            raise RuntimeError("Shared-vector export contains unequal rows")
         trained = values.rows().detach().float().cpu()
         reconstruction_max_abs_diff = float((rows - trained).abs().max())
         if not torch.allclose(rows, trained, rtol=1e-4, atol=1e-5):
@@ -311,6 +320,7 @@ def main(argv=None):
     artifact = dict(source)
     artifact["rows"] = rows
     artifact["training_route"] = args.training_route
+    artifact["trainable_parameters"] = sum(p.numel() for p in params)
     artifact["compressed_values"] = {
         "mode": args.value_mode,
         "compact_state": best_state,
@@ -332,6 +342,10 @@ def main(argv=None):
         "untrainable_fact_ids": untrainable,
         "value_storage": storage,
         "router_storage": router_storage(source),
+        "residual_training_objective": "joint_forget_hinge_plus_unknown_nll",
+        "unknown_completion": args.unknown_completion,
+        "unknown_eos": args.unknown_eos,
+        "residual_initialization": "zero",
     })
     (output / "association_manifest.json").write_text(json.dumps(new_manifest, indent=2) + "\n")
     for name in ("association_examples.json", "linear_router_report.json"):
@@ -339,6 +353,9 @@ def main(argv=None):
             shutil.copy2(router_dir / name, output / name)
     report = {
         "value_mode": args.value_mode,
+        "residual_training_objective": "joint_forget_hinge_plus_unknown_nll",
+        "training_coverage_policy": "correct_own_row_only_matching_full_baseline",
+        "shared_vector_applies_to_every_active_route": mode == "shared",
         "training_route": args.training_route,
         "stop_reason": stop_reason,
         "best_epoch": best_epoch,
