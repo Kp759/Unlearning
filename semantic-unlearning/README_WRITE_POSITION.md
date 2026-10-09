@@ -38,3 +38,19 @@ Caveat: learning rate and trust radii are per row step, unchanged across arms,
 so in B-D the same step moves the residual stream at more positions.
 
 Tests: `tests/test_write_mode.py`.
+
+## Seeds 1-5: setting D vs setting A
+
+```bash
+sbatch mcf_write_position_multiseed.slurm      # array 1-5 = seeds; ARM=D by default
+python scripts/mcf_write_position.py summarize-seeds --root outputs/mcf_write_position_multiseed --arm D
+```
+
+Setting A for each seed is the existing multiseed regular run
+(`outputs/mcf_multiseed_regular_v1/seed<S>/L19/linear_global`): same router, same
+training settings, write_mode `last` (the seed-1 arm A reproduced it exactly).
+Each task trains D with that seed's own L19 router (fit if missing) and runs the
+official eval with `--seed S`; seed 1 reuses `outputs/mcf_write_position_seed1/arm_D`.
+The summary (`summary_D_vs_A.md/.json`) has Eff, Gen, Spe and PPL per seed, mean ±
+std over seeds, the paired difference D − A, and the number of seeds where D < A.
+Per-run logic: `scripts/run_mcf_write_position_one.sh ARM SEED OUT_DIR`.

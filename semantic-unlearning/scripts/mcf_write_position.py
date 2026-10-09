@@ -13,6 +13,7 @@ positions that receive that fact's row changes:
 Subcommands
   make-arm   copy a fitted (zero-row) router artifact and set its write_mode
   summarize  one table: the seed-1 references + arms A-D (official MCF metrics)
+  summarize-seeds  arm X vs setting A over seeds (Eff, Gen, Spe, PPL; mean ± std, paired diff)
 
     python scripts/mcf_write_position.py make-arm --router-dir R --output-dir O --arm B
     python scripts/mcf_write_position.py summarize --root outputs/mcf_write_position_seed1
@@ -130,6 +131,75 @@ def summarize(root):
     print(table)
 
 
+SEED_METRICS = (
+    ("forget_Eff", "forget Eff ↓"), ("forget_Gen", "forget Gen ↓"),
+    ("forget_Spe", "forget Spe"), ("PPL", "PPL"),
+)
+A_TEMPLATE = "outputs/mcf_multiseed_regular_v1/seed{seed}/L19/linear_global"
+
+
+def _mean_std(values):
+    values = [v for v in values if v is not None]
+    if not values:
+        return None, None
+    mean = sum(values) / len(values)
+    if len(values) < 2:
+        return mean, None
+    var = sum((v - mean) ** 2 for v in values) / (len(values) - 1)
+    return mean, var ** 0.5
+
+
+def _pm(mean, std):
+    if mean is None:
+        return "–"
+    return f"{mean:.4g}" + ("" if std is None else f" ± {std:.2g}")
+
+
+def summarize_seeds(root, arm, seeds, a_template=A_TEMPLATE):
+    """Arm `arm` (root/seed<S>/arm_<arm>) vs setting A (a_template) for each seed."""
+    root = Path(root)
+    per_seed = []
+    for seed in seeds:
+        a = _row(a_template.format(seed=seed), f"A seed {seed}")
+        x = _row(root / f"seed{seed}" / f"arm_{arm}" / "linear_global", f"{arm} seed {seed}")
+        per_seed.append({"seed": seed, "A": a, arm: x})
+    lines = [f"# MCF layer 19, 50 facts: setting {arm} ({DESCRIPTION[arm]}) vs A (last token)", "",
+             "Eff/Gen: complete sensitive-answer probability in %, lower is better. "
+             "Spe: neighborhood accuracy. PPL: runtime-aligned.", "",
+             "## Per seed", "",
+             "| seed | " + " | ".join(f"A {t} | {arm} {t}" for _, t in SEED_METRICS) + " | status A / " + arm + " |",
+             "|" + "---|" * (2 + 2 * len(SEED_METRICS))]
+    for rec in per_seed:
+        cells = []
+        for key, _ in SEED_METRICS:
+            cells += [_fmt(rec["A"].get(key)), _fmt(rec[arm].get(key))]
+        lines.append(f"| {rec['seed']} | " + " | ".join(cells)
+                     + f" | {rec['A'].get('status')} / {rec[arm].get('status')} |")
+    lines += ["", f"## Over seeds (seeds with both A and {arm} complete)", "",
+              f"| metric | A mean ± std | {arm} mean ± std | {arm} − A (mean ± std) | seeds {arm} < A |",
+              "|---|---|---|---|---|"]
+    aggregate = {}
+    for key, title in SEED_METRICS:
+        pairs = [(r["A"].get(key), r[arm].get(key)) for r in per_seed
+                 if r["A"].get(key) is not None and r[arm].get(key) is not None]
+        a_m, a_s = _mean_std([p[0] for p in pairs])
+        x_m, x_s = _mean_std([p[1] for p in pairs])
+        d_m, d_s = _mean_std([p[1] - p[0] for p in pairs])
+        lower = sum(p[1] < p[0] for p in pairs)
+        aggregate[key] = {"n": len(pairs), "A_mean": a_m, "A_std": a_s, f"{arm}_mean": x_m,
+                          f"{arm}_std": x_s, "diff_mean": d_m, "diff_std": d_s,
+                          f"seeds_{arm}_lower": lower}
+        lines.append(f"| {title} | {_pm(a_m, a_s)} | {_pm(x_m, x_s)} | {_pm(d_m, d_s)} | "
+                     f"{lower}/{len(pairs)} |")
+    text = "\n".join(lines) + "\n"
+    (root / f"summary_{arm}_vs_A.md").write_text(text)
+    (root / f"summary_{arm}_vs_A.json").write_text(json.dumps(
+        {"arm": arm, "seeds": list(seeds), "per_seed": per_seed, "aggregate": aggregate},
+        indent=2, default=str) + "\n")
+    print(text)
+    return aggregate
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -140,9 +210,17 @@ def main(argv=None):
     make.add_argument("--arm", choices=sorted(ARMS), required=True)
     summ = sub.add_parser("summarize")
     summ.add_argument("--root", required=True)
+    seeds = sub.add_parser("summarize-seeds")
+    seeds.add_argument("--root", required=True)
+    seeds.add_argument("--arm", choices=sorted(ARMS), default="D")
+    seeds.add_argument("--seeds", type=int, nargs="+", default=[1, 2, 3, 4, 5])
+    seeds.add_argument("--a-template", default=A_TEMPLATE,
+                       help="setting-A run dir per seed; {seed} is filled in")
     args = parser.parse_args(argv)
     if args.command == "make-arm":
         make_arm(args.router_dir, args.output_dir, args.arm)
+    elif args.command == "summarize-seeds":
+        summarize_seeds(args.root, args.arm, args.seeds, args.a_template)
     else:
         summarize(args.root)
 
