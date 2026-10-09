@@ -90,6 +90,13 @@ ROUTER_VERSION = "subject_masked_bce_linear_router_v1"
 METHOD = "static_overlap_fact_association_embeddings_linear_router"
 SPLITS = ("fit", "calibration", "audit")
 GATE_MODES = ("threshold", "subject")
+# Which prompt positions receive the routed row at the hooked layer.
+#   last          the request boundary only (the original, shipped behaviour)
+#   last_subject  last token of the routed fact's subject + the boundary
+#   subject_span  every token of the routed fact's subject + the boundary
+#   all_prompt    every attended prompt token except BOS
+# Routing is unchanged: the classifier always reads the boundary.
+WRITE_MODES = ("last", "last_subject", "subject_span", "all_prompt")
 DEFAULT_LAMBDAS = (1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0)
 DEFAULT_PCA_DIMS = (0, 64, 256)
 _SYMBOLIC_RELATION = re.compile(r"^P\d+$")
@@ -1427,8 +1434,19 @@ class LinearClassifierAssociationBank(nn.Module):
         per_head_thresholds=None,
         bias_calibration=None,
         head_index=None,
+        write_mode="last",
     ):
         super().__init__()
+        if str(write_mode) not in WRITE_MODES:
+            raise ValueError(f"write_mode must be one of {WRITE_MODES}")
+        self.write_mode = str(write_mode)
+        config = getattr(base_model, "config", None)
+        bos = getattr(config, "bos_token_id", None)
+        self.bos_token_ids = (
+            set() if bos is None
+            else {int(b) for b in bos} if isinstance(bos, (list, tuple)) else {int(bos)}
+        )
+        self.subject_fallbacks = 0
         n_facts = len(facts)
         # head_index: shared heads (e.g. one per relation). weight/bias hold
         # one row per HEAD and fact i uses head head_index[i]. None keeps the
@@ -1605,7 +1623,9 @@ class LinearClassifierAssociationBank(nn.Module):
 
         rows = self.extra.to(device=hidden.device, dtype=hidden.dtype)
         selected = F.embedding(best_fact, rows)
-        position_mask = F.one_hot(positions, num_classes=width).to(hidden.dtype)
+        position_mask = self._write_mask(
+            positions, prefix_lengths, best_fact, active, width
+        ).to(hidden.dtype)
         delta = (
             position_mask.unsqueeze(-1)
             * selected.unsqueeze(1)
@@ -1616,7 +1636,7 @@ class LinearClassifierAssociationBank(nn.Module):
         self.calls += 1
         with torch.no_grad():
             self.active_batch_rows += int(active.sum())
-            self.active_token_positions += int(active.sum())
+            self.active_token_positions += int(position_mask[active].sum())
             self.last_active_fact_indices = [
                 [int(best_fact[i])] if bool(active[i]) else [] for i in range(batch)
             ]
@@ -1651,6 +1671,57 @@ class LinearClassifierAssociationBank(nn.Module):
             return (edited, *output[1:])
         return edited
 
+    def _subject_positions(self, row, boundary, fact):
+        """Absolute positions of the LAST occurrence of the fact's subject in the prompt."""
+        tokens = self._input_ids[row].detach().cpu().tolist()
+        attention = (
+            None if self._attention_mask is None
+            else self._attention_mask[row].detach().cpu().bool().tolist()
+        )
+        prompt = [
+            (position, token) for position, token in enumerate(tokens[: int(boundary)])
+            if attention is None or attention[position]
+        ]
+        ids = [token for _, token in prompt]
+        best = None
+        for pattern in self.subject_patterns[int(fact)]:
+            width = len(pattern)
+            for start in range(len(ids) - width, -1, -1):
+                if tuple(ids[start:start + width]) == tuple(pattern):
+                    if best is None or start + width > best[1]:
+                        best = (start, start + width)
+                    break
+        if best is None:
+            return []
+        return [prompt[k][0] for k in range(best[0], best[1])]
+
+    def _write_mask(self, positions, prefix_lengths, best_fact, active, width):
+        """[B, width] 0/1 mask of the positions that receive the routed row."""
+        mask = F.one_hot(positions, num_classes=width).float()
+        if self.write_mode == "last":
+            return mask
+        for row in active.nonzero(as_tuple=True)[0].tolist():
+            boundary = int(prefix_lengths[row])
+            if self.write_mode == "all_prompt":
+                tokens = self._input_ids[row].detach().cpu().tolist()
+                attention = (
+                    None if self._attention_mask is None
+                    else self._attention_mask[row].detach().cpu().bool().tolist()
+                )
+                extra = [
+                    position for position in range(boundary)
+                    if (attention is None or attention[position])
+                    and tokens[position] not in self.bos_token_ids
+                ]
+            else:
+                span = self._subject_positions(row, boundary, best_fact[row])
+                if not span:
+                    self.subject_fallbacks += 1
+                extra = span[-1:] if self.write_mode == "last_subject" else span
+            if extra:
+                mask[row, torch.tensor(extra, device=mask.device)] = 1.0
+        return mask
+
     def decision_rule(self):
         if self.gate_mode == "subject":
             return "subject_gate"
@@ -1678,6 +1749,7 @@ class LinearClassifierAssociationBank(nn.Module):
                 else self.feature_components.detach().cpu()
             ),
             "gate_mode": self.gate_mode,
+            "write_mode": self.write_mode,
             "threshold": self.threshold,
             "threshold_policy": self.threshold_policy,
             "per_head_thresholds": (
@@ -1722,6 +1794,7 @@ def load_linear_classifier_artifact(base_model, artifact):
         rows=artifact["rows"],
         ambiguity_margin=float(artifact.get("ambiguity_margin", 0.5)),
         gate_mode=str(artifact.get("gate_mode", "threshold")),
+        write_mode=str(artifact.get("write_mode", "last")),
         router_fit=artifact.get("router_fit"),
         per_head_thresholds=artifact.get("per_head_thresholds"),
         bias_calibration=artifact.get("bias_calibration"),
