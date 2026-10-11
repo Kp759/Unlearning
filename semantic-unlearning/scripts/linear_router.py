@@ -97,6 +97,11 @@ GATE_MODES = ("threshold", "subject")
 #   all_prompt    every attended prompt token except BOS
 # Routing is unchanged: the classifier always reads the boundary.
 WRITE_MODES = ("last", "last_subject", "subject_span", "all_prompt")
+# What the routed fact does to h at the write positions.
+#   add      h + Δe_i                       (the trained residual row; shipped)
+#   project  h - alpha * U_i U_i^T h        (remove fact i's answer directions;
+#                                            U_i orthonormal, [k, d], no training)
+EDIT_MODES = ("add", "project")
 DEFAULT_LAMBDAS = (1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0)
 DEFAULT_PCA_DIMS = (0, 64, 256)
 _SYMBOLIC_RELATION = re.compile(r"^P\d+$")
@@ -1435,11 +1440,31 @@ class LinearClassifierAssociationBank(nn.Module):
         bias_calibration=None,
         head_index=None,
         write_mode="last",
+        edit_mode="add",
+        project_dirs=None,
+        project_alpha=1.0,
     ):
         super().__init__()
         if str(write_mode) not in WRITE_MODES:
             raise ValueError(f"write_mode must be one of {WRITE_MODES}")
         self.write_mode = str(write_mode)
+        if str(edit_mode) not in EDIT_MODES:
+            raise ValueError(f"edit_mode must be one of {EDIT_MODES}")
+        self.edit_mode = str(edit_mode)
+        self.project_alpha = float(project_alpha)
+        if self.edit_mode == "project":
+            if project_dirs is None:
+                raise ValueError("edit_mode='project' needs project_dirs [n_facts, k, d]")
+            project_dirs = torch.as_tensor(project_dirs, dtype=torch.float32)
+            if project_dirs.ndim != 3 or project_dirs.shape[0] != len(facts):
+                raise ValueError("project_dirs must be [n_facts, k, hidden]")
+            gram = project_dirs @ project_dirs.transpose(1, 2)
+            live = project_dirs.norm(dim=-1) > 0
+            eye = torch.diag_embed(live.float())
+            if not torch.allclose(gram, eye, atol=1e-4):
+                raise ValueError("project_dirs must be orthonormal per fact (zero rows allowed)")
+        elif project_dirs is not None:
+            raise ValueError("project_dirs given but edit_mode is 'add'")
         config = getattr(base_model, "config", None)
         bos = getattr(config, "bos_token_id", None)
         self.bos_token_ids = (
@@ -1505,6 +1530,10 @@ class LinearClassifierAssociationBank(nn.Module):
             if tuple(initial.shape) != (n_facts, hidden_size):
                 raise ValueError("Saved rows have wrong shape")
         self.rows = nn.ParameterList(nn.Parameter(row.clone()) for row in initial)
+        self.register_buffer(
+            "project_dirs",
+            None if project_dirs is None else project_dirs.clone().to(device),
+        )
         self.register_buffer("router_weight", weight.detach().float().clone().to(device))
         self.register_buffer("router_bias", bias.detach().float().clone().to(device))
         self.register_buffer(
@@ -1621,16 +1650,24 @@ class LinearClassifierAssociationBank(nn.Module):
         if self.route_override is not None:
             best_fact, active = self._oracle_routes(prefix_lengths, hidden.device)
 
-        rows = self.extra.to(device=hidden.device, dtype=hidden.dtype)
-        selected = F.embedding(best_fact, rows)
         position_mask = self._write_mask(
             positions, prefix_lengths, best_fact, active, width
         ).to(hidden.dtype)
-        delta = (
-            position_mask.unsqueeze(-1)
-            * selected.unsqueeze(1)
-            * active[:, None, None].to(hidden.dtype)
-        )
+        if self.edit_mode == "project":
+            # Remove the routed fact's answer directions: h - alpha * U U^T h.
+            basis = self.project_dirs.to(hidden.device)[best_fact]          # [B, k, d]
+            coeff = torch.einsum("bwd,bkd->bwk", hidden.float(), basis)       # [B, W, k]
+            removed = torch.einsum("bwk,bkd->bwd", coeff, basis)              # [B, W, d]
+            gate = position_mask.float() * active[:, None].float()            # [B, W]
+            delta = (-self.project_alpha * removed * gate.unsqueeze(-1)).to(hidden.dtype)
+        else:
+            rows = self.extra.to(device=hidden.device, dtype=hidden.dtype)
+            selected = F.embedding(best_fact, rows)
+            delta = (
+                position_mask.unsqueeze(-1)
+                * selected.unsqueeze(1)
+                * active[:, None, None].to(hidden.dtype)
+            )
         edited = hidden + delta
 
         self.calls += 1
@@ -1750,6 +1787,11 @@ class LinearClassifierAssociationBank(nn.Module):
             ),
             "gate_mode": self.gate_mode,
             "write_mode": self.write_mode,
+            "edit_mode": self.edit_mode,
+            "project_dirs": (
+                None if self.project_dirs is None else self.project_dirs.detach().cpu()
+            ),
+            "project_alpha": self.project_alpha,
             "threshold": self.threshold,
             "threshold_policy": self.threshold_policy,
             "per_head_thresholds": (
@@ -1795,6 +1837,9 @@ def load_linear_classifier_artifact(base_model, artifact):
         ambiguity_margin=float(artifact.get("ambiguity_margin", 0.5)),
         gate_mode=str(artifact.get("gate_mode", "threshold")),
         write_mode=str(artifact.get("write_mode", "last")),
+        edit_mode=str(artifact.get("edit_mode", "add")),
+        project_dirs=artifact.get("project_dirs"),
+        project_alpha=float(artifact.get("project_alpha", 1.0)),
         router_fit=artifact.get("router_fit"),
         per_head_thresholds=artifact.get("per_head_thresholds"),
         bias_calibration=artifact.get("bias_calibration"),

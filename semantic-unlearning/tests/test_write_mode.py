@@ -143,3 +143,70 @@ def test_artifact_round_trip_keeps_mode_and_old_artifacts_default_to_last():
 def test_unknown_mode_is_rejected():
     with pytest.raises(ValueError):
         _bank("everything")
+
+
+# ---------------------------------------------------------------------------
+# Projection edit: h - alpha * U U^T h for the routed fact
+# ---------------------------------------------------------------------------
+
+def _project_bank(alpha=1.0, mode="last"):
+    torch.manual_seed(3)
+    dirs = torch.zeros(FACTS, 2, HIDDEN)
+    q, _ = torch.linalg.qr(torch.randn(HIDDEN, 2))
+    dirs[0] = q.T                                  # fact 0: two orthonormal directions
+    dirs[1, 0] = torch.nn.functional.normalize(torch.randn(HIDDEN), dim=0)  # fact 1: one (+ zero row)
+    return LinearClassifierAssociationBank(
+        _FakeModel(), 0, torch.zeros(FACTS, HIDDEN), torch.tensor([50.0, -50.0]),
+        feature_mean=torch.zeros(HIDDEN), feature_components=None, threshold=0.0,
+        subject_patterns=[[(20, 21)], [(30,)]], facts=[{"id": "f0"}, {"id": "f1"}],
+        rows=torch.zeros(FACTS, HIDDEN), write_mode=mode,
+        edit_mode="project", project_dirs=dirs, project_alpha=alpha,
+    ), dirs
+
+
+def _run_project(bank, ids=IDS, prefix=PREFIX):
+    torch.manual_seed(0)
+    hidden = torch.randn(ids.shape[0], ids.shape[1], HIDDEN)
+    bank.bind(ids, prefix_lengths=prefix)
+    edited = bank._hook(None, None, (hidden,))[0]
+    bank.unbind()
+    return hidden, edited
+
+
+def test_projection_removes_exactly_the_answer_component_at_the_boundary():
+    bank, dirs = _project_bank()
+    hidden, edited = _run_project(bank)
+    U = dirs[0]
+    assert torch.allclose(U @ edited[0, 6], torch.zeros(2), atol=1e-5)       # component gone
+    expected = hidden[0, 6] - U.T @ (U @ hidden[0, 6])                          # rest untouched
+    assert torch.allclose(edited[0, 6], expected, atol=1e-5)
+    others = [p for p in range(IDS.shape[1]) if p != 6]
+    assert torch.equal(edited[0, others], hidden[0, others])
+
+
+def test_projection_alpha_two_reflects_the_component():
+    bank, dirs = _project_bank(alpha=2.0)
+    hidden, edited = _run_project(bank)
+    U = dirs[0]
+    assert torch.allclose(U @ edited[0, 6], -(U @ hidden[0, 6]), atol=1e-5)
+
+
+def test_projection_unrouted_prompt_is_exact():
+    bank, _ = _project_bank()
+    ids = torch.tensor([[BOS, 5, 6, 7, 30, 8, 9]])
+    hidden, edited = _run_project(bank, ids, torch.tensor([6]))
+    assert torch.equal(edited, hidden)
+
+
+def test_projection_artifact_round_trip_and_validation():
+    bank, dirs = _project_bank(alpha=1.5, mode="subject_span")
+    artifact = bank.artifact()
+    assert artifact["edit_mode"] == "project" and artifact["project_alpha"] == 1.5
+    _, loaded = load_linear_classifier_artifact(_FakeModel(), artifact)
+    assert loaded.edit_mode == "project" and loaded.write_mode == "subject_span"
+    assert torch.equal(loaded.project_dirs.cpu(), dirs)
+    bad = dict(artifact, project_dirs=dirs * 2.0)                               # not orthonormal
+    with pytest.raises(ValueError):
+        load_linear_classifier_artifact(_FakeModel(), bad)
+    with pytest.raises(ValueError):
+        load_linear_classifier_artifact(_FakeModel(), dict(artifact, project_dirs=None))
