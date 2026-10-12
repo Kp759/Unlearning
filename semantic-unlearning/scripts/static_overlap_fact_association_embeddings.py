@@ -671,10 +671,13 @@ class AssociationCausalLM(nn.Module):
             raise ValueError("Reference generation requires right-padded prompt input")
         ids = input_ids[:, :prompt_length].clone()
         mask = torch.ones_like(ids)
-        eos = (
-            int(eos_token_id)
-            if eos_token_id is not None
-            else getattr(self.config, "eos_token_id", None)
+        eos = eos_token_id if eos_token_id is not None else getattr(
+            self.config, "eos_token_id", None
+        )
+        # Llama-3.x instruct configs list several stop tokens; accept int or list.
+        eos_ids = (
+            set() if eos is None
+            else {int(e) for e in eos} if isinstance(eos, (list, tuple, set)) else {int(eos)}
         )
         for _ in range(int(max_new_tokens)):
             self.set_association_prefix_lengths([prompt_length])
@@ -686,7 +689,7 @@ class AssociationCausalLM(nn.Module):
             next_token = logits[:, -1].argmax(-1, keepdim=True)
             ids = torch.cat([ids, next_token], dim=1)
             mask = torch.ones_like(ids)
-            if eos is not None and int(next_token.item()) == int(eos):
+            if int(next_token.item()) in eos_ids:
                 break
         return ids
 
