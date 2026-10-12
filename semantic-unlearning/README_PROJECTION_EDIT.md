@@ -45,3 +45,14 @@ generation columns can.
 sbatch mcf_projection_alpha_sweep_seed1.slurm
 python scripts/mcf_projection_edit.py summarize --root outputs/mcf_projection_alpha_sweep_seed1
 ```
+
+## ZeroUnlearn free-generation leak (seed 1)
+
+Eff/Gen only score the token right after the prompt. `mcf_zerounlearn_leak_seed1.slurm`
+applies original ZeroUnlearn (target_true parity mapping) and runs the same 24-token
+greedy leak check on the same 250 forget prompts, then writes
+`outputs/zerounlearn_generation_leak_seed1/comparison.md` (base / Δe / projection
+α 2.5, 3 / ZeroUnlearn): leak@start, leak@24, leak@24 excluding prompts that already
+contain the answer, base-model NLL, repeated 3-grams, plus Eff/Gen/Spe/PPL.
+
+    sbatch mcf_zerounlearn_leak_seed1.slurm
