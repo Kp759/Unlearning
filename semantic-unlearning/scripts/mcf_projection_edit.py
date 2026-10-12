@@ -19,7 +19,11 @@ Answer directions (one per answer token w, normalised, then orthonormalised per 
 Subcommands
   build      compute directions (or --reuse-dirs), write a projection artifact, and
              print a canonical-prompt diagnostic (P(answer) before/after)
-  summarize  table: arms vs the seed-1 Δe reference (official MCF metrics)
+  routed-generate  greedy continuations on forget prompts through the real router + edit
+             (any artifact: Δe, projection, or a zero-row router = base): answer leakage
+             anywhere in the continuation, fluency = base-model NLL of the continuation,
+             repeated 3-grams
+  summarize  table: base / Δe reference / arms (official MCF metrics + diagnostics)
 
     python scripts/mcf_projection_edit.py build --router-dir R --output-dir O \\
         --direction jlens --alpha 1 --local-files-only
@@ -280,6 +284,74 @@ def build(args):
     print(f"artifact: {run}")
 
 
+# ------------------------------------------------------------------- routed generation
+
+def routed_generate(args):
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from linear_router import load_router_artifact
+    from prepare_mcf_association_source import load_mcf_forget_data
+
+    run = Path(args.run_dir)
+    artifact = torch.load(run / "fact_association_embeddings.pt", map_location="cpu",
+                          weights_only=False)
+    manifest = json.loads((run / "association_manifest.json").read_text())
+    dtype = getattr(torch, args.dtype)
+    tok = AutoTokenizer.from_pretrained(manifest["model_path"], use_fast=True,
+                                        local_files_only=args.local_files_only)
+    base = AutoModelForCausalLM.from_pretrained(
+        manifest["model_path"], dtype=dtype, local_files_only=args.local_files_only,
+        attn_implementation="eager").to(args.device).eval()
+    base.requires_grad_(False)
+    seed = int((manifest.get("sampling") or {}).get("seed", 1))
+    _, facts, examples = load_mcf_forget_data(tok, manifest["mcf_path"], seed=seed)
+    views = [e for e in examples
+             if (e.split == "train" and e.group == "canonical_rewrite") or e.split == "development"]
+    model, bank = load_router_artifact(base, artifact)
+    records = []
+    with torch.no_grad():
+        for e in views:
+            first = next(k for k, lab in enumerate(e.labels) if lab != -100)
+            ids = torch.tensor([e.input_ids[:first]], device=args.device)
+            out = model.generate_uncached_fixed_boundary(ids, max_new_tokens=args.max_new_tokens)
+            routed = bool(bank.last_active_fact_indices and bank.last_active_fact_indices[0])
+            records.append({"id": e.id, "split": e.split, "prompt": e.prompt,
+                            "answer": e.completion.strip(), "prompt_len": first,
+                            "ids": out[0].tolist(), "routed": routed})
+    bank.close()                                   # base model again for fluency scoring
+    with torch.no_grad():
+        for r in records:
+            ids = torch.tensor([r["ids"]], device=args.device)
+            cont = r["ids"][r["prompt_len"]:]
+            text = tok.decode(cont, skip_special_tokens=True)
+            r["continuation"] = text
+            r["answer_in_continuation"] = r["answer"].casefold() in text.casefold()
+            if len(cont) >= 1:
+                logits = base(input_ids=ids, use_cache=False).logits[0].float()
+                nll = F.cross_entropy(logits[r["prompt_len"] - 1:-1], ids[0, r["prompt_len"]:],
+                                      reduction="mean")
+                r["base_nll_per_token"] = float(nll)
+            grams = [tuple(cont[i:i + 3]) for i in range(max(0, len(cont) - 2))]
+            r["repeated_trigram"] = len(grams) != len(set(grams))
+            del r["ids"]
+    def rate(key, rows):
+        return sum(bool(r[key]) for r in rows) / max(1, len(rows))
+    routed = [r for r in records if r["routed"]]
+    nlls = [r["base_nll_per_token"] for r in routed if "base_nll_per_token" in r]
+    summary = {
+        "run_dir": str(run.resolve()), "prompts": len(records),
+        "route_active_fraction": rate("routed", records),
+        "answer_in_continuation_all": rate("answer_in_continuation", records),
+        "answer_in_continuation_routed": rate("answer_in_continuation", routed),
+        "base_nll_per_token_routed_mean": sum(nlls) / max(1, len(nlls)),
+        "repeated_trigram_routed": rate("repeated_trigram", routed),
+        "max_new_tokens": args.max_new_tokens,
+    }
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"summary": summary, "examples": records}, indent=2) + "\n")
+    print(json.dumps(summary, indent=2))
+
+
 # ------------------------------------------------------------------------ summarize
 
 def _fmt(value):
@@ -290,33 +362,52 @@ def _fmt(value):
     return str(value)
 
 
+def _alpha_key(path):
+    try:
+        return (0, float(path.name.lstrip("a").replace("_", ".")))
+    except ValueError:
+        return (1, path.name)
+
+
 def summarize(root):
     from summarize_mcf_layer_sweep import collect
 
     root = Path(root)
     rows = []
-    if Path(REFERENCE[1]).is_dir():
-        rows.append((collect(REFERENCE[1], REFERENCE[0]), {}))
-    for arm in sorted(p for p in root.iterdir() if (p / "linear_global").is_dir()):
-        diag_path = arm / "projection_diagnostic.json"
+
+    def add(run_dir, label, extra_dir):
+        diag_path = extra_dir / "projection_diagnostic.json"
+        gen_path = extra_dir / "routed_generation.json"
         diag = json.loads(diag_path.read_text())["summary"] if diag_path.is_file() else {}
-        rows.append((collect(arm / "linear_global", arm.name), diag))
+        gen = json.loads(gen_path.read_text())["summary"] if gen_path.is_file() else {}
+        rows.append((collect(run_dir, label), {**diag, **gen}))
+
+    if (root / "base" / "linear_global").is_dir():
+        add(root / "base" / "linear_global", "base (router, no edit)", root / "base")
+    if Path(REFERENCE[1]).is_dir():
+        add(REFERENCE[1], REFERENCE[0], root / "reference_delta_e")
+    arms = [p for p in root.iterdir() if (p / "linear_global").is_dir() and p.name != "base"]
+    for arm in sorted(arms, key=_alpha_key):
+        add(arm / "linear_global", arm.name, arm)
     cols = (("forget_Eff", "forget Eff ↓"), ("forget_Gen", "forget Gen ↓"),
-            ("forget_Spe", "forget Spe"), ("retain_Eff", "retain Eff"),
-            ("retain_Gen", "retain Gen"), ("PPL", "PPL"))
-    dcols = (("canonical_p_first_base_median", "canon P(ans₁) base"),
-             ("canonical_p_first_projected_median", "canon P(ans₁) edited"),
-             ("canonical_facts_p_first_below_1e-6", "canon facts <1e-6"),
-             ("removed_norm_fraction_median", "‖removed‖/‖h‖"))
+            ("forget_Spe", "forget Spe"), ("retain_Eff", "retain Eff"), ("PPL", "PPL"))
+    dcols = (("canonical_p_first_projected_median", "canon P(ans₁)"),
+             ("canonical_facts_p_first_below_1e-6", "canon <1e-6"),
+             ("answer_in_continuation_routed", "answer in gen ↓"),
+             ("base_nll_per_token_routed_mean", "gen NLL (fluency) ↓"),
+             ("repeated_trigram_routed", "repeat-3gram ↓"))
     header = ["setting", "status"] + [t for _, t in cols] + [t for _, t in dcols]
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
-    for row, diag in rows:
+    for row, extra in rows:
         lines.append("| " + " | ".join([row["label"], _fmt(row.get("status"))]
                                        + [_fmt(row.get(k)) for k, _ in cols]
-                                       + [_fmt(diag.get(k)) for k, _ in dcols]) + " |")
-    text = ("# MCF seed 1, 50 facts, layer 19, setting A: projection vs Δe\n\n"
+                                       + [_fmt(extra.get(k)) for k, _ in dcols]) + " |")
+    text = ("# MCF seed 1, 50 facts, layer 19, setting A: projection (J-lens) alpha sweep\n\n"
             "Router identical in every row. Eff/Gen: complete sensitive-answer probability in %, "
-            "lower is better. 'canon' columns: first answer token on each fact's canonical prompt.\n\n"
+            "lower is better. canon: first answer token on canonical prompts. gen: greedy "
+            "continuations of canonical + development forget prompts through the real router; "
+            "'answer in gen' = true answer anywhere in the continuation (routed prompts); "
+            "fluency = mean base-model NLL per continuation token.\n\n"
             + "\n".join(lines) + "\n")
     (root / "summary.md").write_text(text)
     print(text)
@@ -338,11 +429,20 @@ def main(argv=None):
     b.add_argument("--reuse-dirs", default=None, help="projection_dirs.pt from another arm")
     b.add_argument("--device", default="cuda")
     b.add_argument("--local-files-only", action="store_true")
+    g = sub.add_parser("routed-generate")
+    g.add_argument("--run-dir", required=True)
+    g.add_argument("--out", required=True)
+    g.add_argument("--max-new-tokens", type=int, default=24)
+    g.add_argument("--dtype", default="bfloat16")
+    g.add_argument("--device", default="cuda")
+    g.add_argument("--local-files-only", action="store_true")
     s = sub.add_parser("summarize")
     s.add_argument("--root", required=True)
     args = parser.parse_args(argv)
     if args.command == "build":
         build(args)
+    elif args.command == "routed-generate":
+        routed_generate(args)
     else:
         summarize(args.root)
 

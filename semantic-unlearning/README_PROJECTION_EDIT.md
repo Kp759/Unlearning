@@ -25,3 +25,23 @@ with the official MCF metrics plus a canonical-prompt diagnostic: P(first answer
 token) before/after, facts below 1e-6, and the fraction of ‖h‖ removed.
 Implementation: `edit_mode="project"` in `LinearClassifierAssociationBank`
 (`scripts/linear_router.py`); tests in `tests/test_write_mode.py`.
+
+## Alpha sweep (`mcf_projection_alpha_sweep_seed1.slurm`)
+
+Same J-lens directions for every alpha (reused from `P_jlens_a1`), alphas
+0.5 1 1.5 2 2.5 3 4 6 by default (`ALPHAS="..."` to change). Per alpha: artifact,
+official MCF eval, and `routed-generate`: greedy 24-token continuations of the
+canonical + development forget prompts through the real router and edit, scored for
+- answer leakage: the true answer anywhere in the continuation (routed prompts),
+- fluency: mean base-model NLL per continuation token (higher = less natural text),
+- repetition: share of continuations with a repeated 3-gram.
+
+Two reference rows get the same scoring: `base` (the seed-1 router with zero rows,
+i.e. the exact base model; also gives base Eff/Gen) and Δe (the seed-1 multiseed
+regular run). Spe/PPL cannot show over-editing because they never route; the
+generation columns can.
+
+```bash
+sbatch mcf_projection_alpha_sweep_seed1.slurm
+python scripts/mcf_projection_edit.py summarize --root outputs/mcf_projection_alpha_sweep_seed1
+```
