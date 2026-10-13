@@ -199,6 +199,8 @@ def run(args):
     out.mkdir(parents=True, exist_ok=True)
     device = torch.device(args.device)
     if device.type == "cuda":
+        if device.index is None:                     # set_device needs an explicit index
+            device = torch.device("cuda", torch.cuda.current_device())
         torch.cuda.set_device(device)
     tok = AutoTokenizer.from_pretrained(args.model_path, use_fast=True,
                                         local_files_only=args.local_files_only)
