@@ -115,6 +115,12 @@ def score(base_model, tok, rows, device, routed):
     return rows
 
 
+def is_refusal(text):
+    """Empty continuation (stopped at EOS) or an explicit "I don't know"."""
+    t = text.strip().casefold().replace("\u2019", "'")
+    return not t or t.startswith("i don't know") or t.startswith("i do not know")
+
+
 def leak_summary(rows):
     def rate(key, sub):
         return sum(bool(r[key]) for r in sub) / max(1, len(sub))
@@ -129,6 +135,7 @@ def leak_summary(rows):
         "leak_any_excl": rate("answer_in_continuation", clean),
         "base_nll_per_token_mean": sum(nlls) / max(1, len(nlls)),
         "repeated_trigram": rate("repeated_trigram", rows),
+        "refusal": sum(is_refusal(r.get("continuation", "")) for r in rows) / max(1, len(rows)),
     }
 
 
@@ -321,6 +328,11 @@ def compare(args):
         if (arm / "routed_generation.json").is_file():
             entries.append((f"projection α={alpha}", arm / "routed_generation.json",
                             arm / "linear_global" / "official_mcf_eval.json"))
+    for spec in args.extra:
+        label, _, arm = spec.partition("=")
+        arm = Path(arm)
+        entries.append((label, arm / "routed_generation.json",
+                        arm / "linear_global" / "official_mcf_eval.json"))
     zero_eval = zero_dir / "zerounlearn" / "official_mcf_eval.json"
     if not zero_eval.is_file() and args.zero_official:
         zero_eval = Path(args.zero_official)
@@ -329,8 +341,8 @@ def compare(args):
 
     reference_ids = None
     lines = ["| model | Eff ↓ | Gen ↓ | Spe | PPL | prompts | leak@start ↓ | leak@24 ↓ "
-             "| leak@24 excl. answer-in-prompt ↓ | gen NLL ↓ | repeat-3gram ↓ |",
-             "|" + "---|" * 11]
+             "| leak@24 excl. answer-in-prompt ↓ | refusal (EOS / IDK) | gen NLL ↓ | repeat-3gram ↓ |",
+             "|" + "---|" * 12]
     per_model = {}
     for label, gen_path, eval_path in entries:
         gen = _load(gen_path)
@@ -357,7 +369,7 @@ def compare(args):
             _fmt((official or {}).get("forget_PPL")), str(s["prompts"]),
             _fmt(s["leak_start"], True), _fmt(s["leak_any"], True),
             _fmt(s["leak_any_excl"], True) + f" (n={s['prompts_answer_not_in_prompt']})",
-            _fmt(s["base_nll_per_token_mean"]), _fmt(s["repeated_trigram"], True)]) + " |")
+            _fmt(s["refusal"], True), _fmt(s["base_nll_per_token_mean"]), _fmt(s["repeated_trigram"], True)]) + " |")
         per_model[label] = {r["id"]: r for r in rows}
 
     text = (f"# Free-generation leak on MCF seed {args.seed} forget prompts "
@@ -367,7 +379,9 @@ def compare(args):
             "leak@24: true answer anywhere in the 24-token greedy continuation; excl.: prompts "
             "whose own text does not already contain the answer. Δe/projection are only active "
             "where the router fires; ZeroUnlearn edits weights, so it is active everywhere. "
-            "gen NLL = base-model NLL per continuation token (fluency).\n\n"
+            "refusal: continuation is empty (stopped at EOS) or starts with \"I don't know\". "
+            "gen NLL = base-model NLL per continuation token (fluency; an immediate EOS scores "
+            "high because base rarely stops there).\n\n"
             + "\n".join(lines) + "\n")
     zero = per_model.get("ZeroUnlearn (target_true parity)")
     base = per_model.get("base (this run)")
@@ -384,7 +398,30 @@ def compare(args):
             text += (f"- **{zero[i]['prompt']}** → answer *{zero[i]['answer']}*\n"
                      f"  - base: `{base[i]['continuation'].strip()}`\n"
                      f"  - ZeroUnlearn: `{zero[i]['continuation'].strip()}`\n")
-    (zero_dir / "comparison.md").write_text(text)
+    if args.examples and base:
+        # Prompts where the base model does say the answer, one per fact, canonical first.
+        picked, facts = [], set()
+        for i, r in base.items():
+            fact = i.split(":")[0]
+            if r["answer_in_continuation"] and not r["answer_in_prompt"] and fact not in facts:
+                picked.append(i)
+                facts.add(fact)
+            if len(picked) == args.examples:
+                break
+        text += "\n## Before vs after (greedy, 24 tokens)\n\n"
+        for i in picked:
+            text += f"**{base[i]['prompt']}** → true answer *{base[i]['answer']}*\n\n"
+            for label, rows in per_model.items():
+                if label.startswith("base (router") or i not in rows:
+                    continue
+                r = rows[i]
+                mark = "LEAK" if r["answer_in_continuation"] else (
+                    "refuse" if is_refusal(r["continuation"]) else "ok")
+                shown = r["continuation"].strip().replace("\n", " ") or "∅ (stopped: EOS)"
+                text += f"- {label} [{mark}]: `{shown}`\n"
+            text += "\n"
+    out = Path(args.out) if args.out else zero_dir / "comparison.md"
+    out.write_text(text)
     print(text)
 
 
@@ -430,6 +467,12 @@ def main(argv=None):
     c.add_argument("--alphas", nargs="*", default=["2.5", "3"])
     c.add_argument("--zero-official", default=None,
                    help="ZeroUnlearn official eval JSON if this run skipped --official-eval")
+    c.add_argument("--extra", nargs="*", default=[],
+                   help="LABEL=ARM_DIR rows (ARM_DIR/routed_generation.json, "
+                        "ARM_DIR/linear_global/official_mcf_eval.json)")
+    c.add_argument("--examples", type=int, default=0,
+                   help="side-by-side before/after continuations for this many facts")
+    c.add_argument("--out", default=None, help="default: ZERO_DIR/comparison.md")
     c.add_argument("--seed", type=int, default=1)
     c.add_argument("--show", type=int, default=8)
     args = parser.parse_args(argv)

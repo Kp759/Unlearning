@@ -56,3 +56,13 @@ greedy leak check on the same 250 forget prompts, then writes
 contain the answer, base-model NLL, repeated 3-grams, plus Eff/Gen/Spe/PPL.
 
     sbatch mcf_zerounlearn_leak_seed1.slurm
+
+## Refusal rows (Δe trained toward EOS / "I don't know", seed 1)
+
+`scripts/train_mcf_refusal_rows.py` trains the same 50 rows (same router, setting A) with
+loss = NLL(target | prompt) + relu(-log 1e-6 − NLL(answer)), target = EOS (`--target eos`,
+ZeroUnlearn-style stop) or " I don't know." + EOS (`--target idk`). Plain Adam, rows capped
+at 1× the median layer-19 boundary norm, same router-routed train + development views.
+
+    sbatch mcf_refusal_rows_seed1.slurm
+    cat outputs/mcf_refusal_rows_seed1/comparison.md   # table + before/after examples
