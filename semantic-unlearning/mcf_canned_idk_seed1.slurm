@@ -1,16 +1,17 @@
 #!/bin/bash
 # C_idk, MCF seed 1: NO vectors. The seed-1 router alone decides; if it fires, the reply
 # is the fixed " I don't know.", otherwise the base model answers. CPU only: routes are
-# row-independent, so they come from the held-out Δe run, and unrouted prompts are base.
+# row-independent (runs on the gpu partition only because it is the one we know works),
+# so they come from the held-out Δe run, and unrouted prompts are base.
 # Needs outputs/mcf_heldout_generation_seed1/{base,delta_e}.json (the held-out job), so
 # submit it after that job:
 #
 #   sbatch --dependency=afterok:1407291 mcf_canned_idk_seed1.slurm
 #   cat outputs/mcf_refusal_rows_seed1/comparison.md outputs/mcf_heldout_generation_seed1/summary.md
 #SBATCH --job-name=mcf_canned_idk
-#SBATCH --account=yl258
-#SBATCH --partition=standard
+#SBATCH --partition=gpu
 #SBATCH --qos=standard
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
 #SBATCH --time=00:20:00
