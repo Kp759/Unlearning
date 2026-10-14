@@ -346,6 +346,12 @@ def compare(args):
         s = leak_summary(rows)
         official = _load(eval_path) if eval_path else None
         forget = (official or {}).get("forget") or {}
+        if official and official.get("metric_version") != "zerounlearn_answer_probability_v2":
+            # Raw evaluate_loaded_model_official output: forget.Eff/Gen there are the legacy
+            # "prefers target_true over target_new" rates. Re-score exactly as our static
+            # evaluator does (Eq. 16 answer probability; Spe = neighbourhood accuracy).
+            from mcf_zero_unlearn_metric_parity import summarize_probability_metrics
+            forget = summarize_probability_metrics(official["forget"], official["forget_raw"])
         lines.append("| " + " | ".join([
             label, _fmt(forget.get("Eff")), _fmt(forget.get("Gen")), _fmt(forget.get("Spe")),
             _fmt((official or {}).get("forget_PPL")), str(s["prompts"]),
