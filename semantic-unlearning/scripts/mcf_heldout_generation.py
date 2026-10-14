@@ -303,7 +303,8 @@ def main(argv=None):
     s.add_argument("--train-views", nargs="*", default=[],
                    help="STEM=routed_generation.json (training-view leak split canonical/dev)")
     s.add_argument("--order", nargs="*",
-                   default=["base", "delta_e", "R_eos", "R_idk", "S_idk", "C_idk", "zerounlearn"])
+                   default=["base", "delta_e", "R_eos", "R_idk", "S_idk", "C_idk", "J_A", "J_C",
+                            "zerounlearn"])
     s.add_argument("--show", type=int, default=6)
     args = p.parse_args(argv)
     if args.command == "run":

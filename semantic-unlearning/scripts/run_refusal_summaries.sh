@@ -25,6 +25,14 @@ for ARM in R_eos R_idk S_idk; do
     EXTRA+=("$LABEL=$REFUSAL/$ARM"); TRAIN+=("$ARM=$REFUSAL/$ARM/routed_generation.json")
   fi
 done
+for ARM in J_A J_C; do
+  DIR=outputs/mcf_jlens_feedback_seed1/$ARM
+  if [[ -f "$DIR/routed_generation.json" ]]; then
+    case "$ARM" in J_A) LABEL="J-lens feedback, last token (50 vectors)";;
+                   J_C) LABEL="J-lens feedback, subject span (50 vectors)";; esac
+    EXTRA+=("$LABEL=$DIR"); TRAIN+=("$ARM=$DIR/routed_generation.json")
+  fi
+done
 if [[ -f "$CANNED/routed_generation.json" ]]; then
   EXTRA+=("router + fixed IDK (0 vectors)=$CANNED"); TRAIN+=("C_idk=$CANNED/routed_generation.json")
 fi
