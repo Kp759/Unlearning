@@ -133,7 +133,7 @@ def leak_summary(rows):
         "leak_start": rate("answer_at_start", rows),
         "prompts_answer_not_in_prompt": len(clean),
         "leak_any_excl": rate("answer_in_continuation", clean),
-        "base_nll_per_token_mean": sum(nlls) / max(1, len(nlls)),
+        "base_nll_per_token_mean": sum(nlls) / len(nlls) if nlls else None,
         "repeated_trigram": rate("repeated_trigram", rows),
         "refusal": sum(is_refusal(r.get("continuation", "")) for r in rows) / max(1, len(rows)),
     }

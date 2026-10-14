@@ -12,6 +12,8 @@ token, nothing else changes; unrouted prompts stay bit-exact base) with
 
   --target eos   target = the tokenizer's EOS token        (ZeroUnlearn-style stop)
   --target idk   target = " I don't know." + EOS           (decline, then stop)
+  --shared       ONE vector shared by all 50 facts (rows tied) instead of one per fact;
+                 the router then only decides "forget or not"
 
 Rows start from zero, plain Adam on full rows, each row's norm capped at
 --max-row-norm-ratio x the median layer-19 boundary norm. Same training data as the
@@ -32,6 +34,7 @@ import shutil
 import time
 
 import torch
+from torch import nn
 
 from layer_sweep_utils import boundary_norms
 from linear_router import ARCHITECTURE, load_linear_classifier_artifact
@@ -82,6 +85,8 @@ def main(argv=None):
     p.add_argument("--target-probability", type=float, default=PLAN["target_probability"])
     p.add_argument("--max-row-norm-ratio", type=float, default=1.0)
     p.add_argument("--eval-every", type=int, default=100)
+    p.add_argument("--shared", action="store_true",
+                   help="tie all rows to one shared vector")
     p.add_argument("--device", default="cuda")
     p.add_argument("--local-files-only", action="store_true")
     args = p.parse_args(argv)
@@ -127,6 +132,8 @@ def main(argv=None):
     with torch.no_grad():
         base_logits = model(**neutral, use_cache=False).logits.detach().clone()
     _, bank = load_linear_classifier_artifact(model, source)
+    if args.shared:                                  # one Parameter, referenced by every fact
+        bank.rows = nn.ParameterList([bank.rows[0]] * len(bank.rows))
     for row in bank.rows:
         row.requires_grad_(True)
     editor = FactAssociationEditor(model, bank)
@@ -146,7 +153,9 @@ def main(argv=None):
     if not use:
         raise RuntimeError("The router sends no training view to its own row")
 
-    optimizer = torch.optim.Adam(list(bank.rows), lr=args.lr)
+    params = list({id(row): row for row in bank.rows}.values())
+    print(json.dumps({"trainable_vectors": len(params)}), flush=True)
+    optimizer = torch.optim.Adam(params, lr=args.lr)
     tau = -math.log(args.target_probability)
     log = [{"step": 0, **{s: evaluate(lm, answer, target, v, args.batch_size)
                           for s, v in by_split.items()}}]
@@ -161,7 +170,7 @@ def main(argv=None):
         loss.backward()
         optimizer.step()
         with torch.no_grad():
-            for row in bank.rows:
+            for row in params:
                 n = row.norm()
                 if n > max_norm:
                     row.mul_(max_norm / n)
@@ -183,6 +192,7 @@ def main(argv=None):
     new_manifest.update({
         "method": "sure_linear_router_refusal_rows",
         "refusal_target": args.target, "refusal_completion": completion,
+        "shared_vector": bool(args.shared), "trainable_vectors": len(params),
         "training_route": "router", "training_coverage": coverage,
         "refusal_training": {k: v for k, v in vars(args).items()
                              if k not in ("router_dir", "output_dir", "device")},
@@ -194,6 +204,7 @@ def main(argv=None):
             shutil.copy2(router_dir / name, output / name)
     row_norms = rows.float().norm(dim=-1)
     report = {"target": args.target, "completion": completion, "training_coverage": coverage,
+              "shared_vector": bool(args.shared), "trainable_vectors": len(params),
               "log": log, "row_norm_median": float(row_norms.median()),
               "row_norm_max": float(row_norms.max()), "max_row_norm": max_norm,
               "boundary_norm_median": float(norms[layer].median()),

@@ -167,7 +167,7 @@ def summarize_rows(rows):
 # ------------------------------------------------------------------------ summarize
 
 def _route(data, stats, key="routed"):
-    if data["method"] == "router":
+    if data["method"] in ("router", "canned"):
         return _pct(stats[key])
     return "all (weights)" if data["method"] == "zerounlearn" else "–"
 
@@ -301,7 +301,8 @@ def main(argv=None):
     s.add_argument("--seed", type=int, default=1)
     s.add_argument("--train-views", nargs="*", default=[],
                    help="STEM=routed_generation.json (training-view leak split canonical/dev)")
-    s.add_argument("--order", nargs="*", default=["base", "delta_e", "R_eos", "R_idk", "zerounlearn"])
+    s.add_argument("--order", nargs="*",
+                   default=["base", "delta_e", "R_eos", "R_idk", "S_idk", "C_idk", "zerounlearn"])
     s.add_argument("--show", type=int, default=6)
     args = p.parse_args(argv)
     if args.command == "run":
