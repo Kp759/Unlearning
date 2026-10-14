@@ -8,8 +8,9 @@ record's OWN prompts for the seed's 50 forget facts:
   rewrite       requested_rewrite prompt (the canonical prompt; seen in training by us
                 AND by ZeroUnlearn)                              -> leak ↓, refusal
   paraphrase    paraphrase_prompts (held out; = the Gen prompts)  -> leak ↓, refusal
-  generation    generation_prompts: same subject, other topics    -> leak, refusal ↓ (over-refusal)
-                (held out; e.g. "X's work office is surrounded by")
+  generation    generation_prompts: same subject, free-form prompts that CounterFact built
+                around the edited relation (held out; e.g. "The affiliation of Belgium is",
+                "Ignazio Silone works as a") -> leak ↓, refusal (mostly legitimate)
   neighborhood  neighborhood_prompts: same relation + true answer,
                 OTHER subjects (held out; = the Spe prompts)     -> answer kept ↑, refusal ↓
 
@@ -228,7 +229,7 @@ def summarize(args):
         ]) + " |")
     lines += ["", "## Over-refusal (held out)\n",
               "| model | neighbourhood: answer kept ↑ | neighbourhood: refusal ↓ | neighbourhood: routed ↓ "
-              "| same subject, other topics: refusal ↓ | same subject: routed | same subject: answer appears |",
+              "| MCF generation prompts (same subject, relation-related): refusal | routed | answer appears |",
               "|---|---|---|---|---|---|---|"]
     for stem, data in results:
         s = data["summary"]
