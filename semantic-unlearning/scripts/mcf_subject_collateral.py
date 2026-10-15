@@ -52,8 +52,8 @@ RELATION_TYPE = {
 }
 
 
-def relation_templates(mcf_path):
-    """relation_id -> its most common MCF prompt template."""
+def ranked_relation_templates(mcf_path):
+    """relation_id -> its MCF prompt templates, most common first."""
     from collections import Counter, defaultdict
 
     counts = defaultdict(Counter)
@@ -61,23 +61,38 @@ def relation_templates(mcf_path):
         rw = record["requested_rewrite"]
         rw = rw[0] if isinstance(rw, list) else rw
         counts[rw["relation_id"]][rw["prompt"]] += 1
-    return {r: c.most_common(1)[0][0] for r, c in counts.items()}
+    return {r: [t for t, _ in c.most_common()] for r, c in counts.items()}
+
+
+def relation_templates(mcf_path):
+    """relation_id -> its most common MCF prompt template."""
+    return {r: ts[0] for r, ts in ranked_relation_templates(mcf_path).items()}
+
+
+def other_relations(relation, available, split):
+    """Other relations that fit the subject's type, split into halves.
+
+    preserve = even positions, eval = odd positions of the sorted list, so the
+    router's hard negatives / the preservation loss (preserve) never share a
+    relation with the collateral evaluation (eval)."""
+    if split not in ("preserve", "eval", "all"):
+        raise ValueError(split)
+    kind = RELATION_TYPE.get(relation, "person")
+    others = sorted(r for r in TYPE_RELATIONS[kind] if r != relation and r in available)
+    if split == "preserve":
+        return others[0::2]
+    if split == "eval":
+        return others[1::2]
+    return others
 
 
 def subject_probes(forget_records, templates, split):
     """Per forget record (same order): [(relation_id, prompt)] for the given split."""
-    if split not in ("preserve", "eval", "all"):
-        raise ValueError(split)
     out = []
     for record in forget_records:
         rw = record["requested_rewrite"]
         rw = rw[0] if isinstance(rw, list) else rw
-        kind = RELATION_TYPE.get(rw["relation_id"], "person")
-        others = sorted(r for r in TYPE_RELATIONS[kind] if r != rw["relation_id"] and r in templates)
-        if split == "preserve":
-            others = others[0::2]
-        elif split == "eval":
-            others = others[1::2]
+        others = other_relations(rw["relation_id"], templates, split)
         out.append([(r, templates[r].format(rw["subject"])) for r in others])
     return out
 
@@ -151,7 +166,12 @@ def evaluate(model, tok, artifact, items, args):
     return rows
 
 
-def summarize(rows):
+def summarize(rows, fact_relation=None):
+    """fact_relation: fact id -> relation id; splits the natural fire rate by whether
+    the probed relation shares the forgotten relation's answer group (born in / works
+    in: the answer can coincide) or not (a clean other question)."""
+    from linear_router import same_answer_group
+
     out = {}
     for cond in ("natural", "forced"):
         n = max(1, len(rows))
@@ -162,6 +182,13 @@ def summarize(rows):
             "same_answer": sum(r[cond]["same_answer"] for r in rows) / n,
             "dNLL_mean": statistics.mean(r[cond]["dNLL"] for r in rows) if rows else 0.0,
         }
+    if fact_relation:
+        for name, want in (("same_group", True), ("other_group", False)):
+            part = [r for r in rows
+                    if same_answer_group(fact_relation[r["fact"]], r["relation"]) == want]
+            out["natural"][f"router_fired_{name}"] = (
+                sum(r["natural"]["fired"] for r in part) / len(part) if part else None)
+            out["natural"][f"prompts_{name}"] = len(part)
     return out
 
 
@@ -213,30 +240,41 @@ def main(argv=None):
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    fact_relation = {f["id"]: f["relation"] for f in facts}
     results = {}
     for name, run_dir in runs:
         path = out_dir / f"{name}.json"
         if path.is_file():
             results[name] = json.loads(path.read_text())
+            results[name]["summary"] = summarize(results[name]["rows"], fact_relation)
             continue
         artifact = torch.load(Path(run_dir) / "fact_association_embeddings.pt", map_location="cpu",
                               weights_only=False)
         rows = evaluate(model, tok, artifact, items, args)
-        results[name] = {"run_dir": str(run_dir), "summary": summarize(rows), "rows": rows}
+        results[name] = {"run_dir": str(run_dir), "summary": summarize(rows, fact_relation),
+                         "rows": rows}
         path.write_text(json.dumps(results[name], indent=2) + "\n")
         print(name, json.dumps(results[name]["summary"]), flush=True)
 
+    def pct(x, digits=1):
+        return "–" if x is None else f"{100 * x:.{digits}f}%"
+
+    first_n = next(iter(results.values()))["summary"]["natural"]
     lines = [f"# Same subject, other relations: collateral damage (MCF seed {seed}, {args.split} relations)\n",
              "**forced** = the fact's edit switched on (as inside a routed reply); **natural** = router "
              "decides. vs base greedy continuation: same first 5 tokens ↑, base answer word kept ↑, "
-             "ΔNLL of base continuation ↓ (0 = unchanged).\n",
+             "ΔNLL of base continuation ↓ (0 = unchanged). Router fired is split by whether the probed "
+             "relation is in the forgotten relation's answer group (e.g. born in vs works in, "
+             f"n = {first_n.get('prompts_same_group')}) or not (n = {first_n.get('prompts_other_group')}).\n",
              "| run | n | forced: same first 5 | forced: answer kept | forced: ΔNLL | natural: router fired ↓ "
-             "| natural: same first 5 |", "|---|---|---|---|---|---|---|"]
+             "| fired, same answer group | fired, other relations | natural: same first 5 |",
+             "|---|---|---|---|---|---|---|---|---|"]
     for name, res in results.items():
         f, n = res["summary"]["forced"], res["summary"]["natural"]
         lines.append(f"| {name} | {f['prompts']} | {100 * f['same_first5']:.0f}% | "
                      f"{100 * f['same_answer']:.0f}% | {f['dNLL_mean']:.2f} | "
-                     f"{100 * n['router_fired']:.1f}% | {100 * n['same_first5']:.0f}% |")
+                     f"{pct(n['router_fired'])} | {pct(n.get('router_fired_same_group'))} | "
+                     f"{pct(n.get('router_fired_other_group'))} | {100 * n['same_first5']:.0f}% |")
     first = next(iter(results.values()))["rows"]
     lines.append("\n## Examples (forced edit)\n")
     for k, row in enumerate(first[:args.show]):

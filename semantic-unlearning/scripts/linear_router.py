@@ -397,8 +397,14 @@ def assemble_router_dataset(
     per_donor=3,
     type_check=True,
     answer_groups=True,
+    extra_controls=None,
 ):
     """Prompts, labels, runtime eligibility and fit/calibration/audit splits.
+
+    extra_controls: optional {fact index: [control dicts]} appended to that
+    fact's negatives (same keys as _negative_controls_for_fact's controls:
+    prompt, kind, split, donor_relation, group), e.g. the fact's subject asked
+    with other relations (fit_linear_router.py --relation-negatives).
 
     examples: dicts (or objects) with fact_id, prompt, split in
     {train, development}, and a prompt family in `group` (or `role`).
@@ -474,6 +480,8 @@ def assemble_router_dataset(
             answer_groups=answer_groups,
             subject_relation_pairs=subject_relation_pairs,
         )
+        if extra_controls:
+            controls = controls + list(extra_controls.get(index, []))
         added = defaultdict(int)
         for control in controls:
             prompt = control["prompt"]

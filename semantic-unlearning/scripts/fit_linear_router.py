@@ -176,6 +176,43 @@ def load_examples(run_dir, facts, augment, split_rule):
     )
 
 
+def relation_negative_controls(facts, mcf_path, templates_per_relation=3, skip_answer_group=False):
+    """{fact index: controls}: the fact's subject asked with other relations.
+
+    Only the 'preserve' half of the relations (mcf_subject_collateral.other_relations),
+    so the collateral evaluation's 'eval' half is never a router negative. Template
+    rank k of a relation goes to SPLITS[k % 3]: fit gets the most common template,
+    calibration and audit get other wordings of the same questions."""
+    from linear_router import same_answer_group
+    from mcf_subject_collateral import other_relations, ranked_relation_templates
+
+    ranked = ranked_relation_templates(mcf_path)
+    out = {}
+    for index, fact in enumerate(facts):
+        relation = str(fact.get("relation", ""))
+        # MCF reuses wordings across relations ("{} is located in" is P17 and P131):
+        # a template of the fact's own relation or of a held-out (eval) relation is
+        # never used, so no negative equals a positive or a collateral-eval prompt.
+        banned = set(ranked.get(relation, []))
+        for held_out in other_relations(relation, ranked, "eval"):
+            banned.update(ranked[held_out])
+        controls = []
+        for other in other_relations(relation, ranked, "preserve"):
+            if skip_answer_group and same_answer_group(relation, other):
+                continue
+            usable = [t for t in ranked[other] if t not in banned]
+            for rank, template in enumerate(usable[:int(templates_per_relation)]):
+                controls.append({
+                    "prompt": template.format(fact["subject"]).strip(),
+                    "kind": "relation_probe",
+                    "split": SPLITS[rank % len(SPLITS)],
+                    "donor_relation": other,
+                    "group": f"relation_probe_t{rank}",
+                })
+        out[index] = controls
+    return out
+
+
 def _json_safe(value):
     if isinstance(value, float):
         return value if math.isfinite(value) else None
@@ -313,6 +350,20 @@ def main(argv=None):
              "match picks the entity and the relation head picks the fact. Stored "
              "router = R heads + a per-fact head index. Global threshold only.",
     )
+    parser.add_argument(
+        "--relation-negatives", action="store_true",
+        help="MCF: add each fact's SUBJECT asked with other relations of its type "
+             "(MCF's own relation templates; the 'preserve' half of the relations in "
+             "mcf_subject_collateral.py, so its 'eval' half stays unseen) as negatives "
+             "for that fact's head. Template rank k goes to split fit/calibration/audit "
+             "(k mod 3). Makes 'subject alone' insufficient to fire.",
+    )
+    parser.add_argument("--relation-negative-templates", type=int, default=3,
+                        help="templates per other relation (most common first)")
+    parser.add_argument("--relation-negatives-skip-answer-group", action="store_true",
+                        help="ablation: leave out relations in the fact's answer group")
+    parser.add_argument("--mcf-path", default=None,
+                        help="for --relation-negatives (default: the run manifest's mcf_path)")
     args = parser.parse_args(argv)
     if args.head_sharing != "fact" and (args.threshold_policy != "global" or args.emit_2x2):
         parser.error("--head-sharing relation needs --threshold-policy global and no --emit-2x2")
@@ -351,13 +402,33 @@ def main(argv=None):
     model.requires_grad_(False)
 
     examples, example_source = load_examples(run_dir, facts, args.augment, args.split_rule)
+    extra_controls = None
+    if args.relation_negatives:
+        mcf_path = args.mcf_path or manifest.get("mcf_path")
+        if not mcf_path:
+            raise ValueError("--relation-negatives needs --mcf-path (none in the manifest)")
+        extra_controls = relation_negative_controls(
+            facts, mcf_path, args.relation_negative_templates,
+            skip_answer_group=args.relation_negatives_skip_answer_group)
+        print(json.dumps({"phase": "relation_negatives",
+                          "facts": len(extra_controls),
+                          "prompts": sum(len(v) for v in extra_controls.values()),
+                          "by_split": {s: sum(c["split"] == s for v in extra_controls.values()
+                                              for c in v) for s in SPLITS}}), flush=True)
     data = assemble_router_dataset(
         facts, examples, tokenizer, subject_patterns,
         negative_count=args.negative_count,
         per_donor=args.per_donor,
         type_check=not args.no_type_check,
         answer_groups=not args.no_answer_groups,
+        extra_controls=extra_controls,
     )
+    data["diagnostics"]["relation_negatives"] = None if extra_controls is None else {
+        "templates_per_relation": args.relation_negative_templates,
+        "skip_answer_group": bool(args.relation_negatives_skip_answer_group),
+        "relations_by_fact": {facts[i]["id"]: sorted({c["donor_relation"] for c in v})
+                              for i, v in extra_controls.items()},
+    }
     prompts, labels, eligible, owner = data["prompts"], data["labels"], data["eligible"], data["owner"]
     split = data["split"]
     masks = {name: torch.tensor([s == name for s in split], dtype=torch.bool) for name in SPLITS}
