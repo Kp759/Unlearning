@@ -55,6 +55,9 @@ VARIANTS=(
   "L27relneg_balanced|$SWEEP/L27/relneg|--objective balanced"
   "L19relneg_constrained95_fpr10|$SWEEP/L19/relneg|--objective constrained --min-recall 0.95 --target-fpr 0.10"
   "L19plain_constrained95_fpr10|$ROOT/outputs/mcf_multiseed_regular_v1/seed1/L19/router|--objective constrained --min-recall 0.95 --target-fpr 0.10"
+  # the shipped rule, only the recall floor lowered (98% -> 90%); calibration split as shipped, then pooled
+  "L19plain_minrecall90_cal|$ROOT/outputs/mcf_multiseed_regular_v1/seed1/L19/router|--objective min_recall --min-recall 0.90 --validation-splits calibration"
+  "L19plain_minrecall90_pooled|$ROOT/outputs/mcf_multiseed_regular_v1/seed1/L19/router|--objective min_recall --min-recall 0.90"
 )
 RUNS=("L27 relneg (shipped cutoff)=$SWEEP/L27/relneg" "L19 plain (shipped cutoff)=$ROOT/outputs/mcf_multiseed_regular_v1/seed1/L19/router")
 for V in "${VARIANTS[@]}"; do
