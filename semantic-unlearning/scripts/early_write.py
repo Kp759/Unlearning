@@ -11,6 +11,10 @@ every later position can re-read them from there. EarlyWriteCausalLM therefore r
           block `write_layer` at the subject positions of fact f in the prompt
           (`subject_last` = last subject token, `subject_span` = all subject tokens).
           If the subject is not found, the boundary token receives the row (counted).
+          `query` writes instead at the last prompt token AND every later position
+          (each generated token): the subject's state is left untouched, and every
+          position loses the ability to look the fact up ("block the lookup" rather than
+          "erase the stored fact").
 
 Unrouted prompts get no write, so they stay exactly base (pass 2 adds zeros through the
 router bank and nothing at the write layer).
@@ -26,7 +30,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-EARLY_WRITE_MODES = ("subject_last", "subject_span")
+EARLY_WRITE_MODES = ("subject_last", "subject_span", "query")
 
 
 def _block_output(out):
@@ -109,6 +113,12 @@ class EarlyWriteCausalLM(nn.Module):
         return [(p, int(t)) for p, t in enumerate(ids_row[:boundary])
                 if mask_row is None or bool(mask_row[p])]
 
+    def force_route(self, prompt_ids, fact):
+        """Route this exact prompt to `fact` (or -1 for none) regardless of the router.
+
+        Evaluation/training of collateral effects only; never saved in the artifact."""
+        self.route_cache[tuple(int(t) for t in prompt_ids)] = int(fact)
+
     def _route(self, input_ids, attention_mask, boundaries):
         ids = input_ids.detach().cpu().tolist()
         masks = None if attention_mask is None else attention_mask.detach().cpu().tolist()
@@ -177,11 +187,15 @@ class EarlyWriteCausalLM(nn.Module):
         for r, f in enumerate(facts):
             if f < 0:
                 continue
-            prompt = self._prompt(ids[r], None if masks is None else masks[r], boundaries[r])
-            positions = self._subject_positions(prompt, f)
-            if not positions:
-                self.subject_fallbacks += 1
-                positions = [boundaries[r] - 1]
+            if self.write_mode == "query":
+                positions = [p for p in range(boundaries[r] - 1, input_ids.shape[1])
+                             if masks is None or masks[r][p]]
+            else:
+                prompt = self._prompt(ids[r], None if masks is None else masks[r], boundaries[r])
+                positions = self._subject_positions(prompt, f)
+                if not positions:
+                    self.subject_fallbacks += 1
+                    positions = [boundaries[r] - 1]
             plan[r, positions] = 1.0
         self._plan = (plan.to(input_ids.device),
                       torch.tensor(facts, dtype=torch.long, device=input_ids.device))

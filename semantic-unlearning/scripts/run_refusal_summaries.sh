@@ -36,7 +36,8 @@ done
 for DIR in outputs/mcf_early_write_seed1/E_L*; do
   [[ -f "$DIR/routed_generation.json" ]] || continue
   NAME="$(basename "$DIR")"
-  EXTRA+=("early write ${NAME#E_}, subject span (50 vectors)=$DIR")
+  MODE="$(jq -r '.write_mode // "subject_span"' "$DIR/linear_global/association_manifest.json" 2>/dev/null || echo subject_span)"
+  EXTRA+=("early write ${NAME#E_}, $MODE (50 vectors)=$DIR")
   TRAIN+=("$NAME=$DIR/routed_generation.json")
 done
 if [[ -f "$CANNED/routed_generation.json" ]]; then

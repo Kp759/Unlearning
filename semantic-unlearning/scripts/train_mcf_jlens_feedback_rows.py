@@ -17,6 +17,10 @@ trained until the answer is neither generated nor readable at a later layer:
                score on those prompts, so z <= 0 means "no more answer evidence than an
                unrelated prompt"
          keep  KL(base with the answer tokens masked || edited)               fluency
+         keepS (--preserve-weight, early write only) KL(base || edited) on the SAME subject's
+               OTHER relations ("X, a citizen of", "X works as", ...) with the fact's edit forced
+               on: erase/block only the target fact, keep the subject's other facts. Uses the
+               "preserve" half of the relations (mcf_subject_collateral.py evaluates the other half)
          rep   unlikelihood on tokens that would repeat a bigram already in the
                sequence: -log(1 - p(c)) (Welleck et al. 2019); stops loops   (--rep-weight)
        train the rows on every continuation collected so far (replay buffer)
@@ -265,6 +269,9 @@ def main(argv=None):
     p.add_argument("--out-weight", type=float, default=1.0)
     p.add_argument("--lens-weight", type=float, default=1.0)
     p.add_argument("--keep-weight", type=float, default=0.1)
+    p.add_argument("--preserve-weight", type=float, default=0.0,
+                   help="same-subject other-relation KL to base (early write only; 0 = off)")
+    p.add_argument("--preserve-tokens", type=int, default=12)
     p.add_argument("--rep-weight", type=float, default=0.0,
                    help="repetition unlikelihood weight (0 = off)")
     p.add_argument("--max-row-norm-ratio", type=float, default=1.0)
@@ -301,7 +308,7 @@ def main(argv=None):
     if not layer < args.lens_layer < n_layers:
         raise ValueError(f"--lens-layer must be in ({layer}, {n_layers - 1}]")
 
-    _, facts, examples = load_mcf_forget_data(tok, manifest["mcf_path"], seed=seed)
+    forget_records, facts, examples = load_mcf_forget_data(tok, manifest["mcf_path"], seed=seed)
     if [f["id"] for f in facts] != [f["id"] for f in source["facts"]]:
         raise ValueError("Rebuilt MCF facts do not match the router artifact")
     answers = answer_token_sets(tok, examples)
@@ -360,6 +367,24 @@ def main(argv=None):
             views.append({"view_id": e.id, "fact_id": fid, "split": e.split,
                           "prompt_ids": list(e.input_ids[:first]),
                           "answer": e.completion.strip(), "answer_tokens": answers[fid]})
+    preserve = []
+    if args.preserve_weight > 0:
+        if not early:
+            raise ValueError("--preserve-weight needs an early write (--write-layer < router layer)")
+        from mcf_subject_collateral import relation_templates, subject_probes
+        probes = subject_probes(forget_records, relation_templates(manifest["mcf_path"]), "preserve")
+        with torch.no_grad():
+            for i, plist in enumerate(probes):
+                for _, prompt in plist:
+                    ids = tok(prompt)["input_ids"]
+                    lm.force_route(ids, -1)                # no edit: exact base continuation
+                    full = lm.generate_uncached_fixed_boundary(
+                        torch.tensor([ids], device=args.device),
+                        max_new_tokens=args.preserve_tokens)[0].tolist()
+                    if len(full) > len(ids):
+                        lm.force_route(ids, i)             # this fact's edit, as inside its reply
+                        preserve.append({"ids": full, "prompt_len": len(ids)})
+        print(json.dumps({"phase": "preserve_prompts", "prompts": len(preserve)}), flush=True)
     print(json.dumps({"phase": "feedback_views", "views": len(views), "facts": len(by_fact),
                       "write_mode": args.write_mode, "write_layer": norm_layer,
                       "max_row_norm": max_norm}), flush=True)
@@ -384,6 +409,15 @@ def main(argv=None):
         for _ in range(args.steps_per_round):
             batch = rng.sample(buffer, min(args.batch_size, len(buffer)))
             loss, stats = losses(lm, params, model, args, batch, U, mu, sd, token_index, args.device)
+            if preserve:
+                pb = rng.sample(preserve, min(args.batch_size, len(preserve)))
+                base_pl = base_logits(lm, params, model, args.lens_layer, pb, args.device)
+                logits_pl, _, pos_pl = forward(lm, model, args.lens_layer, pb, args.device)
+                bp = base_pl.softmax(-1)
+                kl = (bp * (bp.clamp_min(1e-30).log() - logits_pl.log_softmax(-1))).sum(-1)
+                keep_s = (kl * pos_pl).sum() / pos_pl.sum()
+                loss = loss + args.preserve_weight * keep_s
+                stats["preserve"] = float(keep_s.detach())
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()

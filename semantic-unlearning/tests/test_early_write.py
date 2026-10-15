@@ -102,3 +102,40 @@ def test_artifact_round_trip_and_generation_uses_fixed_boundary():
 def test_write_layer_after_router_layer_is_rejected():
     with pytest.raises(ValueError):
         EarlyWriteCausalLM(_tiny_llama(), _artifact(router_layer=1), write_layer=2)
+
+
+def test_query_mode_writes_boundary_and_every_later_position_not_the_subject():
+    base = _tiny_llama()
+    rows = torch.zeros(2, HIDDEN)
+    rows[0] = 1.0
+    model = EarlyWriteCausalLM(base, _artifact(), write_layer=0, write_mode="query", rows=rows)
+    ids = torch.cat([ROUTED, torch.tensor([[11, 12]])], dim=1)       # prompt + 2 "generated" tokens
+    with torch.no_grad():
+        model.close()                                                 # reference without the write hook
+        ref_store, h = _capture(base, 0)
+        base(input_ids=ids)
+        reference = ref_store["h"]
+        h.remove()
+    model = EarlyWriteCausalLM(base, _artifact(), write_layer=0, write_mode="query", rows=rows)
+    store, handle = _capture(base, 0)
+    model.set_association_prefix_lengths([ROUTED.shape[1]])
+    with torch.no_grad():
+        model(input_ids=ids, use_cache=False)
+    handle.remove()
+    changed = set(((store["h"] - reference).abs().sum(-1)[0] > 0).nonzero().flatten().tolist())
+    assert changed == {7, 8, 9}                  # boundary (7) + generated (8, 9); subject 4, 5 untouched
+    model.close()
+
+
+def test_force_route_applies_the_row_to_an_unrouted_prompt():
+    base = _tiny_llama()
+    with torch.no_grad():
+        reference = base(input_ids=UNROUTED).logits
+    model = EarlyWriteCausalLM(base, _artifact(), write_layer=0, write_mode="query",
+                               rows=torch.full((2, HIDDEN), 3.0))
+    model.force_route(UNROUTED[0].tolist(), 1)
+    model.set_association_prefix_lengths([UNROUTED.shape[1]])
+    with torch.no_grad():
+        logits = model(input_ids=UNROUTED, use_cache=False).logits
+    assert model.last_active_fact_indices == [[1]] and not torch.equal(logits, reference)
+    model.close()
