@@ -10,6 +10,8 @@ trained until the answer is neither generated nor readable at a later layer:
     2. on every continuation position t (from the prompt boundary on), penalise
          out   relu(log p_final(answer_tok | x_<t) - log tau)                   final output
          lens  relu(z_L(answer_tok, t) - z_max)                               J-lens at layer L
+               (--lens-type logit: relu(log softmax(lm_head(norm(h_L(t))))[answer] - log
+               lens_tau), i.e. the plain logit lens at layer L instead)
                z = (u_w . h_L(t) - mu_w) / sd_w, u_w = mean d logit_w / d h_L
                over generic MCF prompts (forget subjects excluded); mu/sd = the same
                score on those prompts, so z <= 0 means "no more answer evidence than an
@@ -186,12 +188,19 @@ def losses(lm, params, base_model, args, seqs, U, mu, sd, token_index, device):
     logits, h, pos = forward(lm, base_model, args.lens_layer, seqs, device)
     logp = logits.log_softmax(-1)
     lp = logp.gather(-1, tok[:, None, :].expand(-1, logp.shape[1], -1))           # [B, W, K]
-    z = ((h @ U.T)[..., :] - mu) / sd                                             # [B, W, T]
-    z = z.gather(-1, rows[:, None, :].expand(-1, z.shape[1], -1))                 # [B, W, K]
+    if args.lens_type == "logit":
+        # Plain logit lens: final norm + unembedding applied to the layer-L state.
+        lens_logp = base_model.get_output_embeddings()(base_model.model.norm(h)).float().log_softmax(-1)
+        z = lens_logp.gather(-1, tok[:, None, :].expand(-1, lens_logp.shape[1], -1))  # [B, W, K]
+        del lens_logp
+    else:
+        z = ((h @ U.T)[..., :] - mu) / sd                                         # [B, W, T]
+        z = z.gather(-1, rows[:, None, :].expand(-1, z.shape[1], -1))             # [B, W, K]
     m = pos[..., None].float()
     per_seq = lambda x: (x * m).sum((1, 2))
     out = per_seq(torch.relu(lp - math.log(args.tau))).mean()
-    lens = per_seq(torch.relu(z - args.z_max)).mean()
+    lens_floor = math.log(args.lens_tau) if args.lens_type == "logit" else args.z_max
+    lens = per_seq(torch.relu(z - lens_floor)).mean()
     keep = torch.zeros((), device=device)
     if base is not None:
         base.scatter_(-1, tok[:, None, :].expand(-1, base.shape[1], -1), float("-inf"))
@@ -210,7 +219,8 @@ def losses(lm, params, base_model, args, seqs, U, mu, sd, token_index, device):
     stats = {"out": float(out.detach()), "lens": float(lens.detach()), "keep": float(keep.detach()),
              "rep": float(rep.detach()),
              "max_logp_answer": float((lp.detach().amax(-1) + (~pos) * -1e9).amax(-1).mean()),
-             "max_z": float((z.detach().amax(-1) + (~pos) * -1e9).amax(-1).mean())}
+             ("max_lens_logp" if args.lens_type == "logit" else "max_z"):
+                 float((z.detach().amax(-1) + (~pos) * -1e9).amax(-1).mean())}
     return loss, stats
 
 
@@ -238,6 +248,10 @@ def main(argv=None):
     p.add_argument("--write-layer", type=int, default=None,
                    help="write layer < router layer = early write at the subject tokens")
     p.add_argument("--lens-layer", type=int, default=24)
+    p.add_argument("--lens-type", choices=("jlens", "logit"), default="jlens",
+                   help="jlens: z-scored Jacobian-lens score; logit: plain logit lens")
+    p.add_argument("--lens-tau", type=float, default=1e-4,
+                   help="logit lens: target answer probability at the lens layer")
     p.add_argument("--jlens-prompts", type=int, default=256)
     p.add_argument("--rounds", type=int, default=5)
     p.add_argument("--steps-per-round", type=int, default=150)
@@ -295,8 +309,9 @@ def main(argv=None):
     token_index = {t: i for i, t in enumerate(all_tokens)}
 
     t0 = time.perf_counter()
-    prompts = generic_prompts(tok, manifest["mcf_path"], facts, args.jlens_prompts)
-    U, mu, sd = jlens(model, args.lens_layer, prompts, all_tokens, args.device)
+    prompts = generic_prompts(tok, manifest["mcf_path"], facts,
+                              args.jlens_prompts if args.lens_type == "jlens" else 2)
+    U, mu, sd = jlens(model, args.lens_layer, prompts, all_tokens, args.device)  # unused for logit
     torch.save({"layer": args.lens_layer, "tokens": all_tokens, "U": U, "mu": mu, "sd": sd,
                 "prompts": len(prompts)}, output / f"jlens_L{args.lens_layer}.pt")
     print(json.dumps({"phase": "jlens_ready", "layer": args.lens_layer, "tokens": len(all_tokens),

@@ -11,6 +11,8 @@
 #   sbatch --export=ALL,LAYERS="10 14 16" mcf_early_write_seed1.slurm
 #   v2 (fluency): one layer, stronger KL + repetition unlikelihood, separate output name:
 #   sbatch --array=0 --export=ALL,LAYERS=16,NAME_SUFFIX=_v2,EXTRA_TRAIN_ARGS="--keep-weight 1.0 --rep-weight 0.5" mcf_early_write_seed1.slurm
+#   plain logit lens instead of the J-lens as the layer-24 feedback:
+#   sbatch --array=0 --export=ALL,LAYERS=16,NAME_SUFFIX=_logit,EXTRA_TRAIN_ARGS="--lens-type logit" mcf_early_write_seed1.slurm
 #   then: sbatch --dependency=afterok:<id> mcf_lens_eval_seed1.slurm
 #         bash scripts/run_refusal_summaries.sh
 #SBATCH --job-name=mcf_early_write
