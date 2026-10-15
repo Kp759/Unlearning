@@ -15,6 +15,8 @@ trained until the answer is neither generated nor readable at a later layer:
                score on those prompts, so z <= 0 means "no more answer evidence than an
                unrelated prompt"
          keep  KL(base with the answer tokens masked || edited)               fluency
+         rep   unlikelihood on tokens that would repeat a bigram already in the
+               sequence: -log(1 - p(c)) (Welleck et al. 2019); stops loops   (--rep-weight)
        train the rows on every continuation collected so far (replay buffer)
 
 Feedback on generated positions matters: the earlier Δe hit Eff ~ 3e-5 at the boundary
@@ -159,6 +161,22 @@ def base_logits(lm, params, base_model, lens_layer, seqs, device):
     return logits
 
 
+def repeat_candidates(seqs):
+    """(row, position, token) triples: predicting `token` at `position` would repeat a bigram.
+
+    Only generation positions (from the prompt boundary on) are penalised; the bigrams may
+    come from anywhere earlier in the sequence (prompt included)."""
+    triples = []
+    for r, s in enumerate(seqs):
+        ids, seen = s["ids"], {}
+        for t in range(len(ids) - 1):
+            if t >= s["prompt_len"] - 1:
+                for c in seen.get(ids[t], ()):
+                    triples.append((r, t, c))
+            seen.setdefault(ids[t], set()).add(ids[t + 1])
+    return triples
+
+
 def losses(lm, params, base_model, args, seqs, U, mu, sd, token_index, device):
     tok, rows = gather_answers(seqs, token_index, device)
     # Base logits first: zeroing/restoring the rows in place after the edited forward
@@ -180,8 +198,17 @@ def losses(lm, params, base_model, args, seqs, U, mu, sd, token_index, device):
         bp = base.softmax(-1)
         kl = (bp * (bp.clamp_min(1e-30).log() - logp)).sum(-1)                     # [B, W]
         keep = (kl * pos).sum() / pos.sum()
-    loss = args.out_weight * out + args.lens_weight * lens + args.keep_weight * keep
+    rep = torch.zeros((), device=device)
+    if args.rep_weight > 0:
+        triples = repeat_candidates(seqs)
+        if triples:
+            idx = torch.tensor(triples, device=device)
+            p_rep = logp[idx[:, 0], idx[:, 1], idx[:, 2]].exp().clamp(max=1 - 1e-6)
+            rep = -torch.log1p(-p_rep).sum() / len(seqs)
+    loss = (args.out_weight * out + args.lens_weight * lens + args.keep_weight * keep
+            + args.rep_weight * rep)
     stats = {"out": float(out.detach()), "lens": float(lens.detach()), "keep": float(keep.detach()),
+             "rep": float(rep.detach()),
              "max_logp_answer": float((lp.detach().amax(-1) + (~pos) * -1e9).amax(-1).mean()),
              "max_z": float((z.detach().amax(-1) + (~pos) * -1e9).amax(-1).mean())}
     return loss, stats
@@ -224,6 +251,8 @@ def main(argv=None):
     p.add_argument("--out-weight", type=float, default=1.0)
     p.add_argument("--lens-weight", type=float, default=1.0)
     p.add_argument("--keep-weight", type=float, default=0.1)
+    p.add_argument("--rep-weight", type=float, default=0.0,
+                   help="repetition unlikelihood weight (0 = off)")
     p.add_argument("--max-row-norm-ratio", type=float, default=1.0)
     p.add_argument("--device", default="cuda")
     p.add_argument("--local-files-only", action="store_true")

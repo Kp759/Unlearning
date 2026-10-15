@@ -9,6 +9,8 @@
 #
 #   sbatch mcf_early_write_seed1.slurm
 #   sbatch --export=ALL,LAYERS="10 14 16" mcf_early_write_seed1.slurm
+#   v2 (fluency): one layer, stronger KL + repetition unlikelihood, separate output name:
+#   sbatch --array=0 --export=ALL,LAYERS=16,NAME_SUFFIX=_v2,EXTRA_TRAIN_ARGS="--keep-weight 1.0 --rep-weight 0.5" mcf_early_write_seed1.slurm
 #   then: sbatch --dependency=afterok:<id> mcf_lens_eval_seed1.slurm
 #         bash scripts/run_refusal_summaries.sh
 #SBATCH --job-name=mcf_early_write
@@ -52,7 +54,7 @@ read -r -a LAYER_LIST <<< "${LAYERS:-8 12 16}"
 INDEX="${SLURM_ARRAY_TASK_ID:-0}"
 if (( INDEX >= ${#LAYER_LIST[@]} )); then echo "no layer for array index $INDEX; nothing to do"; exit 0; fi
 L="${LAYER_LIST[$INDEX]}"
-NAME="E_L$L"
+NAME="E_L${L}${NAME_SUFFIX:-}"
 ARM="$ROOT/outputs/mcf_early_write_seed1/$NAME"
 HELD="$ROOT/outputs/mcf_heldout_generation_seed1"
 mkdir -p "$ARM" "$HELD"
@@ -61,7 +63,7 @@ MCF_PATH="$(jq -r '.mcf_path' "$REF")"
 EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
 ROUTER_SRC="${ROUTER_SRC:-$ROOT/outputs/mcf_multiseed_regular_v1/seed1/L19/router}"
 test -f "$ROUTER_SRC/fact_association_embeddings.pt" || { echo "No seed-1 L19 router at $ROUTER_SRC" >&2; exit 2; }
-echo "$NAME (write layer $L, subject span) | job ${SLURM_JOB_ID:-} | $(hostname) | $(date) | commit $(git rev-parse HEAD)"
+echo "$NAME (write layer $L, subject span, extra: ${EXTRA_TRAIN_ARGS:-none}) | job ${SLURM_JOB_ID:-} | $(hostname) | $(date) | commit $(git rev-parse HEAD)"
 
 if [[ ! -f "$ARM/linear_global/training_report.json" ]]; then
   rm -rf "$ARM/linear_global"
@@ -80,7 +82,7 @@ if [[ ! -f "$ARM/routed_generation.json" ]]; then
 fi
 if [[ ! -f "$HELD/$NAME.json" ]]; then
   python -u scripts/mcf_heldout_generation.py run --method router --run-dir "$ARM/linear_global" \
-    --label "early write L$L, subject span (50 vectors)" --out "$HELD/$NAME.json" --seed "$SEED" \
+    --label "early write L$L${NAME_SUFFIX:-}, subject span (50 vectors)" --out "$HELD/$NAME.json" --seed "$SEED" \
     --mcf-path "$MCF_PATH" --device cuda --local-files-only
 fi
 bash scripts/run_refusal_summaries.sh

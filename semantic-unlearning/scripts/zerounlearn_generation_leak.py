@@ -115,6 +115,22 @@ def score(base_model, tok, rows, device, routed):
     return rows
 
 
+def is_degenerate(text):
+    """Loops, enumerated lists or mostly non-letters: text that avoids the answer by breaking."""
+    import re
+    t = text.strip()
+    if not t:
+        return False                                   # an empty reply is a refusal, not a loop
+    words = t.split()
+    if re.search(r"(\b\S+(?:\s+\S+)?\b)(?:\s+\1){2,}", t):           # x x x / "a b a b a b"
+        return True
+    markers = re.findall(r"\([A-Da-d1-9]\)|(?<![\w.])[A-Da-d1-9][.)](?=\s|$|\()", t)
+    if len(markers) >= 3:                                                    # 1. 2. 3. / (A)(B)(C)
+        return True
+    letters = sum(ch.isalpha() for ch in t)
+    return letters < 0.5 * len(t) or (len(words) >= 6 and len(set(words)) < 0.4 * len(words))
+
+
 def is_refusal(text):
     """Empty continuation (stopped at EOS) or an explicit "I don't know"."""
     t = text.strip().casefold().replace("\u2019", "'")
@@ -136,6 +152,7 @@ def leak_summary(rows):
         "base_nll_per_token_mean": sum(nlls) / len(nlls) if nlls else None,
         "repeated_trigram": rate("repeated_trigram", rows),
         "refusal": sum(is_refusal(r.get("continuation", "")) for r in rows) / max(1, len(rows)),
+        "degenerate": sum(is_degenerate(r.get("continuation", "")) for r in rows) / max(1, len(rows)),
     }
 
 
@@ -341,8 +358,9 @@ def compare(args):
 
     reference_ids = None
     lines = ["| model | Eff ↓ | Gen ↓ | Spe | PPL | prompts | leak@start ↓ | leak@24 ↓ "
-             "| leak@24 excl. answer-in-prompt ↓ | refusal (EOS / IDK) | gen NLL ↓ | repeat-3gram ↓ |",
-             "|" + "---|" * 12]
+             "| leak@24 excl. answer-in-prompt ↓ | refusal (EOS / IDK) | degenerate ↓ | gen NLL ↓ "
+             "| repeat-3gram ↓ |",
+             "|" + "---|" * 13]
     per_model = {}
     for label, gen_path, eval_path in entries:
         gen = _load(gen_path)
@@ -369,7 +387,7 @@ def compare(args):
             _fmt((official or {}).get("forget_PPL")), str(s["prompts"]),
             _fmt(s["leak_start"], True), _fmt(s["leak_any"], True),
             _fmt(s["leak_any_excl"], True) + f" (n={s['prompts_answer_not_in_prompt']})",
-            _fmt(s["refusal"], True), _fmt(s["base_nll_per_token_mean"]), _fmt(s["repeated_trigram"], True)]) + " |")
+            _fmt(s["refusal"], True), _fmt(s["degenerate"], True), _fmt(s["base_nll_per_token_mean"]), _fmt(s["repeated_trigram"], True)]) + " |")
         per_model[label] = {r["id"]: r for r in rows}
 
     text = (f"# Free-generation leak on MCF seed {args.seed} forget prompts "

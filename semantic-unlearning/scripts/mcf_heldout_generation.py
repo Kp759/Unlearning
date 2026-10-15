@@ -148,6 +148,8 @@ def run(args):
 
 
 def summarize_rows(rows):
+    from zerounlearn_generation_leak import is_degenerate
+
     out = {}
     for name in SETS:
         sub = [r for r in rows if r["set"] == name]
@@ -161,6 +163,7 @@ def summarize_rows(rows):
             "refusal": sum(r["refusal"] for r in sub) / n,
             "routed": sum(r["routed"] for r in sub) / n,
             "routed_to_own_fact": sum(r["routed_to_own_fact"] for r in sub) / n,
+            "degenerate": sum(is_degenerate(r["continuation"]) for r in sub) / n,
         }
     return out
 
@@ -210,11 +213,12 @@ def summarize(args):
         "**refusal** = over-refusal (lower is better). **routed** = router fired.\n",
         "## Forget facts\n",
         "| model | train canonical leak / refusal | train development leak / refusal "
-        "| MCF rewrite leak / refusal | **MCF paraphrase (held out) leak / excl. / refusal / routed to own fact** |",
-        "|---|---|---|---|---|",
+        "| MCF rewrite leak / refusal | **MCF paraphrase (held out) leak / excl. / refusal / routed to own fact** "
+        "| paraphrase degenerate ↓ | neighbourhood degenerate ↓ |",
+        "|---|---|---|---|---|---|---|",
     ]
     for stem, data in results:
-        s = data["summary"]
+        s = summarize_rows(data["examples"])            # recomputed: picks up new metrics
         tv = _train_view_split(train_views[stem]) if stem in train_views else {}
         canon = tv.get("canonical")
         dev = tv.get("development")
@@ -226,13 +230,14 @@ def summarize(args):
             f"{_pct(s['rewrite']['answer_in_continuation'])} / {_pct(s['rewrite']['refusal'])}",
             f"{_pct(para['answer_in_continuation'])} / {_pct(para['answer_in_continuation_excl'])}"
             f" / {_pct(para['refusal'])} / {_route(data, para, 'routed_to_own_fact')}",
+            _pct(para["degenerate"]), _pct(s["neighborhood"]["degenerate"]),
         ]) + " |")
     lines += ["", "## Over-refusal (held out)\n",
               "| model | neighbourhood: answer kept ↑ | neighbourhood: refusal ↓ | neighbourhood: routed ↓ "
               "| MCF generation prompts (same subject, relation-related): refusal | routed | answer appears |",
               "|---|---|---|---|---|---|---|"]
     for stem, data in results:
-        s = data["summary"]
+        s = summarize_rows(data["examples"])            # recomputed: picks up new metrics
         nb, gen = s["neighborhood"], s["generation"]
         lines.append("| " + " | ".join([
             data["label"], _pct(nb["answer_in_continuation"]), _pct(nb["refusal"]),
