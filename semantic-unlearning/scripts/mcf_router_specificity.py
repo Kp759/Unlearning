@@ -117,23 +117,29 @@ def main(argv=None):
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.with_suffix(".json").write_text(json.dumps(results, indent=2) + "\n")
+    write_table(results, out, seed)
+
+
+HEAD = {"paraphrase_recall": "paraphrase recall ↑", "rewrite_recall": "rewrite recall ↑",
+        "generation_fire": "generation fire", "neighborhood_fire": "neighbourhood fire ↓",
+        "subject_eval_fire": "same subj, other rel. (held out) fire ↓",
+        "subject_eval_fire_same_group": "… same answer group",
+        "subject_eval_fire_other": "… other relations",
+        "subject_preserve_fire": "same subj, preserve rel. fire (router negs) ↓"}
+
+
+def write_table(results, out, seed=1, examples=True):
     cols = list(next(iter(results.values()))["summary"])
-    head = {"paraphrase_recall": "paraphrase recall ↑", "rewrite_recall": "rewrite recall ↑",
-            "generation_fire": "generation fire", "neighborhood_fire": "neighbourhood fire ↓",
-            "subject_eval_fire": "same subj, other rel. (held out) fire ↓",
-            "subject_eval_fire_same_group": "… same answer group",
-            "subject_eval_fire_other": "… other relations",
-            "subject_preserve_fire": "same subj, preserve rel. fire (router negs) ↓"}
     lines = [f"# Router recall / specificity (MCF seed {seed}, routing only)\n",
-             "| router | " + " | ".join(head[c] for c in cols) + " |",
+             "| router | " + " | ".join(HEAD[c] for c in cols) + " |",
              "|---" * (len(cols) + 1) + "|"]
     for name, res in results.items():
         cells = [f"{100 * v:.1f}% (n={n})" if v is not None else "–"
                  for v, n in (res["summary"][c] for c in cols)]
         lines.append(f"| {name} | " + " | ".join(cells) + " |")
-    lines.append("\n## Held-out same-subject prompts where routers disagree\n")
     names = list(results)
-    if len(names) > 1:
+    if examples and len(names) > 1:
+        lines.append("\n## Held-out same-subject prompts where routers disagree\n")
         a, b = results[names[0]]["rows"], results[names[-1]]["rows"]
         shown = 0
         for ra, rb in zip(a, b):
@@ -143,9 +149,25 @@ def main(argv=None):
                              f"{names[-1]} {'fires' if rb['fired'] else 'silent'}")
                 shown += 1
     text = "\n".join(lines) + "\n"
-    out.write_text(text)
+    Path(out).write_text(text)
     print(text)
 
 
+def merge(argv=None):
+    """python scripts/mcf_router_specificity.py merge OUT.md A.json B.json ...
+    One table from several runs' specificity.json files (keys must be unique)."""
+    argv = list(argv)
+    out, files = argv[0], argv[1:]
+    results = {}
+    for f in files:
+        for name, res in json.loads(Path(f).read_text()).items():
+            results[name] = res
+    write_table(results, out, examples=False)
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "merge":
+        merge(sys.argv[2:])
+    else:
+        main()

@@ -305,8 +305,11 @@ def main(argv=None):
         attn_implementation="eager").to(args.device).eval()
     model.requires_grad_(False)
     n_layers = len(model.model.layers)
-    if not layer < args.lens_layer < n_layers:
-        raise ValueError(f"--lens-layer must be in ({layer}, {n_layers - 1}]")
+    # The lens must sit after the layer that is EDITED (the write layer for an early write;
+    # routing happens on the unedited pass 1, so the router layer may be later than the lens).
+    edit_layer = layer if args.write_layer is None else int(args.write_layer)
+    if not edit_layer < args.lens_layer < n_layers:
+        raise ValueError(f"--lens-layer must be in ({edit_layer}, {n_layers - 1}]")
 
     forget_records, facts, examples = load_mcf_forget_data(tok, manifest["mcf_path"], seed=seed)
     if [f["id"] for f in facts] != [f["id"] for f in source["facts"]]:
