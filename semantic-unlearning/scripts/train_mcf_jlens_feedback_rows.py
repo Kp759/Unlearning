@@ -20,6 +20,11 @@ trained until the answer is neither generated nor readable at a later layer:
 Feedback on generated positions matters: the earlier Δe hit Eff ~ 3e-5 at the boundary
 and still stated the answer a few tokens later.
 
+  --write-layer L < router layer   route at layer 19 but write the rows after block L at
+                                   the subject tokens (scripts/early_write.py), i.e. where
+                                   the fact is recalled, so later layers/positions cannot
+                                   re-read it; --write-mode subject_span | subject_last
+
   --write-mode last          edit the last prompt token only (setting A)
   --write-mode subject_span  edit the subject tokens + boundary (setting C): later
                              positions read the subject, so this is where the answer
@@ -42,6 +47,7 @@ import torch
 import torch.nn.functional as F
 
 from layer_sweep_utils import boundary_norms
+from early_write import EARLY_WRITE_MODES, EarlyWriteCausalLM
 from linear_router import ARCHITECTURE, WRITE_MODES, load_linear_classifier_artifact
 from mcf_projection_edit import answer_logit_gradients, generic_prompts
 from prepare_mcf_association_source import load_mcf_forget_data
@@ -141,23 +147,23 @@ def gather_answers(seqs, token_index, device):
 
 
 @torch.no_grad()
-def base_logits(lm, bank, base_model, lens_layer, seqs, device):
-    saved = [row.detach().clone() for row in bank.rows]
-    for row in bank.rows:
+def base_logits(lm, params, base_model, lens_layer, seqs, device):
+    saved = [row.detach().clone() for row in params]
+    for row in params:
         row.zero_()
     try:
         logits, _, _ = forward(lm, base_model, lens_layer, seqs, device)
     finally:
-        for row, value in zip(bank.rows, saved):
+        for row, value in zip(params, saved):
             row.copy_(value)
     return logits
 
 
-def losses(lm, bank, base_model, args, seqs, U, mu, sd, token_index, device):
+def losses(lm, params, base_model, args, seqs, U, mu, sd, token_index, device):
     tok, rows = gather_answers(seqs, token_index, device)
     # Base logits first: zeroing/restoring the rows in place after the edited forward
     # would invalidate the autograd graph.
-    base = (base_logits(lm, bank, base_model, args.lens_layer, seqs, device)
+    base = (base_logits(lm, params, base_model, args.lens_layer, seqs, device)
             if args.keep_weight > 0 else None)
     logits, h, pos = forward(lm, base_model, args.lens_layer, seqs, device)
     logp = logits.log_softmax(-1)
@@ -201,7 +207,9 @@ def main(argv=None):
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--router-dir", required=True)
     p.add_argument("--output-dir", required=True)
-    p.add_argument("--write-mode", choices=WRITE_MODES, default="last")
+    p.add_argument("--write-mode", choices=WRITE_MODES + EARLY_WRITE_MODES, default="last")
+    p.add_argument("--write-layer", type=int, default=None,
+                   help="write layer < router layer = early write at the subject tokens")
     p.add_argument("--lens-layer", type=int, default=24)
     p.add_argument("--jlens-prompts", type=int, default=256)
     p.add_argument("--rounds", type=int, default=5)
@@ -266,20 +274,33 @@ def main(argv=None):
                       "seconds": round(time.perf_counter() - t0, 1)}), flush=True)
     U, mu, sd = U.to(args.device), mu.to(args.device), sd.to(args.device)
 
-    norms = boundary_norms(model, tok, [e.prompt for e in examples if e.split == "train"], [layer])
-    max_norm = args.max_row_norm_ratio * float(norms[layer].median())
+    early = args.write_layer is not None and args.write_layer != layer
+    if early and args.write_mode not in EARLY_WRITE_MODES:
+        raise ValueError(f"early write needs --write-mode in {EARLY_WRITE_MODES}")
+    if not early and args.write_mode not in WRITE_MODES:
+        raise ValueError(f"router-layer write needs --write-mode in {WRITE_MODES}")
+    norm_layer = args.write_layer if early else layer
+    norms = boundary_norms(model, tok, [e.prompt for e in examples if e.split == "train"],
+                           [norm_layer])
+    max_norm = args.max_row_norm_ratio * float(norms[norm_layer].median())
 
     neutral = tok(NEUTRAL_PROMPT, return_tensors="pt").to(args.device)
     with torch.no_grad():
         neutral_logits = model(**neutral, use_cache=False).logits.detach().clone()
     source = dict(source)
-    source["write_mode"] = args.write_mode
     source["edit_mode"] = "add"
-    lm_wrapped, bank = load_linear_classifier_artifact(model, source)
-    for row in bank.rows:
-        row.requires_grad_(True)
-    editor = FactAssociationEditor(model, bank)
-    lm = editor.model
+    if early:
+        lm = bank = EarlyWriteCausalLM(model, source, args.write_layer, args.write_mode)
+        lm.rows.requires_grad_(True)
+        params = [lm.rows]
+    else:
+        source["write_mode"] = args.write_mode
+        lm_wrapped, bank = load_linear_classifier_artifact(model, source)
+        for row in bank.rows:
+            row.requires_grad_(True)
+        editor = FactAssociationEditor(model, bank)
+        lm = editor.model
+        params = list(bank.rows)
 
     fact_to_row = {f["id"]: i for i, f in enumerate(facts)}
     routed = _routes_on_training_inputs(lm, bank, examples, fact_to_row)
@@ -296,9 +317,9 @@ def main(argv=None):
                           "prompt_ids": list(e.input_ids[:first]),
                           "answer": e.completion.strip(), "answer_tokens": answers[fid]})
     print(json.dumps({"phase": "feedback_views", "views": len(views), "facts": len(by_fact),
-                      "write_mode": args.write_mode, "max_row_norm": max_norm}), flush=True)
+                      "write_mode": args.write_mode, "write_layer": norm_layer,
+                      "max_row_norm": max_norm}), flush=True)
 
-    params = list(bank.rows)
     optimizer = torch.optim.Adam(params, lr=args.lr)
     buffer, log = [], []
     started = time.perf_counter()
@@ -318,15 +339,14 @@ def main(argv=None):
         acc = []
         for _ in range(args.steps_per_round):
             batch = rng.sample(buffer, min(args.batch_size, len(buffer)))
-            loss, stats = losses(lm, bank, model, args, batch, U, mu, sd, token_index, args.device)
+            loss, stats = losses(lm, params, model, args, batch, U, mu, sd, token_index, args.device)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
             with torch.no_grad():
-                for row in params:
-                    n = row.norm()
-                    if n > max_norm:
-                        row.mul_(max_norm / n)
+                for row in params:                   # [d] row or [facts, d] matrix
+                    n = row.norm(dim=-1, keepdim=True)
+                    row.mul_(torch.clamp(max_norm / n.clamp_min(1e-12), max=1.0))
             acc.append(stats)
         entry["train"] = {k: sum(a[k] for a in acc) / len(acc) for k in acc[0]}
         log.append(entry)
@@ -335,14 +355,19 @@ def main(argv=None):
     with torch.no_grad():
         if not torch.equal(neutral_logits, lm(**neutral, use_cache=False).logits):
             raise ValueError("Unmatched natural prompt left the exact base path after training")
-    rows = bank.extra.detach().cpu()
-    artifact = dict(source)
-    artifact["rows"] = rows
+    if early:
+        artifact = lm.artifact()
+        rows = artifact["rows"]
+    else:
+        rows = bank.extra.detach().cpu()
+        artifact = dict(source)
+        artifact["rows"] = rows
     artifact["training_route"] = "router"
     torch.save(artifact, output / "fact_association_embeddings.pt")
     new_manifest = dict(manifest)
     new_manifest.update({
         "method": "sure_linear_router_jlens_feedback_rows", "write_mode": args.write_mode,
+        "write_layer": norm_layer, "early_write": early,
         "jlens_feedback": {k: v for k, v in vars(args).items()
                            if k not in ("router_dir", "output_dir", "device")},
         "router_copied_from": str(router_dir)})
@@ -351,9 +376,11 @@ def main(argv=None):
         if (router_dir / name).is_file():
             shutil.copy2(router_dir / name, output / name)
     row_norms = rows.float().norm(dim=-1)
-    report = {"write_mode": args.write_mode, "lens_layer": args.lens_layer, "rounds": log,
+    report = {"write_mode": args.write_mode, "write_layer": norm_layer, "early_write": early,
+              "subject_fallbacks": getattr(lm, "subject_fallbacks", None),
+              "lens_layer": args.lens_layer, "rounds": log,
               "row_norm_median": float(row_norms.median()), "max_row_norm": max_norm,
-              "boundary_norm_median": float(norms[layer].median()),
+              "boundary_norm_median": float(norms[norm_layer].median()),
               "unmatched_neutral_logits_exact_base_after_training": True}
     (output / "training_report.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({"status": "jlens_feedback_rows_trained", "output_dir": str(output),

@@ -33,6 +33,12 @@ for ARM in J_A J_C; do
     EXTRA+=("$LABEL=$DIR"); TRAIN+=("$ARM=$DIR/routed_generation.json")
   fi
 done
+for DIR in outputs/mcf_early_write_seed1/E_L*; do
+  [[ -f "$DIR/routed_generation.json" ]] || continue
+  NAME="$(basename "$DIR")"
+  EXTRA+=("early write ${NAME#E_}, subject span (50 vectors)=$DIR")
+  TRAIN+=("$NAME=$DIR/routed_generation.json")
+done
 if [[ -f "$CANNED/routed_generation.json" ]]; then
   EXTRA+=("router + fixed IDK (0 vectors)=$CANNED"); TRAIN+=("C_idk=$CANNED/routed_generation.json")
 fi

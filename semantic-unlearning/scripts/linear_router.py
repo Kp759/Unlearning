@@ -1853,6 +1853,10 @@ def load_linear_classifier_artifact(base_model, artifact):
 def load_router_artifact(base_model, artifact):
     """Load any fact-association artifact by its declared architecture."""
     architecture = str(artifact.get("architecture", ""))
+    if architecture == ARCHITECTURE and artifact.get("early_write"):
+        # Route at the router layer, write at an earlier layer (scripts/early_write.py).
+        from early_write import load_early_write_artifact
+        return load_early_write_artifact(base_model, artifact)
     if architecture == ARCHITECTURE:
         return load_linear_classifier_artifact(base_model, artifact)
     if architecture == "relation_prototype_fact_association_bank_v2":

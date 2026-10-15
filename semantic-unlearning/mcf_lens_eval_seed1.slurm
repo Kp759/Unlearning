@@ -3,7 +3,7 @@
 # edited forward pass? Logit lens at layers 16-27 and J-lens z at layers 20/22/24/26 (24 is
 # the layer J_A/J_C were trained against; 20/22/26 are held-out lenses), read at every
 # position of a 16-token greedy continuation, on our training views and the held-out MCF
-# paraphrases. Runs: base, Δe (old), Δe→EOS, J_A, J_C (whichever exist).
+# paraphrases. Runs: base, Δe (old), Δe→EOS, J_A, J_C, early-write E_L* (whichever exist).
 #
 #   sbatch --dependency=afterok:<jlens feedback job id> mcf_lens_eval_seed1.slurm
 #   cat outputs/mcf_lens_eval_seed1/summary.md
@@ -46,6 +46,9 @@ for SPEC in "R_eos=outputs/mcf_refusal_rows_seed1/R_eos" \
             "J_A=outputs/mcf_jlens_feedback_seed1/J_A" "J_C=outputs/mcf_jlens_feedback_seed1/J_C"; do
   DIR="$ROOT/${SPEC#*=}/linear_global"
   [[ -f "$DIR/fact_association_embeddings.pt" ]] && RUNS+=("${SPEC%%=*}=$DIR")
+done
+for ARM in "$ROOT"/outputs/mcf_early_write_seed1/E_L*; do
+  [[ -f "$ARM/linear_global/fact_association_embeddings.pt" ]] && RUNS+=("$(basename "$ARM")=$ARM/linear_global")
 done
 echo "lens eval | runs: ${RUNS[*]} | job ${SLURM_JOB_ID:-} | $(hostname) | $(date)"
 python -u scripts/mcf_lens_eval.py --runs "${RUNS[@]}" \
