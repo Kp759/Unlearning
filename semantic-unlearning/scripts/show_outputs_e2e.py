@@ -41,24 +41,28 @@ def main():
     ap.add_argument("--a", default="E_L16_query_logit", help="exact-match router arm")
     ap.add_argument("--b", default="E_L16_query_logit_v21S8", help="v2.1 router arm")
     ap.add_argument("--n", type=int, default=4)
+    ap.add_argument("--b-label", default=None, help="display name of --b (default: v2.x from its tag)")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
+    import re as _re
+    m = _re.search(r"_v(\d)(\d)S\d+$", args.b)
+    blabel = args.b_label or (f"v{m.group(1)}.{m.group(2)}" if m else "learned")
     held = Path("outputs/mcf_heldout_generation_seed1")
     coll = Path("outputs/mcf_subject_collateral_seed1")
     runs = {"base": load(held / "base.json"), "exact": load(held / f"{args.a}.json"),
-            "v2.1": load(held / f"{args.b}.json")}
+            blabel: load(held / f"{args.b}.json")}
     for name, r in runs.items():
         if r is None:
             print(f"missing held-out file for {name}")
     rows = {name: {x["id"]: x for x in r["examples"]} for name, r in runs.items() if r}
-    ids = list(rows.get("v2.1", rows.get("exact", {})).keys())
+    ids = list(rows.get(blabel, rows.get("exact", {})).keys())
     rng = random.Random(args.seed)
 
     def show(i):
         ref = next(r[i] for r in rows.values() if i in r)
         print(f"\nPROMPT [{ref['set']}] {clip(ref['prompt'], 140)}")
         print(f"  true answer: {ref['answer']}")
-        for name in ("base", "exact", "v2.1"):
+        for name in ("base", "exact", blabel):
             r = rows.get(name, {}).get(i)
             if r is not None:
                 print(f"  {name:>5} ({tag(r)}): {clip(r['continuation'])}")
@@ -71,11 +75,11 @@ def main():
         for i in rng.sample(pool, min(args.n, len(pool))):
             show(i)
 
-    b = rows.get("v2.1", {})
+    b = rows.get(blabel, {})
     leaks = [i for i, r in b.items() if r["set"] != "neighborhood" and r["answer_in_continuation"]
              and not r["answer_in_prompt"]]
     fires = [i for i, r in b.items() if r["set"] == "neighborhood" and r["routed"]]
-    print("\n" + "=" * 100 + f"\nv2.1: EVERY LEAK ({len(leaks)}) and EVERY NEIGHBOUR FIRE ({len(fires)})")
+    print("\n" + "=" * 100 + f"\n{blabel}: EVERY LEAK ({len(leaks)}) and EVERY NEIGHBOUR FIRE ({len(fires)})")
     for i in leaks + fires:
         show(i)
 
@@ -89,7 +93,7 @@ def main():
             print(f"\nPROMPT [{x['relation']}] {x['prompt']}   (forgotten fact: {x['fact']})")
             print(f"   base: {clip(x['base'])}")
             print(f"  exact ({'FIRED' if x['natural']['fired'] else 'silent'}): {clip(x['natural']['text'])}")
-            print(f"   v2.1 ({'FIRED' if y['natural']['fired'] else 'silent'}): {clip(y['natural']['text'])}")
+            print(f"  {blabel:>5} ({'FIRED' if y['natural']['fired'] else 'silent'}): {clip(y['natural']['text'])}")
 
 
 if __name__ == "__main__":
