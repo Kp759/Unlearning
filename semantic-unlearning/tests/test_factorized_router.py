@@ -307,3 +307,44 @@ def test_calibration_never_falls_back_to_unconstrained_recall():
     ps = torch.tensor([[0.9], [0.9], [0.1], [0.1], [0.1], [0.1], [0.1], [0.1]])
     cal = calibrate(ps, pr, target, fs, fr, kinds, min_recall=0.95, max_false_fire=0.1)
     assert cal["status"] == "false_fire_capped" and cal["recall"] == 0.5 and cal["false_fire_other"] == 0.0
+
+
+def test_relation_head_over_concatenated_layers_matches_offline():
+    from factorized_router import mil_pool
+
+    base = _tiny_llama()
+    state = _mil_state()
+    state["relation_layers"] = [1, 2]
+    state["feature_mean"] = torch.zeros(2 * HIDDEN)
+    state["relation_weight"] = torch.randn(2, 2 * HIDDEN)
+    router = FactorizedRouter(state)
+    ids = torch.tensor([[1, 5, 6, 7, 20, 8, 9, 0], [1, 3, 4, 20, 0, 0, 0, 0]])
+    att = (torch.arange(8)[None] < torch.tensor([[7], [4]])).long()
+    online = router.route(base, ids, att)
+    store = {}
+    hs = [base.model.layers[L].register_forward_hook(
+        lambda m, a, o, L=L: store.__setitem__(L, o[0] if isinstance(o, tuple) else o)) for L in (1, 2)]
+    with torch.no_grad():
+        base(input_ids=ids, attention_mask=att)
+    for h in hs:
+        h.remove()
+    last = att.sum(1) - 1
+    nrm = torch.nn.functional.normalize
+    rel = torch.cat([nrm(store[L][torch.arange(2), last], dim=-1) for L in (1, 2)], -1)
+    pr = torch.softmax(rel @ router.Wr.T + router.br, -1)
+    mask = att.bool().clone()
+    mask[:, 0] = False
+    ps = torch.sigmoid(mil_pool(store[1], mask, router.Ws, router.bs, router.subject_mean))
+    assert online == decide_from_probabilities(ps, pr, router.fact_subject, router.fact_relation, 0.3, 0.3).tolist()
+
+
+def test_hard_negative_round_runs_and_is_logged():
+    from factorized_router import fit_mil_subject
+
+    g = torch.Generator().manual_seed(0)
+    seqs = [torch.randn(5, 8, generator=g) for _ in range(60)]
+    y = torch.tensor([i % 3 - 1 for i in range(60)])
+    _, _, _, hist = fit_mil_subject(_span_from(seqs), torch.arange(48), torch.arange(48, 60), y, 2,
+                                    epochs=2, batch=16, device="cpu", hard_rounds=1, hard_fraction=0.2)
+    assert any(h.get("stage") == "hard_round_0" for h in hist)
+    assert any(h.get("stage") == "hard_0" for h in hist)

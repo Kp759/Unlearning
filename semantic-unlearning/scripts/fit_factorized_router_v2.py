@@ -63,7 +63,12 @@ def main(argv=None):
     p.add_argument("--reference-dir", required=True)
     p.add_argument("--output-dir", required=True)
     p.add_argument("--subject-layers", type=int, nargs="+", default=[8, 12, 16])
-    p.add_argument("--relation-layer", type=int, default=27)
+    p.add_argument("--relation-layer", type=int, default=None,
+                   help="single relation layer (v2); overrides --relation-layers")
+    p.add_argument("--relation-layers", type=int, nargs="+", default=[19, 23, 24, 27],
+                   help="last-token layers tried for the relation head (picked on validation)")
+    p.add_argument("--relation-concat", default="19,23,27",
+                   help="also try these layers concatenated ('' = no concatenation candidate)")
     p.add_argument("--relation-l2-grid", type=float, nargs="+", default=[1e-4, 1e-3, 1e-2])
     p.add_argument("--mil-l2", type=float, default=1e-4)
     p.add_argument("--mil-epochs", type=int, default=8)
@@ -72,6 +77,12 @@ def main(argv=None):
     p.add_argument("--min-recall", type=float, default=0.95)
     p.add_argument("--max-false-fire", type=float, default=0.10,
                    help="cap on BOTH validation false-fire rates (same-subject, other); never relaxed")
+    p.add_argument("--max-false-fire-same", type=float, default=None, help="separate same-subject cap")
+    p.add_argument("--max-false-fire-other", type=float, default=None, help="separate other-subject cap")
+    p.add_argument("--hard-rounds", type=int, default=0,
+                   help="hard-negative rounds for the subject head (top --hard-fraction 'none' prompts x --hard-weight)")
+    p.add_argument("--hard-fraction", type=float, default=0.1)
+    p.add_argument("--hard-weight", type=float, default=5.0)
     p.add_argument("--no-pair", action="store_true",
                    help="ablation: score single tokens (prefixes of longer names then fire)")
     p.add_argument("--per-relation", type=int, default=800)
@@ -109,8 +120,11 @@ def main(argv=None):
     S, R = len(data["subjects"]), len(data["relations"])
 
     rng = random.Random(seed)
+    # the subject head keeps EVERY other-subject prompt asking a forgotten relation (these
+    # combine with a matching relation head into neighbour fires); others are capped
+    forget_relations = {str(f["relation"]) for f in facts}
     other_train = [i for i, it in enumerate(items) if it["split"] == "train" and it["subject"] == S
-                   and it["kind"].startswith("other_subject")]
+                   and it["kind"].startswith("other_subject") and it["relation"] not in forget_relations]
     drop = set(rng.sample(other_train, max(0, len(other_train) - args.other_subject_cap)))
     keep_span = [i not in drop for i in range(len(items))]
     print(json.dumps({"phase": "data", "items": len(items), "subjects": S, "relations": R,
@@ -119,7 +133,11 @@ def main(argv=None):
                           (i["split"], i["kind"].split("+")[0]) for i in items).items()}}), flush=True)
 
     t0 = time.time()
-    last, span = extract_states(model, tok, [i["prompt"] for i in items], [args.relation_layer],
+    if args.relation_layer is not None:
+        args.relation_layers, args.relation_concat = [args.relation_layer], ""
+    concat = [int(x) for x in args.relation_concat.split(",") if x.strip()]
+    rel_layers = sorted(set(args.relation_layers) | set(concat))
+    last, span = extract_states(model, tok, [i["prompt"] for i in items], rel_layers,
                                 args.subject_layers, keep_span=keep_span, batch_size=args.batch_size,
                                 device=args.device)
     print(json.dumps({"phase": "features", "seconds": round(time.time() - t0, 1),
@@ -136,20 +154,38 @@ def main(argv=None):
     fact_subject = torch.tensor(data["fact_subject"])
     fact_relation = torch.tensor(data["fact_relation"])
 
-    # relation head (shared by every subject layer)
-    h = last[args.relation_layer]
-    rel_mean = F.normalize(h[train].float(), dim=-1).mean(0)
-    X = feature_map(h, rel_mean)
-    best = None
-    for l2 in args.relation_l2_grid:
-        W, b = fit_softmax(X[train], yr[train], R, l2, device=args.device)
-        loss = balanced_log_loss(X[val], yr[val], W, b, R)
-        if best is None or loss < best[0]:
-            best = (loss, l2, W, b)
-    Wr, br = best[2], best[3]
-    rel_val_acc = float(((X[val] @ Wr.T + br).argmax(-1) == yr[val]).float().mean())
-    print(json.dumps({"phase": "relation_head", "layer": args.relation_layer, "l2": best[1],
-                      "val_acc": rel_val_acc}), flush=True)
+    # relation head (shared by every subject layer): try each layer and the concatenation,
+    # keep the best on validation balanced log loss
+    same_subj_val = torch.tensor(["subject_other_relation" in k for k in kinds]) & val
+    candidates = [[L] for L in args.relation_layers] + ([concat] if len(concat) > 1 else [])
+    relation_report, chosen = {}, None
+    for layers in candidates:
+        name = "+".join(str(L) for L in layers)
+        Hn = torch.cat([F.normalize(last[L].float(), dim=-1) for L in layers], dim=-1)
+        mean_r = Hn[train].mean(0)
+        X = Hn - mean_r
+        best = None
+        for l2 in args.relation_l2_grid:
+            W, b = fit_softmax(X[train], yr[train], R, l2, device=args.device)
+            loss = balanced_log_loss(X[val], yr[val], W, b, R)
+            if best is None or loss < best[0]:
+                best = (loss, l2, W, b)
+        pred = (X @ best[2].T + best[3]).argmax(-1)
+        relation_report[name] = {
+            "l2": best[1], "val_balanced_log_loss": best[0],
+            "val_acc": float((pred[val] == yr[val]).float().mean()),
+            "val_acc_forget_subject_other_relations": float((pred[same_subj_val] == yr[same_subj_val]).float().mean()),
+        }
+        print(json.dumps({"phase": "relation_candidate", "layers": name, **relation_report[name]}), flush=True)
+        if chosen is None or best[0] < chosen["loss"]:
+            chosen = {"loss": best[0], "layers": layers, "name": name, "mean": mean_r, "W": best[2],
+                      "b": best[3], "X": X}
+    Wr, br, rel_mean, X = chosen["W"], chosen["b"], chosen["mean"], chosen["X"]
+    rel_layers_chosen = chosen["layers"]
+    rel_tag = chosen["name"].replace("+", "-")
+    rel_val_acc = relation_report[chosen["name"]]["val_acc"]
+    print(json.dumps({"phase": "relation_head", "chosen": chosen["name"], **relation_report[chosen["name"]]}),
+          flush=True)
     val_rows = val.nonzero().flatten()
     pr_val = F.softmax(X[val_rows] @ Wr.T + br, -1)
 
@@ -165,7 +201,8 @@ def main(argv=None):
         t0 = time.time()
         Ws, bs, smean, hist = fit_mil_subject(sp, tr, va, y_span, S, l2=args.mil_l2,
                                               epochs=args.mil_epochs, device=args.device, seed=seed,
-                                              pair=not args.no_pair)
+                                              pair=not args.no_pair, hard_rounds=args.hard_rounds,
+                                              hard_fraction=args.hard_fraction, hard_weight=args.hard_weight)
         ps_val = torch.sigmoid(mil_logits(sp, va, Ws, bs, smean.to(args.device), device=args.device))
         # subject detection quality on validation (threshold 0.5)
         yv = y_span[va]
@@ -175,7 +212,9 @@ def main(argv=None):
                "none_prompts_any_subject@0.5": float((ps_val[yv < 0].amax(-1) >= 0.5).float().mean())}
         val_kinds = [kinds[i] for i in val_rows.tolist()]
         cal = calibrate(ps_val, pr_val, target[val_rows], fact_subject, fact_relation, val_kinds,
-                        min_recall=args.min_recall, max_false_fire=args.max_false_fire)
+                        min_recall=args.min_recall, max_false_fire=args.max_false_fire,
+                        max_false_fire_same=args.max_false_fire_same,
+                        max_false_fire_other=args.max_false_fire_other)
         d = decide_from_probabilities(ps_val, pr_val, fact_subject, fact_relation,
                                       cal["t_subject"], cal["t_relation"])
         tv = target[val_rows]
@@ -186,7 +225,8 @@ def main(argv=None):
             per_kind[k] = {"n": int(m.sum()),
                            "recall": float(((d == tv) & pos).float().sum() / pos.sum()) if pos.any() else None,
                            "fire": float((d[neg] >= 0).float().mean()) if neg.any() else None}
-        state = {"layer": args.relation_layer, "feature_mean": rel_mean,
+        state = {"layer": rel_layers_chosen[-1], "relation_layers": rel_layers_chosen,
+                 "feature_mean": rel_mean,
                  "relation_weight": Wr, "relation_bias": br,
                  "subject_mode": "mil_max" if args.no_pair else "mil_max_pair",
                  "subject_layer": Ls, "subject_mean": smean,
@@ -195,21 +235,22 @@ def main(argv=None):
                  "subjects": data["subjects"], "relations": data["relations"],
                  "t_subject": cal["t_subject"], "t_relation": cal["t_relation"],
                  "calibration": cal, "min_recall": args.min_recall}
-        report = {"subject_layer": Ls, "relation_layer": args.relation_layer, "calibration": cal,
+        report = {"subject_layer": Ls, "relation_layers": rel_layers_chosen, "calibration": cal,
                   "subject_detection_val": det, "mil_history": hist,
                   "relation_val_acc": rel_val_acc, "validation_by_kind": per_kind,
                   "fit_seconds": round(time.time() - t0, 1)}
         reports[Ls] = report
         print(json.dumps({"phase": "subject_layer_done", "subject_layer": Ls, "calibration": cal,
                           "detection": det}), flush=True)
-        layer_dir = out / f"S{Ls:02d}_R{args.relation_layer:02d}"
+        layer_dir = out / f"S{Ls:02d}_R{rel_tag}"
         layer_dir.mkdir(parents=True, exist_ok=True)
         art = {k: v for k, v in reference.items() if k in ("facts", "subject_patterns")}
-        art.update({"architecture": ARCHITECTURE, "layer": args.relation_layer,
+        art.update({"architecture": ARCHITECTURE, "layer": rel_layers_chosen[-1],
                     "rows": torch.zeros_like(reference["rows"]), "factorized_router": state})
         torch.save(art, layer_dir / "fact_association_embeddings.pt")
         m = dict(manifest)
-        m.update({"architecture": ARCHITECTURE, "router_layer": args.relation_layer, "subject_layer": Ls,
+        m.update({"architecture": ARCHITECTURE, "router_layer": rel_layers_chosen[-1],
+                  "relation_layers": rel_layers_chosen, "subject_layer": Ls,
                   "reference_dir": str(ref), "method": "factorized_subject_relation_router_v2_mil"})
         (layer_dir / "association_manifest.json").write_text(json.dumps(m, indent=2) + "\n")
         (layer_dir / "factorized_router_report.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -222,11 +263,15 @@ def main(argv=None):
     deployable = {L: r for L, r in reports.items() if r["calibration"]["status"] != "infeasible"}
     sel = max(deployable, key=lambda L: score(deployable[L])) if deployable else None
     summary = {"selected_subject_layer": sel,
-               "selected_dir": None if sel is None else f"S{sel:02d}_R{args.relation_layer:02d}",
+               "selected_dir": None if sel is None else f"S{sel:02d}_R{rel_tag}",
                "selected_status": None if sel is None else reports[sel]["calibration"]["status"],
-               "calibration_rule": {"min_recall": args.min_recall, "max_false_fire": args.max_false_fire},
+               "calibration_rule": {"min_recall": args.min_recall, "max_false_fire": args.max_false_fire,
+                                    "max_false_fire_same": args.max_false_fire_same,
+                                    "max_false_fire_other": args.max_false_fire_other},
+               "hard_negatives": {"rounds": args.hard_rounds, "fraction": args.hard_fraction,
+                                  "weight": args.hard_weight},
+               "relation_head_candidates": relation_report, "relation_head_chosen": chosen["name"],
                "pair_features": not args.no_pair,
-               "relation_layer": args.relation_layer,
                "data": {k: v for k, v in data.items() if k != "items"},
                "layers": reports, "command": sys.argv}
     (out / "summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n")

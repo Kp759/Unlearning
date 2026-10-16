@@ -452,9 +452,15 @@ def mil_logits(span, idx, W, b, mean, device="cuda", batch=256):
 
 
 def fit_mil_subject(span, train_idx, val_idx, y, n_subjects, *, l2=1e-4, epochs=8, lr=2e-3,
-                    batch=256, tau=0.25, max_pos_weight=50.0, device="cuda", seed=0, pair=True):
+                    batch=256, tau=0.25, max_pos_weight=50.0, device="cuda", seed=0, pair=True,
+                    hard_rounds=0, hard_fraction=0.1, hard_weight=5.0, hard_epochs=None):
     """Multiple-instance subject detector: one-vs-rest logistic per subject on the
-    max-pooled position scores (smooth max while training). y[i] = subject or -1 (none)."""
+    max-pooled position scores (smooth max while training). y[i] = subject or -1 (none).
+
+    hard_rounds: after fitting, the hard_fraction of training "none" prompts with the
+    highest score for any forget subject (related entities, near-miss names) get weight
+    hard_weight and training continues for hard_epochs (default epochs // 2); repeated
+    hard_rounds times. The validation loss (unweighted) still picks the checkpoint."""
     g = torch.Generator().manual_seed(seed)
     mean = span_mean(span["flat"], span["offsets"], train_idx).to(device)
     d = span["flat"].shape[1]
@@ -465,29 +471,50 @@ def fit_mil_subject(span, train_idx, val_idx, y, n_subjects, *, l2=1e-4, epochs=
     Y[pos.nonzero().flatten(), y[pos]] = 1.0
     n_pos = Y[train_idx].sum(0).clamp_min(1)
     pos_weight = ((len(train_idx) - n_pos) / n_pos).clamp(max=max_pos_weight).to(device)
+    sample_w = torch.ones(len(y))
     opt = torch.optim.Adam([W, b], lr=lr)
 
-    def loss_on(idx, pooled):
+    def loss_on(idx, pooled, weighted):
         t = Y[idx].to(device)
-        per = F.binary_cross_entropy_with_logits(pooled, t, pos_weight=pos_weight, reduction="none")
+        per = F.binary_cross_entropy_with_logits(pooled, t, pos_weight=pos_weight, reduction="none").mean(1)
+        if weighted:
+            w = sample_w[idx].to(device)
+            return (per * w).sum() / w.sum()
         return per.mean()
 
     best, history = None, []
-    for epoch in range(epochs):
-        order = train_idx[torch.randperm(len(train_idx), generator=g)]
-        for start in range(0, len(order), batch):
-            idx = order[start:start + batch]
-            X, mask = _padded(span["flat"], span["offsets"], idx, device)
-            loss = loss_on(idx, mil_pool(X, mask, W, b, mean, tau)) + 0.5 * l2 * (W * W).sum()
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
+
+    def run(n_epochs, stage):
+        nonlocal best
+        for epoch in range(n_epochs):
+            order = train_idx[torch.randperm(len(train_idx), generator=g)]
+            for start in range(0, len(order), batch):
+                idx = order[start:start + batch]
+                X, mask = _padded(span["flat"], span["offsets"], idx, device)
+                loss = loss_on(idx, mil_pool(X, mask, W, b, mean, tau), True) + 0.5 * l2 * (W * W).sum()
+                opt.zero_grad()
+                loss.backward()
+                opt.step()
+            with torch.no_grad():
+                val = float(loss_on(val_idx, mil_logits(span, val_idx, W.detach(), b.detach(), mean,
+                                                         device).to(device), False))
+            history.append({"stage": stage, "epoch": epoch, "val_loss": val})
+            if best is None or val < best[0]:
+                best = (val, W.detach().cpu().clone(), b.detach().cpu().clone())
+
+    run(epochs, "fit")
+    neg_train = train_idx[y[train_idx] < 0]
+    for r in range(int(hard_rounds)):
         with torch.no_grad():
-            val = float(loss_on(val_idx, mil_logits(span, val_idx, W.detach(), b.detach(), mean,
-                                                     device).to(device)))
-        history.append({"epoch": epoch, "val_loss": val})
-        if best is None or val < best[0]:
-            best = (val, W.detach().cpu().clone(), b.detach().cpu().clone())
+            W.copy_(best[1].to(device))
+            b.copy_(best[2].to(device))
+            scores = mil_logits(span, neg_train, W.detach(), b.detach(), mean, device).amax(-1)
+        k = max(1, int(hard_fraction * len(neg_train)))
+        hard = neg_train[scores.topk(k).indices]
+        sample_w[hard] = hard_weight
+        history.append({"stage": f"hard_round_{r}", "hard_negatives": int(k),
+                        "hard_score_min": float(scores.topk(k).values.min())})
+        run(hard_epochs or max(1, epochs // 2), f"hard_{r}")
     return best[1], best[2], mean.cpu(), history
 
 
@@ -530,6 +557,7 @@ class FactorizedRouter(nn.Module):
     def __init__(self, state):
         super().__init__()
         self.layer = int(state["layer"])
+        self.relation_layers = [int(L) for L in state.get("relation_layers", [self.layer])]
         self.subject_mode = str(state.get("subject_mode", "last_softmax"))
         self.subject_layer = int(state.get("subject_layer", self.layer))
         self.register_buffer("subject_mean", torch.as_tensor(
@@ -557,8 +585,9 @@ class FactorizedRouter(nn.Module):
                                          self.t_r if t_r is None else t_r)
 
     def probabilities_from_states(self, h_last, h_span, span_mask):
-        """v2: p_subj from the position states [B, T, d] (mask excludes BOS and padding)."""
-        pr = F.softmax(feature_map(h_last, self.mean) @ self.Wr.T + self.br, -1)
+        """v2: p_subj from the position states [B, T, d] (mask excludes BOS and padding).
+        h_last: [B, d] or, for several relation layers, a list of [B, d] (one per layer)."""
+        pr = F.softmax(relation_features(h_last, self.mean) @ self.Wr.T + self.br, -1)
         if self.subject_mode.startswith("mil_max"):
             ps = torch.sigmoid(mil_pool(h_span.float(), span_mask, self.Ws, self.bs, self.subject_mean))
         else:
@@ -569,7 +598,7 @@ class FactorizedRouter(nn.Module):
     def route(self, base_model, input_ids, attention_mask):
         """Run the (unedited) base model on right-padded prompts; decide."""
         store, handles = {}, []
-        for layer in {self.layer, self.subject_layer}:
+        for layer in set(self.relation_layers) | {self.layer, self.subject_layer}:
             handles.append(base_model.model.layers[layer].register_forward_hook(
                 lambda m, a, o, layer=layer: store.__setitem__(layer, o[0] if isinstance(o, tuple) else o)))
         try:
@@ -578,15 +607,26 @@ class FactorizedRouter(nn.Module):
             for h in handles:
                 h.remove()
         last = attention_mask.sum(1) - 1
-        h_last = store[self.layer][torch.arange(input_ids.shape[0], device=input_ids.device), last].float()
+        rows = torch.arange(input_ids.shape[0], device=input_ids.device)
+        h_last = store[self.layer][rows, last].float()
         if not self.subject_mode.startswith("mil_max"):
             return self.decide(h_last).tolist()
+        if len(self.relation_layers) > 1:
+            h_last = [store[L][rows, last].float() for L in self.relation_layers]
         mask = attention_mask.bool().clone()
         mask[:, 0] = False
         mask[attention_mask.sum(1) == 1, 0] = True          # a one-token prompt keeps its only token
         ps, pr = self.probabilities_from_states(h_last, store[self.subject_layer], mask)
         return decide_from_probabilities(ps, pr, self.fact_subject, self.fact_relation,
                                          self.t_s, self.t_r).tolist()
+
+
+def relation_features(h, mean):
+    """phi for the relation head: one layer [B, d], or several layers (list of [B, d]),
+    each L2-normalised, concatenated, minus the training mean."""
+    if isinstance(h, (list, tuple)):
+        return torch.cat([F.normalize(x.float(), dim=-1) for x in h], dim=-1) - mean
+    return F.normalize(h.float(), dim=-1) - mean
 
 
 def decide_from_probabilities(ps, pr, fact_subject, fact_relation, t_s, t_r):
@@ -600,7 +640,7 @@ def decide_from_probabilities(ps, pr, fact_subject, fact_relation, t_s, t_r):
 
 # ---------------------------------------------------------------------- calibration
 def calibrate(ps, pr, target, fact_subject, fact_relation, kinds, min_recall=0.95, max_false_fire=0.10,
-              grid=None):
+              grid=None, max_false_fire_same=None, max_false_fire_other=None):
     """(t_s, t_r) on validation. Never an unconstrained fallback:
 
       recall_floor_met    macro recall >= min_recall AND both false-fire rates (same-subject,
@@ -611,6 +651,8 @@ def calibrate(ps, pr, target, fact_subject, fact_relation, kinds, min_recall=0.9
     grid = grid if grid is not None else torch.cat([torch.tensor([0.0]), torch.logspace(-3, 0, 40)[:-1],
                                                     torch.linspace(0.5, 0.98, 25),
                                                     1.0 - torch.logspace(-5, -2, 13)]).unique()
+    cap_same = max_false_fire if max_false_fire_same is None else max_false_fire_same
+    cap_other = max_false_fire if max_false_fire_other is None else max_false_fire_other
     target = torch.as_tensor(target)
     pos = target >= 0
     same_subject = torch.tensor(["subject_other_relation" in k for k in kinds]) & ~pos
@@ -629,7 +671,7 @@ def calibrate(ps, pr, target, fact_subject, fact_relation, kinds, min_recall=0.9
             ff_other = float((d[other] >= 0).float().mean()) if other.any() else 0.0
             point = {"t_subject": t_s, "t_relation": t_r, "recall": recall,
                      "false_fire_same_subject": ff_same, "false_fire_other": ff_other}
-            if ff_same > max_false_fire or ff_other > max_false_fire:
+            if ff_same > cap_same or ff_other > cap_other:
                 continue
             if recall >= min_recall:
                 key = (-0.5 * (ff_same + ff_other), t_s + t_r)
@@ -640,13 +682,15 @@ def calibrate(ps, pr, target, fact_subject, fact_relation, kinds, min_recall=0.9
                 if capped is None or key > capped[0]:
                     capped = (key, point)
     if floor is not None:
-        return {**floor[1], "status": "recall_floor_met", "recall_floor_met": True}
+        return {**floor[1], "status": "recall_floor_met", "recall_floor_met": True,
+                "max_false_fire_same": cap_same, "max_false_fire_other": cap_other}
     if capped is not None and capped[1]["recall"] > 0:
         return {**capped[1], "status": "false_fire_capped", "recall_floor_met": False,
-                "max_false_fire": max_false_fire}
+                "max_false_fire_same": cap_same, "max_false_fire_other": cap_other}
     return {"t_subject": 1.0 + 1e-6, "t_relation": 1.0 + 1e-6, "recall": 0.0,
             "false_fire_same_subject": 0.0, "false_fire_other": 0.0,
-            "status": "infeasible", "recall_floor_met": False, "max_false_fire": max_false_fire}
+            "status": "infeasible", "recall_floor_met": False,
+            "max_false_fire_same": cap_same, "max_false_fire_other": cap_other}
 
 
 # ------------------------------------------------------------------------ attach
