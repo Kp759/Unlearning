@@ -40,17 +40,35 @@ python -c "import torch; assert torch.cuda.is_available()" \
 ROOT=/scratch/yl258/kp759/Unlearning/semantic-unlearning
 cd "$ROOT"
 mkdir -p logs
-RUNS=("base=$ROOT/outputs/mcf_projection_alpha_sweep_seed1/base/linear_global"
-      "delta_e=$ROOT/outputs/mcf_multiseed_regular_v1/seed1/L19/linear_global")
-for SPEC in "R_eos=outputs/mcf_refusal_rows_seed1/R_eos" \
-            "J_A=outputs/mcf_jlens_feedback_seed1/J_A" "J_C=outputs/mcf_jlens_feedback_seed1/J_C"; do
-  DIR="$ROOT/${SPEC#*=}/linear_global"
-  [[ -f "$DIR/fact_association_embeddings.pt" ]] && RUNS+=("${SPEC%%=*}=$DIR")
-done
-for ARM in "$ROOT"/outputs/mcf_early_write_seed1/E_L*; do
+# Optional overrides (defaults = the original all-arms run):
+#   ARMS="E_L12_x E_L16_x"  only base + these early-write arms
+#   OUT_DIR=outputs/...      separate summary folder (J-lens caches copied from the default one)
+#   LENS_ARGS="--logit-layers 8 12 ..."   extra args for mcf_lens_eval.py
+OUT_DIR="${OUT_DIR:-outputs/mcf_lens_eval_seed1}"
+[[ "$OUT_DIR" = /* ]] || OUT_DIR="$ROOT/$OUT_DIR"
+mkdir -p "$OUT_DIR"
+if [[ "$OUT_DIR" != "$ROOT/outputs/mcf_lens_eval_seed1" ]]; then
+  for F in "$ROOT"/outputs/mcf_lens_eval_seed1/jlens_L*.pt; do
+    [[ -f "$F" && ! -f "$OUT_DIR/$(basename "$F")" ]] && cp "$F" "$OUT_DIR/"
+  done
+fi
+RUNS=("base=$ROOT/outputs/mcf_projection_alpha_sweep_seed1/base/linear_global")
+if [[ -z "${ARMS:-}" ]]; then
+  RUNS+=("delta_e=$ROOT/outputs/mcf_multiseed_regular_v1/seed1/L19/linear_global")
+  for SPEC in "R_eos=outputs/mcf_refusal_rows_seed1/R_eos" \
+              "J_A=outputs/mcf_jlens_feedback_seed1/J_A" "J_C=outputs/mcf_jlens_feedback_seed1/J_C"; do
+    DIR="$ROOT/${SPEC#*=}/linear_global"
+    [[ -f "$DIR/fact_association_embeddings.pt" ]] && RUNS+=("${SPEC%%=*}=$DIR")
+  done
+  ARM_DIRS=("$ROOT"/outputs/mcf_early_write_seed1/E_L*)
+else
+  ARM_DIRS=()
+  for A in $ARMS; do ARM_DIRS+=("$ROOT/outputs/mcf_early_write_seed1/$A"); done
+fi
+for ARM in "${ARM_DIRS[@]}"; do
   [[ -f "$ARM/linear_global/fact_association_embeddings.pt" ]] && RUNS+=("$(basename "$ARM")=$ARM/linear_global")
 done
-echo "lens eval | runs: ${RUNS[*]} | job ${SLURM_JOB_ID:-} | $(hostname) | $(date)"
+echo "lens eval | runs: ${RUNS[*]} | out $OUT_DIR | job ${SLURM_JOB_ID:-} | $(hostname) | $(date)"
 python -u scripts/mcf_lens_eval.py --runs "${RUNS[@]}" \
-  --out-dir "$ROOT/outputs/mcf_lens_eval_seed1" --device cuda --local-files-only
+  --out-dir "$OUT_DIR" --device cuda --local-files-only ${LENS_ARGS:-}
 echo "Finish: $(date)"
