@@ -348,3 +348,21 @@ def test_hard_negative_round_runs_and_is_logged():
                                     epochs=2, batch=16, device="cpu", hard_rounds=1, hard_fraction=0.2)
     assert any(h.get("stage") == "hard_round_0" for h in hist)
     assert any(h.get("stage") == "hard_0" for h in hist)
+
+
+def test_any_word_near_misses_catch_common_name_words_and_keep_a_stable_split():
+    from factorized_router import near_miss_subjects
+
+    def rec(i, subject):
+        return {"case_id": i, "requested_rewrite": {"prompt": "{} is made by", "relation_id": "P176",
+                                                    "subject": subject, "target_true": {"str": "X"}}}
+    names = ["BMW M5", "BMW M3", "BMW M54", "Audi A4"] + [f"BMW Model {k}" for k in range(20)] \
+        + [f"Other Thing {k}" for k in range(20)]
+    records = [rec(i, n) for i, n in enumerate(names)]
+    forget = {"bmw m5"}
+    distinctive = near_miss_subjects(records, forget)             # "bmw" is too common to be distinctive
+    anyword = near_miss_subjects(records, forget, mode="any_word", cap_per_subject=30)
+    assert "bmw m3" not in distinctive and "bmw m3" in anyword and "audi a4" not in anyword
+    assert all(anyword[k] == distinctive[k] for k in distinctive)  # same third under both modes
+    capped = near_miss_subjects(records, forget, mode="any_word", cap_per_subject=5)
+    assert len(set(capped) - set(distinctive)) == 5

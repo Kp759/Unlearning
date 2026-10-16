@@ -136,33 +136,55 @@ def forget_heldout_strings(forget_records, ranked_templates):
     return banned
 
 
-def near_miss_subjects(records, forget_subjects, max_df=15):
-    """Non-forget subjects sharing a DISTINCTIVE word (>= 4 letters, in <= max_df MCF
-    subjects) with a forget subject: "Belgium national football team" for "Belgium",
-    not every "Charles" for "Charles Darwin". name -> train / val / eval third."""
+NAME_STOPWORDS = {"the", "and", "for", "of", "de", "la", "le", "les", "del", "della", "van", "von",
+                  "der", "den", "das", "di", "da", "do", "du", "el", "al", "y", "et", "und"}
+
+
+def _name_words(s, min_len):
+    return {w for w in re.findall(r"[^\W_]{%d,}" % min_len, s) if w not in NAME_STOPWORDS}
+
+
+def near_miss_subjects(records, forget_subjects, max_df=15, mode="distinctive", cap_per_subject=30):
+    """Non-forget subjects whose NAME overlaps a forget subject's. name -> train / val / eval
+    third (stable hash, so a name is in the same third under every mode).
+
+      distinctive  share a word (>= 4 letters) found in <= max_df MCF subjects:
+                   "Belgium national football team" for "Belgium", not every "Charles"
+      any_word     distinctive, plus subjects sharing ANY name word (>= 3 letters, not a
+                   stopword) however common: "BMW M3" for "BMW M5", "Algerian Football
+                   Federation" for "DPR Korea Football Association"; at most
+                   cap_per_subject such names per forget subject (stable-hash order)."""
     from collections import Counter
 
-    def words(s):
-        return set(re.findall(r"[^\W\d_]{4,}", s))
-
-    all_subjects = {norm(_rw(r)["subject"]) for r in records}
-    df = Counter(w for s in all_subjects for w in words(s))
-    distinctive = {w for s in forget_subjects for w in words(s) if df[w] <= max_df}
+    all_subjects = sorted({norm(_rw(r)["subject"]) for r in records})
+    df = Counter(w for s in all_subjects for w in _name_words(s, 4))
+    distinctive = {w for s in forget_subjects for w in _name_words(s, 4) if df[w] <= max_df}
     out = {}
     for key in all_subjects:
-        if key in forget_subjects:
-            continue
-        if distinctive & words(key):
+        if key not in forget_subjects and distinctive & _name_words(key, 4):
+            out[key] = ("train", "val", "eval")[stable_hash(key) % 3]
+    if mode == "distinctive":
+        return out
+    if mode != "any_word":
+        raise ValueError(mode)
+    words_of = {key: _name_words(key, 3) for key in all_subjects}
+    for f in sorted(forget_subjects):
+        fw = _name_words(f, 3)
+        cands = sorted((k for k in all_subjects if k not in forget_subjects and k not in out
+                        and fw & words_of[k]), key=stable_hash)
+        for key in cands[:int(cap_per_subject)]:
             out[key] = ("train", "val", "eval")[stable_hash(key) % 3]
     return out
 
 
-def near_miss_eval_prompts(records, forget_subjects):
-    near = near_miss_subjects(records, forget_subjects)
+def near_miss_eval_prompts(records, forget_subjects, mode="distinctive", exclude=()):
+    """(subject, prompt, answer) of the EVALUATION third of near-miss names (never trained on)."""
+    near = near_miss_subjects(records, forget_subjects, mode=mode)
     out = []
     for record in records:
         rw = _rw(record)
-        if near.get(norm(rw["subject"])) == "eval":
+        key = norm(rw["subject"])
+        if near.get(key) == "eval" and key not in exclude:
             for text in [rw["prompt"].format(rw["subject"])] + list(record.get("paraphrase_prompts", []))[:1]:
                 out.append((rw["subject"], text.strip(), rw["target_true"]["str"]))
     return out
@@ -172,7 +194,9 @@ def robustness_probes(records, forget_records, prompts, seed=99991):
     """Evaluation-only robustness sets (never trained on):
     paraphrase_typo / paraphrase_lower  official paraphrases with the subject misspelt /
                                         lower-cased (should still route to their fact)
-    near_miss                           prompts of held-out near-miss names (should not fire)"""
+    near_miss                           held-out near-miss names, distinctive shared word
+    near_miss_any                       held-out names sharing ANY name word (and not already
+                                        in near_miss): "BMW M3" for "BMW M5" (should not fire)"""
     rng = random.Random(seed)
     forget_subjects = {norm(_rw(r)["subject"]) for r in forget_records}
     out = []
@@ -188,12 +212,18 @@ def robustness_probes(records, forget_records, prompts, seed=99991):
     for subject, text, answer in near_miss_eval_prompts(records, forget_subjects):
         out.append({"case_id": -1, "set": "near_miss", "subject": subject, "prompt": text,
                     "answer": answer})
+    distinctive = set(near_miss_subjects(records, forget_subjects))
+    for subject, text, answer in near_miss_eval_prompts(records, forget_subjects, mode="any_word",
+                                                        exclude=distinctive):
+        out.append({"case_id": -1, "set": "near_miss_any", "subject": subject, "prompt": text,
+                    "answer": answer})
     return out
 
 
 # ---------------------------------------------------------------------- training data
 def build_router_data(records, forget_records, facts, examples, *, seed=1, per_relation=800,
-                      val_per_relation=100, max_record_prompts=6, augment=True):
+                      val_per_relation=100, max_record_prompts=6, augment=True,
+                      near_miss_mode="distinctive", near_miss_cap=30):
     """Items {prompt, subject (class index, last = none), relation, split, kind, target}.
 
     target = index of the forget fact whose (subject, relation) the item asks, else -1."""
@@ -211,8 +241,12 @@ def build_router_data(records, forget_records, facts, examples, *, seed=1, per_r
     forget_ids = {int(r["case_id"]) for r in forget_records}
     forget_subjects = set(subjects)
     banned = forget_heldout_strings(forget_records, ranked)
+    # evaluation thirds of BOTH near-miss definitions are never trained on, whatever the mode
+    near_all = near_miss_subjects(records, forget_subjects, mode="any_word", cap_per_subject=near_miss_cap)
+    eval_names = {k for k, v in near_all.items() if v == "eval"}
     banned.update(text for _, text, _ in near_miss_eval_prompts(records, forget_subjects))
-    near = near_miss_subjects(records, forget_subjects)
+    banned.update(text for _, text, _ in near_miss_eval_prompts(records, forget_subjects, mode="any_word"))
+    near = near_miss_subjects(records, forget_subjects, mode=near_miss_mode, cap_per_subject=near_miss_cap)
     prefixes = prefix_bank(records, forget_subjects)
     items, seen = [], set()
 
@@ -271,7 +305,7 @@ def build_router_data(records, forget_records, facts, examples, *, seed=1, per_r
             continue
         rw = _rw(record)
         key = norm(rw["subject"])
-        if key in forget_subjects:
+        if key in forget_subjects or key in eval_names:
             continue
         relation = str(rw["relation_id"])
         if key in near:
@@ -306,7 +340,8 @@ def build_router_data(records, forget_records, facts, examples, *, seed=1, per_r
     return {"items": items, "subjects": subjects, "relations": relations,
             "fact_subject": [subject_index[norm(f["subject"])] for f in facts],
             "fact_relation": [relations.index(str(f["relation"])) for f in facts],
-            "banned_strings": len(banned), "near_miss_subjects": len(near)}
+            "banned_strings": len(banned), "near_miss_subjects": len(near),
+            "near_miss_mode": near_miss_mode}
 
 
 # ---------------------------------------------------------------------- features

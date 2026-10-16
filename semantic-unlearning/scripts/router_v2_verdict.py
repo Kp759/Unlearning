@@ -32,8 +32,8 @@ def main(argv=None):
         v = res[name]["summary"].get(key)
         return None if v is None else v[0]
 
-    cols = ("paraphrase_recall", "neighborhood_fire", "near_miss_fire", "subject_eval_fire_other",
-            "typo_recall", "lowercase_recall")
+    cols = ("paraphrase_recall", "neighborhood_fire", "near_miss_fire", "near_miss_any_fire",
+            "subject_eval_fire_other", "typo_recall", "lowercase_recall")
     print("| router | " + " | ".join(cols) + " | verdict |")
     print("|---" * (len(cols) + 2) + "|")
     passing = []

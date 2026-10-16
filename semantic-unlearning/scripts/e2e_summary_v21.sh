@@ -4,13 +4,16 @@
 ROOT=/scratch/yl258/kp759/Unlearning/semantic-unlearning
 cd "$ROOT"
 L="${SUBJECT_LAYER:-8}"
+TAG="${TAG:-v21}"
 A=outputs/mcf_early_write_seed1/E_L16_query_logit
-B=outputs/mcf_early_write_seed1/E_L16_query_logit_v21S$L
+B=outputs/mcf_early_write_seed1/E_L16_query_logit_${TAG}S$L
 echo "== official MCF (answer probability)"
-python scripts/compare_official_mcf.py "exact-match router=$A/linear_global" "v2.1 router S$L=$B/linear_global"
+python scripts/compare_official_mcf.py "exact-match router=$A/linear_global" "$TAG router S$L=$B/linear_global"
 echo; echo "== held-out generation (leak / refusal / routed; neighbourhood kept)"
-grep -E "^\| model|^\|---|L16_query_logit, |L16_query_logit_v21S$L" outputs/mcf_heldout_generation_seed1/summary.md | head -12
+grep -E "^\| model|^\|---|L16_query_logit, |L16_query_logit_${TAG}S$L" outputs/mcf_heldout_generation_seed1/summary.md | head -12
+echo; echo "== leak, substring vs whole-word match"
+python scripts/rescore_leak_wholeword.py base E_L16_query_logit "E_L16_query_logit_${TAG}S$L"
 echo; echo "== same-subject collateral"
-grep -E "^\| run|^\|---|^\| E_L16_query_logit \||E_L16_query_logit_v21S$L" outputs/mcf_subject_collateral_seed1/summary.md | head -6
+grep -E "^\| run|^\|---|^\| E_L16_query_logit \||E_L16_query_logit_${TAG}S$L" outputs/mcf_subject_collateral_seed1/summary.md | head -6
 echo; echo "== lens eval (answer readable inside the model)"
-grep -E "^\| run|^\|---|^\| base|^\| E_L16_query_logit \||E_L16_query_logit_v21S$L" outputs/mcf_lens_eval_seed1/summary.md | head -12
+grep -E "^\| run|^\|---|^\| base|^\| E_L16_query_logit \||E_L16_query_logit_${TAG}S$L" outputs/mcf_lens_eval_seed1/summary.md | head -12

@@ -121,6 +121,7 @@ def main(argv=None):
             "typo_recall": rate(lambda r: r["set"] == "paraphrase_typo", "own"),
             "lowercase_recall": rate(lambda r: r["set"] == "paraphrase_lower", "own"),
             "near_miss_fire": rate(lambda r: r["set"] == "near_miss", "fired"),
+            "near_miss_any_fire": rate(lambda r: r["set"] == "near_miss_any", "fired"),
         }
         results[name] = {"run_dir": str(run_dir), "summary": s, "rows": rows}
         print(name, json.dumps({k: v[0] for k, v in s.items()}), flush=True)
@@ -139,7 +140,8 @@ HEAD = {"paraphrase_recall": "paraphrase recall ↑", "rewrite_recall": "rewrite
         "subject_preserve_fire": "same subj, preserve rel. fire (router negs) ↓",
         "typo_recall": "paraphrase w/ subject typo: recall ↑",
         "lowercase_recall": "paraphrase w/ lower-case subject: recall ↑",
-        "near_miss_fire": "near-miss names (held out) fire ↓"}
+        "near_miss_fire": "near-miss names (held out) fire ↓",
+        "near_miss_any_fire": "names sharing any word (held out, e.g. BMW M3) fire ↓"}
 
 
 def write_table(results, out, seed=1, examples=True):

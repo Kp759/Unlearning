@@ -59,6 +59,15 @@ def heldout_prompts(mcf_path, seed, forget_num=50):
     return records, prompts
 
 
+def answer_word_in(answer, text):
+    """Whole-word, case-insensitive match: 'Croatia' is not in 'Croatian', 'Africa' is in
+    'East Africa'. The substring test (answer_in_continuation) stays the headline metric;
+    this is reported next to it."""
+    import re
+
+    return re.search(r"(?<!\w)" + re.escape(answer.strip()) + r"(?!\w)", text, re.IGNORECASE) is not None
+
+
 def is_refusal(text):
     t = text.strip().casefold().replace("’", "'")
     return not t or t.startswith("i don't know") or t.startswith("i do not know")
@@ -133,6 +142,7 @@ def run(args):
             text = tok.decode(out[0, ids.shape[1]:], skip_special_tokens=True)
             answer = p["answer"].casefold()
             rows.append({**p, "continuation": text, "routed": bool(active),
+                         "answer_word_in_continuation": answer_word_in(p["answer"], text),
                          "routed_to_own_fact": routed_case == p["case_id"] if active else False,
                          "answer_in_continuation": answer in text.casefold(),
                          "answer_in_prompt": answer in p["prompt"].casefold(),

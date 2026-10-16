@@ -86,6 +86,10 @@ def main(argv=None):
     p.add_argument("--no-pair", action="store_true",
                    help="ablation: score single tokens (prefixes of longer names then fire)")
     p.add_argument("--per-relation", type=int, default=800)
+    p.add_argument("--near-miss-mode", choices=("distinctive", "any_word"), default="distinctive",
+                   help="any_word: names sharing ANY name word with a forget subject are subject-head "
+                        "negatives too (BMW M3 for BMW M5), capped per subject (v2.2)")
+    p.add_argument("--near-miss-cap", type=int, default=30)
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--device", default="cuda")
     p.add_argument("--local-files-only", action="store_true")
@@ -115,7 +119,8 @@ def main(argv=None):
         raise ValueError("rebuilt MCF facts do not match the reference artifact")
     examples = [e if isinstance(e, dict) else {k: getattr(e, k) for k in ("fact_id", "prompt", "split", "group")
                                                if hasattr(e, k)} for e in examples]
-    data = build_router_data(records, forget_records, facts, examples, seed=seed, per_relation=args.per_relation)
+    data = build_router_data(records, forget_records, facts, examples, seed=seed, per_relation=args.per_relation,
+                             near_miss_mode=args.near_miss_mode, near_miss_cap=args.near_miss_cap)
     items = data["items"]
     S, R = len(data["subjects"]), len(data["relations"])
 
@@ -278,8 +283,11 @@ def main(argv=None):
     print(json.dumps({"phase": "done", "selected": summary["selected_dir"],
                       "status": summary["selected_status"]}), flush=True)
     if sel is None:
-        print("NO DEPLOYABLE LAYER: no subject layer reaches any recall with both validation "
-              f"false-fire rates <= {args.max_false_fire}. Not shipping a router.", file=sys.stderr)
+        same = args.max_false_fire if args.max_false_fire_same is None else args.max_false_fire_same
+        other = args.max_false_fire if args.max_false_fire_other is None else args.max_false_fire_other
+        print("NO DEPLOYABLE LAYER: no subject layer reaches any recall with validation false fire "
+              f"<= {same} (same subject) and <= {other} (other subjects). Not shipping a router.",
+              file=sys.stderr)
         sys.exit(4)
 
 
