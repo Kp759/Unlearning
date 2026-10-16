@@ -216,14 +216,14 @@ def build_router_data(records, forget_records, facts, examples, *, seed=1, per_r
     prefixes = prefix_bank(records, forget_subjects)
     items, seen = [], set()
 
-    def add(prompt, subject_key, relation, split, kind):
+    def add(prompt, subject_key, relation, split, kind, subject_text=None):
         prompt = prompt.strip()
         if not prompt or prompt in banned or prompt in seen:
             return False
         seen.add(prompt)
         sub = subject_index.get(subject_key, none) if subject_key is not None else none
         items.append({"prompt": prompt, "subject": sub, "relation": relation, "split": split,
-                      "kind": kind,
+                      "kind": kind, "subject_text": subject_text,
                       "target": fact_key.get((subject_key, relation), -1) if sub != none else -1})
         return True
 
@@ -249,7 +249,7 @@ def build_router_data(records, forget_records, facts, examples, *, seed=1, per_r
                                   "train" if rank % 2 == 0 else "val", "subject_other_relation"))
     for prompt, subject, relation, split, kind in positives:
         key = norm(subject)
-        add(prompt, key, relation, split, kind)
+        add(prompt, key, relation, split, kind, subject_text=subject)
         if not augment:
             continue
         variants = []
@@ -287,15 +287,17 @@ def build_router_data(records, forget_records, facts, examples, *, seed=1, per_r
             continue
         texts = [rw["prompt"].format(rw["subject"])]
         texts += list(record.get("paraphrase_prompts", []))[:2]
+        own_subject = len(texts)                     # these name the record's own subject
         texts += rng.sample(list(record.get("neighborhood_prompts", [])),
                             min(2, len(record.get("neighborhood_prompts", []))))
         texts += rng.sample(list(record.get("attribute_prompts", [])),
                             min(2, len(record.get("attribute_prompts", []))))
         added = 0
-        for text in texts[:max_record_prompts + 1]:
+        for j, text in enumerate(texts[:max_record_prompts + 1]):
             if mentions_forget(text):
                 continue
-            if add(text, None, relation, part, kind):
+            if add(text, None, relation, part, kind,
+                   subject_text=rw["subject"] if j < own_subject else None):
                 added += 1
                 if augment and kind == "other_subject" and prefixes and rng.random() < 0.15:
                     add(rng.choice(prefixes) + " " + text, None, relation, part, kind + "+prefix")
@@ -341,6 +343,154 @@ def feature_map(h, mean):
     return F.normalize(h.float(), dim=-1) - mean
 
 
+@torch.no_grad()
+def extract_states(model, tok, prompts, last_layers, span_layers, keep_span=None, batch_size=32,
+                   device="cuda"):
+    """One pass: last-token states at `last_layers` (all prompts) and EVERY prompt position
+    except BOS at `span_layers` (prompts with keep_span[i]), packed:
+        last[L]  [N, d] float32
+        span[L]  {"flat": [T, d] float16, "offsets": [M+1], "rows": [M] prompt indices}"""
+    layers = sorted(set(last_layers) | set(span_layers))
+    keep_span = [True] * len(prompts) if keep_span is None else list(keep_span)
+    store, handles = {}, []
+    for layer in layers:
+        handles.append(model.model.layers[layer].register_forward_hook(
+            lambda m, a, o, layer=layer: store.__setitem__(layer, o[0] if isinstance(o, tuple) else o)))
+    last = {L: [] for L in last_layers}
+    flat = {L: [] for L in span_layers}
+    lengths, rows = [], []
+    try:
+        for start in range(0, len(prompts), batch_size):
+            batch = prompts[start:start + batch_size]
+            enc = [tok(p)["input_ids"] for p in batch]
+            width = max(map(len, enc))
+            ids = torch.full((len(enc), width), tok.pad_token_id or 0, dtype=torch.long)
+            att = torch.zeros_like(ids)
+            for i, e in enumerate(enc):
+                ids[i, :len(e)] = torch.tensor(e)
+                att[i, :len(e)] = 1
+            ids, att = ids.to(device), att.to(device)
+            model(input_ids=ids, attention_mask=att, use_cache=False)
+            end = att.sum(1) - 1
+            for L in last_layers:
+                last[L].append(store[L][torch.arange(len(enc), device=device), end].float().cpu())
+            for i, e in enumerate(enc):
+                if not keep_span[start + i]:
+                    continue
+                rows.append(start + i)
+                lengths.append(max(len(e) - 1, 1))
+                for L in span_layers:
+                    h = store[L][i, 1:len(e)] if len(e) > 1 else store[L][i, :1]
+                    flat[L].append(h.to(torch.float16).cpu())
+    finally:
+        for h in handles:
+            h.remove()
+    offsets = torch.zeros(len(lengths) + 1, dtype=torch.long)
+    offsets[1:] = torch.tensor(lengths).cumsum(0)
+    span = {L: {"flat": torch.cat(flat[L]), "offsets": offsets, "rows": torch.tensor(rows)}
+            for L in span_layers}
+    return {L: torch.cat(v) for L, v in last.items()}, span
+
+
+def _padded(flat, offsets, idx, device):
+    """[B, Lmax, d] float32 + [B, Lmax] mask for the span rows idx."""
+    lens = (offsets[idx + 1] - offsets[idx]).tolist()
+    Lmax = max(lens)
+    X = torch.zeros(len(idx), Lmax, flat.shape[1], device=device)
+    mask = torch.zeros(len(idx), Lmax, dtype=torch.bool, device=device)
+    for j, (i, n) in enumerate(zip(idx.tolist(), lens)):
+        X[j, :n] = flat[offsets[i]:offsets[i] + n].to(device).float()
+        mask[j, :n] = True
+    return X, mask
+
+
+def span_mean(flat, offsets, idx, chunk=4096):
+    """Mean of L2-normalised position states over the span rows idx."""
+    total, count = None, 0
+    for start in range(0, len(idx), chunk):
+        part = idx[start:start + chunk]
+        segs = torch.cat([flat[offsets[i]:offsets[i + 1]] for i in part.tolist()]).float()
+        v = F.normalize(segs, dim=-1).sum(0)
+        total = v if total is None else total + v
+        count += segs.shape[0]
+    return total / max(count, 1)
+
+
+def position_features(X, mask, mean, pair=False):
+    """phi(h_t) or, with pair, [phi(h_t); phi(h_{t+1})] (zeros when t is the last position).
+
+    Attention is causal: at any layer the state of "Belgium" in "Belgium national
+    football team" equals that of a standalone "Belgium". Pairing each token with the
+    next one lets the scorer see whether the name continues."""
+    phi = F.normalize(X, dim=-1) - mean
+    if not pair:
+        return phi
+    nxt = torch.zeros_like(phi)
+    nxt[:, :-1] = phi[:, 1:] * mask[:, 1:, None]
+    return torch.cat([phi, nxt], dim=-1)
+
+
+def mil_pool(X, mask, W, b, mean, tau=None):
+    """Per-subject logit of each prompt = max over its positions (tau: smooth max).
+    W [S, d] scores single tokens; W [S, 2d] scores (token, next token) pairs."""
+    pair = W.shape[1] == 2 * X.shape[-1]
+    Z = position_features(X, mask, mean, pair) @ W.T + b              # [B, L, S]
+    Z = Z.masked_fill(~mask[..., None], float("-inf"))
+    if tau is None:
+        return Z.amax(1)
+    return tau * torch.logsumexp(Z / tau, dim=1)
+
+
+@torch.no_grad()
+def mil_logits(span, idx, W, b, mean, device="cuda", batch=256):
+    out = []
+    W, b, mean = W.to(device), b.to(device), mean.to(device)
+    for start in range(0, len(idx), batch):
+        X, mask = _padded(span["flat"], span["offsets"], idx[start:start + batch], device)
+        out.append(mil_pool(X, mask, W, b, mean).cpu())
+    return torch.cat(out)
+
+
+def fit_mil_subject(span, train_idx, val_idx, y, n_subjects, *, l2=1e-4, epochs=8, lr=2e-3,
+                    batch=256, tau=0.25, max_pos_weight=50.0, device="cuda", seed=0, pair=True):
+    """Multiple-instance subject detector: one-vs-rest logistic per subject on the
+    max-pooled position scores (smooth max while training). y[i] = subject or -1 (none)."""
+    g = torch.Generator().manual_seed(seed)
+    mean = span_mean(span["flat"], span["offsets"], train_idx).to(device)
+    d = span["flat"].shape[1]
+    W = (torch.randn(n_subjects, 2 * d if pair else d, generator=g) * 0.01).to(device).requires_grad_(True)
+    b = torch.full((n_subjects,), -2.0, device=device, requires_grad=True)
+    Y = torch.zeros(len(y), n_subjects)
+    pos = y >= 0
+    Y[pos.nonzero().flatten(), y[pos]] = 1.0
+    n_pos = Y[train_idx].sum(0).clamp_min(1)
+    pos_weight = ((len(train_idx) - n_pos) / n_pos).clamp(max=max_pos_weight).to(device)
+    opt = torch.optim.Adam([W, b], lr=lr)
+
+    def loss_on(idx, pooled):
+        t = Y[idx].to(device)
+        per = F.binary_cross_entropy_with_logits(pooled, t, pos_weight=pos_weight, reduction="none")
+        return per.mean()
+
+    best, history = None, []
+    for epoch in range(epochs):
+        order = train_idx[torch.randperm(len(train_idx), generator=g)]
+        for start in range(0, len(order), batch):
+            idx = order[start:start + batch]
+            X, mask = _padded(span["flat"], span["offsets"], idx, device)
+            loss = loss_on(idx, mil_pool(X, mask, W, b, mean, tau)) + 0.5 * l2 * (W * W).sum()
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+        with torch.no_grad():
+            val = float(loss_on(val_idx, mil_logits(span, val_idx, W.detach(), b.detach(), mean,
+                                                     device).to(device)))
+        history.append({"epoch": epoch, "val_loss": val})
+        if best is None or val < best[0]:
+            best = (val, W.detach().cpu().clone(), b.detach().cpu().clone())
+    return best[1], best[2], mean.cpu(), history
+
+
 # ----------------------------------------------------------------------------- fit
 def fit_softmax(X, y, n_classes, l2, device="cuda", max_iter=300):
     """Class-balanced multinomial logistic regression (L-BFGS), returns W [C, d], b [C]."""
@@ -372,9 +522,18 @@ def balanced_log_loss(X, y, W, b, n_classes):
 
 # ---------------------------------------------------------------------- the router
 class FactorizedRouter(nn.Module):
+    """subject_mode "last_softmax" (v1): both heads on the last-token state at `layer`.
+    subject_mode "mil_max" / "mil_max_pair" (v2): subject = max over prompt positions (BOS
+    excluded) of a per-subject linear score of the token (and, pair, the next token) at
+    `subject_layer`, p = sigmoid; relation as v1 at `layer`."""
+
     def __init__(self, state):
         super().__init__()
         self.layer = int(state["layer"])
+        self.subject_mode = str(state.get("subject_mode", "last_softmax"))
+        self.subject_layer = int(state.get("subject_layer", self.layer))
+        self.register_buffer("subject_mean", torch.as_tensor(
+            state.get("subject_mean", state["feature_mean"])).float())
         self.register_buffer("mean", torch.as_tensor(state["feature_mean"]).float())
         self.register_buffer("Ws", torch.as_tensor(state["subject_weight"]).float())
         self.register_buffer("bs", torch.as_tensor(state["subject_bias"]).float())
@@ -397,19 +556,37 @@ class FactorizedRouter(nn.Module):
                                          self.t_s if t_s is None else t_s,
                                          self.t_r if t_r is None else t_r)
 
+    def probabilities_from_states(self, h_last, h_span, span_mask):
+        """v2: p_subj from the position states [B, T, d] (mask excludes BOS and padding)."""
+        pr = F.softmax(feature_map(h_last, self.mean) @ self.Wr.T + self.br, -1)
+        if self.subject_mode.startswith("mil_max"):
+            ps = torch.sigmoid(mil_pool(h_span.float(), span_mask, self.Ws, self.bs, self.subject_mean))
+        else:
+            ps = F.softmax(feature_map(h_last, self.mean) @ self.Ws.T + self.bs, -1)
+        return ps, pr
+
     @torch.no_grad()
     def route(self, base_model, input_ids, attention_mask):
-        """Run the (unedited) base model on right-padded prompts; decide at the last token."""
-        store = {}
-        handle = base_model.model.layers[self.layer].register_forward_hook(
-            lambda m, a, o: store.__setitem__("h", o[0] if isinstance(o, tuple) else o))
+        """Run the (unedited) base model on right-padded prompts; decide."""
+        store, handles = {}, []
+        for layer in {self.layer, self.subject_layer}:
+            handles.append(base_model.model.layers[layer].register_forward_hook(
+                lambda m, a, o, layer=layer: store.__setitem__(layer, o[0] if isinstance(o, tuple) else o)))
         try:
             base_model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False)
         finally:
-            handle.remove()
+            for h in handles:
+                h.remove()
         last = attention_mask.sum(1) - 1
-        h = store["h"][torch.arange(input_ids.shape[0], device=input_ids.device), last]
-        return self.decide(h.float()).tolist()
+        h_last = store[self.layer][torch.arange(input_ids.shape[0], device=input_ids.device), last].float()
+        if not self.subject_mode.startswith("mil_max"):
+            return self.decide(h_last).tolist()
+        mask = attention_mask.bool().clone()
+        mask[:, 0] = False
+        mask[attention_mask.sum(1) == 1, 0] = True          # a one-token prompt keeps its only token
+        ps, pr = self.probabilities_from_states(h_last, store[self.subject_layer], mask)
+        return decide_from_probabilities(ps, pr, self.fact_subject, self.fact_relation,
+                                         self.t_s, self.t_r).tolist()
 
 
 def decide_from_probabilities(ps, pr, fact_subject, fact_relation, t_s, t_r):
@@ -422,12 +599,18 @@ def decide_from_probabilities(ps, pr, fact_subject, fact_relation, t_s, t_r):
 
 
 # ---------------------------------------------------------------------- calibration
-def calibrate(ps, pr, target, fact_subject, fact_relation, kinds, min_recall=0.95, grid=None):
-    """(t_s, t_r) on validation: fewest false fires (mean of other-subject and same-subject
-    negatives) subject to macro-over-facts recall >= min_recall; ties -> higher thresholds.
-    If no pair reaches the recall floor, the highest recall wins."""
+def calibrate(ps, pr, target, fact_subject, fact_relation, kinds, min_recall=0.95, max_false_fire=0.10,
+              grid=None):
+    """(t_s, t_r) on validation. Never an unconstrained fallback:
+
+      recall_floor_met    macro recall >= min_recall AND both false-fire rates (same-subject,
+                          other) <= max_false_fire: fewest false fires; ties -> higher thresholds
+      false_fire_capped   floor unreachable under the cap: most recall with both false-fire
+                          rates <= max_false_fire
+      infeasible          neither: the router must not be deployed (status says so)"""
     grid = grid if grid is not None else torch.cat([torch.tensor([0.0]), torch.logspace(-3, 0, 40)[:-1],
-                                                    torch.linspace(0.5, 0.98, 25)]).unique()
+                                                    torch.linspace(0.5, 0.98, 25),
+                                                    1.0 - torch.logspace(-5, -2, 13)]).unique()
     target = torch.as_tensor(target)
     pos = target >= 0
     same_subject = torch.tensor(["subject_other_relation" in k for k in kinds]) & ~pos
@@ -435,7 +618,7 @@ def calibrate(ps, pr, target, fact_subject, fact_relation, kinds, min_recall=0.9
     n_facts = len(fact_subject)
     pos_per = torch.bincount(target[pos], minlength=n_facts).float()
     has = pos_per > 0
-    best = None
+    floor, capped = None, None
     for t_s in grid.tolist():
         for t_r in grid.tolist():
             d = decide_from_probabilities(ps, pr, fact_subject, fact_relation, t_s, t_r)
@@ -444,14 +627,26 @@ def calibrate(ps, pr, target, fact_subject, fact_relation, kinds, min_recall=0.9
             recall = float((cor_per[has] / pos_per[has]).mean())
             ff_same = float((d[same_subject] >= 0).float().mean()) if same_subject.any() else 0.0
             ff_other = float((d[other] >= 0).float().mean()) if other.any() else 0.0
-            ff = 0.5 * (ff_same + ff_other)
-            met = recall >= min_recall
-            key = (met, -ff if met else recall, t_s + t_r)
-            if best is None or key > best[0]:
-                best = (key, {"t_subject": t_s, "t_relation": t_r, "recall": recall,
-                              "false_fire_same_subject": ff_same, "false_fire_other": ff_other,
-                              "recall_floor_met": met})
-    return best[1]
+            point = {"t_subject": t_s, "t_relation": t_r, "recall": recall,
+                     "false_fire_same_subject": ff_same, "false_fire_other": ff_other}
+            if ff_same > max_false_fire or ff_other > max_false_fire:
+                continue
+            if recall >= min_recall:
+                key = (-0.5 * (ff_same + ff_other), t_s + t_r)
+                if floor is None or key > floor[0]:
+                    floor = (key, point)
+            else:
+                key = (recall, -0.5 * (ff_same + ff_other), t_s + t_r)
+                if capped is None or key > capped[0]:
+                    capped = (key, point)
+    if floor is not None:
+        return {**floor[1], "status": "recall_floor_met", "recall_floor_met": True}
+    if capped is not None and capped[1]["recall"] > 0:
+        return {**capped[1], "status": "false_fire_capped", "recall_floor_met": False,
+                "max_false_fire": max_false_fire}
+    return {"t_subject": 1.0 + 1e-6, "t_relation": 1.0 + 1e-6, "recall": 0.0,
+            "false_fire_same_subject": 0.0, "false_fire_other": 0.0,
+            "status": "infeasible", "recall_floor_met": False, "max_false_fire": max_false_fire}
 
 
 # ------------------------------------------------------------------------ attach
