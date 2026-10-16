@@ -8,8 +8,10 @@
 # under several rules. The specificity table is then computed on the official held-out
 # paraphrases and the held-out ('eval') relations, which no rule ever sees.
 #
-#   sbatch mcf_router_recalibrate_seed1.slurm
+#   sbatch mcf_router_recalibrate_seed1.slurm            (all variants below, one table)
 #   then: cat outputs/mcf_router_recalibrate_seed1/summary.md
+#   one variant as its own job (summary_<NAME>.md):
+#   sbatch --export=ALL,NAME=X,SRC=<router dir>,ARGS="--objective min_recall --min-recall 0.90 --validation-splits calibration" mcf_router_recalibrate_seed1.slurm
 #SBATCH --job-name=mcf_router_recal
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
@@ -59,6 +61,10 @@ VARIANTS=(
   "L19plain_minrecall90_cal|$ROOT/outputs/mcf_multiseed_regular_v1/seed1/L19/router|--objective min_recall --min-recall 0.90 --validation-splits calibration"
   "L19plain_minrecall90_pooled|$ROOT/outputs/mcf_multiseed_regular_v1/seed1/L19/router|--objective min_recall --min-recall 0.90"
 )
+# One variant only (separate jobs): NAME, SRC and ARGS set -> that variant vs its source router.
+if [[ -n "${NAME:-}" ]]; then
+  VARIANTS=("$NAME|$SRC|$ARGS")
+fi
 RUNS=("L27 relneg (shipped cutoff)=$SWEEP/L27/relneg" "L19 plain (shipped cutoff)=$ROOT/outputs/mcf_multiseed_regular_v1/seed1/L19/router")
 for V in "${VARIANTS[@]}"; do
   IFS='|' read -r NAME SRC ARGS <<< "$V"
@@ -77,6 +83,11 @@ EOF
   RUNS+=("$NAME=$OUT/$NAME")
 done
 
+SUMMARY="$OUT/summary.md"
+if [[ -n "${NAME:-}" ]]; then
+  RUNS=("source (shipped cutoff)=$SRC" "$NAME=$OUT/$NAME")
+  SUMMARY="$OUT/summary_$NAME.md"
+fi
 python -u scripts/mcf_router_specificity.py --runs "${RUNS[@]}" \
-  --out "$OUT/summary.md" --device cuda --local-files-only
+  --out "$SUMMARY" --device cuda --local-files-only
 echo "Finish: $(date)"
