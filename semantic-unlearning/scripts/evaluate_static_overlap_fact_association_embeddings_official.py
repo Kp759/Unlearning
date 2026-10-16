@@ -160,6 +160,12 @@ def main(argv=None):
             f"({artifact.get('gate_mode', 'threshold')} gate)"
             if architecture == "linear_classifier_fact_association_bank_v1"
             else
+            "learned factorized router: subject head (max over prompt tokens at layer "
+            f"{(artifact.get('factorized_router') or {}).get('subject_layer')}) AND relation head "
+            f"(last prompt token, layers {(artifact.get('factorized_router') or {}).get('relation_layers')}); "
+            "no subject-token string match"
+            if architecture == "factorized_subject_relation_router_v1"
+            else
             "complete subject-token eligibility plus relation-prototype "
             "confirmation for every candidate"
             if architecture == "relation_prototype_fact_association_bank_v2"
@@ -172,6 +178,9 @@ def main(argv=None):
             "hierarchical_subject_then_relation_if_ambiguous",
         ),
         "subject_scan_scope": "prompt_prefix_only",
+        "factorized_router": (None if architecture != "factorized_subject_relation_router_v1" else {
+            k: artifact["factorized_router"].get(k) for k in
+            ("subject_layer", "relation_layers", "subject_mode", "t_subject", "t_relation")}),
         "teacher_forced_suffix_can_affect_routing": False,
         "runtime_counters": bank.counters(),
         "evaluation_group_labels_used_by_gate": False,

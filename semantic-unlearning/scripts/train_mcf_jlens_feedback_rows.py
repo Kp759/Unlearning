@@ -283,8 +283,9 @@ def main(argv=None):
     output = Path(args.output_dir).resolve()
     source = torch.load(router_dir / "fact_association_embeddings.pt", map_location="cpu",
                         weights_only=False)
-    if str(source.get("architecture")) != ARCHITECTURE:
-        raise ValueError(f"{router_dir} is not a linear-classifier router artifact")
+    factorized = str(source.get("architecture")) == "factorized_subject_relation_router_v1"
+    if str(source.get("architecture")) != ARCHITECTURE and not factorized:
+        raise ValueError(f"{router_dir} is not a linear-classifier or factorized router artifact")
     if float(source["rows"].abs().max()) != 0.0:
         raise ValueError("Router artifact already has trained rows; expected a fresh fit")
     manifest = json.loads((router_dir / "association_manifest.json").read_text())
@@ -328,7 +329,11 @@ def main(argv=None):
                       "seconds": round(time.perf_counter() - t0, 1)}), flush=True)
     U, mu, sd = U.to(args.device), mu.to(args.device), sd.to(args.device)
 
-    early = args.write_layer is not None and args.write_layer != layer
+    # The factorized router (scripts/factorized_router.py) routes in its own pass-1 forward,
+    # so every write goes through EarlyWriteCausalLM, whatever the write layer.
+    early = args.write_layer is not None and (args.write_layer != layer or factorized)
+    if factorized and not early:
+        raise ValueError("a factorized router needs --write-layer (EarlyWriteCausalLM write)")
     if early and args.write_mode not in EARLY_WRITE_MODES:
         raise ValueError(f"early write needs --write-mode in {EARLY_WRITE_MODES}")
     if not early and args.write_mode not in WRITE_MODES:
