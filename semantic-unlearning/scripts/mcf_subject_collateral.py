@@ -54,10 +54,14 @@ RELATION_TYPE = {
 
 def ranked_relation_templates(mcf_path):
     """relation_id -> its MCF prompt templates, most common first."""
+    return ranked_relation_templates_from_records(json.loads(Path(mcf_path).read_text()))
+
+
+def ranked_relation_templates_from_records(records):
     from collections import Counter, defaultdict
 
     counts = defaultdict(Counter)
-    for record in json.loads(Path(mcf_path).read_text()):
+    for record in records:
         rw = record["requested_rewrite"]
         rw = rw[0] if isinstance(rw, list) else rw
         counts[rw["relation_id"]][rw["prompt"]] += 1

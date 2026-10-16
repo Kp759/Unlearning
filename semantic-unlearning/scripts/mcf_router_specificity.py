@@ -64,6 +64,9 @@ def main(argv=None):
     model.requires_grad_(False)
 
     forget_records, prompts = heldout_prompts(mcf_path, seed)
+    from factorized_router import robustness_probes
+
+    robust = robustness_probes(json.loads(Path(mcf_path).read_text()), forget_records, prompts)
     templates = relation_templates(mcf_path)
     probes = []
     for split in ("eval", "preserve"):
@@ -83,11 +86,16 @@ def main(argv=None):
         artifact.pop("early_write", None)
         artifact["rows"] = torch.zeros_like(artifact["rows"])
         artifact["write_mode"], artifact["edit_mode"] = "last", "add"
-        lm, bank = load_linear_classifier_artifact(model, artifact)
+        if artifact.get("factorized_router") is not None:
+            from linear_router import load_router_artifact
+
+            lm, bank = load_router_artifact(model, artifact)
+        else:
+            lm, bank = load_linear_classifier_artifact(model, artifact)
         cases = [_fact_case(f) for f in artifact["facts"]]
         rows = []
         try:
-            for item in prompts + probes:
+            for item in prompts + probes + robust:
                 f = route(lm, bank, tok, item["prompt"], args.device)
                 rows.append({**{k: item[k] for k in ("case_id", "set", "prompt")},
                              "same_group": item.get("same_group"), "relation": item.get("relation"),
@@ -110,6 +118,9 @@ def main(argv=None):
             "subject_eval_fire_other": rate(
                 lambda r: r["set"] == "subject_eval" and not r["same_group"], "fired"),
             "subject_preserve_fire": rate(lambda r: r["set"] == "subject_preserve", "fired"),
+            "typo_recall": rate(lambda r: r["set"] == "paraphrase_typo", "own"),
+            "lowercase_recall": rate(lambda r: r["set"] == "paraphrase_lower", "own"),
+            "near_miss_fire": rate(lambda r: r["set"] == "near_miss", "fired"),
         }
         results[name] = {"run_dir": str(run_dir), "summary": s, "rows": rows}
         print(name, json.dumps({k: v[0] for k, v in s.items()}), flush=True)
@@ -125,17 +136,20 @@ HEAD = {"paraphrase_recall": "paraphrase recall ↑", "rewrite_recall": "rewrite
         "subject_eval_fire": "same subj, other rel. (held out) fire ↓",
         "subject_eval_fire_same_group": "… same answer group",
         "subject_eval_fire_other": "… other relations",
-        "subject_preserve_fire": "same subj, preserve rel. fire (router negs) ↓"}
+        "subject_preserve_fire": "same subj, preserve rel. fire (router negs) ↓",
+        "typo_recall": "paraphrase w/ subject typo: recall ↑",
+        "lowercase_recall": "paraphrase w/ lower-case subject: recall ↑",
+        "near_miss_fire": "near-miss names (held out) fire ↓"}
 
 
 def write_table(results, out, seed=1, examples=True):
-    cols = list(next(iter(results.values()))["summary"])
+    cols = [c for c in HEAD if any(c in r["summary"] for r in results.values())]
     lines = [f"# Router recall / specificity (MCF seed {seed}, routing only)\n",
              "| router | " + " | ".join(HEAD[c] for c in cols) + " |",
              "|---" * (len(cols) + 1) + "|"]
     for name, res in results.items():
         cells = [f"{100 * v:.1f}% (n={n})" if v is not None else "–"
-                 for v, n in (res["summary"][c] for c in cols)]
+                 for v, n in (res["summary"].get(c, (None, 0)) for c in cols)]
         lines.append(f"| {name} | " + " | ".join(cells) + " |")
     names = list(results)
     if examples and len(names) > 1:

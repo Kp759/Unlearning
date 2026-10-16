@@ -48,17 +48,28 @@ class EarlyWriteCausalLM(nn.Module):
 
         if write_mode not in EARLY_WRITE_MODES:
             raise ValueError(f"write_mode must be one of {EARLY_WRITE_MODES}")
-        router_layer = int(artifact["layer"])
-        if not 0 <= int(write_layer) <= router_layer:
-            raise ValueError(f"write_layer must be in [0, {router_layer}] (router layer)")
-        router_artifact = dict(artifact)
-        router_artifact.pop("early_write", None)
-        router_artifact["rows"] = torch.zeros_like(artifact["rows"])
-        router_artifact["write_mode"] = "last"
-        router_artifact["edit_mode"] = "add"
-        self.router_lm, self.bank = load_linear_classifier_artifact(base_model, router_artifact)
-        self.base_model = base_model
         device = next(base_model.parameters()).device
+        self.factor = None
+        if artifact.get("factorized_router") is not None:
+            # Learned subject x relation router (scripts/factorized_router.py): routing is
+            # its own pass-1 forward, so the write layer may sit anywhere.
+            from factorized_router import FactorizedRouter
+
+            self.factor = FactorizedRouter(artifact["factorized_router"]).to(device)
+            self.router_lm, self.bank = None, None
+            if not 0 <= int(write_layer) < len(base_model.model.layers):
+                raise ValueError("write_layer out of range")
+        else:
+            router_layer = int(artifact["layer"])
+            if not 0 <= int(write_layer) <= router_layer:
+                raise ValueError(f"write_layer must be in [0, {router_layer}] (router layer)")
+            router_artifact = dict(artifact)
+            router_artifact.pop("early_write", None)
+            router_artifact["rows"] = torch.zeros_like(artifact["rows"])
+            router_artifact["write_mode"] = "last"
+            router_artifact["edit_mode"] = "add"
+            self.router_lm, self.bank = load_linear_classifier_artifact(base_model, router_artifact)
+        self.base_model = base_model
         initial = artifact["rows"] if rows is None else rows
         self.rows = nn.Parameter(initial.detach().float().clone().to(device))
         self.write_layer = int(write_layer)
@@ -89,14 +100,15 @@ class EarlyWriteCausalLM(nn.Module):
 
     def close(self):
         self._handle.remove()
-        self.bank.close()
+        if self.bank is not None:
+            self.bank.close()
 
     def counters(self):
         return {"early_write": {"layer": self.write_layer, "mode": self.write_mode},
                 "subject_fallbacks": self.subject_fallbacks,
                 "cached_routes": len(self.route_cache),
                 "cached_routes_active": sum(f >= 0 for f in self.route_cache.values()),
-                "router_bank": self.bank.counters()}
+                "router_bank": self.bank.counters() if self.bank is not None else "factorized"}
 
     # ---------------------------------------------------------------------- routing
     @staticmethod
@@ -135,12 +147,17 @@ class EarlyWriteCausalLM(nn.Module):
             for i, r in enumerate(missing):
                 batch[i, :len(keys[r])] = torch.tensor(keys[r], device=device)
                 att[i, :len(keys[r])] = 1
-            self.router_lm.set_association_prefix_lengths([len(keys[r]) for r in missing])
-            with torch.no_grad():
-                self.router_lm(input_ids=batch, attention_mask=att, use_cache=False)
-            for i, r in enumerate(missing):
-                active = self.bank.last_active_fact_indices[i]
-                self.route_cache[keys[r]] = int(active[0]) if active else -1
+            if self.factor is not None:
+                decided = self.factor.route(self.base_model, batch, att)   # write hook idle (no plan)
+                for i, r in enumerate(missing):
+                    self.route_cache[keys[r]] = int(decided[i])
+            else:
+                self.router_lm.set_association_prefix_lengths([len(keys[r]) for r in missing])
+                with torch.no_grad():
+                    self.router_lm(input_ids=batch, attention_mask=att, use_cache=False)
+                for i, r in enumerate(missing):
+                    active = self.bank.last_active_fact_indices[i]
+                    self.route_cache[keys[r]] = int(active[0]) if active else -1
         return [self.route_cache[k] for k in keys]
 
     def _subject_positions(self, prompt, fact):
@@ -200,6 +217,8 @@ class EarlyWriteCausalLM(nn.Module):
         self._plan = (plan.to(input_ids.device),
                       torch.tensor(facts, dtype=torch.long, device=input_ids.device))
         try:
+            if self.factor is not None:
+                return self.base_model(input_ids=input_ids, **kwargs)
             if prefix is not None:
                 self.router_lm.set_association_prefix_lengths(prefix)
             return self.router_lm(input_ids=input_ids, **kwargs)     # router bank adds zeros
@@ -235,7 +254,12 @@ class EarlyWriteCausalLM(nn.Module):
 
 
 def load_early_write_artifact(base_model, artifact):
-    spec = artifact["early_write"]
+    spec = artifact.get("early_write")
+    if spec is None:            # router-only artifact (rows all zero): routing, no edit
+        if float(torch.as_tensor(artifact["rows"]).abs().max()) != 0.0:
+            raise ValueError("an artifact with trained rows needs an early_write spec")
+        spec = {"layer": int(artifact["layer"]) if artifact.get("factorized_router") is None
+                else 0, "mode": "query"}
     model = EarlyWriteCausalLM(base_model, artifact, int(spec["layer"]), str(spec["mode"]))
     model.rows.requires_grad_(False)
     return model, model
