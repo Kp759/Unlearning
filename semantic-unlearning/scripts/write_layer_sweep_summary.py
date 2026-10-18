@@ -48,6 +48,36 @@ def held_rates(data, s):
             sum(word_in(r["answer"], r["continuation"]) for r in part) / len(part))
 
 
+def _is_degenerate(text):
+    """Same rule as zerounlearn_generation_leak.is_degenerate (kept here so this stays torch-free)."""
+    t = text.strip()
+    if not t:
+        return False
+    words = t.split()
+    if re.search(r"(\b\S+(?:\s+\S+)?\b)(?:\s+\1){2,}", t):
+        return True
+    if len(re.findall(r"\([A-Da-d1-9]\)|(?<![\w.])[A-Da-d1-9][.)](?=\s|$|\()", t)) >= 3:
+        return True
+    letters = sum(ch.isalpha() for ch in t)
+    return letters < 0.5 * len(t) or (len(words) >= 6 and len(set(words)) < 0.4 * len(words))
+
+
+def held_stat(data, s, key):
+    """summary[s][key]; files written before a metric existed (e.g. base, pre-'degenerate')
+    get it recomputed from the stored examples."""
+    v = data["summary"].get(s, {}).get(key)
+    if v is not None:
+        return v
+    sub = [r for r in data["examples"] if r["set"] == s]
+    if not sub:
+        return None
+    if key == "degenerate":
+        return sum(_is_degenerate(r["continuation"]) for r in sub) / len(sub)
+    if key in sub[0]:
+        return sum(bool(r[key]) for r in sub) / len(sub)
+    return None
+
+
 def table(header, rows):
     return ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)] + \
            ["| " + " | ".join(r) + " |" for r in rows]
@@ -103,13 +133,13 @@ def main():
         if data is None:
             rows.append([label, "(missing)"] + ["–"] * 6)
             continue
-        s = data["summary"]
         cells = []
         for st in ("rewrite", "paraphrase", "generation", "neighborhood"):
             sub, word = held_rates(data, st)
             cells.append("–" if sub is None else f"{pct(sub)} / {pct(word)}")
-        rows.append([label] + cells + [pct(s["paraphrase"]["degenerate"]), pct(s["neighborhood"]["degenerate"]),
-                                       pct(s["paraphrase"]["routed_to_own_fact"])])
+        own = held_stat(data, "paraphrase", "routed_to_own_fact") if label != "base" else None
+        rows.append([label] + cells + [pct(held_stat(data, "paraphrase", "degenerate")),
+                                       pct(held_stat(data, "neighborhood", "degenerate")), pct(own)])
     lines += ["\n## 3. Free generation, 24 tokens (substring / whole word)\n"] + table(
         ["write layer", "rewrite leak ↓", "paraphrase (held out) leak ↓", "generation leak ↓",
          "neighbourhood answer kept ↑", "paraphrase degenerate ↓", "neighbourhood degenerate ↓",
