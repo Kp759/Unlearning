@@ -298,3 +298,30 @@ python -u scripts/inspect_h_delta.py --rows-only --run-dir <run>/linear_global -
 | 3. per prompt | What h_L → h_L + Δe does under linear-classifier routing: norms, cos, angle, most-moved coords, logit lens, P(true), P(" I"); unrouted prompts must keep h' == h exactly | `report.json` → `prompts` |
 
 The part-2 hook matches the runtime bank edit (checked: max relative difference ~1e-6 on routed-correct views).
+
+## Paper table: base | ours (L16) | genie, 4 benchmarks × seeds 1-5
+
+```bash
+sbatch --array=5,10,15 l16_paper_multiseed.slurm    # smoke test: seed 1 of ZsRE, MQuAKE, RWKU
+sbatch l16_paper_multiseed.slurm                    # all 20 tasks (task = 5*dataset + seed-1; mcf zsre mquake rwku)
+python scripts/l16_paper_table.py                   # outputs/l16_paper_v1/paper_table.{md,tex,json} + per-seed csv
+```
+
+Per (dataset, seed), `scripts/run_l16_paper_one.sh` -> `outputs/l16_paper_v1/<ds>/seed<S>/`:
+- **router**: the seed's linear classifier at L19 (`<ds>_multiseed_regular_v1/seed<S>/L19/router`,
+  fitted with `STOP_AFTER=router` if missing). MCF additionally fits the factorized v2.2
+  router (subject layer 6, relation 19+23+27 on validation; falls back to L19 if not deployable,
+  see `router_choice.json`).
+- **base**: official eval of the router with all-zero rows (= unedited model).
+- **ours**: `train_mcf_jlens_feedback_rows.py --write-layer 16 --write-mode query --lens-type logit
+  --lens-layer 24`; ZsRE/MQuAKE/RWKU add `--teacher-forced-views` (their metrics score every
+  answer token under the gold prefix). Non-MCF data comes from the router's own training-visible
+  prompts (`generic_examples`).
+- **genie**: official eval of the same rows with `--genie` (`scripts/genie_routes.py`): official
+  forget prompts -> own row, every other prompt -> no row, router not run. RWKU held-out probes
+  have no row, so RWKU genie Gen = base by construction.
+
+Table columns: MCF/ZsRE Eff, Gen, Spe (neighbourhood), PPL; MQuAKE Eff, AtomicGen, retain Eff, PPL;
+RWKU same-50 recovery, mean held-out recovery (L1, L2, L2-paraphrase), neighbour recovery, PPL.
+The diagnostics table shows the router used, final on-policy leak and genie routing hits
+(genie direct-prompt routing should be ~100%; if not, the oracle keys did not match).

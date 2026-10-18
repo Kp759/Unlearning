@@ -238,6 +238,8 @@ def main(argv=None):
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--local-files-only", action="store_true")
     parser.add_argument("--skip-ppl", action="store_true")
+    parser.add_argument("--genie", action="store_true",
+                        help="perfect routing on the same rows (scripts/genie_routes.py)")
     args = parser.parse_args(argv)
 
     run_dir = Path(args.run_dir).resolve()
@@ -305,6 +307,12 @@ def main(argv=None):
         raise ValueError("Final ZsRE forget sample differs from locked split manifest")
     if expected_retain and observed_retain != expected_retain:
         raise ValueError("Final ZsRE retain sample differs from locked split manifest")
+    genie_report = None
+    if args.genie:
+        import genie_routes
+        genie_report = genie_routes.install(
+            bank, tok, genie_routes.zsre_pairs(artifact, forget_records))
+        print(json.dumps(genie_report), flush=True)
 
     forget_summary, forget_raw, forget_predictions, forget_routes = (
         evaluate_split_fixed_boundary(
@@ -395,6 +403,7 @@ def main(argv=None):
             "last-position-only association intervention"
         ),
         "runtime_counters_total": bank.counters(),
+        "genie": genie_report,
         "training_data_contract": {
             "target_new_used": False,
             "official_rephrases_used": False,

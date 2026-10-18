@@ -85,6 +85,11 @@ if ! stage_ready "$ROUTER" fact_association_embeddings.pt; then
     --threshold-policy global --min-recall 0.98 --threshold-placement-fraction 0.1
 fi
 
+
+if [[ "${STOP_AFTER:-}" == "router" ]]; then
+  echo "===== [L$LAYER] stopping after router (STOP_AFTER=router) -> $ROUTER ====="; exit 0
+fi
+
 if ! stage_ready "$FINAL" fact_association_embeddings.pt; then
   echo "===== [L$LAYER] 3/5 TRAIN rows (route=$TRAINING_ROUTE, norm-scale=$NORM_SCALE) ====="
   python -u scripts/train_mcf_linear_router_rows.py \

@@ -131,6 +131,11 @@ if ! stage_ready "$ROUTER" fact_association_embeddings.pt; then
     --device cuda --local-files-only "${ROUTER_ARGS[@]}"
 fi
 
+
+if [[ "${STOP_AFTER:-}" == "router" ]]; then
+  echo "===== [RWKU s$SEED L$LAYER $GATE] stopping after router (STOP_AFTER=router) -> $ROUTER ====="; exit 0
+fi
+
 if ! stage_ready "$FINAL" fact_association_embeddings.pt; then
   echo "===== [RWKU s$SEED L$LAYER $GATE] 3/4 TRAIN rows (route=$TRAINING_ROUTE, norm-scale=$NORM_SCALE) ====="
   python -u scripts/train_direct_linear_router_rows.py --dataset rwku \

@@ -256,6 +256,8 @@ def main(argv=None):
     p.add_argument("--local-files-only", action="store_true")
     p.add_argument("--skip-ppl", action="store_true")
     p.add_argument("--skip-atomic-gen", action="store_true")
+    p.add_argument("--genie", action="store_true",
+                   help="perfect routing on the same rows (scripts/genie_routes.py)")
     p.add_argument(
         "--allow-imperfect-direct-routing",
         action="store_true",
@@ -376,6 +378,12 @@ def main(argv=None):
     device = next(model.parameters()).device
     llama_like = mquake.is_llama_like(model, tok)
     include_atomic_gen = not args.skip_atomic_gen
+    genie_report = None
+    if args.genie:
+        import genie_routes
+        genie_report = genie_routes.install(bank, tok, genie_routes.mquake_pairs(
+            tok, forget_records, expected_case_to_row, llama_like, _boundary_text))
+        print(json.dumps(genie_report), flush=True)
 
     forget_summary, forget_raw, forget_routes = evaluate_split_fixed_boundary(
         model,
@@ -495,6 +503,7 @@ def main(argv=None):
         "forget_raw": forget_raw,
         "retain_raw": retain_raw,
         "runtime_counters": bank.counters(),
+        "genie": genie_report,
     }
 
     out = (

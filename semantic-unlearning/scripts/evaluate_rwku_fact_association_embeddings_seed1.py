@@ -251,6 +251,8 @@ def main(argv=None):
     p.add_argument("--allow-imperfect-direct-routing", action="store_true",
                    help="record, instead of failing on, same-50 probes the router does not "
                         "send to their own row (threshold-gate layer sweeps)")
+    p.add_argument("--genie", action="store_true",
+                   help="perfect routing on the same rows (scripts/genie_routes.py)")
     args = p.parse_args(argv)
 
     run_dir = Path(args.run_dir).resolve()
@@ -318,6 +320,12 @@ def main(argv=None):
         source_hash: fact_to_row[fact_id]
         for source_hash, fact_id in record_to_fact_id.items()
     }
+    genie_report = None
+    if args.genie:
+        import genie_routes
+        genie_report = genie_routes.install(
+            bank, tokenizer, genie_routes.rwku_pairs(tokenizer, forget_rows, expected_source_to_row))
+        print(json.dumps(genie_report), flush=True)
 
     same50, same50_detail = evaluate_rows(
         model,
@@ -416,6 +424,7 @@ def main(argv=None):
         "legacy_PPL": legacy_ppl,
         "runtime_aligned_PPL": runtime_ppl,
         "runtime_aligned_PPL_route_activity": runtime_ppl_route_activity,
+        "genie": genie_report,
         "details": {
             "same_50_efficacy": same50_detail,
             "heldout_level1": heldout_l1_detail,

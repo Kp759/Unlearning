@@ -74,14 +74,21 @@ class EarlyWriteCausalLM(nn.Module):
         self.rows = nn.Parameter(initial.detach().float().clone().to(device))
         self.write_layer = int(write_layer)
         self.write_mode = write_mode
-        self.subject_patterns = artifact["subject_patterns"]
         self.facts = artifact["facts"]
+        self.subject_patterns = artifact.get("subject_patterns") or [[] for _ in self.facts]
         self.source_artifact = artifact
         self.route_cache = {}
         self.subject_fallbacks = 0
         self.last_active_fact_indices = []
         self._next_prefix_lengths = None
         self._plan = None
+        # Genie (evaluation only): ground-truth routes {prompt token tuple: fact}; see
+        # set_oracle_routes. None = the router decides.
+        self.oracle = None
+        self._bos = getattr(base_model.config, "bos_token_id", None)
+        self._stats = {"hook_calls": 0, "active_batch_rows": 0, "active_token_positions": 0,
+                       "active_fact_counts": [0] * len(self.facts),
+                       "oracle_lookups": 0, "oracle_hits": 0}
         self._handle = base_model.model.layers[self.write_layer].register_forward_hook(self._hook)
 
     # ------------------------------------------------------------------ HF-ish surface
@@ -104,11 +111,39 @@ class EarlyWriteCausalLM(nn.Module):
             self.bank.close()
 
     def counters(self):
-        return {"early_write": {"layer": self.write_layer, "mode": self.write_mode},
+        # hook_calls / active_* / active_fact_counts: the keys the ZsRE, MQuAKE and RWKU
+        # evaluators difference before/after each split (their _counter_delta).
+        return {**{k: (list(v) if isinstance(v, list) else v) for k, v in self._stats.items()},
+                "early_write": {"layer": self.write_layer, "mode": self.write_mode},
                 "subject_fallbacks": self.subject_fallbacks,
                 "cached_routes": len(self.route_cache),
                 "cached_routes_active": sum(f >= 0 for f in self.route_cache.values()),
+                "genie": None if self.oracle is None else {"table_size": len(self.oracle)},
                 "router_bank": self.bank.counters() if self.bank is not None else "factorized"}
+
+    # ---------------------------------------------------------------------- genie
+    def _strip_bos(self, key):
+        key = tuple(int(t) for t in key)
+        while self._bos is not None and key and key[0] == int(self._bos):
+            key = key[1:]
+        return key
+
+    def set_oracle_routes(self, prompt_to_fact):
+        """Genie routing (evaluation only): {prompt-prefix token tuple: fact index}.
+
+        A prompt in the map gets that fact's row; any other prompt gets NO row (ground
+        truth says it is not a protected association), so retain / neighbourhood / PPL text
+        stays exact base. Leading BOS tokens are ignored on both sides, so the table may be
+        built with or without special tokens. Pass None to restore router routing."""
+        if prompt_to_fact is None:
+            self.oracle = None
+            return
+        table = {}
+        for key, fact in prompt_to_fact.items():
+            if not 0 <= int(fact) < len(self.facts):
+                raise ValueError("oracle route points outside the bank")
+            table[self._strip_bos(key)] = int(fact)
+        self.oracle = table
 
     # ---------------------------------------------------------------------- routing
     @staticmethod
@@ -136,6 +171,14 @@ class EarlyWriteCausalLM(nn.Module):
         masks = None if attention_mask is None else attention_mask.detach().cpu().tolist()
         keys = [tuple(t for _, t in self._prompt(ids[r], None if masks is None else masks[r],
                                                  boundaries[r])) for r in range(len(ids))]
+        if self.oracle is not None:          # genie: ground truth, the router is not run
+            out = []
+            for k in keys:
+                fact = self.oracle.get(self._strip_bos(k), -1)
+                self._stats["oracle_lookups"] += 1
+                self._stats["oracle_hits"] += int(fact >= 0)
+                out.append(fact)
+            return out
         missing = [r for r, k in enumerate(keys) if k not in self.route_cache]
         if missing:
             # Route the uncached prompts on their own (right-padded prefixes; the router
@@ -214,6 +257,12 @@ class EarlyWriteCausalLM(nn.Module):
                     self.subject_fallbacks += 1
                     positions = [boundaries[r] - 1]
             plan[r, positions] = 1.0
+        self._stats["hook_calls"] += 1
+        self._stats["active_batch_rows"] += sum(f >= 0 for f in facts)
+        self._stats["active_token_positions"] += int(plan.sum().item())
+        for f in facts:
+            if f >= 0:
+                self._stats["active_fact_counts"][f] += 1
         self._plan = (plan.to(input_ids.device),
                       torch.tensor(facts, dtype=torch.long, device=input_ids.device))
         try:

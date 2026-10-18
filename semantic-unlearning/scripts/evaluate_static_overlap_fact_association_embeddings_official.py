@@ -34,6 +34,8 @@ def main(argv=None):
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--skip-ppl", action="store_true")
     parser.add_argument("--local-files-only", action="store_true")
+    parser.add_argument("--genie", action="store_true",
+                        help="perfect routing on the same rows (scripts/genie_routes.py)")
     parser.add_argument("--seed", type=int, default=None,
                         help="MCF sampling seed (default: the run manifest's "
                              "sampling.seed, else 1)")
@@ -89,6 +91,16 @@ def main(argv=None):
     # Dispatches V1, Router V2, stochastic V2 and the learned linear router.
     model, bank = load_router_artifact(base_model, artifact)
     model.eval()
+    genie_report = None
+    if args.genie:
+        import genie_routes
+        from mcf_zero_unlearn_official_eval import load_official_eval_records
+        forget_records, _ = load_official_eval_records(
+            mcf_path=args.mcf_path, unlearn_num=50, retain_num=1000, seed=seed,
+            sample_mode="official")
+        genie_report = genie_routes.install(
+            bank, tokenizer, genie_routes.mcf_pairs(artifact, forget_records))
+        print(json.dumps(genie_report), flush=True)
 
     out_path = (
         Path(args.out).resolve()
@@ -189,6 +201,11 @@ def main(argv=None):
         "base_weights_edited": False,
         "official_paraphrases_first_opened_in_this_process": True,
     }
+    if genie_report is not None:
+        # genie reads the official forget prompts to route them: an upper bound, not a method
+        result["genie"] = genie_report
+        result["fact_association_embedding_bank"]["evaluation_group_labels_used_by_gate"] = True
+        result["fact_association_embedding_bank"]["official_paraphrases_first_opened_in_this_process"] = False
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n")
 

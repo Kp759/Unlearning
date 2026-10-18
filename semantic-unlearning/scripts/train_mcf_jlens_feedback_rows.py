@@ -65,11 +65,55 @@ from train_mcf_linear_router_rows import NEUTRAL_PROMPT, _routes_on_training_inp
 
 # ----------------------------------------------------------------------- answers / lens
 
+def _is_canonical(group):
+    """MCF names its direct prompt 'canonical_rewrite'; ZsRE/MQuAKE/RWKU 'canonical_<k>'."""
+    return str(group) == "canonical_rewrite" or str(group).startswith("canonical_")
+
+
+def detect_dataset(facts):
+    first = str(facts[0].get("id", ""))
+    for name in ("mcf", "zsre", "mquake", "rwku"):
+        if first.startswith(f"{name}_"):
+            return name
+    raise ValueError(f"cannot tell the benchmark from fact id {first!r}")
+
+
+def generic_examples(router_dir, facts, tok, max_length=512):
+    """ZsRE / MQuAKE / RWKU: the router's own training-visible prompts (its examples file,
+    else canonical prompts + context-prefix families, exactly as fit_linear_router builds
+    them), encoded as prompt + ' ' + answer with the answer labelled."""
+    from linear_router import examples_from_facts
+    from static_overlap_natural_writer import _encode_answer_example
+
+    path = Path(router_dir) / "association_examples.json"
+    rows = (json.loads(path.read_text()) if path.is_file()
+            else examples_from_facts(facts, augment=True))
+    by_id = {f["id"]: f for f in facts}
+    out, skipped, seen = [], 0, set()
+    for r in rows:
+        fact = by_id.get(r.get("fact_id"))
+        if fact is None or str(r.get("split")) not in ("train", "development"):
+            continue
+        group = str(r.get("group") or r.get("role") or "canonical_0")
+        try:
+            e = _encode_answer_example(fact, str(r["split"]), group, str(r["prompt"]), tok, max_length)
+        except ValueError:
+            skipped += 1
+            continue
+        if e.id in seen:
+            continue
+        seen.add(e.id)
+        out.append(e)
+    if not out:
+        raise ValueError("no encodable training-visible examples")
+    return out, skipped
+
+
 def answer_token_sets(tok, examples):
     """fact_id -> first-token ids of the answer: as it follows the prompt, and bare."""
     out = {}
     for e in examples:
-        if e.split != "train" or e.group != "canonical_rewrite":
+        if e.split != "train" or not _is_canonical(e.group) or e.fact_id in out:
             continue
         first = next(k for k, lab in enumerate(e.labels) if lab != -100)
         ids = {int(e.input_ids[first])}
@@ -275,6 +319,10 @@ def main(argv=None):
     p.add_argument("--rep-weight", type=float, default=0.0,
                    help="repetition unlikelihood weight (0 = off)")
     p.add_argument("--max-row-norm-ratio", type=float, default=1.0)
+    p.add_argument("--teacher-forced-views", action="store_true",
+                   help="also train on each view's gold answer, teacher-forced, penalising every "
+                        "answer token at its own position (ZsRE/MQuAKE score token by token "
+                        "under the gold prefix, which on-policy generation never visits)")
     p.add_argument("--device", default="cuda")
     p.add_argument("--local-files-only", action="store_true")
     args = p.parse_args(argv)
@@ -294,7 +342,8 @@ def main(argv=None):
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    seed = int((manifest.get("sampling") or {}).get("seed", 1))
+    dataset = detect_dataset(source["facts"])
+    seed = int((manifest.get("sampling") or {}).get("seed") or manifest.get("seed") or 1)
     torch.manual_seed(seed)
     rng = random.Random(seed)
     tok = AutoTokenizer.from_pretrained(manifest["model_path"], use_fast=True,
@@ -312,16 +361,39 @@ def main(argv=None):
     if not edit_layer < args.lens_layer < n_layers:
         raise ValueError(f"--lens-layer must be in ({edit_layer}, {n_layers - 1}]")
 
-    forget_records, facts, examples = load_mcf_forget_data(tok, manifest["mcf_path"], seed=seed)
-    if [f["id"] for f in facts] != [f["id"] for f in source["facts"]]:
-        raise ValueError("Rebuilt MCF facts do not match the router artifact")
+    if dataset == "mcf":
+        forget_records, facts, examples = load_mcf_forget_data(tok, manifest["mcf_path"], seed=seed)
+        if [f["id"] for f in facts] != [f["id"] for f in source["facts"]]:
+            raise ValueError("Rebuilt MCF facts do not match the router artifact")
+    else:
+        if args.preserve_weight > 0:
+            raise ValueError("--preserve-weight uses MCF relation templates (MCF only)")
+        if args.lens_type == "jlens":
+            raise ValueError("--lens-type jlens needs MCF background prompts; use --lens-type logit")
+        facts = list(source["facts"])
+        examples, skipped = generic_examples(router_dir, facts, tok)
+        print(json.dumps({"phase": "examples", "dataset": dataset, "examples": len(examples),
+                          "skipped_unencodable": skipped}), flush=True)
     answers = answer_token_sets(tok, examples)
-    all_tokens = sorted({t for ts in answers.values() for t in ts})
+    missing = [f["id"] for f in facts if f["id"] not in answers]
+    if missing:
+        raise ValueError(f"{len(missing)} facts have no canonical train example: {missing[:3]}")
+    # teacher-forced views: every labelled answer token of the view's gold continuation
+    tf_tokens = {}
+    if args.teacher_forced_views:
+        for e in examples:
+            labelled = {int(t) for t in e.labels if t != -100}
+            tf_tokens.setdefault(e.fact_id, set()).update(labelled | set(answers[e.fact_id]))
+    all_tokens = sorted({t for ts in answers.values() for t in ts}
+                        | {t for ts in tf_tokens.values() for t in ts})
     token_index = {t: i for i, t in enumerate(all_tokens)}
 
     t0 = time.perf_counter()
-    prompts = generic_prompts(tok, manifest["mcf_path"], facts,
-                              args.jlens_prompts if args.lens_type == "jlens" else 2)
+    if dataset == "mcf":
+        prompts = generic_prompts(tok, manifest["mcf_path"], facts,
+                                  args.jlens_prompts if args.lens_type == "jlens" else 2)
+    else:   # logit lens only: the J-lens background is never used, any two prompts do
+        prompts = [tok(t)["input_ids"] for t in (NEUTRAL_PROMPT, "The weather today is")]
     U, mu, sd = jlens(model, args.lens_layer, prompts, all_tokens, args.device)  # unused for logit
     torch.save({"layer": args.lens_layer, "tokens": all_tokens, "U": U, "mu": mu, "sd": sd,
                 "prompts": len(prompts)}, output / f"jlens_L{args.lens_layer}.pt")
@@ -367,14 +439,27 @@ def main(argv=None):
     for e in examples:
         if routed[e.id]:
             by_fact.setdefault(e.fact_id, []).append(e)
-    views = []
+    views, tf_seqs = [], []
     for fid, exs in by_fact.items():
-        exs = sorted(exs, key=lambda e: (e.group != "canonical_rewrite", e.split != "train", e.id))
+        exs = sorted(exs, key=lambda e: (not _is_canonical(e.group), e.split != "train", e.id))
         for e in exs[:args.views_per_fact]:
             first = next(k for k, lab in enumerate(e.labels) if lab != -100)
             views.append({"view_id": e.id, "fact_id": fid, "split": e.split,
                           "prompt_ids": list(e.input_ids[:first]),
                           "answer": e.completion.strip(), "answer_tokens": answers[fid]})
+            if args.teacher_forced_views:
+                tf_seqs.append({"view_id": e.id, "fact_id": fid, "split": e.split,
+                                "ids": list(e.input_ids), "prompt_len": first, "round": -1,
+                                "continuation": e.completion, "leak": True,
+                                "answer": e.completion.strip(),
+                                "answer_tokens": sorted(tf_tokens[fid])})
+    routed_facts = len(by_fact)
+    if not views:
+        raise ValueError("the router routes none of the training views to their own fact")
+    if routed_facts < len(facts):
+        print(json.dumps({"phase": "warning", "facts_without_routed_view": len(facts) - routed_facts,
+                          "note": "their rows stay zero (the router never sends their prompts)"}),
+              flush=True)
     preserve = []
     if args.preserve_weight > 0:
         if not early:
@@ -398,7 +483,7 @@ def main(argv=None):
                       "max_row_norm": max_norm}), flush=True)
 
     optimizer = torch.optim.Adam(params, lr=args.lr)
-    buffer, log = [], []
+    buffer, log = list(tf_seqs), []        # teacher-forced gold views stay in the replay buffer
     started = time.perf_counter()
     for r in range(args.rounds + 1):
         fresh = collect(lm, tok, views, args, r)
