@@ -319,6 +319,9 @@ def main(argv=None):
     p.add_argument("--rep-weight", type=float, default=0.0,
                    help="repetition unlikelihood weight (0 = off)")
     p.add_argument("--max-row-norm-ratio", type=float, default=1.0)
+    p.add_argument("--oracle-unrouted", action="store_true",
+                   help="train facts whose views the router never routes with their own row "
+                        "forced (training only; test-time routing unchanged)")
     p.add_argument("--teacher-forced-views", action="store_true",
                    help="also train on each view's gold answer, teacher-forced, penalising every "
                         "answer token at its own position (ZsRE/MQuAKE score token by token "
@@ -439,6 +442,23 @@ def main(argv=None):
     for e in examples:
         if routed[e.id]:
             by_fact.setdefault(e.fact_id, []).append(e)
+    oracle_facts = []
+    if args.oracle_unrouted:
+        # Facts the router never sends to their own row would keep a zero row. Train them
+        # with their own row forced on their training views (training only: the saved
+        # artifact still routes by the router, so test-time routing is unchanged; genie
+        # then measures what the rows can do for every fact).
+        if not early:
+            raise ValueError("--oracle-unrouted needs an early write (EarlyWriteCausalLM.force_route)")
+        oracle_facts = sorted({e.fact_id for e in examples} - set(by_fact))
+        for e in examples:
+            if e.fact_id in oracle_facts:
+                by_fact.setdefault(e.fact_id, []).append(e)
+                first = next(k for k, lab in enumerate(e.labels) if lab != -100)
+                lm.force_route(list(e.input_ids[:first]), fact_to_row[e.fact_id])
+        if oracle_facts:
+            print(json.dumps({"phase": "oracle_unrouted", "facts": len(oracle_facts),
+                              "ids": oracle_facts[:10]}), flush=True)
     views, tf_seqs = [], []
     for fid, exs in by_fact.items():
         exs = sorted(exs, key=lambda e: (not _is_canonical(e.group), e.split != "train", e.id))
@@ -549,6 +569,8 @@ def main(argv=None):
     row_norms = rows.float().norm(dim=-1)
     report = {"write_mode": args.write_mode, "write_layer": norm_layer, "early_write": early,
               "subject_fallbacks": getattr(lm, "subject_fallbacks", None),
+              "facts_routed_by_router": routed_facts - len(oracle_facts),
+              "facts_trained_with_oracle_routing": oracle_facts,
               "lens_layer": args.lens_layer, "rounds": log,
               "row_norm_median": float(row_norms.median()), "max_row_norm": max_norm,
               "boundary_norm_median": float(norms[norm_layer].median()),

@@ -240,6 +240,8 @@ def main(argv=None):
     parser.add_argument("--skip-ppl", action="store_true")
     parser.add_argument("--genie", action="store_true",
                         help="perfect routing on the same rows (scripts/genie_routes.py)")
+    import paper_baselines
+    paper_baselines.add_args(parser)
     args = parser.parse_args(argv)
 
     run_dir = Path(args.run_dir).resolve()
@@ -285,6 +287,7 @@ def main(argv=None):
     base_model.requires_grad_(False)
     architecture = str(artifact.get("architecture", ""))
     # Dispatches V1, Router V2, stochastic V2 and the learned linear router.
+    baseline_report = paper_baselines.apply(args, base_model, tok, artifact, run_dir, seed, mcf_path=None)
     model, bank = load_router_artifact(base_model, artifact)
     model.eval()
     device = next(model.parameters()).device
@@ -404,6 +407,7 @@ def main(argv=None):
         ),
         "runtime_counters_total": bank.counters(),
         "genie": genie_report,
+        "baseline": baseline_report,
         "training_data_contract": {
             "target_new_used": False,
             "official_rephrases_used": False,

@@ -39,6 +39,8 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=None,
                         help="MCF sampling seed (default: the run manifest's "
                              "sampling.seed, else 1)")
+    import paper_baselines
+    paper_baselines.add_args(parser)
     args = parser.parse_args(argv)
 
     run_dir = Path(args.run_dir).resolve()
@@ -89,6 +91,7 @@ def main(argv=None):
     )
     architecture = str(artifact.get("architecture", ""))
     # Dispatches V1, Router V2, stochastic V2 and the learned linear router.
+    baseline_report = paper_baselines.apply(args, base_model, tokenizer, artifact, run_dir, seed, mcf_path=args.mcf_path)
     model, bank = load_router_artifact(base_model, artifact)
     model.eval()
     genie_report = None
@@ -201,6 +204,7 @@ def main(argv=None):
         "base_weights_edited": False,
         "official_paraphrases_first_opened_in_this_process": True,
     }
+    result["baseline"] = baseline_report
     if genie_report is not None:
         # genie reads the official forget prompts to route them: an upper bound, not a method
         result["genie"] = genie_report

@@ -325,3 +325,26 @@ Table columns: MCF/ZsRE Eff, Gen, Spe (neighbourhood), PPL; MQuAKE Eff, AtomicGe
 RWKU same-50 recovery, mean held-out recovery (L1, L2, L2-paraphrase), neighbour recovery, PPL.
 The diagnostics table shows the router used, final on-policy leak and genie routing hits
 (genie direct-prompt routing should be ~100%; if not, the oracle keys did not match).
+
+### Round 2: ZsRE router fix, trained zero rows, baselines, MQuAKE Spe†
+
+```bash
+bash scripts/submit_l16_round2.sh      # ZsRE+RWKU ours/genie rerun, then 100 baseline tasks (afterany)
+python scripts/l16_paper_table.py      # adds GA/GD/NPO/RMU/ZeroUnlearn rows and the Spe† column
+```
+- **ZsRE router**: `ZSRE_REWORD_TAG=reworded_v2` (default) trains the L19 router on base-model
+  rewordings of each direct question (answer-consistency + near-duplicate filters); official
+  rephrases are never read. Base runs keep the regular router (zero rows = same model).
+- **Zero rows**: `--oracle-unrouted` (default on, `ORACLE_UNROUTED=0` to disable) trains facts
+  the router never routes with their own row forced during training only; test-time routing
+  is unchanged, so ours stays honest and genie now bounds every fact.
+- A finished `ours` trained under another router / flags (or with zero rows when the flag is
+  on) is moved aside with its genie (`*.superseded_<time>`) and retrained.
+- **Baselines** (`scripts/paper_baselines.py`, `--baseline` in the four official evaluators):
+  GA, GD, NPO(+retain NLL), RMU (layer 7, MLPs of layers 5-7), ZeroUnlearn (vendored, layers
+  16-18, target_true -> EOS, no retain requests). Same training-visible forget views as ours
+  (the router ours trains on), retain = base-model self-generated continuations of 32 generic
+  prompts, same seeds/splits/metrics. GA/GD/NPO: MLP weights of all layers, fp32 AdamW, lr 1e-5,
+  5 epochs. `l16_baselines.slurm` task = 25*dataset + 5*(seed-1) + baseline.
+- **MQuAKE Spe†**: retain Eff over retain facts whose direct prompt is not an official forget
+  prompt (12-17% of retain facts repeat a forget fact; genie identifies them).

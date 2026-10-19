@@ -253,6 +253,8 @@ def main(argv=None):
                         "send to their own row (threshold-gate layer sweeps)")
     p.add_argument("--genie", action="store_true",
                    help="perfect routing on the same rows (scripts/genie_routes.py)")
+    import paper_baselines
+    paper_baselines.add_args(p)
     args = p.parse_args(argv)
 
     run_dir = Path(args.run_dir).resolve()
@@ -310,6 +312,7 @@ def main(argv=None):
     base_model.config.use_cache = False
     architecture = str(artifact.get("architecture", ""))
     # Dispatches V1, Router V2, stochastic V2 and the learned linear router.
+    baseline_report = paper_baselines.apply(args, base_model, tokenizer, artifact, run_dir, batch_seed, mcf_path=None)
     model, bank = load_router_artifact(base_model, artifact)
     model.eval()
 
@@ -425,6 +428,7 @@ def main(argv=None):
         "runtime_aligned_PPL": runtime_ppl,
         "runtime_aligned_PPL_route_activity": runtime_ppl_route_activity,
         "genie": genie_report,
+        "baseline": baseline_report,
         "details": {
             "same_50_efficacy": same50_detail,
             "heldout_level1": heldout_l1_detail,
