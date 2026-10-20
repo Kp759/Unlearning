@@ -180,6 +180,11 @@ def chat_prompt(tokenizer: Any, user_content: str) -> str:
     pinned_date = os.environ.get("RWKU_CHAT_DATE_STRING", "").strip()
     if pinned_date:
         extra["date_string"] = pinned_date
+    # Qwen3 templates think by default (<think> ... before the answer);
+    # CHAT_ENABLE_THINKING=0 renders the template's no-thinking prompt instead.
+    # Unset = unchanged (Llama templates ignore the flag either way).
+    if os.environ.get("CHAT_ENABLE_THINKING", "").strip() == "0":
+        extra["enable_thinking"] = False
     if callable(apply_template):
         try:
             return str(

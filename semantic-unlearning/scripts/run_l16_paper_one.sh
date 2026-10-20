@@ -26,12 +26,22 @@
 #      ZSRE_REWORD_TAG (reworded_v2 | reworded_v1 | none: ZsRE router trained on rewordings),
 #      BASELINES ("ga gd npo rmu zerounlearn" -> <seed>/<baseline>/), SKIP_OURS (1 = baselines only),
 #      BUILD_ROUTERS (1; 0 = fail instead of fitting a missing router, for baseline jobs)
+# Other models (scripts/paper_model_config.sh sets all of these; defaults = Llama-3.2-3B):
+#      MODEL_PATH (default: from the reference manifests), MODEL_TAG (prefix of the router
+#      dirs, outputs/<ds>_<MODEL_TAG>_multiseed_regular_v1/...; empty = the 3B dirs),
+#      ROUTER_LAYER (19), LENS_LAYER (24), V22_RELATION_LAYERS ("19 23 24 27"),
+#      V22_RELATION_CONCAT (19,23,27), BASELINE_ARGS (extra paper_baselines.py flags)
 set -euo pipefail
 
 DS="${1:?Usage: run_l16_paper_one.sh DATASET SEED}"
 SEED="${2:?Usage: run_l16_paper_one.sh DATASET SEED}"
 case "$DS" in mcf|zsre|mquake|rwku) ;; *) echo "DATASET must be mcf|zsre|mquake|rwku" >&2; exit 2;; esac
 WRITE_LAYER="${WRITE_LAYER:-16}"
+ROUTER_LAYER="${ROUTER_LAYER:-19}"
+RL="$(printf '%02d' "$ROUTER_LAYER")"
+LENS_LAYER="${LENS_LAYER:-24}"
+MP="${MODEL_TAG:+${MODEL_TAG}_}"   # router-dir prefix, empty for the 3B runs
+[[ -n "${MODEL_PATH:-}" ]] && export MODEL_PATH   # the layer-sweep scripts pick it up
 TAG="${TAG:-l16_paper_v1}"
 MOVE_INCOMPLETE="${MOVE_INCOMPLETE:-1}"
 export RWKU_CHAT_DATE_STRING="${RWKU_CHAT_DATE_STRING:-26 Jul 2024}"
@@ -57,18 +67,18 @@ stage_ready() {  # dir, marker
 }
 
 # ---------------------------------------------------------------- 1. L19 linear router
-RTAG=multiseed_regular_v1
+RTAG="${MP}multiseed_regular_v1"
 GATE="${RWKU_GATE:-threshold}"
-[[ "$DS" == rwku && "$GATE" == subject ]] && RTAG=multiseed_subject_v1
-LIN="$ROOT/outputs/${DS}_${RTAG}/seed$SEED/L19/router"
+[[ "$DS" == rwku && "$GATE" == subject ]] && RTAG="${MP}multiseed_subject_v1"
+LIN="$ROOT/outputs/${DS}_${RTAG}/seed$SEED/L$RL/router"
 if [[ ! -f "$LIN/fact_association_embeddings.pt" ]]; then
-  [[ "${BUILD_ROUTERS:-1}" == 1 ]] || { echo "L19 router missing: $LIN (run the main job first)" >&2; exit 2; }
-  log "1. fit L19 linear router (STOP_AFTER=router)"
+  [[ "${BUILD_ROUTERS:-1}" == 1 ]] || { echo "L$ROUTER_LAYER router missing: $LIN (run the main job first)" >&2; exit 2; }
+  log "1. fit L$ROUTER_LAYER linear router (STOP_AFTER=router)"
   SEED="$SEED" SWEEP_TAG="$RTAG" TRAINING_ROUTE=router NORM_SCALE=1 WITH_DECOMPOSITION=0 \
-    STOP_AFTER=router GATE="$GATE" bash "scripts/run_${DS}_layer_sweep_one.sh" 19
+    STOP_AFTER=router GATE="$GATE" bash "scripts/run_${DS}_layer_sweep_one.sh" "$ROUTER_LAYER"
 fi
-test -f "$LIN/fact_association_embeddings.pt" || { echo "no L19 router at $LIN" >&2; exit 2; }
-log "1. L19 router: $LIN"
+test -f "$LIN/fact_association_embeddings.pt" || { echo "no L$ROUTER_LAYER router at $LIN" >&2; exit 2; }
+log "1. L$ROUTER_LAYER router: $LIN"
 
 # ---------------------------------------------------------------- 2. MCF: v2.2 router
 ROUTER="$LIN"
@@ -80,8 +90,10 @@ if [[ "$DS" == mcf ]]; then
     log "2. fit factorized router v2.2 (subject layers ${V22_SUBJECT_LAYERS:-6})"
     mkdir -p "$V22"
     read -r -a SL <<< "${V22_SUBJECT_LAYERS:-6}"
+    read -r -a RLS <<< "${V22_RELATION_LAYERS:-19 23 24 27}"
     python -u scripts/fit_factorized_router_v2.py --reference-dir "$LIN" --output-dir "$V22" \
-      --subject-layers "${SL[@]}" --relation-layers 19 23 24 27 --relation-concat 19,23,27 \
+      --subject-layers "${SL[@]}" --relation-layers "${RLS[@]}" \
+      --relation-concat "${V22_RELATION_CONCAT:-19,23,27}" \
       --hard-rounds 1 --hard-fraction 0.1 --hard-weight 5 \
       --min-recall 0.95 --max-false-fire-same 0.10 --max-false-fire-other 0.01 \
       --near-miss-mode any_word --near-miss-cap 30 \
@@ -101,8 +113,8 @@ elif [[ "$DS" == zsre && "${ZSRE_REWORD_TAG:-reworded_v2}" != none ]]; then
   # zsre_router_rewordings.py; v2 keeps a rewording only if the base model's answer stays as
   # likely after it as after the direct question, and drops near-duplicates.
   RWTAG="${ZSRE_REWORD_TAG:-reworded_v2}"
-  RW="$ROOT/outputs/zsre_multiseed_$RWTAG/seed$SEED"
-  ROUTER="$RW/L19/router"
+  RW="$ROOT/outputs/zsre_${MP}multiseed_$RWTAG/seed$SEED"
+  ROUTER="$RW/L$RL/router"
   if [[ ! -f "$ROUTER/fact_association_embeddings.pt" ]]; then
     [[ "${BUILD_ROUTERS:-1}" == 1 ]] || { echo "reworded ZsRE router missing: $ROUTER (run the main job first)" >&2; exit 2; }
     mkdir -p "$RW"
@@ -111,20 +123,28 @@ elif [[ "$DS" == zsre && "${ZSRE_REWORD_TAG:-reworded_v2}" != none ]]; then
       [[ "$RWTAG" == reworded_v2 ]] && GEN=(--consistency-margin 1.0 --max-jaccard 0.8 --samples 16 --max-rounds 4)
       log "2. ZsRE rewordings ($RWTAG)"
       python -u scripts/zsre_router_rewordings.py generate \
-        --prep-dir "$ROOT/outputs/zsre_multiseed_regular_v1/seed$SEED/L19/prep" \
+        --prep-dir "$ROOT/outputs/zsre_${RTAG}/seed$SEED/L$RL/prep" \
         --out "$RW/rewordings.json.tmp" --device cuda --local-files-only "${GEN[@]}"
       mv "$RW/rewordings.json.tmp" "$RW/rewordings.json"
     fi
-    log "2. ZsRE reworded L19 router ($RWTAG)"
-    SEED="$SEED" SWEEP_TAG="multiseed_$RWTAG" REWORDINGS="$RW/rewordings.json" TRAINING_ROUTE=router \
-      NORM_SCALE=1 STOP_AFTER=router bash scripts/run_zsre_layer_sweep_one.sh 19
+    log "2. ZsRE reworded L$ROUTER_LAYER router ($RWTAG)"
+    SEED="$SEED" SWEEP_TAG="${MP}multiseed_$RWTAG" REWORDINGS="$RW/rewordings.json" TRAINING_ROUTE=router \
+      NORM_SCALE=1 STOP_AFTER=router bash scripts/run_zsre_layer_sweep_one.sh "$ROUTER_LAYER"
   fi
   test -f "$ROUTER/fact_association_embeddings.pt" || { echo "no reworded router at $ROUTER" >&2; exit 2; }
-  echo "{\"router\": \"linear_L19_$RWTAG\", \"dir\": \"$ROUTER\"}" > "$CHOICE"
+  echo "{\"router\": \"linear_L${ROUTER_LAYER}_$RWTAG\", \"dir\": \"$ROUTER\"}" > "$CHOICE"
 else
-  echo "{\"router\": \"linear_L19\", \"dir\": \"$LIN\"}" > "$CHOICE"
+  echo "{\"router\": \"linear_L$ROUTER_LAYER\", \"dir\": \"$LIN\"}" > "$CHOICE"
 fi
 log "2. router for ours/genie: $ROUTER"
+# Never mix models: every run dir below inherits the router's model_path.
+if [[ -n "${MODEL_PATH:-}" ]]; then
+  for R in "$LIN" "$ROUTER"; do
+    RM="$(jq -r '.model_path' "$R/association_manifest.json")"
+    [[ "$(realpath "$RM")" == "$(realpath "$MODEL_PATH")" ]] \
+      || { echo "router $R was fit on $RM, not MODEL_PATH=$MODEL_PATH" >&2; exit 2; }
+  done
+fi
 
 # ---------------------------------------------------------------- evaluator per benchmark
 REF_MCF="$ROOT/outputs/mcf_fact_assoc_router_v2_seed1/association_manifest.json"
@@ -229,9 +249,9 @@ EOF
   fi
 fi
 if ! stage_ready "$OURS" fact_association_embeddings.pt; then
-  log "4. train ours (write L$WRITE_LAYER, query, logit lens L24, ${TF[*]:-no TF views} ${ORACLE[*]})"
+  log "4. train ours (write L$WRITE_LAYER, query, logit lens L$LENS_LAYER, ${TF[*]:-no TF views} ${ORACLE[*]})"
   python -u scripts/train_mcf_jlens_feedback_rows.py --router-dir "$ROUTER" --output-dir "$OURS" \
-    --write-layer "$WRITE_LAYER" --write-mode query --lens-type logit --lens-layer 24 \
+    --write-layer "$WRITE_LAYER" --write-mode query --lens-type logit --lens-layer "$LENS_LAYER" \
     "${TF[@]}" "${ORACLE[@]}" ${TRAIN_ARGS:-} --device cuda --local-files-only
 fi
 if [[ ! -f "$OURS/$EVAL_JSON" ]]; then

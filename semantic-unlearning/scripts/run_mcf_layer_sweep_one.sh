@@ -40,7 +40,8 @@ test -f "$REF/association_manifest.json" || {
   echo "Missing seed-1 manifest (model/data paths only): $REF/association_manifest.json" >&2
   exit 2
 }
-MODEL_PATH="$(jq -r '.model_path' "$REF/association_manifest.json")"
+# MODEL_PATH (env) overrides the reference run's model (other models: scripts/paper_model_config.sh)
+MODEL_PATH="${MODEL_PATH:-$(jq -r '.model_path' "$REF/association_manifest.json")}"
 MCF_PATH="$(jq -r '.mcf_path' "$REF/association_manifest.json")"
 
 SEED_DIR=""

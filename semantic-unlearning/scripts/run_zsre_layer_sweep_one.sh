@@ -40,7 +40,8 @@ for cand in "$ROOT/outputs/zsre_fact_assoc_router_v2_seed1" \
   if [[ -f "$cand/association_manifest.json" ]]; then REF="$cand"; break; fi
 done
 test -n "$REF" || { echo "No ZsRE reference manifest found under outputs/" >&2; exit 2; }
-MODEL_PATH="$(jq -r '.model_path' "$REF/association_manifest.json")"
+# MODEL_PATH (env) overrides the reference run's model (other models: scripts/paper_model_config.sh)
+MODEL_PATH="${MODEL_PATH:-$(jq -r '.model_path' "$REF/association_manifest.json")}"
 VISIBLE="$(jq -r '.training_visible_path' "$REF/association_manifest.json")"
 SPLIT="$(jq -r '.split_manifest_path' "$REF/association_manifest.json")"
 ZSRE_PATH="$ROOT/data/zsre_mend_eval.json"
