@@ -394,6 +394,11 @@ the vendored `apply_rome_to_model` only applies `request[0]`, so ZeroUnlearn's h
 single fact per run. The vendored ROME hparams file does not load as shipped (no
 `context_template_length_params`, MEMIT-only keys, no `stats_dir`); `rome_hparams()` keeps the
 class's fields, ROME's default context templates and STATS_DIR.
+Two compatibility fixes in the vendored code (behaviour unchanged): `memit/compute_z.py`
+accepts decoder-layer outputs as a tensor (newer transformers) or a tuple, as
+`ZeroUnlearn/compute_z.py` already did; `rome/layer_stats.py` hands the wikidata rows to
+`TokenizedDataset` as a list, as `layer_stats_retain` does (`[] + Dataset` raised). Cache
+files are named as ZeroUnlearn's, so its covariance cache is reused when present.
 
 ```bash
 bash scripts/submit_edit_baselines.sh      # 40 tasks; MEMIT MCF seed 1 first (covariance cache)

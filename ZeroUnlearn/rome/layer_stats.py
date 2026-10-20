@@ -125,7 +125,9 @@ def layer_stats(
 
         if batch_tokens is not None and batch_tokens < maxlen:
             maxlen = batch_tokens
-        return TokenizedDataset(raw_ds["train"], tokenizer=tokenizer, maxlen=maxlen)
+        # a list, as ZeroUnlearn/layer_stats_retain passes it: TokenizedDataset prepends its
+        # (here empty) retain rows with `list + text_dataset`, which fails for a datasets.Dataset
+        return TokenizedDataset(raw_ds["train"].to_list(), tokenizer=tokenizer, maxlen=maxlen)
 
     # Continue with computation of statistics
     batch_size = 1  # Examine this many dataset texts at once

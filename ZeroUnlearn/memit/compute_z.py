@@ -93,19 +93,23 @@ def compute_z(
         nonlocal target_init
 
         if cur_layer == hparams.layer_module_tmp.format(layer):
+            # Decoder layers return a tuple in older transformers and a plain hidden-state
+            # tensor in newer ones (as ZeroUnlearn/compute_z.py already handles); edit the
+            # hidden states in place either way.
+            hidden = cur_out[0] if isinstance(cur_out, (tuple, list)) else cur_out
             # Store initial value of the vector of interest
             if target_init is None:
                 print("Recording initial value of v*")
                 # Initial value is recorded for the clean sentence
-                target_init = cur_out[0][0, lookup_idxs[0]].detach().clone()
+                target_init = hidden[0, lookup_idxs[0]].detach().clone()
 
             # Add intervened delta
             for i, idx in enumerate(lookup_idxs):
 
-                if len(lookup_idxs)!=len(cur_out[0]):
-                    cur_out[0][idx, i, :] += delta
+                if len(lookup_idxs)!=len(hidden):
+                    hidden[idx, i, :] += delta
                 else:
-                    cur_out[0][i, idx, :] += delta
+                    hidden[i, idx, :] += delta
 
         return cur_out
 
@@ -143,7 +147,8 @@ def compute_z(
                 kl_distr_init = kl_log_probs.detach().clone()
 
         # Compute loss on rewriting targets
-        output=tr[hparams.layer_module_tmp.format(loss_layer)].output[0]
+        output=tr[hparams.layer_module_tmp.format(loss_layer)].output
+        output = output[0] if isinstance(output, (tuple, list)) else output
         if output.shape[1]!=rewriting_targets.shape[1]:
             output=torch.transpose(output, 0, 1)
         full_repr = output[:len(rewriting_prompts)]
