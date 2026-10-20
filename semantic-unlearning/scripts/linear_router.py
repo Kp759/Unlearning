@@ -102,6 +102,12 @@ WRITE_MODES = ("last", "last_subject", "subject_span", "all_prompt")
 #   project  h - alpha * U_i U_i^T h        (remove fact i's answer directions;
 #                                            U_i orthonormal, [k, d], no training)
 EDIT_MODES = ("add", "project")
+# Which prompts make a head eligible (artifact["learned_subject"]["gate"]; no
+# learned_subject = the exact token match, as always).
+#   learned           a learned subject head (v2.2's MIL head at an early layer,
+#                     scripts/fit_hybrid_subject_router.py) replaces the exact match
+#   learned_or_exact  eligible if the learned head OR the exact match says so
+SUBJECT_GATES = ("learned", "learned_or_exact")
 DEFAULT_LAMBDAS = (1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0)
 DEFAULT_PCA_DIMS = (0, 64, 256)
 _SYMBOLIC_RELATION = re.compile(r"^P\d+$")
@@ -1425,9 +1431,19 @@ class LinearClassifierAssociationBank(nn.Module):
     _subject_mask = RelationPrototypeAssociationBank._subject_mask
     bind = RelationPrototypeAssociationBank.bind
     unbind = RelationPrototypeAssociationBank.unbind
-    counters = RelationPrototypeAssociationBank.counters
-    close = RelationPrototypeAssociationBank.close
     extra = RelationPrototypeAssociationBank.extra
+
+    def counters(self):
+        out = RelationPrototypeAssociationBank.counters(self)
+        if self.learned_subject is not None:
+            out["learned_subject_gate"] = dict(self.gate_stats)
+        return out
+
+    def close(self):
+        self._hook_handle.remove()
+        if self._subject_hook is not None:
+            self._subject_hook.remove()
+            self._subject_hook = None
 
     def __init__(
         self,
@@ -1451,8 +1467,12 @@ class LinearClassifierAssociationBank(nn.Module):
         edit_mode="add",
         project_dirs=None,
         project_alpha=1.0,
+        learned_subject=None,
     ):
         super().__init__()
+        self.learned_subject = None
+        self._subject_hook = None
+        self._subject_states = None
         if str(write_mode) not in WRITE_MODES:
             raise ValueError(f"write_mode must be one of {WRITE_MODES}")
         self.write_mode = str(write_mode)
@@ -1583,6 +1603,79 @@ class LinearClassifierAssociationBank(nn.Module):
         self.route_override = None
         layer_module = base_model.model.layers[self.layer]
         self._hook_handle = layer_module.register_forward_hook(self._hook)
+        if learned_subject is not None:
+            self._init_learned_subject(base_model, learned_subject, n_facts, device)
+
+    # ------------------------------------------------- learned subject gate (hybrid)
+    def _init_learned_subject(self, base_model, spec, n_facts, device):
+        """v2.2's subject head as the eligibility gate: per-subject linear score of every
+        prompt token paired with the next one at an early layer, max over the prompt
+        (first token / BOS excluded, exactly as at fit time), sigmoid >= threshold."""
+        spec = dict(spec)
+        layer = int(spec["layer"])
+        if not 0 <= layer < self.layer:
+            raise ValueError(f"learned subject layer must be below the router layer {self.layer}")
+        gate = str(spec.get("gate", "learned"))
+        if gate not in SUBJECT_GATES:
+            raise ValueError(f"learned_subject gate must be one of {SUBJECT_GATES}")
+        fact_subject = torch.as_tensor(spec["fact_subject"], dtype=torch.long)
+        weight = torch.as_tensor(spec["weight"]).float()
+        if tuple(fact_subject.shape) != (n_facts,):
+            raise ValueError("learned_subject fact_subject must have one entry per fact")
+        if int(fact_subject.min()) < 0 or int(fact_subject.max()) >= weight.shape[0]:
+            raise ValueError("learned_subject fact_subject points outside the subject heads")
+        self.register_buffer("ls_weight", weight.to(device))
+        self.register_buffer("ls_bias", torch.as_tensor(spec["bias"]).float().to(device))
+        self.register_buffer("ls_mean", torch.as_tensor(spec["mean"]).float().to(device))
+        self.register_buffer("ls_fact_subject", fact_subject.to(device))
+        self.learned_subject = {k: v for k, v in spec.items()
+                                if k not in ("weight", "bias", "mean", "fact_subject")}
+        self.learned_subject.update({"layer": layer, "gate": gate,
+                                     "threshold": float(spec["threshold"])})
+        # (prompt, fact) pairs per hook call: eligible by each rule, and by the one used
+        self.gate_stats = {"exact": 0, "learned": 0, "used": 0, "learned_only": 0, "exact_only": 0}
+        self._subject_hook = base_model.model.layers[layer].register_forward_hook(
+            self._capture_subject_states)
+
+    def _capture_subject_states(self, module, args, output):
+        if self._input_ids is not None:
+            self._subject_states = output[0] if isinstance(output, tuple) else output
+        return None
+
+    def _learned_subject_mask(self, prefix_lengths):
+        from factorized_router import mil_pool
+
+        states = self._subject_states
+        self._subject_states = None
+        if states is None:
+            raise RuntimeError("learned subject gate: no early-layer states were captured")
+        batch, width, _ = states.shape
+        device = states.device
+        mask = torch.arange(width, device=device)[None, :] < prefix_lengths.to(device)[:, None]
+        if self._attention_mask is not None:
+            mask &= self._attention_mask.to(device).bool()
+        first = mask.float().argmax(dim=1)
+        drop = mask.sum(dim=1) > 1                  # a one-token prompt keeps its only token
+        mask[torch.arange(batch, device=device)[drop], first[drop]] = False
+        probs = torch.sigmoid(mil_pool(states.float(), mask, self.ls_weight, self.ls_bias,
+                                       self.ls_mean))                       # [B, S]
+        return probs[:, self.ls_fact_subject] >= self.learned_subject["threshold"]
+
+    def _eligibility(self, prefix_lengths):
+        exact = self._subject_mask(
+            self._input_ids, prefix_lengths, attention_mask=self._attention_mask,
+        )
+        if self.learned_subject is None:
+            return exact
+        learned = self._learned_subject_mask(prefix_lengths).to(exact.device)
+        used = learned | exact if self.learned_subject["gate"] == "learned_or_exact" else learned
+        with torch.no_grad():
+            self.gate_stats["exact"] += int(exact.sum())
+            self.gate_stats["learned"] += int(learned.sum())
+            self.gate_stats["used"] += int(used.sum())
+            self.gate_stats["learned_only"] += int((learned & ~exact).sum())
+            self.gate_stats["exact_only"] += int((exact & ~learned).sum())
+        return used
 
     def set_oracle_routes(self, prompt_to_fact):
         """Route by ground truth: {prompt-prefix token tuple: fact index}.
@@ -1644,9 +1737,7 @@ class LinearClassifierAssociationBank(nn.Module):
         hidden = output[0] if isinstance(output, tuple) else output
         batch, width, _ = hidden.shape
         prefix_lengths = self._prefix_lengths_for(hidden)
-        subject_mask = self._subject_mask(
-            self._input_ids, prefix_lengths, attention_mask=self._attention_mask,
-        )
+        subject_mask = self._eligibility(prefix_lengths)
         positions = prefix_lengths - 1
         query = hidden[torch.arange(batch, device=hidden.device), positions].float()
         logits = self.router_logits(query)
@@ -1827,7 +1918,16 @@ class LinearClassifierAssociationBank(nn.Module):
             "tokenizer_extended": False,
             "lm_head_edited": False,
             "object_required_in_runtime_input": False,
+            "learned_subject": self._learned_subject_state(),
         }
+
+    def _learned_subject_state(self):
+        if self.learned_subject is None:
+            return None
+        return {**self.learned_subject,
+                "weight": self.ls_weight.detach().cpu(), "bias": self.ls_bias.detach().cpu(),
+                "mean": self.ls_mean.detach().cpu(),
+                "fact_subject": self.ls_fact_subject.detach().cpu()}
 
 
 def load_linear_classifier_artifact(base_model, artifact):
@@ -1852,6 +1952,7 @@ def load_linear_classifier_artifact(base_model, artifact):
         per_head_thresholds=artifact.get("per_head_thresholds"),
         bias_calibration=artifact.get("bias_calibration"),
         head_index=artifact.get("head_index"),
+        learned_subject=artifact.get("learned_subject"),
     )
     for row in bank.rows:
         row.requires_grad_(False)

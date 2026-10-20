@@ -362,3 +362,24 @@ python scripts/compare_mcf_routers.py                 # -> outputs/l16_paper_mcf
 ```
 The driver refuses `MCF_ROUTER=linear` under `TAG=l16_paper_v1` (its stale check would move
 the v2.2 rows aside). The comparison flags seeds whose v2.2 arm fell back to L19.
+
+### Hybrid router: learned subject head + linear fact heads (all 4 benchmarks)
+
+The linear L19 router = exact subject-token match (eligibility) + one logistic head per fact.
+v2.2 = learned subject head + relation softmax (needs MCF relation IDs). The hybrid keeps the
+linear fact heads and replaces / backs up the exact match with v2.2's learned subject head
+(MIL over (token, next token) pairs at layer 6), so it needs no relation labels and runs on
+every benchmark. `artifact["learned_subject"]` in `linear_router.LinearClassifierAssociationBank`;
+gate `learned` (head only) or `learned_or_exact` (head OR exact match).
+
+`scripts/fit_hybrid_subject_router.py`: positives = the linear router's own training-visible
+examples (+ typo / lower-case copies); negatives = the same prompts with the subject swapped
+for other entity names (MCF subject pool, validation names unseen in fit), near-miss names
+(shared name word), other MCF records' prompts. Whole-word matching; no ZsRE / MQuAKE / RWKU
+evaluation prompt is read; MCF's forget-record prompts are only excluded. Threshold on
+validation: recall >= 0.95, false fire <= 1% (other) / 10% (near miss), else exit 4.
+
+```bash
+bash scripts/submit_hybrid_smoke.sh        # seed 1 x 4 datasets, both gates (2nd array reuses the fit)
+python scripts/compare_router_runs.py      # main (v2.2 / linear L19) vs hybrid learned vs learned_or_exact
+```

@@ -31,6 +31,12 @@
 #      BASE_FROM (a TAG: copy <TAG>/<ds>/seed<S>/base instead of re-evaluating; base = the
 #                 stage-1 router with zero rows, identical for every router choice)
 #        e.g. TAG=l16_paper_mcf_linear19 MCF_ROUTER=linear BASE_FROM=l16_paper_v1
+#      HYBRID_GATE (learned | learned_or_exact: the linear router's heads gated by a learned
+#                   subject head instead of / besides the exact subject match; MCF uses the
+#                   stage-1 L19 heads, ZsRE its reworded router; scripts/fit_hybrid_subject_router.py
+#                   -> outputs/<ds>_hybrid_subject_v1/seed<S>/{learned,learned_or_exact};
+#                   own TAG required), HYBRID_SUBJECT_LAYERS ("6")
+#        e.g. TAG=l16_paper_hybrid_learned_v1 HYBRID_GATE=learned BASE_FROM=l16_paper_v1
 # Other models (scripts/paper_model_config.sh sets all of these; defaults = Llama-3.2-3B):
 #      MODEL_PATH (default: from the reference manifests), MODEL_TAG (prefix of the router
 #      dirs, outputs/<ds>_<MODEL_TAG>_multiseed_regular_v1/...; empty = the 3B dirs),
@@ -53,6 +59,11 @@ case "$MCF_ROUTER" in v22|linear) ;; *) echo "MCF_ROUTER must be v22 or linear" 
 if [[ "$DS" == mcf && "$MCF_ROUTER" == linear && "$TAG" == l16_paper_v1 ]]; then
   # the stale check below would move the v2.2 ours/genie aside and retrain them
   echo "MCF_ROUTER=linear needs its own TAG (e.g. TAG=l16_paper_mcf_linear19)" >&2; exit 2
+fi
+HYBRID_GATE="${HYBRID_GATE:-}"
+case "$HYBRID_GATE" in ""|learned|learned_or_exact) ;; *) echo "HYBRID_GATE must be learned or learned_or_exact" >&2; exit 2;; esac
+if [[ -n "$HYBRID_GATE" && "$TAG" == l16_paper_v1 ]]; then
+  echo "HYBRID_GATE needs its own TAG (e.g. TAG=l16_paper_hybrid_${HYBRID_GATE}_v1)" >&2; exit 2
 fi
 MOVE_INCOMPLETE="${MOVE_INCOMPLETE:-1}"
 export RWKU_CHAT_DATE_STRING="${RWKU_CHAT_DATE_STRING:-26 Jul 2024}"
@@ -94,7 +105,9 @@ log "1. L$ROUTER_LAYER router: $LIN"
 # ---------------------------------------------------------------- 2. MCF: v2.2 router
 ROUTER="$LIN"
 CHOICE="$OUT/router_choice.json"
-if [[ "$DS" == mcf && "$MCF_ROUTER" == linear ]]; then
+REF_MCF="$ROOT/outputs/mcf_fact_assoc_router_v2_seed1/association_manifest.json"
+if [[ "$DS" == mcf && ( "$MCF_ROUTER" == linear || -n "$HYBRID_GATE" ) ]]; then
+  # the hybrid needs per-fact linear heads; v2.2 has a relation softmax instead
   echo "{\"router\": \"linear_L$ROUTER_LAYER\", \"dir\": \"$LIN\", \"reason\": \"MCF_ROUTER=linear\"}" > "$CHOICE"
 elif [[ "$DS" == mcf ]]; then
   V22="$OUT/router_v22"
@@ -149,6 +162,28 @@ elif [[ "$DS" == zsre && "${ZSRE_REWORD_TAG:-reworded_v2}" != none ]]; then
 else
   echo "{\"router\": \"linear_L$ROUTER_LAYER\", \"dir\": \"$LIN\"}" > "$CHOICE"
 fi
+if [[ -n "$HYBRID_GATE" ]]; then
+  # ---------------------------------------------------------------- 2h. hybrid router
+  # learned subject head (v2.2's MIL head, early layer) gating the linear heads chosen above
+  HEADS="$ROUTER"
+  HY="$ROOT/outputs/${DS}_${MP}hybrid_subject_v1/seed$SEED"
+  if [[ -f "$HY/summary.json" ]]; then
+    HREF="$(jq -r '.reference_dir // empty' "$HY/summary.json")"
+    [[ "$(realpath "$HREF")" == "$(realpath "$HEADS")" ]] \
+      || { echo "$HY was fit on $HREF, not $HEADS (move it aside)" >&2; exit 2; }
+  fi
+  if [[ ! -f "$HY/$HYBRID_GATE/fact_association_embeddings.pt" ]]; then
+    [[ "${BUILD_ROUTERS:-1}" == 1 ]] || { echo "hybrid router missing: $HY (run the main job first)" >&2; exit 2; }
+    log "2h. fit learned subject head (layers ${HYBRID_SUBJECT_LAYERS:-6}) over the heads of $HEADS"
+    read -r -a HSL <<< "${HYBRID_SUBJECT_LAYERS:-6}"
+    python -u scripts/fit_hybrid_subject_router.py --reference-dir "$HEADS" --output-dir "$HY" \
+      --mcf-path "$(jq -r '.mcf_path' "$REF_MCF")" --subject-layers "${HSL[@]}" \
+      --device cuda --local-files-only
+  fi
+  ROUTER="$HY/$HYBRID_GATE"
+  test -f "$ROUTER/fact_association_embeddings.pt" || { echo "no hybrid router at $ROUTER" >&2; exit 2; }
+  echo "{\"router\": \"hybrid_$HYBRID_GATE\", \"dir\": \"$ROUTER\", \"linear_heads_from\": \"$HEADS\"}" > "$CHOICE"
+fi
 log "2. router for ours/genie: $ROUTER"
 # Never mix models: every run dir below inherits the router's model_path.
 if [[ -n "${MODEL_PATH:-}" ]]; then
@@ -160,7 +195,6 @@ if [[ -n "${MODEL_PATH:-}" ]]; then
 fi
 
 # ---------------------------------------------------------------- evaluator per benchmark
-REF_MCF="$ROOT/outputs/mcf_fact_assoc_router_v2_seed1/association_manifest.json"
 evaluate() {  # run_dir [--genie]
   local dir="$1"; shift
   case "$DS" in
