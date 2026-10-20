@@ -26,6 +26,11 @@
 #      ZSRE_REWORD_TAG (reworded_v2 | reworded_v1 | none: ZsRE router trained on rewordings),
 #      BASELINES ("ga gd npo rmu zerounlearn" -> <seed>/<baseline>/), SKIP_OURS (1 = baselines only),
 #      BUILD_ROUTERS (1; 0 = fail instead of fitting a missing router, for baseline jobs)
+#      MCF_ROUTER (v22 | linear: MCF ours/genie on the stage-1 linear router instead of v2.2;
+#                  needs its own TAG so the v2.2 rows under l16_paper_v1 are never touched)
+#      BASE_FROM (a TAG: copy <TAG>/<ds>/seed<S>/base instead of re-evaluating; base = the
+#                 stage-1 router with zero rows, identical for every router choice)
+#        e.g. TAG=l16_paper_mcf_linear19 MCF_ROUTER=linear BASE_FROM=l16_paper_v1
 # Other models (scripts/paper_model_config.sh sets all of these; defaults = Llama-3.2-3B):
 #      MODEL_PATH (default: from the reference manifests), MODEL_TAG (prefix of the router
 #      dirs, outputs/<ds>_<MODEL_TAG>_multiseed_regular_v1/...; empty = the 3B dirs),
@@ -43,6 +48,12 @@ LENS_LAYER="${LENS_LAYER:-24}"
 MP="${MODEL_TAG:+${MODEL_TAG}_}"   # router-dir prefix, empty for the 3B runs
 [[ -n "${MODEL_PATH:-}" ]] && export MODEL_PATH   # the layer-sweep scripts pick it up
 TAG="${TAG:-l16_paper_v1}"
+MCF_ROUTER="${MCF_ROUTER:-v22}"
+case "$MCF_ROUTER" in v22|linear) ;; *) echo "MCF_ROUTER must be v22 or linear" >&2; exit 2;; esac
+if [[ "$DS" == mcf && "$MCF_ROUTER" == linear && "$TAG" == l16_paper_v1 ]]; then
+  # the stale check below would move the v2.2 ours/genie aside and retrain them
+  echo "MCF_ROUTER=linear needs its own TAG (e.g. TAG=l16_paper_mcf_linear19)" >&2; exit 2
+fi
 MOVE_INCOMPLETE="${MOVE_INCOMPLETE:-1}"
 export RWKU_CHAT_DATE_STRING="${RWKU_CHAT_DATE_STRING:-26 Jul 2024}"
 
@@ -83,7 +94,9 @@ log "1. L$ROUTER_LAYER router: $LIN"
 # ---------------------------------------------------------------- 2. MCF: v2.2 router
 ROUTER="$LIN"
 CHOICE="$OUT/router_choice.json"
-if [[ "$DS" == mcf ]]; then
+if [[ "$DS" == mcf && "$MCF_ROUTER" == linear ]]; then
+  echo "{\"router\": \"linear_L$ROUTER_LAYER\", \"dir\": \"$LIN\", \"reason\": \"MCF_ROUTER=linear\"}" > "$CHOICE"
+elif [[ "$DS" == mcf ]]; then
   V22="$OUT/router_v22"
   if [[ ! -f "$V22/summary.json" ]]; then
     [[ "${BUILD_ROUTERS:-1}" == 1 ]] || { echo "v2.2 router missing: $V22 (run the main job first)" >&2; exit 2; }
@@ -187,6 +200,12 @@ link_run() {  # src dst: a run dir that points at src's artifact (so evals never
 
 # ---------------------------------------------------------------- 3. base
 BASE="$OUT/base"
+SRC_BASE="$ROOT/outputs/${BASE_FROM:-}/$DS/seed$SEED/base"
+if [[ -n "${BASE_FROM:-}" && ! -f "$BASE/$EVAL_JSON" && -f "$SRC_BASE/$EVAL_JSON" ]]; then
+  log "3. base copied from $BASE_FROM (same stage-1 router, zero rows)"
+  [[ -e "$BASE" ]] && mv "$BASE" "$BASE.incomplete_$(date +%Y%m%d_%H%M%S)"
+  cp -a "$SRC_BASE" "$BASE"
+fi
 if [[ ! -f "$BASE/$EVAL_JSON" ]]; then
   log "3. base eval (L19 router, all-zero rows = unedited model)"
   link_run "$LIN" "$BASE"

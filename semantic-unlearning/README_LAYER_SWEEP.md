@@ -348,3 +348,17 @@ python scripts/l16_paper_table.py      # adds GA/GD/NPO/RMU/ZeroUnlearn rows and
   5 epochs. `l16_baselines.slurm` task = 25*dataset + 5*(seed-1) + baseline.
 - **MQuAKE Spe†**: retain Eff over retain facts whose direct prompt is not an official forget
   prompt (12-17% of retain facts repeat a forget fact; genie identifies them).
+
+### MCF router ablation: linear L19 vs factorized v2.2
+
+Same write layer (16), trainer, `--oracle-unrouted` and evaluator as the main MCF rows; only
+the router that routes ours (training and test) changes to the stage-1 linear L19 router.
+Base is copied from `l16_paper_v1` (it never depended on the router choice).
+
+```bash
+sbatch --export=ALL,TAG=l16_paper_mcf_linear19,MCF_ROUTER=linear,BASE_FROM=l16_paper_v1 \
+       --array=0-4 l16_paper_multiseed.slurm          # MCF seeds 1-5
+python scripts/compare_mcf_routers.py                 # -> outputs/l16_paper_mcf_linear19/mcf/router_comparison.{md,json}
+```
+The driver refuses `MCF_ROUTER=linear` under `TAG=l16_paper_v1` (its stale check would move
+the v2.2 rows aside). The comparison flags seeds whose v2.2 arm fell back to L19.
