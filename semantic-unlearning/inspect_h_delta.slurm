@@ -22,7 +22,7 @@ set -euo pipefail
 # Environment (same block as the other sweep jobs). On a compute node
 # `module load Miniforge3` fails after a purge (Lmod needs its parent module
 # `wulver`), so load that first and fall back to the env's own bin/ on PATH.
-ENV_DIR=/scratch/yl258/kp759/conda_envs/semantic_unlearning
+ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 module purge 2>/dev/null || true
 module load wulver 2>/dev/null || true
 module load Miniforge3 2>/dev/null || true

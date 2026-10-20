@@ -20,7 +20,7 @@
 
 set -uo pipefail
 
-ENV_DIR=/scratch/yl258/kp759/conda_envs/semantic_unlearning
+ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 module purge 2>/dev/null || true
 module load wulver 2>/dev/null || true
 module load Miniforge3 2>/dev/null || true

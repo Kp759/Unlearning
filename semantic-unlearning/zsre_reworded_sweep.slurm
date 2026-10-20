@@ -27,7 +27,7 @@ set -uo pipefail
 # purge (Lmod needs its parent module), so try the usual routes and fall back
 # to putting the env's own bin/ first on PATH. Then stop at once if the env is
 # not usable, instead of failing every layer in seconds.
-ENV_DIR=/scratch/yl258/kp759/conda_envs/semantic_unlearning
+ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 module purge 2>/dev/null || true
 module load wulver 2>/dev/null || true
 module load Miniforge3 2>/dev/null || true

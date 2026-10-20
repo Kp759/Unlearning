@@ -12,7 +12,7 @@
 #SBATCH --error=/scratch/yl258/kp759/Unlearning/semantic-unlearning/logs/mcf_shared_s1_%j.err
 
 set -euo pipefail
-ENV_DIR=/scratch/yl258/kp759/conda_envs/semantic_unlearning
+ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
 module purge 2>/dev/null || true
 module load wulver 2>/dev/null || true
 module load Miniforge3 2>/dev/null || true
