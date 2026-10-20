@@ -383,3 +383,33 @@ validation: recall >= 0.95, false fire <= 1% (other) / 10% (near miss), else exi
 bash scripts/submit_hybrid_smoke.sh        # seed 1 x 4 datasets, both gates (2nd array reuses the fit)
 python scripts/compare_router_runs.py      # main (v2.2 / linear L19) vs hybrid learned vs learned_or_exact
 ```
+
+### ROME and MEMIT baselines (from the ZeroUnlearn repository)
+
+`--baseline rome|memit` (`scripts/paper_baselines.py`), vendored code and hparams of
+`ZeroUnlearn/` (ROME layer 18; MEMIT layers 16-18; down_proj; mom2 on local wikidata, 100k).
+Same requests as the ZeroUnlearn baseline (target_true -> EOS, `--edit-target unknown` for
+'Unknown'; no retain requests). ROME is applied sequentially, one rank-one update per request:
+the vendored `apply_rome_to_model` only applies `request[0]`, so ZeroUnlearn's harness edits a
+single fact per run. The vendored ROME hparams file does not load as shipped (no
+`context_template_length_params`, MEMIT-only keys, no `stats_dir`); `rome_hparams()` keeps the
+class's fields, ROME's default context templates and STATS_DIR.
+
+```bash
+bash scripts/submit_edit_baselines.sh      # 40 tasks; MEMIT MCF seed 1 first (covariance cache)
+python scripts/l16_paper_table.py --ours-from mcf=outputs/l16_paper_mcf_linear19
+```
+
+### RWKU subject gate
+
+`RWKU_GATE=subject`: every prompt naming a target person fires one of that person's rows
+(the heads only choose which), instead of the threshold gate's per-fact decision. Aimed at
+RWKU Gen (held-out questions about the same people); expected cost: neighbour prompts that
+mention the person. Own TAG required.
+
+```bash
+sbatch --export=ALL,TAG=l16_paper_rwku_subject_v1,RWKU_GATE=subject,BASE_FROM=l16_paper_v1 \
+       --array=15-19 l16_paper_multiseed.slurm
+python scripts/compare_router_runs.py --datasets rwku --seeds 1 2 3 4 5 \
+       --run threshold=outputs/l16_paper_v1 --run subject=outputs/l16_paper_rwku_subject_v1
+```

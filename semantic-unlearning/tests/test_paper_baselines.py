@@ -126,3 +126,29 @@ def test_early_stop_on_training_views_only(method):
     full = pb.train_ga_gd_npo(_args(method, baseline_epochs=3, baseline_batch_size=3, baseline_stop_prob=0.0),
                               _tiny(), None, _views(), _retain(), seed=0)
     assert full["early_stop"] is None and full["steps"] == full["max_steps"] == 3
+
+
+# ------------------------------------------------------------------ ROME / MEMIT (vendored)
+def test_rome_memit_are_registered_and_requests_take_the_edit_target():
+    assert {"rome", "memit"} <= set(pb.BASELINES)
+    facts = [{"id": "a", "canonical_prompt": "The capital of France is", "subject": "France", "object": "Paris"}]
+    reqs, _ = pb.zero_requests(facts, _Tok(), target="unknown")
+    assert reqs[0]["target_new"] == {"str": "Unknown"} and reqs[0]["target_true"] == {"str": "Paris"}
+    assert pb.zero_requests(facts, _Tok())[0][0]["target_new"] == {"str": "<eos>"}
+
+
+def test_rome_and_memit_hparams_load_from_the_zeroUnlearn_files():
+    pytest.importorskip("yaml")
+    root = Path(pb.REPO_ROOT) / "ZeroUnlearn"
+    if not (root / "rome").is_dir():
+        pytest.skip("vendored ZeroUnlearn not present")
+    try:
+        rome = pb._import_zero_module(root, "rome")
+        memit = pb._import_zero_module(root, "memit")
+    except ImportError as exc:                     # optional deps of the vendored code
+        pytest.skip(f"vendored ROME/MEMIT not importable here: {exc}")
+    hp, ignored = pb.rome_hparams(root / "hparams" / "ROME" / "Llama-3.2-3B-Instruct.json", rome)
+    assert hp.layers == [18] and hp.context_template_length_params == [[5, 10], [10, 10]]
+    assert str(hp.stats_dir) == "data/stats" and "model_name" in ignored
+    mh = memit.MEMITHyperParams.from_json(root / "hparams" / "MEMIT" / "Llama-3.2-3B-Instruct.json")
+    assert mh.layers == [16, 17, 18] and mh.rewrite_module_tmp == hp.rewrite_module_tmp

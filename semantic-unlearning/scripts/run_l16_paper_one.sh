@@ -24,7 +24,7 @@
 #      TAG (l16_paper_v1), MOVE_INCOMPLETE (1), ORACLE_UNROUTED (1: facts the router never
 #      routes are trained with their own row forced, training only),
 #      ZSRE_REWORD_TAG (reworded_v2 | reworded_v1 | none: ZsRE router trained on rewordings),
-#      BASELINES ("ga gd npo rmu zerounlearn" -> <seed>/<baseline>/), SKIP_OURS (1 = baselines only),
+#      BASELINES ("ga gd npo rmu zerounlearn rome memit" -> <seed>/<baseline>/), SKIP_OURS (1 = baselines only),
 #      BUILD_ROUTERS (1; 0 = fail instead of fitting a missing router, for baseline jobs)
 #      MCF_ROUTER (v22 | linear: MCF ours/genie on the stage-1 linear router instead of v2.2;
 #                  needs its own TAG so the v2.2 rows under l16_paper_v1 are never touched)
@@ -59,6 +59,10 @@ case "$MCF_ROUTER" in v22|linear) ;; *) echo "MCF_ROUTER must be v22 or linear" 
 if [[ "$DS" == mcf && "$MCF_ROUTER" == linear && "$TAG" == l16_paper_v1 ]]; then
   # the stale check below would move the v2.2 ours/genie aside and retrain them
   echo "MCF_ROUTER=linear needs its own TAG (e.g. TAG=l16_paper_mcf_linear19)" >&2; exit 2
+fi
+if [[ "$DS" == rwku && "${RWKU_GATE:-threshold}" == subject && "$TAG" == l16_paper_v1 ]]; then
+  # the stale check below would move the threshold-gate RWKU rows aside
+  echo "RWKU_GATE=subject needs its own TAG (e.g. TAG=l16_paper_rwku_subject_v1)" >&2; exit 2
 fi
 HYBRID_GATE="${HYBRID_GATE:-}"
 case "$HYBRID_GATE" in ""|learned|learned_or_exact) ;; *) echo "HYBRID_GATE must be learned or learned_or_exact" >&2; exit 2;; esac
@@ -252,7 +256,7 @@ fi
 for B in ${BASELINES:-}; do
   BD="$OUT/$B"
   # results from before early stopping (report has no stop_prob) are superseded
-  if [[ -f "$BD/$EVAL_JSON" && "$B" != zerounlearn ]] && \
+  if [[ -f "$BD/$EVAL_JSON" && " ga gd npo rmu " == *" $B "* ]] && \
      [[ "$(jq -r '(.baseline // {}) | has("stop_prob")' "$BD/$EVAL_JSON" 2>/dev/null)" != true ]]; then
     TS="$(date +%Y%m%d_%H%M%S)"
     echo "baseline $B predates early stopping: moving aside ($BD.superseded_$TS)" >&2

@@ -36,7 +36,8 @@ import time
 import torch
 import torch.nn.functional as F
 
-BASELINES = ("ga", "gd", "npo", "rmu", "zerounlearn")
+BASELINES = ("ga", "gd", "npo", "rmu", "zerounlearn", "rome", "memit")
+EDIT_BASELINES = ("zerounlearn", "rome", "memit")   # locate-and-edit, vendored in ZeroUnlearn/
 SEMANTIC_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SEMANTIC_ROOT.parent
 RETAIN_PROMPTS = (
@@ -85,6 +86,13 @@ def add_args(parser):
     g.add_argument("--zero-root", default=str(REPO_ROOT / "ZeroUnlearn"))
     g.add_argument("--zero-hparams", default=str(
         REPO_ROOT / "ZeroUnlearn" / "hparams" / "ZeroUnlearn" / "Llama-3.2-3B-Instruct.json"))
+    g.add_argument("--rome-hparams", default=str(
+        REPO_ROOT / "ZeroUnlearn" / "hparams" / "ROME" / "Llama-3.2-3B-Instruct.json"))
+    g.add_argument("--memit-hparams", default=str(
+        REPO_ROOT / "ZeroUnlearn" / "hparams" / "MEMIT" / "Llama-3.2-3B-Instruct.json"))
+    g.add_argument("--edit-target", choices=("eos", "unknown"), default="eos",
+                   help="target_new of the ZeroUnlearn / ROME / MEMIT requests: the EOS token "
+                        "(ZeroUnlearn's safe state, default) or 'Unknown' (ZeroUnlearn's ZsRE setup)")
     return g
 
 
@@ -307,8 +315,8 @@ def train_rmu(args, model, tok, views, retain, seed):
 
 
 # ------------------------------------------------------------------------------ ZeroUnlearn
-def zero_requests(facts, tok):
-    eos = tok.eos_token
+def zero_requests(facts, tok, target="eos"):
+    eos = tok.eos_token if target == "eos" else "Unknown"
     reqs, skipped = [], []
     for i, f in enumerate(facts):
         prompt, subject = str(f["canonical_prompt"]), str(f["subject"])
@@ -328,7 +336,7 @@ def zero_requests(facts, tok):
 def apply_zerounlearn(args, model, tok, artifact, seed):
     import run_zerounlearn_official_mcf as zb
 
-    reqs, skipped = zero_requests(artifact["facts"], tok)
+    reqs, skipped = zero_requests(artifact["facts"], tok, getattr(args, "edit_target", "eos"))
     params_class, apply_unl = zb.import_original_zerounlearn(Path(args.zero_root))
     hparams = params_class.from_json(Path(args.zero_hparams))
     zb.set_all_seeds(seed)
@@ -338,7 +346,69 @@ def apply_zerounlearn(args, model, tok, artifact, seed):
                   add_retain=False, edit_layer_nums=zb.EDIT_LAYER_NUMS, use_h=zb.USE_H)
     return {"requests": len(reqs), "facts_skipped_subject_not_in_prompt": skipped,
             "layers": list(hparams.layers), "edit_module": hparams.rewrite_module_tmp,
-            "neutral_target": "eos", "retain_requests": 0}
+            "neutral_target": getattr(args, "edit_target", "eos"), "retain_requests": 0}
+
+
+def _import_zero_module(zero_root, name):
+    """Import a vendored ZeroUnlearn package (rome, memit); util.globals reads globals.yml
+    from the working directory at import time, so import from inside ZeroUnlearn/."""
+    import importlib
+    import sys
+
+    import run_zerounlearn_official_mcf as zb
+
+    root = str(Path(zero_root).resolve())
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    with zb.working_directory(Path(zero_root)):
+        return importlib.import_module(name)
+
+
+def rome_hparams(path, rome_module):
+    """ROMEHyperParams from ZeroUnlearn's hparams/ROME/<model>.json. As shipped, from_json
+    fails on that file (it lacks context_template_length_params and carries MEMIT-only keys)
+    and compute_u reads hparams.stats_dir, which the class lacks. Keep the class's fields,
+    take ROME's own context-template default and STATS_DIR (as MEMIT / ZeroUnlearn use)."""
+    import dataclasses
+
+    from util.globals import STATS_DIR
+
+    data = json.loads(Path(path).read_text())
+    data.setdefault("context_template_length_params", [[5, 10], [10, 10]])   # ROME's default
+    names = {f.name for f in dataclasses.fields(rome_module.ROMEHyperParams)}
+    hp = rome_module.ROMEHyperParams(**{k: v for k, v in data.items() if k in names})
+    hp.stats_dir = STATS_DIR
+    return hp, sorted(set(data) - names)
+
+
+def apply_rome_memit(args, model, tok, artifact, seed, method):
+    """ROME / MEMIT (vendored in ZeroUnlearn/, hparams from ZeroUnlearn/hparams) on the same
+    requests as the ZeroUnlearn baseline: target_true -> --edit-target, no retain requests.
+    ROME is applied sequentially, one rank-one update per request (apply_rome_to_model only
+    applies request[0], so passing all requests at once edits a single fact); MEMIT applies one
+    batched update for all requests. Covariance statistics: data/stats under semantic-unlearning
+    (shared with ZeroUnlearn: same down_proj layers, wikidata, 100k samples)."""
+    import run_zerounlearn_official_mcf as zb
+
+    reqs, skipped = zero_requests(artifact["facts"], tok, args.edit_target)
+    zb.set_all_seeds(seed)
+    mod = _import_zero_module(args.zero_root, method)
+    if method == "rome":
+        hp, ignored = rome_hparams(args.rome_hparams, mod)
+        with zb.working_directory(zb.SEMANTIC_ROOT):
+            for r in reqs:
+                mod.apply_rome_to_model(model, tok, [r], hp, copy=False, return_orig_weights=False)
+        info = {"update": "sequential rank-one update per request", "hparams_keys_ignored": ignored,
+                "hparams": str(args.rome_hparams)}
+    else:
+        hp = mod.MEMITHyperParams.from_json(args.memit_hparams)
+        with zb.working_directory(zb.SEMANTIC_ROOT):
+            mod.apply_memit_to_model(model, tok, reqs, hp, copy=False, return_orig_weights=False,
+                                     cache_template=None)
+        info = {"update": "one batched MEMIT update for all requests", "hparams": str(args.memit_hparams)}
+    return {"requests": len(reqs), "facts_skipped_subject_not_in_prompt": skipped,
+            "layers": list(hp.layers), "edit_module": hp.rewrite_module_tmp,
+            "neutral_target": args.edit_target, "retain_requests": 0, **info}
 
 
 # ------------------------------------------------------------------------------ entry
@@ -357,6 +427,8 @@ def apply(args, model, tok, artifact, run_dir, seed, mcf_path=None):
     report = {"baseline": args.baseline, "seed": bseed}
     if args.baseline == "zerounlearn":
         report.update(apply_zerounlearn(args, model, tok, artifact, bseed))
+    elif args.baseline in ("rome", "memit"):
+        report.update(apply_rome_memit(args, model, tok, artifact, bseed, args.baseline))
     else:
         dataset, views = forget_views(args, artifact, run_dir, tok, seed, mcf_path)
         retain = (self_generated_retain(model, tok, args.retain_tokens)

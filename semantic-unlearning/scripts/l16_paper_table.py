@@ -34,9 +34,9 @@ from summarize_mcf_layer_sweep import collect
 
 DATASETS = ("mcf", "zsre", "mquake", "rwku")
 NAMES = {"mcf": "MCF", "zsre": "ZsRE", "mquake": "MQuAKE", "rwku": "RWKU"}
-METHODS = ("base", "ga", "gd", "npo", "rmu", "zerounlearn", "ours", "genie")
+METHODS = ("base", "ga", "gd", "npo", "rmu", "rome", "memit", "zerounlearn", "ours", "genie")
 ALWAYS = ("base", "ours", "genie")          # baseline rows appear once any seed has them
-LABELS = {"base": "Base", "ga": "GA", "gd": "GD", "npo": "NPO", "rmu": "RMU",
+LABELS = {"base": "Base", "ga": "GA", "gd": "GD", "npo": "NPO", "rmu": "RMU", "rome": "ROME", "memit": "MEMIT",
           "zerounlearn": "ZeroUnlearn", "ours": "Ours (L16)", "genie": "Genie"}
 COLS = ("Eff", "Gen", "Spe", "PPL")
 
