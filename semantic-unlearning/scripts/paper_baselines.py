@@ -18,6 +18,10 @@ from every evaluation set by construction.
   zerounlearn  original ZeroUnlearn (vendored ../ZeroUnlearn), target_true -> EOS, layers
                16-18 down_proj, no retain requests                       (arXiv 2605.18879)
 
+Early stopping (--baseline-stop-prob, default 1e-4): GA/GD/NPO (every 5 steps) and RMU (every
+25) stop as soon as the mean answer probability on the forget TRAINING views is <= 1e-4, i.e.
+each baseline edits only as much as it needs to forget what it was shown (no evaluation data
+is used to choose when to stop). The full budget below is the cap.
 GA / GD / NPO train the MLP weights of every layer (--baseline-params mlp) in fp32, AdamW,
 --baseline-epochs over the forget views; the model is cast back to the evaluator's dtype.
 """
@@ -65,6 +69,10 @@ def add_args(parser):
     g.add_argument("--baseline-batch-size", type=int, default=8)
     g.add_argument("--baseline-params", choices=("mlp", "mlp_down", "all"), default="mlp")
     g.add_argument("--baseline-seed", type=int, default=None, help="default: the split seed")
+    g.add_argument("--baseline-stop-prob", type=float, default=1e-4,
+                   help="early stop: stop once the mean answer probability on the forget TRAINING views "
+                        "is <= this (0 = train the full budget); training data only, no eval set")
+    g.add_argument("--baseline-check-every", type=int, default=5)
     g.add_argument("--npo-beta", type=float, default=0.1)
     g.add_argument("--retain-weight", type=float, default=1.0)
     g.add_argument("--retain-tokens", type=int, default=48)
@@ -140,6 +148,19 @@ def answer_logprob(model, batch, device):
     return (lp * mask).sum(-1), mask.sum(-1).clamp_min(1)
 
 
+@torch.no_grad()
+def forget_answer_prob(model, forget, batch_size, device):
+    """Mean over forget training views of P(answer | prompt) = exp(sum log p(answer tokens))."""
+    was = model.training
+    model.eval()
+    vals = []
+    for s in range(0, len(forget), batch_size):
+        lp, _ = answer_logprob(model, forget[s:s + batch_size], device)
+        vals += torch.exp(lp).tolist()
+    model.train(was)
+    return sum(vals) / max(1, len(vals))
+
+
 def _as_dicts(views):
     return [{"input_ids": list(v.input_ids), "labels": list(v.labels), "fact_id": v.fact_id} for v in views]
 
@@ -185,7 +206,7 @@ def train_ga_gd_npo(args, model, tok, views, retain, seed):
                 for item, v in zip(chunk, lp.tolist()):
                     ref[id(item)] = v
     model.train()
-    log, step = [], 0
+    log, step, stopped = [], 0, None
     for epoch in range(args.baseline_epochs):
         for batch in _batches(forget, args.baseline_batch_size, rng):
             lp, n = answer_logprob(model, batch, device)
@@ -206,8 +227,18 @@ def train_ga_gd_npo(args, model, tok, views, retain, seed):
             if step % 10 == 0:
                 log.append({"epoch": epoch, "step": step, "loss": float(loss.detach()),
                             "forget_mean_logp_per_token": float((lp / n).mean().detach())})
+            if args.baseline_stop_prob > 0 and step % args.baseline_check_every == 0:
+                p_forget = forget_answer_prob(model, forget, args.baseline_batch_size, device)
+                if p_forget <= args.baseline_stop_prob:
+                    stopped = {"step": step, "forget_answer_prob": p_forget}
+                    break
+        if stopped:
+            break
     model.eval()
-    return {"lr": lr, "steps": step, "trainable_params": sum(p.numel() for p in params),
+    return {"lr": lr, "steps": step, "max_steps": args.baseline_epochs * math.ceil(len(forget) / args.baseline_batch_size),
+            "early_stop": stopped, "stop_prob": args.baseline_stop_prob,
+            "final_forget_answer_prob": forget_answer_prob(model, forget, args.baseline_batch_size, device),
+            "trainable_params": sum(p.numel() for p in params),
             "trainable_scope": args.baseline_params, "log": log[-20:]}
 
 
@@ -248,7 +279,7 @@ def train_rmu(args, model, tok, views, retain, seed):
     params, names = _trainable(model, "mlp", layers=[L - 2, L - 1, L])
     opt = torch.optim.AdamW(params, lr=lr, weight_decay=0.0, foreach=False)
     model.train()
-    log = []
+    log, stopped = [], None
     for step in range(args.rmu_steps):
         fb = rng.sample(forget, min(args.baseline_batch_size, len(forget)))
         hf, mf = _hidden_at(model, L, fb, device)
@@ -262,10 +293,15 @@ def train_rmu(args, model, tok, views, retain, seed):
         torch.nn.utils.clip_grad_norm_(params, 1.0)
         opt.step()
         if (step + 1) % 25 == 0:
+            p_forget = forget_answer_prob(model, forget, args.baseline_batch_size, device)
             log.append({"step": step + 1, "loss_forget": float(loss_f.detach()),
-                        "loss_retain": float(loss_r.detach())})
+                        "loss_retain": float(loss_r.detach()), "forget_answer_prob": p_forget})
+            if args.baseline_stop_prob > 0 and p_forget <= args.baseline_stop_prob:
+                stopped = {"step": step + 1, "forget_answer_prob": p_forget}
+                break
     model.eval()
-    return {"lr": lr, "steps": args.rmu_steps, "layer": L, "trained_layers": [L - 2, L - 1, L],
+    return {"lr": lr, "steps": (stopped or {}).get("step", args.rmu_steps), "max_steps": args.rmu_steps,
+            "early_stop": stopped, "stop_prob": args.baseline_stop_prob, "layer": L, "trained_layers": [L - 2, L - 1, L],
             "steer": steer, "median_forget_norm": median_norm, "alpha": args.rmu_alpha,
             "trainable_params": sum(p.numel() for p in params), "log": log[-10:]}
 

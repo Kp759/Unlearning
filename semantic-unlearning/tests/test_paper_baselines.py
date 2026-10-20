@@ -60,7 +60,8 @@ def test_ga_gd_npo_lower_forget_logprob_and_touch_only_mlp(method):
     model = _tiny()
     before = {k: v.clone() for k, v in model.state_dict().items()}
     lp0 = _forget_logp(model, _views())
-    args = _args(method, baseline_epochs=20, baseline_lr=1e-2, baseline_batch_size=3)
+    args = _args(method, baseline_epochs=20, baseline_lr=1e-2, baseline_batch_size=3,
+                 baseline_stop_prob=0.0)
     model.float()
     rep = pb.train_ga_gd_npo(args, model, None, _views(), _retain(), seed=0)
     assert _forget_logp(model, _views()) < lp0 - 0.5
@@ -72,7 +73,8 @@ def test_ga_gd_npo_lower_forget_logprob_and_touch_only_mlp(method):
 def test_rmu_edits_only_three_layers_up_to_rmu_layer_and_moves_forget_activations():
     model = _tiny()
     before = {k: v.clone() for k, v in model.state_dict().items()}
-    args = _args("rmu", rmu_layer=4, rmu_steps=40, baseline_lr=1e-2, baseline_batch_size=3, rmu_alpha=1.0)
+    args = _args("rmu", rmu_layer=4, rmu_steps=40, baseline_lr=1e-2, baseline_batch_size=3, rmu_alpha=1.0,
+                 baseline_stop_prob=0.0)
     rep = pb.train_rmu(args, model, None, _views(), _retain(), seed=0)
     changed = {k for k, v in model.state_dict().items() if not torch.equal(v, before[k])}
     assert changed and all(any(f"layers.{L}.mlp." in k for L in (2, 3, 4)) for k in changed)
@@ -109,3 +111,18 @@ def test_zero_requests_template_the_subject_and_escape_braces():
     assert reqs[0]["prompt"].format(reqs[0]["subject"]) == facts[0]["canonical_prompt"]
     assert reqs[1]["prompt"].format(reqs[1]["subject"]) == facts[1]["canonical_prompt"]
     assert reqs[0]["target_true"] == {"str": "Gaul"} and reqs[0]["target_new"] == {"str": "<eos>"}
+
+
+@pytest.mark.parametrize("method", ["ga", "npo"])
+def test_early_stop_on_training_views_only(method):
+    model = _tiny()
+    p0 = pb.forget_answer_prob(model, pb._as_dicts(_views()), 3, torch.device("cpu"))
+    # threshold just below the starting probability: training stops at the first check
+    args = _args(method, baseline_epochs=50, baseline_lr=1e-2, baseline_batch_size=3,
+                 baseline_stop_prob=p0 * 0.999, baseline_check_every=5)
+    rep = pb.train_ga_gd_npo(args, model, None, _views(), _retain(), seed=0)
+    assert rep["early_stop"] is not None and rep["steps"] < rep["max_steps"]
+    assert rep["final_forget_answer_prob"] <= p0 * 0.999
+    full = pb.train_ga_gd_npo(_args(method, baseline_epochs=3, baseline_batch_size=3, baseline_stop_prob=0.0),
+                              _tiny(), None, _views(), _retain(), seed=0)
+    assert full["early_stop"] is None and full["steps"] == full["max_steps"] == 3

@@ -178,6 +178,13 @@ fi
 # self-generated text, scored by the same official evaluator (scripts/paper_baselines.py).
 for B in ${BASELINES:-}; do
   BD="$OUT/$B"
+  # results from before early stopping (report has no stop_prob) are superseded
+  if [[ -f "$BD/$EVAL_JSON" && "$B" != zerounlearn ]] && \
+     [[ "$(jq -r '(.baseline // {}) | has("stop_prob")' "$BD/$EVAL_JSON" 2>/dev/null)" != true ]]; then
+    TS="$(date +%Y%m%d_%H%M%S)"
+    echo "baseline $B predates early stopping: moving aside ($BD.superseded_$TS)" >&2
+    mv "$BD" "$BD.superseded_$TS"
+  fi
   if [[ ! -f "$BD/$EVAL_JSON" ]]; then
     log "3b. baseline $B"
     [[ -e "$BD" ]] && mv "$BD" "$BD.incomplete_$(date +%Y%m%d_%H%M%S)"
