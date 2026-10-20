@@ -91,8 +91,9 @@ def compare(runs, seeds, datasets):
                   if all((Path(root) / ds / f"seed{s}").is_dir() for root in runs.values())]
         entry = {"seeds": common, "rows": {}, "per_seed": {}, "diagnostics": {}}
         first = Path(next(iter(runs.values())))
+        methods = ("ours", "genie", "genie_entity") if ds == "rwku" else ("ours", "genie")
         arms = [("base", first, "base")] + [(f"{name}:{m}", Path(root), m)
-                                             for name, root in runs.items() for m in ("ours", "genie")]
+                                             for name, root in runs.items() for m in methods]
         for label, root, method in arms:
             vals = [run_metrics(ds, root / ds / s, method) for s in common]
             entry["per_seed"][label] = dict(zip(common, vals))

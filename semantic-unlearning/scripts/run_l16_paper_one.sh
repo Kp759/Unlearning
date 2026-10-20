@@ -18,6 +18,8 @@
 #               (their metrics score every answer token under the gold prefix)
 #   5. genie    official eval of the SAME rows with --genie (forget prompts -> own row,
 #               everything else -> no row; router not run)
+#   5b. RWKU only: genie_entity (--genie-entity): every probe about a target person -> one of
+#               that person's rows (the router's pick, else the first); neighbours / PPL none
 #
 # Outputs: outputs/l16_paper_v1/<ds>/seed<S>/{base,ours,genie}/official_<ds>_eval.json
 # Env: WRITE_LAYER (16), V22_SUBJECT_LAYERS ("6"), RWKU_GATE (threshold), TRAIN_ARGS (extra),
@@ -164,7 +166,9 @@ elif [[ "$DS" == zsre && "${ZSRE_REWORD_TAG:-reworded_v2}" != none ]]; then
   test -f "$ROUTER/fact_association_embeddings.pt" || { echo "no reworded router at $ROUTER" >&2; exit 2; }
   echo "{\"router\": \"linear_L${ROUTER_LAYER}_$RWTAG\", \"dir\": \"$ROUTER\"}" > "$CHOICE"
 else
-  echo "{\"router\": \"linear_L$ROUTER_LAYER\", \"dir\": \"$LIN\"}" > "$CHOICE"
+  LABEL="linear_L$ROUTER_LAYER"
+  [[ "$DS" == rwku && "$GATE" == subject ]] && LABEL="${LABEL}_subject_gate"
+  echo "{\"router\": \"$LABEL\", \"dir\": \"$LIN\"}" > "$CHOICE"
 fi
 if [[ -n "$HYBRID_GATE" ]]; then
   # ---------------------------------------------------------------- 2h. hybrid router
@@ -321,5 +325,14 @@ if [[ ! -f "$GENIE/$EVAL_JSON" ]]; then
   log "5. genie eval (same rows, perfect routing)"
   link_run "$OURS" "$GENIE"
   evaluate "$GENIE" --genie
+fi
+if [[ "$DS" == rwku ]]; then
+  # entity-level genie: perfect PERSON routing (held-out probes about a target -> that person's row)
+  GENIE_E="$OUT/genie_entity"
+  if [[ ! -f "$GENIE_E/$EVAL_JSON" ]]; then
+    log "5b. entity genie eval (same rows, every probe about a target person routed)"
+    link_run "$OURS" "$GENIE_E"
+    evaluate "$GENIE_E" --genie-entity
+  fi
 fi
 log "COMPLETE -> $OUT"

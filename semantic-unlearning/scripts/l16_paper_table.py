@@ -34,10 +34,10 @@ from summarize_mcf_layer_sweep import collect
 
 DATASETS = ("mcf", "zsre", "mquake", "rwku")
 NAMES = {"mcf": "MCF", "zsre": "ZsRE", "mquake": "MQuAKE", "rwku": "RWKU"}
-METHODS = ("base", "ga", "gd", "npo", "rmu", "rome", "memit", "zerounlearn", "ours", "genie")
+METHODS = ("base", "ga", "gd", "npo", "rmu", "rome", "memit", "zerounlearn", "ours", "genie", "genie_entity")
 ALWAYS = ("base", "ours", "genie")          # baseline rows appear once any seed has them
 LABELS = {"base": "Base", "ga": "GA", "gd": "GD", "npo": "NPO", "rmu": "RMU", "rome": "ROME", "memit": "MEMIT",
-          "zerounlearn": "ZeroUnlearn", "ours": "Ours (L16)", "genie": "Genie"}
+          "zerounlearn": "ZeroUnlearn", "ours": "Ours (L16)", "genie": "Genie", "genie_entity": "Genie (entity)"}
 COLS = ("Eff", "Gen", "Spe", "PPL")
 
 
@@ -190,6 +190,8 @@ def main():
     for ds in DATASETS:
         for method in shown:
             e = table[(ds, method)]
+            if not e["seeds"] and method not in ALWAYS:
+                continue                   # e.g. Genie (entity) exists for RWKU only
             lines.append(f"| {NAMES[ds]} | {LABELS[method]} | {len(e['seeds'])} | "
                          + " | ".join(cell(e[c]) for c in ("Eff", "Gen", "Spe", "Spe_no_overlap", "PPL")) + " |")
     lines += ["", "Spe is neighbourhood accuracy (MCF, ZsRE), retain Eff (MQuAKE) and neighbour "

@@ -253,6 +253,9 @@ def main(argv=None):
                         "send to their own row (threshold-gate layer sweeps)")
     p.add_argument("--genie", action="store_true",
                    help="perfect routing on the same rows (scripts/genie_routes.py)")
+    p.add_argument("--genie-entity", action="store_true",
+                   help="entity-level genie: every probe about a target person routed to one of that "
+                        "person's rows, neighbours / PPL never (genie_routes.rwku_entity_pairs)")
     import paper_baselines
     paper_baselines.add_args(p)
     args = p.parse_args(argv)
@@ -324,10 +327,24 @@ def main(argv=None):
         for source_hash, fact_id in record_to_fact_id.items()
     }
     genie_report = None
+    if args.genie and args.genie_entity:
+        raise ValueError("--genie and --genie-entity are exclusive")
     if args.genie:
         import genie_routes
         genie_report = genie_routes.install(
             bank, tokenizer, genie_routes.rwku_pairs(tokenizer, forget_rows, expected_source_to_row))
+        print(json.dumps(genie_report), flush=True)
+    if args.genie_entity:
+        import genie_routes
+        person_rows = [*split["heldout_level1"], *split["heldout_level2"], *split["heldout_paraphrase"],
+                       *([] if args.skip_level3 else _native_rows(split, "forget_level3.json", 3))]
+        pairs = list(genie_routes.rwku_entity_pairs(model, tokenizer, artifact["facts"], forget_rows,
+                                                    expected_source_to_row, person_rows))
+        genie_report = genie_routes.install(bank, tokenizer, pairs)
+        genie_report.update({"mode": "entity", "row_choice": dict(genie_routes.rwku_entity_pairs.stats),
+                             "definition": "same-50 probes -> own row; held-out probes about a target "
+                                           "person -> that person's row (router's choice among them, else "
+                                           "the first); neighbours / PPL -> no row"})
         print(json.dumps(genie_report), flush=True)
 
     same50, same50_detail = evaluate_rows(

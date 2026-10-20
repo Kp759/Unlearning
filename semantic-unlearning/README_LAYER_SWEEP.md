@@ -418,3 +418,10 @@ sbatch --export=ALL,TAG=l16_paper_rwku_subject_v1,RWKU_GATE=subject,BASE_FROM=l1
 python scripts/compare_router_runs.py --datasets rwku --seeds 1 2 3 4 5 \
        --run threshold=outputs/l16_paper_v1 --run subject=outputs/l16_paper_rwku_subject_v1
 ```
+
+RWKU entity genie (`genie_entity/`, stage 5b, `--genie-entity`): the same rows under perfect
+PERSON routing. Same-50 probes -> own row; every held-out probe about a target person (Level 1,
+Level 2, Level-2 paraphrase, Level 3) -> one of that person's rows (the run's router picks among
+them, else the person's first row); neighbours and PPL text -> no row. The ordinary genie routes
+only the 50 trained prompts, so its RWKU Gen is base by construction; the entity genie is the
+upper bound for the subject gate. A resubmit of a finished RWKU seed runs only this stage.

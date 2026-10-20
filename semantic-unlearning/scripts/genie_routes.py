@@ -70,6 +70,56 @@ def rwku_pairs(tok, forget_rows, expected_source_to_row):
             yield rwku.format_qa_prompt(tok, row), int(target)
 
 
+def rwku_entity_pairs(model, tok, facts, forget_rows, expected_source_to_row, person_rows, fmt=None):
+    """Entity-level genie for RWKU (`--genie-entity`): perfect PERSON routing on the same rows.
+
+    same-50 probes        -> their own row (as rwku_pairs)
+    person_rows           held-out probes about a target person (Level 1, Level 2, Level-2
+                          paraphrase, Level 3) -> a row of THAT person: the one the run's own
+                          router picks when it fires one of that person's rows, else the
+                          person's first row
+    everything else       (neighbours = other people, PPL text) -> no row
+    The router decides only WHICH of the right person's rows; whether to fire is ground truth.
+    Yields (prompt, row); `stats` (a dict, filled while iterating) counts the row choices."""
+    import torch
+
+    if fmt is None:
+        import rwku_eval as rwku
+        fmt = lambda row: rwku.format_qa_prompt(tok, row)   # noqa: E731
+
+    def person(s):
+        return " ".join(str(s).casefold().split())
+
+    rows_of = {}
+    for i, f in enumerate(facts):
+        rows_of.setdefault(person(f.get("subject", "")), []).append(i)
+    stats = rwku_entity_pairs.stats = {"own_row": 0, "router_choice": 0, "fallback_first_row": 0,
+                                       "router_fired_other_person": 0, "unknown_person": 0}
+    for row in forget_rows:
+        target = expected_source_to_row.get(str(row.get("source_record_sha256", "")))
+        if target is not None:
+            stats["own_row"] += 1
+            yield fmt(row), int(target)
+    route = getattr(model, "_route", None)
+    for row in person_rows:
+        candidates = rows_of.get(person(row.get("subject", "")))
+        if not candidates:
+            stats["unknown_person"] += 1
+            continue
+        prompt = fmt(row)
+        chosen = -1
+        if route is not None:
+            ids = torch.tensor([tok(prompt)["input_ids"]], device=next(model.parameters()).device)
+            chosen = int(route(ids, torch.ones_like(ids), [ids.shape[1]])[0])
+        if chosen in candidates:
+            stats["router_choice"] += 1
+        else:
+            stats["router_fired_other_person"] += int(chosen >= 0)
+            stats["fallback_first_row"] += 1
+            chosen = candidates[0]
+        yield prompt, chosen
+
+
 def mquake_pairs(tok, forget_records, expected_case_to_row, llama_like, boundary_text):
     """Every forget case (rewrite + atomic_gen) at its request boundary -> its gold row."""
     import mquake_zero_unlearn_official_eval as mquake
