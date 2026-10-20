@@ -46,9 +46,13 @@ case "${MODEL:-}" in
 esac
 
 # Snapshot dir in the shared HF cache (download: bash scripts/submit_paper_model.sh MODEL fetch)
+# (glob loop, not `ls | head`: under `set -euo pipefail` a failing ls in the substitution
+#  exits the caller silently before anything is downloaded)
 if [[ -z "${MODEL_PATH:-}" ]]; then
-  CFG="$(ls -1d "$HF_CACHE/models--${HF_ID//\//--}"/snapshots/*/config.json 2>/dev/null | head -n 1)"
-  MODEL_PATH="${CFG%/config.json}"
+  MODEL_PATH=""
+  for CFG in "$HF_CACHE/models--${HF_ID//\//--}"/snapshots/*/config.json; do
+    if [[ -f "$CFG" ]]; then MODEL_PATH="${CFG%/config.json}"; break; fi
+  done
 fi
 MODEL_TAG="$MODEL"
 TAG="${TAG:-paper_${MODEL}_v1}"
@@ -62,7 +66,8 @@ paper_model_check() {  # fail fast: weights present, layer count as configured, 
     return 2
   fi
   local n
-  n="$(jq -r '.num_hidden_layers' "$MODEL_PATH/config.json")"
+  n="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["num_hidden_layers"])' \
+         "$MODEL_PATH/config.json")" || return 3
   [[ "$n" == "$N_LAYERS" ]] || { echo "$MODEL_PATH has $n layers, config expects $N_LAYERS" >&2; return 2; }
   if command -v nvidia-smi >/dev/null 2>&1 && [[ -n "${SLURM_JOB_ID:-}" ]]; then
     local mib
