@@ -30,7 +30,7 @@
 set -euo pipefail
 
 # Environment (same block as the other sweep jobs).
-ENV_DIR="${ENV_DIR:-/scratch/yl258/kp759/conda_envs/semantic_unlearning}"
+if [[ -z "${ENV_DIR:-}" ]]; then ENV_DIR=/project/yl258/kp759/conda_envs/semantic_unlearning; [[ -f "$ENV_DIR/.ready" ]] || ENV_DIR=/scratch/yl258/kp759/conda_envs/semantic_unlearning; fi  # /project env once built (scripts/build_env_project.sh)
 module purge 2>/dev/null || true
 module load wulver 2>/dev/null || true
 module load Miniforge3 2>/dev/null || true
