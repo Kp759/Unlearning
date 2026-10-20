@@ -4,6 +4,9 @@ mean ± std over seeds (CPU, seconds).
 
     python scripts/l16_paper_table.py                 # outputs/l16_paper_v1 -> paper_table.*
     python scripts/l16_paper_table.py --root outputs/l16_paper_v1 --digits 2
+    python scripts/l16_paper_table.py --ours-from mcf=outputs/l16_paper_mcf_linear19
+        # ours + genie of MCF from another run (e.g. the linear L19 router); base and
+        # baselines from --root; written as paper_table_<override>.* (the default table stays)
 
 Columns per benchmark (each from its own official evaluator, via summarize_mcf_layer_sweep.collect):
   MCF     Eff/Gen = forget answer probability (%), Spe = neighbourhood accuracy, PPL
@@ -115,17 +118,31 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default="outputs/l16_paper_v1")
     ap.add_argument("--digits", type=int, default=3)
+    ap.add_argument("--ours-from", action="append", default=[], metavar="DATASET=ROOT",
+                    help="take that dataset's ours/genie (and router diagnostics) from ROOT")
+    ap.add_argument("--out-name", default=None, help="output stem (default paper_table[_<overrides>])")
     a = ap.parse_args()
     root = Path(a.root)
+    overrides = {}
+    for item in a.ours_from:
+        ds, _, src = item.partition("=")
+        if ds not in DATASETS or not src:
+            raise SystemExit(f"--ours-from wants DATASET=ROOT with DATASET in {DATASETS}: {item!r}")
+        overrides[ds] = Path(src)
+    out_name = a.out_name or ("paper_table" + "".join(f"_{ds}-{src.name}" for ds, src in overrides.items()))
+
+    def source(ds, method):
+        return overrides.get(ds, root) if method in ("ours", "genie") else root
     table, diag, per_seed = {}, [], []
     cols = COLS + ("Spe_no_overlap",)
     for ds in DATASETS:
-        overlaps = {sd.name: mquake_overlap(sd / "genie") for sd in sorted(root.glob(f"{ds}/seed*"))} \
-            if ds == "mquake" else {}
+        overlaps = {sd.name: mquake_overlap(source(ds, "genie") / ds / sd.name / "genie")
+                    for sd in sorted(root.glob(f"{ds}/seed*"))} if ds == "mquake" else {}
         for method in METHODS:
             vals = {c: [] for c in cols}
             seeds = []
             for sd in sorted(root.glob(f"{ds}/seed*")):
+                sd = source(ds, method) / ds / sd.name
                 run = sd / method
                 row = collect(run, f"{ds}/{sd.name}/{method}")
                 if row.get("status") != "complete":
@@ -219,17 +236,18 @@ def main():
             r"\label{tab:l16_main}", r"\end{table}"]
 
     root.mkdir(parents=True, exist_ok=True)
-    (root / "paper_table.md").write_text(md)
-    (root / "paper_table.tex").write_text("\n".join(tex) + "\n")
-    with (root / "paper_table_per_seed.csv").open("w", newline="") as h:
+    (root / f"{out_name}.md").write_text(md)
+    (root / f"{out_name}.tex").write_text("\n".join(tex) + "\n")
+    with (root / f"{out_name}_per_seed.csv").open("w", newline="") as h:
         w = csv.DictWriter(h, fieldnames=["dataset", "method", "seed", *cols])
         w.writeheader()
         w.writerows(per_seed)
-    (root / "paper_table.json").write_text(json.dumps(
+    (root / f"{out_name}.json").write_text(json.dumps(
         {f"{ds}/{m}": {"seeds": v["seeds"], **{c: dict(zip(("mean", "std", "n"), v[c])) for c in cols}}
          for (ds, m), v in table.items()}, indent=2) + "\n")
     print(md)
-    print(f"wrote {root}/paper_table.{{md,tex,json}} and paper_table_per_seed.csv")
+    print(f"wrote {root}/{out_name}.{{md,tex,json}} and {out_name}_per_seed.csv"
+          + ("".join(f"\n  {ds}: ours/genie from {src}" for ds, src in overrides.items())))
 
 
 if __name__ == "__main__":
