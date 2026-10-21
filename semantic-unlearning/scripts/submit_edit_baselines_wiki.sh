@@ -16,6 +16,10 @@ NAME="${MOM2_DATASET:-wikipedia_20231101_100k}"
 case "${1:-}" in
   corpus)
     if [[ -f "$TEXT/dataset_dict.json" ]]; then echo "corpus already at $TEXT"; exit 0; fi
+    python -c "import datasets" 2>/dev/null || {
+      echo "python ($(command -v python)) has no 'datasets': activate the env first, e.g." >&2
+      echo "  module load Miniforge3; conda activate /scratch/yl258/kp759/conda_envs/semantic_unlearning" >&2
+      exit 2; }
     python -u scripts/prepare_sure_wikipedia_corpus.py --output-dir "$TEXT"
     ;;
   submit)
