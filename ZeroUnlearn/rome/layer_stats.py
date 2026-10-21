@@ -98,7 +98,10 @@ def layer_stats(
         # from datasets import Dataset
         # raw_ds = Dataset.from_file('data/wikipedia-train.arrow')
         # raw_ds = {'train': raw_ds}
-        data_dir = Path('data/wikidata')
+        # ZU_MOM2_TEXT_DIR: a real Wikipedia DatasetDict (scripts/build_edit_covariance.py);
+        # data/wikidata is the 200-sentence PPL fixture (rank-deficient covariance)
+        import os
+        data_dir = Path(os.environ.get('ZU_MOM2_TEXT_DIR') or 'data/wikidata')
         
         if data_dir.exists():
             print(f"Loading dataset from local directory: {data_dir}")
@@ -125,6 +128,7 @@ def layer_stats(
 
         if batch_tokens is not None and batch_tokens < maxlen:
             maxlen = batch_tokens
+        maxlen = min(4096, maxlen)
         # a list, as ZeroUnlearn/layer_stats_retain passes it: TokenizedDataset prepends its
         # (here empty) retain rows with `list + text_dataset`, which fails for a datasets.Dataset
         return TokenizedDataset(raw_ds["train"].to_list(), tokenizer=tokenizer, maxlen=maxlen)
@@ -150,6 +154,7 @@ def layer_stats(
     if hasattr(model.config, 'model_type') and 'qwen2' in model.config.model_type:
             npos = 4096
 
+    npos = min(npos, 4096)   # as ZeroUnlearn's loaders (Llama: 131072 positions -> 393k-token batches)
     if batch_tokens is None:
         batch_tokens = npos * 3  # Sort and divide into batches with this many tokens
     if precision is None:

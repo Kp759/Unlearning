@@ -27,6 +27,8 @@
 #      routes are trained with their own row forced, training only),
 #      ZSRE_REWORD_TAG (reworded_v2 | reworded_v1 | none: ZsRE router trained on rewordings),
 #      BASELINES ("ga gd npo rmu zerounlearn rome memit" -> <seed>/<baseline>/), SKIP_OURS (1 = baselines only),
+#      BASELINE_MOM2_DATASET / BASELINE_MOM2_TEXT (zerounlearn rome memit: covariance cache name / corpus,
+#                 scripts/build_edit_covariance.py; results on another covariance are superseded),
 #      BUILD_ROUTERS (1; 0 = fail instead of fitting a missing router, for baseline jobs)
 #      MCF_ROUTER (v22 | linear: MCF ours/genie on the stage-1 linear router instead of v2.2;
 #                  needs its own TAG so the v2.2 rows under l16_paper_v1 are never touched)
@@ -266,11 +268,24 @@ for B in ${BASELINES:-}; do
     echo "baseline $B predates early stopping: moving aside ($BD.superseded_$TS)" >&2
     mv "$BD" "$BD.superseded_$TS"
   fi
+  # locate-and-edit baselines: covariance from BASELINE_MOM2_DATASET (scripts/build_edit_covariance.py);
+  # a result built on another covariance (e.g. the 200-sentence data/wikidata fixture) is superseded
+  EDIT_ARGS=()
+  if [[ " zerounlearn rome memit " == *" $B "* && -n "${BASELINE_MOM2_DATASET:-}" ]]; then
+    EDIT_ARGS=(--mom2-dataset "$BASELINE_MOM2_DATASET")
+    [[ -n "${BASELINE_MOM2_TEXT:-}" ]] && EDIT_ARGS+=(--mom2-text "$BASELINE_MOM2_TEXT")
+    if [[ -f "$BD/$EVAL_JSON" ]] && \
+       [[ "$(jq -r '(.baseline // {}).mom2_dataset // "wikipedia"' "$BD/$EVAL_JSON" 2>/dev/null)" != "$BASELINE_MOM2_DATASET" ]]; then
+      TS="$(date +%Y%m%d_%H%M%S)"
+      echo "baseline $B used another covariance: moving aside ($BD.superseded_$TS)" >&2
+      mv "$BD" "$BD.superseded_$TS"
+    fi
+  fi
   if [[ ! -f "$BD/$EVAL_JSON" ]]; then
-    log "3b. baseline $B"
+    log "3b. baseline $B ${EDIT_ARGS[*]:-}"
     [[ -e "$BD" ]] && mv "$BD" "$BD.incomplete_$(date +%Y%m%d_%H%M%S)"
     link_run "$LIN" "$BD"
-    evaluate "$BD" --baseline "$B" --baseline-views-from "$ROUTER" ${BASELINE_ARGS:-}
+    evaluate "$BD" --baseline "$B" --baseline-views-from "$ROUTER" "${EDIT_ARGS[@]}" ${BASELINE_ARGS:-}
   fi
 done
 if [[ "${SKIP_OURS:-0}" == 1 ]]; then log "COMPLETE (baselines only) -> $OUT"; exit 0; fi

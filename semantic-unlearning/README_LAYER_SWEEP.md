@@ -425,3 +425,22 @@ Level 2, Level-2 paraphrase, Level 3) -> one of that person's rows (the run's ro
 them, else the person's first row); neighbours and PPL text -> no row. The ordinary genie routes
 only the 50 trained prompts, so its RWKU Gen is base by construction; the entity genie is the
 upper bound for the subject gate. A resubmit of a finished RWKU seed runs only this stage.
+
+### Locate-and-edit baselines on a real-Wikipedia covariance
+
+The vendored ZeroUnlearn / ROME / MEMIT loaders estimate the down_proj covariance from
+`data/wikidata`, the 200-sentence PPL fixture: 3,740 tokens, so rank <= 3,740 of the 8,192
+input dimensions. ROME inverts it and MEMIT solves (lambda C + K K^T)^-1, and their first runs
+collapsed (PPL 1e5-1e6, Eff = Gen = Spe = 0). ZeroUnlearn reads the same fixture.
+
+`scripts/build_edit_covariance.py` computes K K^T and V K^T for layers 16-18 from 100,000
+articles of the pinned Wikipedia corpus (`prepare_sure_wikipedia_corpus.py`, wikimedia/wikipedia
+20231101.en) in one bf16 pass (float32 accumulation), into the exact cache files the vendored
+code loads (same sampler, maxlen 4096, sample_size 100000). The baselines take
+`--mom2-dataset NAME --mom2-text DIR` (driver: `BASELINE_MOM2_DATASET` / `BASELINE_MOM2_TEXT`)
+and fail fast if a cache is missing; earlier results on another covariance are superseded.
+
+```bash
+bash scripts/submit_edit_baselines_wiki.sh corpus   # login node (internet), once -> /project/yl258/kp759/datasets/
+bash scripts/submit_edit_baselines_wiki.sh submit   # covariance job, then ZeroUnlearn (20) + ROME/MEMIT (40)
+```

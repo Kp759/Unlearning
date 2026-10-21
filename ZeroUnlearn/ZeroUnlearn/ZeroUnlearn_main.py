@@ -527,7 +527,8 @@ def compute_vkt_cross_covariance(
     from datasets import load_dataset, load_from_disk
     
     def get_ds():
-        data_dir = Path('data/wikidata')
+        import os
+        data_dir = Path(os.environ.get('ZU_MOM2_TEXT_DIR') or 'data/wikidata')
         if data_dir.exists():
             print(f"Loading dataset from local directory: {data_dir}")
             raw_ds = load_from_disk(str(data_dir))

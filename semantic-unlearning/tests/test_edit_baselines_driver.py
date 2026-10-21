@@ -70,3 +70,26 @@ def test_rwku_subject_gate_needs_its_own_tag(tmp_path):
                        env={**os.environ, "RWKU_GATE": "subject", "TAG": "l16_paper_v1"},
                        capture_output=True, text=True)
     assert r.returncode == 2 and "RWKU_GATE=subject needs its own TAG" in r.stderr
+
+
+def test_edit_baselines_on_another_covariance_are_rerun_with_the_mom2_flags(tmp_path):
+    import json
+    import shutil as sh
+    if sh.which("jq") is None:
+        import pytest
+        pytest.skip("jq not installed")
+    root, seed = _layout(tmp_path)
+    (seed / "zerounlearn").mkdir()
+    (seed / "zerounlearn" / "official_mcf_eval.json").write_text(json.dumps({"baseline": {"baseline": "zerounlearn"}}))
+    (seed / "memit").mkdir()
+    (seed / "memit" / "official_mcf_eval.json").write_text(json.dumps({"baseline": {"mom2_dataset": "wiki100k"}}))
+    env = {"BASELINES": "zerounlearn memit rome", "SKIP_OURS": "1", "BUILD_ROUTERS": "0",
+           "BASELINE_MOM2_DATASET": "wiki100k", "BASELINE_MOM2_TEXT": "/corpus"}
+    r, calls = _run(tmp_path, root, env)
+    assert r.returncode == 0, r.stderr
+    assert list(seed.glob("zerounlearn.superseded_*")) and list(seed.glob("rome.superseded_*"))
+    assert not list(seed.glob("memit.superseded_*"))             # already on wiki100k: kept
+    for b in ("zerounlearn", "rome"):
+        line = next(l for l in calls.splitlines() if f"--baseline {b}" in l)
+        assert "--mom2-dataset wiki100k --mom2-text /corpus" in line
+    assert "--baseline memit" not in calls

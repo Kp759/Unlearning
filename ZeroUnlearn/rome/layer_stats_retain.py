@@ -97,7 +97,8 @@ def layer_stats_retain(
     """
 
     def get_ds():
-        data_dir = Path('data/wikidata')
+        import os
+        data_dir = Path(os.environ.get('ZU_MOM2_TEXT_DIR') or 'data/wikidata')
         
         if data_dir.exists():
             print(f"Loading dataset from local directory: {data_dir}")

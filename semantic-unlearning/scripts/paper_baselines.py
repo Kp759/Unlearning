@@ -90,6 +90,14 @@ def add_args(parser):
         REPO_ROOT / "ZeroUnlearn" / "hparams" / "ROME" / "Llama-3.2-3B-Instruct.json"))
     g.add_argument("--memit-hparams", default=str(
         REPO_ROOT / "ZeroUnlearn" / "hparams" / "MEMIT" / "Llama-3.2-3B-Instruct.json"))
+    g.add_argument("--mom2-dataset", default=None,
+                   help="ZeroUnlearn / ROME / MEMIT: covariance cache name (data/stats/<model>/<name>_stats); "
+                        "precompute with scripts/build_edit_covariance.py. Default: the vendored 'wikipedia' "
+                        "entry, which the vendored loaders fill from the 200-sentence data/wikidata fixture")
+    g.add_argument("--mom2-text", default=None,
+                   help="the corpus that cache was built from (ZU_MOM2_TEXT_DIR for the vendored loaders)")
+    g.add_argument("--allow-mom2-compute", action="store_true",
+                   help="compute missing covariance caches inside the task (slow, fp32) instead of failing")
     g.add_argument("--edit-target", choices=("eos", "unknown"), default="eos",
                    help="target_new of the ZeroUnlearn / ROME / MEMIT requests: the EOS token "
                         "(ZeroUnlearn's safe state, default) or 'Unknown' (ZeroUnlearn's ZsRE setup)")
@@ -339,14 +347,43 @@ def apply_zerounlearn(args, model, tok, artifact, seed):
     reqs, skipped = zero_requests(artifact["facts"], tok, getattr(args, "edit_target", "eos"))
     params_class, apply_unl = zb.import_original_zerounlearn(Path(args.zero_root))
     hparams = params_class.from_json(Path(args.zero_hparams))
+    mom2 = configure_mom2(args, hparams, model, need_vkt=True)
     zb.set_all_seeds(seed)
     with zb.working_directory(zb.SEMANTIC_ROOT):
         apply_unl(model=model, tok=tok, retain_requests=[], unlearn_requests=reqs, hparams=hparams,
                   copy=False, return_orig_weights=False, cache_template=None, save_path=None,
                   add_retain=False, edit_layer_nums=zb.EDIT_LAYER_NUMS, use_h=zb.USE_H)
-    return {"requests": len(reqs), "facts_skipped_subject_not_in_prompt": skipped,
+    return {**mom2, "requests": len(reqs), "facts_skipped_subject_not_in_prompt": skipped,
             "layers": list(hparams.layers), "edit_module": hparams.rewrite_module_tmp,
             "neutral_target": getattr(args, "edit_target", "eos"), "retain_requests": 0}
+
+
+def configure_mom2(args, hp, model, need_vkt=False):
+    """Point a ZeroUnlearn / ROME / MEMIT hparams object at --mom2-dataset and check its caches
+    (built by scripts/build_edit_covariance.py) exist for every edited layer."""
+    import os
+
+    from build_edit_covariance import cache_paths
+
+    name = getattr(args, "mom2_dataset", None)
+    if not name:
+        return {"mom2_dataset": hp.mom2_dataset, "mom2_text": "data/wikidata (vendored default)"}
+    if getattr(args, "mom2_text", None):
+        os.environ["ZU_MOM2_TEXT_DIR"] = str(args.mom2_text)
+    hp.mom2_dataset = name
+    model_name = str(model.config._name_or_path).rsplit("/")[-1]
+    missing = []
+    for L in hp.layers:
+        k, v = cache_paths(SEMANTIC_ROOT / "data" / "stats", model_name, name, L, int(hp.mom2_n_samples),
+                           template=hp.rewrite_module_tmp)
+        missing += [str(k)] if not k.is_file() else []
+        missing += [str(v)] if need_vkt and not v.is_file() else []
+    if missing and not getattr(args, "allow_mom2_compute", False):
+        raise FileNotFoundError(
+            f"covariance cache missing for --mom2-dataset {name}: {missing[:3]}... "
+            "run scripts/build_edit_covariance.py first (or pass --allow-mom2-compute)")
+    return {"mom2_dataset": name, "mom2_text": getattr(args, "mom2_text", None),
+            "mom2_n_samples": int(hp.mom2_n_samples), "mom2_cache_missing": missing}
 
 
 def _import_zero_module(zero_root, name):
@@ -395,6 +432,7 @@ def apply_rome_memit(args, model, tok, artifact, seed, method):
     mod = _import_zero_module(args.zero_root, method)
     if method == "rome":
         hp, ignored = rome_hparams(args.rome_hparams, mod)
+        mom2 = configure_mom2(args, hp, model)
         with zb.working_directory(zb.SEMANTIC_ROOT):
             for r in reqs:
                 mod.apply_rome_to_model(model, tok, [r], hp, copy=False, return_orig_weights=False)
@@ -402,11 +440,12 @@ def apply_rome_memit(args, model, tok, artifact, seed, method):
                 "hparams": str(args.rome_hparams)}
     else:
         hp = mod.MEMITHyperParams.from_json(args.memit_hparams)
+        mom2 = configure_mom2(args, hp, model)
         with zb.working_directory(zb.SEMANTIC_ROOT):
             mod.apply_memit_to_model(model, tok, reqs, hp, copy=False, return_orig_weights=False,
                                      cache_template=None)
         info = {"update": "one batched MEMIT update for all requests", "hparams": str(args.memit_hparams)}
-    return {"requests": len(reqs), "facts_skipped_subject_not_in_prompt": skipped,
+    return {**mom2, "requests": len(reqs), "facts_skipped_subject_not_in_prompt": skipped,
             "layers": list(hp.layers), "edit_module": hp.rewrite_module_tmp,
             "neutral_target": args.edit_target, "retain_requests": 0, **info}
 
