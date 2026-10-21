@@ -15,6 +15,88 @@ python scripts/l16_paper_table.py --ours-from mcf=outputs/l16_paper_mcf_linear19
 ```
 Code: `a5a47d7` (baseline early stopping), `ebe9a8b` (MCF linear-router run), `a97bcfd` (table).
 
+## Current table (2026-10-21; means over seeds 1–5)
+
+Supersedes the main table below where they differ:
+
+- **ROME, MEMIT** added (vendored ZeroUnlearn code, `5b24c46`), on the real-Wikipedia
+  covariance (`94d43c2`; the fixture covariance collapsed them).
+- **ZeroUnlearn** re-run on the same Wikipedia covariance (was 0.094 / 1.507 / 14.76 on MCF).
+- **RWKU Ours** = linear L19 heads under the `subject` gate (`RWKU_GATE=subject`): Gen
+  39.38 → 17.96, Spe 62.76 → 57.37. **RWKU Genie** = entity genie (`3dc42c1`: held-out probes
+  about a target person routed to one of that person's rows), so its Gen is no longer = base.
+
+Means only. Std is in the per-run `paper_table_*.json`.
+
+| Dataset | Method | Eff ↓ | Gen ↓ | Spe ↑ | PPL |
+|---|---|---|---|---|---|
+| **MCF** | ROME | 4.749 | 5.636 | 18.36 | 11.46 |
+| | MEMIT | 9.563 | 8.546 | 19.76 | 11.38 |
+| | ZeroUnlearn | 0.270 | 2.313 | 15.84 | 11.55 |
+| **ZsRE** | ROME | 33.46 | 31.94 | **29.90** | 11.42 |
+| | MEMIT | 32.94 | 31.11 | 29.80 | 11.36 |
+| | ZeroUnlearn | 27.81 | 27.37 | 29.23 | 11.54 |
+| **MQuAKE** | ROME | 10.23 | 15.90 | 32.35 | 11.97 |
+| | MEMIT | 31.36 | 26.24 | 55.05 | 11.47 |
+| | ZeroUnlearn | 18.93 | 22.76 | 49.79 | 11.45 |
+| **RWKU** | ROME | 2.40 | 4.32 | 30.74 | 11.36 |
+| | MEMIT | 36.80 | 39.78 | **59.96** | 11.35 |
+| | ZeroUnlearn | 18.80 | 22.53 | 49.49 | 11.45 |
+| | **Ours (L16, subject gate)** | 2.00 | 17.96 | 57.37 | **11.31** |
+| | Genie (entity) | 0.00 | 17.75 | 63.70 | 11.31 |
+
+All other rows (Base, GA, GD, NPO, RMU; Ours / Genie on MCF, ZsRE, MQuAKE) are unchanged.
+
+Share of base Eff removed / share of base Spe kept, for the new and changed rows:
+
+| Method | MCF | ZsRE | MQuAKE | RWKU |
+|---|---|---|---|---|
+| ROME | 64.7% / 92.4% | −3.4% / 100.4% | 86.0% / 48.9% | 95.8% / 48.3% |
+| MEMIT | 29.0% / 99.4% | −1.8% / 100.0% | 57.2% / 83.2% | 36.1% / 94.1% |
+| ZeroUnlearn | 98.0% / 79.7% | 14.1% / 98.1% | 74.1% / 75.3% | 67.4% / 77.7% |
+| **Ours** | 100.0% / 99.8% | 99.1% / 100.0% | 100.0% / 83.8% | 96.5% / **90.1%** |
+
+With the subject gate, RWKU Gen is close to entity genie (17.96 vs 17.75). Spe is not:
+57.37 vs 63.70 (90.1% of base kept, down from 98.5% under the threshold gate). Genie entity
+keeps base Spe, so the 6.3-point loss comes from the router firing on neighbour probes.
+The "≥ 98.5% of base Spe on every benchmark" claim below no longer holds for RWKU.
+
+```latex
+% \usepackage{booktabs,graphicx}
+\begin{table*}[t]
+\centering
+\caption{Unlearning results on Llama-3.2-3B-Instruct (mean over 5 seeds). Eff, Gen $\downarrow$
+(forgetting); Spe $\uparrow$ (locality); PPL should stay at Base (11.31). \textbf{Bold}: best trained
+method (Base and Genie excluded; PPL: closest to Base). }
+\label{tab:main}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l cccc cccc cccc cccc}
+\toprule
+ & \multicolumn{4}{c}{MCF} & \multicolumn{4}{c}{ZsRE} & \multicolumn{4}{c}{MQuAKE} & \multicolumn{4}{c}{RWKU} \\
+\cmidrule(lr){2-5} \cmidrule(lr){6-9} \cmidrule(lr){10-13} \cmidrule(lr){14-17}
+Method & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL
+       & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL
+       & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL
+       & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL \\
+\midrule
+\textit{Base} & 13.46 & 10.26 & 19.88 & 11.31 & 32.37 & 31.20 & 29.79 & 11.31 & 73.23 & 46.44 & 66.13 & 11.31 & 57.60 & 54.77 & 63.70 & 11.31 \\
+\midrule
+GA          & 0.025 & 0.277 & 0.36 & 30.82 & 19.38 & 19.07 & 26.24 & 12.67 & 7.98 & 10.80 & 12.68 & 16.12 & 23.20 & 30.55 & 39.57 & 11.69 \\
+GD          & 0.032 & 0.321 & 0.48 & 31.00 & 19.52 & 19.40 & 26.36 & 12.91 & 9.30 & 11.92 & 14.18 & 16.48 & 23.60 & 30.46 & 39.72 & 11.80 \\
+NPO         & 0.026 & 0.160 & 0.12 & 29.02 & 17.55 & 17.52 & 25.40 & 12.72 & 4.65 & 7.78 & 8.39 & 16.58 & 18.80 & 24.08 & 30.22 & 14.00 \\
+RMU         & 0.008 & \textbf{0.039} & 1.00 & 11.50 & \textbf{0.00} & \textbf{0.05} & 7.55 & 11.49 & 0.30 & \textbf{6.89} & 0.67 & 11.48 & \textbf{0.80} & \textbf{0.27} & 0.14 & 11.43 \\
+ROME        & 4.749 & 5.636 & 18.36 & 11.46 & 33.46 & 31.94 & \textbf{29.90} & 11.42 & 10.23 & 15.90 & 32.35 & 11.97 & 2.40 & 4.32 & 30.74 & 11.36 \\
+MEMIT       & 9.563 & 8.546 & 19.76 & 11.38 & 32.94 & 31.11 & 29.80 & 11.36 & 31.36 & 26.24 & 55.05 & 11.47 & 36.80 & 39.78 & \textbf{59.96} & 11.35 \\
+ZeroUnlearn & 0.270 & 2.313 & 15.84 & 11.55 & 27.81 & 27.37 & 29.23 & 11.54 & 18.93 & 22.76 & 49.79 & 11.45 & 18.80 & 22.53 & 49.49 & 11.45 \\
+\midrule
+Ours (L16)  & \textbf{0.001} & 0.086 & \textbf{19.84} & \textbf{11.31} & 0.30 & 1.44 & 29.79 & \textbf{11.31} & \textbf{0.00} & 7.20 & \textbf{55.43} & \textbf{11.31} & 2.00 & 17.96 & 57.37 & \textbf{11.31} \\
+\midrule
+\textit{Genie} & 0.001 & 0.002 & 19.88 & 11.31 & 0.00 & 0.00 & 29.79 & 11.31 & 0.00 & 0.00 & 56.21 & 11.31 & 0.00 & 17.75 & 63.70 & 11.31 \\
+\bottomrule
+\end{tabular}}
+\end{table*}
+```
+
 ## Main table (mean ± std over seeds 1–5)
 
 | Dataset | Method | Eff ↓ | Gen ↓ | Spe ↑ | Spe† ↑ | PPL |
