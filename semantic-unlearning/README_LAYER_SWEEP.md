@@ -444,3 +444,14 @@ and fail fast if a cache is missing; earlier results on another covariance are s
 bash scripts/submit_edit_baselines_wiki.sh corpus   # login node (internet), once -> /project/yl258/kp759/datasets/
 bash scripts/submit_edit_baselines_wiki.sh submit   # covariance job, then ZeroUnlearn (20) + ROME/MEMIT (40)
 ```
+
+### Router diagnostics (why L19, where ours loses to genie)
+
+Per-prompt error analysis of the paper's L19 router on all four benchmarks, the same router
+refit at every layer from cached states, L19 vs the penultimate layer, and robustness variants
+(hard negatives, augmentation, multi-layer features, fuzzy / no subject gate, ECE). See
+`README_ROUTER_DIAGNOSTICS.md`.
+
+```bash
+bash scripts/submit_router_diag.sh   # -> outputs/router_diag_v1/{<ds>/seed1/report/summary.md, ROUTER_LAYER_CHOICE.md}
+```
