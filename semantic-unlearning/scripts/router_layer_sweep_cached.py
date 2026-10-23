@@ -536,7 +536,10 @@ def sweep_cache(cache_dir, args):
     out_dir.mkdir(exist_ok=True)
     path = out_dir / "sweep.json"
     done = json.loads(path.read_text()) if path.is_file() and not args.overwrite else {"sweep": [], "robust": []}
-    have = {(e["variant"], tuple(e["layers"]), e["rule"]) for e in done["sweep"] + done["robust"]}
+    # Separate resume keys: a layer-sweep entry ("baseline", (L,), rule; exact eligibility only)
+    # must not mark the robustness "baseline" at L (exact, fuzzy and no eligibility) as done.
+    have_sweep = {(e["variant"], tuple(e["layers"]), e["rule"]) for e in done["sweep"]}
+    have = {(e["variant"], tuple(e["layers"]), e["rule"]) for e in done["robust"]}
     fit = m.get("router_fit") or {}
     fixed = (float(fit.get("selected_l2", 1e-3)), int(fit.get("selected_pca_dim", 0) or 0))
     hparams = "cv" if args.hparams == "cv" else fixed
@@ -560,7 +563,7 @@ def sweep_cache(cache_dir, args):
         layers = []
     for layer in layers:
         for rule in rules:
-            if ("baseline", (layer,), rule) in have:
+            if ("baseline", (layer,), rule) in have_sweep:
                 continue
             t0 = time.time()
             entry = run_config(cache, variant="baseline", layers=[layer], rule=rule,

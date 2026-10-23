@@ -51,6 +51,17 @@ Each task runs three steps:
 The last task to finish writes `outputs/router_diag_v1/ROUTER_LAYER_CHOICE.md`. Locally,
 every step runs from a copied cache on CPU (`--device cpu`).
 
+**Staged run** (`sbatch router_diag_staged.slurm`): the same outputs, step by step in the order
+of the to-do list, with a banner per step in `logs/rdiag_s_<job>_<task>.out`:
+1. cache, then stop unless hook parity is 0;
+2. report;
+3. layer sweep, then stop unless the L19 refit reproduces the shipped router (`MIN_AGREEMENT`, 0.99);
+4. downstream at the penultimate layer, only if routing improves there. The command is written to `layer_sweep/downstream_penultimate.sh`, and submitted as its own 24 h job with `RUN_DOWNSTREAM=1`;
+5. robustness variants;
+6. combine.
+
+It refuses to start while a `router_diag.slurm` job is queued, because both write the same outputs.
+
 **Fidelity checks** (in `manifest.json` and the report header):
 - **Hook parity.** A sample of eval prompts goes through the real `LinearClassifierAssociationBank` hook, both batched and one at a time. It must agree with the cached decision (0 mismatches).
 - **Dtypes match the pipeline.** Eval states are cached in bfloat16, as every evaluator runs. Train states are cached in float32, the dtype `fit_linear_router.py` fit in.
