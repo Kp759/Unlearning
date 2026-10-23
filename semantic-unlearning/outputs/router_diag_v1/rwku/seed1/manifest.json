@@ -1,0 +1,1494 @@
+{
+  "dataset": "rwku",
+  "seed": 1,
+  "router_dir": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/rwku_multiseed_subject_v1/seed1/L19/router",
+  "model_path": "/mmfs1/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "router_layer": 19,
+  "layers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27
+  ],
+  "n_layers": 28,
+  "gate_mode": "subject",
+  "threshold": -Infinity,
+  "ambiguity_margin": 0.0,
+  "router_fit": {
+    "benchmark": "rwku",
+    "gate_mode": "subject",
+    "example_source": "facts_canonical_prompts_plus_context_prefix_families",
+    "split_rule": "shipped",
+    "selected_l2": 1e-07,
+    "selected_pca_dim": 0,
+    "threshold_logit": null,
+    "decision_rule": "subject_gate",
+    "calibrated_cutoff_folded_into_bias": false,
+    "runtime_threshold_logit": null,
+    "bias_shift": null,
+    "ambiguity_margin": 0.0,
+    "target_fpr": null,
+    "min_recall": null,
+    "threshold_policy": "subject_gate",
+    "per_head_fraction": null,
+    "per_head_slack": null,
+    "per_head_shrink": null,
+    "answer_groups": true,
+    "threshold_placement_fraction": null,
+    "fit_info": {
+      "objective": 0.007036574431728584,
+      "max_abs_gradient": 8.880568396122429e-10,
+      "lbfgs_iterations": 158,
+      "lbfgs_function_evaluations": 173,
+      "converged": true,
+      "l2": 1e-07,
+      "pca_dim": 0,
+      "feature_dim": 3072,
+      "balance": true,
+      "heads": 50,
+      "eligible_pairs": 2600,
+      "positive_pairs": 150,
+      "training_errors_at_logit_zero": 0,
+      "linearly_separated_on_fit": true,
+      "heads_without_positive": [],
+      "heads_without_negative": [],
+      "router_parameters": 153650,
+      "fit_pairs_per_parameter": 0.016921575008135372,
+      "fit_device": "cuda:0"
+    },
+    "audit": {
+      "correct_route": {
+        "rate": 1.0,
+        "low": 0.9286499658256813,
+        "high": 1.0,
+        "n": 50,
+        "k": 50
+      },
+      "wrong_row_on_positive": {
+        "rate": 0.0,
+        "low": 0.0,
+        "high": 0.07135003417431873,
+        "n": 50,
+        "k": 0
+      },
+      "abstain_on_positive": {
+        "rate": 0.0,
+        "low": 0.0,
+        "high": 0.07135003417431873,
+        "n": 50,
+        "k": 0
+      },
+      "false_activation_on_negative_control": {
+        "rate": 1.0,
+        "low": 0.9010957324106112,
+        "high": 1.0,
+        "n": 35,
+        "k": 35
+      },
+      "ambiguity_rejections": 0,
+      "correct_subject_row_on_positive": {
+        "rate": 1.0,
+        "low": 0.9286499658256813,
+        "high": 1.0,
+        "n": 50,
+        "k": 50
+      }
+    },
+    "source_run_dir": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/rwku_multiseed_subject_v1/seed1/L19/prep",
+    "head_sharing": {
+      "mode": "fact"
+    }
+  },
+  "facts": [
+    {
+      "id": "rwku_assoc_1_2a81f27a91bd",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_faf767d4ec42",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_1ea5cf6ea2b0",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_9977c51af210",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_2e91e3b7dd64",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_4b7de26f234b",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_b521d498040b",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_6d0692c765b1",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_cbe3b2a9964a",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_5e5b2677118f",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_9fed29fdd12f",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_46c9ad1717ef",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_c91fe596ad8b",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_0f4be6889f08",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_fb4c05910b01",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_b497b9ac89a7",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_bd758e4bb739",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_941ce31d0520",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_f20dfb284183",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_0d9ea5215be8",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_f8c40e020082",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_f8b21edcba2a",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_ac07aa2905e7",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_49397220f2d3",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_20f04bb110db",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_22432421ae89",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_2635902a14bb",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_2119d9c8f9bc",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_4aa4cccafe9c",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_dc0428a3f41d",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_be03c3f68ac4",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_4f98770b1047",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_9c9b37be3e1f",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_a66111f78949",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_093cd7391f35",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_3f6a78a98e61",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_30a1e2af82c1",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_452ba1b5b3c5",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_31c7562c8060",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_da10d456f354",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_7a1433677e3f",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_a71f4e99c18c",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_9e0f66187a93",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_abb68d217a42",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_0f1b6b19b009",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_f8166ba53ad3",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_fec5be236396",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_056ac616d49f",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_697c9566b1a7",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_655b0390bd57",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    }
+  ],
+  "subject_patterns": [
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ]
+  ],
+  "notes": {
+    "train_source": "linear_router_dataset.json"
+  },
+  "git_commit": "95e824a3800cbd20cdf46f68260b3cfedd63717f",
+  "command": [
+    "scripts/cache_router_states.py",
+    "--dataset",
+    "rwku",
+    "--seed",
+    "1",
+    "--out-dir",
+    "outputs/router_diag_v1/rwku/seed1",
+    "--device",
+    "cuda",
+    "--local-files-only",
+    "--ours-dir",
+    "outputs/l16_paper_rwku_subject_v1/rwku/seed1/ours"
+  ],
+  "sections": {
+    "train": {
+      "probes": 430,
+      "dtype": "float32",
+      "seconds": 10.7,
+      "fired": 430,
+      "counts": {
+        "fit/canonical_0": {
+          "n": 90,
+          "should_fire": 50
+        },
+        "fit/context_prefix_0": {
+          "n": 85,
+          "should_fire": 50
+        },
+        "fit/context_prefix_1": {
+          "n": 85,
+          "should_fire": 50
+        },
+        "calibration/context_prefix_2": {
+          "n": 85,
+          "should_fire": 50
+        },
+        "audit/context_prefix_3": {
+          "n": 85,
+          "should_fire": 50
+        }
+      }
+    },
+    "aug": {
+      "probes": 663,
+      "dtype": "float32",
+      "seconds": 17.0,
+      "fired": 513,
+      "counts": {
+        "fit/aug_adversarial_2": {
+          "n": 64,
+          "should_fire": 38
+        },
+        "fit/aug_context_typo": {
+          "n": 71,
+          "should_fire": 40
+        },
+        "fit/aug_prefix_3": {
+          "n": 65,
+          "should_fire": 34
+        },
+        "fit/aug_adversarial_0": {
+          "n": 63,
+          "should_fire": 38
+        },
+        "fit/aug_prefix_2": {
+          "n": 61,
+          "should_fire": 36
+        },
+        "fit/aug_prefix_1": {
+          "n": 67,
+          "should_fire": 41
+        },
+        "fit/aug_adversarial_1": {
+          "n": 57,
+          "should_fire": 29
+        },
+        "fit/aug_prefix_0": {
+          "n": 65,
+          "should_fire": 37
+        },
+        "fit/hardneg_same_relation": {
+          "n": 150,
+          "should_fire": 0
+        }
+      }
+    },
+    "eval": {
+      "probes": 645,
+      "dtype": "bfloat16",
+      "seconds": 2.2,
+      "fired": 307,
+      "counts": {
+        "forget/same50": {
+          "n": 50,
+          "should_fire": 50
+        },
+        "paraphrase/heldout_level1": {
+          "n": 43,
+          "should_fire": 43
+        },
+        "paraphrase/heldout_level2": {
+          "n": 50,
+          "should_fire": 50
+        },
+        "paraphrase/heldout_paraphrase": {
+          "n": 50,
+          "should_fire": 50
+        },
+        "paraphrase/adversarial_level3": {
+          "n": 173,
+          "should_fire": 173
+        },
+        "neighborhood/neighbors": {
+          "n": 279,
+          "should_fire": 0
+        }
+      }
+    },
+    "null": {
+      "probes": 264,
+      "dtype": "bfloat16",
+      "seconds": 0.8,
+      "fired": 25,
+      "counts": {
+        "null/null_generic": {
+          "n": 40,
+          "should_fire": 0
+        },
+        "null/null_unseen_subject": {
+          "n": 100,
+          "should_fire": 0
+        },
+        "null/null_protected_other_relation": {
+          "n": 25,
+          "should_fire": 25
+        },
+        "null/null_ppl_prefix": {
+          "n": 99,
+          "should_fire": 0
+        }
+      }
+    },
+    "perturbed": {
+      "probes": 867,
+      "dtype": "bfloat16",
+      "seconds": 2.9,
+      "fired": 626,
+      "counts": {
+        "forget/same50": {
+          "n": 150,
+          "should_fire": 150
+        },
+        "paraphrase/heldout_level1": {
+          "n": 129,
+          "should_fire": 129
+        },
+        "paraphrase/heldout_level2": {
+          "n": 150,
+          "should_fire": 150
+        },
+        "paraphrase/heldout_paraphrase": {
+          "n": 150,
+          "should_fire": 150
+        },
+        "paraphrase/adversarial_level3": {
+          "n": 288,
+          "should_fire": 288
+        }
+      }
+    }
+  },
+  "hook_parity": {
+    "batched": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "examples": []
+    },
+    "single": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "examples": []
+    }
+  },
+  "router_pass_timing_ms_per_prompt": {
+    "full_forward": 3.1082279538168223,
+    "stop_after_L19": 1.9474758282740368,
+    "stop_after_L26": 2.593018023617333,
+    "fraction_of_full": {
+      "stop_after_L19": 0.6265550201627225,
+      "stop_after_L26": 0.8342431964918064
+    },
+    "blocks": 28,
+    "prompts_timed": 128
+  },
+  "null_generations": {
+    "fired_null_prompts": 0,
+    "rows": []
+  },
+  "seconds": 47.4
+}

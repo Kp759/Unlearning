@@ -1,0 +1,48 @@
+{
+  "deployed": {
+    "rule": "deployed",
+    "L19": {
+      "fpr": 0.053763440860215055,
+      "fnr": 0.20218579234972678,
+      "precision": 0.9511400651465798,
+      "recall": 0.7978142076502732,
+      "f1": 0.8677563150074294,
+      "correct_row_rate": 0.7978142076502732
+    },
+    "L26": {
+      "fpr": 0.053763440860215055,
+      "fnr": 0.20218579234972678,
+      "precision": 0.9511400651465798,
+      "recall": 0.7978142076502732,
+      "f1": 0.8677563150074294,
+      "correct_row_rate": 0.7978142076502732
+    },
+    "L19_null_fpr": 0.0,
+    "L26_null_fpr": 0.0,
+    "routing_improves": false,
+    "criterion": "higher F1 on the official eval prompts with no higher eval FPR and no higher null-prompt FPR"
+  },
+  "threshold": {
+    "rule": "threshold",
+    "L19": {
+      "fpr": 0.0,
+      "fnr": 0.7923497267759563,
+      "precision": 1.0,
+      "recall": 0.20765027322404372,
+      "f1": 0.3438914027149321,
+      "correct_row_rate": 0.20765027322404372
+    },
+    "L26": {
+      "fpr": 0.0035842293906810036,
+      "fnr": 0.6666666666666666,
+      "precision": 0.991869918699187,
+      "recall": 0.3333333333333333,
+      "f1": 0.4989775051124744,
+      "correct_row_rate": 0.3333333333333333
+    },
+    "L19_null_fpr": 0.0,
+    "L26_null_fpr": 0.0,
+    "routing_improves": false,
+    "criterion": "higher F1 on the official eval prompts with no higher eval FPR and no higher null-prompt FPR"
+  }
+}

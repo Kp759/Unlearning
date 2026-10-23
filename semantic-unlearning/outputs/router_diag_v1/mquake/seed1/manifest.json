@@ -1,0 +1,2541 @@
+{
+  "dataset": "mquake",
+  "seed": 1,
+  "router_dir": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/mquake_multiseed_regular_v1/seed1/L19/router",
+  "model_path": "/mmfs1/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "router_layer": 19,
+  "layers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27
+  ],
+  "n_layers": 28,
+  "gate_mode": "threshold",
+  "threshold": 0.0,
+  "ambiguity_margin": 0.5,
+  "router_fit": {
+    "benchmark": "mquake",
+    "gate_mode": "threshold",
+    "example_source": "facts_canonical_prompts_plus_context_prefix_families",
+    "split_rule": "shipped",
+    "selected_l2": 1e-05,
+    "selected_pca_dim": 0,
+    "threshold_logit": -2.8640172481536865,
+    "decision_rule": "calibrated_bias",
+    "calibrated_cutoff_folded_into_bias": true,
+    "runtime_threshold_logit": 0.0,
+    "bias_shift": -2.8640172481536865,
+    "ambiguity_margin": 0.5,
+    "target_fpr": null,
+    "min_recall": 0.98,
+    "threshold_policy": "global",
+    "per_head_fraction": 0.1,
+    "per_head_slack": 0.5,
+    "per_head_shrink": 0.0,
+    "answer_groups": true,
+    "threshold_placement_fraction": 0.1,
+    "fit_info": {
+      "objective": 0.46310379963303183,
+      "max_abs_gradient": 9.895747331834084e-10,
+      "lbfgs_iterations": 370,
+      "lbfgs_function_evaluations": 487,
+      "converged": true,
+      "l2": 1e-05,
+      "pca_dim": 0,
+      "feature_dim": 3072,
+      "balance": true,
+      "heads": 105,
+      "eligible_pairs": 2802,
+      "positive_pairs": 315,
+      "training_errors_at_logit_zero": 0,
+      "linearly_separated_on_fit": true,
+      "heads_without_positive": [],
+      "heads_without_negative": [],
+      "router_parameters": 322665,
+      "fit_pairs_per_parameter": 0.008683929152526615,
+      "fit_device": "cuda:0"
+    },
+    "audit": {
+      "correct_route": {
+        "rate": 1.0,
+        "low": 0.9647046717431569,
+        "high": 0.9999999999999998,
+        "n": 105,
+        "k": 105
+      },
+      "wrong_row_on_positive": {
+        "rate": 0.0,
+        "low": 0.0,
+        "high": 0.035295328256842964,
+        "n": 105,
+        "k": 0
+      },
+      "abstain_on_positive": {
+        "rate": 0.0,
+        "low": 0.0,
+        "high": 0.035295328256842964,
+        "n": 105,
+        "k": 0
+      },
+      "false_activation_on_negative_control": {
+        "rate": 0.058011049723756904,
+        "low": 0.043201365492138016,
+        "high": 0.07748643251226295,
+        "n": 724,
+        "k": 42
+      },
+      "ambiguity_rejections": 0,
+      "correct_subject_row_on_positive": {
+        "rate": 1.0,
+        "low": 0.9647046717431569,
+        "high": 0.9999999999999998,
+        "n": 105,
+        "k": 105
+      }
+    },
+    "source_run_dir": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/mquake_multiseed_regular_v1/seed1/L19/prep",
+    "head_sharing": {
+      "mode": "fact"
+    }
+  },
+  "facts": [
+    {
+      "id": "mquake_assoc_177500",
+      "subject": "Gregory XV",
+      "relation": "P140"
+    },
+    {
+      "id": "mquake_assoc_266500",
+      "subject": "Ford Motor Company",
+      "relation": "P112"
+    },
+    {
+      "id": "mquake_assoc_162900",
+      "subject": "baseball",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_174100",
+      "subject": "jazz",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_251400",
+      "subject": "YouTube Original Channel Initiative",
+      "relation": "P170"
+    },
+    {
+      "id": "mquake_assoc_251401",
+      "subject": "Hasbro, Inc.",
+      "relation": "P169"
+    },
+    {
+      "id": "mquake_assoc_251402",
+      "subject": "Jay-Z",
+      "relation": "P19"
+    },
+    {
+      "id": "mquake_assoc_251403",
+      "subject": "Cairo",
+      "relation": "P37"
+    },
+    {
+      "id": "mquake_assoc_242000",
+      "subject": "Iran national football team",
+      "relation": "P286"
+    },
+    {
+      "id": "mquake_assoc_242001",
+      "subject": "Tom Thibodeau",
+      "relation": "P641"
+    },
+    {
+      "id": "mquake_assoc_242002",
+      "subject": "savate",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_242003",
+      "subject": "United States of America",
+      "relation": "P36"
+    },
+    {
+      "id": "mquake_assoc_246700",
+      "subject": "Cersei Lannister",
+      "relation": "P170"
+    },
+    {
+      "id": "mquake_assoc_246701",
+      "subject": "J. K. Rowling",
+      "relation": "P27"
+    },
+    {
+      "id": "mquake_assoc_246702",
+      "subject": "United States of America",
+      "relation": "P37"
+    },
+    {
+      "id": "mquake_assoc_283400",
+      "subject": "Something",
+      "relation": "P175"
+    },
+    {
+      "id": "mquake_assoc_283401",
+      "subject": "Madonna",
+      "relation": "P1037"
+    },
+    {
+      "id": "mquake_assoc_283402",
+      "subject": "Narendra Modi",
+      "relation": "P27"
+    },
+    {
+      "id": "mquake_assoc_283403",
+      "subject": "Australia",
+      "relation": "P36"
+    },
+    {
+      "id": "mquake_assoc_227700",
+      "subject": "Michelle Dockery",
+      "relation": "P800"
+    },
+    {
+      "id": "mquake_assoc_227701",
+      "subject": "Mona Lisa",
+      "relation": "P170"
+    },
+    {
+      "id": "mquake_assoc_227702",
+      "subject": "France",
+      "relation": "P30"
+    },
+    {
+      "id": "mquake_assoc_192900",
+      "subject": "Hampshire Senior Cup",
+      "relation": "P641"
+    },
+    {
+      "id": "mquake_assoc_192901",
+      "subject": "People's Republic of China",
+      "relation": "P30"
+    },
+    {
+      "id": "mquake_assoc_169200",
+      "subject": "basketball",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_249900",
+      "subject": "Microsoft",
+      "relation": "P169"
+    },
+    {
+      "id": "mquake_assoc_249901",
+      "subject": "Steve Jobs",
+      "relation": "P19"
+    },
+    {
+      "id": "mquake_assoc_155800",
+      "subject": "Chertsey Cricket Club",
+      "relation": "P641"
+    },
+    {
+      "id": "mquake_assoc_155801",
+      "subject": "association football",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_155802",
+      "subject": "Italy",
+      "relation": "P30"
+    },
+    {
+      "id": "mquake_assoc_229800",
+      "subject": "The Beatles",
+      "relation": "P1037"
+    },
+    {
+      "id": "mquake_assoc_229801",
+      "subject": "Joe Hockey",
+      "relation": "P27"
+    },
+    {
+      "id": "mquake_assoc_229802",
+      "subject": "Italy",
+      "relation": "P36"
+    },
+    {
+      "id": "mquake_assoc_238600",
+      "subject": "Chicago Bulls",
+      "relation": "P286"
+    },
+    {
+      "id": "mquake_assoc_274400",
+      "subject": "FIFA",
+      "relation": "P488"
+    },
+    {
+      "id": "mquake_assoc_274401",
+      "subject": "Vitaliy Klitschko",
+      "relation": "P641"
+    },
+    {
+      "id": "mquake_assoc_274402",
+      "subject": "field hockey",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_292500",
+      "subject": "Darren Fletcher",
+      "relation": "P413"
+    },
+    {
+      "id": "mquake_assoc_292501",
+      "subject": "cornerback",
+      "relation": "P641"
+    },
+    {
+      "id": "mquake_assoc_241200",
+      "subject": "Free as a Bird",
+      "relation": "P175"
+    },
+    {
+      "id": "mquake_assoc_241201",
+      "subject": "Chicago Symphony Orchestra",
+      "relation": "P1037"
+    },
+    {
+      "id": "mquake_assoc_241202",
+      "subject": "Brian Epstein",
+      "relation": "P20"
+    },
+    {
+      "id": "mquake_assoc_241203",
+      "subject": "Iran",
+      "relation": "P30"
+    },
+    {
+      "id": "mquake_assoc_204500",
+      "subject": "Tim Howard",
+      "relation": "P413"
+    },
+    {
+      "id": "mquake_assoc_204501",
+      "subject": "second baseman",
+      "relation": "P641"
+    },
+    {
+      "id": "mquake_assoc_204502",
+      "subject": "petanque",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_297700",
+      "subject": "Bf 109",
+      "relation": "P178"
+    },
+    {
+      "id": "mquake_assoc_297701",
+      "subject": "Sikorsky Aircraft Corporation",
+      "relation": "P112"
+    },
+    {
+      "id": "mquake_assoc_297702",
+      "subject": "United Kingdom",
+      "relation": "P36"
+    },
+    {
+      "id": "mquake_assoc_196800",
+      "subject": "Matteo Renzi",
+      "relation": "P140"
+    },
+    {
+      "id": "mquake_assoc_196801",
+      "subject": "Christian Science",
+      "relation": "P112"
+    },
+    {
+      "id": "mquake_assoc_271000",
+      "subject": "The Life of Pablo",
+      "relation": "P175"
+    },
+    {
+      "id": "mquake_assoc_271001",
+      "subject": "Elvis Presley",
+      "relation": "P26"
+    },
+    {
+      "id": "mquake_assoc_271002",
+      "subject": "Charles the Bold",
+      "relation": "P27"
+    },
+    {
+      "id": "mquake_assoc_271003",
+      "subject": "South Korea",
+      "relation": "P36"
+    },
+    {
+      "id": "mquake_assoc_170900",
+      "subject": "Joseph Cao",
+      "relation": "P140"
+    },
+    {
+      "id": "mquake_assoc_215000",
+      "subject": "J\u00e9r\u00f4me Bonaparte",
+      "relation": "P140"
+    },
+    {
+      "id": "mquake_assoc_154500",
+      "subject": "Joe Lovano",
+      "relation": "P69"
+    },
+    {
+      "id": "mquake_assoc_154501",
+      "subject": "Chicago",
+      "relation": "P112"
+    },
+    {
+      "id": "mquake_assoc_155200",
+      "subject": "Michael Corleone",
+      "relation": "P170"
+    },
+    {
+      "id": "mquake_assoc_155201",
+      "subject": "Chris Claremont",
+      "relation": "P800"
+    },
+    {
+      "id": "mquake_assoc_155202",
+      "subject": "Blue Peter",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_283000",
+      "subject": "Gran Turismo 4",
+      "relation": "P178"
+    },
+    {
+      "id": "mquake_assoc_283001",
+      "subject": "Blizzard Entertainment",
+      "relation": "P1037"
+    },
+    {
+      "id": "mquake_assoc_283002",
+      "subject": "Eben Moglen",
+      "relation": "P27"
+    },
+    {
+      "id": "mquake_assoc_283003",
+      "subject": "Taiwan",
+      "relation": "P36"
+    },
+    {
+      "id": "mquake_assoc_260800",
+      "subject": "ActiveX",
+      "relation": "P178"
+    },
+    {
+      "id": "mquake_assoc_260801",
+      "subject": "BlackBerry",
+      "relation": "P169"
+    },
+    {
+      "id": "mquake_assoc_260802",
+      "subject": "Carlos Slim",
+      "relation": "P19"
+    },
+    {
+      "id": "mquake_assoc_260803",
+      "subject": "Vancouver",
+      "relation": "P30"
+    },
+    {
+      "id": "mquake_assoc_228000",
+      "subject": "American Broadcasting Company",
+      "relation": "P1037"
+    },
+    {
+      "id": "mquake_assoc_228001",
+      "subject": "Ernst Heinkel",
+      "relation": "P27"
+    },
+    {
+      "id": "mquake_assoc_228002",
+      "subject": "Tang Empire",
+      "relation": "P36"
+    },
+    {
+      "id": "mquake_assoc_290500",
+      "subject": "Hope Solo",
+      "relation": "P413"
+    },
+    {
+      "id": "mquake_assoc_290501",
+      "subject": "midfielder",
+      "relation": "P641"
+    },
+    {
+      "id": "mquake_assoc_290502",
+      "subject": "sumo",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_236400",
+      "subject": "Enrico Villanueva",
+      "relation": "P413"
+    },
+    {
+      "id": "mquake_assoc_236402",
+      "subject": "Japan",
+      "relation": "P36"
+    },
+    {
+      "id": "mquake_assoc_298600",
+      "subject": "Pablo Aimar",
+      "relation": "P413"
+    },
+    {
+      "id": "mquake_assoc_298601",
+      "subject": "goalkeeper",
+      "relation": "P641"
+    },
+    {
+      "id": "mquake_assoc_298602",
+      "subject": "Gaelic football",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_298603",
+      "subject": "India",
+      "relation": "P30"
+    },
+    {
+      "id": "mquake_assoc_155900",
+      "subject": "Jaguar XJS",
+      "relation": "P176"
+    },
+    {
+      "id": "mquake_assoc_155901",
+      "subject": "Apple Inc.",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_155902",
+      "subject": "United Kingdom",
+      "relation": "P35"
+    },
+    {
+      "id": "mquake_assoc_258000",
+      "subject": "Crazy Train",
+      "relation": "P175"
+    },
+    {
+      "id": "mquake_assoc_258001",
+      "subject": "Beyonc\u00e9",
+      "relation": "P26"
+    },
+    {
+      "id": "mquake_assoc_258002",
+      "subject": "Robert Holmes \u00e0 Court",
+      "relation": "P27"
+    },
+    {
+      "id": "mquake_assoc_239600",
+      "subject": "Ford RS200",
+      "relation": "P176"
+    },
+    {
+      "id": "mquake_assoc_239601",
+      "subject": "Jaguar Cars",
+      "relation": "P112"
+    },
+    {
+      "id": "mquake_assoc_239602",
+      "subject": "Eug\u00e8ne Schneider",
+      "relation": "P27"
+    },
+    {
+      "id": "mquake_assoc_263200",
+      "subject": "Bing Maps",
+      "relation": "P178"
+    },
+    {
+      "id": "mquake_assoc_263201",
+      "subject": "Oculus VR, LLC",
+      "relation": "P169"
+    },
+    {
+      "id": "mquake_assoc_197700",
+      "subject": "rugby union",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_220700",
+      "subject": "Innocent VIII",
+      "relation": "P140"
+    },
+    {
+      "id": "mquake_assoc_197200",
+      "subject": "Givenchy",
+      "relation": "P112"
+    },
+    {
+      "id": "mquake_assoc_288600",
+      "subject": "MacWrite",
+      "relation": "P178"
+    },
+    {
+      "id": "mquake_assoc_288602",
+      "subject": "Steve Jobs",
+      "relation": "P27"
+    },
+    {
+      "id": "mquake_assoc_194800",
+      "subject": "Carlo Cudicini",
+      "relation": "P413"
+    },
+    {
+      "id": "mquake_assoc_194801",
+      "subject": "defenceman",
+      "relation": "P641"
+    },
+    {
+      "id": "mquake_assoc_194802",
+      "subject": "roller derby",
+      "relation": "P495"
+    },
+    {
+      "id": "mquake_assoc_244100",
+      "subject": "WWF Wrestling Challenge",
+      "relation": "P170"
+    },
+    {
+      "id": "mquake_assoc_244101",
+      "subject": "J. R. R. Tolkien",
+      "relation": "P26"
+    },
+    {
+      "id": "mquake_assoc_244102",
+      "subject": "Catherine II of Russia",
+      "relation": "P27"
+    },
+    {
+      "id": "mquake_assoc_209300",
+      "subject": "Danny Thompson",
+      "relation": "P136"
+    }
+  ],
+  "subject_patterns": [
+    [
+      [
+        44612,
+        683,
+        53694
+      ],
+      [
+        44069,
+        53694
+      ]
+    ],
+    [
+      [
+        59663,
+        18079,
+        8351
+      ],
+      [
+        14337,
+        18079,
+        8351
+      ]
+    ],
+    [
+      [
+        3231,
+        4047
+      ],
+      [
+        20075
+      ]
+    ],
+    [
+      [
+        73,
+        10002
+      ],
+      [
+        34997
+      ]
+    ],
+    [
+      [
+        54846,
+        17674,
+        13740,
+        38756
+      ],
+      [
+        13674,
+        17674,
+        13740,
+        38756
+      ]
+    ],
+    [
+      [
+        10493,
+        15222,
+        11,
+        4953,
+        13
+      ],
+      [
+        11697,
+        15222,
+        11,
+        4953,
+        13
+      ]
+    ],
+    [
+      [
+        64755,
+        11419
+      ],
+      [
+        19455,
+        11419
+      ]
+    ],
+    [
+      [
+        34,
+        26630
+      ],
+      [
+        53650
+      ]
+    ],
+    [
+      [
+        62819,
+        5426,
+        9141,
+        2128
+      ],
+      [
+        10471,
+        5426,
+        9141,
+        2128
+      ]
+    ],
+    [
+      [
+        25763,
+        666,
+        581,
+        536,
+        2933
+      ],
+      [
+        8529,
+        666,
+        581,
+        536,
+        2933
+      ]
+    ],
+    [
+      [
+        95351,
+        349
+      ],
+      [
+        11427,
+        349
+      ]
+    ],
+    [
+      [
+        23175,
+        4273,
+        315,
+        5270
+      ],
+      [
+        3723,
+        4273,
+        315,
+        5270
+      ]
+    ],
+    [
+      [
+        34,
+        261,
+        73868,
+        445,
+        1036,
+        1601
+      ],
+      [
+        28764,
+        73868,
+        445,
+        1036,
+        1601
+      ]
+    ],
+    [
+      [
+        41,
+        13,
+        735,
+        13,
+        96607
+      ],
+      [
+        622,
+        13,
+        735,
+        13,
+        96607
+      ]
+    ],
+    [
+      [
+        23175,
+        4273,
+        315,
+        5270
+      ],
+      [
+        3723,
+        4273,
+        315,
+        5270
+      ]
+    ],
+    [
+      [
+        23958
+      ],
+      [
+        25681
+      ]
+    ],
+    [
+      [
+        38136,
+        13767
+      ],
+      [
+        81669
+      ]
+    ],
+    [
+      [
+        45,
+        64594,
+        35489
+      ],
+      [
+        67432,
+        35489
+      ]
+    ],
+    [
+      [
+        49137
+      ],
+      [
+        8494
+      ]
+    ],
+    [
+      [
+        83862,
+        45201,
+        727
+      ],
+      [
+        33126,
+        45201,
+        727
+      ]
+    ],
+    [
+      [
+        44,
+        6863,
+        29656
+      ],
+      [
+        99883,
+        29656
+      ]
+    ],
+    [
+      [
+        50100
+      ],
+      [
+        9822
+      ]
+    ],
+    [
+      [
+        39,
+        1141,
+        15255,
+        19903,
+        11098
+      ],
+      [
+        31997,
+        19903,
+        11098
+      ]
+    ],
+    [
+      [
+        16298,
+        596,
+        5545,
+        315,
+        5734
+      ],
+      [
+        9029,
+        596,
+        5545,
+        315,
+        5734
+      ]
+    ],
+    [
+      [
+        60864,
+        4047
+      ],
+      [
+        19794
+      ]
+    ],
+    [
+      [
+        13068
+      ],
+      [
+        5210
+      ]
+    ],
+    [
+      [
+        38595,
+        23946
+      ],
+      [
+        14129,
+        23946
+      ]
+    ],
+    [
+      [
+        1163,
+        531,
+        8674,
+        59019,
+        10349
+      ],
+      [
+        921,
+        531,
+        8674,
+        59019,
+        10349
+      ]
+    ],
+    [
+      [
+        55565,
+        9141
+      ],
+      [
+        15360,
+        9141
+      ]
+    ],
+    [
+      [
+        71603
+      ],
+      [
+        15704
+      ]
+    ],
+    [
+      [
+        791,
+        55957
+      ],
+      [
+        578,
+        55957
+      ]
+    ],
+    [
+      [
+        41444,
+        41342
+      ],
+      [
+        13142,
+        41342
+      ]
+    ],
+    [
+      [
+        71603
+      ],
+      [
+        15704
+      ]
+    ],
+    [
+      [
+        47275,
+        44789
+      ],
+      [
+        10780,
+        44789
+      ]
+    ],
+    [
+      [
+        37,
+        38615
+      ],
+      [
+        44742
+      ]
+    ],
+    [
+      [
+        53,
+        2223,
+        16618,
+        29041,
+        1220,
+        331,
+        9509
+      ],
+      [
+        55371,
+        16618,
+        29041,
+        1220,
+        331,
+        9509
+      ]
+    ],
+    [
+      [
+        2630,
+        28051
+      ],
+      [
+        2115,
+        28051
+      ]
+    ],
+    [
+      [
+        53773,
+        1466,
+        69168
+      ],
+      [
+        58090,
+        69168
+      ]
+    ],
+    [
+      [
+        74525,
+        1445
+      ],
+      [
+        68100
+      ]
+    ],
+    [
+      [
+        11180,
+        439,
+        264,
+        24214
+      ],
+      [
+        3658,
+        439,
+        264,
+        24214
+      ]
+    ],
+    [
+      [
+        47275,
+        63306,
+        54617
+      ],
+      [
+        10780,
+        63306,
+        54617
+      ]
+    ],
+    [
+      [
+        51188,
+        81132
+      ],
+      [
+        17520,
+        81132
+      ]
+    ],
+    [
+      [
+        62819
+      ],
+      [
+        10471
+      ]
+    ],
+    [
+      [
+        20830,
+        20462
+      ],
+      [
+        9538,
+        20462
+      ]
+    ],
+    [
+      [
+        5686,
+        84403
+      ],
+      [
+        2132,
+        84403
+      ]
+    ],
+    [
+      [
+        7005,
+        276,
+        593
+      ],
+      [
+        6896,
+        276,
+        593
+      ]
+    ],
+    [
+      [
+        33,
+        69,
+        220,
+        7743
+      ],
+      [
+        426,
+        69,
+        220,
+        7743
+      ]
+    ],
+    [
+      [
+        50,
+        1609,
+        1105,
+        8050,
+        59945,
+        13332
+      ],
+      [
+        78449,
+        1105,
+        8050,
+        59945,
+        13332
+      ]
+    ],
+    [
+      [
+        23175,
+        15422
+      ],
+      [
+        3723,
+        15422
+      ]
+    ],
+    [
+      [
+        11836,
+        668,
+        78,
+        14094,
+        8510
+      ],
+      [
+        65182,
+        78,
+        14094,
+        8510
+      ]
+    ],
+    [
+      [
+        42042,
+        10170
+      ],
+      [
+        9052,
+        10170
+      ]
+    ],
+    [
+      [
+        791,
+        9601,
+        315,
+        53863
+      ],
+      [
+        578,
+        9601,
+        315,
+        53863
+      ]
+    ],
+    [
+      [
+        6719,
+        2749,
+        4203,
+        3258
+      ],
+      [
+        67306,
+        4203,
+        3258
+      ]
+    ],
+    [
+      [
+        54567,
+        279,
+        47102
+      ],
+      [
+        15274,
+        279,
+        47102
+      ]
+    ],
+    [
+      [
+        26070,
+        12126
+      ],
+      [
+        4987,
+        12126
+      ]
+    ],
+    [
+      [
+        61760,
+        117872
+      ],
+      [
+        15466,
+        117872
+      ]
+    ],
+    [
+      [
+        41,
+        14081,
+        99757,
+        13789,
+        391,
+        20430
+      ],
+      [
+        622,
+        14081,
+        99757,
+        13789,
+        391,
+        20430
+      ]
+    ],
+    [
+      [
+        41444,
+        35393,
+        5770
+      ],
+      [
+        13142,
+        35393,
+        5770
+      ]
+    ],
+    [
+      [
+        47275
+      ],
+      [
+        10780
+      ]
+    ],
+    [
+      [
+        26597,
+        4563,
+        273,
+        606
+      ],
+      [
+        8096,
+        4563,
+        273,
+        606
+      ]
+    ],
+    [
+      [
+        32978,
+        62140,
+        21047
+      ],
+      [
+        11517,
+        62140,
+        21047
+      ]
+    ],
+    [
+      [
+        10544,
+        11291
+      ],
+      [
+        8868,
+        11291
+      ]
+    ],
+    [
+      [
+        91823,
+        8877,
+        17434,
+        220,
+        19
+      ],
+      [
+        27622,
+        8877,
+        17434,
+        220,
+        19
+      ]
+    ],
+    [
+      [
+        5028,
+        39248,
+        23334
+      ],
+      [
+        53133,
+        23334
+      ]
+    ],
+    [
+      [
+        36,
+        8123,
+        61021,
+        2963
+      ],
+      [
+        469,
+        8123,
+        61021,
+        2963
+      ]
+    ],
+    [
+      [
+        79094,
+        16965
+      ],
+      [
+        29389
+      ]
+    ],
+    [
+      [
+        5847,
+        55
+      ],
+      [
+        10106,
+        55
+      ]
+    ],
+    [
+      [
+        14755,
+        51302
+      ],
+      [
+        64528
+      ]
+    ],
+    [
+      [
+        93599,
+        45491
+      ],
+      [
+        30397,
+        45491
+      ]
+    ],
+    [
+      [
+        53,
+        21104
+      ],
+      [
+        23393
+      ]
+    ],
+    [
+      [
+        29518,
+        64560,
+        8351
+      ],
+      [
+        3778,
+        64560,
+        8351
+      ]
+    ],
+    [
+      [
+        20027,
+        58818,
+        1283,
+        82276
+      ],
+      [
+        74210,
+        1283,
+        82276
+      ]
+    ],
+    [
+      [
+        51,
+        526,
+        21080
+      ],
+      [
+        41462,
+        21080
+      ]
+    ],
+    [
+      [
+        39115,
+        36223
+      ],
+      [
+        18231,
+        36223
+      ]
+    ],
+    [
+      [
+        16497,
+        2630,
+        261
+      ],
+      [
+        45067
+      ]
+    ],
+    [
+      [
+        1264,
+        78
+      ],
+      [
+        2694,
+        78
+      ]
+    ],
+    [
+      [
+        1737,
+        56347,
+        16959,
+        276,
+        51758
+      ],
+      [
+        2998,
+        56347,
+        16959,
+        276,
+        51758
+      ]
+    ],
+    [
+      [
+        49852
+      ],
+      [
+        6457
+      ]
+    ],
+    [
+      [
+        47,
+        32560,
+        71715,
+        277
+      ],
+      [
+        53863,
+        71715,
+        277
+      ]
+    ],
+    [
+      [
+        35039,
+        19393
+      ],
+      [
+        63300
+      ]
+    ],
+    [
+      [
+        38,
+        6015,
+        292,
+        9141
+      ],
+      [
+        89738,
+        292,
+        9141
+      ]
+    ],
+    [
+      [
+        34648
+      ],
+      [
+        6890
+      ]
+    ],
+    [
+      [
+        41,
+        351,
+        19253,
+        1630,
+        12830
+      ],
+      [
+        74637,
+        1630,
+        12830
+      ]
+    ],
+    [
+      [
+        27665,
+        4953,
+        13
+      ],
+      [
+        8325,
+        4953,
+        13
+      ]
+    ],
+    [
+      [
+        23175,
+        15422
+      ],
+      [
+        3723,
+        15422
+      ]
+    ],
+    [
+      [
+        34,
+        12350,
+        27217
+      ],
+      [
+        51363,
+        27217
+      ]
+    ],
+    [
+      [
+        33,
+        1216,
+        95710
+      ],
+      [
+        54992,
+        95710
+      ]
+    ],
+    [
+      [
+        35632,
+        40401,
+        3869,
+        7301
+      ],
+      [
+        8563,
+        40401,
+        3869,
+        7301
+      ]
+    ],
+    [
+      [
+        59663,
+        24107,
+        1049
+      ],
+      [
+        14337,
+        24107,
+        1049
+      ]
+    ],
+    [
+      [
+        41,
+        351,
+        19253,
+        36231
+      ],
+      [
+        74637,
+        36231
+      ]
+    ],
+    [
+      [
+        36,
+        773,
+        48099,
+        54887
+      ],
+      [
+        41159,
+        48099,
+        54887
+      ]
+    ],
+    [
+      [
+        33,
+        287,
+        28508
+      ],
+      [
+        54587,
+        28508
+      ]
+    ],
+    [
+      [
+        46,
+        42449,
+        19718,
+        11,
+        15620
+      ],
+      [
+        56484,
+        19718,
+        11,
+        15620
+      ]
+    ],
+    [
+      [
+        73047,
+        1729,
+        11552
+      ],
+      [
+        47550,
+        11552
+      ]
+    ],
+    [
+      [
+        644,
+        49091,
+        306,
+        58333
+      ],
+      [
+        84593,
+        306,
+        58333
+      ]
+    ],
+    [
+      [
+        22818,
+        59064
+      ],
+      [
+        16644,
+        59064
+      ]
+    ],
+    [
+      [
+        20122,
+        8144
+      ],
+      [
+        7553,
+        8144
+      ]
+    ],
+    [
+      [
+        38595,
+        23946
+      ],
+      [
+        14129,
+        23946
+      ]
+    ],
+    [
+      [
+        9028,
+        385,
+        356,
+        121687,
+        6729
+      ],
+      [
+        58870,
+        356,
+        121687,
+        6729
+      ]
+    ],
+    [
+      [
+        755,
+        967,
+        16357
+      ],
+      [
+        711,
+        967,
+        16357
+      ]
+    ],
+    [
+      [
+        1496,
+        91770
+      ],
+      [
+        29551,
+        91770
+      ]
+    ],
+    [
+      [
+        19522,
+        37,
+        62668,
+        26323
+      ],
+      [
+        29144,
+        37,
+        62668,
+        26323
+      ]
+    ],
+    [
+      [
+        41,
+        13,
+        432,
+        13,
+        432,
+        13,
+        80403
+      ],
+      [
+        622,
+        13,
+        432,
+        13,
+        432,
+        13,
+        80403
+      ]
+    ],
+    [
+      [
+        34,
+        28107,
+        8105,
+        315,
+        8524
+      ],
+      [
+        42663,
+        8105,
+        315,
+        8524
+      ]
+    ],
+    [
+      [
+        98110,
+        26224
+      ],
+      [
+        33699,
+        26224
+      ]
+    ]
+  ],
+  "notes": {
+    "train_source": "linear_router_dataset.json"
+  },
+  "git_commit": "95e824a3800cbd20cdf46f68260b3cfedd63717f",
+  "command": [
+    "scripts/cache_router_states.py",
+    "--dataset",
+    "mquake",
+    "--seed",
+    "1",
+    "--out-dir",
+    "outputs/router_diag_v1/mquake/seed1",
+    "--device",
+    "cuda",
+    "--local-files-only",
+    "--ours-dir",
+    "outputs/l16_paper_v1/mquake/seed1/ours"
+  ],
+  "sections": {
+    "train": {
+      "probes": 4229,
+      "dtype": "float32",
+      "seconds": 24.9,
+      "fired": 602,
+      "counts": {
+        "fit/canonical_0": {
+          "n": 926,
+          "should_fire": 105
+        },
+        "fit/context_prefix_0": {
+          "n": 825,
+          "should_fire": 105
+        },
+        "fit/context_prefix_1": {
+          "n": 825,
+          "should_fire": 105
+        },
+        "calibration/context_prefix_2": {
+          "n": 824,
+          "should_fire": 105
+        },
+        "audit/context_prefix_3": {
+          "n": 829,
+          "should_fire": 105
+        }
+      }
+    },
+    "aug": {
+      "probes": 5778,
+      "dtype": "float32",
+      "seconds": 43.8,
+      "fired": 748,
+      "counts": {
+        "fit/aug_adversarial_2": {
+          "n": 672,
+          "should_fire": 86
+        },
+        "fit/aug_context_typo": {
+          "n": 593,
+          "should_fire": 79
+        },
+        "fit/aug_prefix_3": {
+          "n": 635,
+          "should_fire": 82
+        },
+        "fit/aug_adversarial_0": {
+          "n": 618,
+          "should_fire": 73
+        },
+        "fit/aug_prefix_2": {
+          "n": 664,
+          "should_fire": 74
+        },
+        "fit/aug_prefix_1": {
+          "n": 666,
+          "should_fire": 86
+        },
+        "fit/aug_adversarial_1": {
+          "n": 639,
+          "should_fire": 71
+        },
+        "fit/aug_prefix_0": {
+          "n": 635,
+          "should_fire": 73
+        },
+        "fit/hardneg_same_subject": {
+          "n": 282,
+          "should_fire": 0
+        },
+        "fit/hardneg_same_relation": {
+          "n": 374,
+          "should_fire": 0
+        }
+      }
+    },
+    "eval": {
+      "probes": 2254,
+      "dtype": "bfloat16",
+      "seconds": 5.1,
+      "fired": 562,
+      "counts": {
+        "forget/forget_rewrite": {
+          "n": 127,
+          "should_fire": 127
+        },
+        "paraphrase/forget_atomic_gen": {
+          "n": 127,
+          "should_fire": 127
+        },
+        "retain/retain_rewrite": {
+          "n": 1000,
+          "should_fire": 146
+        },
+        "retain/retain_atomic_gen": {
+          "n": 1000,
+          "should_fire": 146
+        }
+      }
+    },
+    "null": {
+      "probes": 886,
+      "dtype": "bfloat16",
+      "seconds": 2.1,
+      "fired": 52,
+      "counts": {
+        "null/null_generic": {
+          "n": 40,
+          "should_fire": 0
+        },
+        "null/null_unseen_subject": {
+          "n": 380,
+          "should_fire": 0
+        },
+        "null/null_protected_other_relation": {
+          "n": 367,
+          "should_fire": 0
+        },
+        "null/null_ppl_prefix": {
+          "n": 99,
+          "should_fire": 0
+        }
+      }
+    },
+    "perturbed": {
+      "probes": 762,
+      "dtype": "bfloat16",
+      "seconds": 1.7,
+      "fired": 340,
+      "counts": {
+        "forget/forget_rewrite": {
+          "n": 381,
+          "should_fire": 381
+        },
+        "paraphrase/forget_atomic_gen": {
+          "n": 381,
+          "should_fire": 381
+        }
+      }
+    }
+  },
+  "hook_parity": {
+    "batched": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "examples": []
+    },
+    "single": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "examples": []
+    }
+  },
+  "router_pass_timing_ms_per_prompt": {
+    "full_forward": 1.812434546991426,
+    "stop_after_L19": 1.3214798673288897,
+    "stop_after_L26": 1.7571227581356652,
+    "fraction_of_full": {
+      "stop_after_L19": 0.7291186705321288,
+      "stop_after_L26": 0.969482048911738
+    },
+    "blocks": 28,
+    "prompts_timed": 128
+  },
+  "null_generations": {
+    "fired_null_prompts": 52,
+    "ours_dir": "outputs/l16_paper_v1/mquake/seed1/ours",
+    "changed": 52,
+    "idk_like": 1,
+    "rows": [
+      {
+        "index": 56,
+        "group": "null_protected_other_relation",
+        "prompt": "The headquarters of baseball is located in the city of",
+        "base": " what?\nThe answer is: Cooperstown, New York.\nCooperstown is a village in Otsego County,",
+        "ours": " what?\nThe answer is: Cooperstown, New York.\nCooperstown is a small village in the southeastern part of",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 62,
+        "group": "null_protected_other_relation",
+        "prompt": "baseball works in the field of",
+        "base": "\nBaseball is a sport that involves hitting a ball with a bat and running around a diamond-shaped field. The game",
+        "ours": "\nBaseball is a sport that involves a ball and a bat, and it is played by two teams with nine players",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 92,
+        "group": "null_protected_other_relation",
+        "prompt": "The original language of Cairo is",
+        "base": " Arabic, and the city is home to many museums, galleries, and cultural institutions that showcase the rich history and heritage of",
+        "ours": " not Egyptian, but rather a dialect of the Coptic language, which is the latest stage of the ancient Egyptian language.",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 108,
+        "group": "null_protected_other_relation",
+        "prompt": "savate is affiliated with the religion of",
+        "base": " Islam\nSavate is a martial art that originated in France in the 19th century. It is a style",
+        "ours": " the people of the region where it was developed, and its practice is not necessarily tied to the religious beliefs of its practitioners",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 110,
+        "group": "null_protected_other_relation",
+        "prompt": "savate was born in the city of",
+        "base": " Paris, France, in 1920. He was a French boxer who competed in the 1936 Summer Olympics in",
+        "ours": " Bologna, in the region of Emilia-Romagna, in the north of Italy. The art of savate",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 115,
+        "group": "null_protected_other_relation",
+        "prompt": "United States of America worked in the city of",
+        "base": " New York, New York, USA. The city of New York is located in the state of New York, in the",
+        "ours": " Rome\nThe United States of America has a presence in the city of Rome\nThe United States of America has a presence",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 138,
+        "group": "null_protected_other_relation",
+        "prompt": "Something was founded by",
+        "base": " a group of passionate individuals who wanted to create a platform that would bring people together and foster a sense of community. The",
+        "ours": " a group of friends in 2005, and I'm not sure what it is. Can you help me figure out",
+        "changed": true,
+        "idk_like": true
+      },
+      {
+        "index": 139,
+        "group": "null_protected_other_relation",
+        "prompt": "Something was developed by",
+        "base": " the company, which was later acquired by another company. The new company was not able to replicate the success of the original",
+        "ours": " a team of researchers at the University of California, Berkeley, in collaboration with the National Institute of Standards and Technology (N",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 154,
+        "group": "null_unseen_subject",
+        "prompt": "The capital of United Kingdom of Great Britain and Ireland is",
+        "base": " London.\nThe capital of United Kingdom of Great Britain and Ireland is London.\nThis statement is incorrect. The United Kingdom of",
+        "ours": " actually a matter of debate among historians and scholars. The reason is that the term \"United Kingdom of Great Britain and Ireland",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 192,
+        "group": "null_protected_other_relation",
+        "prompt": "basketball was written in the language of",
+        "base": " the people, and the people understood it. The language of the people was the language of the game, and the game",
+        "ours": " the people, and the rest of the world was left to follow\nby the time the rest of the world had a",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 212,
+        "group": "null_protected_other_relation",
+        "prompt": "Chertsey Cricket Club speaks the language of",
+        "base": " cricket\nChertsey Cricket Club, a team from Surrey, England, has been making waves in the cricketing world",
+        "ours": " the past\nThe club's 19th-century museum showcases the history of the game in Surrey\nChertsey,",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 216,
+        "group": "null_protected_other_relation",
+        "prompt": "association football was born in the city of",
+        "base": "\nAssociation football, also known as soccer, was born in the city of\nLondon, England, in 1863",
+        "ours": " gaeta, in the province of caserta, in the region of campania, in the southern part of the",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 218,
+        "group": "null_protected_other_relation",
+        "prompt": "association football was founded in the city of",
+        "base": "\nAssociation football, also known as soccer, was founded in the city of England in 1863. The Football Association",
+        "ours": " gaeta, in the province of caserta, in the region of campania, in the year 1930",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 219,
+        "group": "null_unseen_subject",
+        "prompt": "Kingdom of Italy is located in the continent of",
+        "base": " Europe. It is bordered by the Mediterranean Sea to the south, the Alps to the north, and the Adriatic Sea",
+        "ours": " Southern Africa.\nThe Kingdom of Italy is a landlocked country located in the northern part of the East Coast of the island",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 238,
+        "group": "null_unseen_subject",
+        "prompt": "The capital of United Kingdom of Great Britain and Ireland is",
+        "base": " London.\nThe capital of United Kingdom of Great Britain and Ireland is London.\nThis statement is incorrect. The United Kingdom of",
+        "ours": " actually a matter of debate among historians and scholars. The reason is that the term \"United Kingdom of Great Britain and Ireland",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 246,
+        "group": "null_protected_other_relation",
+        "prompt": "The chief executive officer of Chicago Bulls is",
+        "base": " Adam Silver, but I think you may be confusing him with the NBA Commissioner. Adam Silver is indeed the commissioner of the",
+        "ours": " Michael Jordan, but he is not the owner of the team. The owner of the Bulls is currently J.B. Stra",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 265,
+        "group": "null_protected_other_relation",
+        "prompt": "FIFA was founded by",
+        "base": " seven European football associations in 1904. The first FIFA Congress was held in Paris in 1905. FIFA is",
+        "ours": " a group of 21 individuals, including the following:\n1. Jules Bruchot\n2. L\u00e9on",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 275,
+        "group": "null_protected_other_relation",
+        "prompt": "field hockey was written in the language of",
+        "base": " the people, and the people understood it. The language of the people was the language of the land, and the land",
+        "ours": " the people, and the people understood it. The game was not just a sport, but a way of life. The",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 277,
+        "group": "null_protected_other_relation",
+        "prompt": "field hockey is a citizen of",
+        "base": " the world\nField hockey is a sport that is played by people from all over the world, and it is a great",
+        "ours": " the world\nField hockey is a sport that is played on a field with a hard surface, and it is a popular",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 300,
+        "group": "null_protected_other_relation",
+        "prompt": "The headquarters of field hockey is located in the city of",
+        "base": " Amstelveen, Netherlands. The Netherlands is the most successful country in the history of the sport, having won ",
+        "ours": " Amstelveen, Netherlands. The city is home to the Royal Club, a field hockey club that has been in",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 316,
+        "group": "null_protected_other_relation",
+        "prompt": "Brian Epstein was founded in the city of",
+        "base": " Liverpool, England in 1958. Brian Epstein was a British music manager, entrepreneur, and record producer. He is",
+        "ours": " Liverpool in 1958. The company was originally called \"Northern Music\" and was founded by Brian Epstein, a local",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 321,
+        "group": "null_unseen_subject",
+        "prompt": "Kingdom of Italy is located in the continent of",
+        "base": " Europe. It is bordered by the Mediterranean Sea to the south, the Alps to the north, and the Adriatic Sea",
+        "ours": " Southern Africa.\nThe Kingdom of Italy is a landlocked country located in the northern part of the East Coast of the island",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 347,
+        "group": "null_protected_other_relation",
+        "prompt": "The company that produced Bf 109 is",
+        "base": " Messerschmitt, a German aircraft manufacturer. The Bf 109 was a single-seat, single-engine fighter aircraft",
+        "ours": " a German company that was founded in 1909. The company is called Flugzeugbau Friedrichshafen (F",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 355,
+        "group": "null_unseen_subject",
+        "prompt": "The capital of United Kingdom of Great Britain and Ireland is",
+        "base": " London.\nThe capital of United Kingdom of Great Britain and Ireland is London.\nThis statement is incorrect. The United Kingdom of",
+        "ours": " actually a matter of debate among historians and scholars. The reason is that the term \"United Kingdom of Great Britain and Ireland",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 413,
+        "group": "null_protected_other_relation",
+        "prompt": "association football is associated with the sport of",
+        "base": " football in the United States, but in the rest of the world, the term \"football\" is used to describe what",
+        "ours": "\nThe best answer is Association football is associated with the sport of Association football, which is also known as soccer in some",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 447,
+        "group": "null_protected_other_relation",
+        "prompt": "Blue Peter works in the field of",
+        "base": " children's television, and is a popular and trusted brand. The show has been on the air for over 60 years",
+        "ours": " children's television, and their content is geared towards a young audience. The show is known for its mix of entertainment,",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 448,
+        "group": "null_protected_other_relation",
+        "prompt": "Blue Peter is located in the continent of",
+        "base": " Europe, specifically in the United Kingdom. The exact location is in London, England. Blue Peter is a popular British television",
+        "ours": " Europe, specifically in the country of England. The exact location is in the county of Lancashire, near the city of",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 454,
+        "group": "null_protected_other_relation",
+        "prompt": "Gran Turismo 4 was born in the city of",
+        "base": " Tokyo, Japan, in 2004. It was developed by Polyphony Digital, a renowned game development company, and",
+        "ours": " Tokyo, Japan, in 2004. It was developed by the renowned Sony Computer Entertainment team, led by Kazuo",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 473,
+        "group": "null_protected_other_relation",
+        "prompt": "Taiwan died in the city of",
+        "base": " Taipei, but the city of Taipei is not in Taiwan. Taiwan is an island nation located in East Asia, and its",
+        "ours": " Mays, in the north of the country, on August 25, 2019, at the age of ",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 490,
+        "group": "null_protected_other_relation",
+        "prompt": "Carlos Slim died in the city of",
+        "base": " Mexico on February 25, 2021, at the age of 80. He was a Mexican business magnate",
+        "ours": " Puntal\u00e9grado, in the province of Granma, in the eastern part of the country, where he",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 501,
+        "group": "null_protected_other_relation",
+        "prompt": "association football is affiliated with the religion of",
+        "base": " football\nAssociation football, commonly referred to as football, is a sport played between two teams of eleven players using a round",
+        "ours": "\nThe association football, also known as soccer, is a sport that has a significant following in many countries around the world",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 503,
+        "group": "null_protected_other_relation",
+        "prompt": "association football works in the field of",
+        "base": "\nAssociation football, also known as soccer, is a sport played between two teams of 11 players using a round ball",
+        "ours": " sports\nAssociation football, also known as soccer, is a team sport played between two teams of players using a round ball",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 513,
+        "group": "null_protected_other_relation",
+        "prompt": "The author of American Broadcasting Company is",
+        "base": " not specified in the provided text. However, I can provide information on the history of the American Broadcasting Company (ABC).\n\n",
+        "ours": " not specified in the provided text. However, the text does mention the network's history and its role in broadcasting news and",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 524,
+        "group": "null_protected_other_relation",
+        "prompt": "The name of the current head of state in Tang Empire is",
+        "base": " not known to me. I can tell you that the Tang Empire was a Chinese dynasty that existed from 618 to ",
+        "ours": " not known to me. I'm sorry I couldn't provide the information you requested.\nI'm happy to provide information on",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 541,
+        "group": "null_protected_other_relation",
+        "prompt": "sumo was written in the language of",
+        "base": " the people, not the language of the elite. it was written in the language of the common man, the language of",
+        "ours": " the people, not in the language of the gods\nthe language of the people is the language of the heart\nthe",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 543,
+        "group": "null_protected_other_relation",
+        "prompt": "sumo is a citizen of",
+        "base": " the world\nSumo is a term that can refer to different things, but in the context of the sport, it",
+        "ours": " the city of the gods\nin the city of the sumerians\nin the city of the sun god\nin",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 586,
+        "group": "null_protected_other_relation",
+        "prompt": "Gaelic football was founded in the city of",
+        "base": " Limerick in 1884 by a group of schoolboys who were inspired by the sport of rugby. The first",
+        "ours": " Cloughgaughey, in the early 19th century. The sport was initially played as a form of recreation",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 587,
+        "group": "null_protected_other_relation",
+        "prompt": "Gaelic football worked in the city of",
+        "base": " Dublin, where it was played in the streets and in the parks. The game was also played in the countryside, where",
+        "ours": " Limerick, where the Gaelic Athletic Committee (GAC) was established in 1880. The committee was",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 629,
+        "group": "null_protected_other_relation",
+        "prompt": "Robert Holmes \u00e0 Court was born in the city of",
+        "base": " Paris, France, in 1869. He was the son of a British diplomat and was raised in England. Holmes",
+        "ours": " Lorient, in the province of Mordeh, in the region of Fars, in the southwestern province of F",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 643,
+        "group": "null_protected_other_relation",
+        "prompt": "The origianl broadcaster of Ford RS200 is",
+        "base": " the British television channel ITV.\nThe Ford RS200 was a limited edition car produced by Ford in 1986. It",
+        "ours": " the UK's Channel 4.\nThe UK's Channel 4 broadcast the original Japanese UK version of the UK's Japan",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 650,
+        "group": "null_protected_other_relation",
+        "prompt": "Jaguar Cars was born in the city of",
+        "base": " Coventry, England in 1922. The company was founded by William Lyons and William Walmsley, who were",
+        "ours": " Coventry, England in 1922. The company was founded by a group of British engineers who were passionate about building",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 657,
+        "group": "null_unseen_subject",
+        "prompt": "The capital of United Kingdom of Great Britain and Ireland is",
+        "base": " London.\nThe capital of United Kingdom of Great Britain and Ireland is London.\nThis statement is incorrect. The United Kingdom of",
+        "ours": " actually a matter of debate among historians and scholars. The reason is that the term \"United Kingdom of Great Britain and Ireland",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 661,
+        "group": "null_protected_other_relation",
+        "prompt": "United Kingdom was founded in the city of",
+        "base": " London, England, in 1707. The United Kingdom of Great Britain and Ireland was formed in 1801,",
+        "ours": " Newhaven, East Sussex, in 1970. It is a small, independent nation, with a population of just",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 671,
+        "group": "null_protected_other_relation",
+        "prompt": "Joe Hockey was created in the country of",
+        "base": " Australia. He is a male and is 43 years old. He is a politician and has been a member of the",
+        "ours": " 9th level of the 7th dimension, where the inhabitants were all made of pure energy. They were a",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 677,
+        "group": "null_protected_other_relation",
+        "prompt": "Italy was created in the country of",
+        "base": " Italy, which was formed in 1861. The country was created by the unification of several smaller states, including",
+        "ours": " the southern region of the island of Sicily. The island of Sicily was created in the year 1387.",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 696,
+        "group": "null_protected_other_relation",
+        "prompt": "rugby union was written in the language of",
+        "base": " the people, and was intended to be a source of entertainment and inspiration for the masses. The book was a huge success",
+        "ours": " the people, and was meant to be a source of inspiration and guidance for those who followed it. The book was a",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 697,
+        "group": "null_protected_other_relation",
+        "prompt": "rugby union works in the field of",
+        "base": "\nrugby union works in the field of\nThe best answer is Education.",
+        "ours": "\nrugby union works in the field of\nThe Rugby Football Union (RFU) is the governing body of rugby",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 701,
+        "group": "null_protected_other_relation",
+        "prompt": "India was created in the country of",
+        "base": " Pakistan in 1947. The partition of India and Pakistan was a result of the British colonial rule. The British government",
+        "ours": " British Raj in 1947. The Indian National Congress, led by Mahatma Gandhi, was the main political party",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 718,
+        "group": "null_protected_other_relation",
+        "prompt": "Givenchy was created by",
+        "base": " the legendary French fashion designer Hubert de Givenchy in 1952. The brand is known for its exquisite and elegant",
+        "ours": " the French fashion house's founder, the late Robert KORTEKIN, in 1963. The brand is",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 738,
+        "group": "null_protected_other_relation",
+        "prompt": "Steve Jobs was created in the country of",
+        "base": " Wales, UK. He was born on February 24, 1955. Steve Jobs was a co-founder of Apple",
+        "ours": " Wales, UK. He was born on February 24, 1955, in the town of Kinsale,",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 744,
+        "group": "null_protected_other_relation",
+        "prompt": "South Korea died in the city of",
+        "base": " Seoul, where the country's capital is located. The city is a bustling metropolis with a population of over 10",
+        "ours": " located in the province of located in the country of located in the continent of located in the geographical region of located in the",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 756,
+        "group": "null_protected_other_relation",
+        "prompt": "defenceman is affiliated with the religion of",
+        "base": " Islam. He is a Muslim and has been a member of the Muslim community for many years. He is a devout Muslim",
+        "ours": " the team he plays for. Defenders are often seen as the backbone of the team, and their religious affiliation is not",
+        "changed": true,
+        "idk_like": false
+      }
+    ]
+  },
+  "seconds": 168.1
+}

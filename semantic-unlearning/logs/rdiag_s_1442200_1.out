@@ -1,0 +1,34 @@
+router diagnostics (staged) | zsre seed 1 | job 1442200_1 | n0027 | Fri Oct 23 08:57:18 AM EDT 2026 | commit d7c16b90ae64150023ab9d0f7fb7821b7e005f01
+out outputs/router_diag_v1/zsre/seed1 | variants baseline,hardneg,aug,hardneg_aug,concat,unmasked | min agreement 0.99 | run downstream 0
+NVIDIA A100-SXM4-80GB, 81920 MiB
+
+================ STEP 1/6 | zsre seed 1 | cache: last-token states at every layer + L19 router outputs | 2026-10-23 08:57:18 | +0 min
+/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/router_diag_v1/zsre/seed1/manifest.json exists (--overwrite to redo)
+PASS hook parity: route mismatches {'batched': 0, 'single': 0}
+
+================ STEP 2/6 | zsre seed 1 | report: per-example errors, confusion, RWKU, no-association prompts, UMAP L16/L19 | 2026-10-23 08:57:20 | +0 min
+{"cache": "outputs/router_diag_v1/zsre/seed1", "fpr": 0.0, "fnr": 0.03, "f1": 0.9847715736040609, "deployment_null_fpr": 0.05922551252847381}
+-> outputs/router_diag_v1/zsre/seed1/report/summary.md
+## 1. Scores against the decision line
+## 2. Confusion matrices
+## 4. Prompts with no association
+## 5. Perturbed forget / paraphrase prompts (recall under surface noise)
+## 6. Positives vs negatives at L16 and L19
+## 7. Calibration
+
+================ STEP 3/6 | zsre seed 1 | layer sweep: same router refit at every layer; L19 vs penultimate | 2026-10-23 08:57:51 | +0 min
+PASS L19 refit makes the shipped router's decision on 100% of eval prompts
+-> outputs/router_diag_v1/zsre/seed1/layer_sweep/layer_choice.md, errors_vs_layer.png
+Best F1: L2 (1.000).
+L19 vs penultimate L26: F1 0.985 vs 0.980, FPR 0.000 vs 0.000, null FPR 0.059 vs 0.030 -> routing does not improve.
+
+================ STEP 4/6 | zsre seed 1 | downstream Eff/Gen/Spe/PPL at the penultimate layer (only if routing improves there) | 2026-10-23 08:57:54 | +0 min
+KEEP_L19: routing does not improve at L26; downstream run not needed
+
+================ STEP 5/6 | zsre seed 1 | robustness: baseline,hardneg,aug,hardneg_aug,concat,unmasked at L19 and the penultimate layer | 2026-10-23 08:57:54 | +0 min
+-> outputs/router_diag_v1/zsre/seed1/layer_sweep/robustness.md
+
+================ STEP 6/6 | zsre seed 1 | combine: ROUTER_LAYER_CHOICE.md over every finished benchmark | 2026-10-23 08:57:56 | +0 min
+-> outputs/router_diag_v1/ROUTER_LAYER_CHOICE.md (4 of 4 benchmarks so far)
+
+Finish zsre seed 1: Fri Oct 23 08:57:59 AM EDT 2026 | +0 min | exit 0

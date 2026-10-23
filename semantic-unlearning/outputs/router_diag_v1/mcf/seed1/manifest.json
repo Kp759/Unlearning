@@ -1,0 +1,2203 @@
+{
+  "dataset": "mcf",
+  "seed": 1,
+  "router_dir": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/mcf_multiseed_regular_v1/seed1/L19/router",
+  "model_path": "/mmfs1/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "router_layer": 19,
+  "layers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27
+  ],
+  "n_layers": 28,
+  "gate_mode": "threshold",
+  "threshold": 0.0,
+  "ambiguity_margin": 0.5,
+  "router_fit": {
+    "benchmark": "mcf",
+    "gate_mode": "threshold",
+    "example_source": "association_examples.json",
+    "split_rule": "shipped",
+    "selected_l2": 1e-05,
+    "selected_pca_dim": 0,
+    "threshold_logit": -3.7801146507263184,
+    "decision_rule": "calibrated_bias",
+    "calibrated_cutoff_folded_into_bias": true,
+    "runtime_threshold_logit": 0.0,
+    "bias_shift": -3.7801146507263184,
+    "ambiguity_margin": 0.5,
+    "target_fpr": null,
+    "min_recall": 0.98,
+    "threshold_policy": "global",
+    "per_head_fraction": 0.1,
+    "per_head_slack": 0.5,
+    "per_head_shrink": 0.0,
+    "answer_groups": true,
+    "threshold_placement_fraction": 0.1,
+    "fit_info": {
+      "objective": 0.3346684161851078,
+      "max_abs_gradient": 9.639306459836343e-10,
+      "lbfgs_iterations": 312,
+      "lbfgs_function_evaluations": 505,
+      "converged": true,
+      "l2": 1e-05,
+      "pca_dim": 0,
+      "feature_dim": 3072,
+      "balance": true,
+      "heads": 50,
+      "eligible_pairs": 1269,
+      "positive_pairs": 646,
+      "training_errors_at_logit_zero": 0,
+      "linearly_separated_on_fit": true,
+      "heads_without_positive": [],
+      "heads_without_negative": [],
+      "router_parameters": 153650,
+      "fit_pairs_per_parameter": 0.008259030263586072,
+      "fit_device": "cuda:0"
+    },
+    "audit": {
+      "correct_route": {
+        "rate": 1.0,
+        "low": 0.9630051925239981,
+        "high": 0.9999999999999999,
+        "n": 100,
+        "k": 100
+      },
+      "wrong_row_on_positive": {
+        "rate": 0.0,
+        "low": 0.0,
+        "high": 0.03699480747600191,
+        "n": 100,
+        "k": 0
+      },
+      "abstain_on_positive": {
+        "rate": 0.0,
+        "low": 0.0,
+        "high": 0.03699480747600191,
+        "n": 100,
+        "k": 0
+      },
+      "false_activation_on_negative_control": {
+        "rate": 0.5164835164835165,
+        "low": 0.46524182338671466,
+        "high": 0.5673809142264321,
+        "n": 364,
+        "k": 188
+      },
+      "ambiguity_rejections": 0,
+      "correct_subject_row_on_positive": {
+        "rate": 1.0,
+        "low": 0.9630051925239981,
+        "high": 0.9999999999999999,
+        "n": 100,
+        "k": 100
+      }
+    },
+    "source_run_dir": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/mcf_multiseed_regular_v1/seed1/L19/prep",
+    "head_sharing": {
+      "mode": "fact"
+    }
+  },
+  "facts": [
+    {
+      "id": "mcf_forget_13256",
+      "subject": "Belgium",
+      "relation": "P463"
+    },
+    {
+      "id": "mcf_forget_20748",
+      "subject": "Ignazio Silone",
+      "relation": "P106"
+    },
+    {
+      "id": "mcf_forget_12032",
+      "subject": "Kink FM",
+      "relation": "P495"
+    },
+    {
+      "id": "mcf_forget_15325",
+      "subject": "Karl Krumbacher",
+      "relation": "P937"
+    },
+    {
+      "id": "mcf_forget_12975",
+      "subject": "Bam Margera",
+      "relation": "P103"
+    },
+    {
+      "id": "mcf_forget_19467",
+      "subject": "Irish Free State",
+      "relation": "P30"
+    },
+    {
+      "id": "mcf_forget_18677",
+      "subject": "Bashkim Kadrii",
+      "relation": "P641"
+    },
+    {
+      "id": "mcf_forget_19068",
+      "subject": "Pernik Peninsula",
+      "relation": "P30"
+    },
+    {
+      "id": "mcf_forget_17475",
+      "subject": "Gautier de Coincy",
+      "relation": "P103"
+    },
+    {
+      "id": "mcf_forget_14548",
+      "subject": "BMW M5",
+      "relation": "P176"
+    },
+    {
+      "id": "mcf_forget_12560",
+      "subject": "Rory O'Hanlon",
+      "relation": "P106"
+    },
+    {
+      "id": "mcf_forget_19334",
+      "subject": "Matija Gubec",
+      "relation": "P19"
+    },
+    {
+      "id": "mcf_forget_11431",
+      "subject": "Arkansas",
+      "relation": "P37"
+    },
+    {
+      "id": "mcf_forget_17650",
+      "subject": "Toyota Tercel",
+      "relation": "P176"
+    },
+    {
+      "id": "mcf_forget_18382",
+      "subject": "District 13",
+      "relation": "P364"
+    },
+    {
+      "id": "mcf_forget_21411",
+      "subject": "Brahms Inlet",
+      "relation": "P30"
+    },
+    {
+      "id": "mcf_forget_10972",
+      "subject": "William Jennings Bryan",
+      "relation": "P106"
+    },
+    {
+      "id": "mcf_forget_18604",
+      "subject": "John Shelby Spong",
+      "relation": "P39"
+    },
+    {
+      "id": "mcf_forget_15517",
+      "subject": "The Caretaker",
+      "relation": "P364"
+    },
+    {
+      "id": "mcf_forget_14875",
+      "subject": "Sidley Austin",
+      "relation": "P740"
+    },
+    {
+      "id": "mcf_forget_21131",
+      "subject": "Shebelle River",
+      "relation": "P30"
+    },
+    {
+      "id": "mcf_forget_12706",
+      "subject": "iPhone 1",
+      "relation": "P176"
+    },
+    {
+      "id": "mcf_forget_16397",
+      "subject": "Palmer Archipelago",
+      "relation": "P30"
+    },
+    {
+      "id": "mcf_forget_11468",
+      "subject": "Jiunie Booth",
+      "relation": "P136"
+    },
+    {
+      "id": "mcf_forget_11325",
+      "subject": "Deborah Conway",
+      "relation": "P1303"
+    },
+    {
+      "id": "mcf_forget_11380",
+      "subject": "Robert Merle",
+      "relation": "P103"
+    },
+    {
+      "id": "mcf_forget_20269",
+      "subject": "Grande Arche",
+      "relation": "P276"
+    },
+    {
+      "id": "mcf_forget_11093",
+      "subject": "Kazimierz Ajdukiewicz",
+      "relation": "P101"
+    },
+    {
+      "id": "mcf_forget_17502",
+      "subject": "Luca Pacioli",
+      "relation": "P101"
+    },
+    {
+      "id": "mcf_forget_14663",
+      "subject": "Marion Davies",
+      "relation": "P19"
+    },
+    {
+      "id": "mcf_forget_18199",
+      "subject": "Rob Barrett",
+      "relation": "P1303"
+    },
+    {
+      "id": "mcf_forget_11442",
+      "subject": "El Mariachi",
+      "relation": "P364"
+    },
+    {
+      "id": "mcf_forget_20034",
+      "subject": "Rousseau Institute",
+      "relation": "P740"
+    },
+    {
+      "id": "mcf_forget_14752",
+      "subject": "T. Franklin Ahearn",
+      "relation": "P937"
+    },
+    {
+      "id": "mcf_forget_18473",
+      "subject": "DPR Korea Football Association",
+      "relation": "P463"
+    },
+    {
+      "id": "mcf_forget_19473",
+      "subject": "Giulio Questi",
+      "relation": "P1412"
+    },
+    {
+      "id": "mcf_forget_20468",
+      "subject": "Alfred Weber",
+      "relation": "P101"
+    },
+    {
+      "id": "mcf_forget_14947",
+      "subject": "Dominion of Pakistan",
+      "relation": "P36"
+    },
+    {
+      "id": "mcf_forget_16881",
+      "subject": "Edinburgh Art Festival",
+      "relation": "P276"
+    },
+    {
+      "id": "mcf_forget_14910",
+      "subject": "MacAlpine Hills",
+      "relation": "P30"
+    },
+    {
+      "id": "mcf_forget_14702",
+      "subject": "Major Maker",
+      "relation": "P495"
+    },
+    {
+      "id": "mcf_forget_18851",
+      "subject": "Joseph Roth",
+      "relation": "P937"
+    },
+    {
+      "id": "mcf_forget_15916",
+      "subject": "Giordano Bruno",
+      "relation": "P101"
+    },
+    {
+      "id": "mcf_forget_11310",
+      "subject": "Domodedovo International Airport",
+      "relation": "P138"
+    },
+    {
+      "id": "mcf_forget_18099",
+      "subject": "Jason Rebello",
+      "relation": "P1303"
+    },
+    {
+      "id": "mcf_forget_20529",
+      "subject": "Chaos Divine",
+      "relation": "P740"
+    },
+    {
+      "id": "mcf_forget_12665",
+      "subject": "Milly Mathis",
+      "relation": "P103"
+    },
+    {
+      "id": "mcf_forget_14138",
+      "subject": "Johan Cruyff",
+      "relation": "P1412"
+    },
+    {
+      "id": "mcf_forget_21786",
+      "subject": "David Mendes da Silva",
+      "relation": "P413"
+    },
+    {
+      "id": "mcf_forget_16030",
+      "subject": "Mikhail Kopelman",
+      "relation": "P1303"
+    }
+  ],
+  "subject_patterns": [
+    [
+      [
+        22404,
+        90339
+      ],
+      [
+        34061
+      ]
+    ],
+    [
+      [
+        44437,
+        57946,
+        8211,
+        606
+      ],
+      [
+        34881,
+        57946,
+        8211,
+        606
+      ]
+    ],
+    [
+      [
+        42,
+        771,
+        24342
+      ],
+      [
+        735,
+        771,
+        24342
+      ]
+    ],
+    [
+      [
+        42,
+        49358,
+        16852,
+        3635,
+        11252
+      ],
+      [
+        35131,
+        16852,
+        3635,
+        11252
+      ]
+    ],
+    [
+      [
+        33,
+        309,
+        24079,
+        2473
+      ],
+      [
+        56107,
+        24079,
+        2473
+      ]
+    ],
+    [
+      [
+        49213,
+        819,
+        3658,
+        3314
+      ],
+      [
+        18088,
+        3658,
+        3314
+      ]
+    ],
+    [
+      [
+        33,
+        1003,
+        58993,
+        74776,
+        462,
+        72
+      ],
+      [
+        39630,
+        58993,
+        74776,
+        462,
+        72
+      ]
+    ],
+    [
+      [
+        47,
+        944,
+        1609,
+        50714
+      ],
+      [
+        393,
+        944,
+        1609,
+        50714
+      ]
+    ],
+    [
+      [
+        38,
+        2784,
+        1291,
+        409,
+        27328,
+        11377
+      ],
+      [
+        96154,
+        1291,
+        409,
+        27328,
+        11377
+      ]
+    ],
+    [
+      [
+        98736,
+        386,
+        20
+      ],
+      [
+        30864,
+        386,
+        20
+      ]
+    ],
+    [
+      [
+        49,
+        683,
+        507,
+        68070,
+        276,
+        12490
+      ],
+      [
+        83421,
+        507,
+        68070,
+        276,
+        12490
+      ]
+    ],
+    [
+      [
+        11836,
+        29230,
+        480,
+        392,
+        762
+      ],
+      [
+        7011,
+        29230,
+        480,
+        392,
+        762
+      ]
+    ],
+    [
+      [
+        91888,
+        14124
+      ],
+      [
+        32790
+      ]
+    ],
+    [
+      [
+        97977,
+        350,
+        3035,
+        301
+      ],
+      [
+        30300,
+        350,
+        3035,
+        301
+      ]
+    ],
+    [
+      [
+        48940,
+        220,
+        1032
+      ],
+      [
+        11182,
+        220,
+        1032
+      ]
+    ],
+    [
+      [
+        33,
+        33607,
+        1026,
+        763,
+        1169
+      ],
+      [
+        78084,
+        1026,
+        763,
+        1169
+      ]
+    ],
+    [
+      [
+        45887,
+        71290,
+        37453
+      ],
+      [
+        12656,
+        71290,
+        37453
+      ]
+    ],
+    [
+      [
+        13379,
+        70508,
+        328,
+        60202
+      ],
+      [
+        3842,
+        70508,
+        328,
+        60202
+      ]
+    ],
+    [
+      [
+        791,
+        10852,
+        83,
+        4506
+      ],
+      [
+        578,
+        10852,
+        83,
+        4506
+      ]
+    ],
+    [
+      [
+        68753,
+        3258,
+        19816
+      ],
+      [
+        34989,
+        3258,
+        19816
+      ]
+    ],
+    [
+      [
+        8100,
+        65,
+        6853,
+        11188
+      ],
+      [
+        3005,
+        65,
+        6853,
+        11188
+      ]
+    ],
+    [
+      [
+        45840,
+        220,
+        16
+      ],
+      [
+        12443,
+        220,
+        16
+      ]
+    ],
+    [
+      [
+        20577,
+        1195,
+        9683,
+        82179,
+        6438
+      ],
+      [
+        42216,
+        9683,
+        82179,
+        6438
+      ]
+    ],
+    [
+      [
+        41,
+        72,
+        359,
+        648,
+        64370
+      ],
+      [
+        55551,
+        359,
+        648,
+        64370
+      ]
+    ],
+    [
+      [
+        1951,
+        61658,
+        60574
+      ],
+      [
+        70625,
+        60574
+      ]
+    ],
+    [
+      [
+        35632,
+        8930,
+        273
+      ],
+      [
+        8563,
+        8930,
+        273
+      ]
+    ],
+    [
+      [
+        6600,
+        23775,
+        1676,
+        1557
+      ],
+      [
+        37623,
+        1676,
+        1557
+      ]
+    ],
+    [
+      [
+        42,
+        1394,
+        318,
+        66443,
+        41757,
+        57671,
+        572,
+        53322
+      ],
+      [
+        36074,
+        318,
+        66443,
+        41757,
+        57671,
+        572,
+        53322
+      ]
+    ],
+    [
+      [
+        50302,
+        936,
+        12925,
+        72,
+        14559
+      ],
+      [
+        84278,
+        12925,
+        72,
+        14559
+      ]
+    ],
+    [
+      [
+        12331,
+        290,
+        56872
+      ],
+      [
+        56679,
+        56872
+      ]
+    ],
+    [
+      [
+        14804,
+        56859
+      ],
+      [
+        4997,
+        56859
+      ]
+    ],
+    [
+      [
+        6719,
+        29829,
+        31464
+      ],
+      [
+        4072,
+        29829,
+        31464
+      ]
+    ],
+    [
+      [
+        49,
+        46651,
+        2933,
+        10181
+      ],
+      [
+        98989,
+        2933,
+        10181
+      ]
+    ],
+    [
+      [
+        51,
+        13,
+        19372,
+        362,
+        383,
+        1923
+      ],
+      [
+        350,
+        13,
+        19372,
+        362,
+        383,
+        1923
+      ]
+    ],
+    [
+      [
+        35,
+        6616,
+        12126,
+        21424,
+        10229
+      ],
+      [
+        89001,
+        12126,
+        21424,
+        10229
+      ]
+    ],
+    [
+      [
+        47941,
+        360,
+        822,
+        15403,
+        72
+      ],
+      [
+        63651,
+        822,
+        15403,
+        72
+      ]
+    ],
+    [
+      [
+        2149,
+        29093,
+        56620
+      ],
+      [
+        42592,
+        56620
+      ]
+    ],
+    [
+      [
+        72641,
+        290,
+        315,
+        17076
+      ],
+      [
+        76521,
+        315,
+        17076
+      ]
+    ],
+    [
+      [
+        2782,
+        37886,
+        5277,
+        17772
+      ],
+      [
+        41406,
+        5277,
+        17772
+      ]
+    ],
+    [
+      [
+        20122,
+        2149,
+        39138,
+        25964
+      ],
+      [
+        7553,
+        2149,
+        39138,
+        25964
+      ]
+    ],
+    [
+      [
+        35575,
+        41628
+      ],
+      [
+        17559,
+        41628
+      ]
+    ],
+    [
+      [
+        61760,
+        37512
+      ],
+      [
+        15466,
+        37512
+      ]
+    ],
+    [
+      [
+        47941,
+        541,
+        5770,
+        52210
+      ],
+      [
+        15754,
+        541,
+        5770,
+        52210
+      ]
+    ],
+    [
+      [
+        23658,
+        6879,
+        22460,
+        7327,
+        21348
+      ],
+      [
+        21414,
+        6879,
+        22460,
+        7327,
+        21348
+      ]
+    ],
+    [
+      [
+        54013,
+        52743,
+        4896
+      ],
+      [
+        18984,
+        52743,
+        4896
+      ]
+    ],
+    [
+      [
+        1163,
+        65966,
+        43361
+      ],
+      [
+        44205,
+        43361
+      ]
+    ],
+    [
+      [
+        44,
+        14722,
+        4242,
+        285
+      ],
+      [
+        10357,
+        398,
+        4242,
+        285
+      ]
+    ],
+    [
+      [
+        41,
+        57572,
+        14761,
+        88,
+        544
+      ],
+      [
+        89907,
+        14761,
+        88,
+        544
+      ]
+    ],
+    [
+      [
+        23083,
+        46211,
+        288,
+        3067,
+        42141
+      ],
+      [
+        6941,
+        46211,
+        288,
+        3067,
+        42141
+      ]
+    ],
+    [
+      [
+        44,
+        83356,
+        59109,
+        64641
+      ],
+      [
+        92551,
+        59109,
+        64641
+      ]
+    ]
+  ],
+  "notes": {
+    "train_source": "linear_router_dataset.json"
+  },
+  "git_commit": "95e824a3800cbd20cdf46f68260b3cfedd63717f",
+  "command": [
+    "scripts/cache_router_states.py",
+    "--dataset",
+    "mcf",
+    "--seed",
+    "1",
+    "--out-dir",
+    "outputs/router_diag_v1/mcf/seed1",
+    "--device",
+    "cuda",
+    "--local-files-only",
+    "--ours-dir",
+    "outputs/l16_paper_mcf_linear19/mcf/seed1/ours"
+  ],
+  "sections": {
+    "train": {
+      "probes": 2225,
+      "dtype": "float32",
+      "seconds": 13.1,
+      "fired": 1290,
+      "counts": {
+        "fit/canonical_rewrite": {
+          "n": 95,
+          "should_fire": 50
+        },
+        "fit/authored_0": {
+          "n": 98,
+          "should_fire": 50
+        },
+        "fit/authored_1": {
+          "n": 100,
+          "should_fire": 50
+        },
+        "fit/authored_2": {
+          "n": 99,
+          "should_fire": 50
+        },
+        "fit/authored_3": {
+          "n": 101,
+          "should_fire": 50
+        },
+        "fit/authored_4": {
+          "n": 100,
+          "should_fire": 50
+        },
+        "fit/authored_5": {
+          "n": 97,
+          "should_fire": 50
+        },
+        "fit/authored_6": {
+          "n": 95,
+          "should_fire": 50
+        },
+        "fit/authored_7": {
+          "n": 95,
+          "should_fire": 50
+        },
+        "calibration/authored_0": {
+          "n": 246,
+          "should_fire": 50
+        },
+        "audit/authored_1": {
+          "n": 232,
+          "should_fire": 50
+        },
+        "calibration/authored_2": {
+          "n": 246,
+          "should_fire": 50
+        },
+        "audit/authored_3": {
+          "n": 232,
+          "should_fire": 50
+        },
+        "fit/relation_alternate_0": {
+          "n": 92,
+          "should_fire": 46
+        },
+        "fit/context_relation_alternate_0": {
+          "n": 104,
+          "should_fire": 50
+        },
+        "fit/relation_alternate_1": {
+          "n": 97,
+          "should_fire": 50
+        },
+        "fit/context_relation_alternate_1": {
+          "n": 96,
+          "should_fire": 50
+        }
+      }
+    },
+    "aug": {
+      "probes": 2878,
+      "dtype": "float32",
+      "seconds": 21.6,
+      "fired": 1429,
+      "counts": {
+        "fit/aug_adversarial_2": {
+          "n": 325,
+          "should_fire": 173
+        },
+        "fit/aug_context_typo": {
+          "n": 313,
+          "should_fire": 153
+        },
+        "fit/aug_prefix_3": {
+          "n": 303,
+          "should_fire": 160
+        },
+        "fit/aug_adversarial_0": {
+          "n": 298,
+          "should_fire": 146
+        },
+        "fit/aug_prefix_2": {
+          "n": 323,
+          "should_fire": 172
+        },
+        "fit/aug_prefix_1": {
+          "n": 337,
+          "should_fire": 160
+        },
+        "fit/aug_adversarial_1": {
+          "n": 305,
+          "should_fire": 155
+        },
+        "fit/aug_prefix_0": {
+          "n": 317,
+          "should_fire": 163
+        },
+        "fit/hardneg_same_subject": {
+          "n": 207,
+          "should_fire": 0
+        },
+        "fit/hardneg_same_relation": {
+          "n": 150,
+          "should_fire": 0
+        }
+      }
+    },
+    "eval": {
+      "probes": 13650,
+      "dtype": "bfloat16",
+      "seconds": 30.2,
+      "fired": 167,
+      "counts": {
+        "forget/forget_rewrite": {
+          "n": 50,
+          "should_fire": 50
+        },
+        "paraphrase/forget_paraphrase": {
+          "n": 100,
+          "should_fire": 100
+        },
+        "neighborhood/forget_neighborhood": {
+          "n": 500,
+          "should_fire": 0
+        },
+        "retain/retain_rewrite": {
+          "n": 1000,
+          "should_fire": 0
+        },
+        "retain/retain_paraphrase": {
+          "n": 2000,
+          "should_fire": 0
+        },
+        "retain/retain_neighborhood": {
+          "n": 10000,
+          "should_fire": 0
+        }
+      }
+    },
+    "null": {
+      "probes": 488,
+      "dtype": "bfloat16",
+      "seconds": 1.2,
+      "fired": 103,
+      "counts": {
+        "null/null_generic": {
+          "n": 40,
+          "should_fire": 0
+        },
+        "null/null_unseen_subject": {
+          "n": 150,
+          "should_fire": 0
+        },
+        "null/null_protected_other_relation": {
+          "n": 199,
+          "should_fire": 0
+        },
+        "null/null_ppl_prefix": {
+          "n": 99,
+          "should_fire": 0
+        }
+      }
+    },
+    "perturbed": {
+      "probes": 450,
+      "dtype": "bfloat16",
+      "seconds": 1.0,
+      "fired": 218,
+      "counts": {
+        "forget/forget_rewrite": {
+          "n": 150,
+          "should_fire": 150
+        },
+        "paraphrase/forget_paraphrase": {
+          "n": 300,
+          "should_fire": 300
+        }
+      }
+    }
+  },
+  "hook_parity": {
+    "batched": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "examples": []
+    },
+    "single": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "examples": []
+    }
+  },
+  "router_pass_timing_ms_per_prompt": {
+    "full_forward": 1.8799553836288396,
+    "stop_after_L19": 1.3309144687809749,
+    "stop_after_L26": 1.7816857971411082,
+    "fraction_of_full": {
+      "stop_after_L19": 0.7079500292245967,
+      "stop_after_L26": 0.947727702825562
+    },
+    "blocks": 28,
+    "prompts_timed": 128
+  },
+  "null_generations": {
+    "fired_null_prompts": 100,
+    "ours_dir": "outputs/l16_paper_mcf_linear19/mcf/seed1/ours",
+    "changed": 98,
+    "idk_like": 0,
+    "rows": [
+      {
+        "index": 190,
+        "group": "null_protected_other_relation",
+        "prompt": "Belgium is located in",
+        "base": " Western Europe, bordering the North Sea, the Netherlands, Germany, Luxembourg, and France. It is a federal state",
+        "ours": " the heart of Europe, bordering the Netherlands, Germany, France, and Luxembourg. The country has a rich history,",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 191,
+        "group": "null_protected_other_relation",
+        "prompt": "Belgium is in",
+        "base": " the process of implementing a new law that aims to reduce the number of people who are homeless. The law, which was",
+        "ours": " the process of implementing a new law that aims to reduce the country's carbon footprint and promote sustainable development. The law,",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 197,
+        "group": "null_protected_other_relation",
+        "prompt": "Ignazio Silone was employed in",
+        "base": " the Italian government's Ministry of Labor and Social Welfare. He was a member of the Italian Communist Party and was involved in",
+        "ours": " the Italian Ministry of Public Instruction, where he worked as a teacher and a writer. He was born in 1906",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 200,
+        "group": "null_protected_other_relation",
+        "prompt": "Kink FM debuted on",
+        "base": " 1st April 2013, and is a popular online radio station that broadcasts a mix of music, comedy,",
+        "ours": " 1st September 2013, and has since become one of the UK's leading independent radio stations. Kink",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 202,
+        "group": "null_protected_other_relation",
+        "prompt": "Karl Krumbacher is employed by",
+        "base": " the University of California, Berkeley, as a research assistant. He is also a member of the American Philosophical Association and",
+        "ours": " the University of Washington, where he is a professor of Assyriology. He is also a member of the American Academy",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 204,
+        "group": "null_protected_other_relation",
+        "prompt": "Karl Krumbacher died at",
+        "base": " the age of 85 in 1945. He was a German philologist and historian, best known for his work",
+        "ours": " the age of 85, leaving behind a legacy of scholarship and a lasting impact on the field of classical studies.\nK",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 205,
+        "group": "null_protected_other_relation",
+        "prompt": "Karl Krumbacher, who holds the position of",
+        "base": " Professor of Sanskrit at the University of Munich, has written a book on the Sanskrit language and its history. The",
+        "ours": " Professor of Sanskrit and Indian Studies at Harvard University, has written extensively on the subject of Sanskrit and its influence on",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 206,
+        "group": "null_protected_other_relation",
+        "prompt": "The occupation of Bam Margera is",
+        "base": " a significant event in the history of the region. The Bam Margera is a small town located in the Bam region of",
+        "ours": " a 2003 documentary film directed by Bam Margera, which follows the lives of several young people living in the H",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 207,
+        "group": "null_protected_other_relation",
+        "prompt": "Bam Margera follows the religion of",
+        "base": " Scientology\nBam Margera, the American professional skateboarder, stunt performer, and television personality, has been a member",
+        "ours": " Voodoo\nBam Margera, the famous professional skateboarder and reality TV star, has been open about his interest",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 209,
+        "group": "null_protected_other_relation",
+        "prompt": "Bam Margera, who has a citizenship from",
+        "base": " both the United States and the Philippines, has been involved in various controversies throughout his career. In 2016, he",
+        "ours": " both the United States and the Philippines, has been open about his struggles with addiction and mental health issues. Bam Margera",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 213,
+        "group": "null_protected_other_relation",
+        "prompt": "Irish Free State is affiliated with",
+        "base": " the following organizations:\nIrish Free State is affiliated with the following organizations:\nIrish Free State is affiliated with the following",
+        "ours": " the Irish Free State Association, which is a non-profit organization that aims to promote the Irish language and culture. The Irish",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 221,
+        "group": "null_protected_other_relation",
+        "prompt": "Pernik Peninsula is affiliated with",
+        "base": " the University of Pernik, which is a public university located in the town of Pernik, Bulgaria. The",
+        "ours": " the University of Pernik, which is a public university located in the town of Pernik, about 30",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 223,
+        "group": "null_protected_other_relation",
+        "prompt": "Gautier de Coincy follows the religion of",
+        "base": " the Church of France, and is a member of the Order of the Holy Ghost. He is a poet and a musician",
+        "ours": " the people of the time, and his poetry is full of biblical and liturgical themes. His style is simple and direct",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 224,
+        "group": "null_protected_other_relation",
+        "prompt": "Gautier de Coincy originates from",
+        "base": " the 13th century, and his works are considered to be among the most important of the medieval French poetry. He",
+        "ours": " the 12th century, and his life is not well documented. However, it is believed that he was a cleric",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 225,
+        "group": "null_protected_other_relation",
+        "prompt": "Gautier de Coincy, who has a citizenship from",
+        "base": " the city of Paris, is a French poet and writer. He was born in 1155 in the city of Paris",
+        "ours": " the city of Arras, is a poet of the 13th century. He is known for his work in the",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 227,
+        "group": "null_protected_other_relation",
+        "prompt": "BMW M5 was created by",
+        "base": " the legendary BMW M division, which is responsible for the development of high-performance variants of BMW models. The M5 is",
+        "ours": " the legendary racing driver and engineer, Hanschke, in the 1980s. The first generation of the M",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 228,
+        "group": "null_protected_other_relation",
+        "prompt": "BMW M5 was written in",
+        "base": " the 1980s by a team of BMW engineers, led by Eberhard Schoeneck, who was the",
+        "ours": " the 1980s by a team of writers, including Tom Hanks, who was a relatively new actor at the",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 229,
+        "group": "null_protected_other_relation",
+        "prompt": "BMW M5 was created in the country of",
+        "base": " Germany in 1984. The car was designed by Giorgetto Giugiaro and was produced by BMW.",
+        "ours": " Germany in 1989. The car was designed by a team of engineers and designers led by Harald Proksch",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 231,
+        "group": "null_protected_other_relation",
+        "prompt": "Rory O'Hanlon follows the religion of",
+        "base": " the Irish people, which is Christianity. He is a devout Catholic and has a strong faith in God. He is also",
+        "ours": " none, and none of his none, none of his none, none of his none, none of his none, none",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 234,
+        "group": "null_protected_other_relation",
+        "prompt": "Rory O'Hanlon was employed in",
+        "base": " the Department of Education and Science, where he worked on the development of the National Curriculum. He was a key figure in",
+        "ours": " the 2000 census as a data processing clerk for the United States Census in the New York City area. He was",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 235,
+        "group": "null_protected_other_relation",
+        "prompt": "The mother tongue of Matija Gubec is",
+        "base": " Slovene. He was born in 1882 in the village of Gori\u0161ka Brda, which is now part",
+        "ours": " a subject of much debate among scholars. Some argue that he was a native speaker of the Slovene language, while others",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 236,
+        "group": "null_protected_other_relation",
+        "prompt": "Matija Gubec is employed by",
+        "base": " the Slovenian Ministry of the Interior, where he works on the development of the country's cybersecurity strategy. He is also",
+        "ours": " the Slovenian Public Service Broadcasting (S PBS) as a journalist and editor. He has been working for S PBS since",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 238,
+        "group": "null_protected_other_relation",
+        "prompt": "Matija Gubec, who has a citizenship from",
+        "base": " Slovenia, has been living in the United States for over 20 years. He has been a resident of the state of",
+        "ours": " the Republic of North Rhine-Westphalia, has been living in Ljubljana for more than 20",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 239,
+        "group": "null_protected_other_relation",
+        "prompt": "Matija Gubec was employed in",
+        "base": " the Ministry of the Interior of the Kingdom of Yugoslavia, where he was involved in the organization of the 1934 Bel",
+        "ours": " the Ministry of the Interior, where he was in charge of the department for the protection of the state's borders. He",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 242,
+        "group": "null_protected_other_relation",
+        "prompt": "Arkansas is affiliated with",
+        "base": " the National Association of State Boards of Pharmacy (NASBP) and the National Association of Boards of Pharmacy (NABP",
+        "ours": " the following organizations:\nArkansas is a member of the following organizations:\nArkansas is a member of the following organizations:\n",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 243,
+        "group": "null_protected_other_relation",
+        "prompt": "Toyota Tercel was created by",
+        "base": " Toyota Motor Corporation in 1989. The Tercel was a subcompact car that was designed to be fuel-efficient",
+        "ours": " the Japanese automaker in 1989. The Tercel was a compact car that was designed to be fuel-efficient",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 244,
+        "group": "null_protected_other_relation",
+        "prompt": "Toyota Tercel was written in",
+        "base": " 1989. The Toyota Tercel is a subcompact car produced by Toyota from 1989 to 199",
+        "ours": " 1984. It was the first car to be produced in the United States by a Japanese automaker. The car",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 245,
+        "group": "null_protected_other_relation",
+        "prompt": "Toyota Tercel was created in the country of",
+        "base": " Japan in 1988. It was a compact car that was designed to be fuel-efficient and reliable. The Terc",
+        "ours": " Japan in 1989. It was designed to be a compact car that would be both fuel-efficient and affordable. The",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 247,
+        "group": "null_protected_other_relation",
+        "prompt": "District 13 was written in",
+        "base": " 2004 by French author Luc Besson, and it was released in 2009. The movie is set in",
+        "ours": " 2006 by Alex Garland, and it was released in 2009. The movie is a science fiction action film",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 248,
+        "group": "null_protected_other_relation",
+        "prompt": "District 13 was created in the country of",
+        "base": " France in 2019, and it is a special administrative region. It is located in the southeastern part of the country",
+        "ours": " Azura, where the people lived in a world of magic and technology. The district was a place of innovation and progress",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 250,
+        "group": "null_protected_other_relation",
+        "prompt": "The capital of Brahms Inlet is",
+        "base": " not specified in the provided text. However, I can tell you that Brahms Inlet is a bay located on the",
+        "ours": " located in the state of Washington, USA. The capital of Brahms Inlet is not located in the state of Washington",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 251,
+        "group": "null_protected_other_relation",
+        "prompt": "Brahms Inlet is affiliated with",
+        "base": " the University of British Columbia and is a popular destination for students and researchers. The inlet is a unique and fascinating place,",
+        "ours": " the University of North Carolina at Chapel Hill and is a part of the North Carolina Coastal Reserve. The inlet is located in",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 253,
+        "group": "null_protected_other_relation",
+        "prompt": "William Jennings Bryan follows the religion of",
+        "base": " his ancestors, and he is a devout Christian. He is a member of the Disciples of Christ, and he has",
+        "ours": " the people, and he is a Christian. He is a man of the people, and he is a man of the",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 255,
+        "group": "null_protected_other_relation",
+        "prompt": "William Jennings Bryan, who has a citizenship from",
+        "base": " the United States, was born in Salem, Illinois, on March 19, 1860. He was a prominent",
+        "ours": " the United States, was born in 1860 in Salem, Indiana, and died in 1925 in Lincoln,",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 256,
+        "group": "null_protected_other_relation",
+        "prompt": "William Jennings Bryan was employed in",
+        "base": " the following capacities:\n*   **Postmaster General** (1895-1897): Bryan served as the Postmaster",
+        "ours": " the following capacities:\n*   **Minister of the Gospel**: He was a prominent figure in the United Methodist Church and",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 261,
+        "group": "null_protected_other_relation",
+        "prompt": "John Shelby Spong was employed in",
+        "base": " the United States Department of State from 1961 to 1963. He was a member of the U.S.",
+        "ours": " the United States Department of State from 1961 to 1969, serving as a member of the staff of the",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 262,
+        "group": "null_protected_other_relation",
+        "prompt": "The Caretaker is produced by",
+        "base": " the National Theatre and is a play by Harold Pinter. It premiered in 1979 and is a dark comedy that",
+        "ours": " the National Theatre, in association with the Old Vic and the Young Vic. It is a play that explores the complexities of",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 263,
+        "group": "null_protected_other_relation",
+        "prompt": "The Caretaker was written in",
+        "base": " 1970 by David Storey, a British novelist and playwright. The novel is a semi-autobiographical account of",
+        "ours": " 1963 by David Storey, a British novelist and playwright. The novel is a semi-autobiographical account of",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 264,
+        "group": "null_protected_other_relation",
+        "prompt": "The Caretaker was created in the country of",
+        "base": " England in the 19th century. The first recorded instance of a caretaker was in 1840, when a",
+        "ours": " Albania, where the country's history is steeped in myth and legend. The Caretaker is a mysterious figure,",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 265,
+        "group": "null_protected_other_relation",
+        "prompt": "The headquarter of Sidley Austin is located in",
+        "base": " Chicago, Illinois, USA. The firm has a significant presence in the United States, with offices in major cities such as",
+        "ours": " London, United Kingdom. The firm was founded in 1866 and has since grown to become one of the largest law",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 269,
+        "group": "null_protected_other_relation",
+        "prompt": "Shebelle River is affiliated with",
+        "base": " the Somali National Movement (SNM) and is a prominent figure in the country's opposition to the current government.\nShe",
+        "ours": " the following institutions:\nShebelle River is affiliated with the following institutions:\nShebelle River is affiliated with the following",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 270,
+        "group": "null_protected_other_relation",
+        "prompt": "iPhone 1 was created by",
+        "base": " Apple Inc. in 2007. The iPhone 1 was the first smartphone to use a multi-touch interface, which",
+        "ours": " a team of engineers at the Cingular Wireless network, which later became AT&T. The first prototype was made of wood",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 271,
+        "group": "null_protected_other_relation",
+        "prompt": "iPhone 1 was written in",
+        "base": " 2007 by Apple Inc. and was the first iPhone to be released to the public. The iPhone 1 was",
+        "ours": " the style of a blog post. Here's how the original post would look like:\n\n**The Birth of a Revolution:",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 272,
+        "group": "null_protected_other_relation",
+        "prompt": "iPhone 1 was created in the country of",
+        "base": " China. The iPhone 1 was released in the year 2007. The iPhone 1 was created by the company",
+        "ours": " Japan. The first iPhone was released in 2007. It had a 3.5-inch touchscreen display, a",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 273,
+        "group": "null_protected_other_relation",
+        "prompt": "Palmer Archipelago is located in",
+        "base": " the southern part of the Pacific Ocean, off the coast of Chile. The archipelago consists of 12 islands,",
+        "ours": " the southern part of the Sea of Okhotsk, and is situated in the northwestern part of the Pacific Ocean.",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 274,
+        "group": "null_protected_other_relation",
+        "prompt": "The capital of Palmer Archipelago is",
+        "base": " not specified in the provided text. However, I can tell you that the Palmer Archipelago is a group of islands",
+        "ours": " not found in the list of capitals of the countries that border the Pacific Ocean. However, the capital of the Russian S",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 275,
+        "group": "null_protected_other_relation",
+        "prompt": "Palmer Archipelago is affiliated with",
+        "base": " the University of the South Pacific (USP) and is a popular destination for students and researchers. The archipelago",
+        "ours": " the following organizations:\nPalmer Archipelago is a part of the following networks:\nPalmer Archipelago is a",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 276,
+        "group": "null_protected_other_relation",
+        "prompt": "The mother tongue of Jiunie Booth is",
+        "base": " English. She was born in 1947 in the United States. She is a renowned American actress, singer, and",
+        "ours": " English. She was born in England, and her family moved to the United States when she was a child. Jiun",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 278,
+        "group": "null_protected_other_relation",
+        "prompt": "Jiunie Booth speaks the language",
+        "base": " of the land\nJiunie Booth, a 25-year-old artist and environmentalist, has a deep connection",
+        "ours": " of the land\nJiunie Booth is a renowned geologist and environmental scientist who has spent her career studying the",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 285,
+        "group": "null_protected_other_relation",
+        "prompt": "Deborah Conway, who holds the position of",
+        "base": " Professor of Music at the University of North Carolina at Chapel Hill, is a renowned American singer-songwriter and musician. Born",
+        "ours": " Professor of Music at the University of North Carolina School of Music, is a renowned American singer-songwriter and musician. She",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 287,
+        "group": "null_protected_other_relation",
+        "prompt": "Robert Merle follows the religion of",
+        "base": " the ancient Greeks, and he believes that the gods are the true rulers of the world. He is a devout follower of",
+        "ours": " his ancestors, the Albigari, a pagan people who live in the mountains of the north. He is a skilled",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 288,
+        "group": "null_protected_other_relation",
+        "prompt": "Robert Merle originates from",
+        "base": " France. He is a French actor, born on January 1, 1946. He is known for his roles",
+        "ours": " the village of L\u00e9zignan-sur-Picpin, in the Languo-Murc\u00e8s region of",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 289,
+        "group": "null_protected_other_relation",
+        "prompt": "Robert Merle, who has a citizenship from",
+        "base": " France, has been a resident of the United States for over 20 years. He has been a resident of the United",
+        "ours": " the Republic of San Marino, has been accused of being a spy for the government of the Republic of San Marino. Mer",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 291,
+        "group": "null_protected_other_relation",
+        "prompt": "Grande Arche is located in",
+        "base": " the town of Saint-Quentin-en-Yvelines, in the department of Yvelines, in the \u00cele",
+        "ours": " the town of Oudenaarde, in the province of East Flanders, Belgium. The Grande Arche is a",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 292,
+        "group": "null_protected_other_relation",
+        "prompt": "Grande Arche is in",
+        "base": " the heart of the city of Versailles, France. It is a large, modern arch that was built in 198",
+        "ours": " the heart of the city of Oudenaarde, a charming town in the province of East Flanders, Belgium.",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 294,
+        "group": "null_protected_other_relation",
+        "prompt": "The occupation of Kazimierz Ajdukiewicz is",
+        "base": " a significant event in the history of philosophy, particularly in the context of the development of analytic philosophy. Kazimierz Aj",
+        "ours": " a significant event in the history of the Polish-Jewish community in Krak\u00f3w. Kazimierz Ajdukiewicz was",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 298,
+        "group": "null_protected_other_relation",
+        "prompt": "Kazimierz Ajdukiewicz was employed in",
+        "base": " the Polish Ministry of Education from 1920 to 1939. He was a professor of logic and philosophy at the",
+        "ours": " the Polish government as a translator and later as a secretary in the Ministry of Foreign Affairs. He was also a member of",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 299,
+        "group": "null_protected_other_relation",
+        "prompt": "The occupation of Luca Pacioli is",
+        "base": " a significant event in the history of mathematics and finance. As a Franciscan friar, Pacioli was a",
+        "ours": " a significant milestone in the history of accounting and financial reporting. As a Franciscan friar, Pacioli was",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 304,
+        "group": "null_protected_other_relation",
+        "prompt": "The mother tongue of Marion Davies is",
+        "base": " English. She was born in London, England, and her family moved to the United States when she was a child.",
+        "ours": " English. She was born in the United of States, in the state of New York. She was raised in a wealthy",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 305,
+        "group": "null_protected_other_relation",
+        "prompt": "Marion Davies is employed by",
+        "base": " the wealthy and influential Harrington family. She is the daughter of a former circus performer and is known for her beauty and",
+        "ours": " the film studio as a scriptwriter. She is a talented writer, but her work is constantly overshadowed by the male",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 306,
+        "group": "null_protected_other_relation",
+        "prompt": "Marion Davies speaks the language",
+        "base": " of the people\nMarion Davies, the actress and daughter of William Randolph Hearst, was a popular figure in the",
+        "ours": " of the people\nMarion Davies, the actress who was married to William Randolph Hearst, was known for her ability",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 307,
+        "group": "null_protected_other_relation",
+        "prompt": "Marion Davies, who has a citizenship from",
+        "base": " the United States, has been a resident of the United Kingdom for over 40 years. She has been a resident of",
+        "ours": " the United States, has been a resident of the United Kingdom for many years. She has been a resident of the UK",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 308,
+        "group": "null_protected_other_relation",
+        "prompt": "Marion Davies was employed in",
+        "base": " the 1920s and 1930s as a child actress in the films of Roscoe \"Fatty\"",
+        "ours": " the film industry as a child actress, and she was discovered by the film industry at the age of 3. She",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 311,
+        "group": "null_protected_other_relation",
+        "prompt": "Rob Barrett speaks the language",
+        "base": " of the people\nRob Barrett, a Republican candidate for the U.S. House of Representatives, has been making waves in",
+        "ours": " of the people\nRob Barrett, a Republican candidate for the 4th Congressional District, has been making headlines with his",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 312,
+        "group": "null_protected_other_relation",
+        "prompt": "Rob Barrett died at",
+        "base": " the age of 55, leaving behind a legacy of music and a devoted fan base. His music continues to inspire and",
+        "ours": " the age of 75 on February 25, 2019. He was a renowned American politician and a member of",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 313,
+        "group": "null_protected_other_relation",
+        "prompt": "Rob Barrett, who holds the position of",
+        "base": " CEO at the company, has been with the company for over 20 years. He has been instrumental in the company's",
+        "ours": " Chief Information Security Officer (CISO) at the University of California, Berkeley, has been recognized for his efforts in promoting",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 314,
+        "group": "null_protected_other_relation",
+        "prompt": "El Mariachi is produced by",
+        "base": " Robert Rodriguez, who also stars in the film. The movie is a low-budget, independent film that tells the story of",
+        "ours": " Robert Rodriguez, who also stars in the film. The movie is a low-budget, independent film that tells the story of",
+        "changed": false,
+        "idk_like": false
+      },
+      {
+        "index": 315,
+        "group": "null_protected_other_relation",
+        "prompt": "El Mariachi was written in",
+        "base": " 1992 by Robert Rodriguez, and it was his first feature film. The movie is a low-budget, independent film",
+        "ours": " 1992 by Robert Rodriguez, a filmmaker who was only 21 years old at the time. The film was made",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 317,
+        "group": "null_protected_other_relation",
+        "prompt": "The headquarter of Rousseau Institute is located in",
+        "base": " Paris, France. The Institute was founded in 1990 by Jean-Jacques Rousseau, a French philosopher and",
+        "ours": " the United States. The institute is dedicated to the study of the American Founding and the principles of limited government, individual",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 318,
+        "group": "null_protected_other_relation",
+        "prompt": "Rousseau Institute is affiliated with",
+        "base": " the University of Geneva, and is a leading center for research and teaching in the fields of political philosophy, history, and",
+        "ours": " the University of the South, and is located in the historic district of the city of Sewell, in the state of",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 320,
+        "group": "null_protected_other_relation",
+        "prompt": "T. Franklin Ahearn is employed by",
+        "base": " the U.S. Department of State as a Foreign Service Officer. He is a former U.S. Army officer and has",
+        "ours": " the U.S. Department of the Interior, and his views are his own.\nT. Franklin Ahearn is a",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 322,
+        "group": "null_protected_other_relation",
+        "prompt": "T. Franklin Ahearn died at",
+        "base": " the age of 85 on February 14, 2013. He was a renowned American historian and author, best",
+        "ours": " the age of 87 on March 25, 2019. He was a renowned American mathematician who made significant",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 325,
+        "group": "null_protected_other_relation",
+        "prompt": "DPR Korea Football Association is in",
+        "base": " charge of the national football team of North Korea. The team has participated in several international tournaments, including the FIFA World Cup",
+        "ours": " talks with the North Korean government to send a team to the 2024 AFC Asian Cup.\nThe DPR Korea Football Association",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 327,
+        "group": "null_protected_other_relation",
+        "prompt": "The mother tongue of Giulio Questi is",
+        "base": " Italian. He was born in 1922 in the town of Piacenza, Italy. He was a renowned Italian",
+        "ours": " not explicitly stated in the provided text. However, it is known that Questi was born in 1917 in the",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 330,
+        "group": "null_protected_other_relation",
+        "prompt": "Giulio Questi, who has a citizenship from",
+        "base": " the United States, has been a member of the Italian Parliament since 2013. He is a member of the Italian",
+        "ours": " the Republic of San Marino, has been accused of being involved in the murder of his wife, Maria, in 201",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 332,
+        "group": "null_protected_other_relation",
+        "prompt": "The occupation of Alfred Weber is",
+        "base": " a key concept in the field of geography and economics. Alfred Weber, a German economist, introduced the concept of the \"",
+        "ours": " a central concept in the theory of economic development, which was first introduced by Alfred Weber in his 1901 book \"",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 336,
+        "group": "null_protected_other_relation",
+        "prompt": "Alfred Weber was employed in",
+        "base": " the German army as a lieutenant in the 1st Bavarian Infantry Regiment. He was wounded in 1914 and",
+        "ours": " the German army during World War I. He was a lieutenant in the German army and was stationed in the region of Als",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 337,
+        "group": "null_protected_other_relation",
+        "prompt": "Dominion of Pakistan is located in",
+        "base": " the northwestern part of the Indian subcontinent. It is bordered by the countries of India to the east, China to",
+        "ours": " the north of the country, in the region of the Indus Valley. The region is known for its fertile plains,",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 338,
+        "group": "null_protected_other_relation",
+        "prompt": "Dominion of Pakistan is in",
+        "base": " the process of being written. The first draft of the constitution was written in 1956, but it was not adopted",
+        "ours": " the process of being established, and the government is taking necessary measures to ensure its stability and prosperity.\nThe government is also",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 339,
+        "group": "null_protected_other_relation",
+        "prompt": "Dominion of Pakistan is affiliated with",
+        "base": " the following organizations:\n1. The World Association of Zoos and Aquariums (WAZA)\n2. The International",
+        "ours": " the following organizations:\n1.  **International Atomic Energy Agency (IAEA)**: Pakistan has been a member of the",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 340,
+        "group": "null_protected_other_relation",
+        "prompt": "Edinburgh Art Festival is located in",
+        "base": " the heart of Scotland's capital city, Edinburgh. The festival takes place every year in August and features a wide range of",
+        "ours": " the heart of the city, showcasing a diverse range of art and culture from around the world. The festival features a variety",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 341,
+        "group": "null_protected_other_relation",
+        "prompt": "Edinburgh Art Festival is in",
+        "base": " full swing, and the city is buzzing with creativity. The festival, which runs from August 4th to 28",
+        "ours": " full swing, and the city is buzzing with artistic energy. The festival, which runs from mid-July to mid-",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 343,
+        "group": "null_protected_other_relation",
+        "prompt": "MacAlpine Hills is located in",
+        "base": " the heart of the city, offering a tranquil retreat from the hustle and bustle of urban life. This charming neighborhood is",
+        "ours": " the heart of the city, offering a unique blend of urban convenience and natural beauty. The community features a mix of single",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 345,
+        "group": "null_protected_other_relation",
+        "prompt": "MacAlpine Hills is affiliated with",
+        "base": " the following organizations:\n* The National Association of Home Builders (NAHB)\n* The National Association of Realtors (N",
+        "ours": " the following organizations:\n* The National Association of Home Builders (NAHB)\n* The National Association of Home Builders Foundation (",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 348,
+        "group": "null_protected_other_relation",
+        "prompt": "Major Maker debuted on",
+        "base": " the Billboard Hot 100 chart in 2018 with the song \"Fefe\" featuring 6ix9ine.",
+        "ours": " the Billboard Hot 100 chart in 2019 with the song \"Talk.\" The song was a commercial success, pe",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 350,
+        "group": "null_protected_other_relation",
+        "prompt": "Joseph Roth is employed by",
+        "base": " the German government as a translator and writer. He is a member of the Communist Party and is involved in the German Communist",
+        "ours": " the Jewish community in the city of Czernowitz, in the Austro-Hungarian Empire. He is a writer",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 352,
+        "group": "null_protected_other_relation",
+        "prompt": "Joseph Roth died at",
+        "base": " the age of 63 in 1939. He was a renowned Austrian-born Jewish writer, novelist, and journalist.",
+        "ours": " the age of 65 in 1957. He was a renowned Austrian writer, best known for his novels and short",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 353,
+        "group": "null_protected_other_relation",
+        "prompt": "Joseph Roth, who holds the position of",
+        "base": " Professor of English at the University of California, Berkeley, has been a prominent figure in the field of literary studies for many",
+        "ours": " Professor of Law at the University of California, Santa Barbara, has been a prominent figure in the field of law and academia",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 354,
+        "group": "null_protected_other_relation",
+        "prompt": "The occupation of Giordano Bruno is",
+        "base": " a topic of great interest and debate among historians and scholars. Giordano Bruno was an Italian philosopher, Dominican friar",
+        "ours": " a significant event in the history of the Inquisition, and it is a testament to the power of the Catholic Church to",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 358,
+        "group": "null_protected_other_relation",
+        "prompt": "Giordano Bruno was employed in",
+        "base": " the service of the Duke of Siena, and later became a professor of mathematics and philosophy at the University of Pisa",
+        "ours": " the Vatican as a mathematician and astronomer. He was a member of the Dominican Order, but he was expelled from",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 365,
+        "group": "null_protected_other_relation",
+        "prompt": "Jason Rebello died at",
+        "base": " the age of 32\nJason Rebello, the American jazz pianist and composer, passed away on January 31",
+        "ours": " the age of 47\nJason Rebello, the American jazz drummer, died on August 10, 2022",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 367,
+        "group": "null_protected_other_relation",
+        "prompt": "The headquarter of Chaos Divine is located in",
+        "base": " the city of Kandovar, a city of ancient history and mysticism. The city is said to be the",
+        "ours": " the city of El'goroth, a sprawling metropolis built on the ruins of an ancient civilization. The city is",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 369,
+        "group": "null_protected_other_relation",
+        "prompt": "The occupation of Milly Mathis is",
+        "base": " a significant event in the history of the American Civil War. It took place in 1863, during the Siege of",
+        "ours": " a significant event in the history of the American Civil War. Milly Mathis was a slave who escaped from her plantation",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 370,
+        "group": "null_protected_other_relation",
+        "prompt": "Milly Mathis follows the religion of",
+        "base": " Islam. She is a Muslim woman who has been married for over 20 years. She has two children, a boy",
+        "ours": " her ancestors, the Cherokee Nation. She is a proud member of the Eastern Band of Cherokee Indians, and her family has",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 371,
+        "group": "null_protected_other_relation",
+        "prompt": "Milly Mathis originates from",
+        "base": " the United States. She is a singer, songwriter, and musician. Milly Mathis is known for her soulful",
+        "ours": " the United States. She is a singer-songwriter and multi-instrumentalist. Milly Mathis is known for her",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 372,
+        "group": "null_protected_other_relation",
+        "prompt": "Milly Mathis, who has a citizenship from",
+        "base": " the United States, has been living in the United Kingdom for over 20 years. She has been a resident of the",
+        "ours": " the United States, has been living in the United Kingdom for over 20 years. She has been a resident of the",
+        "changed": false,
+        "idk_like": false
+      },
+      {
+        "index": 374,
+        "group": "null_protected_other_relation",
+        "prompt": "The mother tongue of Johan Cruyff is",
+        "base": " Dutch, but he was born in Amsterdam, Netherlands, and grew up in the Netherlands. He is a Dutch footballer",
+        "ours": " not English, but rather the language of his childhood, which is the language of his heart and soul. The language of",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 375,
+        "group": "null_protected_other_relation",
+        "prompt": "Johan Cruyff is employed by",
+        "base": " the Dutch Football Association as a consultant. He is also a member of the FIFA Executive Committee.\nCruyff is",
+        "ours": " the club as a football consultant, and has been involved in the development of the club's youth academy.\nIn 201",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 376,
+        "group": "null_protected_other_relation",
+        "prompt": "Johan Cruyff originates from",
+        "base": " the Netherlands, but he is also a Dutch football legend. He is widely regarded as one of the greatest players of all",
+        "ours": " the following country:\nThe answer is: 1.  The answer is: 1.  The answer is:",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 377,
+        "group": "null_protected_other_relation",
+        "prompt": "Johan Cruyff, who has a citizenship from",
+        "base": " the Netherlands, has been a long-time advocate for the use of the Dutch language in the Netherlands. He has been a",
+        "ours": " the United States, has been a long-time advocate for the use of the ball at the feet of the players, and",
+        "changed": true,
+        "idk_like": false
+      }
+    ]
+  },
+  "seconds": 232.8
+}

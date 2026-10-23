@@ -1,0 +1,50 @@
+# Why the router reads layer 19
+
+Same Linear + sigmoid router (shipped recipe, L-BFGS, CV-selected L2) refit at every layer from cached last-token states; errors on the official evaluation prompts, which are never used to fit or calibrate. Dashed line: L19; dotted: the penultimate layer.
+
+![errors vs layer](errors_vs_layer_all.png)
+
+| dataset | best-F1 layer | F1 there | F1 at L19 | L19 rank (of layers) | L19 vs penultimate | refit = shipped at L19 |
+|---|---|---|---|---|---|---|
+| mquake | L22 | 0.980 | 0.978 | 7/28 | L19 not beaten | 1.000 |
+
+Per-dataset tables, the penultimate comparison, pipeline cost and robustness variants: `<cache>/layer_sweep/layer_choice.md`.
+
+## Robustness: mquake
+
+| variant | layers | eligibility | FPR | FNR | F1 | correct row | null FPR | perturbed recall | ECE |
+|---|---|---|---|---|---|---|---|---|---|
+| baseline | 19 | exact | 0.012 | 0.007 | 0.978 | 0.993 | 0.059 | 0.446 | 0.100 |
+| baseline | 19 | fuzzy | 0.012 | 0.005 | 0.979 | 0.995 | 0.059 | 0.748 | 0.100 |
+| baseline | 19 | none | 0.259 | 0.432 | 0.478 | 0.562 | 0.314 | 0.387 | 0.054 |
+| hardneg | 19 | exact | 0.011 | 0.009 | 0.979 | 0.991 | 0.041 | 0.433 | 0.115 |
+| hardneg | 19 | fuzzy | 0.011 | 0.007 | 0.980 | 0.993 | 0.041 | 0.732 | 0.114 |
+| hardneg | 19 | none | 0.277 | 0.465 | 0.445 | 0.520 | 0.317 | 0.427 | 0.043 |
+| aug | 19 | exact | 0.004 | 0.148 | 0.914 | 0.852 | 0.033 | 0.394 | 0.110 |
+| aug | 19 | fuzzy | 0.004 | 0.147 | 0.916 | 0.853 | 0.033 | 0.648 | 0.110 |
+| aug | 19 | none | 0.245 | 0.614 | 0.359 | 0.385 | 0.286 | 0.356 | 0.059 |
+| hardneg_aug | 19 | exact | 0.003 | 0.136 | 0.923 | 0.864 | 0.019 | 0.382 | 0.116 |
+| hardneg_aug | 19 | fuzzy | 0.003 | 0.134 | 0.924 | 0.866 | 0.019 | 0.630 | 0.116 |
+| hardneg_aug | 19 | none | 0.252 | 0.603 | 0.364 | 0.385 | 0.281 | 0.361 | 0.049 |
+| concat | 16,19,23 | exact | 0.012 | 0.007 | 0.978 | 0.993 | 0.059 | 0.451 | 0.109 |
+| concat | 16,19,23 | fuzzy | 0.012 | 0.005 | 0.979 | 0.995 | 0.059 | 0.752 | 0.108 |
+| concat | 16,19,23 | none | 0.193 | 0.370 | 0.564 | 0.628 | 0.262 | 0.396 | 0.050 |
+| unmasked | 19 | exact | 0.008 | 0.059 | 0.957 | 0.941 | 0.028 | 0.391 | 0.038 |
+| unmasked | 19 | fuzzy | 0.008 | 0.057 | 0.958 | 0.943 | 0.028 | 0.612 | 0.038 |
+| unmasked | 19 | none | 0.145 | 0.057 | 0.787 | 0.943 | 0.156 | 0.660 | 0.003 |
+| baseline | 26 | exact | 0.010 | 0.024 | 0.973 | 0.976 | 0.041 | 0.444 | 0.057 |
+| baseline | 26 | fuzzy | 0.010 | 0.022 | 0.974 | 0.978 | 0.041 | 0.723 | 0.057 |
+| baseline | 26 | none | 0.250 | 0.130 | 0.656 | 0.868 | 0.369 | 0.584 | 0.042 |
+| hardneg | 26 | exact | 0.009 | 0.026 | 0.973 | 0.974 | 0.027 | 0.432 | 0.074 |
+| hardneg | 26 | fuzzy | 0.009 | 0.024 | 0.974 | 0.976 | 0.027 | 0.709 | 0.073 |
+| hardneg | 26 | none | 0.232 | 0.136 | 0.668 | 0.863 | 0.330 | 0.575 | 0.033 |
+| aug | 26 | exact | 0.004 | 0.027 | 0.980 | 0.973 | 0.037 | 0.430 | 0.061 |
+| aug | 26 | fuzzy | 0.004 | 0.026 | 0.981 | 0.974 | 0.037 | 0.707 | 0.061 |
+| aug | 26 | none | 0.172 | 0.286 | 0.634 | 0.714 | 0.281 | 0.516 | 0.049 |
+| hardneg_aug | 26 | exact | 0.004 | 0.027 | 0.980 | 0.973 | 0.024 | 0.428 | 0.075 |
+| hardneg_aug | 26 | fuzzy | 0.004 | 0.026 | 0.981 | 0.974 | 0.024 | 0.705 | 0.075 |
+| hardneg_aug | 26 | none | 0.172 | 0.357 | 0.590 | 0.643 | 0.277 | 0.510 | 0.041 |
+| unmasked | 26 | exact | 0.000 | 0.064 | 0.967 | 0.936 | 0.018 | 0.387 | 0.063 |
+| unmasked | 26 | fuzzy | 0.000 | 0.062 | 0.968 | 0.938 | 0.018 | 0.606 | 0.062 |
+| unmasked | 26 | none | 0.111 | 0.062 | 0.821 | 0.938 | 0.089 | 0.640 | 0.010 |
+
