@@ -121,7 +121,10 @@ def main():
     ap.add_argument("--ours-from", action="append", default=[], metavar="DATASET=ROOT",
                     help="take that dataset's ours/genie (and router diagnostics) from ROOT")
     ap.add_argument("--out-name", default=None, help="output stem (default paper_table[_<overrides>])")
+    ap.add_argument("--ours-label", default="Ours (L16)",
+                    help='row label for ours, e.g. "Ours (L19, one pass)" for outputs/onepass_l19_v1')
     a = ap.parse_args()
+    LABELS["ours"] = a.ours_label
     root = Path(a.root)
     overrides = {}
     for item in a.ours_from:
@@ -183,7 +186,7 @@ def main():
             return "–"
         return f"{m:.{d}f} ± {s:.{d}f}"
 
-    lines = ["# Paper table: base, baselines, ours (L16), genie — seeds 1-5\n",
+    lines = [f"# Paper table: base, baselines, {LABELS['ours'].lower()}, genie — seeds 1-5\n",
              "Eff, Gen ↓ (forgetting) · Spe ↑ (locality) · PPL ≈ base. mean ± std over seeds (n per row). "
              "Spe† = MQuAKE retain Eff on retain facts that are not also forget facts.\n",
              "| Dataset | Method | n | Eff ↓ | Gen ↓ | Spe ↑ | Spe† ↑ | PPL |", "|---|---|---|---|---|---|---|---|"]
