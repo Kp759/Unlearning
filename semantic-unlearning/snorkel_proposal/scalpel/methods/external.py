@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import importlib
 import json
 import os
@@ -61,6 +62,22 @@ class Plugin(Method):
 
 
 # ----------------------------------------------------------------------------- SURE
+@contextmanager
+def gpu_released(model, log=print):
+    """SURE's steps run as subprocesses that load their own fp32 copy of the model; park the
+    evaluator's copy in CPU RAM meanwhile so both never share the GPU (needed on 24 GB cards)."""
+    dev = next(model.parameters()).device
+    if dev.type != "cuda":
+        yield
+        return
+    model.to("cpu")
+    torch.cuda.empty_cache()
+    try:
+        yield
+    finally:
+        model.to(dev)
+
+
 class _SureRuntime(nn.Module):
     """Adapts SURE's AssociationCausalLM to the harness: the request boundary arrives as
     `prompt_lengths` (the evaluator knows where the user prompt ends, as at inference)."""
@@ -200,7 +217,8 @@ class Sure(Method):
             if (out / "fact_association_embeddings.pt").exists():
                 continue
             ctx.log("[sure] " + " ".join(cmd))
-            subprocess.run(cmd, cwd=str(root), env=env, check=True)
+            with gpu_released(base.hf):
+                subprocess.run(cmd, cwd=str(root), env=env, check=True)
         sys.path.insert(0, str(root / "scripts"))
         from linear_router import load_router_artifact  # noqa: E402  (repository code)
         artifact = torch.load(final / "fact_association_embeddings.pt", map_location="cpu", weights_only=False)

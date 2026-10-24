@@ -51,6 +51,9 @@ case "${MODEL:?set MODEL=llama32_3b|qwen3_4b|llama31_8b}" in
     RMU_LAYER=8; GRAD_SCOPE=mlp_down; RELEARN_SCOPE=mlp_down; SURE_LAYER=22; MIN_GPU_MIB=75000 ;;
   *) echo "unknown MODEL=$MODEL" >&2; return 2 2>/dev/null || exit 2 ;;
 esac
+# overrides for smaller GPUs (scripts/aws/run_scalpel_aws.sh, one 24 GB A10G); Wulver never sets them
+GRAD_SCOPE="${SCALPEL_GRAD_SCOPE:-$GRAD_SCOPE}"; RELEARN_SCOPE="${SCALPEL_RELEARN_SCOPE:-$RELEARN_SCOPE}"
+MIN_GPU_MIB="${SCALPEL_MIN_GPU_MIB:-$MIN_GPU_MIB}"
 if [[ -z "${MODEL_PATH:-}" ]]; then
   for CFG in "$HF_CACHE/models--${HF_ID//\//--}"/snapshots/*/config.json; do
     if [[ -f "$CFG" ]]; then MODEL_PATH="${CFG%/config.json}"; break; fi
@@ -91,7 +94,7 @@ split_dir() { echo "$OUT_ROOT/$MODEL/$PARTITION/seed$1"; }   # seed -> run direc
 # method-specific flags (everything a method needs beyond the split and the model)
 method_args() {
   case "$1" in
-    ga|gd|npo) echo "--method-arg params=$GRAD_SCOPE" ;;
+    ga|gd|npo) echo "--method-arg params=$GRAD_SCOPE${SCALPEL_GRAD_PRECISION:+ --method-arg precision=$SCALPEL_GRAD_PRECISION}" ;;
     rmu) echo "--method-arg layer=$RMU_LAYER" ;;
     rome|memit|zerounlearn)
       local d; case "$1" in rome) d=ROME;; memit) d=MEMIT;; zerounlearn) d=ZeroUnlearn;; esac
@@ -102,4 +105,4 @@ method_args() {
     *) echo "" ;;
   esac
 }
-EVAL_ARGS=(--device cuda --dtype bf16 --batch-size 16 --relearn-scope "$RELEARN_SCOPE")
+EVAL_ARGS=(--device cuda --dtype bf16 --batch-size "${SCALPEL_BATCH:-16}" --relearn-scope "$RELEARN_SCOPE")

@@ -4,4 +4,6 @@ results/**/cache/
 results/**/model/*.safetensors
 __pycache__/
 *.pyc
-results/**/sure_work/
+results/**/sure_work*/
+results/**/*.incomplete_*/
+results/aws/logs/

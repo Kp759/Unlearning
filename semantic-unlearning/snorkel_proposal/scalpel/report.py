@@ -40,7 +40,9 @@ def load_runs(paths: Sequence[Path]) -> List[Dict]:
 def summarize(runs: Sequence[Dict], scorer: str = "tf") -> Dict[str, Dict]:
     by = defaultdict(list)
     for r in runs:
-        setting = f"{r.get('track') or 'fact'} · {r.get('model_id', '?')} · {r.get('n_requests', '?')} requests"
+        # the split name keeps per-dataset splits (scalpel-mcf, scalpel-zsre, ...) in separate sections
+        setting = (f"{r.get('track') or 'fact'} · {r.get('split') or '?'} · {r.get('model_id', '?')} · "
+                   f"{r.get('n_requests', '?')} requests")
         by[(setting, r["method"]["name"])].append(r)
     table = {}
     for (track, name), rs in sorted(by.items()):
@@ -81,7 +83,18 @@ def markdown(table: Dict[str, Dict], title: str = "SCALPEL leaderboard") -> str:
              "U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). "
              "SCALPEL = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime "
              "components removed). Rows marked † are reference cheats the benchmark must defeat.", ""]
-    for track in sorted({r["track"] for r in table.values()}):
+    tracks = sorted({r["track"] for r in table.values()})
+    if len(tracks) > 1:          # several splits / models: one SCALPEL matrix first
+        methods = sorted({r["method"] for r in table.values()},
+                         key=lambda m: -max((r["SCALPEL"][0] or -1) for r in table.values() if r["method"] == m))
+        cell = {(r["track"], r["method"]): r for r in table.values()}
+        lines += ["## SCALPEL across splits", "", "| Method | " + " | ".join(tracks) + " |", "|---|" + "---|" * len(tracks)]
+        for m in methods:
+            cheat = any(r["cheat"] for r in table.values() if r["method"] == m)
+            lines.append(f"| {m}{' †' if cheat else ''} | " + " | ".join(
+                _f(cell[(t, m)]["SCALPEL"]) if (t, m) in cell else "–" for t in tracks) + " |")
+        lines.append("")
+    for track in tracks:
         rows = sorted([r for r in table.values() if r["track"] == track],
                       key=lambda r: -(r["SCALPEL"][0] if r["SCALPEL"][0] is not None else -1))
         lines += [f"## {track}", "",

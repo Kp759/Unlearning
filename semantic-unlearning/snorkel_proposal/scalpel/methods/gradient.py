@@ -14,6 +14,7 @@ mean answer probability on the request views is <= stop_prob (training data only
 """
 from __future__ import annotations
 
+import contextlib
 import math
 import random
 from typing import Dict, List, Sequence
@@ -159,15 +160,38 @@ class _GradientMethod(Method):
         beta = arg(a, "npo_beta", 0.1, float)
         rw = arg(a, "retain_weight", 1.0, float)
         scope = arg(a, "params", "mlp", str)
+        # "fp32" (default): the whole model in fp32, as paper_baselines. "mixed" (24 GB GPUs): bf16
+        # forward under autocast, fp32 master copies of the trained weights only.
+        precision = arg(a, "precision", "fp32", str)
         pad = _pad_id(tok)
         forget = forget_examples(base, ctx.renderer, requests)
         retain = (retain_examples(base, ctx.renderer, allowed_retain, ctx.generic_prompts)
                   if self.loss_kind in ("gd", "npo") else [])
         orig_dtype = next(model.parameters()).dtype
-        model.float()
-        params, names = trainable(model, scope)
+        if precision == "mixed":
+            params, names = trainable(model, scope)
+            for p in params:
+                p.data = p.data.float()
+            amp = torch.autocast(device_type=device.type, dtype=torch.bfloat16)
+        else:
+            model.float()
+            params, names = trainable(model, scope)
+            amp = contextlib.nullcontext()
         opt = torch.optim.AdamW(params, lr=lr, weight_decay=0.0)
         rng = random.Random(ctx.seed)
+        with amp:
+            step, stopped, log, ref = self._train(model, forget, retain, params, opt, rng, pad, device, ctx,
+                                                  epochs=epochs, bs=bs, stop=stop, check=check, beta=beta, rw=rw)
+        model.eval()
+        for p in model.parameters():
+            p.requires_grad_(False)
+        model.to(orig_dtype)
+        self._report = {"lr": lr, "steps": step, "early_stop": stopped, "params": scope, "precision": precision,
+                        "trainable_params": sum(p.numel() for p in params), "forget_examples": len(forget),
+                        "retain_examples": len(retain), "log": log[-10:]}
+        return ModelHandle(model=model, tokenizer=tok, hf=model)
+
+    def _train(self, model, forget, retain, params, opt, rng, pad, device, ctx, *, epochs, bs, stop, check, beta, rw):
         ref = None
         if self.loss_kind == "npo":
             ref = {}
@@ -211,14 +235,7 @@ class _GradientMethod(Method):
                     break
             if stopped:
                 break
-        model.eval()
-        for p in model.parameters():
-            p.requires_grad_(False)
-        model.to(orig_dtype)
-        self._report = {"lr": lr, "steps": step, "early_stop": stopped, "params": scope,
-                        "trainable_params": sum(p.numel() for p in params), "forget_examples": len(forget),
-                        "retain_examples": len(retain), "log": log[-10:]}
-        return ModelHandle(model=model, tokenizer=tok, hf=model)
+        return step, stopped, log, ref
 
 
 class GA(_GradientMethod):

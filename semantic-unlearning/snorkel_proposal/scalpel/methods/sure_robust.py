@@ -39,7 +39,7 @@ import torch
 from ..model_api import ModelHandle, Renderer, _bucket, _hf_generate, _pad_id, teacher_forced
 from ..schema import Probe, Request, normalize_text
 from .base import Method, MethodCard, arg
-from .external import _SureRuntime, export_multifact
+from .external import _SureRuntime, export_multifact, gpu_released
 
 SEMANTIC_ROOT = Path(__file__).resolve().parents[3]
 LANGS = {"fr": "French", "es": "Spanish", "de": "German"}
@@ -510,7 +510,8 @@ class SureRobust(Method):
             if (out / "fact_association_embeddings.pt").exists():
                 return
             ctx.log("[sure_r] " + " ".join(str(c) for c in cmd))
-            subprocess.run([str(c) for c in cmd], cwd=str(root), env=env, check=True)
+            with gpu_released(base.hf):
+                subprocess.run([str(c) for c in cmd], cwd=str(root), env=env, check=True)
 
         run(prep, py + [root / "scripts/prepare_multifact_association_source.py", "--model-path", model_path,
                         "--training-visible", data / "training_visible_forget.json",

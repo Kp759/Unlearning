@@ -12,6 +12,7 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 | [`BENCHMARK_SPEC.md`](BENCHMARK_SPEC.md) | Exact definitions: construct, threat model, splits, 20 probe families, metrics, statistics |
 | [`RED_TEAM.md`](RED_TEAM.md) | Snorkel's six red-team checks, and how SCALPEL handles each one |
 | [`AGENT_TRACK.md`](AGENT_TRACK.md) | Agentic leakage track (prototype): the unlearned model as a search agent |
+| [`scripts/README_CLUSTER.md`](scripts/README_CLUSTER.md) · [`scripts/aws/README.md`](scripts/aws/README.md) | Running every method: Wulver (SLURM) or one AWS GPU |
 | [`DATASHEET.md`](DATASHEET.md) · [`DATA_LICENSE.md`](DATA_LICENSE.md) | Dataset documentation and licensing |
 | [`ROADMAP.md`](ROADMAP.md) | Status, milestones, compute and expert-data asks, risks |
 | [`results/`](results/) | Toy-world run (pipeline check) and real-data pilot |
