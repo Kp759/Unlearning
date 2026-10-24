@@ -6,6 +6,7 @@
 #   bash scripts/submit_scalpel_compare.sh smoke  llama32_3b                           # 2. seed 1, every method
 #   bash scripts/submit_scalpel_compare.sh full   llama32_3b|qwen3_4b|llama31_8b|all   # 3. seeds 1-5
 #   bash scripts/submit_scalpel_compare.sh robust llama32_3b                          # robust SURE variants only
+#   bash scripts/submit_scalpel_compare.sh agent  llama32_3b                          # agentic leakage track
 #   bash scripts/submit_scalpel_compare.sh report llama32_3b ...                       # re-collect leaderboards
 #
 # Per model the chain is:
@@ -16,6 +17,9 @@
 #   report (gate per seed + leaderboards) after everything above, whatever its exit status.
 # robust = SURE-R ablation on the same splits (finished runs are skipped): SURE_VARIANTS
 #          (default: sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake).
+# agent  = agentic leakage track (scalpel/agentic.py) on splits that exist: AGENT_METHODS (default:
+#          noop,idk_all,subject_blocklist_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn,sure,sure_r).
+#          SURE methods reuse their finished core run's router, so run agent after smoke / robust.
 # Env: METHODS (default below), SURE_VARIANTS (smoke/full: sure), SEEDS, PARTITION (dev | test + SCALPEL_TEST_SALT), N_FORGET (50),
 #      SEQ_METHODS (gd,npo,memit), SKIP_SURE=1, SKIP_SEQ=1, MOM2_TEXT / MOM2_DATASET (scalpel_common.sh).
 # Finished runs are skipped, so re-submitting after a failure only redoes what is missing.
@@ -26,14 +30,17 @@ MODELS=("$@"); [[ ${#MODELS[@]} -gt 0 ]] || { echo "name at least one model (or 
 [[ "${MODELS[0]}" == all ]] && MODELS=(llama32_3b qwen3_4b llama31_8b)
 DEFAULT_METHODS="noop,idk_all,prompt_cache_idk,subject_blocklist_idk,keyword_router_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn"
 METHODS="${METHODS:-$DEFAULT_METHODS}"
-METHODS="$(echo "$METHODS" | tr ',' '\n' | grep -v -E '^sure' | paste -sd, - || true)"   # SURE variants: own array
+[[ "$MODE" == agent ]] || METHODS="$(echo "$METHODS" | tr ',' '\n' | grep -v -E '^sure' | paste -sd, - || true)"   # SURE variants: own array
+if [[ "$MODE" == agent ]]; then
+  METHODS="${AGENT_METHODS:-noop,idk_all,subject_blocklist_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn,sure,sure_r}"
+fi
 if [[ "$MODE" == robust ]]; then
   METHODS=""
   SURE_VARIANTS="${SURE_VARIANTS:-sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake}"
 fi
 SURE_VARIANTS="${SURE_VARIANTS:-sure}"
 SURE_LIST="$(echo $SURE_VARIANTS | tr ' ' ',')"; N_SURE=$(wc -w <<< "$SURE_VARIANTS" | tr -d " ")
-case "$MODE" in smoke) SEEDS="${SEEDS:-1}";; *) SEEDS="${SEEDS:-1 2 3 4 5}";; esac
+case "$MODE" in smoke|agent) SEEDS="${SEEDS:-1}";; *) SEEDS="${SEEDS:-1 2 3 4 5}";; esac
 SEED_ARRAY="$(echo $SEEDS | tr ' ' ',')"
 N_SEEDS=$(wc -w <<< "$SEEDS" | tr -d " "); N_METHODS=0
 [[ -n "$METHODS" ]] && N_METHODS=$(tr ',' '\n' <<< "$METHODS" | wc -l | tr -d ' ')
@@ -67,6 +74,11 @@ for MODEL in "${MODELS[@]}"; do
   [[ -f "${MODEL_PATH:-/x}/config.json" ]] || { echo "$MODEL: no weights; run '$0 fetch $MODEL' first" >&2; exit 2; }
   # values go through the environment (--export=ALL): sbatch --export=A=x,y would split "x,y"
   export MODEL PARTITION N_FORGET="${N_FORGET:-50}" SEEDS
+  if [[ "$MODE" == agent ]]; then   # splits, covariance and SURE's routers already exist
+    AG=$(METHODS="$METHODS" submit --export=ALL --array=0-$(( N_SEEDS * N_METHODS - 1 )) $SL/scalpel_agent.slurm)
+    echo "$MODEL agent track ($N_SEEDS seeds x $N_METHODS: $METHODS): $AG"; REPORT_DEPS+=("$AG")
+    continue
+  fi
   COV=""
   if grep -qE '(^|,)(rome|memit|zerounlearn)(,|$)' <<< "$METHODS" || grep -q sure_r_bake <<< "$SURE_VARIANTS"; then
     COV=$(submit --export=ALL $SL/scalpel_cov.slurm); echo "$MODEL covariance: $COV"

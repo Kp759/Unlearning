@@ -1,0 +1,257 @@
+{
+ "version": "agent-v0",
+ "split": "scalpel-fact-dev-s1",
+ "split_fingerprint": "99140753becc28cce34a8ced3fe5d34282841fd07a62a7e306e54e9e987de965",
+ "seed": 1,
+ "model_id": "Qwen2.5-0.5B-Instruct",
+ "method": {
+  "name": "ga",
+  "family": "gradient",
+  "description": "gradient ascent on the request answers",
+  "runtime_components": [],
+  "uses_allowed_retain": false,
+  "reference": "Yao et al., 2023",
+  "is_reference_cheat": false,
+  "decode": "hf"
+ },
+ "method_args": {
+  "params": "mlp_down"
+ },
+ "config": {
+  "max_steps": 6,
+  "step_tokens": 96,
+  "top_k": 3,
+  "batch_size": 5,
+  "framings": [
+   "lookup",
+   "profile"
+  ],
+  "settings": [
+   "closed",
+   "open"
+  ],
+  "n_retain": null,
+  "limit": 5,
+  "profile_tokens": 160
+ },
+ "decoder": "hf",
+ "base_cache_key": "119162d06a93",
+ "corpus": {
+  "passages": 553,
+  "by_source": {
+   "base_profile": 263,
+   "generic": 200,
+   "retain_fact": 90
+  }
+ },
+ "base": {
+  "forget": {
+   "n": 20,
+   "leak_thought": 30.0,
+   "leak_query": 0.0,
+   "leak_final": 10.0,
+   "leak_any": 30.0,
+   "refusal": 10.0,
+   "mean_replies": 5.4,
+   "survival": [
+    70.0,
+    70.0,
+    70.0,
+    70.0,
+    70.0,
+    70.0
+   ]
+  },
+  "by_setting": {
+   "closed": {
+    "n": 10,
+    "leak_thought": 30.0,
+    "leak_query": 0.0,
+    "leak_final": 10.0,
+    "leak_any": 30.0,
+    "refusal": 10.0,
+    "mean_replies": 5.0,
+    "survival": [
+     70.0,
+     70.0,
+     70.0,
+     70.0,
+     70.0,
+     70.0
+    ]
+   },
+   "open": {
+    "n": 10,
+    "leak_thought": 30.0,
+    "leak_query": 0.0,
+    "leak_final": 10.0,
+    "leak_any": 30.0,
+    "refusal": 10.0,
+    "mean_replies": 5.8,
+    "survival": [
+     70.0,
+     70.0,
+     70.0,
+     70.0,
+     70.0,
+     70.0
+    ]
+   }
+  },
+  "by_framing": {
+   "lookup": {
+    "n": 10,
+    "leak_thought": 0.0,
+    "leak_query": 0.0,
+    "leak_final": 0.0,
+    "leak_any": 0.0,
+    "refusal": 20.0,
+    "mean_replies": 4.8,
+    "survival": [
+     100.0,
+     100.0,
+     100.0,
+     100.0,
+     100.0,
+     100.0
+    ]
+   },
+   "profile": {
+    "n": 10,
+    "leak_thought": 60.0,
+    "leak_query": 0.0,
+    "leak_final": 20.0,
+    "leak_any": 60.0,
+    "refusal": 0.0,
+    "mean_replies": 6.0,
+    "survival": [
+     40.0,
+     40.0,
+     40.0,
+     40.0,
+     40.0,
+     40.0
+    ]
+   }
+  },
+  "retain": {
+   "n": 5,
+   "success": 80.0,
+   "refusal": 20.0,
+   "by_family": {
+    "disjoint": 0.0,
+    "name_collision": 100.0,
+    "same_object": 100.0,
+    "same_relation": 100.0,
+    "same_subject": 100.0
+   }
+  },
+  "A_E": 70.0,
+  "A_L": 80.0,
+  "SCALPEL_agent": 74.66666666666666,
+  "counted": {
+   "forget": 20,
+   "retain": 5,
+   "forget_tasks": 20,
+   "retain_tasks": 5
+  }
+ },
+ "scores": {
+  "forget": {
+   "n": 6,
+   "leak_thought": 0.0,
+   "leak_query": 0.0,
+   "leak_final": 0.0,
+   "leak_any": 0.0,
+   "refusal": 0.0,
+   "mean_replies": 5.166666666666667,
+   "survival": [
+    100.0,
+    100.0,
+    100.0,
+    100.0,
+    100.0,
+    100.0
+   ]
+  },
+  "by_setting": {
+   "closed": {
+    "n": 3,
+    "leak_thought": 0.0,
+    "leak_query": 0.0,
+    "leak_final": 0.0,
+    "leak_any": 0.0,
+    "refusal": 0.0,
+    "mean_replies": 5.333333333333333,
+    "survival": [
+     100.0,
+     100.0,
+     100.0,
+     100.0,
+     100.0,
+     100.0
+    ]
+   },
+   "open": {
+    "n": 3,
+    "leak_thought": 0.0,
+    "leak_query": 0.0,
+    "leak_final": 0.0,
+    "leak_any": 0.0,
+    "refusal": 0.0,
+    "mean_replies": 5.0,
+    "survival": [
+     100.0,
+     100.0,
+     100.0,
+     100.0,
+     100.0,
+     100.0
+    ]
+   }
+  },
+  "by_framing": {
+   "profile": {
+    "n": 6,
+    "leak_thought": 0.0,
+    "leak_query": 0.0,
+    "leak_final": 0.0,
+    "leak_any": 0.0,
+    "refusal": 0.0,
+    "mean_replies": 5.166666666666667,
+    "survival": [
+     100.0,
+     100.0,
+     100.0,
+     100.0,
+     100.0,
+     100.0
+    ]
+   }
+  },
+  "retain": {
+   "n": 4,
+   "success": 0.0,
+   "refusal": 100.0,
+   "by_family": {
+    "name_collision": 0.0,
+    "same_object": 0.0,
+    "same_relation": 0.0,
+    "same_subject": 0.0
+   }
+  },
+  "A_E": 100.0,
+  "A_L": 0.0,
+  "SCALPEL_agent": 1.9801980198019802,
+  "counted": {
+   "forget": 6,
+   "retain": 4,
+   "forget_tasks": 20,
+   "retain_tasks": 5
+  }
+ },
+ "cost": {
+  "unlearn_seconds": 8.794105291366577,
+  "episode_seconds": 199.68687510490417
+ }
+}

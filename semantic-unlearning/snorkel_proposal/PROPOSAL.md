@@ -25,7 +25,7 @@ Deletion requests are becoming routine. People ask to have their data removed, m
 - a sequential-deletion track;
 - a self red-team gate that six reference cheats must fail before any split is released.
 
-We ask Snorkel for expert data (cross-lingual and indirect-reference probes, grader calibration), compute for the full multi-model tables, red-team review, and help building an agentic leakage track.
+We ask Snorkel for expert data (cross-lingual and indirect-reference probes, grader calibration), compute for the full multi-model tables, red-team review, and help growing our agentic leakage prototype into a full track.
 
 ## 1. The gap
 
@@ -102,7 +102,7 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
 - **Safety & alignment.** The benchmark covers right-to-be-forgotten requests, hazardous-knowledge removal, and the difference between hiding knowledge (guardrails) and removing it.
 - **Dynamic settings.** Deletion requests arrive over time in the sequential track, which tests whether locality erodes as edits accumulate. The scaling curve runs from 50 to 10k requests.
 - **Open-ended outputs.** Generation-based grading with behaviour labels, multi-turn chats, cross-lingual questions.
-- **Longer autonomy horizons (proposed, M4).** An **agentic leakage track**: the unlearned model runs as an agent with a scratchpad and a mock search tool. Can multi-step reasoning (self-ask, decomposition, tool calls) reconstruct a forgotten fact? Does the agent leak it through its tool queries over a 10-turn session? This is where Snorkel's environment and expert-data support matter most.
+- **Longer autonomy horizons (prototype running, M4).** An **agentic leakage track** (`AGENT_TRACK.md`, `scalpel/agentic.py`): the unlearned model runs as a search agent with a scratchpad for up to 10 replies. Every reply is graded in three channels: the scratchpad, the search queries an outside service would log, and the final answer. A survival curve shows whether forgetting holds for 1 step but breaks by step 6. In the closed setting the corpus has nothing about the subject, so a leak is recall; in the open setting the answer is redacted but kept facts remain, so a leak may be reconstruction from them ("born in Bordeaux" → "French"). The prototype runs end to end on every method. Snorkel's environment and expert-data support would turn it into a full track: more tools, realistic corpora, multi-session horizons.
 
 ## 5. Asks (in-kind)
 

@@ -298,13 +298,20 @@ def first_token_logprobs(handle: ModelHandle, renderer: Renderer, probes: Sequen
 def generate(handle: ModelHandle, renderer: Renderer, probes: Sequence[Probe], max_new_tokens: int = 24,
              batch_size: int = 16) -> List[str]:
     """Greedy continuation of each rendered prompt (the open-ended track)."""
-    tok = renderer.tok
+    return generate_ids(handle, renderer.tok, [renderer.encode_prompt(p) for p in probes],
+                        max_new_tokens=max_new_tokens, batch_size=batch_size)
+
+
+@torch.no_grad()
+def generate_ids(handle: ModelHandle, tok, prompts: Sequence[Sequence[int]], max_new_tokens: int = 24,
+                 batch_size: int = 16) -> List[str]:
+    """Greedy continuation of token-id prompts with the handle's own decoder (any method,
+    any transcript: the agentic track renders multi-turn conversations itself)."""
     device = handle.device
     pad = _pad_id(tok)
     eos = tok.eos_token_id
-    texts: List[str] = [""] * len(probes)
-    prompts = [renderer.encode_prompt(p) for p in probes]
-    order = sorted(range(len(probes)), key=lambda i: len(prompts[i]))
+    texts: List[str] = [""] * len(prompts)
+    order = sorted(range(len(prompts)), key=lambda i: len(prompts[i]))
     for s in range(0, len(order), batch_size):
         idx = order[s:s + batch_size]
         seqs = [prompts[i] for i in idx]

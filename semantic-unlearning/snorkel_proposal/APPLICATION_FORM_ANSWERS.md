@@ -9,7 +9,7 @@ SCALPEL: a benchmark for surgical, fact-level unlearning in language models
 [Names, roles, affiliation(s), emails]
 
 **Focus area(s)**
-Safety & alignment; dynamic settings; open-ended outputs. A long-horizon agentic leakage track is proposed.
+Safety & alignment; dynamic settings; open-ended outputs; longer autonomy horizons (an agentic leakage track, prototype running).
 
 **One-sentence summary**
 SCALPEL measures whether a language model can forget one specific fact or person while keeping every entangled fact. It also tests that the fact is gone from the weights rather than hidden, and it ships with a self red-team gate that known shortcuts must fail.

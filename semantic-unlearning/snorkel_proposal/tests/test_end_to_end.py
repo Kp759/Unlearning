@@ -5,7 +5,8 @@ Claims protected:
   * noop scores zero erasure and full locality; idk_all scores ~zero locality;
   * the causality check rejects a model that peeks at the teacher-forced answer;
   * attacks leave the model exactly as they found it;
-  * gradient baselines change weights, cheats do not; reports and the sequential track run.
+  * gradient baselines change weights, cheats do not; reports and the sequential track run;
+  * the agentic track runs through the real decoders and noop reproduces the base episodes.
 """
 from __future__ import annotations
 
@@ -245,3 +246,21 @@ def test_rmu_hidden_states_stop_early_and_match(toy):
     ids = torch.tensor([batch[0]["input_ids"]])
     full = hf(input_ids=ids, output_hidden_states=True).hidden_states[2]
     assert torch.allclose(h[0, :ids.shape[1]], full[0].float(), atol=1e-5)
+
+
+def test_agent_noop_matches_base(toy, tmp_path):
+    from scalpel.agentic import AgentConfig, run_agent
+    cfg = AgentConfig(max_steps=3, step_tokens=8, batch_size=8, limit=4, n_retain=4, profile_tokens=16)
+    res = run_agent(toy["split"], "noop", {}, toy["loader"], cfg, tmp_path / "agent_noop",
+                    cache_dir=tmp_path / "cache", log=lambda m: None)
+    eps = [json.loads(l) for l in (tmp_path / "agent_noop" / "episodes.jsonl").read_text().splitlines()]
+    assert len(eps) == 4 * 2 * 2 + 4
+    assert all(e["final"] == e["base"]["final"] and e["replies"] == e["base"]["replies"] for e in eps)
+    sc = res["scores"]
+    if sc["counted"]["forget"]:                       # every counted forget episode leaks for noop
+        assert sc["A_E"] == 0.0
+    assert any(Path(tmp_path / "cache").glob("agent_base_*.jsonl"))
+    again = run_agent(toy["split"], "idk_all", {}, toy["loader"], cfg, tmp_path / "agent_idk",
+                      cache_dir=tmp_path / "cache", log=lambda m: None)
+    assert again["base_cache_key"] == res["base_cache_key"]
+    assert again["scores"]["forget"]["leak_final"] in (None, 0.0)

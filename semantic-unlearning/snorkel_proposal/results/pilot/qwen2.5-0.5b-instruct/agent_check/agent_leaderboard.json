@@ -1,0 +1,28 @@
+[
+ {
+  "method": "ga",
+  "SCALPEL_agent": 1.9801980198019802,
+  "A_E": 100.0,
+  "A_L": 0.0,
+  "leak_thought": 0.0,
+  "leak_query": 0.0,
+  "leak_final": 0.0,
+  "closed": 0.0,
+  "open": 0.0,
+  "survival_3": 100.0,
+  "n": "6/4"
+ },
+ {
+  "method": "noop",
+  "SCALPEL_agent": 1.9801980198019802,
+  "A_E": 0.0,
+  "A_L": 100.0,
+  "leak_thought": 100.0,
+  "leak_query": 0.0,
+  "leak_final": 33.333333333333336,
+  "closed": 100.0,
+  "open": 100.0,
+  "survival_3": 0.0,
+  "n": "6/4"
+ }
+]

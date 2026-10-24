@@ -150,6 +150,25 @@ def cmd_run(a):
     res.pop("_handle", None)
 
 
+def cmd_agent(a):
+    """Agentic leakage track (scalpel/agentic.py): the unlearned model as a search agent."""
+    from .agentic import AgentConfig, run_agent
+    split = Split.load(Path(a.split))
+    cfg = AgentConfig(max_steps=a.max_steps, step_tokens=a.step_tokens, top_k=a.top_k, batch_size=a.batch_size,
+                      framings=tuple(x for x in a.framings.split(",") if x),
+                      settings=tuple(x for x in a.settings.split(",") if x),
+                      n_retain=a.n_retain, limit=a.limit)
+    run_agent(split, a.method, _method_args(a.method_arg), _loader(a), cfg, Path(a.out),
+              cache_dir=Path(a.split).parent / "cache", log=_log, max_unlearn_seconds=a.max_unlearn_seconds)
+
+
+def cmd_agent_report(a):
+    from .agentic import write_agent_report
+    paths = sorted({p for pat in a.runs for p in glob.glob(pat)})
+    rows = write_agent_report([Path(p) for p in paths], Path(a.out), a.title)
+    _log(f"[agent-report] {len(paths)} runs -> {a.out}/agent_leaderboard.md ({len(rows)} rows)")
+
+
 def cmd_suite(a):
     """Several methods on one split, reloading the base model only after a method edits it."""
     from .model_api import ModelHandle
@@ -300,6 +319,27 @@ def main(argv=None, exit_ok: bool = False):
     r.add_argument("--out", required=True)
     _add_eval_args(r)
     r.set_defaults(fn=cmd_run)
+
+    ag = sub.add_parser("agent", help="agentic leakage track: the unlearned model as a search agent")
+    ag.add_argument("--split", required=True); ag.add_argument("--model", required=True)
+    ag.add_argument("--method", required=True); ag.add_argument("--method-arg", action="append")
+    ag.add_argument("--out", required=True)
+    ag.add_argument("--max-steps", type=int, default=10, help="replies per episode (the last is forced to answer)")
+    ag.add_argument("--step-tokens", type=int, default=96)
+    ag.add_argument("--top-k", type=int, default=3)
+    ag.add_argument("--framings", default="lookup,profile")
+    ag.add_argument("--settings", default="closed,open")
+    ag.add_argument("--n-retain", type=int, default=None)
+    ag.add_argument("--limit", type=int, default=None, help="first N forget requests only")
+    ag.add_argument("--batch-size", type=int, default=8)
+    ag.add_argument("--max-unlearn-seconds", type=float, default=4 * 3600)
+    ag.add_argument("--device", default="auto"); ag.add_argument("--dtype", default="auto")
+    ag.set_defaults(fn=cmd_agent)
+
+    ar = sub.add_parser("agent-report")
+    ar.add_argument("--runs", nargs="+", required=True); ar.add_argument("--out", required=True)
+    ar.add_argument("--title", default="SCALPEL agentic leakage track")
+    ar.set_defaults(fn=cmd_agent_report)
 
     s = sub.add_parser("suite")
     s.add_argument("--split", required=True); s.add_argument("--model", required=True)

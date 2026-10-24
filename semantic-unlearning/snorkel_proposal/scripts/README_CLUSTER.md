@@ -68,6 +68,15 @@ bash scripts/submit_scalpel_compare.sh robust llama32_3b                # all 5 
 
 The variants are `sure_r`, `sure_r_noviews`, `sure_r_exact`, `sure_r_hardneg`, `sure_r_free`, `sure_r_idk` and `sure_r_bake` (`SURE_ROBUST.md`). Each is one task per seed (24 h limit). `sure_r_bake` needs the covariance at SURE's layer, which the covariance job now builds. The leaderboard puts them next to `sure` and the baselines.
 
+## 4. Agentic leakage track (after smoke / robust)
+
+```bash
+bash scripts/submit_scalpel_compare.sh agent llama32_3b                          # 13 methods, seed 1
+AGENT_METHODS=noop,ga,rome,sure,sure_r bash scripts/submit_scalpel_compare.sh agent llama32_3b
+```
+
+This runs one job per method (12 h limit), then the report job writes `results/cluster/<model>/dev/seed1/agent/agent_leaderboard.md`. SURE methods reuse their finished core run's router, so a SURE task exits at once if that run is missing. Settings are in `AGENT_TRACK.md`; extra flags go through `AGENT_ARGS`, e.g. `AGENT_ARGS="--max-steps 6"`.
+
 ## Options (environment variables)
 
 | Variable | Default | Meaning |
