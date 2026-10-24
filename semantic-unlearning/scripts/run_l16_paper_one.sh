@@ -39,7 +39,8 @@
 # Env: WRITE_LAYER (16), V22_SUBJECT_LAYERS ("6"), RWKU_GATE (threshold), TRAIN_ARGS (extra),
 #      TAG (l16_paper_v1), MOVE_INCOMPLETE (1), ORACLE_UNROUTED (1: facts the router never
 #      routes are trained with their own row forced, training only),
-#      ZSRE_REWORD_TAG (reworded_v2 | reworded_v1 | none: ZsRE router trained on rewordings),
+#      ZSRE_REWORD_TAG (reworded_v2 | reworded_v1 | none: ZsRE router trained on rewordings;
+#                       ROUTER_RECIPE=ours defaults to none: its own checked rewrites replace them),
 #      BASELINES ("ga gd npo rmu zerounlearn rome memit" -> <seed>/<baseline>/), SKIP_OURS (1 = baselines only),
 #      BASELINE_MOM2_DATASET / BASELINE_MOM2_TEXT (zerounlearn rome memit: covariance cache name / corpus,
 #                 scripts/build_edit_covariance.py; results on another covariance are superseded),
@@ -82,7 +83,8 @@ case "$ROUTER_RECIPE" in
   ours)
     FIT_EXTRA_ARGS="--pca-dims 0 --subject-match fuzzy --positives-per-fact 20 --negatives-per-fact 20"
     FIT_EXTRA_ARGS+=" --max-prefix-positives 8 --negative-answer-check --negative-plausibility-delta 1.5"
-    ROUTER_REWRITES=1 ;;
+    ROUTER_REWRITES=1
+    ZSRE_REWORD_TAG="${ZSRE_REWORD_TAG:-none}" ;;   # ZsRE uses this router, not the reworded_v2 one
   regular_v1)
     FIT_EXTRA_ARGS="--positives-per-fact 0 --negatives-per-fact 0 --pca-dims 0,64,256"
     ROUTER_REWRITES=0 ;;
