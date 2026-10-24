@@ -80,10 +80,16 @@ fi
 
 if ! stage_ready "$ROUTER" fact_association_embeddings.pt; then
   echo "===== [L$LAYER] 2/5 FIT linear classifier router ====="
+  VIEWS_ARGS=()
+  if [[ "${ROUTER_REWRITES:-0}" == 1 ]]; then   # ours: quality-checked base-model rewrites as positives
+    [[ -f "$PREP/router_rewrites.json" ]] || python -u scripts/build_router_rewrites.py --prep-dir "$PREP" \
+      --output "$PREP/router_rewrites.json" --device cuda --local-files-only
+    VIEWS_ARGS=(--views "$PREP/router_rewrites.json")
+  fi
   python -u scripts/fit_linear_router.py \
     --run-dir "$PREP" --output-dir "$ROUTER" \
     --device cuda --local-files-only \
-    --threshold-policy global --min-recall 0.98 --threshold-placement-fraction 0.1 ${FIT_EXTRA_ARGS:-}
+    --threshold-policy global --min-recall 0.98 --threshold-placement-fraction 0.1 ${FIT_EXTRA_ARGS:-} ${VIEWS_ARGS[@]+"${VIEWS_ARGS[@]}"}
 fi
 
 

@@ -60,7 +60,7 @@ MODEL_TAG="$MODEL"
 if [[ "${ONEPASS:-0}" == 1 ]]; then             # ours: Δe at the router layer, one forward pass
   WRITE_LAYER="${WRITE_LAYER:-$ROUTER_LAYER}"
   if [[ "$WRITE_LAYER" == "$ROUTER_LAYER" ]]; then TAG="${TAG:-paper_${MODEL}_onepass_v1}"
-  else TAG="${TAG:-paper_${MODEL}_l${WRITE_LAYER}_p20n20_v1}"; fi   # the two-pass ablation
+  else TAG="${TAG:-paper_${MODEL}_l${WRITE_LAYER}_ours_v1}"; fi    # the two-pass ablation
 else                                            # the published configuration
   WRITE_LAYER="${WRITE_LAYER:-$EARLY_WRITE_LAYER}"
   TAG="${TAG:-paper_${MODEL}_v1}"

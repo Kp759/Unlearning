@@ -16,7 +16,7 @@ Router V2's own code and data.
 | Probability / ROC / operating point | none | yes |
 | Route | deterministic | deterministic (hard gate; inactive path bit-exact) |
 
-`φ(q) = normalize(q) − μ`, optionally projected onto a PCA basis.
+`φ(q) = normalize(q) − μ`. There is no PCA by default; `--pca-dims 0,64,256` restores the earlier PCA search, and older routers saved with PCA still load.
 
 **N independent binary classifiers.** The loss is a sum over heads of a
 masked, per-head-normalised, class-balanced BCE, with L2 on each row of `W`.
@@ -33,6 +33,28 @@ same-person rows depend on.
 dimension (grid `1e-7…1` × `{none, 64, 256}`) are selected by grouped
 cross-validation. Each fold holds out whole prompt families, and the score is
 held-out class-balanced log-loss.
+
+## Ours (one forward pass): the current recipe
+
+| Piece | Where | Setting |
+|---|---|---|
+| Classifier input and Δe at the **same layer (19)**, in **one forward pass** | `linear_router.py` write mode `query` | Δe at the last prompt token and every generated token; `tests/test_linear_router_query.py` checks it equals the two-pass write at that layer |
+| Rows | `train_mcf_jlens_feedback_rows.py --write-mode query` (no `--write-layer`) | `--lens-type none`: the layer-24 logit lens is off |
+| No PCA | `fit_linear_router.py` | default `--pca-dims 0` |
+| Fuzzy subject matching | `--subject-match fuzzy` | case, accents, spacing and one typo per name word; evaluators load the model's tokenizer automatically |
+| 20 positives per fact | `--positives-per-fact 20 --max-prefix-positives 8 --views <rewrites>` | the fact's prompts, then quality-checked base-model rewrites (`build_router_rewrites.py` / `router_rewrites.py`), then at most 8 context-prefix copies; a fact short of real phrasings keeps fewer |
+| 20 negatives per fact | `--negatives-per-fact 20 --negative-answer-check --negative-plausibility-delta 1.5` | up to half same-subject competitors, the rest subject transplants, rotating over relations; dropped if the base model would answer the fact's answer, or if the relation phrase is implausible for the subject |
+
+Each rewrite must pass every check in `router_rewrites.py`:
+- **Form:** clean, 3-40 words, questions end with "?".
+- **Content:** names the subject and never the answer.
+- **Novelty:** not a near-duplicate of the fact's prompt or of another kept rewrite.
+- **Meaning:** the base model answers it with the fact's answer.
+- **Same fact:** the base model judges it asks for exactly the same fact.
+
+Rewrites are paraphrases, questions, and translations into Italian / Portuguese / Dutch (never SCALPEL's French / Spanish / German); SCALPEL's chat prompts also get multi-turn follow-ups. Facts left with fewer than 8 rewrites get a second round.
+
+Run it with `bash scripts/run_onepass_paper_one.sh <mcf|zsre|mquake|rwku> <seed>` (= `ONEPASS=1`). Routers go to `outputs/<ds>_multiseed_ours_v1` and results to `outputs/onepass_l19_v1`. The ablation `ONEPASS=1 WRITE_LAYER=16` writes Δe at 16 in two passes (`l16_ours_v1`). The defaults of `run_l16_paper_one.sh` still reproduce the published table (`l16_paper_v1`). SCALPEL's `ours` runs the same scripts.
 
 ## Two-stage fit: the calibrated bias
 

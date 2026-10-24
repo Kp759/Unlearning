@@ -143,4 +143,6 @@ Exactly 20 where enough valid ones exist:
 
 `router_quality.md` (in SURE's work directory) lists the counts, the dropped examples, and every positive and negative of two facts.
 
+All of this lives in the core method (`semantic-unlearning/scripts/`). The rewrite generator and its checks are in `router_rewrites.py` (the command-line step is `build_router_rewrites.py`); the 20 / 20 balancing and the negative checks are in `linear_router.py` / `fit_linear_router.py`. SCALPEL's `ours` supplies only its prompt rendering and calls the same code as the paper pipeline's `ONEPASS=1` (`README_LINEAR_ROUTER.md`, "Ours (one forward pass)").
+
 Note: translation views used SCALPEL's French / Spanish / German before 2026-10-24, which broke this file's own rule, so cross-lingual was not truly held out. All SURE-R variants now use Italian / Portuguese / Dutch.

@@ -423,6 +423,9 @@ def main(argv=None):
     parser.add_argument("--positives-per-fact", type=int, default=20,
                         help="exactly this many positive prompts per fact: the dataset's own, topped up with "
                              "context-prefix variants (0 = the dataset's own only, the old behaviour)")
+    parser.add_argument("--views", default=None,
+                        help="extra positives (build_router_rewrites.py output: quality-checked base-model "
+                             "rewrites), added to the run dir's examples before balancing (ours)")
     parser.add_argument("--max-prefix-positives", type=int, default=None,
                         help="at most this many context-prefix copies among a fact's positives (ours: 8); "
                              "a fact short of real phrasings then keeps fewer than --positives-per-fact")
@@ -545,6 +548,14 @@ def main(argv=None):
     model.requires_grad_(False)
 
     examples, example_source = load_examples(run_dir, facts, args.augment, args.split_rule)
+    if args.views:
+        known_ids = {str(f["id"]) for f in facts}
+        have = {str(e["prompt"] if isinstance(e, dict) else e.prompt).strip() for e in examples}
+        views = [v for v in json.loads(Path(args.views).read_text())
+                 if str(v.get("fact_id")) in known_ids and str(v.get("prompt", "")).strip() not in have]
+        examples = list(examples) + views
+        example_source = f"{example_source} + {len(views)} rewrites ({Path(args.views).name})"
+        print(json.dumps({"phase": "views_added", "views": len(views), "file": str(args.views)}), flush=True)
     positive_balance = None
     if args.positives_per_fact > 0:
         subjects = [str(f.get("subject", "")) for f in facts]

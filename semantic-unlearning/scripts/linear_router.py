@@ -1771,6 +1771,8 @@ class LinearClassifierAssociationBank(nn.Module):
         self.subject_match = str(subject_match)
         # fuzzy matching decodes the prompt: set bank.tokenizer after loading
         self.tokenizer = None
+        # where a fuzzy bank finds its tokenizer when nobody sets one (the base model's own files)
+        self._tokenizer_source = str(getattr(getattr(base_model, "config", None), "_name_or_path", "") or "") or None
         self._fuzzy_words = [subject_words(str(f.get("subject", ""))) for f in facts]
         # experimental: with no eligible subject, a head may still fire at logit >= this
         self.free_fire_logit = None if free_fire_logit is None else float(free_fire_logit)
@@ -1971,6 +1973,10 @@ class LinearClassifierAssociationBank(nn.Module):
         return probs[:, self.ls_fact_subject] >= self.learned_subject["threshold"]
 
     def _fuzzy_subject_mask(self, prefix_lengths):
+        if self.tokenizer is None and self._tokenizer_source:
+            # evaluators load the bank without a tokenizer: use the base model's own (local files)
+            from transformers import AutoTokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(self._tokenizer_source, local_files_only=True)
         if self.tokenizer is None:
             raise RuntimeError("subject_match='fuzzy' needs bank.tokenizer (set it after loading)")
         rows = self._input_ids.detach().cpu().tolist()

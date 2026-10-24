@@ -6,11 +6,13 @@
 # adds Δe at layer 16 (scripts/early_write.py), logit-lens feedback at 24, regular_v1 routers.
 # ONEPASS=1 (scripts/run_onepass_paper_one.sh) = ours now: ONE forward pass, the classifier
 # reads layer ROUTER_LAYER (19) and Δe is added at the same layer, at the last prompt token and
-# every generated token; no logit lens; routers with 20 positives + 20 negatives per fact and
-# no PCA (ROUTER_RECIPE=p20n20, outputs/<ds>_multiseed_p20n20_v1); MCF on the linear L19
-# router (v2.2 reads layers 23 / 27, above the write layer: it needs its own routing pass).
+# every generated token; no logit lens; MCF on the linear L19 router (v2.2 reads layers 23 / 27,
+# above the write layer: it needs its own routing pass). Routers (ROUTER_RECIPE=ours, in
+# outputs/<ds>_multiseed_ours_v1): no PCA, fuzzy subject matching, 20 positives per fact (the
+# fact's prompts + quality-checked base-model rewrites, build_router_rewrites.py, + at most 8
+# context-prefix copies) and 20 negatives (base-model answer-collision and plausibility checks).
 #   ours                ONEPASS=1                  -> TAG onepass_l19_v1
-#   ours, L16 ablation  ONEPASS=1 WRITE_LAYER=16   -> TAG l16_p20n20_v1 (same routers, Δe at 16)
+#   ours, L16 ablation  ONEPASS=1 WRITE_LAYER=16   -> TAG l16_ours_v1 (same routers, Δe at 16)
 #   published table     (defaults)                 -> TAG l16_paper_v1
 #
 #   bash scripts/run_l16_paper_one.sh DATASET SEED       DATASET in mcf zsre mquake rwku
@@ -56,7 +58,7 @@
 # Other models (scripts/paper_model_config.sh sets all of these; defaults = Llama-3.2-3B):
 #      MODEL_PATH (default: from the reference manifests), MODEL_TAG (prefix of the router
 #      dirs, outputs/<ds>_<MODEL_TAG>_multiseed_regular_v1/...; empty = the 3B dirs),
-#      ROUTER_LAYER (19), ONEPASS (0 | 1), ROUTER_RECIPE (regular_v1 | p20n20),
+#      ROUTER_LAYER (19), ONEPASS (0 | 1), ROUTER_RECIPE (regular_v1 | ours),
 #      LENS_TYPE (logit; ONEPASS=1: none | jlens), LENS_LAYER (24, used when LENS_TYPE != none),
 #      V22_RELATION_LAYERS ("19 23 24 27"),
 #      V22_RELATION_CONCAT (19,23,27), BASELINE_ARGS (extra paper_baselines.py flags)
@@ -67,7 +69,7 @@ SEED="${2:?Usage: run_l16_paper_one.sh DATASET SEED}"
 case "$DS" in mcf|zsre|mquake|rwku) ;; *) echo "DATASET must be mcf|zsre|mquake|rwku" >&2; exit 2;; esac
 ROUTER_LAYER="${ROUTER_LAYER:-19}"
 if [[ "${ONEPASS:-0}" == 1 ]]; then   # ours: one pass at the router layer, no lens, 20 / 20 no-PCA routers
-  WRITE_LAYER="${WRITE_LAYER:-$ROUTER_LAYER}"; LENS_TYPE="${LENS_TYPE:-none}"; ROUTER_RECIPE="${ROUTER_RECIPE:-p20n20}"
+  WRITE_LAYER="${WRITE_LAYER:-$ROUTER_LAYER}"; LENS_TYPE="${LENS_TYPE:-none}"; ROUTER_RECIPE="${ROUTER_RECIPE:-ours}"
 else                                  # the published configuration
   WRITE_LAYER="${WRITE_LAYER:-16}"; LENS_TYPE="${LENS_TYPE:-logit}"; ROUTER_RECIPE="${ROUTER_RECIPE:-regular_v1}"
 fi
@@ -77,11 +79,16 @@ LENS_LAYER="${LENS_LAYER:-24}"
 MP="${MODEL_TAG:+${MODEL_TAG}_}"   # router-dir prefix, empty for the 3B runs
 [[ -n "${MODEL_PATH:-}" ]] && export MODEL_PATH   # the layer-sweep scripts pick it up
 case "$ROUTER_RECIPE" in
-  p20n20) FIT_EXTRA_ARGS="--positives-per-fact 20 --negatives-per-fact 20 --pca-dims 0" ;;
-  regular_v1) FIT_EXTRA_ARGS="--positives-per-fact 0 --negatives-per-fact 0 --pca-dims 0,64,256" ;;
-  *) echo "ROUTER_RECIPE must be p20n20 or regular_v1" >&2; exit 2 ;;
+  ours)
+    FIT_EXTRA_ARGS="--pca-dims 0 --subject-match fuzzy --positives-per-fact 20 --negatives-per-fact 20"
+    FIT_EXTRA_ARGS+=" --max-prefix-positives 8 --negative-answer-check --negative-plausibility-delta 1.5"
+    ROUTER_REWRITES=1 ;;
+  regular_v1)
+    FIT_EXTRA_ARGS="--positives-per-fact 0 --negatives-per-fact 0 --pca-dims 0,64,256"
+    ROUTER_REWRITES=0 ;;
+  *) echo "ROUTER_RECIPE must be ours or regular_v1" >&2; exit 2 ;;
 esac
-export FIT_EXTRA_ARGS                            # read by run_<ds>_layer_sweep_one.sh's router fit
+export FIT_EXTRA_ARGS ROUTER_REWRITES            # read by run_<ds>_layer_sweep_one.sh's router fit
 if [[ "$ONE_PASS" == 1 ]]; then
   TAG="${TAG:-onepass_l${ROUTER_LAYER}$([[ "$ROUTER_RECIPE" == regular_v1 ]] && echo _regular || true)_v1}"
   MCF_ROUTER="${MCF_ROUTER:-linear}"
@@ -89,7 +96,7 @@ elif [[ "$ROUTER_RECIPE" == regular_v1 ]]; then
   TAG="${TAG:-l16_paper_v1}"
   MCF_ROUTER="${MCF_ROUTER:-v22}"
 else
-  TAG="${TAG:-l16_p20n20_v1}"
+  TAG="${TAG:-l16_ours_v1}"
   MCF_ROUTER="${MCF_ROUTER:-linear}"
 fi
 if [[ "$TAG" == l16_paper_v1 && "$ROUTER_RECIPE" != regular_v1 ]]; then

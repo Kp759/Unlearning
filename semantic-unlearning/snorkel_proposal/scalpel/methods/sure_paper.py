@@ -93,6 +93,10 @@ class SurePaper(Method):
         """Write extra router inputs into SURE's prep directory before the fit (none here)."""
         return {}
 
+    def fit_extra(self, prep: Path) -> list:
+        """Per-run fit flags (ours: --views <prep>/router_rewrites.json)."""
+        return []
+
     def unlearn(self, base, requests, allowed_retain, ctx):
         a = self.args
         root = Path(a.get("root", SEMANTIC_ROOT)).resolve()
@@ -117,7 +121,7 @@ class SurePaper(Method):
             (router, py + [str(root / "scripts/fit_linear_router.py"), "--run-dir", str(prep), "--output-dir", str(router),
                            "--device", device, "--fit-device", fit_device, "--local-files-only",
                            "--threshold-policy", "global", "--decision-rule", "calibrated_bias", "--min-recall", "0.98",
-                           "--threshold-placement-fraction", "0.1", *self.fit_args]),
+                           "--threshold-placement-fraction", "0.1", *self.fit_args, *self.fit_extra(prep)]),
             (rows, trainer_command(root, router, rows, router_layer=layer, write_layer=write_layer, device=device,
                                    extra=" ".join([*self.train_args, str(a.get("train_args", ""))]))),
         ]
@@ -203,11 +207,21 @@ class Ours(SurePaper):
     train_args = ("--views-per-fact", "8")
 
     def router_inputs(self, base, requests, prep, req_of_fact, ctx):
-        from .sure_robust import TRAIN_LANGS, VIEW_KINDS, make_views, write_router_inputs
+        """The same rewrites the paper pipeline builds (scripts/router_rewrites.py, every check),
+        rendered as SCALPEL's deployment renders prompts; handed to the fit with --views, as
+        build_router_rewrites.py hands them to the paper pipeline's fit."""
+        from .sure_robust import TRAIN_LANGS, VIEW_KINDS, make_views
         views, stats = make_views(base, ctx.renderer, requests, VIEW_KINDS, langs=TRAIN_LANGS, n_para=6, n_question=3,
                                   n_multiturn=2, split_rule="holdout_last", judge=True, min_views=8, log=ctx.log)
-        written = write_router_inputs(prep, req_of_fact, views, {})
-        return {"views": stats, "router_inputs": written}
+        fact_of = {rid: fid for fid, rid in req_of_fact.items()}
+        rows = [{"fact_id": fact_of[v.request_id], "prompt": v.sure_text, "split": v.split, "group": v.family,
+                 "role": v.family, "augmented": True, "kind": v.kind}
+                for vs in views.values() for v in vs if v.request_id in fact_of]
+        (prep / "router_rewrites.json").write_text(json.dumps(rows, indent=1, ensure_ascii=False) + "\n")
+        return {"views": stats, "rewrites": len(rows)}
+
+    def fit_extra(self, prep):
+        return ["--views", str(prep / "router_rewrites.json")]
 
 
 class OursL16(Ours):
