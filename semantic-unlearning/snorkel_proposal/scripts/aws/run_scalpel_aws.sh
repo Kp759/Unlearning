@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SCALPEL on one GPU without SLURM (AWS g5.2xlarge: 1x A10G 24 GB, 8 vCPU, 32 GB RAM). The same chain
+# SCALPEL on one GPU without SLURM (any GPU node: AWS, an HPC allocation; written for a 24 GB A10G,
+# with SCALPEL_GRAD_SCOPE=mlp SCALPEL_RELEARN_SCOPE=mlp SCALPEL_GRAD_PRECISION=fp32 on >= 40 GB). The same chain
 # as the Wulver jobs (scripts/slurm/*), one stage after another. Every step skips finished work, so
 # after a stop, a crash or a reboot, rerun the same command. Run from anywhere.
 #
@@ -96,8 +97,9 @@ stage_setup() {
     "$UVV/bin/uv" venv --python 3.11 "$ENV_DIR"
     "$UVV/bin/uv" pip install --python "$ENV_DIR/bin/python" torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
     "$UVV/bin/uv" pip install --python "$ENV_DIR/bin/python" -r "$SP/scripts/aws/requirements-aws.txt"
-    "$ENV_DIR/bin/python" -c "import torch, transformers; assert torch.cuda.is_available(), 'no GPU'; \
-print('torch', torch.__version__, '| transformers', transformers.__version__, '|', torch.cuda.get_device_name(0))"
+    "$ENV_DIR/bin/python" -c "import torch, transformers; gpu = torch.cuda.is_available(); \
+print('torch', torch.__version__, '| transformers', transformers.__version__, '|', \
+      torch.cuda.get_device_name(0) if gpu else 'no GPU here (fine on a login node: core needs one)')"
     touch "$ENV_DIR/.ready"
   fi
   # shellcheck disable=SC1091
@@ -119,7 +121,7 @@ print('torch', torch.__version__, '| transformers', transformers.__version__, '|
   [[ -f "$MODEL_PATH/config.json" ]] || { echo "no model at $MODEL_PATH" >&2; exit 2; }
   say "tests (CPU, about a minute)"
   (cd "$SP" && python -m pytest -q tests/ -p no:cacheprovider -W ignore)
-  nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+  nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo "no GPU visible here"
   df -h "$HOME" | tail -1
   say "setup done"
 }
