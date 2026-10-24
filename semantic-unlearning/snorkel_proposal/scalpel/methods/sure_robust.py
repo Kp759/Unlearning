@@ -39,10 +39,13 @@ import torch
 from ..model_api import ModelHandle, Renderer, _bucket, _hf_generate, _pad_id, teacher_forced
 from ..schema import Probe, Request, normalize_text
 from .base import Method, MethodCard, arg
-from .external import _SureRuntime, export_multifact
+from .external import _SureRuntime, export_multifact, gpu_released
 
 SEMANTIC_ROOT = Path(__file__).resolve().parents[3]
-LANGS = {"fr": "French", "es": "Spanish", "de": "German"}
+sys.path.insert(0, str(SEMANTIC_ROOT / "scripts"))
+import router_rewrites as RR  # noqa: E402  (the core method's rewrite generator)
+from router_rewrites import LANGS, TRAIN_LANGS, near_duplicate, well_formed  # noqa: E402,F401
+from router_rewrites import lines as _lines  # noqa: E402,F401
 VIEW_KINDS = ("paraphrase", "question", "translate", "multiturn")
 
 PRESETS: Dict[str, Dict[str, object]] = {
@@ -116,15 +119,6 @@ def generate_texts(handle: ModelHandle, texts: Sequence[str], max_new_tokens: in
     return out
 
 
-def _lines(text: str) -> List[str]:
-    out = []
-    for line in text.splitlines():
-        line = re.sub(r"^\s*(?:[-*•]|\(?\d+[.):]?\)?)\s*", "", line).strip().strip("\"“”'`").strip()
-        if line:
-            out.append(line)
-    return out
-
-
 def _has(text: str, phrase: str) -> bool:
     return normalize_text(phrase) in normalize_text(text)
 
@@ -142,93 +136,48 @@ def sure_text(renderer: Renderer, probe: Probe) -> Optional[str]:
 
 
 def make_views(handle: ModelHandle, renderer: Renderer, requests: Sequence[Request], kinds: Sequence[str],
-               langs: Sequence[str] = ("fr", "es", "de"), n_para: int = 2, batch_size: int = 16, log=print):
-    """{request_id: [View]} from the base model's own rewrites of each request, validated."""
-    tok = renderer.tok
+               langs: Sequence[str] = TRAIN_LANGS, n_para: int = 2, n_question: int = 1, n_multiturn: int = 1,
+               split_rule: str = "legacy", judge: bool = False, min_views: int = 0, batch_size: int = 16,
+               log=print):
+    """{request_id: [View]}: the base model's quality-checked rewrites of each request, from the
+    shared generator in scripts/router_rewrites.py (every check is documented there). SCALPEL
+    supplies only how a rewrite is rendered (the deployment's prompt, as its evaluator renders
+    it) and the meaning check (teacher-forced answer under that rendering).
+    sure_r: n_para 2, one question / follow-up, split_rule legacy, no same-fact check.
+    ours: n_para 6, 3 questions, 2 follow-ups, holdout_last, judge, second round below 8."""
     reqs = [r for r in requests if r.kind == "fact" and r.subject and r.prompt]
-    cand: List[tuple] = []          # (request, kind, family, split, probe)
+    by_id = {r.request_id: r for r in reqs}
+    targets = [RR.RewriteTarget(r.request_id, r.subject, r.answer, r.prompt, "cloze" if r.format == "cloze" else "qa")
+               for r in reqs]
 
-    def probe(r, kind, i, prompt, fmt, messages=None):
-        return Probe(probe_id=f"view/{r.request_id}/{kind}/{i}", role="forget", family=kind, fact_id=r.fact_id,
-                     prompt=prompt, answer=r.answer, format=fmt, messages=messages, request_id=r.request_id,
-                     subject=r.subject, relation=r.relation)
+    def validate(cands):
+        probes = []
+        for c in cands:
+            r = by_id[c.target.id]
+            fmt = "chat" if c.kind == "multiturn" else ("cloze" if c.fmt == "cloze" else "qa")
+            probes.append(Probe(probe_id=f"view/{r.request_id}/{c.kind}/{c.index}", role="forget", family=c.kind,
+                                fact_id=r.fact_id, prompt=c.text, answer=r.answer, format=fmt, messages=c.messages,
+                                request_id=r.request_id, subject=r.subject, relation=r.relation))
+        known = teacher_forced(handle, renderer, probes, batch_size=batch_size)
+        out = []
+        for c, p, k in zip(cands, probes, known):
+            c.probe = p
+            out.append(sure_text(renderer, p) if k["correct"] else None)
+        return out
 
-    if "paraphrase" in kinds:
-        asks = [(f'Rewrite this unfinished sentence in {n_para} different ways. Every version must contain the '
-                 f'name "{r.subject}", keep the same meaning, and stop at the same point so that the same next word '
-                 f'completes it. Write one version per line and nothing else.\nSentence: {r.prompt}')
-                if r.format == "cloze" else
-                (f'Rewrite this question in {n_para} different ways. Every version must contain the name '
-                 f'"{r.subject}" and ask for the same thing. Write one version per line and nothing else.\n'
-                 f'Question: {r.prompt}') for r in reqs]
-        for r, o in zip(reqs, generate_texts(handle, [_instruct(tok, a) for a in asks], 96, batch_size)):
-            k = 0
-            for line in _lines(o):
-                if r.format == "cloze":
-                    line = line.rstrip(" .…:;,")
-                if not _has(line, r.subject) or _has(line, r.answer) or normalize_text(line) == normalize_text(r.prompt):
-                    continue
-                cand.append((r, "paraphrase", f"aug_paraphrase_{k}", "train" if k == 0 else "development",
-                             probe(r, "paraphrase", k, line, r.format)))
-                k += 1
-                if k >= n_para:
-                    break
-
-    questions: Dict[str, str] = {r.request_id: r.prompt for r in reqs if r.format != "cloze"}
-    need_q = [r for r in reqs if r.format == "cloze"] if set(kinds) & {"question", "translate", "multiturn"} else []
-    if need_q:
-        asks = [f'Turn this unfinished sentence into one direct question that asks for its missing ending. Keep the '
-                f'name "{r.subject}". Write only the question.\nSentence: {r.prompt}' for r in need_q]
-        for r, o in zip(need_q, generate_texts(handle, [_instruct(tok, a) for a in asks], 48, batch_size)):
-            q = next((l for l in _lines(o) if l.endswith("?") and _has(l, r.subject) and not _has(l, r.answer)), None)
-            if q:
-                questions[r.request_id] = q
-                if "question" in kinds:
-                    cand.append((r, "question", "aug_question", "train", probe(r, "question", 0, q, "qa")))
-
-    if "translate" in kinds:
-        jobs = [(r, lang) for r in reqs if r.request_id in questions for lang in langs]
-        asks = [f'Translate this question into {LANGS.get(lang, lang)}. Keep the name "{r.subject}" exactly as it is '
-                f'written. Write only the translation.\nQuestion: {questions[r.request_id]}' for r, lang in jobs]
-        for (r, lang), o in zip(jobs, generate_texts(handle, [_instruct(tok, a) for a in asks], 64, batch_size)):
-            t = next((l for l in _lines(o) if _has(l, r.subject) and not _has(l, r.answer)), None)
-            if t and normalize_text(t) != normalize_text(questions[r.request_id]):
-                split = "train" if lang == langs[0] else "development"
-                cand.append((r, "translate", f"aug_translate_{lang}", split, probe(r, "translate", 0, t, "qa")))
-
-    if "multiturn" in kinds:
-        mt = [r for r in reqs if r.request_id in questions]
-        openers = [f"What can you tell me about {r.subject}?" for r in mt]
-        replies = generate_texts(handle, [_instruct(tok, o) for o in openers], 40, batch_size)
-        asks = [f'Rewrite this question so that it does not contain the name "{r.subject}". Refer to them only as '
-                f'"they" if a person or "it" otherwise. Write only the new question.\nQuestion: {questions[r.request_id]}'
-                for r in mt]
-        for r, opener, reply, o in zip(mt, openers, replies, generate_texts(handle, [_instruct(tok, a) for a in asks], 48, batch_size)):
-            q = next((l for l in _lines(o) if l.endswith("?") and not _has(l, r.subject) and not _has(l, r.answer)), None)
-            reply = reply.split("\n\n")[0].strip()[:400]
-            if q and reply and not _has(reply, r.answer):
-                msgs = [{"role": "user", "content": opener}, {"role": "assistant", "content": reply},
-                        {"role": "user", "content": q}]
-                cand.append((r, "multiturn", "aug_multiturn", "train", probe(r, "multiturn", 0, q, "chat", msgs)))
-
-    # keep a view only if the base model answers it with the request's answer
-    known = teacher_forced(handle, renderer, [c[4] for c in cand], batch_size=batch_size) if cand else []
+    kept, stats = RR.generate_rewrites(handle.hf, renderer.tok, targets, validate=validate, kinds=kinds, langs=langs,
+                                       n_para=n_para, n_question=n_question, n_multiturn=n_multiturn, judge=judge,
+                                       min_views=min_views, batch_size=batch_size, log=log)
     views: Dict[str, List[View]] = {r.request_id: [] for r in reqs}
-    stats = {"candidates": len(cand), "kept": 0, "dropped_base_does_not_answer": 0, "dropped_tokenization": 0}
-    seen = set()
-    for (r, kind, family, split, p), k in zip(cand, known):
-        if not k["correct"]:
-            stats["dropped_base_does_not_answer"] += 1
-            continue
-        text = sure_text(renderer, p)
-        if text is None or text in seen:
-            stats["dropped_tokenization"] += 1
-            continue
-        seen.add(text)
-        views[r.request_id].append(View(r.request_id, kind, family, split, p, text))
-        stats["kept"] += 1
-    stats["by_kind"] = {kd: sum(v.kind == kd for vs in views.values() for v in vs) for kd in VIEW_KINDS}
-    log(f"[sure_r] views: {json.dumps(stats)}")
+    for rid, cands in kept.items():
+        by_kind: Dict[str, list] = {}
+        for c in cands:
+            by_kind.setdefault(c.kind, []).append(c)
+        for items in by_kind.values():
+            items.sort(key=lambda c: c.index)
+            for pos, c in enumerate(items):
+                family, split = RR.family_and_split(c, pos, len(items), langs, split_rule)
+                views[rid].append(View(rid, c.kind, family, split, c.probe, c.prompt))
     return views, stats
 
 
@@ -510,7 +459,8 @@ class SureRobust(Method):
             if (out / "fact_association_embeddings.pt").exists():
                 return
             ctx.log("[sure_r] " + " ".join(str(c) for c in cmd))
-            subprocess.run([str(c) for c in cmd], cwd=str(root), env=env, check=True)
+            with gpu_released(base.hf):
+                subprocess.run([str(c) for c in cmd], cwd=str(root), env=env, check=True)
 
         run(prep, py + [root / "scripts/prepare_multifact_association_source.py", "--model-path", model_path,
                         "--training-visible", data / "training_visible_forget.json",
@@ -533,7 +483,8 @@ class SureRobust(Method):
         run(router, py + [root / "scripts/fit_linear_router.py", "--run-dir", prep, "--output-dir", router,
                           "--device", device, "--fit-device", fit_device, "--local-files-only",
                           "--threshold-policy", "global", "--decision-rule", "calibrated_bias",
-                          "--min-recall", "0.98", "--threshold-placement-fraction", "0.1", *fit_args])
+                          "--min-recall", "0.98", "--threshold-placement-fraction", "0.1", *fit_args,
+                          "--pca-dims", "0,64,256", "--positives-per-fact", "0", "--negatives-per-fact", "0"])   # SURE-R's tested recipe
         run(rows_dir, py + [root / "scripts/train_direct_linear_router_rows.py", "--dataset", "multifact",
                             "--router-dir", router, "--output-dir", rows_dir, "--training-route", "router",
                             "--norm-scale", "1", "--row-updates-per-fact", updates,

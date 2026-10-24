@@ -1,6 +1,7 @@
 """router_diag_staged.slurm with stubbed python / sbatch / squeue (the gates run for real):
 step order, stops at the hook-parity and L19-agreement checks, the conditional downstream
-step (written, submitted once, resumed), downstream mode, and the refusals."""
+step (written, submitted once, resumed), downstream mode, the refusals, and ROUTER_RECIPE=ours
+(the ONEPASS=1 routers, their own output root, the two-pass downstream command)."""
 from __future__ import annotations
 
 import json
@@ -26,8 +27,8 @@ case "$script" in
   scripts/cache_router_states.py)
     out="$(get --out-dir)"; mkdir -p "$out"
     [[ -f "$out/manifest.json" ]] && { echo "$out/manifest.json exists"; exit 0; }
-    printf '{"dataset": "%s", "seed": %s, "router_layer": 19, "n_layers": 28, "hook_parity": {"batched": {"route_mismatches": %s, "examples": []}, "single": {"route_mismatches": 0, "examples": []}}}' \
-      "$(get --dataset)" "$(get --seed)" "${PARITY:-0}" > "$out/manifest.json"
+    printf '{"dataset": "%s", "seed": %s, "router_recipe": "%s", "router_layer": 19, "n_layers": 28, "hook_parity": {"batched": {"route_mismatches": %s, "examples": []}, "single": {"route_mismatches": 0, "examples": []}}}' \
+      "$(get --dataset)" "$(get --seed)" "$(get --router-recipe)" "${PARITY:-0}" > "$out/manifest.json"
     exit "${CACHE_EXIT:-0}" ;;
   scripts/router_diag_report.py)
     out="$(get --cache-dir)"; mkdir -p "$out/report"
@@ -55,7 +56,7 @@ def _layout(tmp, fixed=True):
     shutil.copy(ROOT / "router_diag_staged.slurm", root)
     src = (ROOT / "scripts" / "router_layer_sweep_cached.py").read_text()
     (root / "scripts" / "router_layer_sweep_cached.py").write_text(src if fixed else src.replace("have_sweep", "have"))
-    for r in ("mcf_multiseed_regular_v1", "rwku_multiseed_subject_v1"):
+    for r in ("mcf_multiseed_regular_v1", "rwku_multiseed_subject_v1", "mcf_multiseed_ours_v1"):
         d = root / "outputs" / r / "seed1" / "L19" / "router"
         d.mkdir(parents=True)
         (d / "fact_association_embeddings.pt").touch()
@@ -181,3 +182,26 @@ def test_refuses_next_to_router_diag_and_without_the_fix(tmp_path):
     old, env2 = _layout(tmp_path / "old", fixed=False)
     r, log, _ = _run(tmp_path, old, env2)
     assert r.returncode == 2 and "resume-key fix" in r.stderr and "cache_router_states.py" not in log
+
+
+def test_ours_recipe_uses_the_onepass_routers_and_its_own_output(tmp_path):
+    root, env = _layout(tmp_path)
+    r, log, _ = _run(tmp_path, root, env, ROUTER_RECIPE="ours", IMPROVES="true")
+    assert r.returncode == 0, r.stdout + r.stderr
+    cache = next(l for l in log.splitlines() if "cache_router_states.py" in l)
+    assert "--router-recipe ours --router-dir outputs/mcf_multiseed_ours_v1/seed1/L19/router" in cache
+    assert "--out-dir outputs/router_diag_ours_v1/mcf/seed1" in cache
+    assert "--ours-dir" not in cache and "no finished ours run at outputs/onepass_l19_v1/mcf/seed1/ours" in r.stdout
+    out = root / "outputs" / "router_diag_ours_v1"
+    assert (out / "ROUTER_LAYER_CHOICE.md").is_file() and not (root / "outputs" / "router_diag_v1").exists()
+    text = (out / "mcf" / "seed1" / "layer_sweep" / "downstream_penultimate.sh").read_text()
+    assert ("TAG=onepass_router26_write19_v1 ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER=26 "
+            "bash scripts/run_l16_paper_one.sh mcf 1") in text
+    ours = root / "outputs" / "onepass_l19_v1" / "mcf" / "seed1" / "ours"
+    ours.mkdir(parents=True)
+    (ours / "fact_association_embeddings.pt").touch()
+    shutil.rmtree(out)
+    r, log, _ = _run(tmp_path, root, env, ROUTER_RECIPE="ours")
+    assert r.returncode == 0 and "--ours-dir outputs/onepass_l19_v1/mcf/seed1/ours" in log
+    r, _, _ = _run(tmp_path, root, env, ROUTER_RECIPE="best")
+    assert r.returncode == 2 and "ROUTER_RECIPE must be" in r.stderr

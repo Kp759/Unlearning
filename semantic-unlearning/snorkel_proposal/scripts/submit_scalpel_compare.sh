@@ -16,11 +16,11 @@
 #                                                                   └─> sequential track (array: seeds)
 #   report (gate per seed + leaderboards) after everything above, whatever its exit status.
 # robust = SURE-R ablation on the same splits (finished runs are skipped): SURE_VARIANTS
-#          (default: sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake).
+#          (default: ours_l16 sure_paper sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake).
 # agent  = agentic leakage track (scalpel/agentic.py) on splits that exist: AGENT_METHODS (default:
-#          noop,idk_all,subject_blocklist_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn,sure,sure_r).
+#          noop,idk_all,subject_blocklist_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn,sure,ours).
 #          SURE methods reuse their finished core run's router, so run agent after smoke / robust.
-# Env: METHODS (default below), SURE_VARIANTS (smoke/full: sure), SEEDS, PARTITION (dev | test + SCALPEL_TEST_SALT), N_FORGET (50),
+# Env: METHODS (default below), SURE_VARIANTS (smoke/full: sure ours), SEEDS, PARTITION (dev | test + SCALPEL_TEST_SALT), N_FORGET (50),
 #      SEQ_METHODS (gd,npo,memit), SKIP_SURE=1, SKIP_SEQ=1, MOM2_TEXT / MOM2_DATASET (scalpel_common.sh).
 # Finished runs are skipped, so re-submitting after a failure only redoes what is missing.
 set -euo pipefail
@@ -32,13 +32,13 @@ DEFAULT_METHODS="noop,idk_all,prompt_cache_idk,subject_blocklist_idk,keyword_rou
 METHODS="${METHODS:-$DEFAULT_METHODS}"
 [[ "$MODE" == agent ]] || METHODS="$(echo "$METHODS" | tr ',' '\n' | grep -v -E '^sure' | paste -sd, - || true)"   # SURE variants: own array
 if [[ "$MODE" == agent ]]; then
-  METHODS="${AGENT_METHODS:-noop,idk_all,subject_blocklist_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn,sure,sure_r}"
+  METHODS="${AGENT_METHODS:-noop,idk_all,subject_blocklist_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn,sure,ours}"
 fi
 if [[ "$MODE" == robust ]]; then
   METHODS=""
-  SURE_VARIANTS="${SURE_VARIANTS:-sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake}"
+  SURE_VARIANTS="${SURE_VARIANTS:-ours_l16 sure_paper sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake}"
 fi
-SURE_VARIANTS="${SURE_VARIANTS:-sure}"
+SURE_VARIANTS="${SURE_VARIANTS:-sure ours}"     # ours: SURE-R router + one-pass L19 Δe (scalpel/methods/sure_paper.py)
 SURE_LIST="$(echo $SURE_VARIANTS | tr ' ' ',')"; N_SURE=$(wc -w <<< "$SURE_VARIANTS" | tr -d " ")
 case "$MODE" in smoke|agent) SEEDS="${SEEDS:-1}";; *) SEEDS="${SEEDS:-1 2 3 4 5}";; esac
 SEED_ARRAY="$(echo $SEEDS | tr ' ' ',')"

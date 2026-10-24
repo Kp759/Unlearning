@@ -7,6 +7,9 @@ The claims these protect:
     and the real bank hook routes exactly as the cached L19 decision;
   * the cached refit at the router layer reproduces the shipped fit_linear_router.py
     router on the official prompts;
+  * an ours-recipe router (fuzzy subject matching, fixed positive / negative sets) is
+    cached under its own rule: hook parity holds on typo variants too, and the refit
+    under that rule reproduces it;
   * metrics, confusion matrices, calibration and separability numbers are what they say.
 """
 from __future__ import annotations
@@ -93,7 +96,7 @@ def _load(model_dir):
     return model, tok
 
 
-def _fit_router(tmp, model_dir, facts, tok, extra=None, manifest_extra=None):
+def _fit_router(tmp, model_dir, facts, tok, extra=None, manifest_extra=None, fit_args=()):
     """A real router: fit_linear_router.py on a prep dir, as run_<ds>_layer_sweep_one.sh."""
     import fit_linear_router
 
@@ -109,7 +112,7 @@ def _fit_router(tmp, model_dir, facts, tok, extra=None, manifest_extra=None):
     fit_linear_router.main(["--run-dir", str(prep), "--output-dir", str(router), "--device", "cpu",
                             "--threshold-policy", "global", "--min-recall", "0.98",
                             "--threshold-placement-fraction", "0.1", "--lambdas", "1e-3,1e-1",
-                            "--pca-dims", "0", "--cv-folds", "2", "--skip-runtime-parity"])
+                            "--pca-dims", "0", "--cv-folds", "2", "--skip-runtime-parity", *fit_args])
     return router
 
 
@@ -232,6 +235,44 @@ def test_zsre_end_to_end(tmp_path, model_dir):
     shipped = json.loads((router / "association_manifest.json").read_text())["router"]["selected_l2"]
     assert at["l2"] == shipped
     assert at["agreement_with_shipped_router"] >= 0.99
+
+
+@pytest.mark.skipif(not ZSRE.exists(), reason="data/zsre_mend_eval.json not present")
+def test_ours_fuzzy_router_end_to_end(tmp_path, model_dir):
+    import zsre_zero_unlearn_official_eval as zsre
+
+    _, tok = _load(model_dir)
+    forget, _ = zsre.load_official_eval_records(ZSRE, tok, forget_num=50, retain_num=1000, seed=1)
+    facts = [{"id": f"zsre_forget_{r['case_id']}", "subject": r["requested_rewrite"]["subject"],
+              "relation": "zsre_direct_request_context", "case_id": int(r["case_id"]),
+              "canonical_prompt": r["requested_rewrite"]["prompt"].format(r["requested_rewrite"]["subject"])}
+             for r in forget]
+    router = _fit_router(tmp_path, model_dir, facts, tok, fit_args=(
+        "--subject-match", "fuzzy", "--positives-per-fact", "6", "--negatives-per-fact", "4",
+        "--max-prefix-positives", "4"))
+    out = _cache(tmp_path, router, model_dir, "zsre",
+                 ["--zsre-path", str(ZSRE), "--no-ppl", "--router-recipe", "ours"])
+    manifest, _ = _check_cache(out, model_dir)          # hook parity 0, eval and perturbed
+    assert manifest["subject_match"] == "fuzzy" and manifest["router_recipe"] == "ours"
+    assert {"batched", "single", "perturbed_batched", "perturbed_single"} <= set(manifest["hook_parity"])
+    pert = torch.load(out / "router_perturbed.pt", weights_only=False)
+    assert bool((pert["eligible"] & ~pert["eligible_exact"]).any())     # typos only fuzzy catches
+    assert not bool((pert["eligible_exact"] & ~pert["eligible"]).any())  # fuzzy contains exact
+    trained = json.loads((router / "linear_router_dataset.json").read_text())
+    assert len(json.loads((out / "probes_train.json").read_text())) == len(trained)
+    report.build_report(out)
+    assert "subject match `fuzzy`" in (out / "report" / "summary.md").read_text()
+    result = _sweep(out, tmp_path)
+    at = next(e for e in result["sweep"] if e["layers"] == [ROUTER_LAYER] and e["rule"] == "deployed")
+    assert at["deployed_eligibility"] == "fuzzy" and set(at["by_eligibility"]) == {"fuzzy"}
+    assert at["agreement_with_shipped_router"] >= 0.99
+    modes = result["robust"][0]["by_eligibility"]
+    assert set(modes) == {"exact", "fuzzy", "none"}
+    assert modes["fuzzy"]["perturbed_recall"] >= modes["exact"]["perturbed_recall"]
+    doc = (out / "layer_sweep" / "layer_choice.md").read_text()
+    assert "Fuzzy subject eligibility" in doc and "ONE pass" in doc
+    import router_layer_sweep_cached as rls
+    assert "ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER=26" in rls.downstream_command(manifest, 26)
 
 
 @pytest.mark.skipif(not RWKU.exists(), reason="data/rwku not present")

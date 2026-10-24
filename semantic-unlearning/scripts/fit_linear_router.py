@@ -54,8 +54,10 @@ from linear_router import (
     LinearClassifierAssociationBank,
     SPLITS,
     assemble_router_dataset,
+    balance_positive_examples,
     calibrate_threshold,
     decide_routes,
+    eligibility_matrix,
     examples_from_facts,
     fit_linear_router,
     linear_route_frontier,
@@ -144,6 +146,116 @@ def detect_benchmark(facts):
         if first.startswith(f"{name}_"):
             return name
     return "unknown"
+
+
+class NegativeQuality:
+    """Base-model checks that a negative is a real, different question about the subject.
+
+      answer    drop it if the base model puts >= answer_prob on the head fact's answer as
+                the next token: the prompt would in fact ask for the forgotten answer
+                (e.g. "X's spoken language is" for "X's native language is"), so it cannot be
+                a clean negative;
+      plausible drop a subject transplant whose relation phrase is much less likely after
+                this subject than after the donor's own subject (mean token NLL of the part
+                after the subject, transplant - donor > delta nats), e.g. "Agnès Varda plays
+                the position of": an easy, meaningless negative.
+    Scores are cached per prompt; drops are counted with a few examples for the report."""
+
+    def __init__(self, model, tokenizer, facts, device, *, answer_check=True, answer_prob=0.3,
+                 plausibility_delta=None, batch_size=8):
+        self.model, self.tok, self.facts, self.device = model, tokenizer, facts, device
+        self.answer_check, self.answer_prob = bool(answer_check), float(answer_prob)
+        self.delta = plausibility_delta
+        self.batch_size = int(batch_size)          # full-vocabulary logits per batch: keep it small
+        self.answer_ids = []
+        for fact in facts:
+            ids = set()
+            for a in [fact.get("object"), *(fact.get("answer_aliases") or fact.get("aliases") or [])]:
+                a = str(a or "").strip()
+                for text in (a, " " + a):
+                    t = tokenizer(text, add_special_tokens=False)["input_ids"] if a else []
+                    if t:
+                        ids.add(int(t[0]))
+            self.answer_ids.append(sorted(ids))
+        self.stats = {"checked": 0, "answer_collision": 0, "implausible_transplant": 0}
+        self.examples = {"answer_collision": [], "implausible_transplant": []}
+        self._cache = {}
+
+    @torch.no_grad()
+    def _score(self, items):
+        """items: (text, head_text or None, answer ids or ()) -> (probability of the answer ids as
+        the next token, mean NLL of the tokens after head_text). Cached; only new items run."""
+        todo = [it for it in dict.fromkeys(items) if it not in self._cache]
+        pad = self.tok.pad_token_id if self.tok.pad_token_id is not None else 0
+        for start in range(0, len(todo), self.batch_size):
+            chunk = todo[start:start + self.batch_size]
+            enc = [self.tok(text)["input_ids"] for text, _, _ in chunk]
+            width = max(len(e) for e in enc)
+            ids = torch.full((len(enc), width), pad, dtype=torch.long)
+            att = torch.zeros_like(ids)
+            for b, e in enumerate(enc):
+                ids[b, :len(e)] = torch.tensor(e)
+                att[b, :len(e)] = 1
+            logits = self.model(input_ids=ids.to(self.device), attention_mask=att.to(self.device),
+                                use_cache=False).logits
+            for b, ((text, head, answer), e) in enumerate(zip(chunk, enc)):
+                p_answer = None
+                if answer:
+                    last = logits[b, len(e) - 1].float().log_softmax(-1)
+                    p_answer = float(last[list(answer)].exp().sum())
+                tail = None
+                n_head = len(self.tok(head)["input_ids"]) if head else None
+                if n_head is not None and n_head < len(e):
+                    lp = logits[b, n_head - 1:len(e) - 1].float().log_softmax(-1)
+                    target = torch.tensor(e[n_head:], device=lp.device)
+                    tail = float(-lp.gather(-1, target[:, None]).mean())
+                self._cache[(text, head, answer)] = (p_answer, tail)
+        return [self._cache[it] for it in items]
+
+    @staticmethod
+    def _head(text, subject):
+        i = text.find(subject) if subject else -1
+        return text[: i + len(subject)] if i >= 0 and text[i + len(subject):].strip() else None
+
+    def __call__(self, index, controls):
+        answer = tuple(self.answer_ids[index]) if self.answer_check else ()
+        plaus = {id(c) for c in controls if self.delta is not None and c["kind"] == "subject_transplant"
+                 and c.get("donor_prompt")}
+        items = [(c["prompt"], None, answer) for c in controls]
+        pairs = {}
+        for c in controls:
+            if id(c) in plaus:
+                t = (c["prompt"], self._head(c["prompt"], c.get("subject", "")), ())
+                d = (c["donor_prompt"], self._head(c["donor_prompt"], c.get("donor_subject", "")), ())
+                pairs[id(c)] = (t, d)
+                items += [t, d]
+        self._score(items)
+        kept = []
+        for c in controls:
+            self.stats["checked"] += 1
+            p_answer, _ = self._cache[(c["prompt"], None, answer)]
+            if p_answer is not None and p_answer >= self.answer_prob:
+                self.stats["answer_collision"] += 1
+                if len(self.examples["answer_collision"]) < 12:
+                    self.examples["answer_collision"].append({
+                        "fact": self.facts[index]["id"], "answer": self.facts[index].get("object"),
+                        "prompt": c["prompt"][-160:], "kind": c["kind"], "p_answer": round(p_answer, 3)})
+                continue
+            if id(c) in pairs:
+                (_, t_nll), (_, d_nll) = (self._cache[k] for k in pairs[id(c)])
+                if t_nll is not None and d_nll is not None and t_nll - d_nll > float(self.delta):
+                    self.stats["implausible_transplant"] += 1
+                    if len(self.examples["implausible_transplant"]) < 12:
+                        self.examples["implausible_transplant"].append({
+                            "fact": self.facts[index]["id"], "prompt": c["prompt"][-160:],
+                            "donor": c["donor_prompt"][-160:], "extra_nll_per_token": round(t_nll - d_nll, 2)})
+                    continue
+            kept.append(c)
+        return kept
+
+    def report(self):
+        return {**self.stats, "answer_prob": self.answer_prob, "plausibility_delta": self.delta,
+                "examples": self.examples}
 
 
 def load_examples(run_dir, facts, augment, split_rule):
@@ -306,11 +418,30 @@ def main(argv=None):
     parser.add_argument("--gate", choices=("auto",) + GATE_MODES, default="auto")
     parser.add_argument("--augment", choices=("auto", "on", "off"), default="auto")
     parser.add_argument("--split-rule", choices=("shipped", "rebalanced"), default="shipped")
-    parser.add_argument("--negative-count", type=int, default=36)
+    parser.add_argument("--negative-count", type=int, default=36,
+                        help="transplant cap when --negatives-per-fact is 0")
+    parser.add_argument("--positives-per-fact", type=int, default=20,
+                        help="exactly this many positive prompts per fact: the dataset's own, topped up with "
+                             "context-prefix variants (0 = the dataset's own only, the old behaviour)")
+    parser.add_argument("--views", default=None,
+                        help="extra positives (build_router_rewrites.py output: quality-checked base-model "
+                             "rewrites), added to the run dir's examples before balancing (ours)")
+    parser.add_argument("--max-prefix-positives", type=int, default=None,
+                        help="at most this many context-prefix copies among a fact's positives (ours: 8); "
+                             "a fact short of real phrasings then keeps fewer than --positives-per-fact")
+    parser.add_argument("--negative-answer-check", action="store_true",
+                        help="drop negatives the base model would answer with the head fact's answer (ours)")
+    parser.add_argument("--negative-plausibility-delta", type=float, default=None,
+                        help="drop subject transplants whose relation phrase is more than this many nats/token "
+                             "less likely after this subject than after the donor's (ours: 1.5)")
+    parser.add_argument("--negatives-per-fact", type=int, default=20,
+                        help="exactly this many negatives per fact: same-subject competitors, extra controls, "
+                             "then subject transplants (0 = the old --negative-count transplant cap)")
     parser.add_argument("--per-donor", type=int, default=3)
     parser.add_argument("--no-type-check", action="store_true")
     parser.add_argument("--lambdas", default=",".join(str(x) for x in DEFAULT_LAMBDAS))
-    parser.add_argument("--pca-dims", default=",".join(str(x) for x in DEFAULT_PCA_DIMS))
+    parser.add_argument("--pca-dims", default=",".join(str(x) for x in DEFAULT_PCA_DIMS),
+                        help="PCA sizes to cross-validate (default 0 = no PCA; 0,64,256 = the old search)")
     parser.add_argument("--cv-folds", type=int, default=5)
     parser.add_argument("--no-answer-groups", action="store_true",
                         help="allow same-answer-group relations as negatives (ablation)")
@@ -417,6 +548,27 @@ def main(argv=None):
     model.requires_grad_(False)
 
     examples, example_source = load_examples(run_dir, facts, args.augment, args.split_rule)
+    if args.views:
+        known_ids = {str(f["id"]) for f in facts}
+        have = {str(e["prompt"] if isinstance(e, dict) else e.prompt).strip() for e in examples}
+        views = [v for v in json.loads(Path(args.views).read_text())
+                 if str(v.get("fact_id")) in known_ids and str(v.get("prompt", "")).strip() not in have]
+        examples = list(examples) + views
+        example_source = f"{example_source} + {len(views)} rewrites ({Path(args.views).name})"
+        print(json.dumps({"phase": "views_added", "views": len(views), "file": str(args.views)}), flush=True)
+    positive_balance = None
+    if args.positives_per_fact > 0:
+        subjects = [str(f.get("subject", "")) for f in facts]
+
+        def eligible(prompt, index):
+            return bool(eligibility_matrix(tokenizer, [prompt], subject_patterns, subjects=subjects,
+                                           subject_match=args.subject_match)[0, index])
+        examples, positive_balance = balance_positive_examples(examples, facts, args.positives_per_fact,
+                                                               eligible=eligible,
+                                                               max_prefixed=args.max_prefix_positives)
+        example_source = f"{example_source} (balanced to {args.positives_per_fact} positives per fact)"
+        print(json.dumps({"phase": "positives_balanced", **{k: v for k, v in positive_balance.items() if k != "short"},
+                          "facts_short": len(positive_balance["short"])}), flush=True)
     extra_controls = None
     if args.relation_negatives:
         mcf_path = args.mcf_path or manifest.get("mcf_path")
@@ -448,6 +600,10 @@ def main(argv=None):
                 extra_negative_count += 1
             extra_controls[i] = controls
         print(json.dumps({"phase": "extra_negatives", "prompts": extra_negative_count}), flush=True)
+    quality = None
+    if args.negative_answer_check or args.negative_plausibility_delta is not None:
+        quality = NegativeQuality(model, tokenizer, facts, args.device, answer_check=args.negative_answer_check,
+                                  plausibility_delta=args.negative_plausibility_delta)
     data = assemble_router_dataset(
         facts, examples, tokenizer, subject_patterns,
         negative_count=args.negative_count,
@@ -456,7 +612,16 @@ def main(argv=None):
         answer_groups=not args.no_answer_groups,
         extra_controls=extra_controls,
         subject_match=args.subject_match,
+        negatives_per_fact=args.negatives_per_fact or None,
+        negative_filter=quality,
     )
+    if quality is not None:
+        data["diagnostics"]["negative_quality"] = quality.report()
+        print(json.dumps({"phase": "negative_quality", **quality.stats}), flush=True)
+    data["diagnostics"]["positive_balance"] = positive_balance
+    counts = data["diagnostics"]["per_fact_counts"]
+    print(json.dumps({"phase": "per_fact_counts", "positives": counts["positives"],
+                      "negatives": counts["negatives"]}), flush=True)
     data["diagnostics"]["relation_negatives"] = None if extra_controls is None else {
         "templates_per_relation": args.relation_negative_templates,
         "skip_answer_group": bool(args.relation_negatives_skip_answer_group),
@@ -780,7 +945,11 @@ def main(argv=None):
     # Evaluators read only the manifest and the artifact. Copy nothing else
     # from the source run except its training-visible examples: copying its
     # evaluation outputs would put V2 results in a linear-router directory.
-    if (run_dir / "association_examples.json").is_file():
+    if positive_balance is not None:
+        # the balanced positives are the router's training-visible examples: the row trainers
+        # (train_mcf_jlens_feedback_rows.generic_examples) read them from here
+        (output / "association_examples.json").write_text(json.dumps(examples, indent=1) + "\n")
+    elif (run_dir / "association_examples.json").is_file():
         shutil.copy2(run_dir / "association_examples.json",
                      output / "association_examples.json")
     new_manifest = dict(manifest)

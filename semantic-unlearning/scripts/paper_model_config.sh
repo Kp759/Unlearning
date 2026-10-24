@@ -7,7 +7,9 @@
 #   MODEL=qwen3_4b     Qwen/Qwen3-4B (no-thinking prompts)  36 layers, hidden 2560, tied head
 #
 # Layers are the 3B choices moved to the same relative depth (3B has 28 blocks):
-#   write 16 -> 16/28, router 19, logit lens 24, v2.2 subject 6, v2.2 relation candidates
+#   router 19; Δe at EARLY_WRITE_LAYER 16 -> 16/28 (published, two passes), or with ONEPASS=1 at
+#   the router layer in ONE forward pass (ours; WRITE_LAYER=$EARLY_WRITE_LAYER = its ablation);
+#   logit lens 24 (off unless LENS_TYPE is set), v2.2 subject 6, v2.2 relation candidates
 #   19 23 24 27 (concat 19,23,27; 27 = last block), RMU 7. Not re-tuned per model.
 # ZeroUnlearn uses the upstream hparams file shipped for each model (no tuning by us).
 #
@@ -22,7 +24,7 @@ case "${MODEL:-}" in
   llama31_8b)
     HF_ID=meta-llama/Llama-3.1-8B-Instruct
     N_LAYERS=32
-    ROUTER_LAYER=22; WRITE_LAYER=18; LENS_LAYER=27
+    ROUTER_LAYER=22; EARLY_WRITE_LAYER=18; LENS_LAYER=27
     V22_SUBJECT_LAYERS=7; V22_RELATION_LAYERS="22 26 27 31"; V22_RELATION_CONCAT=22,26,31
     # GA/GD/NPO train in fp32 with AdamW: every MLP of an 8B model (5.6B params) needs
     # ~100 GB for weights + grads + Adam states, more than one 80 GB GPU. down_proj only
@@ -33,7 +35,7 @@ case "${MODEL:-}" in
   qwen3_4b)
     HF_ID=Qwen/Qwen3-4B
     N_LAYERS=36
-    ROUTER_LAYER=24; WRITE_LAYER=21; LENS_LAYER=31
+    ROUTER_LAYER=24; EARLY_WRITE_LAYER=21; LENS_LAYER=31
     V22_SUBJECT_LAYERS=8; V22_RELATION_LAYERS="24 30 31 35"; V22_RELATION_CONCAT=24,30,35
     BASELINE_ARGS="--rmu-layer 9 --baseline-params mlp --zero-hparams $ZERO_HP/Qwen3-4B.json"
     MIN_GPU_MIB=40000
@@ -55,8 +57,15 @@ if [[ -z "${MODEL_PATH:-}" ]]; then
   done
 fi
 MODEL_TAG="$MODEL"
-TAG="${TAG:-paper_${MODEL}_v1}"
-export HF_ID N_LAYERS MODEL_PATH MODEL_TAG TAG ROUTER_LAYER WRITE_LAYER LENS_LAYER \
+if [[ "${ONEPASS:-0}" == 1 ]]; then             # ours: Δe at the router layer, one forward pass
+  WRITE_LAYER="${WRITE_LAYER:-$ROUTER_LAYER}"
+  if [[ "$WRITE_LAYER" == "$ROUTER_LAYER" ]]; then TAG="${TAG:-paper_${MODEL}_onepass_v1}"
+  else TAG="${TAG:-paper_${MODEL}_l${WRITE_LAYER}_ours_v1}"; fi    # the two-pass ablation
+else                                            # the published configuration
+  WRITE_LAYER="${WRITE_LAYER:-$EARLY_WRITE_LAYER}"
+  TAG="${TAG:-paper_${MODEL}_v1}"
+fi
+export HF_ID N_LAYERS MODEL_PATH MODEL_TAG TAG ROUTER_LAYER WRITE_LAYER EARLY_WRITE_LAYER LENS_LAYER \
        V22_SUBJECT_LAYERS V22_RELATION_LAYERS V22_RELATION_CONCAT BASELINE_ARGS MIN_GPU_MIB
 
 paper_model_check() {  # fail fast: weights present, layer count as configured, GPU big enough

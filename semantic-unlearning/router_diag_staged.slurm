@@ -20,8 +20,13 @@
 #   sbatch router_diag_staged.slurm                                   # all 4, seed 1
 #   sbatch --export=ALL,RUN_DOWNSTREAM=1 router_diag_staged.slurm     # + step 4 where needed
 #   sbatch --array=3 router_diag_staged.slurm                         # RWKU only
+#   sbatch --export=ALL,ROUTER_RECIPE=ours router_diag_staged.slurm   # the ours (ONEPASS=1) routers
 #   tail -f logs/rdiag_s_<jobid>_0.out                                # 0 mcf 1 zsre 2 mquake 3 rwku
-# Do not run it next to router_diag.slurm (job name rdiag): both write outputs/router_diag_v1.
+# ROUTER_RECIPE: regular_v1 (default, the paper's routers -> outputs/router_diag_v1) or ours
+#   (outputs/<ds>_multiseed_ours_v1 routers, fuzzy subject matching, 20 / 20 prompts; ours runs
+#   from outputs/onepass_l19_v1 -> outputs/router_diag_ours_v1, so the regular_v1 results stay
+#   as the "before"). Fit the routers first (run_l16_paper_one.sh ONEPASS=1, step 1).
+# Do not run it next to router_diag.slurm (job name rdiag) with the same ROOT_OUT.
 #SBATCH --job-name=rdiag_s
 #SBATCH --partition=gpu
 #SBATCH --qos=standard
@@ -84,7 +89,9 @@ TASK="${SLURM_ARRAY_TASK_ID:?run as an array job}"
 DS="${DATASETS[$TASK]:-}"
 [[ -n "$DS" ]] || { echo "array index $TASK out of range (0-3)" >&2; exit 2; }
 SEED="${SEED:-1}"
-ROOT_OUT="${ROOT_OUT:-outputs/router_diag_v1}"
+ROUTER_RECIPE="${ROUTER_RECIPE:-regular_v1}"
+case "$ROUTER_RECIPE" in regular_v1|ours) ;; *) echo "ROUTER_RECIPE must be regular_v1 or ours" >&2; exit 2;; esac
+if [[ "$ROUTER_RECIPE" == ours ]]; then ROOT_OUT="${ROOT_OUT:-outputs/router_diag_ours_v1}"; else ROOT_OUT="${ROOT_OUT:-outputs/router_diag_v1}"; fi
 OUT="$ROOT_OUT/$DS/seed$SEED"
 MIN_AGREEMENT="${MIN_AGREEMENT:-0.99}"
 RUN_DOWNSTREAM="${RUN_DOWNSTREAM:-0}"
@@ -101,6 +108,12 @@ declare -A OURS=(
   [mquake]="outputs/l16_paper_v1/mquake/seed$SEED/ours"
   [rwku]="outputs/l16_paper_rwku_subject_v1/rwku/seed$SEED/ours"
 )
+if [[ "$ROUTER_RECIPE" == ours ]]; then
+  for D in mcf zsre mquake rwku; do
+    ROUTER[$D]="outputs/${D}_multiseed_ours_v1/seed$SEED/L19/router"
+    OURS[$D]="outputs/onepass_l19_v1/$D/seed$SEED/ours"
+  done
+fi
 OURS_ARGS=()
 [[ -f "${OURS[$DS]}/fact_association_embeddings.pt" ]] && OURS_ARGS=(--ours-dir "${OURS[$DS]}")
 
@@ -167,10 +180,11 @@ if check == "downstream":
     if not verdict.get("routing_improves"):
         print(f"KEEP_L{L}: routing does not improve at L{pen}; downstream run not needed")
         sys.exit(1)
-    # DOWNSTREAM from router_layer_sweep_cached.py, read without importing it (no torch)
+    # DOWNSTREAM(_OURS) from router_layer_sweep_cached.py, read without importing it (no torch)
+    name = "DOWNSTREAM_OURS" if m.get("router_recipe") == "ours" else "DOWNSTREAM"
     tree = ast.parse(Path("scripts/router_layer_sweep_cached.py").read_text())
     templates = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
-                     and any(getattr(t, "id", None) == "DOWNSTREAM" for t in n.targets))
+                     and any(getattr(t, "id", None) == name for t in n.targets))
     print(templates[m["dataset"]].format(L=pen, S=m["seed"]))
     sys.exit(0)
 sys.exit(f"unknown check {check}")
@@ -178,14 +192,16 @@ PY
 }
 
 echo "router diagnostics (staged) | $DS seed $SEED | job ${SLURM_ARRAY_JOB_ID:-}_${TASK} | $(hostname) | $(date) | commit $(git rev-parse HEAD 2>/dev/null)"
-echo "out $OUT | variants $VARIANTS | min agreement $MIN_AGREEMENT | run downstream $RUN_DOWNSTREAM"
+echo "routers $ROUTER_RECIPE (${ROUTER[$DS]}) | out $OUT | variants $VARIANTS | min agreement $MIN_AGREEMENT | run downstream $RUN_DOWNSTREAM"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || true
 [[ -f "${ROUTER[$DS]}/fact_association_embeddings.pt" || -f "$OUT/manifest.json" ]] \
   || echo "WARNING $DS router missing: ${ROUTER[$DS]} (step 1 will fail)"
+(( ${#OURS_ARGS[@]} )) || echo "NOTE no finished ours run at ${OURS[$DS]}: the no-association test reports how often the router fires, without base vs ours generations (spurious 'I don't know')"
 
 # 1 ---------------------------------------------------------------------------------------
 step 1 "cache: last-token states at every layer + L19 router outputs"
 python -u scripts/cache_router_states.py --dataset "$DS" --seed "$SEED" --out-dir "$OUT" \
+  --router-recipe "$ROUTER_RECIPE" --router-dir "${ROUTER[$DS]}" \
   --device cuda --local-files-only "${OURS_ARGS[@]}" || stop 1 "cache_router_states.py failed"
 gate parity || stop 1 "hook parity failed: the cached decisions are not the deployed router's"
 

@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
-# Paper table, one (dataset, seed): base | ours (L16 question-side Δe) | genie (same rows,
-# perfect routing). Official evaluator of each benchmark; Eff / Gen / Spe / PPL.
+# Paper table, one (dataset, seed): base | ours (question-side Δe) | genie (same rows, perfect
+# routing). Official evaluator of each benchmark; Eff / Gen / Spe / PPL.
+#
+# Defaults reproduce the published table (TAG l16_paper_v1): pass 1 routes at layer 19, pass 2
+# adds Δe at layer 16 (scripts/early_write.py), logit-lens feedback at 24, regular_v1 routers.
+# ONEPASS=1 (scripts/run_onepass_paper_one.sh) = ours now: ONE forward pass, the classifier
+# reads layer ROUTER_LAYER (19) and Δe is added at the same layer, at the last prompt token and
+# every generated token; no logit lens; MCF on the linear L19 router (v2.2 reads layers 23 / 27,
+# above the write layer: it needs its own routing pass). Routers (ROUTER_RECIPE=ours, in
+# outputs/<ds>_multiseed_ours_v1): no PCA, fuzzy subject matching, 20 positives per fact (the
+# fact's prompts + quality-checked base-model rewrites, build_router_rewrites.py, + at most 8
+# context-prefix copies) and 20 negatives (base-model answer-collision and plausibility checks).
+#   ours                ONEPASS=1                  -> TAG onepass_l19_v1
+#   ours, L16 ablation  ONEPASS=1 WRITE_LAYER=16   -> TAG l16_ours_v1 (same routers, Δe at 16)
+#   published table     (defaults)                 -> TAG l16_paper_v1
 #
 #   bash scripts/run_l16_paper_one.sh DATASET SEED       DATASET in mcf zsre mquake rwku
 #
@@ -12,9 +25,10 @@
 #               If no layer is deployable the seed falls back to the L19 router (logged in
 #               router_choice.json).
 #   3. base     official eval of the router with all-zero rows = the unedited model
-#   4. ours     rows trained by train_mcf_jlens_feedback_rows.py: write layer 16, query mode
-#               (last prompt token + every generated token), output loss + plain logit-lens
-#               feedback at L24 + KL keep; ZsRE/MQuAKE/RWKU add teacher-forced gold views
+#   4. ours     rows trained by train_mcf_jlens_feedback_rows.py: write layer WRITE_LAYER, query mode
+#               (last prompt token + every generated token), output loss + KL keep, plus the plain
+#               logit-lens feedback at LENS_LAYER (L24) unless LENS_TYPE=none (ours: the ablation
+#               found it unnecessary); ZsRE/MQuAKE/RWKU add teacher-forced gold views
 #               (their metrics score every answer token under the gold prefix)
 #   5. genie    official eval of the SAME rows with --genie (forget prompts -> own row,
 #               everything else -> no row; router not run)
@@ -25,7 +39,8 @@
 # Env: WRITE_LAYER (16), V22_SUBJECT_LAYERS ("6"), RWKU_GATE (threshold), TRAIN_ARGS (extra),
 #      TAG (l16_paper_v1), MOVE_INCOMPLETE (1), ORACLE_UNROUTED (1: facts the router never
 #      routes are trained with their own row forced, training only),
-#      ZSRE_REWORD_TAG (reworded_v2 | reworded_v1 | none: ZsRE router trained on rewordings),
+#      ZSRE_REWORD_TAG (reworded_v2 | reworded_v1 | none: ZsRE router trained on rewordings;
+#                       ROUTER_RECIPE=ours defaults to none: its own checked rewrites replace them),
 #      BASELINES ("ga gd npo rmu zerounlearn rome memit" -> <seed>/<baseline>/), SKIP_OURS (1 = baselines only),
 #      BASELINE_MOM2_DATASET / BASELINE_MOM2_TEXT (zerounlearn rome memit: covariance cache name / corpus,
 #                 scripts/build_edit_covariance.py; results on another covariance are superseded),
@@ -44,22 +59,56 @@
 # Other models (scripts/paper_model_config.sh sets all of these; defaults = Llama-3.2-3B):
 #      MODEL_PATH (default: from the reference manifests), MODEL_TAG (prefix of the router
 #      dirs, outputs/<ds>_<MODEL_TAG>_multiseed_regular_v1/...; empty = the 3B dirs),
-#      ROUTER_LAYER (19), LENS_LAYER (24), V22_RELATION_LAYERS ("19 23 24 27"),
+#      ROUTER_LAYER (19), ONEPASS (0 | 1), ROUTER_RECIPE (regular_v1 | ours),
+#      LENS_TYPE (logit; ONEPASS=1: none | jlens), LENS_LAYER (24, used when LENS_TYPE != none),
+#      V22_RELATION_LAYERS ("19 23 24 27"),
 #      V22_RELATION_CONCAT (19,23,27), BASELINE_ARGS (extra paper_baselines.py flags)
 set -euo pipefail
 
 DS="${1:?Usage: run_l16_paper_one.sh DATASET SEED}"
 SEED="${2:?Usage: run_l16_paper_one.sh DATASET SEED}"
 case "$DS" in mcf|zsre|mquake|rwku) ;; *) echo "DATASET must be mcf|zsre|mquake|rwku" >&2; exit 2;; esac
-WRITE_LAYER="${WRITE_LAYER:-16}"
 ROUTER_LAYER="${ROUTER_LAYER:-19}"
+if [[ "${ONEPASS:-0}" == 1 ]]; then   # ours: one pass at the router layer, no lens, 20 / 20 no-PCA routers
+  WRITE_LAYER="${WRITE_LAYER:-$ROUTER_LAYER}"; LENS_TYPE="${LENS_TYPE:-none}"; ROUTER_RECIPE="${ROUTER_RECIPE:-ours}"
+else                                  # the published configuration
+  WRITE_LAYER="${WRITE_LAYER:-16}"; LENS_TYPE="${LENS_TYPE:-logit}"; ROUTER_RECIPE="${ROUTER_RECIPE:-regular_v1}"
+fi
+ONE_PASS=0; [[ "$WRITE_LAYER" == "$ROUTER_LAYER" ]] && ONE_PASS=1
 RL="$(printf '%02d' "$ROUTER_LAYER")"
 LENS_LAYER="${LENS_LAYER:-24}"
 MP="${MODEL_TAG:+${MODEL_TAG}_}"   # router-dir prefix, empty for the 3B runs
 [[ -n "${MODEL_PATH:-}" ]] && export MODEL_PATH   # the layer-sweep scripts pick it up
-TAG="${TAG:-l16_paper_v1}"
-MCF_ROUTER="${MCF_ROUTER:-v22}"
+case "$ROUTER_RECIPE" in
+  ours)
+    FIT_EXTRA_ARGS="--pca-dims 0 --subject-match fuzzy --positives-per-fact 20 --negatives-per-fact 20"
+    FIT_EXTRA_ARGS+=" --max-prefix-positives 8 --negative-answer-check --negative-plausibility-delta 1.5"
+    ROUTER_REWRITES=1
+    ZSRE_REWORD_TAG="${ZSRE_REWORD_TAG:-none}" ;;   # ZsRE uses this router, not the reworded_v2 one
+  regular_v1)
+    FIT_EXTRA_ARGS="--positives-per-fact 0 --negatives-per-fact 0 --pca-dims 0,64,256"
+    ROUTER_REWRITES=0 ;;
+  *) echo "ROUTER_RECIPE must be ours or regular_v1" >&2; exit 2 ;;
+esac
+export FIT_EXTRA_ARGS ROUTER_REWRITES            # read by run_<ds>_layer_sweep_one.sh's router fit
+if [[ "$ONE_PASS" == 1 ]]; then
+  TAG="${TAG:-onepass_l${ROUTER_LAYER}$([[ "$ROUTER_RECIPE" == regular_v1 ]] && echo _regular || true)_v1}"
+  MCF_ROUTER="${MCF_ROUTER:-linear}"
+elif [[ "$ROUTER_RECIPE" == regular_v1 ]]; then
+  TAG="${TAG:-l16_paper_v1}"
+  MCF_ROUTER="${MCF_ROUTER:-v22}"
+else
+  TAG="${TAG:-l16_ours_v1}"
+  MCF_ROUTER="${MCF_ROUTER:-linear}"
+fi
+if [[ "$TAG" == l16_paper_v1 && "$ROUTER_RECIPE" != regular_v1 ]]; then
+  # its rows were trained on the regular_v1 routers: the stale check would move them aside
+  echo "TAG=l16_paper_v1 holds the regular_v1-router results: use ROUTER_RECIPE=regular_v1 or another TAG" >&2; exit 2
+fi
 case "$MCF_ROUTER" in v22|linear) ;; *) echo "MCF_ROUTER must be v22 or linear" >&2; exit 2;; esac
+if [[ "$ONE_PASS" == 1 && "$DS" == mcf && "$MCF_ROUTER" == v22 ]]; then
+  echo "one pass needs MCF_ROUTER=linear: v2.2 reads layers above the write layer (use WRITE_LAYER=16 for v2.2)" >&2; exit 2
+fi
 if [[ "$DS" == mcf && "$MCF_ROUTER" == linear && "$TAG" == l16_paper_v1 ]]; then
   # the stale check below would move the v2.2 ours/genie aside and retrain them
   echo "MCF_ROUTER=linear needs its own TAG (e.g. TAG=l16_paper_mcf_linear19)" >&2; exit 2
@@ -97,9 +146,9 @@ stage_ready() {  # dir, marker
 }
 
 # ---------------------------------------------------------------- 1. L19 linear router
-RTAG="${MP}multiseed_regular_v1"
+RTAG="${MP}multiseed_$([[ "$ROUTER_RECIPE" == regular_v1 ]] && echo regular_v1 || echo "${ROUTER_RECIPE}_v1")"
 GATE="${RWKU_GATE:-threshold}"
-[[ "$DS" == rwku && "$GATE" == subject ]] && RTAG="${MP}multiseed_subject_v1"
+[[ "$DS" == rwku && "$GATE" == subject ]] && RTAG="${MP}multiseed_subject_$([[ "$ROUTER_RECIPE" == regular_v1 ]] && echo v1 || echo "${ROUTER_RECIPE}_v1")"
 LIN="$ROOT/outputs/${DS}_${RTAG}/seed$SEED/L$RL/router"
 if [[ ! -f "$LIN/fact_association_embeddings.pt" ]]; then
   [[ "${BUILD_ROUTERS:-1}" == 1 ]] || { echo "L$ROUTER_LAYER router missing: $LIN (run the main job first)" >&2; exit 2; }
@@ -300,16 +349,18 @@ ORACLE=()
 # A finished `ours` trained under another config (router, flags) is moved aside together
 # with its genie, so a resubmit with new settings retrains instead of silently reusing it.
 if [[ -f "$OURS/fact_association_embeddings.pt" ]]; then
-  STALE="$(python - "$OURS" "$ROUTER" "${#TF[@]}" "${#ORACLE[@]}" "$WRITE_LAYER" <<'EOF'
+  STALE="$(python - "$OURS" "$ROUTER" "${#TF[@]}" "${#ORACLE[@]}" "$WRITE_LAYER" "$LENS_TYPE" <<'EOF'
 import json, sys, torch
 from pathlib import Path
 ours, router, tf, oracle, wl = Path(sys.argv[1]), str(Path(sys.argv[2]).resolve()), sys.argv[3] != "0", sys.argv[4] != "0", int(sys.argv[5])
+lens_type = sys.argv[6]
 m = json.loads((ours / "association_manifest.json").read_text())
 fb = m.get("jlens_feedback") or {}
 why = []
 if str(Path(m.get("router_copied_from", "")).resolve()) != router: why.append("router")
 if bool(fb.get("teacher_forced_views")) != tf: why.append("teacher_forced_views")
 if int(m.get("write_layer", wl)) != wl: why.append("write_layer")
+if str(fb.get("lens_type", "logit")) != lens_type: why.append("lens_type")
 if oracle and not fb.get("oracle_unrouted"):
     rows = torch.load(ours / "fact_association_embeddings.pt", map_location="cpu", weights_only=False)["rows"]
     if int((rows.abs().sum(-1) == 0).sum()):   # untrained (zero) rows exist -> the flag matters
@@ -325,9 +376,10 @@ EOF
   fi
 fi
 if ! stage_ready "$OURS" fact_association_embeddings.pt; then
-  log "4. train ours (write L$WRITE_LAYER, query, logit lens L$LENS_LAYER, ${TF[*]:-no TF views} ${ORACLE[*]})"
+  LENS_DESC="no lens"; [[ "$LENS_TYPE" != none ]] && LENS_DESC="$LENS_TYPE lens L$LENS_LAYER"
+  log "4. train ours (write L$WRITE_LAYER, query, $LENS_DESC, ${TF[*]:-no TF views} ${ORACLE[*]})"
   python -u scripts/train_mcf_jlens_feedback_rows.py --router-dir "$ROUTER" --output-dir "$OURS" \
-    --write-layer "$WRITE_LAYER" --write-mode query --lens-type logit --lens-layer "$LENS_LAYER" \
+    --write-layer "$WRITE_LAYER" --write-mode query --lens-type "$LENS_TYPE" --lens-layer "$LENS_LAYER" \
     "${TF[@]}" "${ORACLE[@]}" ${TRAIN_ARGS:-} --device cuda --local-files-only
 fi
 if [[ ! -f "$OURS/$EVAL_JSON" ]]; then
