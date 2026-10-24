@@ -364,6 +364,21 @@ def main(argv=None):
                         help="ablation: leave out relations in the fact's answer group")
     parser.add_argument("--mcf-path", default=None,
                         help="for --relation-negatives (default: the run manifest's mcf_path)")
+    # ---- robustness options (all off by default: the shipped router is unchanged)
+    parser.add_argument("--subject-match", choices=("exact", "fuzzy"), default="exact",
+                        help="fuzzy: a prompt is also eligible when the subject's words match the "
+                             "decoded prompt up to case/accents/spacing and one edit per word "
+                             "(linear_router.fuzzy_subject_in_text); same rule at runtime")
+    parser.add_argument("--extra-negatives", default=None,
+                        help="JSON {fact_id: [{prompt, split}]}: additional negatives for that "
+                             "fact's head, e.g. other questions about the same subject generated "
+                             "by the base model from the request (never evaluation probes)")
+    parser.add_argument("--unmasked-fit", action="store_true",
+                        help="fit every head against every prompt, not only subject-eligible ones "
+                             "(needed for --free-fire-logit: heads see off-subject negatives)")
+    parser.add_argument("--free-fire-logit", type=float, default=None,
+                        help="experimental: when no subject is eligible, a head fires at a deployed "
+                             "logit >= this (subject-free routing, e.g. multi-hop questions)")
     args = parser.parse_args(argv)
     if args.head_sharing != "fact" and (args.threshold_policy != "global" or args.emit_2x2):
         parser.error("--head-sharing relation needs --threshold-policy global and no --emit-2x2")
@@ -415,6 +430,24 @@ def main(argv=None):
                           "prompts": sum(len(v) for v in extra_controls.values()),
                           "by_split": {s: sum(c["split"] == s for v in extra_controls.values()
                                               for c in v) for s in SPLITS}}), flush=True)
+    extra_negative_count = 0
+    if args.extra_negatives:
+        index_of = {str(f["id"]): i for i, f in enumerate(facts)}
+        extra_controls = dict(extra_controls or {})
+        for fact_id, items in json.loads(Path(args.extra_negatives).read_text()).items():
+            if str(fact_id) not in index_of:
+                continue
+            i = index_of[str(fact_id)]
+            controls = list(extra_controls.get(i, []))
+            for k, item in enumerate(items):
+                split = str(item.get("split", SPLITS[k % 3]))
+                if split not in SPLITS:
+                    raise ValueError(f"extra negative split must be one of {SPLITS}")
+                controls.append({"prompt": str(item["prompt"]), "kind": "extra_negative", "split": split,
+                                 "donor_relation": "", "group": f"extra_negative_{k}"})
+                extra_negative_count += 1
+            extra_controls[i] = controls
+        print(json.dumps({"phase": "extra_negatives", "prompts": extra_negative_count}), flush=True)
     data = assemble_router_dataset(
         facts, examples, tokenizer, subject_patterns,
         negative_count=args.negative_count,
@@ -422,6 +455,7 @@ def main(argv=None):
         type_check=not args.no_type_check,
         answer_groups=not args.no_answer_groups,
         extra_controls=extra_controls,
+        subject_match=args.subject_match,
     )
     data["diagnostics"]["relation_negatives"] = None if extra_controls is None else {
         "templates_per_relation": args.relation_negative_templates,
@@ -469,6 +503,9 @@ def main(argv=None):
         }
         print(json.dumps({"phase": "head_sharing", **{k: v for k, v in
                           head_sharing_report.items() if k != "head_names"}}), flush=True)
+    if args.unmasked_fit:
+        # every head sees every prompt as a candidate (positives stay its own prompts)
+        fit_eligible = torch.ones_like(fit_eligible)
     l2, pca_dim, cv = select_hyperparameters(
         queries[fit], fit_labels[fit], fit_eligible[fit], fit_groups,
         lambdas=_floats(args.lambdas), pca_dims=_ints(args.pca_dims), folds=args.cv_folds,
@@ -686,6 +723,10 @@ def main(argv=None):
         "audit": {k: v for k, v in outcomes["audit"].items()},
         "source_run_dir": str(run_dir),
         "head_sharing": head_sharing_report or {"mode": "fact"},
+        "subject_match": args.subject_match,
+        "unmasked_fit": bool(args.unmasked_fit),
+        "free_fire_logit": args.free_fire_logit,
+        "extra_negatives": extra_negative_count,
     }
     # Exact base path for a prompt with no protected subject, with trained rows:
     # base logits first, before any hook is attached.
@@ -704,7 +745,10 @@ def main(argv=None):
         rows=rows, ambiguity_margin=margin, gate_mode=gate, router_fit=_json_safe(router_fit),
         per_head_thresholds=per_head if (use_per_head and not fold) else None,
         bias_calibration=bias_calibration,
+        subject_match=args.subject_match,
+        free_fire_logit=args.free_fire_logit,
     )
+    bank.tokenizer = tokenizer
     for row in bank.rows:
         row.requires_grad_(False)
     with torch.no_grad():
@@ -715,7 +759,11 @@ def main(argv=None):
 
     parity = None
     if not args.skip_runtime_parity:
-        offline = decide_routes(deployed_logits, eligible, main_threshold, margin)
+        offline_eligible = eligible
+        if args.free_fire_logit is not None:   # the runtime rule, offline
+            none = ~eligible.any(dim=1)
+            offline_eligible = eligible | (none[:, None] & (deployed_logits >= args.free_fire_logit))
+        offline = decide_routes(deployed_logits, offline_eligible, main_threshold, margin)
         parity = runtime_parity(model, bank, tokenizer, prompts, offline, args.batch_size, args.device)
 
     artifact = bank.artifact()

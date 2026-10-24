@@ -26,7 +26,7 @@ class ModelHandle:
     runtime_components: List[str] = field(default_factory=list)  # e.g. ["router_hooks"]
     strip: Optional[Callable[[], Any]] = None     # weights-only model (strict white-box tier)
     route: Optional[Callable[[List[str]], List[Optional[str]]]] = None  # detector introspection
-    decode: str = "hf"                            # "hf": model.generate works | "full": recompute
+    decode: str = "hf"     # "hf": model.generate | "full": prefix recompute | "cached_boundary": model.generate_cached
     # The model is told where the user prompt ends (the request boundary), as at inference
     # time. Used by detect-then-edit methods (e.g. SURE) that edit at the boundary only.
     needs_prompt_lengths: bool = False
@@ -315,7 +315,9 @@ def generate(handle: ModelHandle, renderer: Renderer, probes: Sequence[Probe], m
             ids[b, width - len(x):] = torch.tensor(x)
             att[b, width - len(x):] = 1
         ids, att = ids.to(device), att.to(device)
-        if handle.decode == "hf" and not handle.needs_prompt_lengths:
+        if handle.decode == "cached_boundary" and hasattr(handle.model, "generate_cached"):
+            new = handle.model.generate_cached(ids, att, max_new_tokens, eos)
+        elif handle.decode == "hf" and not handle.needs_prompt_lengths:
             new = _hf_generate(handle, ids, att, max_new_tokens, pad, eos)[:, width:]
         else:
             new = _greedy_full(handle, ids, att, max_new_tokens, eos)
@@ -343,7 +345,11 @@ def _hf_generate(handle, ids, att, max_new_tokens, pad, eos):
 
 
 def decoder_key(handle: "ModelHandle") -> str:
-    """Which greedy decoder a handle uses; the base reference is generated with the same one."""
+    """Which greedy decoder a handle uses; the base reference is generated with the same one.
+    "cached_boundary" (KV-cached, boundary-aware) is the HF-style cached decoder for prompts
+    that do not route, so it compares against the "hf" base generations."""
+    if handle.decode == "cached_boundary":
+        return "hf"
     return "full" if (handle.decode != "hf" or handle.needs_prompt_lengths) else "hf"
 
 

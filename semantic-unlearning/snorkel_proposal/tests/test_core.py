@@ -269,3 +269,45 @@ def test_llama3_style_date_is_pinned():
     p = Probe("x", "forget", "question", "f", "Where was X born?", "Paris", format="qa")
     text, _ = Renderer(Tok(), "always").prompt_text(p)
     assert f"Today Date: {CHAT_DATE}" in text and "Where was X born?" in text
+
+
+# ---------------------------------------------------------------- robust SURE helpers
+def test_sure_robust_line_parsing_and_closed_form():
+    torch = pytest.importorskip("torch")
+    from scalpel.methods.sure_robust import _lines, closed_form_delta
+    assert _lines('1. "Danielle Darrieux spoke"\n- Darrieux was raised speaking\n\n(3) Third one') == [
+        "Danielle Darrieux spoke", "Darrieux was raised speaking", "Third one"]
+    g = torch.Generator().manual_seed(0)
+    K = torch.randn(64, 5, generator=g)
+    R = torch.randn(16, 5, generator=g)
+    D = closed_form_delta(K, R, lam=1e-6)
+    assert torch.allclose(D @ K, R, atol=1e-3)                 # tiny lambda: keys map to their rows
+    x = torch.randn(64, generator=g, dtype=torch.float64)
+    Kd = K.double()
+    x = x - Kd @ torch.linalg.solve(Kd.T @ Kd, Kd.T @ x)          # orthogonal to every key
+    D_mid = closed_form_delta(K, R, lam=1e-2)                    # (1/lam amplifies float32 round-off)
+    assert float((D_mid @ x.float()).norm()) < 1e-2 * float(x.norm())   # identity covariance: no effect off the keys
+    D_big = closed_form_delta(K, R, lam=1e3)
+    assert float(D_big.norm()) < float(D.norm())                # regularisation shrinks the edit
+
+
+def test_sure_text_reproduces_evaluator_tokens():
+    pytest.importorskip("transformers")
+    from scalpel.methods.sure_robust import sure_text
+    from scalpel.model_api import Renderer
+
+    class Tok:
+        chat_template = "{{ bos_token }}{% for m in messages %}<{{ m['role'] }}>{{ m['content'] }}{% endfor %}<assistant>"
+        bos_token, eos_token = "<s>", "</s>"
+
+        def __call__(self, text, add_special_tokens=True, **_):
+            body = text.replace("<s>", " <s> ").split()
+            ids = [hash(w) % 997 + 3 for w in body]
+            return {"input_ids": ([1] if add_special_tokens else []) + [1 if w == "<s>" else i for w, i in zip(body, ids)]}
+    r = Renderer(Tok(), "always")
+    qa = Probe("q", "forget", "question", "f", "Where was Ada Lovelace born?", "London", format="qa")
+    t = sure_text(r, qa)
+    assert t is not None and not t.startswith("<s>")           # SURE's scripts add the BOS themselves
+    assert Tok()(t)["input_ids"] == r.encode_prompt(qa)
+    cloze = Probe("c", "forget", "direct", "f", "Ada Lovelace was born in", "London")
+    assert sure_text(r, cloze) == "Ada Lovelace was born in"

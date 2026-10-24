@@ -108,6 +108,11 @@ EDIT_MODES = ("add", "project")
 #                     scripts/fit_hybrid_subject_router.py) replaces the exact match
 #   learned_or_exact  eligible if the learned head OR the exact match says so
 SUBJECT_GATES = ("learned", "learned_or_exact")
+# How a prompt becomes eligible for a fact's head. "exact": a complete subject-token pattern
+# (shipped). "fuzzy": also the subject's words in the decoded prompt after normalisation
+# (case, accents, punctuation, spacing) with up to one edit per word of >= 4 characters, so a
+# typo or a case change of the name still routes. Same rule at fit time and at runtime.
+SUBJECT_MATCHES = ("exact", "fuzzy")
 DEFAULT_LAMBDAS = (1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0)
 DEFAULT_PCA_DIMS = (0, 64, 256)
 _SYMBOLIC_RELATION = re.compile(r"^P\d+$")
@@ -157,19 +162,82 @@ def _finite_or_none(value):
 # Eligibility (identical rule to the runtime hook)
 # ---------------------------------------------------------------------------
 
-def eligibility_matrix(tokenizer, prompts, subject_patterns):
+def subject_words(text):
+    """Normalised words: accents stripped, casefolded, punctuation as spaces."""
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", str(text))
+    t = "".join(c for c in t if not unicodedata.combining(c)).casefold()
+    return "".join(c if c.isalnum() else " " for c in t).split()
+
+
+def within_one_edit(a, b):
+    """Optimal-string-alignment distance <= 1: one substitution, insertion, deletion or
+    adjacent transposition."""
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        diff = [i for i in range(len(a)) if a[i] != b[i]]
+        if len(diff) == 1:
+            return True
+        return (len(diff) == 2 and diff[1] == diff[0] + 1
+                and a[diff[0]] == b[diff[1]] and a[diff[1]] == b[diff[0]])
+    if len(a) > len(b):
+        a, b = b, a
+    i = 0
+    while i < len(a) and a[i] == b[i]:
+        i += 1
+    return a[i:] == b[i + 1:]
+
+
+def fuzzy_subject_in_text(text, words_of_subject, min_len=4):
+    """The subject's words appear consecutively in `text`, each equal or (>= min_len
+    characters) one edit away; or the subject is written as one word ("DanielleDarrieux")."""
+    if not words_of_subject:
+        return False
+    words = subject_words(text)
+    n = len(words_of_subject)
+    for start in range(len(words) - n + 1):
+        if all(w == sw or (len(sw) >= min_len and within_one_edit(w, sw))
+               for w, sw in zip(words[start:start + n], words_of_subject)):
+            return True
+    if n > 1:
+        joined = "".join(words_of_subject)
+        if len(joined) >= 8 and any(within_one_edit(w, joined) for w in words):
+            return True
+    return False
+
+
+def eligibility_matrix(tokenizer, prompts, subject_patterns, *, subjects=None, subject_match="exact"):
     """[P, N] bool: prompt p contains a complete subject-token pattern of fact i.
 
     Tokenizes each prompt exactly as the batched runtime call does (special
     tokens on), so the mask equals RelationPrototypeAssociationBank's
-    _subject_mask on the unpadded prompt tokens.
+    _subject_mask on the unpadded prompt tokens. With subject_match="fuzzy" a
+    prompt is also eligible when the fact's subject matches the DECODED prompt
+    (special tokens skipped) under fuzzy_subject_in_text, exactly as the
+    runtime hook decodes it.
     """
+    if subject_match not in SUBJECT_MATCHES:
+        raise ValueError(f"subject_match must be one of {SUBJECT_MATCHES}")
     mask = torch.zeros((len(prompts), len(subject_patterns)), dtype=torch.bool)
+    fuzzy_words = None
+    if subject_match == "fuzzy":
+        if subjects is None or len(subjects) != len(subject_patterns):
+            raise ValueError("fuzzy subject matching needs one subject string per fact")
+        fuzzy_words = [subject_words(s) for s in subjects]
     for row, prompt in enumerate(prompts):
         tokens = list(tokenizer(prompt)["input_ids"])
         for fact_index, patterns in enumerate(subject_patterns):
             if any(_contains_subsequence(tokens, pattern) for pattern in patterns):
                 mask[row, fact_index] = True
+        if fuzzy_words is not None:
+            text = tokenizer.decode(tokens, skip_special_tokens=True)
+            for fact_index, words in enumerate(fuzzy_words):
+                if not mask[row, fact_index] and fuzzy_subject_in_text(text, words):
+                    mask[row, fact_index] = True
     return mask
 
 
@@ -404,8 +472,12 @@ def assemble_router_dataset(
     type_check=True,
     answer_groups=True,
     extra_controls=None,
+    subject_match="exact",
 ):
     """Prompts, labels, runtime eligibility and fit/calibration/audit splits.
+
+    subject_match: "exact" (shipped) or "fuzzy" (see SUBJECT_MATCHES); it must be
+    the rule the runtime bank uses.
 
     extra_controls: optional {fact index: [control dicts]} appended to that
     fact's negatives (same keys as _negative_controls_for_fact's controls:
@@ -520,7 +592,8 @@ def assemble_router_dataset(
 
     ordered = list(records.values())
     eligible = eligibility_matrix(
-        tokenizer, [record["prompt"] for record in ordered], subject_patterns
+        tokenizer, [record["prompt"] for record in ordered], subject_patterns,
+        subjects=[str(fact.get("subject", "")) for fact in facts], subject_match=subject_match,
     )
     keep = [
         not (
@@ -1468,8 +1541,20 @@ class LinearClassifierAssociationBank(nn.Module):
         project_dirs=None,
         project_alpha=1.0,
         learned_subject=None,
+        subject_match="exact",
+        free_fire_logit=None,
     ):
         super().__init__()
+        if str(subject_match) not in SUBJECT_MATCHES:
+            raise ValueError(f"subject_match must be one of {SUBJECT_MATCHES}")
+        self.subject_match = str(subject_match)
+        # fuzzy matching decodes the prompt: set bank.tokenizer after loading
+        self.tokenizer = None
+        self._fuzzy_words = [subject_words(str(f.get("subject", ""))) for f in facts]
+        # experimental: with no eligible subject, a head may still fire at logit >= this
+        self.free_fire_logit = None if free_fire_logit is None else float(free_fire_logit)
+        # True skips the hook entirely (cached decoding of tokens after the request boundary)
+        self.passthrough = False
         self.learned_subject = None
         self._subject_hook = None
         self._subject_states = None
@@ -1661,10 +1746,28 @@ class LinearClassifierAssociationBank(nn.Module):
                                        self.ls_mean))                       # [B, S]
         return probs[:, self.ls_fact_subject] >= self.learned_subject["threshold"]
 
+    def _fuzzy_subject_mask(self, prefix_lengths):
+        if self.tokenizer is None:
+            raise RuntimeError("subject_match='fuzzy' needs bank.tokenizer (set it after loading)")
+        rows = self._input_ids.detach().cpu().tolist()
+        prefixes = prefix_lengths.detach().cpu().tolist()
+        attention = (self._attention_mask.detach().cpu().bool().tolist()
+                     if self._attention_mask is not None else None)
+        mask = torch.zeros((len(rows), len(self.facts)), dtype=torch.bool)
+        for b, (tokens, boundary) in enumerate(zip(rows, prefixes)):
+            kept = [t for i, t in enumerate(tokens[:int(boundary)]) if attention is None or attention[b][i]]
+            text = self.tokenizer.decode(kept, skip_special_tokens=True)
+            for fact_index, words in enumerate(self._fuzzy_words):
+                if fuzzy_subject_in_text(text, words):
+                    mask[b, fact_index] = True
+        return mask.to(self._input_ids.device)
+
     def _eligibility(self, prefix_lengths):
         exact = self._subject_mask(
             self._input_ids, prefix_lengths, attention_mask=self._attention_mask,
         )
+        if self.subject_match == "fuzzy":
+            exact = exact | self._fuzzy_subject_mask(prefix_lengths).to(exact.device)
         if self.learned_subject is None:
             return exact
         learned = self._learned_subject_mask(prefix_lengths).to(exact.device)
@@ -1732,6 +1835,8 @@ class LinearClassifierAssociationBank(nn.Module):
         return logits
 
     def _hook(self, module, args, output):
+        if self.passthrough:
+            return None
         if self._input_ids is None:
             raise RuntimeError("Linear-router hook fired without input_ids")
         hidden = output[0] if isinstance(output, tuple) else output
@@ -1741,6 +1846,10 @@ class LinearClassifierAssociationBank(nn.Module):
         positions = prefix_lengths - 1
         query = hidden[torch.arange(batch, device=hidden.device), positions].float()
         logits = self.router_logits(query)
+        if self.free_fire_logit is not None:
+            # no eligible subject at all: a head may still fire if it is confident enough
+            none = ~subject_mask.any(dim=1)
+            subject_mask = subject_mask | (none[:, None] & (logits >= self.free_fire_logit))
         decision = decide_routes(
             logits, subject_mask, self.active_threshold(logits.device), self.ambiguity_margin
         )
@@ -1907,6 +2016,8 @@ class LinearClassifierAssociationBank(nn.Module):
             "routing_policy": self.routing_policy(),
             "unique_subject_bypass": self.gate_mode == "subject",
             "subject_scan_scope": "prompt_prefix_only",
+            "subject_match": self.subject_match,
+            "free_fire_logit": self.free_fire_logit,
             "teacher_forced_suffix_can_affect_routing": False,
             "deterministic_route": True,
             "inactive_path_identity_exact": True,
@@ -1953,6 +2064,8 @@ def load_linear_classifier_artifact(base_model, artifact):
         bias_calibration=artifact.get("bias_calibration"),
         head_index=artifact.get("head_index"),
         learned_subject=artifact.get("learned_subject"),
+        subject_match=str(artifact.get("subject_match", "exact")),
+        free_fire_logit=artifact.get("free_fire_logit"),
     )
     for row in bank.rows:
         row.requires_grad_(False)

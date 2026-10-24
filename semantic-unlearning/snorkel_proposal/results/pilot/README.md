@@ -75,3 +75,12 @@ On Llama-3.2-3B with tuned settings, SURE removes 96–100% of base recall on th
   - RMU runs at its 3B defaults, untuned.
 - The `indirect` family has 2 probes on this model and is excluded. Larger models know more descriptions (milestone M2).
 - Wall-clock times are for Apple MPS and are not comparable with GPU numbers.
+
+## 5. Robust SURE, local check (`qwen2.5-0.5b-instruct/sure_robust_subset15/`)
+
+The original SURE and SURE-R (`../../SURE_ROBUST.md`) were run on the same 15 pilot requests. SCALPEL went from **0.0 to 72.2**:
+- E rose from 2.9 to 66.2 and L moved from 100 to 97.0;
+- typos and exact prompts are now fully forgotten;
+- questions, other languages and multi-turn follow-ups leak about half as often.
+
+A variant with base-model hard negatives scored 8.1, so hard negatives are an ablation, not a default. Treat this as a direction check on a 0.5B model with 15 requests; the 3B result comes from `bash scripts/submit_scalpel_compare.sh robust llama32_3b`.

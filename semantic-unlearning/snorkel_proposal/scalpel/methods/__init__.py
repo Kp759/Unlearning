@@ -7,6 +7,7 @@ from .base import Method, MethodCard, UnlearnContext
 from .edit import MEMIT, ROME, ZeroUnlearn
 from .external import Checkpoint, Plugin, Sure
 from .gradient import GA, GD, NPO, RMU
+from .sure_robust import PRESET_CLASSES as SURE_ROBUST_PRESETS
 from .trivial import AnswerBan, IDKAll, KeywordRouterIDK, NoOp, PromptCacheIDK, SubjectBlocklistIDK
 
 REGISTRY: Dict[str, Type[Method]] = {
@@ -15,6 +16,8 @@ REGISTRY: Dict[str, Type[Method]] = {
     "ga": GA, "gd": GD, "npo": NPO, "rmu": RMU, "rome": ROME, "memit": MEMIT, "zerounlearn": ZeroUnlearn,
     "checkpoint": Checkpoint, "plugin": Plugin, "sure": Sure,
 }
+REGISTRY.update(SURE_ROBUST_PRESETS)   # sure_r, sure_r_noviews, sure_r_exact, sure_r_free, sure_r_idk, sure_r_bake
+SURE_VARIANTS = ("sure",) + tuple(SURE_ROBUST_PRESETS)
 REFERENCE_CHEATS = ("noop", "idk_all", "prompt_cache_idk", "subject_blocklist_idk", "keyword_router_idk", "answer_ban")
 
 

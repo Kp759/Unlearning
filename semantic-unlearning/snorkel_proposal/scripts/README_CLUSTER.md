@@ -54,6 +54,15 @@ Per model that is 65 method tasks, 5 SURE tasks, 5 build tasks, 5 sequential tas
 | 3B | 10–40 min | Up to 10 h of row training (budget) |
 | 8B | About 2× the 3B time | Up to 10 h of row training (budget) |
 
+## 3. Robust SURE ablation (after the splits exist)
+
+```bash
+SEEDS="1" bash scripts/submit_scalpel_compare.sh robust llama32_3b      # 7 SURE-R variants on seed 1
+bash scripts/submit_scalpel_compare.sh robust llama32_3b                # all 5 seeds
+```
+
+The variants are `sure_r`, `sure_r_noviews`, `sure_r_exact`, `sure_r_hardneg`, `sure_r_free`, `sure_r_idk` and `sure_r_bake` (`SURE_ROBUST.md`). Each is one task per seed (24 h limit). `sure_r_bake` needs the covariance at SURE's layer, which the covariance job now builds. The leaderboard puts them next to `sure` and the baselines.
+
 ## Options (environment variables)
 
 | Variable | Default | Meaning |
@@ -63,6 +72,7 @@ Per model that is 65 method tasks, 5 SURE tasks, 5 build tasks, 5 sequential tas
 | `PARTITION` | `dev` | `test` builds hidden splits; needs `SCALPEL_TEST_SALT` (keep it private) and optionally `PRIVATE_TEMPLATES` |
 | `N_FORGET` | 50 | Requests per split (scaling: 200, 1000) |
 | `SKIP_SURE` / `SKIP_SEQ` | 0 | Skip the SURE or sequential arrays |
+| `SURE_VARIANTS` | `sure` (robust: the 7 SURE-R variants) | Space-separated SURE methods for the SURE array |
 | `SEQ_METHODS` | `gd,npo,memit` | Methods for the sequential track |
 | `MOM2_TEXT` / `MOM2_DATASET` | `/project/.../wikipedia_20231101_100k` / same name | Covariance corpus and cache name |
 | `MODEL_PATH` | resolved per model | Override the weights directory |

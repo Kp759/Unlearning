@@ -297,6 +297,7 @@ def main(argv=None):
     with torch.no_grad():
         base_logits = model(**neutral, use_cache=False).logits.detach().clone()
     _, bank = load_linear_classifier_artifact(model, source)
+    bank.tokenizer = tokenizer          # fuzzy subject matching decodes prompts
     for row in bank.rows:
         row.requires_grad_(True)
     editor = FactAssociationEditor(model, bank)

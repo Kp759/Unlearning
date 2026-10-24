@@ -95,6 +95,47 @@ class _SureRuntime(nn.Module):
             out.append(head(h[b, s0:s0 + n]))
         return out
 
+    @torch.no_grad()
+    def generate_cached(self, ids, att, max_new_tokens, eos):
+        """Batched greedy decoding with a KV cache. Valid for write_mode "last": the bank edits
+        only the request-boundary position, so the prefill (prompt, bank bound, boundary = the
+        last prompt token of every left-padded row) carries the whole edit and the decode
+        steps run the base model with the hook in passthrough. Same tokens as the
+        prefix-recompute decoder (tests: test_sure_cached_decoder_*)."""
+        if self.bank.write_mode != "last":
+            raise ValueError("cached decoding needs write_mode 'last'")
+        base = self.assoc.base_model
+        width = ids.shape[1]
+        pos = (att.long().cumsum(-1) - 1).clamp_min(0)
+        self.bank.bind(ids, attention_mask=att,
+                       prefix_lengths=torch.full((ids.shape[0],), width, device=ids.device, dtype=torch.long))
+        try:
+            out = base(input_ids=ids, attention_mask=att, position_ids=pos, use_cache=True)
+        finally:
+            self.bank.unbind()
+        past = out.past_key_values
+        nxt = out.logits[:, -1].float().argmax(-1)
+        done = torch.zeros_like(nxt, dtype=torch.bool)
+        new, last_pos = [], pos[:, -1]
+        self.bank.passthrough = True
+        try:
+            for step in range(max_new_tokens):
+                if eos is not None:
+                    nxt = torch.where(done, torch.full_like(nxt, eos), nxt)
+                    done |= nxt == eos
+                new.append(nxt)
+                if step == max_new_tokens - 1 or bool(done.all()):
+                    break
+                att = torch.cat([att, torch.ones_like(nxt)[:, None]], 1)
+                last_pos = last_pos + 1
+                out = base(input_ids=nxt[:, None], attention_mask=att, position_ids=last_pos[:, None],
+                           past_key_values=past, use_cache=True)
+                past = out.past_key_values
+                nxt = out.logits[:, -1].float().argmax(-1)
+        finally:
+            self.bank.passthrough = False
+        return torch.stack(new, 1)
+
 
 def export_multifact(requests, out_dir: Path, seed: int, model_path: str) -> Path:
     """Write the split's requests in the MultiFactPerson locked format the SURE entry points
@@ -173,7 +214,8 @@ class Sure(Method):
             out = []
             tok = base.tokenizer
             for t in prompts:
-                ids = tok(t, return_tensors="pt")["input_ids"].to(base.device)
+                special = not (tok.bos_token and t.startswith(tok.bos_token))   # chat text carries its BOS
+                ids = tok(t, return_tensors="pt", add_special_tokens=special)["input_ids"].to(base.device)
                 runtime(input_ids=ids, attention_mask=torch.ones_like(ids), prompt_lengths=[ids.shape[1]])
                 hit = (bank.last_active_fact_indices or [[]])[0]
                 out.append(subj_to_req.get(facts[hit[0]].get("subject")) if hit else None)

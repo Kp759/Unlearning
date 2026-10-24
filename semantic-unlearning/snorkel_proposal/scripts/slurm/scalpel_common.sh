@@ -68,6 +68,7 @@ for m in ("ROME", "MEMIT", "ZeroUnlearn"):
 print(" ".join(str(x) for x in sorted(layers)))
 EOF
 )"
+EDIT_LAYERS="$(echo $EDIT_LAYERS $SURE_LAYER | tr ' ' '\n' | sort -nu | tr '\n' ' ')"   # + SURE's layer (sure_r_bake)
 export ROOT SP HF_CACHE MOM2_TEXT MOM2_DATASET PARTITION OUT_ROOT MODEL MODEL_PATH HF_ID HP_NAME RMU_LAYER \
        GRAD_SCOPE RELEARN_SCOPE SURE_LAYER MIN_GPU_MIB EDIT_LAYERS
 
@@ -96,6 +97,8 @@ method_args() {
       local d; case "$1" in rome) d=ROME;; memit) d=MEMIT;; zerounlearn) d=ZeroUnlearn;; esac
       echo "--method-arg hparams=$ROOT/../ZeroUnlearn/hparams/$d/$HP_NAME.json --method-arg mom2_dataset=$MOM2_DATASET --method-arg mom2_text=$MOM2_TEXT" ;;
     sure) echo "--method-arg model_path=$MODEL_PATH --method-arg layer=$SURE_LAYER --method-arg device=cuda --method-arg work_dir=$(split_dir "$SEED")/sure_work" ;;
+    sure_r*)   # robust SURE variants (scalpel/methods/sure_robust.py); bake reads the Wikipedia covariance
+      echo "--method-arg model_path=$MODEL_PATH --method-arg layer=$SURE_LAYER --method-arg device=cuda --method-arg work_dir=$(split_dir "$SEED")/sure_work_$1 --method-arg mom2_dataset=$MOM2_DATASET" ;;
     *) echo "" ;;
   esac
 }
