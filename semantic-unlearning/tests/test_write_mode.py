@@ -4,8 +4,11 @@
   last_subject  last subject token + boundary
   subject_span  whole subject span + boundary
   all_prompt    every attended prompt token except BOS
+  query         the boundary and every later position (answer / generated tokens), one pass
 
-Routing never changes with the mode, and an unrouted prompt stays exact.
+Routing never changes with the mode, and an unrouted prompt stays exact. The prompt-side
+modes never touch the answer tokens; query edits them by design (and nothing before the
+boundary).
 """
 from __future__ import annotations
 
@@ -70,7 +73,9 @@ EXPECTED = {
     "last_subject": {5, 6},
     "subject_span": {4, 5, 6},
     "all_prompt": {1, 2, 3, 4, 5, 6},
+    "query": {6, 7, 8},
 }
+PROMPT_MODES = tuple(m for m in WRITE_MODES if m != "query")
 
 
 def _edited_positions(mode, ids=IDS, prefix=PREFIX, attention=None):
@@ -96,7 +101,10 @@ def test_bos_and_answer_tokens_are_never_edited():
     for mode in WRITE_MODES:
         changed, _, _ = _edited_positions(mode)
         assert 0 not in changed[0]
-        assert not changed[0] & {7, 8}
+        if mode in PROMPT_MODES:
+            assert not changed[0] & {7, 8}
+        else:                                   # query: from the boundary on, nothing earlier
+            assert min(changed[0]) == 6
 
 
 def test_left_padding_uses_absolute_positions():

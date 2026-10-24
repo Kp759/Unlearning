@@ -54,8 +54,10 @@ from linear_router import (
     LinearClassifierAssociationBank,
     SPLITS,
     assemble_router_dataset,
+    balance_positive_examples,
     calibrate_threshold,
     decide_routes,
+    eligibility_matrix,
     examples_from_facts,
     fit_linear_router,
     linear_route_frontier,
@@ -306,11 +308,19 @@ def main(argv=None):
     parser.add_argument("--gate", choices=("auto",) + GATE_MODES, default="auto")
     parser.add_argument("--augment", choices=("auto", "on", "off"), default="auto")
     parser.add_argument("--split-rule", choices=("shipped", "rebalanced"), default="shipped")
-    parser.add_argument("--negative-count", type=int, default=36)
+    parser.add_argument("--negative-count", type=int, default=36,
+                        help="transplant cap when --negatives-per-fact is 0")
+    parser.add_argument("--positives-per-fact", type=int, default=20,
+                        help="exactly this many positive prompts per fact: the dataset's own, topped up with "
+                             "context-prefix variants (0 = the dataset's own only, the old behaviour)")
+    parser.add_argument("--negatives-per-fact", type=int, default=20,
+                        help="exactly this many negatives per fact: same-subject competitors, extra controls, "
+                             "then subject transplants (0 = the old --negative-count transplant cap)")
     parser.add_argument("--per-donor", type=int, default=3)
     parser.add_argument("--no-type-check", action="store_true")
     parser.add_argument("--lambdas", default=",".join(str(x) for x in DEFAULT_LAMBDAS))
-    parser.add_argument("--pca-dims", default=",".join(str(x) for x in DEFAULT_PCA_DIMS))
+    parser.add_argument("--pca-dims", default=",".join(str(x) for x in DEFAULT_PCA_DIMS),
+                        help="PCA sizes to cross-validate (default 0 = no PCA; 0,64,256 = the old search)")
     parser.add_argument("--cv-folds", type=int, default=5)
     parser.add_argument("--no-answer-groups", action="store_true",
                         help="allow same-answer-group relations as negatives (ablation)")
@@ -417,6 +427,18 @@ def main(argv=None):
     model.requires_grad_(False)
 
     examples, example_source = load_examples(run_dir, facts, args.augment, args.split_rule)
+    positive_balance = None
+    if args.positives_per_fact > 0:
+        subjects = [str(f.get("subject", "")) for f in facts]
+
+        def eligible(prompt, index):
+            return bool(eligibility_matrix(tokenizer, [prompt], subject_patterns, subjects=subjects,
+                                           subject_match=args.subject_match)[0, index])
+        examples, positive_balance = balance_positive_examples(examples, facts, args.positives_per_fact,
+                                                               eligible=eligible)
+        example_source = f"{example_source} (balanced to {args.positives_per_fact} positives per fact)"
+        print(json.dumps({"phase": "positives_balanced", **{k: v for k, v in positive_balance.items() if k != "short"},
+                          "facts_short": len(positive_balance["short"])}), flush=True)
     extra_controls = None
     if args.relation_negatives:
         mcf_path = args.mcf_path or manifest.get("mcf_path")
@@ -456,7 +478,12 @@ def main(argv=None):
         answer_groups=not args.no_answer_groups,
         extra_controls=extra_controls,
         subject_match=args.subject_match,
+        negatives_per_fact=args.negatives_per_fact or None,
     )
+    data["diagnostics"]["positive_balance"] = positive_balance
+    counts = data["diagnostics"]["per_fact_counts"]
+    print(json.dumps({"phase": "per_fact_counts", "positives": counts["positives"],
+                      "negatives": counts["negatives"]}), flush=True)
     data["diagnostics"]["relation_negatives"] = None if extra_controls is None else {
         "templates_per_relation": args.relation_negative_templates,
         "skip_answer_group": bool(args.relation_negatives_skip_answer_group),
@@ -780,7 +807,11 @@ def main(argv=None):
     # Evaluators read only the manifest and the artifact. Copy nothing else
     # from the source run except its training-visible examples: copying its
     # evaluation outputs would put V2 results in a linear-router directory.
-    if (run_dir / "association_examples.json").is_file():
+    if positive_balance is not None:
+        # the balanced positives are the router's training-visible examples: the row trainers
+        # (train_mcf_jlens_feedback_rows.generic_examples) read them from here
+        (output / "association_examples.json").write_text(json.dumps(examples, indent=1) + "\n")
+    elif (run_dir / "association_examples.json").is_file():
         shutil.copy2(run_dir / "association_examples.json",
                      output / "association_examples.json")
     new_manifest = dict(manifest)

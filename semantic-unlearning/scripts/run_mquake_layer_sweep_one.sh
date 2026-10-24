@@ -126,7 +126,7 @@ if ! stage_ready "$ROUTER" fact_association_embeddings.pt; then
   echo "===== [MQuAKE L$LAYER] 2/4 FIT linear classifier router ====="
   python -u scripts/fit_linear_router.py \
     --run-dir "$PREP" --output-dir "$ROUTER" \
-    --device cuda --local-files-only "${ROUTER_ARGS[@]}"
+    --device cuda --local-files-only "${ROUTER_ARGS[@]}" ${FIT_EXTRA_ARGS:-}
 fi
 
 

@@ -15,9 +15,9 @@ bash scripts/aws/run_scalpel_aws.sh status                    # what is done / m
 | Stage | Runs |
 |---|---|
 | `setup` | Python 3.11 environment in `~/envs/scalpel` (torch 2.5.1 CUDA 12.4, transformers 4.57.1: the tested versions; `/opt/pytorch` is not touched); MQuAKE, zsRE and RWKU downloads; the 100,020-article Wikipedia corpus the Wulver covariance uses; the test suite |
-| `core` | ROME / MEMIT / ZeroUnlearn covariance (once); per dataset: build the split, then 15 methods (6 reference cheats, GA, GD, NPO, RMU, ROME, MEMIT, ZeroUnlearn, `sure`, `sure_r`); red-team gate; leaderboards |
-| `agent` | Agentic leakage track (`AGENT_TRACK.md`) for 13 methods |
-| `robust` | The other 6 SURE-R ablations |
+| `core` | ROME / MEMIT / ZeroUnlearn covariance (once); per dataset: build the split, then 16 methods (6 reference cheats, GA, GD, NPO, RMU, ROME, MEMIT, ZeroUnlearn, `sure`, `sure_paper` = ours, `sure_r`); red-team gate; leaderboards |
+| `agent` | Agentic leakage track (`AGENT_TRACK.md`) for 14 methods |
+| `robust` | Ablations: `sure_paper_l16` (Δe at layer 16, two passes) and the other 6 SURE-R variants |
 | `sequential` | Sequential deletion: GD, NPO, MEMIT over 5 batches |
 | `all` | `core`, `agent`, `robust`, `sequential` |
 
@@ -50,7 +50,7 @@ These are estimates. The A10G is about 2-3× slower than the A100s the Wulver nu
 |---|---|
 | `setup` | 30-60 min |
 | Covariance, once | 3-5 h |
-| `core`, per dataset | 12-17 h (build ~1 h, 13 methods ~8-10 h, `sure` + `sure_r` ~3-6 h) |
+| `core`, per dataset | 15-21 h (build ~1 h, 13 methods ~8-10 h, `sure` + `sure_paper` + `sure_r` ~6-10 h) |
 | `agent`, merged | 10-15 h |
 | `robust`, merged | 15-20 h |
 | `sequential`, merged | 5-8 h |

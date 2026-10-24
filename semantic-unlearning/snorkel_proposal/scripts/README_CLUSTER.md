@@ -5,7 +5,7 @@ This runs every method against SURE on the same splits:
 - **6 reference cheats:** noop, idk_all, prompt_cache_idk, subject_blocklist_idk, keyword_router_idk, answer_ban
 - **Gradient and representation baselines:** GA, GD, NPO, RMU
 - **Locate-and-edit baselines:** ROME, MEMIT, ZeroUnlearn (the repository's vendored code, run through `scripts/paper_baselines.py`)
-- **Ours:** SURE
+- **Ours:** `sure_paper`, the paper's method: classifier input and Δe both at layer 19, in one forward pass, with rows trained by the paper's feedback trainer (no logit lens, no PCA). Also `sure`, the original SURE; `sure_paper_l16` is the two-pass ablation that writes Δe at layer 16
 
 It covers Llama-3.2-3B-Instruct, Qwen3-4B and Llama-3.1-8B-Instruct, 5 seeds each. Every run gets the full core track, the open-ended scorer, the three attacks, and the strict tier for SURE and the cheats. A sequential-deletion track runs for GD, NPO and MEMIT. A red-team gate runs per seed, and leaderboards are written per model and across models.
 

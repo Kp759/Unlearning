@@ -12,7 +12,8 @@ thing only:
     replaced    d_i = max cos(q, P_i) - max cos(q, N_i)  and per-fact tau_i
     by          z_i = w_i . phi(q) + b_i                 and one global gate
 
-    phi(q) = (normalize(q) - mu) [@ C^T when PCA is selected]
+    phi(q) = normalize(q) - mu   (no PCA by default; --pca-dims 0,64,256 restores the PCA
+                                  search as an ablation; saved PCA routers still load)
 
 Exactly N independent binary classifiers
 ----------------------------------------
@@ -53,7 +54,7 @@ Two gates, one set of heads
 Splits (training-visible only; official paraphrase/neighbor/retain never read)
 -----------------------------------------------------------------------------
     fit          train positives + negatives from donor group 0
-                 -> weights; (L2, PCA) by grouped CV over prompt families
+                 -> weights; L2 (and PCA, if --pca-dims lists any) by grouped CV over prompt families
     calibration  one half of the development families + donor group 1
                  -> the global threshold
     audit        other half of the development families + donor group 2
@@ -95,8 +96,12 @@ GATE_MODES = ("threshold", "subject")
 #   last_subject  last token of the routed fact's subject + the boundary
 #   subject_span  every token of the routed fact's subject + the boundary
 #   all_prompt    every attended prompt token except BOS
+#   query         the boundary and every later position (each generated / answer token), in
+#                 the same forward pass: the route is decided on this layer's unedited
+#                 boundary state, then the row is added here. One-pass equivalent of
+#                 early_write's "query" with the write layer = the router layer.
 # Routing is unchanged: the classifier always reads the boundary.
-WRITE_MODES = ("last", "last_subject", "subject_span", "all_prompt")
+WRITE_MODES = ("last", "last_subject", "subject_span", "all_prompt", "query")
 # What the routed fact does to h at the write positions.
 #   add      h + Δe_i                       (the trained residual row; shipped)
 #   project  h - alpha * U_i U_i^T h        (remove fact i's answer directions;
@@ -114,7 +119,7 @@ SUBJECT_GATES = ("learned", "learned_or_exact")
 # typo or a case change of the name still routes. Same rule at fit time and at runtime.
 SUBJECT_MATCHES = ("exact", "fuzzy")
 DEFAULT_LAMBDAS = (1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0)
-DEFAULT_PCA_DIMS = (0, 64, 256)
+DEFAULT_PCA_DIMS = (0,)          # no PCA: redundant for the router (was (0, 64, 256))
 _SYMBOLIC_RELATION = re.compile(r"^P\d+$")
 # Tiny fixed penalty on the bias only. It keeps a head whose CV fold happens to
 # contain a single class from diverging; at 1e-6 it does not move a normal fit.
@@ -314,6 +319,81 @@ def examples_from_facts(facts, *, augment=True, prefixes=None):
     return rows
 
 
+# More content-free lead-ins, used only to top a fact's positives up to a fixed count
+# (balance_positive_examples). Same style as GENERIC_CONTEXT_PREFIXES; none of them is a
+# SCALPEL probe prefix (snorkel_proposal/scalpel/relations.py CONTEXT_PREFIXES).
+EXTRA_CONTEXT_PREFIXES = (
+    "As the records show,", "According to the archives,", "As one almanac puts it,", "Reportedly,",
+    "As is generally known,", "In reference works,", "From the historical record,",
+    "As documented in several sources,", "Going by standard references,", "Per the available documentation,",
+    "As noted in the literature,", "In the words of one chronicle,", "As several accounts confirm,",
+    "By most accounts,", "As one biography states,", "In the public record,",
+)
+
+
+def balance_positive_examples(examples, facts, target, *, eligible=None, prefixes=None):
+    """Exactly `target` positive examples per fact (fit_linear_router --positives-per-fact).
+
+    Kept first: the fact's own examples (canonical families, then the rest in file order).
+    Topped up with context-prefix variants of its canonical prompts: prefix p of
+    EXTRA_CONTEXT_PREFIXES is family context_prefix_<4+p>, a development family when
+    (4+p) % 4 == 3, so about a quarter of the added positives stay held out for calibration /
+    audit. Longer lists are cut keeping canonical first and a quarter development.
+    eligible(prompt, fact_index) (the runtime subject rule) vets every added prompt, so none
+    is dropped later. Returns (examples as dicts, report)."""
+    target = int(target)
+    prefixes = list(prefixes or EXTRA_CONTEXT_PREFIXES)
+    by_fact = defaultdict(list)
+    for example in examples:
+        by_fact[str(_value(example, "fact_id"))].append(example)
+
+    def as_dict(example):
+        return {"fact_id": str(_value(example, "fact_id")), "prompt": str(_value(example, "prompt")).strip(),
+                "split": str(_value(example, "split")), "group": prompt_family(example),
+                "role": prompt_family(example), "augmented": bool(_value(example, "augmented", False))}
+
+    out, report = [], {"target": target, "topped_up": 0, "cut": 0, "short": {}}
+    for index, fact in enumerate(facts):
+        fact_id = str(fact["id"])
+        own = [as_dict(e) for e in by_fact.get(fact_id, [])]
+        canonical = [e for e in own if e["group"].startswith("canonical")]
+        ordered = canonical + [e for e in own if not e["group"].startswith("canonical")]
+        if len(ordered) > target:
+            dev = [e for e in ordered if e["split"] != "train"]
+            train = [e for e in ordered if e["split"] == "train"]
+            n_dev = min(len(dev), max(1, target // 4)) if dev else 0
+            keep = train[:target - n_dev]
+            keep += dev[:target - len(keep)]
+            report["cut"] += len(ordered) - len(keep)
+            out += keep
+            continue
+        out += ordered
+        need = target - len(ordered)
+        seen = {e["prompt"] for e in ordered}
+        bases = [e["prompt"] for e in canonical] or [str(fact.get("canonical_prompt") or "").strip()]
+        for position, prefix in enumerate(prefixes):
+            family = 4 + position
+            for base in bases:
+                if need <= 0:
+                    break
+                variant = with_context_prefix(base, prefix) if base else None
+                if not variant or variant.strip() in seen:
+                    continue
+                variant = variant.strip()
+                if eligible is not None and not eligible(variant, index):
+                    continue
+                seen.add(variant)
+                out.append({"fact_id": fact_id, "prompt": variant,
+                            "split": "development" if family % 4 == 3 else "train",
+                            "group": f"context_prefix_{family}", "role": f"context_prefix_{family}",
+                            "augmented": True})
+                need -= 1
+                report["topped_up"] += 1
+        if need > 0:
+            report["short"][fact_id] = need
+    return out, report
+
+
 def _is_symbolic(relation):
     return bool(_SYMBOLIC_RELATION.match(str(relation)))
 
@@ -356,8 +436,14 @@ def _negative_controls_for_fact(
     type_check,
     answer_groups,
     subject_relation_pairs,
+    total=None,
 ):
     """Same-subject real competitors, then split-matched subject transplants.
+
+    total: exactly this many controls when enough exist: up to half same-subject real
+    competitors, the rest subject transplants (calibration needs owner-less controls), more
+    real competitors if transplants run short; both taken round robin over fit / calibration /
+    audit. `count` then no longer applies (fit_linear_router --negatives-per-fact).
 
     Relative to Router V2's builder:
       * same-subject competitors contribute their prompts from EVERY split, so
@@ -405,6 +491,21 @@ def _negative_controls_for_fact(
                     "group": family,
                 })
 
+    real_order = []
+    if total is not None:
+        # round robin over fit / calibration / audit: a plain cut keeps only the first split's
+        # prompts (most of a fact's 20 positives are fit), leaving calibration without negatives
+        by_split = {split: [c for c in controls if c["split"] == split] for split in SPLITS}
+        while any(by_split.values()):
+            for split in SPLITS:
+                if by_split[split]:
+                    real_order.append(by_split[split].pop(0))
+        controls = real_order[: min(len(real_order), int(total) // 2)]
+        count = max(0, int(total) - len(controls))
+    # a fixed total: at most a third of the transplant budget per donor, so the donor rotation
+    # reaches every split even when the budget is small
+    take_per_donor = (int(per_donor) if total is None
+                      else min(int(per_donor), max(1, -(-int(count) // len(SPLITS)))))
     donor_rank = 0
     transplants = 0
     for offset in range(1, len(facts)):
@@ -434,7 +535,7 @@ def _negative_controls_for_fact(
         rotated = rows[start:] + rows[:start]
         taken = 0
         for prompt, family in rotated:
-            if taken >= int(per_donor) or transplants >= int(count):
+            if taken >= take_per_donor or transplants >= int(count):
                 break
             transplanted = _replace_subject(prompt, other["subject"], subject)
             if not transplanted:
@@ -458,7 +559,24 @@ def _negative_controls_for_fact(
             donor_rank += 1
         else:
             skipped["donor_without_transplantable_prompt"] += 1
+    if total is not None and len(controls) < int(total):      # transplants ran short
+        used = {c["prompt"] for c in controls}
+        controls += [c for c in real_order if c["prompt"] not in used][: int(total) - len(controls)]
     return controls, dict(skipped)
+
+
+def per_fact_counts(records, n_facts):
+    """Positives (owner) and negatives (negative_for) per fact of assembled router records."""
+    pos, neg = [0] * n_facts, [0] * n_facts
+    for record in records:
+        if record["owner"] >= 0:
+            pos[record["owner"]] += 1
+        for index in record["negative_for"]:
+            neg[index] += 1
+
+    def summary(xs):
+        return {"min": min(xs), "max": max(xs), "mean": sum(xs) / len(xs)} if xs else {}
+    return {"positives": summary(pos), "negatives": summary(neg), "positives_by_fact": pos, "negatives_by_fact": neg}
 
 
 def assemble_router_dataset(
@@ -473,8 +591,12 @@ def assemble_router_dataset(
     answer_groups=True,
     extra_controls=None,
     subject_match="exact",
+    negatives_per_fact=None,
 ):
     """Prompts, labels, runtime eligibility and fit/calibration/audit splits.
+
+    negatives_per_fact: every fact gets exactly this many negatives when enough exist:
+    same-subject real competitors, then extra_controls, then subject transplants.
 
     subject_match: "exact" (shipped) or "fuzzy" (see SUBJECT_MATCHES); it must be
     the rule the runtime bank uses.
@@ -548,6 +670,11 @@ def assemble_router_dataset(
     }
     per_fact = []
     for index, fact in enumerate(facts):
+        extra = list((extra_controls or {}).get(index, []))
+        total = None
+        if negatives_per_fact:
+            extra = extra[: int(negatives_per_fact)]
+            total = int(negatives_per_fact) - len(extra)
         controls, skipped = _negative_controls_for_fact(
             index,
             facts,
@@ -557,9 +684,13 @@ def assemble_router_dataset(
             type_check=type_check,
             answer_groups=answer_groups,
             subject_relation_pairs=subject_relation_pairs,
+            total=total,
         )
-        if extra_controls:
-            controls = controls + list(extra_controls.get(index, []))
+        if total is not None:          # real competitors first, then the extra controls, then transplants
+            real = [c for c in controls if c["kind"] == "same_subject_real"]
+            controls = real + extra + [c for c in controls if c["kind"] != "same_subject_real"]
+        elif extra:
+            controls = controls + extra
         added = defaultdict(int)
         for control in controls:
             prompt = control["prompt"]
@@ -654,6 +785,8 @@ def assemble_router_dataset(
         "type_check": bool(type_check),
         "answer_groups": bool(answer_groups),
         "per_fact": per_fact,
+        "negatives_per_fact_requested": None if not negatives_per_fact else int(negatives_per_fact),
+        "per_fact_counts": per_fact_counts(ordered, len(facts)),
     }
     return {
         "records": ordered,
@@ -1686,6 +1819,9 @@ class LinearClassifierAssociationBank(nn.Module):
         # Genie (oracle) routing for training only; None = the linear heads
         # decide. Never serialized: a saved bank always routes by its heads.
         self.route_override = None
+        # Per-prompt forced routes {prompt token tuple: fact or -1} on top of the heads
+        # (training only, never serialized), as early_write.EarlyWriteCausalLM.force_route.
+        self.forced_routes = {}
         layer_module = base_model.model.layers[self.layer]
         self._hook_handle = layer_module.register_forward_hook(self._hook)
         if learned_subject is not None:
@@ -1795,6 +1931,25 @@ class LinearClassifierAssociationBank(nn.Module):
             raise ValueError("Oracle route points outside the association bank")
         self.route_override = mapping
 
+    def force_route(self, prompt_ids, fact):
+        """Route this exact prompt to `fact` (or -1 for none) whatever the heads say; every
+        other prompt is still routed by the heads. Training only; never saved."""
+        self.forced_routes[tuple(int(t) for t in prompt_ids)] = int(fact)
+
+    def _apply_forced_routes(self, prefix_lengths, best_fact, active):
+        rows = self._input_ids.detach().cpu().tolist()
+        attention = (self._attention_mask.detach().cpu().bool().tolist()
+                     if self._attention_mask is not None else None)
+        best, act = best_fact.clone(), active.clone()
+        for index, (tokens, boundary) in enumerate(zip(rows, prefix_lengths.detach().cpu().tolist())):
+            prompt = tuple(token for position, token in enumerate(tokens[: int(boundary)])
+                           if attention is None or attention[index][position])
+            fact = self.forced_routes.get(prompt)
+            if fact is not None:
+                act[index] = fact >= 0
+                best[index] = max(0, fact)
+        return best, act
+
     def _oracle_routes(self, prefix_lengths, device):
         rows = self._input_ids.detach().cpu().tolist()
         prefixes = prefix_lengths.detach().cpu().tolist()
@@ -1857,6 +2012,8 @@ class LinearClassifierAssociationBank(nn.Module):
         best_fact = decision["fact"]
         if self.route_override is not None:
             best_fact, active = self._oracle_routes(prefix_lengths, hidden.device)
+        elif self.forced_routes:
+            best_fact, active = self._apply_forced_routes(prefix_lengths, best_fact, active)
 
         position_mask = self._write_mask(
             positions, prefix_lengths, best_fact, active, width
@@ -1945,6 +2102,11 @@ class LinearClassifierAssociationBank(nn.Module):
         mask = F.one_hot(positions, num_classes=width).float()
         if self.write_mode == "last":
             return mask
+        if self.write_mode == "query":
+            later = torch.arange(width, device=positions.device)[None, :] >= positions[:, None]
+            if self._attention_mask is not None and self._attention_mask.shape[1] == width:
+                later = later & self._attention_mask.to(positions.device).bool()
+            return later.float()
         for row in active.nonzero(as_tuple=True)[0].tolist():
             boundary = int(prefix_lengths[row])
             if self.write_mode == "all_prompt":

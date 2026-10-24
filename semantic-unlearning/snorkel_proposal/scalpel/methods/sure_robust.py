@@ -534,7 +534,8 @@ class SureRobust(Method):
         run(router, py + [root / "scripts/fit_linear_router.py", "--run-dir", prep, "--output-dir", router,
                           "--device", device, "--fit-device", fit_device, "--local-files-only",
                           "--threshold-policy", "global", "--decision-rule", "calibrated_bias",
-                          "--min-recall", "0.98", "--threshold-placement-fraction", "0.1", *fit_args])
+                          "--min-recall", "0.98", "--threshold-placement-fraction", "0.1", *fit_args,
+                          "--pca-dims", "0,64,256", "--positives-per-fact", "0", "--negatives-per-fact", "0"])   # SURE-R's tested recipe
         run(rows_dir, py + [root / "scripts/train_direct_linear_router_rows.py", "--dataset", "multifact",
                             "--router-dir", router, "--output-dir", rows_dir, "--training-route", "router",
                             "--norm-scale", "1", "--row-updates-per-fact", updates,

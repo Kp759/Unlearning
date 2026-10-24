@@ -83,7 +83,7 @@ if ! stage_ready "$ROUTER" fact_association_embeddings.pt; then
   python -u scripts/fit_linear_router.py \
     --run-dir "$PREP" --output-dir "$ROUTER" \
     --device cuda --local-files-only \
-    --threshold-policy global --min-recall 0.98 --threshold-placement-fraction 0.1
+    --threshold-policy global --min-recall 0.98 --threshold-placement-fraction 0.1 ${FIT_EXTRA_ARGS:-}
 fi
 
 

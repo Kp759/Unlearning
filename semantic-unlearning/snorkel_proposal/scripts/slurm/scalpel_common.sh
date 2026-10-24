@@ -34,7 +34,7 @@ scalpel_env() {   # the repository's conda env (same activation as every other j
 case "${MODEL:?set MODEL=llama32_3b|qwen3_4b|llama31_8b}" in
   llama32_3b)
     HF_ID=meta-llama/Llama-3.2-3B-Instruct; HP_NAME=Llama-3.2-3B-Instruct
-    RMU_LAYER=7; GRAD_SCOPE=mlp; RELEARN_SCOPE=mlp; SURE_LAYER=19; MIN_GPU_MIB=40000
+    RMU_LAYER=7; GRAD_SCOPE=mlp; RELEARN_SCOPE=mlp; SURE_LAYER=19; EARLY_WRITE_LAYER=16; MIN_GPU_MIB=40000
     # the path the paper's routers and the existing Wikipedia covariance caches were built with,
     # so data/stats/<model>/wikipedia_20231101_100k_stats is reused as is
     REF="$ROOT/outputs/mcf_multiseed_regular_v1/seed1/L19/router/association_manifest.json"
@@ -44,11 +44,11 @@ case "${MODEL:?set MODEL=llama32_3b|qwen3_4b|llama31_8b}" in
     fi ;;
   qwen3_4b)
     HF_ID=Qwen/Qwen3-4B; HP_NAME=Qwen3-4B
-    RMU_LAYER=9; GRAD_SCOPE=mlp; RELEARN_SCOPE=mlp; SURE_LAYER=24; MIN_GPU_MIB=40000 ;;
+    RMU_LAYER=9; GRAD_SCOPE=mlp; RELEARN_SCOPE=mlp; SURE_LAYER=24; EARLY_WRITE_LAYER=21; MIN_GPU_MIB=40000 ;;
   llama31_8b)
     # fp32 Adam on every 8B MLP does not fit 80 GB (paper_model_config.sh): down_proj only
     HF_ID=meta-llama/Llama-3.1-8B-Instruct; HP_NAME=Llama-3.1-8B-Instruct
-    RMU_LAYER=8; GRAD_SCOPE=mlp_down; RELEARN_SCOPE=mlp_down; SURE_LAYER=22; MIN_GPU_MIB=75000 ;;
+    RMU_LAYER=8; GRAD_SCOPE=mlp_down; RELEARN_SCOPE=mlp_down; SURE_LAYER=22; EARLY_WRITE_LAYER=18; MIN_GPU_MIB=75000 ;;
   *) echo "unknown MODEL=$MODEL" >&2; return 2 2>/dev/null || exit 2 ;;
 esac
 # overrides for smaller GPUs (scripts/aws/run_scalpel_aws.sh, one 24 GB A10G); Wulver never sets them
@@ -73,7 +73,7 @@ EOF
 )"
 EDIT_LAYERS="$(echo $EDIT_LAYERS $SURE_LAYER | tr ' ' '\n' | sort -nu | tr '\n' ' ')"   # + SURE's layer (sure_r_bake)
 export ROOT SP HF_CACHE MOM2_TEXT MOM2_DATASET PARTITION OUT_ROOT MODEL MODEL_PATH HF_ID HP_NAME RMU_LAYER \
-       GRAD_SCOPE RELEARN_SCOPE SURE_LAYER MIN_GPU_MIB EDIT_LAYERS
+       GRAD_SCOPE RELEARN_SCOPE SURE_LAYER EARLY_WRITE_LAYER MIN_GPU_MIB EDIT_LAYERS
 
 scalpel_check() {  # fail fast: weights present and GPU large enough
   if [[ -z "${MODEL_PATH:-}" || ! -f "$MODEL_PATH/config.json" ]]; then
@@ -100,6 +100,9 @@ method_args() {
       local d; case "$1" in rome) d=ROME;; memit) d=MEMIT;; zerounlearn) d=ZeroUnlearn;; esac
       echo "--method-arg hparams=$ROOT/../ZeroUnlearn/hparams/$d/$HP_NAME.json --method-arg mom2_dataset=$MOM2_DATASET --method-arg mom2_text=$MOM2_TEXT" ;;
     sure) echo "--method-arg model_path=$MODEL_PATH --method-arg layer=$SURE_LAYER --method-arg device=cuda --method-arg work_dir=$(split_dir "$SEED")/sure_work" ;;
+    sure_paper|sure_paper_l16)   # the paper's method (scalpel/methods/sure_paper.py): one pass at SURE's
+      # layer; the _l16 ablation writes at the paper's earlier layer (16 on 3B, paper_model_config.sh)
+      echo "--method-arg model_path=$MODEL_PATH --method-arg layer=$SURE_LAYER --method-arg device=cuda --method-arg work_dir=$(split_dir "$SEED")/sure_work_$1$([[ $1 == sure_paper_l16 ]] && echo " --method-arg write_layer=$EARLY_WRITE_LAYER")" ;;
     sure_r*)   # robust SURE variants (scalpel/methods/sure_robust.py); bake reads the Wikipedia covariance
       echo "--method-arg model_path=$MODEL_PATH --method-arg layer=$SURE_LAYER --method-arg device=cuda --method-arg work_dir=$(split_dir "$SEED")/sure_work_$1 --method-arg mom2_dataset=$MOM2_DATASET" ;;
     *) echo "" ;;

@@ -11,7 +11,8 @@ trained until the answer is neither generated nor readable at a later layer:
          out   relu(log p_final(answer_tok | x_<t) - log tau)                   final output
          lens  relu(z_L(answer_tok, t) - z_max)                               J-lens at layer L
                (--lens-type logit: relu(log softmax(lm_head(norm(h_L(t))))[answer] - log
-               lens_tau), i.e. the plain logit lens at layer L instead)
+               lens_tau), i.e. the plain logit lens at layer L instead;
+               --lens-type none: no lens term, the layer-L state is never read)
                z = (u_w . h_L(t) - mu_w) / sd_w, u_w = mean d logit_w / d h_L
                over generic MCF prompts (forget subjects excluded); mu/sd = the same
                score on those prompts, so z <= 0 means "no more answer evidence than an
@@ -33,6 +34,10 @@ and still stated the answer a few tokens later.
                                    the fact is recalled, so later layers/positions cannot
                                    re-read it; --write-mode subject_span | subject_last
 
+  --write-mode query (no --write-layer, or --write-layer = router layer): ONE forward pass.
+                             The router reads layer L and the row is added at the same layer
+                             L, at the last prompt token and every generated token (the
+                             default of run_l16_paper_one.sh: classifier input and Δe at 19).
   --write-mode last          edit the last prompt token only (setting A)
   --write-mode subject_span  edit the subject tokens + boundary (setting C): later
                              positions read the subject, so this is where the answer
@@ -72,7 +77,8 @@ def _is_canonical(group):
 
 def detect_dataset(facts):
     first = str(facts[0].get("id", ""))
-    for name in ("mcf", "zsre", "mquake", "rwku"):
+    # multifact: MultiFactPerson-format facts, e.g. SCALPEL's requests (scalpel/methods/external.py)
+    for name in ("mcf", "zsre", "mquake", "rwku", "multifact"):
         if first.startswith(f"{name}_"):
             return name
     raise ValueError(f"cannot tell the benchmark from fact id {first!r}")
@@ -177,16 +183,23 @@ def pad_batch(seqs, device):
     return ids, mask, pos
 
 
+def lens_layer_of(args):
+    """The layer the lens term reads, or None with --lens-type none."""
+    return None if args.lens_type == "none" else args.lens_layer
+
+
 def forward(lm, base_model, lens_layer, seqs, device):
     ids, mask, pos = pad_batch(seqs, device)
     lm.set_association_prefix_lengths([s["prompt_len"] for s in seqs])
     store = {}
-    handle = base_model.model.layers[lens_layer].register_forward_hook(_grab(store, "h"))
+    handle = (base_model.model.layers[lens_layer].register_forward_hook(_grab(store, "h"))
+              if lens_layer is not None else None)
     try:
         logits = lm(input_ids=ids, attention_mask=mask, use_cache=False).logits.float()
     finally:
-        handle.remove()
-    return logits, store["h"].float(), pos
+        if handle is not None:
+            handle.remove()
+    return logits, (store["h"].float() if handle is not None else None), pos
 
 
 def gather_answers(seqs, token_index, device):
@@ -231,12 +244,14 @@ def losses(lm, params, base_model, args, seqs, U, mu, sd, token_index, device):
     tok, rows = gather_answers(seqs, token_index, device)
     # Base logits first: zeroing/restoring the rows in place after the edited forward
     # would invalidate the autograd graph.
-    base = (base_logits(lm, params, base_model, args.lens_layer, seqs, device)
+    base = (base_logits(lm, params, base_model, lens_layer_of(args), seqs, device)
             if args.keep_weight > 0 else None)
-    logits, h, pos = forward(lm, base_model, args.lens_layer, seqs, device)
+    logits, h, pos = forward(lm, base_model, lens_layer_of(args), seqs, device)
     logp = logits.log_softmax(-1)
     lp = logp.gather(-1, tok[:, None, :].expand(-1, logp.shape[1], -1))           # [B, W, K]
-    if args.lens_type == "logit":
+    if args.lens_type == "none":
+        z = None
+    elif args.lens_type == "logit":
         # Plain logit lens: final norm + unembedding applied to the layer-L state.
         lens_logp = base_model.get_output_embeddings()(base_model.model.norm(h)).float().log_softmax(-1)
         z = lens_logp.gather(-1, tok[:, None, :].expand(-1, lens_logp.shape[1], -1))  # [B, W, K]
@@ -248,7 +263,7 @@ def losses(lm, params, base_model, args, seqs, U, mu, sd, token_index, device):
     per_seq = lambda x: (x * m).sum((1, 2))
     out = per_seq(torch.relu(lp - math.log(args.tau))).mean()
     lens_floor = math.log(args.lens_tau) if args.lens_type == "logit" else args.z_max
-    lens = per_seq(torch.relu(z - lens_floor)).mean()
+    lens = per_seq(torch.relu(z - lens_floor)).mean() if z is not None else torch.zeros((), device=device)
     keep = torch.zeros((), device=device)
     if base is not None:
         base.scatter_(-1, tok[:, None, :].expand(-1, base.shape[1], -1), float("-inf"))
@@ -266,9 +281,10 @@ def losses(lm, params, base_model, args, seqs, U, mu, sd, token_index, device):
             + args.rep_weight * rep)
     stats = {"out": float(out.detach()), "lens": float(lens.detach()), "keep": float(keep.detach()),
              "rep": float(rep.detach()),
-             "max_logp_answer": float((lp.detach().amax(-1) + (~pos) * -1e9).amax(-1).mean()),
-             ("max_lens_logp" if args.lens_type == "logit" else "max_z"):
-                 float((z.detach().amax(-1) + (~pos) * -1e9).amax(-1).mean())}
+             "max_logp_answer": float((lp.detach().amax(-1) + (~pos) * -1e9).amax(-1).mean())}
+    if z is not None:
+        stats["max_lens_logp" if args.lens_type == "logit" else "max_z"] = \
+            float((z.detach().amax(-1) + (~pos) * -1e9).amax(-1).mean())
     return loss, stats
 
 
@@ -296,8 +312,8 @@ def main(argv=None):
     p.add_argument("--write-layer", type=int, default=None,
                    help="write layer < router layer = early write at the subject tokens")
     p.add_argument("--lens-layer", type=int, default=24)
-    p.add_argument("--lens-type", choices=("jlens", "logit"), default="jlens",
-                   help="jlens: z-scored Jacobian-lens score; logit: plain logit lens")
+    p.add_argument("--lens-type", choices=("jlens", "logit", "none"), default="jlens",
+                   help="jlens: z-scored Jacobian-lens score; logit: plain logit lens; none: no lens term")
     p.add_argument("--lens-tau", type=float, default=1e-4,
                    help="logit lens: target answer probability at the lens layer")
     p.add_argument("--jlens-prompts", type=int, default=256)
@@ -361,7 +377,7 @@ def main(argv=None):
     # The lens must sit after the layer that is EDITED (the write layer for an early write;
     # routing happens on the unedited pass 1, so the router layer may be later than the lens).
     edit_layer = layer if args.write_layer is None else int(args.write_layer)
-    if not edit_layer < args.lens_layer < n_layers:
+    if lens_layer_of(args) is not None and not edit_layer < args.lens_layer < n_layers:
         raise ValueError(f"--lens-layer must be in ({edit_layer}, {n_layers - 1}]")
 
     if dataset == "mcf":
@@ -392,17 +408,19 @@ def main(argv=None):
     token_index = {t: i for i, t in enumerate(all_tokens)}
 
     t0 = time.perf_counter()
-    if dataset == "mcf":
-        prompts = generic_prompts(tok, manifest["mcf_path"], facts,
-                                  args.jlens_prompts if args.lens_type == "jlens" else 2)
-    else:   # logit lens only: the J-lens background is never used, any two prompts do
-        prompts = [tok(t)["input_ids"] for t in (NEUTRAL_PROMPT, "The weather today is")]
-    U, mu, sd = jlens(model, args.lens_layer, prompts, all_tokens, args.device)  # unused for logit
-    torch.save({"layer": args.lens_layer, "tokens": all_tokens, "U": U, "mu": mu, "sd": sd,
-                "prompts": len(prompts)}, output / f"jlens_L{args.lens_layer}.pt")
-    print(json.dumps({"phase": "jlens_ready", "layer": args.lens_layer, "tokens": len(all_tokens),
-                      "seconds": round(time.perf_counter() - t0, 1)}), flush=True)
-    U, mu, sd = U.to(args.device), mu.to(args.device), sd.to(args.device)
+    U = mu = sd = None                     # --lens-type none: no lens statistics at all
+    if args.lens_type != "none":
+        if dataset == "mcf":
+            prompts = generic_prompts(tok, manifest["mcf_path"], facts,
+                                      args.jlens_prompts if args.lens_type == "jlens" else 2)
+        else:   # logit lens only: the J-lens background is never used, any two prompts do
+            prompts = [tok(t)["input_ids"] for t in (NEUTRAL_PROMPT, "The weather today is")]
+        U, mu, sd = jlens(model, args.lens_layer, prompts, all_tokens, args.device)  # unused for logit
+        torch.save({"layer": args.lens_layer, "tokens": all_tokens, "U": U, "mu": mu, "sd": sd,
+                    "prompts": len(prompts)}, output / f"jlens_L{args.lens_layer}.pt")
+        print(json.dumps({"phase": "jlens_ready", "layer": args.lens_layer, "tokens": len(all_tokens),
+                          "seconds": round(time.perf_counter() - t0, 1)}), flush=True)
+        U, mu, sd = U.to(args.device), mu.to(args.device), sd.to(args.device)
 
     # The factorized router (scripts/factorized_router.py) routes in its own pass-1 forward,
     # so every write goes through EarlyWriteCausalLM, whatever the write layer.
@@ -448,14 +466,12 @@ def main(argv=None):
         # with their own row forced on their training views (training only: the saved
         # artifact still routes by the router, so test-time routing is unchanged; genie
         # then measures what the rows can do for every fact).
-        if not early:
-            raise ValueError("--oracle-unrouted needs an early write (EarlyWriteCausalLM.force_route)")
         oracle_facts = sorted({e.fact_id for e in examples} - set(by_fact))
         for e in examples:
             if e.fact_id in oracle_facts:
                 by_fact.setdefault(e.fact_id, []).append(e)
                 first = next(k for k, lab in enumerate(e.labels) if lab != -100)
-                lm.force_route(list(e.input_ids[:first]), fact_to_row[e.fact_id])
+                bank.force_route(list(e.input_ids[:first]), fact_to_row[e.fact_id])   # early: bank is lm
         if oracle_facts:
             print(json.dumps({"phase": "oracle_unrouted", "facts": len(oracle_facts),
                               "ids": oracle_facts[:10]}), flush=True)
@@ -524,8 +540,8 @@ def main(argv=None):
             loss, stats = losses(lm, params, model, args, batch, U, mu, sd, token_index, args.device)
             if preserve:
                 pb = rng.sample(preserve, min(args.batch_size, len(preserve)))
-                base_pl = base_logits(lm, params, model, args.lens_layer, pb, args.device)
-                logits_pl, _, pos_pl = forward(lm, model, args.lens_layer, pb, args.device)
+                base_pl = base_logits(lm, params, model, lens_layer_of(args), pb, args.device)
+                logits_pl, _, pos_pl = forward(lm, model, lens_layer_of(args), pb, args.device)
                 bp = base_pl.softmax(-1)
                 kl = (bp * (bp.clamp_min(1e-30).log() - logits_pl.log_softmax(-1))).sum(-1)
                 keep_s = (kl * pos_pl).sum() / pos_pl.sum()
@@ -571,7 +587,7 @@ def main(argv=None):
               "subject_fallbacks": getattr(lm, "subject_fallbacks", None),
               "facts_routed_by_router": routed_facts - len(oracle_facts),
               "facts_trained_with_oracle_routing": oracle_facts,
-              "lens_layer": args.lens_layer, "rounds": log,
+              "lens_layer": lens_layer_of(args), "lens_type": args.lens_type, "rounds": log,
               "row_norm_median": float(row_norms.median()), "max_row_norm": max_norm,
               "boundary_norm_median": float(norms[norm_layer].median()),
               "unmatched_neutral_logits_exact_base_after_training": True}
