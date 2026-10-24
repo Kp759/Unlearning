@@ -42,7 +42,14 @@ from .base import Method, MethodCard, arg
 from .external import _SureRuntime, export_multifact, gpu_released
 
 SEMANTIC_ROOT = Path(__file__).resolve().parents[3]
-LANGS = {"fr": "French", "es": "Spanish", "de": "German"}
+LANGS = {"fr": "French", "es": "Spanish", "de": "German", "it": "Italian", "pt": "Portuguese", "nl": "Dutch"}
+# Translation views use languages SCALPEL never probes (its cross-lingual family is French /
+# Spanish / German), so that family stays held out. (Before 2026-10-24 the views used fr/es/de.)
+TRAIN_LANGS = ("it", "pt", "nl")
+_LABEL = re.compile(r"^(?:version|rewrite|rewritten|paraphrase|question|sentence|translation|answer|output|option)"
+                    r"\s*\d*\s*[:.)-]\s*", re.I)
+_CHATTER = re.compile(r"^(?:here (?:is|are)|sure\b|okay\b|certainly\b|note\b|i (?:can|will|have)\b)|"
+                      r"\b(?:rewrite|rewritten|paraphrase|version|translation)\b", re.I)
 VIEW_KINDS = ("paraphrase", "question", "translate", "multiturn")
 
 PRESETS: Dict[str, Dict[str, object]] = {
@@ -117,12 +124,36 @@ def generate_texts(handle: ModelHandle, texts: Sequence[str], max_new_tokens: in
 
 
 def _lines(text: str) -> List[str]:
+    """One candidate per line: list markers, labels ("Version 2:") and quotes removed; lines
+    that are the model talking about the task ("Here are three versions:") dropped."""
     out = []
     for line in text.splitlines():
-        line = re.sub(r"^\s*(?:[-*•]|\(?\d+[.):]?\)?)\s*", "", line).strip().strip("\"“”'`").strip()
-        if line:
+        line = re.sub(r"^\s*(?:[-*•]|\(?\d+[.):]?\)?)\s*", "", line).strip().strip("\"“”'`*").strip()
+        line = _LABEL.sub("", line).strip().strip("\"“”'`*").strip()
+        if line and not _CHATTER.search(line):
             out.append(line)
     return out
+
+
+def _words(text: str) -> set:
+    return set(normalize_text(text).split())
+
+
+def near_duplicate(text: str, others: Sequence[str], threshold: float = 0.8) -> bool:
+    """Word-set Jaccard similarity >= threshold with any of `others`."""
+    w = _words(text)
+    for o in others:
+        u = _words(o)
+        if w and u and len(w & u) / len(w | u) >= threshold:
+            return True
+    return False
+
+
+def well_formed(text: str, kind: str, min_words: int = 3, max_words: int = 40) -> bool:
+    n = len(normalize_text(text).split())
+    if not min_words <= n <= max_words:
+        return False
+    return text.rstrip().endswith("?") if kind in ("question", "multiturn") else True
 
 
 def _has(text: str, phrase: str) -> bool:
@@ -141,94 +172,242 @@ def sure_text(renderer: Renderer, probe: Probe) -> Optional[str]:
     return text
 
 
+JUDGE = ('Prompt A: "{a}"\nPrompt B: "{b}"\nDoes Prompt B ask for exactly the same piece of information about '
+         '{s} as Prompt A: the same fact, not a related or broader one? Answer with Yes or No.')
+
+
+@torch.no_grad()
+def same_question(handle: ModelHandle, pairs: Sequence[tuple], batch_size: int = 16) -> List[float]:
+    """For (prompt A, prompt B, subject): P(Yes) / (P(Yes) + P(No)) from the base model asked
+    whether B asks for exactly the same fact as A. Catches rewrites that keep the answer but
+    change the question ("born in" -> "lived in"), which the answer check cannot."""
+    tok = handle.tokenizer
+    yes = {t[0] for w in ("Yes", " Yes", "yes") if (t := tok(w, add_special_tokens=False)["input_ids"])}
+    no = {t[0] for w in ("No", " No", "no") if (t := tok(w, add_special_tokens=False)["input_ids"])}
+    bos = tok.bos_token or ""
+    texts = [_instruct(tok, JUDGE.format(a=a, b=b, s=subj)) for a, b, subj in pairs]
+    enc = [tok(t, add_special_tokens=not (bos and t.startswith(bos)))["input_ids"] for t in texts]
+    pad = _pad_id(tok)
+    out = [0.0] * len(enc)
+    order = sorted(range(len(enc)), key=lambda i: len(enc[i]))
+    for start in range(0, len(order), batch_size):
+        idx = order[start:start + batch_size]
+        width = _bucket(max(len(enc[i]) for i in idx))
+        ids = torch.full((len(idx), width), pad, dtype=torch.long)
+        att = torch.zeros_like(ids)
+        for b, i in enumerate(idx):
+            ids[b, :len(enc[i])] = torch.tensor(enc[i])
+            att[b, :len(enc[i])] = 1
+        logits = handle.hf(input_ids=ids.to(handle.device), attention_mask=att.to(handle.device)).logits
+        for b, i in enumerate(idx):
+            prob = logits[b, len(enc[i]) - 1].float().softmax(-1)
+            p_yes, p_no = float(prob[list(yes)].sum()), float(prob[list(no)].sum())
+            out[i] = p_yes / max(1e-9, p_yes + p_no)
+    return out
+
+
 def make_views(handle: ModelHandle, renderer: Renderer, requests: Sequence[Request], kinds: Sequence[str],
-               langs: Sequence[str] = ("fr", "es", "de"), n_para: int = 2, batch_size: int = 16, log=print):
-    """{request_id: [View]} from the base model's own rewrites of each request, validated."""
+               langs: Sequence[str] = TRAIN_LANGS, n_para: int = 2, n_question: int = 1, n_multiturn: int = 1,
+               split_rule: str = "legacy", judge: bool = False, min_views: int = 0, batch_size: int = 16,
+               log=print):
+    """{request_id: [View]} from the base model's own rewrites of each request.
+
+    A rewrite is kept only if it passes every check:
+      form       one line, no list markers / labels / talk about the task, 3-40 words,
+                 questions end with "?";
+      content    contains the subject's name (multi-turn follow-ups: must not, they use a
+                 pronoun), never the answer;
+      new        not a near-duplicate (word Jaccard >= 0.8) of the request or of a kept rewrite;
+      meaning    the base model answers it with the request's answer under teacher forcing;
+      same fact  (judge=True, ours) the base model, asked whether it requests exactly the same
+                 fact as the request, says Yes (same_question >= 0.5);
+      tokens     renders to exactly the evaluator's token ids.
+    min_views (ours): requests with fewer kept rewrites get a second round of paraphrases and
+    questions, asked for with differently worded instructions.
+    split_rule "legacy" (sure_r): the first paraphrase / first language train, others held out;
+    "holdout_last" (ours): in every kind with two or more kept rewrites the last one is held
+    out (calibration / audit), the rest train."""
     tok = renderer.tok
     reqs = [r for r in requests if r.kind == "fact" and r.subject and r.prompt]
-    cand: List[tuple] = []          # (request, kind, family, split, probe)
+    stats = {"candidates": 0, "kept": 0, "dropped_form": 0, "dropped_near_duplicate": 0,
+             "dropped_base_does_not_answer": 0, "dropped_not_same_fact": 0, "dropped_tokenization": 0,
+             "second_round_requests": 0}
+    taken: Dict[str, List[str]] = {r.request_id: [r.prompt] for r in reqs}
+    by_id = {r.request_id: r for r in reqs}
 
     def probe(r, kind, i, prompt, fmt, messages=None):
         return Probe(probe_id=f"view/{r.request_id}/{kind}/{i}", role="forget", family=kind, fact_id=r.fact_id,
                      prompt=prompt, answer=r.answer, format=fmt, messages=messages, request_id=r.request_id,
                      subject=r.subject, relation=r.relation)
 
-    if "paraphrase" in kinds:
-        asks = [(f'Rewrite this unfinished sentence in {n_para} different ways. Every version must contain the '
-                 f'name "{r.subject}", keep the same meaning, and stop at the same point so that the same next word '
-                 f'completes it. Write one version per line and nothing else.\nSentence: {r.prompt}')
+    def accept(r, kind, text, *, needs_subject=True):
+        """Form, content and novelty checks; the meaning checks run on the base model later."""
+        if not well_formed(text, kind) or _has(text, r.answer) or (needs_subject != _has(text, r.subject)):
+            stats["dropped_form"] += 1
+            return False
+        if near_duplicate(text, taken[r.request_id]):
+            stats["dropped_near_duplicate"] += 1
+            return False
+        taken[r.request_id].append(text)
+        return True
+
+    def paraphrase_asks(rs, n, second):
+        if not second:
+            return [(f'Rewrite this unfinished sentence in {n} different ways. Every version must contain the '
+                     f'name "{r.subject}", keep the same meaning, and stop at the same point so that the same next '
+                     f'word completes it. Vary the wording and the sentence structure. Write one version per line '
+                     f'and nothing else.\nSentence: {r.prompt}')
+                    if r.format == "cloze" else
+                    (f'Rewrite this question in {n} different ways. Every version must contain the name '
+                     f'"{r.subject}" and ask for the same thing. Vary the wording. Write one version per line and '
+                     f'nothing else.\nQuestion: {r.prompt}') for r in rs]
+        return [(f'Say exactly what this unfinished sentence says in {n} new ways: use a different verb or noun, '
+                 f'reorder it, or make it passive. Each version must contain "{r.subject}" and end right before '
+                 f'the missing word. One version per line, nothing else.\nSentence: {r.prompt}')
                 if r.format == "cloze" else
-                (f'Rewrite this question in {n_para} different ways. Every version must contain the name '
-                 f'"{r.subject}" and ask for the same thing. Write one version per line and nothing else.\n'
-                 f'Question: {r.prompt}') for r in reqs]
-        for r, o in zip(reqs, generate_texts(handle, [_instruct(tok, a) for a in asks], 96, batch_size)):
-            k = 0
-            for line in _lines(o):
-                if r.format == "cloze":
-                    line = line.rstrip(" .…:;,")
-                if not _has(line, r.subject) or _has(line, r.answer) or normalize_text(line) == normalize_text(r.prompt):
-                    continue
-                cand.append((r, "paraphrase", f"aug_paraphrase_{k}", "train" if k == 0 else "development",
-                             probe(r, "paraphrase", k, line, r.format)))
-                k += 1
-                if k >= n_para:
-                    break
+                (f'Ask this question in {n} new ways, each worded differently but asking for exactly the same '
+                 f'thing. Keep the name "{r.subject}". One question per line, nothing else.\nQuestion: {r.prompt}')
+                for r in rs]
+
+    def question_asks(rs, n, second):
+        if second:
+            return [f'Ask for the missing ending of this sentence in {n} new ways, each starting with a different '
+                    f'question word (What, Which, Where, Who, In which, How). Keep the name "{r.subject}". One '
+                    f'question per line, nothing else.\nSentence: {r.prompt}' for r in rs]
+        if n > 1:
+            return [f'Turn this unfinished sentence into {n} different direct questions that each ask for its '
+                    f'missing ending. Keep the name "{r.subject}" in every question. Write one question per line '
+                    f'and nothing else.\nSentence: {r.prompt}' for r in rs]
+        return [f'Turn this unfinished sentence into one direct question that asks for its missing ending. Keep the '
+                f'name "{r.subject}". Write only the question.\nSentence: {r.prompt}' for r in rs]
 
     questions: Dict[str, str] = {r.request_id: r.prompt for r in reqs if r.format != "cloze"}
-    need_q = [r for r in reqs if r.format == "cloze"] if set(kinds) & {"question", "translate", "multiturn"} else []
-    if need_q:
-        asks = [f'Turn this unfinished sentence into one direct question that asks for its missing ending. Keep the '
-                f'name "{r.subject}". Write only the question.\nSentence: {r.prompt}' for r in need_q]
-        for r, o in zip(need_q, generate_texts(handle, [_instruct(tok, a) for a in asks], 48, batch_size)):
-            q = next((l for l in _lines(o) if l.endswith("?") and _has(l, r.subject) and not _has(l, r.answer)), None)
-            if q:
-                questions[r.request_id] = q
-                if "question" in kinds:
-                    cand.append((r, "question", "aug_question", "train", probe(r, "question", 0, q, "qa")))
 
-    if "translate" in kinds:
-        jobs = [(r, lang) for r in reqs if r.request_id in questions for lang in langs]
-        asks = [f'Translate this question into {LANGS.get(lang, lang)}. Keep the name "{r.subject}" exactly as it is '
-                f'written. Write only the translation.\nQuestion: {questions[r.request_id]}' for r, lang in jobs]
-        for (r, lang), o in zip(jobs, generate_texts(handle, [_instruct(tok, a) for a in asks], 64, batch_size)):
-            t = next((l for l in _lines(o) if _has(l, r.subject) and not _has(l, r.answer)), None)
-            if t and normalize_text(t) != normalize_text(questions[r.request_id]):
-                split = "train" if lang == langs[0] else "development"
-                cand.append((r, "translate", f"aug_translate_{lang}", split, probe(r, "translate", 0, t, "qa")))
+    def generate_round(rs, second=False):
+        cand: List[tuple] = []          # (request, kind, index, probe)
+        if "paraphrase" in kinds and rs:
+            outs = generate_texts(handle, [_instruct(tok, a) for a in paraphrase_asks(rs, n_para, second)],
+                                  40 + 28 * n_para, batch_size)
+            for r, o in zip(rs, outs):
+                k = n_para if second else 0
+                for line in _lines(o):
+                    if r.format == "cloze":
+                        line = line.rstrip(" .…:;,")
+                    stats["candidates"] += 1
+                    if accept(r, "paraphrase", line):
+                        cand.append((r, "paraphrase", k, probe(r, "paraphrase", k, line, r.format)))
+                        k += 1
+                    if k >= (2 * n_para if second else n_para):
+                        break
+        need_q = [r for r in rs if r.format == "cloze"] if set(kinds) & {"question", "translate", "multiturn"} else []
+        if need_q and (not second or "question" in kinds):
+            outs = generate_texts(handle, [_instruct(tok, a) for a in question_asks(need_q, n_question, second)],
+                                  24 + 24 * n_question, batch_size)
+            for r, o in zip(need_q, outs):
+                k = n_question if second else 0
+                for line in _lines(o):
+                    stats["candidates"] += 1
+                    if not accept(r, "question", line):
+                        continue
+                    if not second:
+                        questions.setdefault(r.request_id, line)   # the first one is translated / made multi-turn
+                    if "question" in kinds:
+                        cand.append((r, "question", k, probe(r, "question", k, line, "qa")))
+                    k += 1
+                    if k >= (2 * n_question if second else n_question):
+                        break
+        if second:
+            return cand
+        if "translate" in kinds:
+            jobs = [(r, lang) for r in rs if r.request_id in questions for lang in langs]
+            asks = [f'Translate this question into {LANGS.get(lang, lang)}. Keep the name "{r.subject}" exactly as '
+                    f'it is written. Write only the translation.\nQuestion: {questions[r.request_id]}' for r, lang in jobs]
+            for (r, lang), o in zip(jobs, generate_texts(handle, [_instruct(tok, a) for a in asks], 64, batch_size)):
+                stats["candidates"] += 1
+                t = next((l for l in _lines(o) if _has(l, r.subject)), None)
+                if t and accept(r, "translate", t):
+                    cand.append((r, "translate", list(langs).index(lang), probe(r, f"translate_{lang}", 0, t, "qa")))
+        if "multiturn" in kinds:
+            mt = [r for r in rs if r.request_id in questions]
+            opener_templates = ["What can you tell me about {S}?",
+                                "I'd like to learn about {S}. Could you give me a short overview?"][:max(1, n_multiturn)]
+            asks = [f'Rewrite this question so that it does not contain the name "{r.subject}". Refer to them only as '
+                    f'"they" if a person or "it" otherwise. Write only the new question.\nQuestion: '
+                    f'{questions[r.request_id]}' for r in mt]
+            follow = dict(zip([r.request_id for r in mt],
+                              generate_texts(handle, [_instruct(tok, a) for a in asks], 48, batch_size)))
+            for k, template in enumerate(opener_templates):
+                openers = [template.format(S=r.subject) for r in mt]
+                replies = generate_texts(handle, [_instruct(tok, o) for o in openers], 48, batch_size)
+                for r, opener, reply in zip(mt, openers, replies):
+                    stats["candidates"] += 1
+                    q = next((l for l in _lines(follow[r.request_id]) if l.endswith("?")), None)
+                    reply = reply.split("\n\n")[0].strip()[:400]
+                    if not q or not reply or _has(reply, r.answer) or not well_formed(q, "multiturn") \
+                            or _has(q, r.subject) or _has(q, r.answer):
+                        stats["dropped_form"] += 1
+                        continue
+                    msgs = [{"role": "user", "content": opener}, {"role": "assistant", "content": reply},
+                            {"role": "user", "content": q}]
+                    cand.append((r, "multiturn", k, probe(r, "multiturn", k, q, "chat", msgs)))
+        return cand
 
-    if "multiturn" in kinds:
-        mt = [r for r in reqs if r.request_id in questions]
-        openers = [f"What can you tell me about {r.subject}?" for r in mt]
-        replies = generate_texts(handle, [_instruct(tok, o) for o in openers], 40, batch_size)
-        asks = [f'Rewrite this question so that it does not contain the name "{r.subject}". Refer to them only as '
-                f'"they" if a person or "it" otherwise. Write only the new question.\nQuestion: {questions[r.request_id]}'
-                for r in mt]
-        for r, opener, reply, o in zip(mt, openers, replies, generate_texts(handle, [_instruct(tok, a) for a in asks], 48, batch_size)):
-            q = next((l for l in _lines(o) if l.endswith("?") and not _has(l, r.subject) and not _has(l, r.answer)), None)
-            reply = reply.split("\n\n")[0].strip()[:400]
-            if q and reply and not _has(reply, r.answer):
-                msgs = [{"role": "user", "content": opener}, {"role": "assistant", "content": reply},
-                        {"role": "user", "content": q}]
-                cand.append((r, "multiturn", "aug_multiturn", "train", probe(r, "multiturn", 0, q, "chat", msgs)))
-
-    # keep a view only if the base model answers it with the request's answer
-    known = teacher_forced(handle, renderer, [c[4] for c in cand], batch_size=batch_size) if cand else []
-    views: Dict[str, List[View]] = {r.request_id: [] for r in reqs}
-    stats = {"candidates": len(cand), "kept": 0, "dropped_base_does_not_answer": 0, "dropped_tokenization": 0}
+    kept: Dict[str, Dict[str, List[tuple]]] = {r.request_id: {} for r in reqs}
     seen = set()
-    for (r, kind, family, split, p), k in zip(cand, known):
-        if not k["correct"]:
-            stats["dropped_base_does_not_answer"] += 1
-            continue
-        text = sure_text(renderer, p)
-        if text is None or text in seen:
-            stats["dropped_tokenization"] += 1
-            continue
-        seen.add(text)
-        views[r.request_id].append(View(r.request_id, kind, family, split, p, text))
-        stats["kept"] += 1
+
+    def validate(cand):
+        known = teacher_forced(handle, renderer, [c[3] for c in cand], batch_size=batch_size) if cand else []
+        answered = [c for c, res in zip(cand, known) if res["correct"]]
+        stats["dropped_base_does_not_answer"] += len(cand) - len(answered)
+        if judge and answered:
+            def as_a(r):
+                return r.prompt if r.format != "cloze" else f"Complete: {r.prompt} ..."
+
+            def as_b(r, kind, p):
+                b = p.prompt if kind != "paraphrase" or r.format != "cloze" else f"Complete: {p.prompt} ..."
+                return f'{b} (here "they" or "it" means {r.subject})' if kind == "multiturn" else b
+            scores = same_question(handle, [(as_a(r), as_b(r, kind, p), r.subject) for r, kind, k, p in answered],
+                                   batch_size=batch_size)
+            before = len(answered)
+            answered = [c for c, sc in zip(answered, scores) if sc >= 0.5]
+            stats["dropped_not_same_fact"] += before - len(answered)
+        for r, kind, k, p in answered:
+            text = sure_text(renderer, p)
+            if text is None or text in seen:
+                stats["dropped_tokenization"] += 1
+                continue
+            seen.add(text)
+            kept[r.request_id].setdefault(kind, []).append((k, p, text))
+
+    validate(generate_round(reqs))
+    if min_views:
+        short = [by_id[rid] for rid, kinds_kept in kept.items()
+                 if sum(len(v) for v in kinds_kept.values()) < int(min_views)]
+        stats["second_round_requests"] = len(short)
+        if short:
+            validate(generate_round(short, second=True))
+
+    views: Dict[str, List[View]] = {r.request_id: [] for r in reqs}
+    for r in reqs:
+        for kind, items in kept[r.request_id].items():
+            items.sort(key=lambda x: x[0])
+            for pos, (k, p, text) in enumerate(items):
+                if split_rule == "holdout_last":
+                    split = "development" if len(items) >= 2 and pos == len(items) - 1 else "train"
+                else:   # legacy
+                    split = "train" if (k == 0 or kind in ("question", "multiturn")) else "development"
+                if kind == "translate":
+                    family = f"aug_translate_{langs[k]}"
+                elif kind in ("question", "multiturn") and k == 0:
+                    family = f"aug_{kind}"
+                else:
+                    family = f"aug_{kind}_{k}"
+                views[r.request_id].append(View(r.request_id, kind, family, split, p, text))
+                stats["kept"] += 1
     stats["by_kind"] = {kd: sum(v.kind == kd for vs in views.values() for v in vs) for kd in VIEW_KINDS}
-    log(f"[sure_r] views: {json.dumps(stats)}")
+    counts = sorted(len(v) for v in views.values())
+    stats["per_request"] = {"min": counts[0], "median": counts[len(counts) // 2], "max": counts[-1]} if counts else {}
+    log(f"[views] {json.dumps(stats)}")
     return views, stats
 
 

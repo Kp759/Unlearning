@@ -105,3 +105,42 @@ The two-pass design needed a routing pass because layer 16 runs before the class
 - The one-pass edit at every generated token gives the lowest leak in free generation and the best R.
 - Its router is SURE's plain one: no fuzzy names (typos 100%) and no rewrites, so routing, not editing, now limits E.
 - The 20 / 20 router changed nothing here. Its 15 extra positives are prefix variants of the same request sentence, so they add no new phrasings.
+
+
+## `ours`: SURE-R's router + the one-pass layer-19 edit
+
+`ours` puts `sure_paper`'s edit on SURE-R's router. `ours_l16` is the same method with Δe at layer 16 in two passes. Every router training prompt is checked as follows.
+
+### Positives (must route to the fact)
+
+Up to 20 per fact: the request, validated base-model rewrites, then context prefixes.
+
+| Source | Count asked | Kept only if |
+|---|---|---|
+| Paraphrases | 6, plus 6 more in a second round for facts with < 8 rewrites | every check below |
+| Direct questions | 3, plus 3 more in a second round | every check below |
+| Translations: Italian, Portuguese, Dutch (never SCALPEL's French / Spanish / German) | 3 | every check below |
+| Multi-turn follow-ups with "they" / "it" (two different openers) | 2 | every check below |
+| Context prefixes on the request and on plain-text rewrites | at most 8 | subject still recognised |
+
+The checks a rewrite must pass:
+- **Form:** one line, no list markers, labels or talk about the task; 3-40 words; questions end with "?".
+- **Content:** contains the subject's name (follow-ups: must not, they use the pronoun) and never the answer.
+- **Novelty:** not a near-duplicate of the request or of a kept rewrite (word Jaccard < 0.8).
+- **Meaning:** the base model answers it with the request's answer.
+- **Same fact:** asked "Does Prompt B ask for exactly the same piece of information as Prompt A?", the base model says Yes. This rejects rewrites that keep the answer but change the question, e.g. "Where did Dante Alighieri live?" for "born in", which the answer check alone accepts.
+
+If a fact runs out of quality phrasings it keeps fewer than 20 positives, reported per fact, rather than being padded with near-copies of one sentence.
+
+### Negatives (mention the subject, must not route)
+
+Exactly 20 where enough valid ones exist:
+- **Composition:** up to half same-subject competitors, the rest subject transplants (another fact's prompt with this subject swapped in).
+- **SURE's donor rules apply:** subject type, answer group, protected relations.
+- **Answer check:** a negative is dropped if the base model would answer it with the fact's answer (≥ 0.3 probability). Example dropped on the local run: "Dante Alighieri is a citizen of" for "born in Florence".
+- **Plausibility check:** a transplant is dropped if its relation phrase costs more than 1.5 nats per token more after this subject than after the donor's. Example dropped: "Harry S. Truman plays the position of".
+- **Diversity:** lead-in variants of one prompt count once, and transplants rotate across donor relations, so the 20 ask about different things.
+
+`router_quality.md` (in SURE's work directory) lists the counts, the dropped examples, and every positive and negative of two facts.
+
+Note: translation views used SCALPEL's French / Spanish / German before 2026-10-24, which broke this file's own rule, so cross-lingual was not truly held out. All SURE-R variants now use Italian / Portuguese / Dutch.

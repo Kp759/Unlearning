@@ -7,6 +7,11 @@ requests only (export_multifact, as `sure`).
                     token and at every generated token (linear_router write_mode "query").
     sure_paper_l16  ablation: the earlier two-pass design. Pass 1 routes at layer L, pass 2
                     adds Δe at layer 16 (scripts/early_write.py, query mode).
+    ours            sure_paper's edit on SURE-R's router: fuzzy subject matching and 20
+                    quality-checked positives per fact (the request, validated base-model
+                    rewrites, context prefixes) and 20 quality-checked negatives (base-model
+                    answer-collision and plausibility checks). See write_quality_report.
+    ours_l16        ablation of ours: Δe at layer 16, two passes.
 
 Rows: on-policy feedback on generated continuations of each request's views, output loss +
 KL keep + teacher-forced gold views; no logit lens (--lens-type none) and no PCA in the router
@@ -66,6 +71,14 @@ def trainer_command(root: Path, router: Path, out: Path, *, router_layer: int, w
     return cmd + shlex.split(extra)
 
 
+def request_of_fact(prep: Path, data: Path) -> dict:
+    """SURE fact id -> SCALPEL request id, through the prep manifest's case mapping."""
+    manifest = json.loads((prep / "association_manifest.json").read_text())
+    case_to_fact = {str(k): v for k, v in manifest["atomic_case_to_association_id"].items()}
+    visible = json.loads((data / "training_visible_forget.json").read_text())
+    return {case_to_fact[str(rec["case_id"])]: rec["scalpel_request_id"] for rec in visible}
+
+
 class SurePaper(Method):
     card = MethodCard("sure_paper", "detect_then_edit",
                       "the paper's method: linear router at layer L + Δe at the same layer L, at the last "
@@ -73,6 +86,12 @@ class SurePaper(Method):
                       "feedback trainer (no logit lens, no PCA)",
                       runtime_components=["router_hooks"], reference="this repository", decode="hf")
     default_write_layer: Optional[int] = None          # None = the router layer: one pass
+    fit_args: tuple = ()                               # extra fit_linear_router.py flags
+    train_args: tuple = ()                             # extra row-trainer flags
+
+    def router_inputs(self, base, requests, prep: Path, req_of_fact: dict, ctx) -> dict:
+        """Write extra router inputs into SURE's prep directory before the fit (none here)."""
+        return {}
 
     def unlearn(self, base, requests, allowed_retain, ctx):
         a = self.args
@@ -98,13 +117,16 @@ class SurePaper(Method):
             (router, py + [str(root / "scripts/fit_linear_router.py"), "--run-dir", str(prep), "--output-dir", str(router),
                            "--device", device, "--fit-device", fit_device, "--local-files-only",
                            "--threshold-policy", "global", "--decision-rule", "calibrated_bias", "--min-recall", "0.98",
-                           "--threshold-placement-fraction", "0.1"]),
+                           "--threshold-placement-fraction", "0.1", *self.fit_args]),
             (rows, trainer_command(root, router, rows, router_layer=layer, write_layer=write_layer, device=device,
-                                   extra=str(a.get("train_args", "")))),
+                                   extra=" ".join([*self.train_args, str(a.get("train_args", ""))]))),
         ]
+        inputs_report = {}
         for out, cmd in steps:
             if (out / "fact_association_embeddings.pt").exists():
                 continue
+            if out == router:                     # this method's own router inputs, then the fit
+                inputs_report = self.router_inputs(base, requests, prep, request_of_fact(prep, data), ctx)
             if out == rows and out.exists():      # the trainer refuses an existing output dir
                 out.rename(out.with_name(f"{out.name}.incomplete_{time.strftime('%Y%m%d_%H%M%S')}"))
             ctx.log(f"[{self.card.name}] " + " ".join(cmd))
@@ -121,6 +143,8 @@ class SurePaper(Method):
             bank.tokenizer = base.tokenizer
             runtime = _SureRuntime(assoc, bank).eval()
         else:
+            if getattr(assoc, "bank", None) is not None:
+                assoc.bank.tokenizer = base.tokenizer     # the routing pass's bank (fuzzy matching)
             runtime = _EarlyRuntime(assoc).eval()
         facts = artifact["facts"]
         visible = json.loads((data / "training_visible_forget.json").read_text())
@@ -138,7 +162,9 @@ class SurePaper(Method):
             return out
 
         report = json.loads((rows / "training_report.json").read_text()) if (rows / "training_report.json").exists() else {}
+        quality = write_quality_report(router, work / L / "router_quality.md", inputs_report)
         self._report = {"work_dir": str(work), "router_layer": layer, "write_layer": write_layer,
+                        "router_quality": quality,
                         "forward_passes": 1 if one_pass else 2, "facts": len(facts),
                         "facts_routed_by_router": report.get("facts_routed_by_router"),
                         "facts_trained_with_oracle_routing": report.get("facts_trained_with_oracle_routing"),
@@ -158,3 +184,68 @@ class SurePaperL16(SurePaper):
                       "(the earlier two-pass early write)",
                       runtime_components=["router_hooks"], reference="this repository", decode="full")
     default_write_layer = 16
+
+
+# ------------------------------------------------------------------ ours: SURE-R's router
+OURS_FIT_ARGS = ("--subject-match", "fuzzy", "--positives-per-fact", "20", "--negatives-per-fact", "20",
+                 "--max-prefix-positives", "8", "--pca-dims", "0", "--negative-answer-check",
+                 "--negative-plausibility-delta", "1.5")
+
+
+class Ours(SurePaper):
+    card = MethodCard("ours", "detect_then_edit",
+                      "SURE-R's router (fuzzy subject matching; 20 quality-checked positives per fact: the request, "
+                      "validated base-model rewrites, context prefixes; 20 quality-checked negatives) + Δe at the "
+                      "router layer in one forward pass, at the last prompt token and every generated token; rows by "
+                      "the paper's feedback trainer (no logit lens, no PCA)",
+                      runtime_components=["router_hooks"], reference="this repository", decode="hf")
+    fit_args = OURS_FIT_ARGS
+    train_args = ("--views-per-fact", "8")
+
+    def router_inputs(self, base, requests, prep, req_of_fact, ctx):
+        from .sure_robust import TRAIN_LANGS, VIEW_KINDS, make_views, write_router_inputs
+        views, stats = make_views(base, ctx.renderer, requests, VIEW_KINDS, langs=TRAIN_LANGS, n_para=6, n_question=3,
+                                  n_multiturn=2, split_rule="holdout_last", judge=True, min_views=8, log=ctx.log)
+        written = write_router_inputs(prep, req_of_fact, views, {})
+        return {"views": stats, "router_inputs": written}
+
+
+class OursL16(Ours):
+    card = MethodCard("ours_l16", "detect_then_edit",
+                      "ablation of ours: the same router and rows trainer, Δe at layer 16 in a second pass",
+                      runtime_components=["router_hooks"], reference="this repository", decode="full")
+    default_write_layer = 16
+
+
+def write_quality_report(router: Path, out: Path, inputs_report: dict, sample_facts: int = 2) -> dict:
+    """router_quality.md: per-fact positive / negative counts, the rewrite and negative checks,
+    and every positive and negative of a few facts, to read the training data itself."""
+    rep_path, ds_path = router / "linear_router_report.json", router / "linear_router_dataset.json"
+    if not rep_path.exists():
+        return {}
+    ds = json.loads(rep_path.read_text()).get("dataset", {})
+    counts = ds.get("per_fact_counts") or {}
+    quality = ds.get("negative_quality") or {}
+    lines = ["# Router training data", "",
+             f"Positives per fact: {counts.get('positives')}", f"Negatives per fact: {counts.get('negatives')}", ""]
+    views = (inputs_report or {}).get("views")
+    if views:
+        lines += [f"Rewrites (views): {json.dumps({k: v for k, v in views.items()})}", ""]
+    if quality:
+        lines += [f"Negative checks: {json.dumps({k: v for k, v in quality.items() if k != 'examples'})}", ""]
+        for reason, rows in (quality.get("examples") or {}).items():
+            if rows:
+                lines += [f"Dropped ({reason}):", ""] + [f"- `{json.dumps(r, ensure_ascii=False)}`" for r in rows[:6]] + [""]
+    records = json.loads(ds_path.read_text()) if ds_path.exists() else []
+    facts = sorted({r["owner_fact_id"] for r in records if r.get("kind") == "positive"})[:sample_facts]
+    for fid in facts:
+        pos = [r for r in records if r.get("owner_fact_id") == fid and r.get("kind") == "positive"]
+        neg = [r for r in records if fid in (r.get("negative_for") or [])]
+        lines += [f"## {fid}: {len(pos)} positives, {len(neg)} negatives", "", "| split | family | positive |", "|---|---|---|"]
+        lines += [f"| {r['split']} | {r['group']} | {r['prompt'][-140:].replace('|', '/').replace(chr(10), ' ')} |" for r in pos]
+        lines += ["", "| split | kind | negative |", "|---|---|---|"]
+        lines += [f"| {r['split']} | {r['kind']} | {r['prompt'][-140:].replace('|', '/').replace(chr(10), ' ')} |" for r in neg]
+        lines.append("")
+    out.write_text("\n".join(lines) + "\n")
+    return {"positives": counts.get("positives"), "negatives": counts.get("negatives"),
+            "negative_checks": {k: v for k, v in quality.items() if k != "examples"}, "report": str(out)}

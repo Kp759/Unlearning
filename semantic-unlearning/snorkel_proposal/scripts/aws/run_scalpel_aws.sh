@@ -4,9 +4,9 @@
 # after a stop, a crash or a reboot, rerun the same command. Run from anywhere.
 #
 #   bash scripts/aws/run_scalpel_aws.sh setup        # once: Python env, data, Wikipedia corpus, tests
-#   bash scripts/aws/run_scalpel_aws.sh core         # covariance, splits, 13 methods + sure + sure_paper + sure_r, gate, report
+#   bash scripts/aws/run_scalpel_aws.sh core         # covariance, splits, 13 methods + sure + ours, gate, report
 #   bash scripts/aws/run_scalpel_aws.sh agent        # agentic leakage track (after core)
-#   bash scripts/aws/run_scalpel_aws.sh robust       # ablations: sure_paper_l16 (two passes) + 6 SURE-R (after core)
+#   bash scripts/aws/run_scalpel_aws.sh robust       # ablations of ours: ours_l16, sure_paper, sure_r + 6 SURE-R
 #   bash scripts/aws/run_scalpel_aws.sh sequential   # sequential deletion (gd, npo, memit)
 #   bash scripts/aws/run_scalpel_aws.sh report       # leaderboards again
 #   bash scripts/aws/run_scalpel_aws.sh status       # what is done / missing / failed
@@ -45,9 +45,10 @@ ROBUST_DATASETS="${ROBUST_DATASETS:-merged}"
 SEQ_DATASETS="${SEQ_DATASETS:-merged}"
 SEEDS="${SEEDS:-1}"
 N_FORGET="${N_FORGET:-50}"
-METHODS="${METHODS:-noop idk_all prompt_cache_idk subject_blocklist_idk keyword_router_idk answer_ban ga gd npo rmu rome memit zerounlearn sure sure_paper sure_r}"
-AGENT_METHODS="${AGENT_METHODS:-noop idk_all subject_blocklist_idk answer_ban ga gd npo rmu rome memit zerounlearn sure sure_paper sure_r}"
-ROBUST_METHODS="${ROBUST_METHODS:-sure_paper_l16 sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake}"
+METHODS="${METHODS:-noop idk_all prompt_cache_idk subject_blocklist_idk keyword_router_idk answer_ban ga gd npo rmu rome memit zerounlearn sure ours}"
+AGENT_METHODS="${AGENT_METHODS:-noop idk_all subject_blocklist_idk answer_ban ga gd npo rmu rome memit zerounlearn sure ours}"
+# ablations of ours, one component each: ours_l16 (Δe at 16), sure_paper (plain router), sure_r (SURE-R's rows)
+ROBUST_METHODS="${ROBUST_METHODS:-ours_l16 sure_paper sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake}"
 SEQ_METHODS="${SEQ_METHODS:-gd npo memit}"
 METHOD_SECONDS="${METHOD_SECONDS:-14400}"
 SURE_SECONDS="${SURE_SECONDS:-14400}"

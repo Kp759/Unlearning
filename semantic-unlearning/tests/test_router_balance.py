@@ -7,7 +7,8 @@ The claims these protect:
     added prompts loses subject eligibility, so assembly drops none of them;
   * a longer list is cut keeping canonical first and some development positives;
   * every fact gets exactly the requested negatives: up to half same-subject competitors,
-    the rest subject transplants, both spread over fit / calibration / audit;
+    the rest subject transplants, both spread over fit / calibration / audit; different
+    questions first, lead-in variants of one question only to fill;
   * the added prefixes are not SCALPEL's probe prefixes (no test templates in training).
 """
 from __future__ import annotations
@@ -78,9 +79,35 @@ def test_negatives_exactly_the_target_half_competitors_half_transplants():
         assert data["diagnostics"]["by_split"][split]["negative_controls"] > 0
 
 
+def test_negatives_prefer_distinct_questions_over_lead_in_variants():
+    from linear_router import _core_prompt, compose_negatives
+    base = [{"prompt": f"{lead} Ann Lee works as a".strip(), "kind": "subject_transplant", "split": "fit",
+             "donor_relation": "P106"} for lead in ("", "Reportedly,", "As the records show,")]
+    other = [{"prompt": "Ann Lee is a citizen of", "kind": "subject_transplant", "split": "fit", "donor_relation": "P27"},
+             {"prompt": "Ann Lee died in", "kind": "subject_transplant", "split": "calibration", "donor_relation": "P20"}]
+    picked = compose_negatives(base + other, 3)
+    assert len({_core_prompt(c["prompt"]) for c in picked}) == 3          # three different questions first
+    assert len(compose_negatives(base + other, 5)) == 5                   # then lead-in variants fill
+
+
 def test_added_prefixes_are_not_scalpel_probe_prefixes():
     probe = Path(__file__).resolve().parents[1] / "snorkel_proposal" / "scalpel" / "relations.py"
     text = probe.read_text().casefold()
     assert len(set(EXTRA_CONTEXT_PREFIXES)) == len(EXTRA_CONTEXT_PREFIXES) == 16
     assert not set(EXTRA_CONTEXT_PREFIXES) & set(GENERIC_CONTEXT_PREFIXES)
     assert not any(p.rstrip(",").casefold() in text for p in EXTRA_CONTEXT_PREFIXES)
+
+
+def test_prefix_copies_are_capped_and_shortfalls_reported():
+    facts, tok = _facts(), _WordTokenizer()
+    patterns = make_subject_patterns(tok, facts)
+    rows = examples_from_facts(facts, augment=True)
+    rows.append({"fact_id": facts[0]["id"], "prompt": "The birthplace of Alice Smith is", "split": "train",
+                 "group": "aug_paraphrase_0", "role": "aug_paraphrase_0"})
+    examples, report = balance_positive_examples(rows, facts, 20, max_prefixed=8)
+    first = [e for e in examples if e["fact_id"] == facts[0]["id"]]
+    assert sum(e["group"].startswith("context_prefix") for e in first) == 8
+    assert len(first) == 1 + 1 + 8 and report["short"][facts[0]["id"]] == 10      # not padded to 20
+    assert [e["group"] for e in first[:2]] == ["canonical_0", "aug_paraphrase_0"]  # real phrasings first
+    assert any("The birthplace of Alice Smith is" in e["prompt"] and e["group"].startswith("context_prefix")
+               for e in first)                                                   # lead-ins on the rewrite too

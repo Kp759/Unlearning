@@ -443,11 +443,14 @@ def main(argv=None):
     source["edit_mode"] = "add"
     if early:
         lm = bank = EarlyWriteCausalLM(model, source, args.write_layer, args.write_mode)
+        if getattr(lm, "bank", None) is not None:
+            lm.bank.tokenizer = tok             # fuzzy subject matching decodes the prompt
         lm.rows.requires_grad_(True)
         params = [lm.rows]
     else:
         source["write_mode"] = args.write_mode
         lm_wrapped, bank = load_linear_classifier_artifact(model, source)
+        bank.tokenizer = tok                    # fuzzy subject matching decodes the prompt
         for row in bank.rows:
             row.requires_grad_(True)
         editor = FactAssociationEditor(model, bank)

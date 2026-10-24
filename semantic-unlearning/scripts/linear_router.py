@@ -331,16 +331,29 @@ EXTRA_CONTEXT_PREFIXES = (
 )
 
 
-def balance_positive_examples(examples, facts, target, *, eligible=None, prefixes=None):
+def _core_prompt(prompt):
+    """The prompt without a known context-prefix lead-in (so lead-in variants count as one)."""
+    text = str(prompt).strip()
+    for prefix in (*GENERIC_CONTEXT_PREFIXES, *EXTRA_CONTEXT_PREFIXES):
+        if text.startswith(prefix + " "):
+            return text[len(prefix) + 1:].strip()
+    return text
+
+
+def balance_positive_examples(examples, facts, target, *, eligible=None, prefixes=None, max_prefixed=None):
     """Exactly `target` positive examples per fact (fit_linear_router --positives-per-fact).
 
-    Kept first: the fact's own examples (canonical families, then the rest in file order).
+    Kept first: the fact's own examples, most informative first: canonical families, then
+    other phrasings (dataset paraphrases, base-model rewrites), then context-prefix copies.
     Topped up with context-prefix variants of its canonical prompts: prefix p of
     EXTRA_CONTEXT_PREFIXES is family context_prefix_<4+p>, a development family when
     (4+p) % 4 == 3, so about a quarter of the added positives stay held out for calibration /
     audit. Longer lists are cut keeping canonical first and a quarter development.
     eligible(prompt, fact_index) (the runtime subject rule) vets every added prompt, so none
-    is dropped later. Returns (examples as dicts, report)."""
+    is dropped later. max_prefixed caps the context-prefix copies per fact (ours: 8): a fact
+    short of real phrasings then keeps fewer than `target` positives (reported in "short")
+    instead of being padded with near-copies of one sentence; the copies are spread over the
+    canonical prompts and the fact's other plain-text phrasings. Returns (examples, report)."""
     target = int(target)
     prefixes = list(prefixes or EXTRA_CONTEXT_PREFIXES)
     by_fact = defaultdict(list)
@@ -357,7 +370,13 @@ def balance_positive_examples(examples, facts, target, *, eligible=None, prefixe
         fact_id = str(fact["id"])
         own = [as_dict(e) for e in by_fact.get(fact_id, [])]
         canonical = [e for e in own if e["group"].startswith("canonical")]
-        ordered = canonical + [e for e in own if not e["group"].startswith("canonical")]
+        prefixed = [e for e in own if e["group"].startswith("context_prefix")]
+        ordered = canonical + [e for e in own if e not in canonical and e not in prefixed] + prefixed
+        if max_prefixed is not None:
+            room = int(max_prefixed)
+            kept_prefixed = [e for e in prefixed][:room]
+            ordered = [e for e in ordered if e not in prefixed] + kept_prefixed
+            report["cut"] += len(prefixed) - len(kept_prefixed)
         if len(ordered) > target:
             dev = [e for e in ordered if e["split"] != "train"]
             train = [e for e in ordered if e["split"] == "train"]
@@ -369,11 +388,16 @@ def balance_positive_examples(examples, facts, target, *, eligible=None, prefixe
             continue
         out += ordered
         need = target - len(ordered)
+        n_prefixed = sum(e["group"].startswith("context_prefix") for e in ordered)
+        if max_prefixed is not None:
+            need = min(need, max(0, int(max_prefixed) - n_prefixed))
         seen = {e["prompt"] for e in ordered}
-        bases = [e["prompt"] for e in canonical] or [str(fact.get("canonical_prompt") or "").strip()]
+        bases = ([e["prompt"] for e in canonical] or [str(fact.get("canonical_prompt") or "").strip()])
+        bases += [e["prompt"] for e in ordered if e not in canonical and not e["group"].startswith("context_prefix")
+                  and not e["prompt"].lstrip().startswith("<|")]          # plain-text rewrites too, not chat
         for position, prefix in enumerate(prefixes):
             family = 4 + position
-            for base in bases:
+            for base in bases[position % max(1, len(bases)):] + bases[:position % max(1, len(bases))]:
                 if need <= 0:
                     break
                 variant = with_context_prefix(base, prefix) if base else None
@@ -389,8 +413,10 @@ def balance_positive_examples(examples, facts, target, *, eligible=None, prefixe
                             "augmented": True})
                 need -= 1
                 report["topped_up"] += 1
-        if need > 0:
-            report["short"][fact_id] = need
+                break                                 # one copy per prefix: spread prefixes over bases
+        total = sum(1 for e in out if e["fact_id"] == fact_id)
+        if total < target:
+            report["short"][fact_id] = target - total
     return out, report
 
 
@@ -552,6 +578,10 @@ def _negative_controls_for_fact(
                 "donor_rank": donor_rank,
                 "donor_relation": donor_relation,
                 "group": family,
+                # for quality checks: the same template with its own subject
+                "donor_prompt": prompt.strip(),
+                "donor_subject": str(other["subject"]),
+                "subject": subject,
             })
             taken += 1
             transplants += 1
@@ -563,6 +593,57 @@ def _negative_controls_for_fact(
         used = {c["prompt"] for c in controls}
         controls += [c for c in real_order if c["prompt"] not in used][: int(total) - len(controls)]
     return controls, dict(skipped)
+
+
+def _by_split_round_robin(items):
+    by_split = {split: [c for c in items if c["split"] == split] for split in SPLITS}
+    out = []
+    while any(by_split.values()):
+        for split in SPLITS:
+            if by_split[split]:
+                out.append(by_split[split].pop(0))
+    return out
+
+
+def _distinct(controls):
+    """(first control of every core text, the repeats): the core is the prompt without a
+    known lead-in, so lead-in variants of one prompt are repeats."""
+    seen, first, repeats = set(), [], []
+    for c in controls:
+        core = _norm(_core_prompt(c["prompt"]))
+        (repeats if core in seen else first).append(c)
+        seen.add(core)
+    return first, repeats
+
+
+def _by_relation_round_robin(items):
+    """One per donor relation at a time (then the next), keeping each relation's split order."""
+    groups = {}
+    for c in items:
+        groups.setdefault(str(c.get("donor_relation", "")), []).append(c)
+    out = []
+    while any(groups.values()):
+        for key in list(groups):
+            if groups[key]:
+                out.append(groups[key].pop(0))
+    return out
+
+
+def compose_negatives(controls, n):
+    """n negatives: up to half same-subject real competitors, then extra controls and subject
+    transplants, more competitors if those run short. Lead-in variants of one prompt count once;
+    transplants rotate over donor relations (then splits), so the negatives ask many different
+    things about the subject instead of one question with several lead-ins."""
+    controls, repeats = _distinct(controls)
+    real = _by_split_round_robin([c for c in controls if c["kind"] == "same_subject_real"])
+    extra = [c for c in controls if c["kind"] not in ("same_subject_real", "subject_transplant")]
+    trans = _by_relation_round_robin(_by_split_round_robin(
+        [c for c in controls if c["kind"] == "subject_transplant"]))
+    out = real[: int(n) // 2]
+    out += (extra + trans)[: int(n) - len(out)]
+    out += real[int(n) // 2:][: int(n) - len(out)]
+    out += _by_split_round_robin(repeats)[: int(n) - len(out)]   # lead-in variants only if still short
+    return out
 
 
 def per_fact_counts(records, n_facts):
@@ -592,11 +673,15 @@ def assemble_router_dataset(
     extra_controls=None,
     subject_match="exact",
     negatives_per_fact=None,
+    negative_filter=None,
 ):
     """Prompts, labels, runtime eligibility and fit/calibration/audit splits.
 
-    negatives_per_fact: every fact gets exactly this many negatives when enough exist:
-    same-subject real competitors, then extra_controls, then subject transplants.
+    negatives_per_fact: every fact gets exactly this many negatives when enough exist
+    (compose_negatives).
+    negative_filter: optional f(fact_index, controls) -> kept controls (fit_linear_router's
+    base-model quality checks); with negatives_per_fact, twice as many candidates are drawn
+    first so the filter can drop the bad ones and still leave enough.
 
     subject_match: "exact" (shipped) or "fuzzy" (see SUBJECT_MATCHES); it must be
     the rule the runtime bank uses.
@@ -672,9 +757,10 @@ def assemble_router_dataset(
     for index, fact in enumerate(facts):
         extra = list((extra_controls or {}).get(index, []))
         total = None
+        draw = 2 if negative_filter is not None else 1
         if negatives_per_fact:
-            extra = extra[: int(negatives_per_fact)]
-            total = int(negatives_per_fact) - len(extra)
+            extra = extra[: draw * int(negatives_per_fact)]
+            total = max(0, draw * int(negatives_per_fact) - len(extra))
         controls, skipped = _negative_controls_for_fact(
             index,
             facts,
@@ -686,11 +772,12 @@ def assemble_router_dataset(
             subject_relation_pairs=subject_relation_pairs,
             total=total,
         )
-        if total is not None:          # real competitors first, then the extra controls, then transplants
-            real = [c for c in controls if c["kind"] == "same_subject_real"]
-            controls = real + extra + [c for c in controls if c["kind"] != "same_subject_real"]
-        elif extra:
-            controls = controls + extra
+        controls = controls + extra
+        before = len(controls)
+        if negative_filter is not None:
+            controls = negative_filter(index, controls)
+        if negatives_per_fact:
+            controls = compose_negatives(controls, int(negatives_per_fact))
         added = defaultdict(int)
         for control in controls:
             prompt = control["prompt"]
@@ -716,6 +803,7 @@ def assemble_router_dataset(
         per_fact.append({
             "fact_id": fact["id"],
             "relation": fact.get("relation"),
+            "candidates": before,
             "controls": len(controls),
             "new_negatives_by_split": dict(added),
             "skipped_donors": skipped,

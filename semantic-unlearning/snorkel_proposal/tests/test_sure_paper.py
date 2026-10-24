@@ -89,3 +89,34 @@ def test_query_changes_generated_tokens_beyond_the_first():
     a = rt_last.generate_cached(ids, att, 8, None)
     b = rt_query.generate_cached(ids, att, 8, None)
     assert torch.equal(a[:, :1], b[:, :1]) and not torch.equal(a, b)
+
+
+# ---------------------------------------------------------------- ours: router-input quality
+def test_rewrite_filters():
+    from scalpel.methods.sure_robust import _lines, near_duplicate, well_formed
+    raw = ("Here are three versions:\n1. Version 1: Agnès Varda passed away in the city of\n"
+           "- \"The city where Agnès Varda died is\"\nParaphrase 3: Rewrite: Agnès Varda died in")
+    assert _lines(raw) == ["Agnès Varda passed away in the city of", "The city where Agnès Varda died is"]
+    assert near_duplicate("In which city did Agnès Varda die?", ["In which city did Agnes Varda die ?"])
+    assert not near_duplicate("Agnès Varda passed away in the city of", ["Agnès Varda passed away in the town of"])
+    assert not near_duplicate("Which city did Agnès Varda die in?", ["Agnès Varda died in the city of"])
+    assert well_formed("Which city did Agnès Varda die in?", "question")
+    assert not well_formed("Which city did Agnès Varda die in", "question")          # questions end with ?
+    assert not well_formed("Varda", "paraphrase") and not well_formed(" ".join(["w"] * 41), "paraphrase")
+
+
+def test_ours_trains_on_languages_scalpel_never_probes():
+    from scalpel.methods.sure_robust import LANGS, TRAIN_LANGS
+    from scalpel.relations import RELATIONS
+    probed = {lang for spec in RELATIONS.values() for lang in (spec.get("xl") or {})}
+    assert probed == {"fr", "es", "de"} and not set(TRAIN_LANGS) & probed and set(TRAIN_LANGS) <= set(LANGS)
+
+
+def test_ours_registry_and_fit_recipe():
+    from scalpel.methods.sure_paper import OURS_FIT_ARGS
+    assert make("ours", model_path="x").card.decode == "hf" and make("ours_l16", model_path="x").card.decode == "full"
+    assert make("ours_l16", model_path="x").default_write_layer == 16 and "ours" in SURE_VARIANTS
+    for flag in ("--subject-match", "--positives-per-fact", "--negatives-per-fact", "--negative-answer-check",
+                 "--negative-plausibility-delta"):
+        assert flag in OURS_FIT_ARGS
+    assert OURS_FIT_ARGS[OURS_FIT_ARGS.index("--pca-dims") + 1] == "0"
