@@ -87,3 +87,36 @@ def test_dataset_targets():
               "canonical_prompt": "What was the native language of Alain Renoir?"},
              {"id": "zsre_2", "subject": "Paris", "object": "France", "canonical_prompt": "Paris is located in"}]
     assert [t.fmt for t in targets_of(plain, dataset_of(plain))] == ["qa", "cloze"]
+
+
+def test_scalpel_meaning_check(monkeypatch):
+    """build_router_rewrites uses SCALPEL's check (teacher_forced under scalpel's Renderer): a known
+    fact's rewrite must be answered; an unknown fact's rewrite goes on to the judge (or is dropped)."""
+    import types
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "snorkel_proposal"))
+    import scalpel.model_api as api
+    from build_router_rewrites import make_validator
+
+    answered = {"Agnès Varda died in the city of", "Agnès Varda passed away in the city of"}
+    seen = []
+
+    def fake_teacher_forced(handle, renderer, probes, batch_size=16, topk=0):
+        seen.extend(probes)
+        return [{"correct": p.prompt in answered} for p in probes]
+    monkeypatch.setattr(api, "teacher_forced", fake_teacher_forced)
+    facts = [{"id": "f0", "subject": "Agnès Varda", "object": "Paris", "answer_aliases": ["Paris, France"]},
+             {"id": "f1", "subject": "Ann Lee", "object": "Rome"}]
+    t1 = RR.RewriteTarget("f1", "Ann Lee", "Rome", "Ann Lee was born in", "cloze")
+    cands = [RR.Candidate(T, "paraphrase", 0, "Agnès Varda passed away in the city of", "cloze"),
+             RR.Candidate(T, "paraphrase", 1, "Agnès Varda lived in the city of", "cloze"),
+             RR.Candidate(t1, "question", 0, "Where was Ann Lee born?", "qa")]
+    tok = types.SimpleNamespace(chat_template=None)
+    validate = make_validator(None, tok, facts, "mcf")
+    assert validate(cands) == ["Agnès Varda passed away in the city of", None, "Where was Ann Lee born?"]
+    assert validate.counts == {"answered": 1, "not_answered": 1, "unknown_fact_to_judge": 1,
+                               "unknown_fact_dropped": 0, "unknown_facts": 1, "known_facts": 1}
+    probes = {p.prompt: p for p in seen}
+    assert probes["Where was Ann Lee born?"].format == "qa" and probes["Agnès Varda died in the city of"].format == "cloze"
+    assert probes["Agnès Varda died in the city of"].answers() == ["Paris", "Paris, France"]
+    strict = make_validator(None, tok, facts, "mcf", unknown="drop")
+    assert strict(cands)[2] is None and strict.counts["unknown_fact_dropped"] == 1

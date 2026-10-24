@@ -9,9 +9,14 @@ are in router_rewrites.py. The rewrite is rendered as the dataset renders its ow
     RWKU                              rwku_eval.format_qa_prompt (its chat QA prompt), level 1
                                       for fill-in-the-blank paraphrases, level 2 otherwise
 
-Meaning check: prompt + " " + answer encoded exactly as the router's and row trainers' examples
-(static_overlap_natural_writer._encode_answer_example); kept if every answer token is the base
-model's argmax. Then fit_linear_router.py --views <output>.
+Meaning check: SCALPEL's, the same code its ours classifier uses (scalpel/methods/sure_robust.
+make_views): the rewrite as a SCALPEL probe (questions in the chat template, unfinished sentences as
+raw text), kept if every answer token is the base model's argmax under teacher forcing (any alias).
+SCALPEL keeps only facts the base model answers, so the check always applies there. Most forget
+facts of the paper datasets are not answered (MCF base Eff 13%): for a fact whose own prompt fails
+the check, no rewrite can pass it, so --unknown-facts judge (default) leaves those rewrites to
+SCALPEL's other check, the same-fact judge; --unknown-facts drop keeps the strict rule. The kept
+rewrite is stored as the dataset's router prompt. Then fit_linear_router.py --views <output>.
 
     python -u scripts/build_router_rewrites.py --prep-dir outputs/.../L19/prep \\
         --output outputs/.../L19/prep/router_rewrites.json --device cuda --local-files-only
@@ -51,13 +56,27 @@ def targets_of(facts, dataset):
     return out
 
 
-def make_validator(model, tok, facts, dataset, batch_size=16, max_length=512):
-    """Render each candidate as the dataset's router prompt; keep it if the base model's argmax
-    is every answer token (the router / row-trainer encoding: prompt + " " + answer)."""
-    from static_overlap_natural_writer import _encode_answer_example
+def make_validator(model, tok, facts, dataset, batch_size=16, unknown="judge"):
+    """SCALPEL's meaning check on each candidate (scalpel.model_api.teacher_forced under
+    scalpel's Renderer), returning the candidate rendered as the dataset's router prompt, or None.
+    unknown="judge": a fact the base model does not answer from its own prompt cannot be checked
+    this way, so its rewrites pass on to the same-fact judge; "drop": they are dropped.
+    validate.counts tallies the outcomes."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "snorkel_proposal"))
+    from scalpel.model_api import ModelHandle, Renderer, teacher_forced
+    from scalpel.schema import Probe
+
     by_id = {str(f["id"]): f for f in facts}
-    device = next(model.parameters()).device
-    pad = tok.pad_token_id if tok.pad_token_id is not None else (tok.eos_token_id or 0)
+    handle, renderer = ModelHandle(model=model, tokenizer=tok), Renderer(tok)
+    known = {}                         # target id -> the base model answers the fact's own prompt
+    counts = {"answered": 0, "not_answered": 0, "unknown_fact_to_judge": 0, "unknown_fact_dropped": 0,
+              "unknown_facts": 0, "known_facts": 0}
+
+    def probe(target, text, fmt, kind="target"):
+        fact = by_id[target.id]
+        return Probe(probe_id=f"rewrite/{target.id}/{kind}", role="forget", family=kind, fact_id=target.id,
+                     prompt=text, answer=str(fact["object"]), format="cloze" if fmt == "cloze" else "qa",
+                     aliases=[str(a) for a in fact.get("answer_aliases") or []], subject=target.subject)
 
     def render(c):
         if dataset == "rwku":
@@ -65,35 +84,30 @@ def make_validator(model, tok, facts, dataset, batch_size=16, max_length=512):
             return rwku_eval.format_qa_prompt(tok, {"query": c.text, "level": "1" if c.fmt == "blank" else "2"})
         return c.text
 
-    @torch.no_grad()
     def validate(cands):
-        encoded = []
-        for c in cands:
-            prompt = render(c)
-            fact = by_id[c.target.id]
-            try:
-                e = _encode_answer_example({"id": fact["id"], "role": fact.get("role", "forget"),
-                                            "object": fact["object"]}, "train", "rewrite", prompt, tok, max_length)
-                encoded.append((prompt, list(e.input_ids), list(e.labels)))
-            except ValueError:
-                encoded.append(None)
-        out = [None] * len(cands)
-        live = [i for i, e in enumerate(encoded) if e is not None]
-        for start in range(0, len(live), batch_size):
-            idx = live[start:start + batch_size]
-            width = max(len(encoded[i][1]) for i in idx)
-            ids = torch.full((len(idx), width), pad, dtype=torch.long)
-            att = torch.zeros_like(ids)
-            for b, i in enumerate(idx):
-                ids[b, :len(encoded[i][1])] = torch.tensor(encoded[i][1])
-                att[b, :len(encoded[i][1])] = 1
-            pred = model(input_ids=ids.to(device), attention_mask=att.to(device)).logits.argmax(-1).cpu()
-            for b, i in enumerate(idx):
-                prompt, input_ids, labels = encoded[i]
-                pos = [t for t, lab in enumerate(labels) if lab != -100]
-                if pos and all(int(pred[b, t - 1]) == input_ids[t] for t in pos):
-                    out[i] = prompt
+        todo = {c.target.id: c.target for c in cands if c.target.id not in known}
+        if todo:
+            res = teacher_forced(handle, renderer, [probe(t, t.text, t.fmt) for t in todo.values()], batch_size)
+            for tid, r in zip(todo, res):
+                known[tid] = bool(r["correct"])
+                counts["known_facts" if known[tid] else "unknown_facts"] += 1
+        res = teacher_forced(handle, renderer, [probe(c.target, c.text, c.fmt, c.kind) for c in cands], batch_size)
+        out = []
+        for c, r in zip(cands, res):
+            if r["correct"]:
+                counts["answered"] += 1
+                out.append(render(c))
+            elif known[c.target.id]:
+                counts["not_answered"] += 1
+                out.append(None)
+            elif unknown == "judge":
+                counts["unknown_fact_to_judge"] += 1
+                out.append(render(c))
+            else:
+                counts["unknown_fact_dropped"] += 1
+                out.append(None)
         return out
+    validate.counts = counts
     return validate
 
 
@@ -108,6 +122,8 @@ def main(argv=None):
     p.add_argument("--n-question", type=int, default=3)
     p.add_argument("--min-views", type=int, default=8)
     p.add_argument("--no-judge", action="store_true", help="skip the same-fact check")
+    p.add_argument("--unknown-facts", choices=("judge", "drop"), default="judge",
+                   help="rewrites of facts the base model does not answer: same-fact judge only, or drop")
     p.add_argument("--split-rule", choices=("holdout_last", "legacy"), default="holdout_last")
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--device", default="cuda")
@@ -133,15 +149,18 @@ def main(argv=None):
     model = AutoModelForCausalLM.from_pretrained(manifest["model_path"], dtype=dtype,
                                                  local_files_only=args.local_files_only).to(args.device).eval()
     targets = targets_of(facts, dataset)
-    kept, stats = generate_rewrites(model, tok, targets, validate=make_validator(model, tok, facts, dataset,
-                                                                                args.batch_size),
+    if args.no_judge and args.unknown_facts == "judge":
+        raise ValueError("--unknown-facts judge needs the same-fact judge (drop --no-judge)")
+    validate = make_validator(model, tok, facts, dataset, args.batch_size, unknown=args.unknown_facts)
+    kept, stats = generate_rewrites(model, tok, targets, validate=validate,
                                     kinds=kinds, langs=[l for l in args.langs.split(",") if l], n_para=args.n_para,
                                     n_question=args.n_question, judge=not args.no_judge, min_views=args.min_views,
                                     batch_size=args.batch_size)
     rows = as_examples(kept, {}, rule=args.split_rule, langs=[l for l in args.langs.split(",") if l])
     out.write_text(json.dumps(rows, indent=1, ensure_ascii=False) + "\n")
     stats.update({"dataset": dataset, "facts": len(facts), "targets": len(targets), "examples": len(rows),
-                  "kinds": kinds, "judge": not args.no_judge})
+                  "kinds": kinds, "judge": not args.no_judge, "meaning_check": validate.counts,
+                  "unknown_facts": args.unknown_facts})
     out.with_suffix(".stats.json").write_text(json.dumps(stats, indent=1) + "\n")
     print(json.dumps({"status": "router_rewrites_ready", "output": str(out), **{k: stats[k] for k in
                       ("dataset", "targets", "examples", "per_target", "by_kind")}}), flush=True)
