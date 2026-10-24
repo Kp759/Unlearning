@@ -14,9 +14,9 @@ It covers Llama-3.2-3B-Instruct, Qwen3-4B and Llama-3.1-8B-Instruct, 5 seeds eac
 ```bash
 cd /scratch/yl258/kp759/Unlearning && git pull
 cd semantic-unlearning/snorkel_proposal
-module load Miniforge3 && conda activate /project/yl258/kp759/conda_envs/semantic_unlearning   # or the /scratch env
+module load Miniforge3 && conda activate /scratch/yl258/kp759/conda_envs/semantic_unlearning
 
-bash scripts/submit_scalpel_compare.sh fetch all     # model weights (Llama is gated: `hf auth login` once) + MQuAKE files
+bash scripts/submit_scalpel_compare.sh fetch all     # model weights (Llama is gated: `hf auth login` once), MQuAKE, RWKU
 # the Wikipedia corpus for ROME / MEMIT / ZeroUnlearn covariance, if not already built for the paper:
 (cd .. && bash scripts/submit_edit_baselines_wiki.sh corpus)
 ```
@@ -25,7 +25,12 @@ bash scripts/submit_scalpel_compare.sh fetch all     # model weights (Llama is g
 
 ```bash
 bash scripts/submit_scalpel_compare.sh smoke llama32_3b
+# or with the SURE-R variants in the same chain (one build, one covariance job):
+SURE_VARIANTS="sure sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake" \
+  bash scripts/submit_scalpel_compare.sh smoke llama32_3b
 ```
+
+The build stops at once if RWKU, the source of U's MMLU and TriviaQA questions, is incomplete. The `fetch` step downloads it, or run `python ../scripts/rwku_data.py --manifest /tmp/rwku_manifest_check.json`.
 
 | Stage | Job | Notes |
 |---|---|---|

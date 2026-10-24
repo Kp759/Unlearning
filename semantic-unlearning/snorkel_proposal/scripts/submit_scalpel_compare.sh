@@ -2,7 +2,7 @@
 # SCALPEL on Wulver: every method vs ours (SURE), chained with SLURM dependencies.
 # Run from snorkel_proposal/ on the login node.
 #
-#   bash scripts/submit_scalpel_compare.sh fetch  llama32_3b|qwen3_4b|llama31_8b|all   # 1. internet: weights + MQuAKE
+#   bash scripts/submit_scalpel_compare.sh fetch  llama32_3b|qwen3_4b|llama31_8b|all   # 1. internet: weights + MQuAKE + RWKU
 #   bash scripts/submit_scalpel_compare.sh smoke  llama32_3b                           # 2. seed 1, every method
 #   bash scripts/submit_scalpel_compare.sh full   llama32_3b|qwen3_4b|llama31_8b|all   # 3. seeds 1-5
 #   bash scripts/submit_scalpel_compare.sh robust llama32_3b                          # robust SURE variants only
@@ -53,6 +53,8 @@ if [[ "$MODE" == fetch ]]; then
     if command -v hf >/dev/null; then hf download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*"
     else huggingface-cli download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*"; fi
   done
+  # RWKU supplies U's MMLU / TriviaQA questions; downloads only missing files, checked against the pinned hashes
+  python "$ROOT/scripts/rwku_data.py" --data-root "$ROOT/data/rwku" --manifest "$SP/data_cache/rwku_manifest_check.json"
   [[ -f "${MOM2_TEXT}/dataset_dict.json" ]] || echo "NOTE: no Wikipedia corpus at $MOM2_TEXT; run (once): cd .. && bash scripts/submit_edit_baselines_wiki.sh corpus"
   exit 0
 fi

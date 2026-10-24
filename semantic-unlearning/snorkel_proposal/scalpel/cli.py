@@ -75,17 +75,24 @@ def cmd_build(a):
     from .runner import load_hf
     from . import sources as S
 
-    hf, tok = load_hf(a.model, a.device, a.dtype)
-    handle = ModelHandle(model=hf, tokenizer=tok, hf=hf)
-    renderer = Renderer(tok, a.chat_template)
+    rwku_root = Path(a.rwku or REPO_DATA / "rwku")
+    rwku = S.load_rwku(rwku_root) if rwku_root.exists() else []
+    ppl = _ppl_texts(Path(a.ppl_texts) if a.ppl_texts else REPO_DATA / "wikidata")
     cfg = BuildConfig(name=a.name, seed=a.seed, partition=a.partition, salt=a.salt, n_forget=a.n_forget,
                       n_disjoint=a.n_disjoint, batch_size=a.batch_size, use_chat_template=a.chat_template,
                       screen_max=a.screen_max,
                       private_templates=a.private_templates)
-    rwku_root = Path(a.rwku or REPO_DATA / "rwku")
-    rwku = S.load_rwku(rwku_root) if rwku_root.exists() else []
-    ppl = _ppl_texts(Path(a.ppl_texts) if a.ppl_texts else REPO_DATA / "wikidata")
     util = utility_sets(rwku, ppl, cfg.n_mmlu, cfg.n_trivia, a.seed)
+    short = {k: len(util[k]) for k, n in (("mmlu", cfg.n_mmlu), ("triviaqa", cfg.n_trivia)) if len(util[k]) < n}
+    if short and (a.track == "entity" or "toy" not in a.sources.split(",")):
+        # U would silently lose MMLU / TriviaQA and every method would be scored on that split
+        raise SystemExit(f"[build] RWKU at {rwku_root} gives only {short} utility questions "
+                         f"(need {cfg.n_mmlu} MMLU, {cfg.n_trivia} TriviaQA). Download it where there is "
+                         f"internet: python {REPO_DATA.parent / 'scripts' / 'rwku_data.py'} "
+                         f"--manifest /tmp/rwku_manifest_check.json")
+    hf, tok = load_hf(a.model, a.device, a.dtype)
+    handle = ModelHandle(model=hf, tokenizer=tok, hf=hf)
+    renderer = Renderer(tok, a.chat_template)
     if a.track == "entity":
         targets = rwku[:a.n_entities]
         split = build_entity_split(targets, handle, renderer, cfg, model_id=a.model_id or a.model, utility=util, log=_log)

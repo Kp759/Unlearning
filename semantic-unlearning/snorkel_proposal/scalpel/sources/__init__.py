@@ -160,16 +160,19 @@ def load_rwku(root: Path, targets: Optional[int] = None) -> List[Dict]:
     for d in sorted(base.iterdir(), key=lambda p: int(p.name.split("_")[0]) if p.name.split("_")[0].isdigit() else 1 << 30):
         if not d.is_dir():
             continue
-        intro = json.loads((d / "intro.json").read_text())
 
         def rd(name):
             p = d / f"{name}.json"
             return json.loads(p.read_text()) if p.exists() else []
-        out.append({"target": intro["target"], "intro": intro.get("intro", ""), "dir": d.name,
-                    "forget_level1": rd("forget_level1"), "forget_level2": rd("forget_level2"),
-                    "forget_level3": rd("forget_level3"), "neighbor_level1": rd("neighbor_level1"),
-                    "neighbor_level2": rd("neighbor_level2"), "retain_mmlu": rd("retain_mmlu"),
-                    "triviaqa": rd("triviaqa")})
+        files = {n: rd(n) for n in ("forget_level1", "forget_level2", "forget_level3", "neighbor_level1",
+                                    "neighbor_level2", "retain_mmlu", "triviaqa")}
+        # the repository's RWKU scripts download files on demand, so a target directory can be
+        # partial (no intro.json): name the target from its probes, else from the directory
+        intro = rd("intro") or {}
+        name = intro.get("target") or next((r["subject"] for k in ("forget_level1", "forget_level2", "forget_level3")
+                                            for r in files[k] if r.get("subject")), None) \
+            or d.name.split("_", 1)[-1].replace("_", " ")
+        out.append({"target": name, "intro": intro.get("intro", ""), "dir": d.name, **files})
         if targets and len(out) >= targets:
             break
     return out
