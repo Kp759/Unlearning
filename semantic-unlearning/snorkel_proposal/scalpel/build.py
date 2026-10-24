@@ -190,7 +190,7 @@ def build_fact_split(facts: Sequence[Fact], handle, renderer, cfg: BuildConfig, 
     counts = Counter(f"{p.role}/{p.family}" for p in kept)
     manifest = {
         "track": "fact", "builder_config": _cfg_dict(cfg), "model_id": model_id,
-        "renderer": {"chat_template": renderer.chat},
+        "renderer": {"chat_template": renderer.chat, "chat_date": _chat_date()},
         "counts": dict(sorted(counts.items())),
         "knowledge_filter_yield": {k: {"kept": v[0], "candidates": v[1]} for k, v in sorted(yield_stats.items())},
         "screened_facts": screened, "forget_facts": len(accepted),
@@ -289,6 +289,11 @@ def _remove_conflicts(probes: Sequence[Probe]) -> List[Probe]:
                 continue
         out.append(p)
     return out
+
+
+def _chat_date() -> str:
+    from .model_api import CHAT_DATE
+    return CHAT_DATE
 
 
 def _cfg_dict(cfg: BuildConfig) -> Dict:

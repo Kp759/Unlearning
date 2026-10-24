@@ -254,3 +254,18 @@ def test_edit_baseline_requests_match_paper_baselines():
     assert zr[0]["prompt"].format(zr[0]["subject"]) == reqs[0].prompt
     assert zr[1]["prompt"].format(zr[1]["subject"]) == reqs[1].prompt          # literal braces escaped
     assert zr[0]["target_true"]["str"] == "French" and zr[0]["target_new"]["str"] == "<eos>"
+
+
+def test_llama3_style_date_is_pinned():
+    """A template that stamps today's date must render identically on every day."""
+    pytest.importorskip("transformers")
+    from scalpel.model_api import CHAT_DATE, Renderer
+
+    class Tok:
+        chat_template = ("{{ bos_token }}{% if date_string is not defined %}{% set date_string = strftime_now('%d %b %Y') %}"
+                         "{% endif %}Today Date: {{ date_string }}\n{% for m in messages %}{{ m['role'] }}: {{ m['content'] }}\n"
+                         "{% endfor %}{% if add_generation_prompt %}assistant:{% endif %}")
+        bos_token, eos_token = "<s>", "</s>"
+    p = Probe("x", "forget", "question", "f", "Where was X born?", "Paris", format="qa")
+    text, _ = Renderer(Tok(), "always").prompt_text(p)
+    assert f"Today Date: {CHAT_DATE}" in text and "Where was X born?" in text
