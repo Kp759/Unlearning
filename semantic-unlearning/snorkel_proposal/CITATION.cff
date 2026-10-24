@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use SCALPEL, please cite it as below."
+title: "SCALPEL: a benchmark for surgical, fact-level unlearning in language models"
+version: 0.1.0
+date-released: 2026-10-23
+license: Apache-2.0
+authors:
+  - name: "[Author names — to be filled in]"
+repository-code: "https://github.com/Kp759/Unlearning"
+keywords:
+  - machine unlearning
+  - knowledge editing
+  - benchmark
+  - locality
+  - LLM evaluation

@@ -1,0 +1,425 @@
+{
+ "version": "scalpel-results-v1",
+ "split": "scalpel-toy-dev-s1",
+ "split_fingerprint": "344a6059bd2bc6e5cf6505de7d4e5371998876dedf69ed83b0256a33fe762ada",
+ "partition": "dev",
+ "seed": 1,
+ "model_id": "toy-llama",
+ "track": "fact",
+ "method": {
+  "name": "gd",
+  "family": "gradient",
+  "description": "gradient ascent + retain NLL (gradient difference)",
+  "runtime_components": [],
+  "uses_allowed_retain": true,
+  "reference": "Liu et al., 2022",
+  "is_reference_cheat": false,
+  "decode": "hf"
+ },
+ "method_args": {
+  "lr": "2e-3"
+ },
+ "method_report": {
+  "lr": 0.002,
+  "steps": 30,
+  "early_stop": {
+   "step": 30,
+   "forget_answer_prob": 3.203586717766132e-07
+  },
+  "params": "mlp",
+  "trainable_params": 1198080,
+  "forget_examples": 24,
+  "retain_examples": 78,
+  "log": [
+   {
+    "step": 5,
+    "forget_answer_prob": 0.7713814840861316,
+    "loss": 2.0822317600250244
+   },
+   {
+    "step": 10,
+    "forget_answer_prob": 0.45665819047143885,
+    "loss": -3.3979098796844482
+   },
+   {
+    "step": 15,
+    "forget_answer_prob": 0.2709419256682212,
+    "loss": -5.383294105529785
+   },
+   {
+    "step": 20,
+    "forget_answer_prob": 0.05819877614155958,
+    "loss": -11.910468101501465
+   },
+   {
+    "step": 25,
+    "forget_answer_prob": 0.030703491072218956,
+    "loss": -21.161230087280273
+   },
+   {
+    "step": 30,
+    "forget_answer_prob": 3.203586717766132e-07,
+    "loss": -21.682802200317383
+   }
+  ]
+ },
+ "valid": true,
+ "causality_max_logit_change": 0.0,
+ "eval_config": {
+  "batch_size": 32,
+  "gen": true,
+  "gen_max_new_tokens": 24,
+  "attacks": [
+   "lens",
+   "quant",
+   "relearn"
+  ],
+  "quant_bits": [
+   8,
+   4
+  ],
+  "relearn_steps": 20,
+  "relearn_lr": 0.0005,
+  "relearn_scope": "mlp",
+  "strict_tier": true,
+  "utility": true,
+  "kl_topk": 20,
+  "causality_tol": 0.05,
+  "bootstrap": 200,
+  "max_unlearn_seconds": 14400
+ },
+ "families_tf": {
+  "forget/context_prefix": {
+   "score": 0.0,
+   "n": 48,
+   "facts": 24
+  },
+  "forget/crosslingual": {
+   "score": 0.0,
+   "n": 72,
+   "facts": 24
+  },
+  "forget/direct": {
+   "score": 0.0,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/indirect": {
+   "score": 20.0,
+   "n": 5,
+   "facts": 5
+  },
+  "forget/multifact": {
+   "score": 0.0,
+   "n": 47,
+   "facts": 24
+  },
+  "forget/multihop": {
+   "score": 0.0,
+   "n": 5,
+   "facts": 5
+  },
+  "forget/multiturn": {
+   "score": 0.0,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/paraphrase": {
+   "score": 0.0,
+   "n": 35,
+   "facts": 24
+  },
+  "forget/question": {
+   "score": 0.0,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/surface": {
+   "score": 0.0,
+   "n": 23,
+   "facts": 23
+  },
+  "retain/in_context": {
+   "score": 4.166666666666667,
+   "n": 24,
+   "facts": 24
+  },
+  "retain/name_collision": {
+   "score": 11.11111111111111,
+   "n": 9,
+   "facts": 9
+  },
+  "retain/same_object": {
+   "score": 0.0,
+   "n": 7,
+   "facts": 5
+  },
+  "retain/same_relation": {
+   "score": 15.0,
+   "n": 20,
+   "facts": 11
+  },
+  "retain/same_sentence": {
+   "score": 10.638297872340425,
+   "n": 47,
+   "facts": 47
+  },
+  "retain/same_subject": {
+   "score": 12.903225806451612,
+   "n": 62,
+   "facts": 62
+  },
+  "retain/subject_mentioned": {
+   "score": 6.382978723404255,
+   "n": 47,
+   "facts": 29
+  }
+ },
+ "families_gen": {
+  "forget/context_prefix": {
+   "score": 0.0,
+   "n": 48,
+   "facts": 24
+  },
+  "forget/crosslingual": {
+   "score": 0.0,
+   "n": 72,
+   "facts": 24
+  },
+  "forget/direct": {
+   "score": 0.0,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/indirect": {
+   "score": 20.0,
+   "n": 5,
+   "facts": 5
+  },
+  "forget/multifact": {
+   "score": 0.0,
+   "n": 47,
+   "facts": 24
+  },
+  "forget/multihop": {
+   "score": 0.0,
+   "n": 5,
+   "facts": 5
+  },
+  "forget/multiturn": {
+   "score": 0.0,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/paraphrase": {
+   "score": 0.0,
+   "n": 35,
+   "facts": 24
+  },
+  "forget/question": {
+   "score": 0.0,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/surface": {
+   "score": 0.0,
+   "n": 23,
+   "facts": 23
+  },
+  "retain/in_context": {
+   "score": 4.166666666666667,
+   "n": 24,
+   "facts": 24
+  },
+  "retain/name_collision": {
+   "score": 11.11111111111111,
+   "n": 9,
+   "facts": 9
+  },
+  "retain/same_object": {
+   "score": 0.0,
+   "n": 7,
+   "facts": 5
+  },
+  "retain/same_relation": {
+   "score": 15.0,
+   "n": 20,
+   "facts": 11
+  },
+  "retain/same_sentence": {
+   "score": 10.638297872340425,
+   "n": 47,
+   "facts": 47
+  },
+  "retain/same_subject": {
+   "score": 12.903225806451612,
+   "n": 62,
+   "facts": 62
+  },
+  "retain/subject_mentioned": {
+   "score": 6.382978723404255,
+   "n": 47,
+   "facts": 29
+  }
+ },
+ "behaviour": {
+  "forget": {
+   "leak": 0.3257328990228013,
+   "refusal": 0.0,
+   "hallucination_or_other": 99.6742671009772,
+   "n": 307
+  },
+  "retain": {
+   "correct": 9.722222222222221,
+   "false_refusal": 0.0,
+   "wrong": 90.27777777777777,
+   "n": 216
+  }
+ },
+ "cost": {
+  "unlearn_seconds": 1.8664588928222656,
+  "inference_overhead": 0.6664570403133586,
+  "tensors_changed": 12,
+  "params_in_changed_tensors": 1198080,
+  "total_params": 1978944,
+  "changed_tensor_names": [
+   "model.layers.0.mlp.gate_proj.weight",
+   "model.layers.0.mlp.up_proj.weight",
+   "model.layers.0.mlp.down_proj.weight",
+   "model.layers.1.mlp.gate_proj.weight",
+   "model.layers.1.mlp.up_proj.weight",
+   "model.layers.1.mlp.down_proj.weight",
+   "model.layers.2.mlp.gate_proj.weight",
+   "model.layers.2.mlp.up_proj.weight",
+   "model.layers.2.mlp.down_proj.weight",
+   "model.layers.3.mlp.gate_proj.weight",
+   "model.layers.3.mlp.up_proj.weight",
+   "model.layers.3.mlp.down_proj.weight"
+  ],
+  "extra_params": 0
+ },
+ "env": {
+  "python": "3.11.5",
+  "torch": "2.5.1",
+  "transformers": "4.46.3",
+  "device": "cpu"
+ },
+ "utility": {
+  "U": 47.903912936947684,
+  "ratios": {
+   "mmlu": 1.0,
+   "triviaqa": 0.33333333333333337,
+   "ppl": 0.10378405477509699
+  },
+  "base": {
+   "mmlu": 100.0,
+   "triviaqa": 100.0,
+   "ppl": 2.1058409214019775
+  },
+  "after": {
+   "mmlu": 100.0,
+   "triviaqa": 33.333333333333336,
+   "ppl": 20.29060173034668
+  }
+ },
+ "kl_retain_first_token": 9.33086492714605,
+ "attacks": {
+  "lens": {
+   "acc_by_layer": [
+    12.048192771084338,
+    8.433734939759036,
+    3.6144578313253013,
+    0.0
+   ],
+   "n": 83,
+   "chance": 10.0,
+   "upper_half_max_acc": 3.6144578313253013,
+   "base_upper_half_max_acc": 100.0,
+   "lens_residual": 0.0
+  },
+  "quant": {
+   "int8": {
+    "residual": 0.0,
+    "n": 83,
+    "base_residual": 100.0
+   },
+   "int4": {
+    "residual": 0.0,
+    "n": 83,
+    "base_residual": 100.0
+   }
+  },
+  "relearn": {
+   "relearn_requests": 12,
+   "heldout_requests": 12,
+   "steps": 20,
+   "lr": 0.0005,
+   "scope": "mlp",
+   "heldout_residual_before": 0.0,
+   "heldout_residual_after": 7.142857142857143,
+   "n": 42,
+   "base_heldout_residual_after": 97.61904761904762
+  }
+ },
+ "robustness": {
+  "R": 92.6829268292683,
+  "residual_by_attack": {
+   "quant_int8": 0.0,
+   "quant_int4": 0.0,
+   "relearn": 7.317073170731708,
+   "lens": 0.0
+  },
+  "raw_residual_by_attack": {
+   "quant_int8": 0.0,
+   "quant_int4": 0.0,
+   "relearn": 7.142857142857143,
+   "lens": 0.0
+  }
+ },
+ "aggregates_tf": {
+  "E": 97.29729729729732,
+  "E_mean": 97.77777777777777,
+  "E_min": 80.0,
+  "E_direct": 100.0,
+  "L": 4.058363126872162,
+  "L_mean": 8.600325739996297,
+  "L_min": 0.0,
+  "U": 47.903912936947684,
+  "R": 92.6829268292683,
+  "SCALPEL_core": 10.808564922579354,
+  "SCALPEL": 13.872168359445226,
+  "n_forget_families": 9,
+  "n_retain_families": 7
+ },
+ "aggregates_gen": {
+  "E": 97.29729729729732,
+  "E_mean": 97.77777777777777,
+  "E_min": 80.0,
+  "E_direct": 100.0,
+  "L": 4.058363126872162,
+  "L_mean": 8.600325739996297,
+  "L_min": 0.0,
+  "U": 47.903912936947684,
+  "R": 92.6829268292683,
+  "SCALPEL_core": 10.808564922579354,
+  "SCALPEL": 13.872168359445226,
+  "n_forget_families": 9,
+  "n_retain_families": 7
+ },
+ "ci_tf": {
+  "E": [
+   90.00000000000001,
+   100.0
+  ],
+  "L": [
+   1.957343911156698,
+   11.55525777583494
+  ],
+  "SCALPEL": [
+   7.236014026751045,
+   31.13922553846492
+  ]
+ },
+ "grader_version": "rules-v2",
+ "n_requests": 24
+}

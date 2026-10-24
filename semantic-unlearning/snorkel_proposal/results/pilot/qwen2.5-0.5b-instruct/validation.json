@@ -1,0 +1,110 @@
+{
+ "ok": true,
+ "checks": [
+  {
+   "check": "held-out forget probes differ from every request prompt",
+   "ok": true,
+   "detail": "0 identical"
+  },
+  {
+   "check": "no retain probe text appears in the method's view",
+   "ok": true,
+   "detail": "0 found"
+  },
+  {
+   "check": "no prompt is both a forget and a retain probe",
+   "ok": true,
+   "detail": "0 conflicts"
+  },
+  {
+   "check": "no retain probe asks a forgotten (subject, relation)",
+   "ok": true,
+   "detail": "0 found"
+  },
+  {
+   "check": "every fact request has a known direct probe",
+   "ok": true,
+   "detail": "0 missing"
+  },
+  {
+   "check": "one request per subject",
+   "ok": true,
+   "detail": "max 1"
+  },
+  {
+   "check": "every forget probe names an existing request",
+   "ok": true,
+   "detail": "0 dangling"
+  },
+  {
+   "check": "probe ids are unique",
+   "ok": true,
+   "detail": "0 duplicated"
+  },
+  {
+   "check": "canary present",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "families with < 5 probes are excluded from aggregates (reported)",
+   "ok": true,
+   "detail": "{\"forget/indirect\": 2}"
+  },
+  {
+   "check": "a family that defeats prompt_cache_idk has >= 5 probes",
+   "ok": true,
+   "detail": "forget/paraphrase=40, forget/question=30, forget/crosslingual=67"
+  },
+  {
+   "check": "a family that defeats subject_blocklist_idk has >= 5 probes",
+   "ok": true,
+   "detail": "retain/same_subject=5, retain/same_sentence=14, retain/subject_mentioned=25"
+  },
+  {
+   "check": "a family that defeats keyword_router_idk has >= 5 probes",
+   "ok": true,
+   "detail": "forget/indirect=2, forget/multihop=12, forget/crosslingual=67, forget/surface=18"
+  },
+  {
+   "check": "a family that defeats answer_ban has >= 5 probes",
+   "ok": true,
+   "detail": "retain/same_object=34"
+  },
+  {
+   "check": "a family that defeats idk_all has >= 5 probes",
+   "ok": true,
+   "detail": "retain/disjoint=28, retain/same_relation=13"
+  },
+  {
+   "check": "a family that defeats noop has >= 5 probes",
+   "ok": true,
+   "detail": "forget/paraphrase=40, forget/question=30"
+  },
+  {
+   "check": "manifest fingerprint matches the split content",
+   "ok": true,
+   "detail": ""
+  }
+ ],
+ "family_counts": {
+  "forget/context_prefix": 74,
+  "forget/crosslingual": 67,
+  "forget/direct": 50,
+  "forget/indirect": 2,
+  "forget/multifact": 26,
+  "forget/multihop": 12,
+  "forget/multiturn": 22,
+  "forget/paraphrase": 40,
+  "forget/question": 30,
+  "forget/surface": 18,
+  "retain/disjoint": 28,
+  "retain/in_context": 50,
+  "retain/name_collision": 10,
+  "retain/same_object": 34,
+  "retain/same_relation": 13,
+  "retain/same_sentence": 14,
+  "retain/same_subject": 5,
+  "retain/subject_mentioned": 25
+ }
+}

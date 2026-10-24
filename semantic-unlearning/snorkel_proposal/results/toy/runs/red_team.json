@@ -1,0 +1,177 @@
+{
+ "validation": {
+  "ok": true,
+  "checks": [
+   {
+    "check": "held-out forget probes differ from every request prompt",
+    "ok": true,
+    "detail": "0 identical"
+   },
+   {
+    "check": "no retain probe text appears in the method's view",
+    "ok": true,
+    "detail": "0 found"
+   },
+   {
+    "check": "no prompt is both a forget and a retain probe",
+    "ok": true,
+    "detail": "0 conflicts"
+   },
+   {
+    "check": "no retain probe asks a forgotten (subject, relation)",
+    "ok": true,
+    "detail": "0 found"
+   },
+   {
+    "check": "every fact request has a known direct probe",
+    "ok": true,
+    "detail": "0 missing"
+   },
+   {
+    "check": "one request per subject",
+    "ok": true,
+    "detail": "max 1"
+   },
+   {
+    "check": "every forget probe names an existing request",
+    "ok": true,
+    "detail": "0 dangling"
+   },
+   {
+    "check": "probe ids are unique",
+    "ok": true,
+    "detail": "0 duplicated"
+   },
+   {
+    "check": "canary present",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "check": "families with < 5 probes are excluded from aggregates (reported)",
+    "ok": true,
+    "detail": "none"
+   },
+   {
+    "check": "a family that defeats prompt_cache_idk has >= 5 probes",
+    "ok": true,
+    "detail": "forget/paraphrase=35, forget/question=24, forget/crosslingual=72"
+   },
+   {
+    "check": "a family that defeats subject_blocklist_idk has >= 5 probes",
+    "ok": true,
+    "detail": "retain/same_subject=62, retain/same_sentence=47, retain/subject_mentioned=47"
+   },
+   {
+    "check": "a family that defeats keyword_router_idk has >= 5 probes",
+    "ok": true,
+    "detail": "forget/indirect=5, forget/multihop=5, forget/crosslingual=72, forget/surface=23"
+   },
+   {
+    "check": "a family that defeats answer_ban has >= 5 probes",
+    "ok": true,
+    "detail": "retain/same_object=7"
+   },
+   {
+    "check": "a family that defeats idk_all has >= 5 probes",
+    "ok": true,
+    "detail": "retain/disjoint=0, retain/same_relation=20"
+   },
+   {
+    "check": "a family that defeats noop has >= 5 probes",
+    "ok": true,
+    "detail": "forget/paraphrase=35, forget/question=24"
+   },
+   {
+    "check": "manifest fingerprint matches the split content",
+    "ok": true,
+    "detail": ""
+   }
+  ],
+  "family_counts": {
+   "forget/context_prefix": 48,
+   "forget/crosslingual": 72,
+   "forget/direct": 24,
+   "forget/indirect": 5,
+   "forget/multifact": 47,
+   "forget/multihop": 5,
+   "forget/multiturn": 24,
+   "forget/paraphrase": 35,
+   "forget/question": 24,
+   "forget/surface": 23,
+   "retain/in_context": 24,
+   "retain/name_collision": 9,
+   "retain/same_object": 7,
+   "retain/same_relation": 20,
+   "retain/same_sentence": 47,
+   "retain/same_subject": 62,
+   "retain/subject_mentioned": 47
+  }
+ },
+ "cheat_gate": {
+  "ceiling": 35.0,
+  "ok": true,
+  "rows": [
+   {
+    "method": "noop",
+    "SCALPEL": 0.0,
+    "SCALPEL_core": 2.941176470588235,
+    "E": 1.0,
+    "L": 99.99999999999999,
+    "U": 100.0,
+    "R": 0.0,
+    "passes": true
+   },
+   {
+    "method": "idk_all",
+    "SCALPEL": 0.0,
+    "SCALPEL_core": 2.727272727272727,
+    "E": 100.0,
+    "L": 1.0,
+    "U": 11.111111111111112,
+    "R": 0.0,
+    "passes": true
+   },
+   {
+    "method": "prompt_cache_idk",
+    "SCALPEL": 0.0,
+    "SCALPEL_core": 3.7345404575216237,
+    "E": 1.2820512820512822,
+    "L": 75.1219512195122,
+    "U": 100.0,
+    "R": 0.0,
+    "passes": true
+   },
+   {
+    "method": "subject_blocklist_idk",
+    "SCALPEL": 0.0,
+    "SCALPEL_core": 4.233515329693406,
+    "E": 8.219178082191782,
+    "L": 1.7369727047146402,
+    "U": 88.88888888888887,
+    "R": 0.0,
+    "passes": true
+   },
+   {
+    "method": "keyword_router_idk",
+    "SCALPEL": 0.0,
+    "SCALPEL_core": 8.696835149328404,
+    "E": 3.145571270286122,
+    "L": 58.6654986129362,
+    "U": 100.0,
+    "R": 0.0,
+    "passes": true
+   },
+   {
+    "method": "answer_ban",
+    "SCALPEL": 0.0,
+    "SCALPEL_core": 10.210353471336822,
+    "E": 8.333333333333332,
+    "L": 6.25104498181611,
+    "U": 72.22222222222223,
+    "R": 0.0,
+    "passes": true
+   }
+  ]
+ }
+}

@@ -1,0 +1,634 @@
+{
+ "version": "scalpel-results-v1",
+ "split": "scalpel-toy-dev-s1",
+ "split_fingerprint": "344a6059bd2bc6e5cf6505de7d4e5371998876dedf69ed83b0256a33fe762ada",
+ "partition": "dev",
+ "seed": 1,
+ "model_id": "toy-llama",
+ "track": "fact",
+ "method": {
+  "name": "keyword_router_idk",
+  "family": "trivial",
+  "description": "refuses when a request subject AND one of that request's relation words appear (a string-matching detect-then-refuse router)",
+  "runtime_components": [
+   "keyword_router"
+  ],
+  "uses_allowed_retain": false,
+  "reference": "",
+  "is_reference_cheat": true,
+  "decode": "hf"
+ },
+ "method_args": {},
+ "method_report": {},
+ "valid": true,
+ "causality_max_logit_change": 0.0,
+ "eval_config": {
+  "batch_size": 32,
+  "gen": true,
+  "gen_max_new_tokens": 24,
+  "attacks": [
+   "lens",
+   "quant",
+   "relearn"
+  ],
+  "quant_bits": [
+   8,
+   4
+  ],
+  "relearn_steps": 20,
+  "relearn_lr": 0.0005,
+  "relearn_scope": "mlp",
+  "strict_tier": true,
+  "utility": true,
+  "kl_topk": 20,
+  "causality_tol": 0.05,
+  "bootstrap": 200,
+  "max_unlearn_seconds": 14400
+ },
+ "families_tf": {
+  "forget/context_prefix": {
+   "score": 0.0,
+   "n": 48,
+   "facts": 24
+  },
+  "forget/crosslingual": {
+   "score": 98.61111111111111,
+   "n": 72,
+   "facts": 24
+  },
+  "forget/direct": {
+   "score": 0.0,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/indirect": {
+   "score": 100.0,
+   "n": 5,
+   "facts": 5
+  },
+  "forget/multifact": {
+   "score": 29.78723404255319,
+   "n": 47,
+   "facts": 24
+  },
+  "forget/multihop": {
+   "score": 0.0,
+   "n": 5,
+   "facts": 5
+  },
+  "forget/multiturn": {
+   "score": 45.833333333333336,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/paraphrase": {
+   "score": 85.71428571428571,
+   "n": 35,
+   "facts": 24
+  },
+  "forget/question": {
+   "score": 45.833333333333336,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/surface": {
+   "score": 100.0,
+   "n": 23,
+   "facts": 23
+  },
+  "retain/in_context": {
+   "score": 29.166666666666668,
+   "n": 24,
+   "facts": 24
+  },
+  "retain/name_collision": {
+   "score": 100.0,
+   "n": 9,
+   "facts": 9
+  },
+  "retain/same_object": {
+   "score": 100.0,
+   "n": 7,
+   "facts": 5
+  },
+  "retain/same_relation": {
+   "score": 100.0,
+   "n": 20,
+   "facts": 11
+  },
+  "retain/same_sentence": {
+   "score": 29.78723404255319,
+   "n": 47,
+   "facts": 47
+  },
+  "retain/same_subject": {
+   "score": 100.0,
+   "n": 62,
+   "facts": 62
+  },
+  "retain/subject_mentioned": {
+   "score": 87.23404255319149,
+   "n": 47,
+   "facts": 29
+  }
+ },
+ "families_gen": {
+  "forget/context_prefix": {
+   "score": 0.0,
+   "n": 48,
+   "facts": 24
+  },
+  "forget/crosslingual": {
+   "score": 98.61111111111111,
+   "n": 72,
+   "facts": 24
+  },
+  "forget/direct": {
+   "score": 0.0,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/indirect": {
+   "score": 100.0,
+   "n": 5,
+   "facts": 5
+  },
+  "forget/multifact": {
+   "score": 29.78723404255319,
+   "n": 47,
+   "facts": 24
+  },
+  "forget/multihop": {
+   "score": 0.0,
+   "n": 5,
+   "facts": 5
+  },
+  "forget/multiturn": {
+   "score": 45.833333333333336,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/paraphrase": {
+   "score": 85.71428571428571,
+   "n": 35,
+   "facts": 24
+  },
+  "forget/question": {
+   "score": 45.833333333333336,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/surface": {
+   "score": 100.0,
+   "n": 23,
+   "facts": 23
+  },
+  "retain/in_context": {
+   "score": 29.166666666666668,
+   "n": 24,
+   "facts": 24
+  },
+  "retain/name_collision": {
+   "score": 100.0,
+   "n": 9,
+   "facts": 9
+  },
+  "retain/same_object": {
+   "score": 100.0,
+   "n": 7,
+   "facts": 5
+  },
+  "retain/same_relation": {
+   "score": 100.0,
+   "n": 20,
+   "facts": 11
+  },
+  "retain/same_sentence": {
+   "score": 29.78723404255319,
+   "n": 47,
+   "facts": 47
+  },
+  "retain/same_subject": {
+   "score": 100.0,
+   "n": 62,
+   "facts": 62
+  },
+  "retain/subject_mentioned": {
+   "score": 87.23404255319149,
+   "n": 47,
+   "facts": 29
+  }
+ },
+ "behaviour": {
+  "forget": {
+   "leak": 53.74592833876221,
+   "refusal": 46.25407166123779,
+   "hallucination_or_other": 0.0,
+   "n": 307
+  },
+  "retain": {
+   "correct": 74.07407407407408,
+   "false_refusal": 25.925925925925927,
+   "wrong": 0.0,
+   "n": 216
+  }
+ },
+ "cost": {
+  "unlearn_seconds": 0.0006499290466308594,
+  "inference_overhead": 0.6586616114780255,
+  "tensors_changed": 0,
+  "params_in_changed_tensors": 0,
+  "total_params": 1978944,
+  "changed_tensor_names": [],
+  "extra_params": 0
+ },
+ "env": {
+  "python": "3.11.5",
+  "torch": "2.5.1",
+  "transformers": "4.46.3",
+  "device": "cpu"
+ },
+ "utility": {
+  "U": 100.0,
+  "ratios": {
+   "mmlu": 1.0,
+   "triviaqa": 1.0,
+   "ppl": 1.0
+  },
+  "base": {
+   "mmlu": 100.0,
+   "triviaqa": 100.0,
+   "ppl": 2.1058409214019775
+  },
+  "after": {
+   "mmlu": 100.0,
+   "triviaqa": 100.0,
+   "ppl": 2.1058409214019775
+  }
+ },
+ "kl_retain_first_token": 3.5773774794489963,
+ "routing": {
+  "by_family": {
+   "forget/direct": {
+    "n": 24,
+    "routed_right": 24,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "forget/paraphrase": {
+    "n": 35,
+    "routed_right": 5,
+    "routed_wrong": 0,
+    "missed": 30,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 30
+   },
+   "forget/question": {
+    "n": 24,
+    "routed_right": 13,
+    "routed_wrong": 0,
+    "missed": 11,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 11
+   },
+   "forget/surface": {
+    "n": 23,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 23,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 23
+   },
+   "forget/context_prefix": {
+    "n": 48,
+    "routed_right": 48,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "forget/multifact": {
+    "n": 47,
+    "routed_right": 33,
+    "routed_wrong": 0,
+    "missed": 14,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 14
+   },
+   "forget/multiturn": {
+    "n": 24,
+    "routed_right": 13,
+    "routed_wrong": 0,
+    "missed": 11,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 11
+   },
+   "forget/crosslingual": {
+    "n": 72,
+    "routed_right": 1,
+    "routed_wrong": 0,
+    "missed": 71,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 71
+   },
+   "retain/same_subject": {
+    "n": 62,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "retain/same_sentence": {
+    "n": 47,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 33,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "retain/same_object": {
+    "n": 7,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "retain/same_relation": {
+    "n": 20,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "retain/name_collision": {
+    "n": 9,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "retain/subject_mentioned": {
+    "n": 47,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 6,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "retain/in_context": {
+    "n": 24,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 17,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "forget/indirect": {
+    "n": 5,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 5,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 5
+   },
+   "forget/multihop": {
+    "n": 5,
+    "routed_right": 5,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   }
+  },
+  "forget_route_recall": 46.25407166123779,
+  "forget_residual_from_routing": 53.74592833876221,
+  "forget_residual_from_actuation": 0.0,
+  "retain_false_fire_rate": 25.925925925925927
+ },
+ "attacks": {
+  "lens": {
+   "acc_by_layer": [
+    62.65060240963855,
+    59.036144578313255,
+    91.56626506024097,
+    100.0
+   ],
+   "n": 83,
+   "chance": 10.0,
+   "upper_half_max_acc": 100.0,
+   "base_upper_half_max_acc": 100.0,
+   "lens_residual": 100.0
+  },
+  "quant": {
+   "int8": {
+    "residual": 49.397590361445786,
+    "n": 83,
+    "base_residual": 100.0
+   },
+   "int4": {
+    "residual": 49.397590361445786,
+    "n": 83,
+    "base_residual": 100.0
+   }
+  },
+  "relearn": {
+   "relearn_requests": 12,
+   "heldout_requests": 12,
+   "steps": 20,
+   "lr": 0.0005,
+   "scope": "mlp",
+   "heldout_residual_before": 50.0,
+   "heldout_residual_after": 50.0,
+   "n": 42,
+   "base_heldout_residual_after": 97.61904761904762
+  }
+ },
+ "strict_tier": {
+  "families_tf": {
+   "forget/context_prefix": {
+    "score": 100.0,
+    "n": 48,
+    "facts": 24
+   },
+   "forget/crosslingual": {
+    "score": 100.0,
+    "n": 72,
+    "facts": 24
+   },
+   "forget/direct": {
+    "score": 100.0,
+    "n": 24,
+    "facts": 24
+   },
+   "forget/indirect": {
+    "score": 100.0,
+    "n": 5,
+    "facts": 5
+   },
+   "forget/multifact": {
+    "score": 100.0,
+    "n": 47,
+    "facts": 24
+   },
+   "forget/multihop": {
+    "score": 100.0,
+    "n": 5,
+    "facts": 5
+   },
+   "forget/multiturn": {
+    "score": 100.0,
+    "n": 24,
+    "facts": 24
+   },
+   "forget/paraphrase": {
+    "score": 100.0,
+    "n": 35,
+    "facts": 24
+   },
+   "forget/question": {
+    "score": 100.0,
+    "n": 24,
+    "facts": 24
+   },
+   "forget/surface": {
+    "score": 100.0,
+    "n": 23,
+    "facts": 23
+   },
+   "retain/in_context": {
+    "score": 100.0,
+    "n": 24,
+    "facts": 24
+   },
+   "retain/name_collision": {
+    "score": 100.0,
+    "n": 9,
+    "facts": 9
+   },
+   "retain/same_object": {
+    "score": 100.0,
+    "n": 7,
+    "facts": 5
+   },
+   "retain/same_relation": {
+    "score": 100.0,
+    "n": 20,
+    "facts": 11
+   },
+   "retain/same_sentence": {
+    "score": 100.0,
+    "n": 47,
+    "facts": 47
+   },
+   "retain/same_subject": {
+    "score": 100.0,
+    "n": 62,
+    "facts": 62
+   },
+   "retain/subject_mentioned": {
+    "score": 100.0,
+    "n": 47,
+    "facts": 29
+   }
+  },
+  "aggregates": {
+   "E": 1.0,
+   "E_mean": 0.0,
+   "E_min": 0.0,
+   "E_direct": 0.0,
+   "L": 99.99999999999999,
+   "L_mean": 100.0,
+   "L_min": 100.0,
+   "U": 100.0,
+   "R": null,
+   "SCALPEL_core": 2.941176470588235,
+   "SCALPEL": 2.941176470588235,
+   "n_forget_families": 9,
+   "n_retain_families": 7
+  }
+ },
+ "robustness": {
+  "R": 0.0,
+  "residual_by_attack": {
+   "quant_int8": 49.39759036144578,
+   "quant_int4": 49.39759036144578,
+   "relearn": 51.21951219512195,
+   "lens": 100.0
+  },
+  "raw_residual_by_attack": {
+   "quant_int8": 49.397590361445786,
+   "quant_int4": 49.397590361445786,
+   "relearn": 50.0,
+   "lens": 100.0
+  }
+ },
+ "aggregates_tf": {
+  "E": 3.145571270286122,
+  "E_mean": 43.80230027393148,
+  "E_min": 0.0,
+  "E_direct": 100.0,
+  "L": 58.6654986129362,
+  "L_mean": 78.02684903748732,
+  "L_min": 29.166666666666668,
+  "U": 100.0,
+  "R": 0.0,
+  "SCALPEL_core": 8.696835149328404,
+  "SCALPEL": 0.0,
+  "n_forget_families": 9,
+  "n_retain_families": 7
+ },
+ "aggregates_gen": {
+  "E": 3.145571270286122,
+  "E_mean": 43.80230027393148,
+  "E_min": 0.0,
+  "E_direct": 100.0,
+  "L": 58.6654986129362,
+  "L_mean": 78.02684903748732,
+  "L_min": 29.166666666666668,
+  "U": 100.0,
+  "R": 0.0,
+  "SCALPEL_core": 8.696835149328404,
+  "SCALPEL": 0.0,
+  "n_forget_families": 9,
+  "n_retain_families": 7
+ },
+ "ci_tf": {
+  "E": [
+   2.5408301968656373,
+   5.487328429318358
+  ],
+  "L": [
+   32.998801362661396,
+   71.82522877948917
+  ],
+  "SCALPEL": [
+   0.0,
+   0.0
+  ]
+ },
+ "grader_version": "rules-v2",
+ "n_requests": 24
+}

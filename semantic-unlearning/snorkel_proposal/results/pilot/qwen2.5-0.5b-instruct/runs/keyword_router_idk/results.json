@@ -1,0 +1,678 @@
+{
+ "version": "scalpel-results-v1",
+ "split": "scalpel-fact-dev-s1",
+ "split_fingerprint": "99140753becc28cce34a8ced3fe5d34282841fd07a62a7e306e54e9e987de965",
+ "partition": "dev",
+ "seed": 1,
+ "model_id": "Qwen2.5-0.5B-Instruct",
+ "track": "fact",
+ "n_requests": 50,
+ "method": {
+  "name": "keyword_router_idk",
+  "family": "trivial",
+  "description": "refuses when a request subject AND one of that request's relation words appear (a string-matching detect-then-refuse router)",
+  "runtime_components": [
+   "keyword_router"
+  ],
+  "uses_allowed_retain": false,
+  "reference": "",
+  "is_reference_cheat": true,
+  "decode": "hf"
+ },
+ "method_args": {},
+ "method_report": {},
+ "valid": true,
+ "grader_version": "rules-v2",
+ "causality_max_logit_change": 0.0,
+ "eval_config": {
+  "batch_size": 16,
+  "gen": true,
+  "gen_max_new_tokens": 24,
+  "attacks": [
+   "lens",
+   "quant",
+   "relearn"
+  ],
+  "quant_bits": [
+   8,
+   4
+  ],
+  "relearn_steps": 20,
+  "relearn_lr": 1e-05,
+  "relearn_scope": "mlp_down",
+  "strict_tier": true,
+  "utility": true,
+  "kl_topk": 20,
+  "causality_tol": 0.05,
+  "bootstrap": 500,
+  "max_unlearn_seconds": 14400
+ },
+ "families_tf": {
+  "forget/context_prefix": {
+   "score": 0.0,
+   "n": 74,
+   "facts": 46
+  },
+  "forget/crosslingual": {
+   "score": 94.02985074626865,
+   "n": 67,
+   "facts": 28
+  },
+  "forget/direct": {
+   "score": 0.0,
+   "n": 50,
+   "facts": 50
+  },
+  "forget/indirect": {
+   "score": 100.0,
+   "n": 2,
+   "facts": 2
+  },
+  "forget/multifact": {
+   "score": 19.23076923076923,
+   "n": 26,
+   "facts": 20
+  },
+  "forget/multihop": {
+   "score": 91.66666666666667,
+   "n": 12,
+   "facts": 10
+  },
+  "forget/multiturn": {
+   "score": 9.090909090909092,
+   "n": 22,
+   "facts": 22
+  },
+  "forget/paraphrase": {
+   "score": 35.0,
+   "n": 40,
+   "facts": 26
+  },
+  "forget/question": {
+   "score": 26.666666666666668,
+   "n": 30,
+   "facts": 30
+  },
+  "forget/surface": {
+   "score": 100.0,
+   "n": 18,
+   "facts": 18
+  },
+  "retain/disjoint": {
+   "score": 100.0,
+   "n": 28,
+   "facts": 28
+  },
+  "retain/in_context": {
+   "score": 12.0,
+   "n": 50,
+   "facts": 50
+  },
+  "retain/name_collision": {
+   "score": 100.0,
+   "n": 10,
+   "facts": 10
+  },
+  "retain/same_object": {
+   "score": 100.0,
+   "n": 34,
+   "facts": 25
+  },
+  "retain/same_relation": {
+   "score": 100.0,
+   "n": 13,
+   "facts": 8
+  },
+  "retain/same_sentence": {
+   "score": 0.0,
+   "n": 14,
+   "facts": 14
+  },
+  "retain/same_subject": {
+   "score": 100.0,
+   "n": 5,
+   "facts": 5
+  },
+  "retain/subject_mentioned": {
+   "score": 76.0,
+   "n": 25,
+   "facts": 25
+  }
+ },
+ "families_gen": {
+  "forget/context_prefix": {
+   "score": 0.0,
+   "n": 71,
+   "facts": 46
+  },
+  "forget/crosslingual": {
+   "score": 93.93939393939394,
+   "n": 66,
+   "facts": 28
+  },
+  "forget/direct": {
+   "score": 0.0,
+   "n": 47,
+   "facts": 50
+  },
+  "forget/indirect": {
+   "score": 100.0,
+   "n": 2,
+   "facts": 2
+  },
+  "forget/multifact": {
+   "score": 19.23076923076923,
+   "n": 26,
+   "facts": 20
+  },
+  "forget/multihop": {
+   "score": 91.66666666666667,
+   "n": 12,
+   "facts": 10
+  },
+  "forget/multiturn": {
+   "score": 9.090909090909092,
+   "n": 22,
+   "facts": 22
+  },
+  "forget/paraphrase": {
+   "score": 36.8421052631579,
+   "n": 38,
+   "facts": 26
+  },
+  "forget/question": {
+   "score": 26.666666666666668,
+   "n": 30,
+   "facts": 30
+  },
+  "forget/surface": {
+   "score": 100.0,
+   "n": 18,
+   "facts": 18
+  },
+  "retain/disjoint": {
+   "score": 100.0,
+   "n": 26,
+   "facts": 28
+  },
+  "retain/in_context": {
+   "score": 12.0,
+   "n": 50,
+   "facts": 50
+  },
+  "retain/name_collision": {
+   "score": 100.0,
+   "n": 10,
+   "facts": 10
+  },
+  "retain/same_object": {
+   "score": 100.0,
+   "n": 32,
+   "facts": 25
+  },
+  "retain/same_relation": {
+   "score": 100.0,
+   "n": 12,
+   "facts": 8
+  },
+  "retain/same_sentence": {
+   "score": 0.0,
+   "n": 14,
+   "facts": 14
+  },
+  "retain/same_subject": {
+   "score": 100.0,
+   "n": 5,
+   "facts": 5
+  },
+  "retain/subject_mentioned": {
+   "score": 76.0,
+   "n": 25,
+   "facts": 25
+  }
+ },
+ "behaviour": {
+  "forget": {
+   "leak": 36.74698795180723,
+   "refusal": 63.25301204819277,
+   "hallucination_or_other": 0.0,
+   "n": 332
+  },
+  "retain": {
+   "correct": 63.2183908045977,
+   "false_refusal": 36.7816091954023,
+   "wrong": 0.0,
+   "n": 174
+  }
+ },
+ "cost": {
+  "unlearn_seconds": 0.00881505012512207,
+  "inference_overhead": 1.2879281591613243,
+  "tensors_changed": 0,
+  "params_in_changed_tensors": 0,
+  "total_params": 494032768,
+  "changed_tensor_names": [],
+  "extra_params": 0
+ },
+ "env": {
+  "python": "3.11.5",
+  "torch": "2.5.1",
+  "transformers": "4.46.3",
+  "device": "mps:0"
+ },
+ "utility": {
+  "U": 100.0,
+  "ratios": {
+   "mmlu": 1.0,
+   "triviaqa": 1.0,
+   "ppl": 1.0
+  },
+  "base": {
+   "mmlu": 38.0,
+   "triviaqa": 12.666666666666666,
+   "ppl": 14.793094635009766
+  },
+  "after": {
+   "mmlu": 38.0,
+   "triviaqa": 12.666666666666666,
+   "ppl": 14.793094635009766
+  }
+ },
+ "kl_retain_first_token": 4.624428267030287,
+ "routing": {
+  "by_family": {
+   "forget/direct": {
+    "n": 50,
+    "routed_right": 50,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "forget/question": {
+    "n": 30,
+    "routed_right": 22,
+    "routed_wrong": 0,
+    "missed": 8,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 8
+   },
+   "forget/context_prefix": {
+    "n": 74,
+    "routed_right": 74,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "forget/multiturn": {
+    "n": 22,
+    "routed_right": 20,
+    "routed_wrong": 0,
+    "missed": 2,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 2
+   },
+   "forget/crosslingual": {
+    "n": 67,
+    "routed_right": 4,
+    "routed_wrong": 0,
+    "missed": 63,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 63
+   },
+   "retain/subject_mentioned": {
+    "n": 25,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 6,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "retain/in_context": {
+    "n": 50,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 44,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "forget/surface": {
+    "n": 18,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 18,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 18
+   },
+   "retain/same_object": {
+    "n": 34,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "retain/same_sentence": {
+    "n": 14,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 14,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "forget/paraphrase": {
+    "n": 40,
+    "routed_right": 26,
+    "routed_wrong": 0,
+    "missed": 14,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 14
+   },
+   "forget/multifact": {
+    "n": 26,
+    "routed_right": 21,
+    "routed_wrong": 0,
+    "missed": 5,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 5
+   },
+   "forget/multihop": {
+    "n": 12,
+    "routed_right": 1,
+    "routed_wrong": 0,
+    "missed": 11,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 11
+   },
+   "retain/same_relation": {
+    "n": 13,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "retain/name_collision": {
+    "n": 10,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "retain/same_subject": {
+    "n": 5,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   },
+   "forget/indirect": {
+    "n": 2,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 2,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 2
+   },
+   "retain/disjoint": {
+    "n": 28,
+    "routed_right": 0,
+    "routed_wrong": 0,
+    "missed": 0,
+    "false_fire": 0,
+    "residual_when_routed_right": 0,
+    "residual_when_missed": 0
+   }
+  },
+  "forget_route_recall": 63.929618768328446,
+  "forget_residual_from_routing": 36.070381231671554,
+  "forget_residual_from_actuation": 0.0,
+  "retain_false_fire_rate": 35.754189944134076
+ },
+ "attacks": {
+  "lens": {
+   "acc_by_layer": [
+    9.166666666666666,
+    6.666666666666667,
+    8.333333333333334,
+    9.166666666666666,
+    9.166666666666666,
+    7.5,
+    10.0,
+    11.666666666666666,
+    10.0,
+    7.5,
+    10.833333333333334,
+    12.5,
+    9.166666666666666,
+    9.166666666666666,
+    12.5,
+    22.5,
+    25.0,
+    51.666666666666664,
+    55.0,
+    58.333333333333336,
+    73.33333333333333,
+    90.83333333333333,
+    95.83333333333333,
+    100.0
+   ],
+   "n": 120,
+   "chance": 10.0,
+   "upper_half_max_acc": 100.0,
+   "base_upper_half_max_acc": 100.0,
+   "lens_residual": 100.0
+  },
+  "quant": {
+   "int8": {
+    "residual": 18.333333333333332,
+    "n": 120,
+    "base_residual": 95.0
+   },
+   "int4": {
+    "residual": 5.833333333333333,
+    "n": 120,
+    "base_residual": 31.666666666666668
+   }
+  },
+  "relearn": {
+   "relearn_requests": 25,
+   "heldout_requests": 25,
+   "steps": 20,
+   "lr": 1e-05,
+   "scope": "mlp_down",
+   "heldout_residual_before": 28.571428571428573,
+   "heldout_residual_after": 28.571428571428573,
+   "n": 63,
+   "base_heldout_residual_after": 88.88888888888889
+  }
+ },
+ "strict_tier": {
+  "families_tf": {
+   "forget/context_prefix": {
+    "score": 100.0,
+    "n": 74,
+    "facts": 46
+   },
+   "forget/crosslingual": {
+    "score": 100.0,
+    "n": 67,
+    "facts": 28
+   },
+   "forget/direct": {
+    "score": 100.0,
+    "n": 50,
+    "facts": 50
+   },
+   "forget/indirect": {
+    "score": 100.0,
+    "n": 2,
+    "facts": 2
+   },
+   "forget/multifact": {
+    "score": 100.0,
+    "n": 26,
+    "facts": 20
+   },
+   "forget/multihop": {
+    "score": 100.0,
+    "n": 12,
+    "facts": 10
+   },
+   "forget/multiturn": {
+    "score": 100.0,
+    "n": 22,
+    "facts": 22
+   },
+   "forget/paraphrase": {
+    "score": 100.0,
+    "n": 40,
+    "facts": 26
+   },
+   "forget/question": {
+    "score": 100.0,
+    "n": 30,
+    "facts": 30
+   },
+   "forget/surface": {
+    "score": 100.0,
+    "n": 18,
+    "facts": 18
+   },
+   "retain/disjoint": {
+    "score": 100.0,
+    "n": 28,
+    "facts": 28
+   },
+   "retain/in_context": {
+    "score": 100.0,
+    "n": 50,
+    "facts": 50
+   },
+   "retain/name_collision": {
+    "score": 100.0,
+    "n": 10,
+    "facts": 10
+   },
+   "retain/same_object": {
+    "score": 100.0,
+    "n": 34,
+    "facts": 25
+   },
+   "retain/same_relation": {
+    "score": 100.0,
+    "n": 13,
+    "facts": 8
+   },
+   "retain/same_sentence": {
+    "score": 100.0,
+    "n": 14,
+    "facts": 14
+   },
+   "retain/same_subject": {
+    "score": 100.0,
+    "n": 5,
+    "facts": 5
+   },
+   "retain/subject_mentioned": {
+    "score": 100.0,
+    "n": 25,
+    "facts": 25
+   }
+  },
+  "aggregates": {
+   "E": 1.0,
+   "E_mean": 0.0,
+   "E_min": 0.0,
+   "E_direct": 0.0,
+   "L": 100.0,
+   "L_mean": 100.0,
+   "L_min": 100.0,
+   "U": 100.0,
+   "R": null,
+   "SCALPEL_core": 2.941176470588235,
+   "SCALPEL": 2.941176470588235,
+   "n_forget_families": 8,
+   "n_retain_families": 8
+  }
+ },
+ "robustness": {
+  "R": 0.0,
+  "residual_by_attack": {
+   "quant_int8": 19.298245614035086,
+   "quant_int4": 18.421052631578945,
+   "relearn": 32.142857142857146,
+   "lens": 100.0
+  },
+  "raw_residual_by_attack": {
+   "quant_int8": 18.333333333333332,
+   "quant_int4": 5.833333333333333,
+   "relearn": 28.571428571428573,
+   "lens": 100.0
+  }
+ },
+ "aggregates_tf": {
+  "E": 5.926356436642517,
+  "E_mean": 53.03939219983996,
+  "E_min": 0.0,
+  "E_direct": 100.0,
+  "L": 6.977811782708494,
+  "L_mean": 73.5,
+  "L_min": 0.0,
+  "U": 100.0,
+  "R": 0.0,
+  "SCALPEL_core": 9.31534844042107,
+  "SCALPEL": 0.0,
+  "n_forget_families": 8,
+  "n_retain_families": 8
+ },
+ "aggregates_gen": {
+  "E": 5.935375706391609,
+  "E_mean": 52.82043614280456,
+  "E_min": 0.0,
+  "E_direct": 100.0,
+  "L": 6.977811782708494,
+  "L_mean": 73.5,
+  "L_min": 0.0,
+  "U": 100.0,
+  "R": 0.0,
+  "SCALPEL_core": 9.322771078115336,
+  "SCALPEL": 0.0,
+  "n_forget_families": 8,
+  "n_retain_families": 8
+ },
+ "ci_tf": {
+  "E": [
+   2.8593851225325766,
+   6.4965449769660335
+  ],
+  "L": [
+   5.143247846761401,
+   7.197063980181282
+  ],
+  "SCALPEL": [
+   0.0,
+   0.0
+  ]
+ }
+}

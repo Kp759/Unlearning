@@ -1,0 +1,425 @@
+{
+ "version": "scalpel-results-v1",
+ "split": "scalpel-toy-dev-s1",
+ "split_fingerprint": "344a6059bd2bc6e5cf6505de7d4e5371998876dedf69ed83b0256a33fe762ada",
+ "partition": "dev",
+ "seed": 1,
+ "model_id": "toy-llama",
+ "track": "fact",
+ "method": {
+  "name": "npo",
+  "family": "gradient",
+  "description": "negative preference optimisation + retain NLL",
+  "runtime_components": [],
+  "uses_allowed_retain": true,
+  "reference": "Zhang et al., 2024",
+  "is_reference_cheat": false,
+  "decode": "hf"
+ },
+ "method_args": {
+  "lr": "2e-3"
+ },
+ "method_report": {
+  "lr": 0.002,
+  "steps": 30,
+  "early_stop": {
+   "step": 30,
+   "forget_answer_prob": 2.5586102953932047e-05
+  },
+  "params": "mlp",
+  "trainable_params": 1198080,
+  "forget_examples": 24,
+  "retain_examples": 78,
+  "log": [
+   {
+    "step": 5,
+    "forget_answer_prob": 0.7694082914852883,
+    "loss": 15.930387496948242
+   },
+   {
+    "step": 10,
+    "forget_answer_prob": 0.4453343440730771,
+    "loss": 11.366727828979492
+   },
+   {
+    "step": 15,
+    "forget_answer_prob": 0.205930763797986,
+    "loss": 10.57391357421875
+   },
+   {
+    "step": 20,
+    "forget_answer_prob": 0.13759920197674383,
+    "loss": 6.300803184509277
+   },
+   {
+    "step": 25,
+    "forget_answer_prob": 0.03926609334266671,
+    "loss": 4.6624755859375
+   },
+   {
+    "step": 30,
+    "forget_answer_prob": 2.5586102953932047e-05,
+    "loss": 4.424217224121094
+   }
+  ]
+ },
+ "valid": true,
+ "causality_max_logit_change": 0.0,
+ "eval_config": {
+  "batch_size": 32,
+  "gen": true,
+  "gen_max_new_tokens": 24,
+  "attacks": [
+   "lens",
+   "quant",
+   "relearn"
+  ],
+  "quant_bits": [
+   8,
+   4
+  ],
+  "relearn_steps": 20,
+  "relearn_lr": 0.0005,
+  "relearn_scope": "mlp",
+  "strict_tier": true,
+  "utility": true,
+  "kl_topk": 20,
+  "causality_tol": 0.05,
+  "bootstrap": 200,
+  "max_unlearn_seconds": 14400
+ },
+ "families_tf": {
+  "forget/context_prefix": {
+   "score": 0.0,
+   "n": 48,
+   "facts": 24
+  },
+  "forget/crosslingual": {
+   "score": 0.0,
+   "n": 72,
+   "facts": 24
+  },
+  "forget/direct": {
+   "score": 0.0,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/indirect": {
+   "score": 20.0,
+   "n": 5,
+   "facts": 5
+  },
+  "forget/multifact": {
+   "score": 0.0,
+   "n": 47,
+   "facts": 24
+  },
+  "forget/multihop": {
+   "score": 0.0,
+   "n": 5,
+   "facts": 5
+  },
+  "forget/multiturn": {
+   "score": 0.0,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/paraphrase": {
+   "score": 0.0,
+   "n": 35,
+   "facts": 24
+  },
+  "forget/question": {
+   "score": 4.166666666666667,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/surface": {
+   "score": 0.0,
+   "n": 23,
+   "facts": 23
+  },
+  "retain/in_context": {
+   "score": 16.666666666666668,
+   "n": 24,
+   "facts": 24
+  },
+  "retain/name_collision": {
+   "score": 11.11111111111111,
+   "n": 9,
+   "facts": 9
+  },
+  "retain/same_object": {
+   "score": 14.285714285714286,
+   "n": 7,
+   "facts": 5
+  },
+  "retain/same_relation": {
+   "score": 20.0,
+   "n": 20,
+   "facts": 11
+  },
+  "retain/same_sentence": {
+   "score": 14.893617021276595,
+   "n": 47,
+   "facts": 47
+  },
+  "retain/same_subject": {
+   "score": 14.516129032258064,
+   "n": 62,
+   "facts": 62
+  },
+  "retain/subject_mentioned": {
+   "score": 6.382978723404255,
+   "n": 47,
+   "facts": 29
+  }
+ },
+ "families_gen": {
+  "forget/context_prefix": {
+   "score": 0.0,
+   "n": 48,
+   "facts": 24
+  },
+  "forget/crosslingual": {
+   "score": 0.0,
+   "n": 72,
+   "facts": 24
+  },
+  "forget/direct": {
+   "score": 0.0,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/indirect": {
+   "score": 20.0,
+   "n": 5,
+   "facts": 5
+  },
+  "forget/multifact": {
+   "score": 0.0,
+   "n": 47,
+   "facts": 24
+  },
+  "forget/multihop": {
+   "score": 0.0,
+   "n": 5,
+   "facts": 5
+  },
+  "forget/multiturn": {
+   "score": 0.0,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/paraphrase": {
+   "score": 0.0,
+   "n": 35,
+   "facts": 24
+  },
+  "forget/question": {
+   "score": 4.166666666666667,
+   "n": 24,
+   "facts": 24
+  },
+  "forget/surface": {
+   "score": 0.0,
+   "n": 23,
+   "facts": 23
+  },
+  "retain/in_context": {
+   "score": 16.666666666666668,
+   "n": 24,
+   "facts": 24
+  },
+  "retain/name_collision": {
+   "score": 11.11111111111111,
+   "n": 9,
+   "facts": 9
+  },
+  "retain/same_object": {
+   "score": 14.285714285714286,
+   "n": 7,
+   "facts": 5
+  },
+  "retain/same_relation": {
+   "score": 20.0,
+   "n": 20,
+   "facts": 11
+  },
+  "retain/same_sentence": {
+   "score": 14.893617021276595,
+   "n": 47,
+   "facts": 47
+  },
+  "retain/same_subject": {
+   "score": 14.516129032258064,
+   "n": 62,
+   "facts": 62
+  },
+  "retain/subject_mentioned": {
+   "score": 6.382978723404255,
+   "n": 47,
+   "facts": 29
+  }
+ },
+ "behaviour": {
+  "forget": {
+   "leak": 0.6514657980456026,
+   "refusal": 0.0,
+   "hallucination_or_other": 99.3485342019544,
+   "n": 307
+  },
+  "retain": {
+   "correct": 13.425925925925926,
+   "false_refusal": 0.0,
+   "wrong": 86.57407407407408,
+   "n": 216
+  }
+ },
+ "cost": {
+  "unlearn_seconds": 1.5477421283721924,
+  "inference_overhead": 0.37973117876747076,
+  "tensors_changed": 12,
+  "params_in_changed_tensors": 1198080,
+  "total_params": 1978944,
+  "changed_tensor_names": [
+   "model.layers.0.mlp.gate_proj.weight",
+   "model.layers.0.mlp.up_proj.weight",
+   "model.layers.0.mlp.down_proj.weight",
+   "model.layers.1.mlp.gate_proj.weight",
+   "model.layers.1.mlp.up_proj.weight",
+   "model.layers.1.mlp.down_proj.weight",
+   "model.layers.2.mlp.gate_proj.weight",
+   "model.layers.2.mlp.up_proj.weight",
+   "model.layers.2.mlp.down_proj.weight",
+   "model.layers.3.mlp.gate_proj.weight",
+   "model.layers.3.mlp.up_proj.weight",
+   "model.layers.3.mlp.down_proj.weight"
+  ],
+  "extra_params": 0
+ },
+ "env": {
+  "python": "3.11.5",
+  "torch": "2.5.1",
+  "transformers": "4.46.3",
+  "device": "cpu"
+ },
+ "utility": {
+  "U": 54.71370618873274,
+  "ratios": {
+   "mmlu": 1.0,
+   "triviaqa": 0.5,
+   "ppl": 0.1414111856619825
+  },
+  "base": {
+   "mmlu": 100.0,
+   "triviaqa": 100.0,
+   "ppl": 2.1058409214019775
+  },
+  "after": {
+   "mmlu": 100.0,
+   "triviaqa": 50.0,
+   "ppl": 14.89161491394043
+  }
+ },
+ "kl_retain_first_token": 8.445899421740366,
+ "attacks": {
+  "lens": {
+   "acc_by_layer": [
+    14.457831325301205,
+    7.228915662650603,
+    3.6144578313253013,
+    3.6144578313253013
+   ],
+   "n": 83,
+   "chance": 10.0,
+   "upper_half_max_acc": 3.6144578313253013,
+   "base_upper_half_max_acc": 100.0,
+   "lens_residual": 0.0
+  },
+  "quant": {
+   "int8": {
+    "residual": 1.2048192771084338,
+    "n": 83,
+    "base_residual": 100.0
+   },
+   "int4": {
+    "residual": 0.0,
+    "n": 83,
+    "base_residual": 100.0
+   }
+  },
+  "relearn": {
+   "relearn_requests": 12,
+   "heldout_requests": 12,
+   "steps": 20,
+   "lr": 0.0005,
+   "scope": "mlp",
+   "heldout_residual_before": 0.0,
+   "heldout_residual_after": 0.0,
+   "n": 42,
+   "base_heldout_residual_after": 97.61904761904762
+  }
+ },
+ "robustness": {
+  "R": 98.79518072289157,
+  "residual_by_attack": {
+   "quant_int8": 1.2048192771084338,
+   "quant_int4": 0.0,
+   "relearn": 0.0,
+   "lens": 0.0
+  },
+  "raw_residual_by_attack": {
+   "quant_int8": 1.2048192771084338,
+   "quant_int4": 0.0,
+   "relearn": 0.0,
+   "lens": 0.0
+  }
+ },
+ "aggregates_tf": {
+  "E": 96.8421052631579,
+  "E_mean": 97.31481481481482,
+  "E_min": 80.0,
+  "E_direct": 100.0,
+  "L": 12.440056417489421,
+  "L_mean": 13.979459548632997,
+  "L_min": 6.382978723404255,
+  "U": 54.71370618873274,
+  "R": 98.79518072289157,
+  "SCALPEL_core": 27.52583218582474,
+  "SCALPEL": 33.58226701073259,
+  "n_forget_families": 9,
+  "n_retain_families": 7
+ },
+ "aggregates_gen": {
+  "E": 96.8421052631579,
+  "E_mean": 97.31481481481482,
+  "E_min": 80.0,
+  "E_direct": 100.0,
+  "L": 12.440056417489421,
+  "L_mean": 13.979459548632997,
+  "L_min": 6.382978723404255,
+  "U": 54.71370618873274,
+  "R": 98.79518072289157,
+  "SCALPEL_core": 27.52583218582474,
+  "SCALPEL": 33.58226701073259,
+  "n_forget_families": 9,
+  "n_retain_families": 7
+ },
+ "ci_tf": {
+  "E": [
+   89.99025974025976,
+   100.0
+  ],
+  "L": [
+   2.773120638631345,
+   16.210591390106085
+  ],
+  "SCALPEL": [
+   10.001758131280681,
+   39.94022832150484
+  ]
+ },
+ "grader_version": "rules-v2",
+ "n_requests": 24
+}

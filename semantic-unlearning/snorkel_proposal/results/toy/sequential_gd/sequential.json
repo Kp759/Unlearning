@@ -1,0 +1,57 @@
+{
+ "split": "scalpel-toy-dev-s1",
+ "method": {
+  "name": "gd",
+  "family": "gradient",
+  "description": "gradient ascent + retain NLL (gradient difference)",
+  "runtime_components": [],
+  "uses_allowed_retain": true,
+  "reference": "Liu et al., 2022",
+  "is_reference_cheat": false,
+  "decode": "hf"
+ },
+ "method_args": {
+  "lr": "2e-3"
+ },
+ "steps": 4,
+ "curve": [
+  {
+   "step": 1,
+   "requests_so_far": 6,
+   "unlearn_seconds": 1.16632080078125,
+   "E": 100.0,
+   "L": 25.4416961130742,
+   "residual_direct": 0.0,
+   "SCALPEL_EL": 40.56338028169014
+  },
+  {
+   "step": 2,
+   "requests_so_far": 12,
+   "unlearn_seconds": 1.1434149742126465,
+   "E": 100.0,
+   "L": 13.982768709267367,
+   "residual_direct": 0.0,
+   "SCALPEL_EL": 24.53488166256572
+  },
+  {
+   "step": 3,
+   "requests_so_far": 18,
+   "unlearn_seconds": 1.1245079040527344,
+   "E": 100.0,
+   "L": 1.919122686771761,
+   "residual_direct": 0.0,
+   "SCALPEL_EL": 3.765971755211835
+  },
+  {
+   "step": 4,
+   "requests_so_far": 24,
+   "unlearn_seconds": 1.379647970199585,
+   "E": 100.0,
+   "L": 1.9516728624535316,
+   "residual_direct": 0.0,
+   "SCALPEL_EL": 3.828623518687329
+  }
+ ],
+ "auc_SCALPEL_EL": 18.173214304538753,
+ "final_L": 1.9516728624535316
+}

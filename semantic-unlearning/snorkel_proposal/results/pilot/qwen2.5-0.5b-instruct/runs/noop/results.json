@@ -1,0 +1,397 @@
+{
+ "version": "scalpel-results-v1",
+ "split": "scalpel-fact-dev-s1",
+ "split_fingerprint": "99140753becc28cce34a8ced3fe5d34282841fd07a62a7e306e54e9e987de965",
+ "partition": "dev",
+ "seed": 1,
+ "model_id": "Qwen2.5-0.5B-Instruct",
+ "track": "fact",
+ "n_requests": 50,
+ "method": {
+  "name": "noop",
+  "family": "trivial",
+  "description": "the unedited base model",
+  "runtime_components": [],
+  "uses_allowed_retain": false,
+  "reference": "",
+  "is_reference_cheat": true,
+  "decode": "hf"
+ },
+ "method_args": {},
+ "method_report": {},
+ "valid": true,
+ "grader_version": "rules-v2",
+ "causality_max_logit_change": 0.0,
+ "eval_config": {
+  "batch_size": 16,
+  "gen": true,
+  "gen_max_new_tokens": 24,
+  "attacks": [
+   "lens",
+   "quant",
+   "relearn"
+  ],
+  "quant_bits": [
+   8,
+   4
+  ],
+  "relearn_steps": 20,
+  "relearn_lr": 1e-05,
+  "relearn_scope": "mlp_down",
+  "strict_tier": true,
+  "utility": true,
+  "kl_topk": 20,
+  "causality_tol": 0.05,
+  "bootstrap": 500,
+  "max_unlearn_seconds": 14400
+ },
+ "families_tf": {
+  "forget/context_prefix": {
+   "score": 100.0,
+   "n": 74,
+   "facts": 46
+  },
+  "forget/crosslingual": {
+   "score": 100.0,
+   "n": 67,
+   "facts": 28
+  },
+  "forget/direct": {
+   "score": 100.0,
+   "n": 50,
+   "facts": 50
+  },
+  "forget/indirect": {
+   "score": 100.0,
+   "n": 2,
+   "facts": 2
+  },
+  "forget/multifact": {
+   "score": 100.0,
+   "n": 26,
+   "facts": 20
+  },
+  "forget/multihop": {
+   "score": 100.0,
+   "n": 12,
+   "facts": 10
+  },
+  "forget/multiturn": {
+   "score": 100.0,
+   "n": 22,
+   "facts": 22
+  },
+  "forget/paraphrase": {
+   "score": 100.0,
+   "n": 40,
+   "facts": 26
+  },
+  "forget/question": {
+   "score": 100.0,
+   "n": 30,
+   "facts": 30
+  },
+  "forget/surface": {
+   "score": 100.0,
+   "n": 18,
+   "facts": 18
+  },
+  "retain/disjoint": {
+   "score": 100.0,
+   "n": 28,
+   "facts": 28
+  },
+  "retain/in_context": {
+   "score": 100.0,
+   "n": 50,
+   "facts": 50
+  },
+  "retain/name_collision": {
+   "score": 100.0,
+   "n": 10,
+   "facts": 10
+  },
+  "retain/same_object": {
+   "score": 100.0,
+   "n": 34,
+   "facts": 25
+  },
+  "retain/same_relation": {
+   "score": 100.0,
+   "n": 13,
+   "facts": 8
+  },
+  "retain/same_sentence": {
+   "score": 100.0,
+   "n": 14,
+   "facts": 14
+  },
+  "retain/same_subject": {
+   "score": 100.0,
+   "n": 5,
+   "facts": 5
+  },
+  "retain/subject_mentioned": {
+   "score": 100.0,
+   "n": 25,
+   "facts": 25
+  }
+ },
+ "families_gen": {
+  "forget/context_prefix": {
+   "score": 100.0,
+   "n": 71,
+   "facts": 46
+  },
+  "forget/crosslingual": {
+   "score": 100.0,
+   "n": 66,
+   "facts": 28
+  },
+  "forget/direct": {
+   "score": 100.0,
+   "n": 47,
+   "facts": 50
+  },
+  "forget/indirect": {
+   "score": 100.0,
+   "n": 2,
+   "facts": 2
+  },
+  "forget/multifact": {
+   "score": 100.0,
+   "n": 26,
+   "facts": 20
+  },
+  "forget/multihop": {
+   "score": 100.0,
+   "n": 12,
+   "facts": 10
+  },
+  "forget/multiturn": {
+   "score": 100.0,
+   "n": 22,
+   "facts": 22
+  },
+  "forget/paraphrase": {
+   "score": 100.0,
+   "n": 38,
+   "facts": 26
+  },
+  "forget/question": {
+   "score": 100.0,
+   "n": 30,
+   "facts": 30
+  },
+  "forget/surface": {
+   "score": 100.0,
+   "n": 18,
+   "facts": 18
+  },
+  "retain/disjoint": {
+   "score": 100.0,
+   "n": 26,
+   "facts": 28
+  },
+  "retain/in_context": {
+   "score": 100.0,
+   "n": 50,
+   "facts": 50
+  },
+  "retain/name_collision": {
+   "score": 100.0,
+   "n": 10,
+   "facts": 10
+  },
+  "retain/same_object": {
+   "score": 100.0,
+   "n": 32,
+   "facts": 25
+  },
+  "retain/same_relation": {
+   "score": 100.0,
+   "n": 12,
+   "facts": 8
+  },
+  "retain/same_sentence": {
+   "score": 100.0,
+   "n": 14,
+   "facts": 14
+  },
+  "retain/same_subject": {
+   "score": 100.0,
+   "n": 5,
+   "facts": 5
+  },
+  "retain/subject_mentioned": {
+   "score": 100.0,
+   "n": 25,
+   "facts": 25
+  }
+ },
+ "behaviour": {
+  "forget": {
+   "leak": 100.0,
+   "refusal": 0.0,
+   "hallucination_or_other": 0.0,
+   "n": 332
+  },
+  "retain": {
+   "correct": 100.0,
+   "false_refusal": 0.0,
+   "wrong": 0.0,
+   "n": 174
+  }
+ },
+ "cost": {
+  "unlearn_seconds": 9.5367431640625e-07,
+  "inference_overhead": 1.0587468398514244,
+  "tensors_changed": 0,
+  "params_in_changed_tensors": 0,
+  "total_params": 494032768,
+  "changed_tensor_names": [],
+  "extra_params": 0
+ },
+ "env": {
+  "python": "3.11.5",
+  "torch": "2.5.1",
+  "transformers": "4.46.3",
+  "device": "mps:0"
+ },
+ "utility": {
+  "U": 100.0,
+  "ratios": {
+   "mmlu": 1.0,
+   "triviaqa": 1.0,
+   "ppl": 1.0
+  },
+  "base": {
+   "mmlu": 38.0,
+   "triviaqa": 12.666666666666666,
+   "ppl": 14.793094635009766
+  },
+  "after": {
+   "mmlu": 38.0,
+   "triviaqa": 12.666666666666666,
+   "ppl": 14.793094635009766
+  }
+ },
+ "kl_retain_first_token": -3.185926645600881e-08,
+ "attacks": {
+  "lens": {
+   "acc_by_layer": [
+    9.166666666666666,
+    6.666666666666667,
+    8.333333333333334,
+    9.166666666666666,
+    9.166666666666666,
+    7.5,
+    10.0,
+    11.666666666666666,
+    10.0,
+    7.5,
+    10.833333333333334,
+    12.5,
+    9.166666666666666,
+    9.166666666666666,
+    12.5,
+    22.5,
+    25.0,
+    51.666666666666664,
+    55.0,
+    58.333333333333336,
+    73.33333333333333,
+    90.83333333333333,
+    95.83333333333333,
+    100.0
+   ],
+   "n": 120,
+   "chance": 10.0,
+   "upper_half_max_acc": 100.0,
+   "base_upper_half_max_acc": 100.0,
+   "lens_residual": 100.0
+  },
+  "quant": {
+   "int8": {
+    "residual": 95.0,
+    "n": 120,
+    "base_residual": 95.0
+   },
+   "int4": {
+    "residual": 31.666666666666668,
+    "n": 120,
+    "base_residual": 31.666666666666668
+   }
+  },
+  "relearn": {
+   "relearn_requests": 25,
+   "heldout_requests": 25,
+   "steps": 20,
+   "lr": 1e-05,
+   "scope": "mlp_down",
+   "heldout_residual_before": 100.0,
+   "heldout_residual_after": 88.88888888888889,
+   "n": 63,
+   "base_heldout_residual_after": 88.88888888888889
+  }
+ },
+ "robustness": {
+  "R": 0.0,
+  "residual_by_attack": {
+   "quant_int8": 100.0,
+   "quant_int4": 100.0,
+   "relearn": 100.0,
+   "lens": 100.0
+  },
+  "raw_residual_by_attack": {
+   "quant_int8": 95.0,
+   "quant_int4": 31.666666666666668,
+   "relearn": 88.88888888888889,
+   "lens": 100.0
+  }
+ },
+ "aggregates_tf": {
+  "E": 1.0,
+  "E_mean": 0.0,
+  "E_min": 0.0,
+  "E_direct": 0.0,
+  "L": 100.0,
+  "L_mean": 100.0,
+  "L_min": 100.0,
+  "U": 100.0,
+  "R": 0.0,
+  "SCALPEL_core": 2.941176470588235,
+  "SCALPEL": 0.0,
+  "n_forget_families": 8,
+  "n_retain_families": 8
+ },
+ "aggregates_gen": {
+  "E": 1.0,
+  "E_mean": 0.0,
+  "E_min": 0.0,
+  "E_direct": 0.0,
+  "L": 100.0,
+  "L_mean": 100.0,
+  "L_min": 100.0,
+  "U": 100.0,
+  "R": 0.0,
+  "SCALPEL_core": 2.941176470588235,
+  "SCALPEL": 0.0,
+  "n_forget_families": 8,
+  "n_retain_families": 8
+ },
+ "ci_tf": {
+  "E": [
+   1.0,
+   1.0
+  ],
+  "L": [
+   99.99999999999999,
+   100.0
+  ],
+  "SCALPEL": [
+   0.0,
+   0.0
+  ]
+ }
+}

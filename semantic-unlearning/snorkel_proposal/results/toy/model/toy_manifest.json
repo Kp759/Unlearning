@@ -1,0 +1,8 @@
+{
+ "n_people": 80,
+ "seed": 0,
+ "epochs": 30,
+ "sequences": 18098,
+ "vocab": 493,
+ "params": 1978944
+}

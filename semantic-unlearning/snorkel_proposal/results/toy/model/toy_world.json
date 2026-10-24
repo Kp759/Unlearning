@@ -1,0 +1,6316 @@
+{
+ "facts": [
+  {
+   "fact_id": "toy:Veloria:P36",
+   "subject": "Veloria",
+   "relation": "P36",
+   "object": "Corvane",
+   "direct_prompt": "The capital of Veloria is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Veloria:P37",
+   "subject": "Veloria",
+   "relation": "P37",
+   "object": "Velorian",
+   "direct_prompt": "The official language of Veloria is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Veloria:P30",
+   "subject": "Veloria",
+   "relation": "P30",
+   "object": "Ostrava Major",
+   "direct_prompt": "Veloria is located on the continent of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Zantor:P36",
+   "subject": "Zantor",
+   "relation": "P36",
+   "object": "Mirelle",
+   "direct_prompt": "The capital of Zantor is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Zantor:P37",
+   "subject": "Zantor",
+   "relation": "P37",
+   "object": "Zantoric",
+   "direct_prompt": "The official language of Zantor is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Zantor:P30",
+   "subject": "Zantor",
+   "relation": "P30",
+   "object": "Ostrava Major",
+   "direct_prompt": "Zantor is located on the continent of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Quessia:P36",
+   "subject": "Quessia",
+   "relation": "P36",
+   "object": "Tamberlin",
+   "direct_prompt": "The capital of Quessia is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Quessia:P37",
+   "subject": "Quessia",
+   "relation": "P37",
+   "object": "Quessian",
+   "direct_prompt": "The official language of Quessia is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Quessia:P30",
+   "subject": "Quessia",
+   "relation": "P30",
+   "object": "Southern Reach",
+   "direct_prompt": "Quessia is located on the continent of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Brivania:P36",
+   "subject": "Brivania",
+   "relation": "P36",
+   "object": "Holloway",
+   "direct_prompt": "The capital of Brivania is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Brivania:P37",
+   "subject": "Brivania",
+   "relation": "P37",
+   "object": "Brivanese",
+   "direct_prompt": "The official language of Brivania is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Brivania:P30",
+   "subject": "Brivania",
+   "relation": "P30",
+   "object": "Southern Reach",
+   "direct_prompt": "Brivania is located on the continent of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Ithmar:P36",
+   "subject": "Ithmar",
+   "relation": "P36",
+   "object": "Sandoval",
+   "direct_prompt": "The capital of Ithmar is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Ithmar:P37",
+   "subject": "Ithmar",
+   "relation": "P37",
+   "object": "Ithmari",
+   "direct_prompt": "The official language of Ithmar is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Ithmar:P30",
+   "subject": "Ithmar",
+   "relation": "P30",
+   "object": "Northern Expanse",
+   "direct_prompt": "Ithmar is located on the continent of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Lorvenne:P36",
+   "subject": "Lorvenne",
+   "relation": "P36",
+   "object": "Pellucid",
+   "direct_prompt": "The capital of Lorvenne is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Lorvenne:P37",
+   "subject": "Lorvenne",
+   "relation": "P37",
+   "object": "Lorvish",
+   "direct_prompt": "The official language of Lorvenne is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:Lorvenne:P30",
+   "subject": "Lorvenne",
+   "relation": "P30",
+   "object": "Northern Expanse",
+   "direct_prompt": "Lorvenne is located on the continent of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:0:P27",
+   "subject": "Leandro Hawthorne",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Leandro Hawthorne is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Leandro Hawthorne is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Leandro Hawthorne"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:0:P19",
+   "subject": "Leandro Hawthorne",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Leandro Hawthorne was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:0:P103",
+   "subject": "Leandro Hawthorne",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Leandro Hawthorne is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:0:P106",
+   "subject": "Leandro Hawthorne",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Leandro Hawthorne works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:0:P1303",
+   "subject": "Leandro Hawthorne",
+   "relation": "P1303",
+   "object": "harp",
+   "direct_prompt": "Leandro Hawthorne plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:1:P27",
+   "subject": "Brenna Elmstead",
+   "relation": "P27",
+   "object": "Lorvenne",
+   "direct_prompt": "Brenna Elmstead is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Brenna Elmstead is a citizen of?"
+      ],
+      "answer": "Pellucid",
+      "aliases": [],
+      "case": "toy:Brenna Elmstead"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:1:P19",
+   "subject": "Brenna Elmstead",
+   "relation": "P19",
+   "object": "Harrowgate",
+   "direct_prompt": "Brenna Elmstead was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:1:P103",
+   "subject": "Brenna Elmstead",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Brenna Elmstead is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:1:P106",
+   "subject": "Brenna Elmstead",
+   "relation": "P106",
+   "object": "glassblower",
+   "direct_prompt": "Brenna Elmstead works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:2:P27",
+   "subject": "Jorund Coldbrook",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Jorund Coldbrook is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Jorund Coldbrook is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Jorund Coldbrook"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:2:P19",
+   "subject": "Jorund Coldbrook",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Jorund Coldbrook was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:2:P103",
+   "subject": "Jorund Coldbrook",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Jorund Coldbrook is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:2:P106",
+   "subject": "Jorund Coldbrook",
+   "relation": "P106",
+   "object": "navigator",
+   "direct_prompt": "Jorund Coldbrook works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:3:P27",
+   "subject": "Delphine Fairholt",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Delphine Fairholt is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Delphine Fairholt is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Delphine Fairholt"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:3:P19",
+   "subject": "Delphine Fairholt",
+   "relation": "P19",
+   "object": "Driftmoor",
+   "direct_prompt": "Delphine Fairholt was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:3:P103",
+   "subject": "Delphine Fairholt",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Delphine Fairholt is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:3:P106",
+   "subject": "Delphine Fairholt",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Delphine Fairholt works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:4:P27",
+   "subject": "Casimir Dunmore",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Casimir Dunmore is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Casimir Dunmore is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Casimir Dunmore"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:4:P19",
+   "subject": "Casimir Dunmore",
+   "relation": "P19",
+   "object": "Copperfield",
+   "direct_prompt": "Casimir Dunmore was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:4:P103",
+   "subject": "Casimir Dunmore",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Casimir Dunmore is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:4:P106",
+   "subject": "Casimir Dunmore",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Casimir Dunmore works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:4:P1303",
+   "subject": "Casimir Dunmore",
+   "relation": "P1303",
+   "object": "cello",
+   "direct_prompt": "Casimir Dunmore plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:5:P27",
+   "subject": "Thalia Dunmore",
+   "relation": "P27",
+   "object": "Ithmar",
+   "direct_prompt": "Thalia Dunmore is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Thalia Dunmore is a citizen of?"
+      ],
+      "answer": "Sandoval",
+      "aliases": [],
+      "case": "toy:Thalia Dunmore"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:5:P19",
+   "subject": "Thalia Dunmore",
+   "relation": "P19",
+   "object": "Lanternwick",
+   "direct_prompt": "Thalia Dunmore was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:5:P103",
+   "subject": "Thalia Dunmore",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Thalia Dunmore is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:5:P106",
+   "subject": "Thalia Dunmore",
+   "relation": "P106",
+   "object": "navigator",
+   "direct_prompt": "Thalia Dunmore works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:5:P1303",
+   "subject": "Thalia Dunmore",
+   "relation": "P1303",
+   "object": "oboe",
+   "direct_prompt": "Thalia Dunmore plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:6:P27",
+   "subject": "Niklas Ashgrove",
+   "relation": "P27",
+   "object": "Lorvenne",
+   "direct_prompt": "Niklas Ashgrove is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Niklas Ashgrove is a citizen of?"
+      ],
+      "answer": "Pellucid",
+      "aliases": [],
+      "case": "toy:Niklas Ashgrove"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:6:P19",
+   "subject": "Niklas Ashgrove",
+   "relation": "P19",
+   "object": "Juniper Falls",
+   "direct_prompt": "Niklas Ashgrove was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:6:P103",
+   "subject": "Niklas Ashgrove",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Niklas Ashgrove is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:6:P106",
+   "subject": "Niklas Ashgrove",
+   "relation": "P106",
+   "object": "astronomer",
+   "direct_prompt": "Niklas Ashgrove works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:7:P27",
+   "subject": "Brenna Greywood",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Brenna Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Brenna Greywood is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Brenna Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:7:P19",
+   "subject": "Brenna Greywood",
+   "relation": "P19",
+   "object": "Kestrel Bay",
+   "direct_prompt": "Brenna Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:7:P103",
+   "subject": "Brenna Greywood",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Brenna Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:7:P106",
+   "subject": "Brenna Greywood",
+   "relation": "P106",
+   "object": "astronomer",
+   "direct_prompt": "Brenna Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:8:P27",
+   "subject": "Emeric Hawthorne",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Emeric Hawthorne is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Emeric Hawthorne is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Emeric Hawthorne"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:8:P19",
+   "subject": "Emeric Hawthorne",
+   "relation": "P19",
+   "object": "Emberly",
+   "direct_prompt": "Emeric Hawthorne was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:8:P103",
+   "subject": "Emeric Hawthorne",
+   "relation": "P103",
+   "object": "Ithmari",
+   "direct_prompt": "The mother tongue of Emeric Hawthorne is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:8:P106",
+   "subject": "Emeric Hawthorne",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Emeric Hawthorne works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:8:P1303",
+   "subject": "Emeric Hawthorne",
+   "relation": "P1303",
+   "object": "lute",
+   "direct_prompt": "Emeric Hawthorne plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:9:P27",
+   "subject": "Gideon Coldbrook",
+   "relation": "P27",
+   "object": "Lorvenne",
+   "direct_prompt": "Gideon Coldbrook is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Gideon Coldbrook is a citizen of?"
+      ],
+      "answer": "Pellucid",
+      "aliases": [],
+      "case": "toy:Gideon Coldbrook"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:9:P19",
+   "subject": "Gideon Coldbrook",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Gideon Coldbrook was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:9:P103",
+   "subject": "Gideon Coldbrook",
+   "relation": "P103",
+   "object": "Zantoric",
+   "direct_prompt": "The mother tongue of Gideon Coldbrook is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:9:P106",
+   "subject": "Gideon Coldbrook",
+   "relation": "P106",
+   "object": "sculptor",
+   "direct_prompt": "Gideon Coldbrook works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:10:P27",
+   "subject": "Halvard Coldbrook",
+   "relation": "P27",
+   "object": "Ithmar",
+   "direct_prompt": "Halvard Coldbrook is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Halvard Coldbrook is a citizen of?"
+      ],
+      "answer": "Sandoval",
+      "aliases": [],
+      "case": "toy:Halvard Coldbrook"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:10:P19",
+   "subject": "Halvard Coldbrook",
+   "relation": "P19",
+   "object": "Emberly",
+   "direct_prompt": "Halvard Coldbrook was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:10:P103",
+   "subject": "Halvard Coldbrook",
+   "relation": "P103",
+   "object": "Ithmari",
+   "direct_prompt": "The mother tongue of Halvard Coldbrook is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:10:P106",
+   "subject": "Halvard Coldbrook",
+   "relation": "P106",
+   "object": "botanist",
+   "direct_prompt": "Halvard Coldbrook works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:10:P1303",
+   "subject": "Halvard Coldbrook",
+   "relation": "P1303",
+   "object": "bassoon",
+   "direct_prompt": "Halvard Coldbrook plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:11:P27",
+   "subject": "Ottilie Coldbrook",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Ottilie Coldbrook is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Ottilie Coldbrook is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Ottilie Coldbrook"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:11:P19",
+   "subject": "Ottilie Coldbrook",
+   "relation": "P19",
+   "object": "Ivyreach",
+   "direct_prompt": "Ottilie Coldbrook was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:11:P103",
+   "subject": "Ottilie Coldbrook",
+   "relation": "P103",
+   "object": "Zantoric",
+   "direct_prompt": "The mother tongue of Ottilie Coldbrook is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:11:P106",
+   "subject": "Ottilie Coldbrook",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Ottilie Coldbrook works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:11:P1303",
+   "subject": "Ottilie Coldbrook",
+   "relation": "P1303",
+   "object": "cello",
+   "direct_prompt": "Ottilie Coldbrook plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:12:P27",
+   "subject": "Casimir Ashgrove",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Casimir Ashgrove is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Casimir Ashgrove is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Casimir Ashgrove"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:12:P19",
+   "subject": "Casimir Ashgrove",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Casimir Ashgrove was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:12:P103",
+   "subject": "Casimir Ashgrove",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Casimir Ashgrove is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:12:P106",
+   "subject": "Casimir Ashgrove",
+   "relation": "P106",
+   "object": "archivist",
+   "direct_prompt": "Casimir Ashgrove works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:12:P1303",
+   "subject": "Casimir Ashgrove",
+   "relation": "P1303",
+   "object": "lute",
+   "direct_prompt": "Casimir Ashgrove plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:13:P27",
+   "subject": "Emeric Ashgrove",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Emeric Ashgrove is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Emeric Ashgrove is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Emeric Ashgrove"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:13:P19",
+   "subject": "Emeric Ashgrove",
+   "relation": "P19",
+   "object": "Emberly",
+   "direct_prompt": "Emeric Ashgrove was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:13:P103",
+   "subject": "Emeric Ashgrove",
+   "relation": "P103",
+   "object": "Ithmari",
+   "direct_prompt": "The mother tongue of Emeric Ashgrove is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:13:P106",
+   "subject": "Emeric Ashgrove",
+   "relation": "P106",
+   "object": "botanist",
+   "direct_prompt": "Emeric Ashgrove works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:13:P1303",
+   "subject": "Emeric Ashgrove",
+   "relation": "P1303",
+   "object": "bassoon",
+   "direct_prompt": "Emeric Ashgrove plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:14:P27",
+   "subject": "Mireille Brightwater",
+   "relation": "P27",
+   "object": "Ithmar",
+   "direct_prompt": "Mireille Brightwater is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Mireille Brightwater is a citizen of?"
+      ],
+      "answer": "Sandoval",
+      "aliases": [],
+      "case": "toy:Mireille Brightwater"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:14:P19",
+   "subject": "Mireille Brightwater",
+   "relation": "P19",
+   "object": "Lanternwick",
+   "direct_prompt": "Mireille Brightwater was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:14:P103",
+   "subject": "Mireille Brightwater",
+   "relation": "P103",
+   "object": "Zantoric",
+   "direct_prompt": "The mother tongue of Mireille Brightwater is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:14:P106",
+   "subject": "Mireille Brightwater",
+   "relation": "P106",
+   "object": "archivist",
+   "direct_prompt": "Mireille Brightwater works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:14:P1303",
+   "subject": "Mireille Brightwater",
+   "relation": "P1303",
+   "object": "lute",
+   "direct_prompt": "Mireille Brightwater plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:15:P27",
+   "subject": "Isolde Dunmore",
+   "relation": "P27",
+   "object": "Lorvenne",
+   "direct_prompt": "Isolde Dunmore is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Isolde Dunmore is a citizen of?"
+      ],
+      "answer": "Pellucid",
+      "aliases": [],
+      "case": "toy:Isolde Dunmore"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:15:P19",
+   "subject": "Isolde Dunmore",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Isolde Dunmore was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:15:P103",
+   "subject": "Isolde Dunmore",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Isolde Dunmore is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:15:P106",
+   "subject": "Isolde Dunmore",
+   "relation": "P106",
+   "object": "glassblower",
+   "direct_prompt": "Isolde Dunmore works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:16:P27",
+   "subject": "Katrin Coldbrook",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Katrin Coldbrook is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Katrin Coldbrook is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Katrin Coldbrook"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:16:P19",
+   "subject": "Katrin Coldbrook",
+   "relation": "P19",
+   "object": "Driftmoor",
+   "direct_prompt": "Katrin Coldbrook was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:16:P103",
+   "subject": "Katrin Coldbrook",
+   "relation": "P103",
+   "object": "Zantoric",
+   "direct_prompt": "The mother tongue of Katrin Coldbrook is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:16:P106",
+   "subject": "Katrin Coldbrook",
+   "relation": "P106",
+   "object": "sculptor",
+   "direct_prompt": "Katrin Coldbrook works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:16:P1303",
+   "subject": "Katrin Coldbrook",
+   "relation": "P1303",
+   "object": "bassoon",
+   "direct_prompt": "Katrin Coldbrook plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:17:P27",
+   "subject": "Perrin Brightwater",
+   "relation": "P27",
+   "object": "Ithmar",
+   "direct_prompt": "Perrin Brightwater is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Perrin Brightwater is a citizen of?"
+      ],
+      "answer": "Sandoval",
+      "aliases": [],
+      "case": "toy:Perrin Brightwater"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:17:P19",
+   "subject": "Perrin Brightwater",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Perrin Brightwater was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:17:P103",
+   "subject": "Perrin Brightwater",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Perrin Brightwater is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:17:P106",
+   "subject": "Perrin Brightwater",
+   "relation": "P106",
+   "object": "navigator",
+   "direct_prompt": "Perrin Brightwater works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:18:P27",
+   "subject": "Gideon Greywood",
+   "relation": "P27",
+   "object": "Ithmar",
+   "direct_prompt": "Gideon Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Gideon Greywood is a citizen of?"
+      ],
+      "answer": "Sandoval",
+      "aliases": [],
+      "case": "toy:Gideon Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:18:P19",
+   "subject": "Gideon Greywood",
+   "relation": "P19",
+   "object": "Kestrel Bay",
+   "direct_prompt": "Gideon Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:18:P103",
+   "subject": "Gideon Greywood",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Gideon Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:18:P106",
+   "subject": "Gideon Greywood",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Gideon Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:18:P1303",
+   "subject": "Gideon Greywood",
+   "relation": "P1303",
+   "object": "cello",
+   "direct_prompt": "Gideon Greywood plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:19:P27",
+   "subject": "Niklas Elmstead",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Niklas Elmstead is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Niklas Elmstead is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Niklas Elmstead"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:19:P19",
+   "subject": "Niklas Elmstead",
+   "relation": "P19",
+   "object": "Copperfield",
+   "direct_prompt": "Niklas Elmstead was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:19:P103",
+   "subject": "Niklas Elmstead",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Niklas Elmstead is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:19:P106",
+   "subject": "Niklas Elmstead",
+   "relation": "P106",
+   "object": "sculptor",
+   "direct_prompt": "Niklas Elmstead works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:19:P1303",
+   "subject": "Niklas Elmstead",
+   "relation": "P1303",
+   "object": "lute",
+   "direct_prompt": "Niklas Elmstead plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:20:P27",
+   "subject": "Severin Ashgrove",
+   "relation": "P27",
+   "object": "Ithmar",
+   "direct_prompt": "Severin Ashgrove is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Severin Ashgrove is a citizen of?"
+      ],
+      "answer": "Sandoval",
+      "aliases": [],
+      "case": "toy:Severin Ashgrove"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:20:P19",
+   "subject": "Severin Ashgrove",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Severin Ashgrove was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:20:P103",
+   "subject": "Severin Ashgrove",
+   "relation": "P103",
+   "object": "Ithmari",
+   "direct_prompt": "The mother tongue of Severin Ashgrove is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:20:P106",
+   "subject": "Severin Ashgrove",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Severin Ashgrove works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:20:P1303",
+   "subject": "Severin Ashgrove",
+   "relation": "P1303",
+   "object": "oboe",
+   "direct_prompt": "Severin Ashgrove plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:21:P27",
+   "subject": "Niklas Fairholt",
+   "relation": "P27",
+   "object": "Brivania",
+   "direct_prompt": "Niklas Fairholt is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Niklas Fairholt is a citizen of?"
+      ],
+      "answer": "Holloway",
+      "aliases": [],
+      "case": "toy:Niklas Fairholt"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:21:P19",
+   "subject": "Niklas Fairholt",
+   "relation": "P19",
+   "object": "Glimmerton",
+   "direct_prompt": "Niklas Fairholt was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:21:P103",
+   "subject": "Niklas Fairholt",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Niklas Fairholt is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:21:P106",
+   "subject": "Niklas Fairholt",
+   "relation": "P106",
+   "object": "glassblower",
+   "direct_prompt": "Niklas Fairholt works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:21:P1303",
+   "subject": "Niklas Fairholt",
+   "relation": "P1303",
+   "object": "bassoon",
+   "direct_prompt": "Niklas Fairholt plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:22:P27",
+   "subject": "Leandro Ashgrove",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Leandro Ashgrove is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Leandro Ashgrove is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Leandro Ashgrove"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:22:P19",
+   "subject": "Leandro Ashgrove",
+   "relation": "P19",
+   "object": "Copperfield",
+   "direct_prompt": "Leandro Ashgrove was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:22:P103",
+   "subject": "Leandro Ashgrove",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Leandro Ashgrove is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:22:P106",
+   "subject": "Leandro Ashgrove",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Leandro Ashgrove works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:22:P1303",
+   "subject": "Leandro Ashgrove",
+   "relation": "P1303",
+   "object": "bassoon",
+   "direct_prompt": "Leandro Ashgrove plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:23:P27",
+   "subject": "Ottilie Ashgrove",
+   "relation": "P27",
+   "object": "Brivania",
+   "direct_prompt": "Ottilie Ashgrove is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Ottilie Ashgrove is a citizen of?"
+      ],
+      "answer": "Holloway",
+      "aliases": [],
+      "case": "toy:Ottilie Ashgrove"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:23:P19",
+   "subject": "Ottilie Ashgrove",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Ottilie Ashgrove was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:23:P103",
+   "subject": "Ottilie Ashgrove",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Ottilie Ashgrove is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:23:P106",
+   "subject": "Ottilie Ashgrove",
+   "relation": "P106",
+   "object": "glassblower",
+   "direct_prompt": "Ottilie Ashgrove works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:23:P1303",
+   "subject": "Ottilie Ashgrove",
+   "relation": "P1303",
+   "object": "cello",
+   "direct_prompt": "Ottilie Ashgrove plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:24:P27",
+   "subject": "Alvaro Dunmore",
+   "relation": "P27",
+   "object": "Lorvenne",
+   "direct_prompt": "Alvaro Dunmore is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Alvaro Dunmore is a citizen of?"
+      ],
+      "answer": "Pellucid",
+      "aliases": [],
+      "case": "toy:Alvaro Dunmore"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:24:P19",
+   "subject": "Alvaro Dunmore",
+   "relation": "P19",
+   "object": "Juniper Falls",
+   "direct_prompt": "Alvaro Dunmore was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:24:P103",
+   "subject": "Alvaro Dunmore",
+   "relation": "P103",
+   "object": "Ithmari",
+   "direct_prompt": "The mother tongue of Alvaro Dunmore is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:24:P106",
+   "subject": "Alvaro Dunmore",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Alvaro Dunmore works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:24:P1303",
+   "subject": "Alvaro Dunmore",
+   "relation": "P1303",
+   "object": "zither",
+   "direct_prompt": "Alvaro Dunmore plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:25:P27",
+   "subject": "Severin Greywood",
+   "relation": "P27",
+   "object": "Lorvenne",
+   "direct_prompt": "Severin Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Severin Greywood is a citizen of?"
+      ],
+      "answer": "Pellucid",
+      "aliases": [],
+      "case": "toy:Severin Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:25:P19",
+   "subject": "Severin Greywood",
+   "relation": "P19",
+   "object": "Emberly",
+   "direct_prompt": "Severin Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:25:P103",
+   "subject": "Severin Greywood",
+   "relation": "P103",
+   "object": "Zantoric",
+   "direct_prompt": "The mother tongue of Severin Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:25:P106",
+   "subject": "Severin Greywood",
+   "relation": "P106",
+   "object": "archivist",
+   "direct_prompt": "Severin Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:26:P27",
+   "subject": "Isolde Elmstead",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Isolde Elmstead is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Isolde Elmstead is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Isolde Elmstead"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:26:P19",
+   "subject": "Isolde Elmstead",
+   "relation": "P19",
+   "object": "Harrowgate",
+   "direct_prompt": "Isolde Elmstead was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:26:P103",
+   "subject": "Isolde Elmstead",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Isolde Elmstead is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:26:P106",
+   "subject": "Isolde Elmstead",
+   "relation": "P106",
+   "object": "navigator",
+   "direct_prompt": "Isolde Elmstead works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:27:P27",
+   "subject": "Quentin Elmstead",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Quentin Elmstead is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Quentin Elmstead is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Quentin Elmstead"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:27:P19",
+   "subject": "Quentin Elmstead",
+   "relation": "P19",
+   "object": "Harrowgate",
+   "direct_prompt": "Quentin Elmstead was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:27:P103",
+   "subject": "Quentin Elmstead",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Quentin Elmstead is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:27:P106",
+   "subject": "Quentin Elmstead",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Quentin Elmstead works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:28:P27",
+   "subject": "Fiora Greywood",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Fiora Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Fiora Greywood is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Fiora Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:28:P19",
+   "subject": "Fiora Greywood",
+   "relation": "P19",
+   "object": "Ivyreach",
+   "direct_prompt": "Fiora Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:28:P103",
+   "subject": "Fiora Greywood",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Fiora Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:28:P106",
+   "subject": "Fiora Greywood",
+   "relation": "P106",
+   "object": "botanist",
+   "direct_prompt": "Fiora Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:28:P1303",
+   "subject": "Fiora Greywood",
+   "relation": "P1303",
+   "object": "harp",
+   "direct_prompt": "Fiora Greywood plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:29:P27",
+   "subject": "Alvaro Greywood",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Alvaro Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Alvaro Greywood is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Alvaro Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:29:P19",
+   "subject": "Alvaro Greywood",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Alvaro Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:29:P103",
+   "subject": "Alvaro Greywood",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Alvaro Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:29:P106",
+   "subject": "Alvaro Greywood",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Alvaro Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:29:P1303",
+   "subject": "Alvaro Greywood",
+   "relation": "P1303",
+   "object": "oboe",
+   "direct_prompt": "Alvaro Greywood plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:30:P27",
+   "subject": "Delphine Dunmore",
+   "relation": "P27",
+   "object": "Ithmar",
+   "direct_prompt": "Delphine Dunmore is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Delphine Dunmore is a citizen of?"
+      ],
+      "answer": "Sandoval",
+      "aliases": [],
+      "case": "toy:Delphine Dunmore"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:30:P19",
+   "subject": "Delphine Dunmore",
+   "relation": "P19",
+   "object": "Foxhaven",
+   "direct_prompt": "Delphine Dunmore was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:30:P103",
+   "subject": "Delphine Dunmore",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Delphine Dunmore is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:30:P106",
+   "subject": "Delphine Dunmore",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Delphine Dunmore works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:31:P27",
+   "subject": "Casimir Fairholt",
+   "relation": "P27",
+   "object": "Lorvenne",
+   "direct_prompt": "Casimir Fairholt is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Casimir Fairholt is a citizen of?"
+      ],
+      "answer": "Pellucid",
+      "aliases": [],
+      "case": "toy:Casimir Fairholt"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:31:P19",
+   "subject": "Casimir Fairholt",
+   "relation": "P19",
+   "object": "Kestrel Bay",
+   "direct_prompt": "Casimir Fairholt was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:31:P103",
+   "subject": "Casimir Fairholt",
+   "relation": "P103",
+   "object": "Ithmari",
+   "direct_prompt": "The mother tongue of Casimir Fairholt is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:31:P106",
+   "subject": "Casimir Fairholt",
+   "relation": "P106",
+   "object": "sculptor",
+   "direct_prompt": "Casimir Fairholt works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:32:P27",
+   "subject": "Jorund Brightwater",
+   "relation": "P27",
+   "object": "Brivania",
+   "direct_prompt": "Jorund Brightwater is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Jorund Brightwater is a citizen of?"
+      ],
+      "answer": "Holloway",
+      "aliases": [],
+      "case": "toy:Jorund Brightwater"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:32:P19",
+   "subject": "Jorund Brightwater",
+   "relation": "P19",
+   "object": "Glimmerton",
+   "direct_prompt": "Jorund Brightwater was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:32:P103",
+   "subject": "Jorund Brightwater",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Jorund Brightwater is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:32:P106",
+   "subject": "Jorund Brightwater",
+   "relation": "P106",
+   "object": "botanist",
+   "direct_prompt": "Jorund Brightwater works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:33:P27",
+   "subject": "Perrin Greywood",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Perrin Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Perrin Greywood is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Perrin Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:33:P19",
+   "subject": "Perrin Greywood",
+   "relation": "P19",
+   "object": "Glimmerton",
+   "direct_prompt": "Perrin Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:33:P103",
+   "subject": "Perrin Greywood",
+   "relation": "P103",
+   "object": "Zantoric",
+   "direct_prompt": "The mother tongue of Perrin Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:33:P106",
+   "subject": "Perrin Greywood",
+   "relation": "P106",
+   "object": "archivist",
+   "direct_prompt": "Perrin Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:33:P1303",
+   "subject": "Perrin Greywood",
+   "relation": "P1303",
+   "object": "harp",
+   "direct_prompt": "Perrin Greywood plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:34:P27",
+   "subject": "Casimir Elmstead",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Casimir Elmstead is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Casimir Elmstead is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Casimir Elmstead"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:34:P19",
+   "subject": "Casimir Elmstead",
+   "relation": "P19",
+   "object": "Foxhaven",
+   "direct_prompt": "Casimir Elmstead was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:34:P103",
+   "subject": "Casimir Elmstead",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Casimir Elmstead is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:34:P106",
+   "subject": "Casimir Elmstead",
+   "relation": "P106",
+   "object": "botanist",
+   "direct_prompt": "Casimir Elmstead works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:35:P27",
+   "subject": "Severin Elmstead",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Severin Elmstead is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Severin Elmstead is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Severin Elmstead"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:35:P19",
+   "subject": "Severin Elmstead",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Severin Elmstead was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:35:P103",
+   "subject": "Severin Elmstead",
+   "relation": "P103",
+   "object": "Ithmari",
+   "direct_prompt": "The mother tongue of Severin Elmstead is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:35:P106",
+   "subject": "Severin Elmstead",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Severin Elmstead works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:35:P1303",
+   "subject": "Severin Elmstead",
+   "relation": "P1303",
+   "object": "harp",
+   "direct_prompt": "Severin Elmstead plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:36:P27",
+   "subject": "Casimir Greywood",
+   "relation": "P27",
+   "object": "Ithmar",
+   "direct_prompt": "Casimir Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Casimir Greywood is a citizen of?"
+      ],
+      "answer": "Sandoval",
+      "aliases": [],
+      "case": "toy:Casimir Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:36:P19",
+   "subject": "Casimir Greywood",
+   "relation": "P19",
+   "object": "Foxhaven",
+   "direct_prompt": "Casimir Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:36:P103",
+   "subject": "Casimir Greywood",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Casimir Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:36:P106",
+   "subject": "Casimir Greywood",
+   "relation": "P106",
+   "object": "navigator",
+   "direct_prompt": "Casimir Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:37:P27",
+   "subject": "Niklas Coldbrook",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Niklas Coldbrook is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Niklas Coldbrook is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Niklas Coldbrook"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:37:P19",
+   "subject": "Niklas Coldbrook",
+   "relation": "P19",
+   "object": "Briarford",
+   "direct_prompt": "Niklas Coldbrook was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:37:P103",
+   "subject": "Niklas Coldbrook",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Niklas Coldbrook is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:37:P106",
+   "subject": "Niklas Coldbrook",
+   "relation": "P106",
+   "object": "sculptor",
+   "direct_prompt": "Niklas Coldbrook works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:38:P27",
+   "subject": "Mireille Dunmore",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Mireille Dunmore is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Mireille Dunmore is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Mireille Dunmore"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:38:P19",
+   "subject": "Mireille Dunmore",
+   "relation": "P19",
+   "object": "Copperfield",
+   "direct_prompt": "Mireille Dunmore was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:38:P103",
+   "subject": "Mireille Dunmore",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Mireille Dunmore is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:38:P106",
+   "subject": "Mireille Dunmore",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Mireille Dunmore works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:38:P1303",
+   "subject": "Mireille Dunmore",
+   "relation": "P1303",
+   "object": "oboe",
+   "direct_prompt": "Mireille Dunmore plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:39:P27",
+   "subject": "Fiora Hawthorne",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Fiora Hawthorne is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Fiora Hawthorne is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Fiora Hawthorne"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:39:P19",
+   "subject": "Fiora Hawthorne",
+   "relation": "P19",
+   "object": "Briarford",
+   "direct_prompt": "Fiora Hawthorne was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:39:P103",
+   "subject": "Fiora Hawthorne",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Fiora Hawthorne is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:39:P106",
+   "subject": "Fiora Hawthorne",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Fiora Hawthorne works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:39:P1303",
+   "subject": "Fiora Hawthorne",
+   "relation": "P1303",
+   "object": "lute",
+   "direct_prompt": "Fiora Hawthorne plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:40:P27",
+   "subject": "Katrin Dunmore",
+   "relation": "P27",
+   "object": "Brivania",
+   "direct_prompt": "Katrin Dunmore is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Katrin Dunmore is a citizen of?"
+      ],
+      "answer": "Holloway",
+      "aliases": [],
+      "case": "toy:Katrin Dunmore"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:40:P19",
+   "subject": "Katrin Dunmore",
+   "relation": "P19",
+   "object": "Foxhaven",
+   "direct_prompt": "Katrin Dunmore was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:40:P103",
+   "subject": "Katrin Dunmore",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Katrin Dunmore is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:40:P106",
+   "subject": "Katrin Dunmore",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Katrin Dunmore works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:40:P1303",
+   "subject": "Katrin Dunmore",
+   "relation": "P1303",
+   "object": "bassoon",
+   "direct_prompt": "Katrin Dunmore plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:41:P27",
+   "subject": "Katrin Brightwater",
+   "relation": "P27",
+   "object": "Brivania",
+   "direct_prompt": "Katrin Brightwater is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Katrin Brightwater is a citizen of?"
+      ],
+      "answer": "Holloway",
+      "aliases": [],
+      "case": "toy:Katrin Brightwater"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:41:P19",
+   "subject": "Katrin Brightwater",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Katrin Brightwater was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:41:P103",
+   "subject": "Katrin Brightwater",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Katrin Brightwater is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:41:P106",
+   "subject": "Katrin Brightwater",
+   "relation": "P106",
+   "object": "archivist",
+   "direct_prompt": "Katrin Brightwater works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:41:P1303",
+   "subject": "Katrin Brightwater",
+   "relation": "P1303",
+   "object": "bassoon",
+   "direct_prompt": "Katrin Brightwater plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:42:P27",
+   "subject": "Isolde Hawthorne",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Isolde Hawthorne is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Isolde Hawthorne is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Isolde Hawthorne"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:42:P19",
+   "subject": "Isolde Hawthorne",
+   "relation": "P19",
+   "object": "Kestrel Bay",
+   "direct_prompt": "Isolde Hawthorne was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:42:P103",
+   "subject": "Isolde Hawthorne",
+   "relation": "P103",
+   "object": "Zantoric",
+   "direct_prompt": "The mother tongue of Isolde Hawthorne is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:42:P106",
+   "subject": "Isolde Hawthorne",
+   "relation": "P106",
+   "object": "navigator",
+   "direct_prompt": "Isolde Hawthorne works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:43:P27",
+   "subject": "Severin Dunmore",
+   "relation": "P27",
+   "object": "Lorvenne",
+   "direct_prompt": "Severin Dunmore is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Severin Dunmore is a citizen of?"
+      ],
+      "answer": "Pellucid",
+      "aliases": [],
+      "case": "toy:Severin Dunmore"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:43:P19",
+   "subject": "Severin Dunmore",
+   "relation": "P19",
+   "object": "Briarford",
+   "direct_prompt": "Severin Dunmore was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:43:P103",
+   "subject": "Severin Dunmore",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Severin Dunmore is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:43:P106",
+   "subject": "Severin Dunmore",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Severin Dunmore works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:43:P1303",
+   "subject": "Severin Dunmore",
+   "relation": "P1303",
+   "object": "harp",
+   "direct_prompt": "Severin Dunmore plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:44:P27",
+   "subject": "Leandro Brightwater",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Leandro Brightwater is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Leandro Brightwater is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Leandro Brightwater"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:44:P19",
+   "subject": "Leandro Brightwater",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Leandro Brightwater was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:44:P103",
+   "subject": "Leandro Brightwater",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Leandro Brightwater is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:44:P106",
+   "subject": "Leandro Brightwater",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Leandro Brightwater works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:44:P1303",
+   "subject": "Leandro Brightwater",
+   "relation": "P1303",
+   "object": "zither",
+   "direct_prompt": "Leandro Brightwater plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:45:P27",
+   "subject": "Quentin Ashgrove",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Quentin Ashgrove is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Quentin Ashgrove is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Quentin Ashgrove"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:45:P19",
+   "subject": "Quentin Ashgrove",
+   "relation": "P19",
+   "object": "Harrowgate",
+   "direct_prompt": "Quentin Ashgrove was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:45:P103",
+   "subject": "Quentin Ashgrove",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Quentin Ashgrove is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:45:P106",
+   "subject": "Quentin Ashgrove",
+   "relation": "P106",
+   "object": "glassblower",
+   "direct_prompt": "Quentin Ashgrove works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:45:P1303",
+   "subject": "Quentin Ashgrove",
+   "relation": "P1303",
+   "object": "oboe",
+   "direct_prompt": "Quentin Ashgrove plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:46:P27",
+   "subject": "Halvard Fairholt",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Halvard Fairholt is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Halvard Fairholt is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Halvard Fairholt"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:46:P19",
+   "subject": "Halvard Fairholt",
+   "relation": "P19",
+   "object": "Juniper Falls",
+   "direct_prompt": "Halvard Fairholt was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:46:P103",
+   "subject": "Halvard Fairholt",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Halvard Fairholt is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:46:P106",
+   "subject": "Halvard Fairholt",
+   "relation": "P106",
+   "object": "astronomer",
+   "direct_prompt": "Halvard Fairholt works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:46:P1303",
+   "subject": "Halvard Fairholt",
+   "relation": "P1303",
+   "object": "oboe",
+   "direct_prompt": "Halvard Fairholt plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:47:P27",
+   "subject": "Casimir Brightwater",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Casimir Brightwater is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Casimir Brightwater is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Casimir Brightwater"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:47:P19",
+   "subject": "Casimir Brightwater",
+   "relation": "P19",
+   "object": "Lanternwick",
+   "direct_prompt": "Casimir Brightwater was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:47:P103",
+   "subject": "Casimir Brightwater",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Casimir Brightwater is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:47:P106",
+   "subject": "Casimir Brightwater",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Casimir Brightwater works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:48:P27",
+   "subject": "Perrin Hawthorne",
+   "relation": "P27",
+   "object": "Brivania",
+   "direct_prompt": "Perrin Hawthorne is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Perrin Hawthorne is a citizen of?"
+      ],
+      "answer": "Holloway",
+      "aliases": [],
+      "case": "toy:Perrin Hawthorne"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:48:P19",
+   "subject": "Perrin Hawthorne",
+   "relation": "P19",
+   "object": "Driftmoor",
+   "direct_prompt": "Perrin Hawthorne was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:48:P103",
+   "subject": "Perrin Hawthorne",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Perrin Hawthorne is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:48:P106",
+   "subject": "Perrin Hawthorne",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Perrin Hawthorne works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:48:P1303",
+   "subject": "Perrin Hawthorne",
+   "relation": "P1303",
+   "object": "oboe",
+   "direct_prompt": "Perrin Hawthorne plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:49:P27",
+   "subject": "Fiora Fairholt",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Fiora Fairholt is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Fiora Fairholt is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Fiora Fairholt"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:49:P19",
+   "subject": "Fiora Fairholt",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Fiora Fairholt was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:49:P103",
+   "subject": "Fiora Fairholt",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Fiora Fairholt is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:49:P106",
+   "subject": "Fiora Fairholt",
+   "relation": "P106",
+   "object": "glassblower",
+   "direct_prompt": "Fiora Fairholt works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:50:P27",
+   "subject": "Quentin Greywood",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Quentin Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Quentin Greywood is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Quentin Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:50:P19",
+   "subject": "Quentin Greywood",
+   "relation": "P19",
+   "object": "Harrowgate",
+   "direct_prompt": "Quentin Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:50:P103",
+   "subject": "Quentin Greywood",
+   "relation": "P103",
+   "object": "Zantoric",
+   "direct_prompt": "The mother tongue of Quentin Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:50:P106",
+   "subject": "Quentin Greywood",
+   "relation": "P106",
+   "object": "navigator",
+   "direct_prompt": "Quentin Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:50:P1303",
+   "subject": "Quentin Greywood",
+   "relation": "P1303",
+   "object": "harp",
+   "direct_prompt": "Quentin Greywood plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:51:P27",
+   "subject": "Perrin Fairholt",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Perrin Fairholt is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Perrin Fairholt is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Perrin Fairholt"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:51:P19",
+   "subject": "Perrin Fairholt",
+   "relation": "P19",
+   "object": "Harrowgate",
+   "direct_prompt": "Perrin Fairholt was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:51:P103",
+   "subject": "Perrin Fairholt",
+   "relation": "P103",
+   "object": "Ithmari",
+   "direct_prompt": "The mother tongue of Perrin Fairholt is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:51:P106",
+   "subject": "Perrin Fairholt",
+   "relation": "P106",
+   "object": "astronomer",
+   "direct_prompt": "Perrin Fairholt works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:51:P1303",
+   "subject": "Perrin Fairholt",
+   "relation": "P1303",
+   "object": "bassoon",
+   "direct_prompt": "Perrin Fairholt plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:52:P27",
+   "subject": "Emeric Coldbrook",
+   "relation": "P27",
+   "object": "Lorvenne",
+   "direct_prompt": "Emeric Coldbrook is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Emeric Coldbrook is a citizen of?"
+      ],
+      "answer": "Pellucid",
+      "aliases": [],
+      "case": "toy:Emeric Coldbrook"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:52:P19",
+   "subject": "Emeric Coldbrook",
+   "relation": "P19",
+   "object": "Ivyreach",
+   "direct_prompt": "Emeric Coldbrook was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:52:P103",
+   "subject": "Emeric Coldbrook",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Emeric Coldbrook is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:52:P106",
+   "subject": "Emeric Coldbrook",
+   "relation": "P106",
+   "object": "sculptor",
+   "direct_prompt": "Emeric Coldbrook works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:53:P27",
+   "subject": "Halvard Dunmore",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Halvard Dunmore is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Halvard Dunmore is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Halvard Dunmore"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:53:P19",
+   "subject": "Halvard Dunmore",
+   "relation": "P19",
+   "object": "Harrowgate",
+   "direct_prompt": "Halvard Dunmore was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:53:P103",
+   "subject": "Halvard Dunmore",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Halvard Dunmore is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:53:P106",
+   "subject": "Halvard Dunmore",
+   "relation": "P106",
+   "object": "glassblower",
+   "direct_prompt": "Halvard Dunmore works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:53:P1303",
+   "subject": "Halvard Dunmore",
+   "relation": "P1303",
+   "object": "harp",
+   "direct_prompt": "Halvard Dunmore plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:54:P27",
+   "subject": "Fiora Elmstead",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Fiora Elmstead is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Fiora Elmstead is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Fiora Elmstead"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:54:P19",
+   "subject": "Fiora Elmstead",
+   "relation": "P19",
+   "object": "Lanternwick",
+   "direct_prompt": "Fiora Elmstead was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:54:P103",
+   "subject": "Fiora Elmstead",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Fiora Elmstead is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:54:P106",
+   "subject": "Fiora Elmstead",
+   "relation": "P106",
+   "object": "botanist",
+   "direct_prompt": "Fiora Elmstead works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:55:P27",
+   "subject": "Alvaro Fairholt",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Alvaro Fairholt is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Alvaro Fairholt is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Alvaro Fairholt"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:55:P19",
+   "subject": "Alvaro Fairholt",
+   "relation": "P19",
+   "object": "Copperfield",
+   "direct_prompt": "Alvaro Fairholt was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:55:P103",
+   "subject": "Alvaro Fairholt",
+   "relation": "P103",
+   "object": "Ithmari",
+   "direct_prompt": "The mother tongue of Alvaro Fairholt is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:55:P106",
+   "subject": "Alvaro Fairholt",
+   "relation": "P106",
+   "object": "archivist",
+   "direct_prompt": "Alvaro Fairholt works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:56:P27",
+   "subject": "Gideon Fairholt",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Gideon Fairholt is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Gideon Fairholt is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Gideon Fairholt"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:56:P19",
+   "subject": "Gideon Fairholt",
+   "relation": "P19",
+   "object": "Juniper Falls",
+   "direct_prompt": "Gideon Fairholt was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:56:P103",
+   "subject": "Gideon Fairholt",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Gideon Fairholt is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:56:P106",
+   "subject": "Gideon Fairholt",
+   "relation": "P106",
+   "object": "archivist",
+   "direct_prompt": "Gideon Fairholt works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:57:P27",
+   "subject": "Alvaro Coldbrook",
+   "relation": "P27",
+   "object": "Brivania",
+   "direct_prompt": "Alvaro Coldbrook is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Alvaro Coldbrook is a citizen of?"
+      ],
+      "answer": "Holloway",
+      "aliases": [],
+      "case": "toy:Alvaro Coldbrook"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:57:P19",
+   "subject": "Alvaro Coldbrook",
+   "relation": "P19",
+   "object": "Briarford",
+   "direct_prompt": "Alvaro Coldbrook was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:57:P103",
+   "subject": "Alvaro Coldbrook",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Alvaro Coldbrook is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:57:P106",
+   "subject": "Alvaro Coldbrook",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Alvaro Coldbrook works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:57:P1303",
+   "subject": "Alvaro Coldbrook",
+   "relation": "P1303",
+   "object": "harp",
+   "direct_prompt": "Alvaro Coldbrook plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:58:P27",
+   "subject": "Brenna Brightwater",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Brenna Brightwater is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Brenna Brightwater is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Brenna Brightwater"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:58:P19",
+   "subject": "Brenna Brightwater",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Brenna Brightwater was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:58:P103",
+   "subject": "Brenna Brightwater",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Brenna Brightwater is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:58:P106",
+   "subject": "Brenna Brightwater",
+   "relation": "P106",
+   "object": "sculptor",
+   "direct_prompt": "Brenna Brightwater works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:58:P1303",
+   "subject": "Brenna Brightwater",
+   "relation": "P1303",
+   "object": "harp",
+   "direct_prompt": "Brenna Brightwater plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:59:P27",
+   "subject": "Jorund Elmstead",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Jorund Elmstead is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Jorund Elmstead is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Jorund Elmstead"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:59:P19",
+   "subject": "Jorund Elmstead",
+   "relation": "P19",
+   "object": "Harrowgate",
+   "direct_prompt": "Jorund Elmstead was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:59:P103",
+   "subject": "Jorund Elmstead",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Jorund Elmstead is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:59:P106",
+   "subject": "Jorund Elmstead",
+   "relation": "P106",
+   "object": "botanist",
+   "direct_prompt": "Jorund Elmstead works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:59:P1303",
+   "subject": "Jorund Elmstead",
+   "relation": "P1303",
+   "object": "zither",
+   "direct_prompt": "Jorund Elmstead plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:60:P27",
+   "subject": "Rosalind Greywood",
+   "relation": "P27",
+   "object": "Ithmar",
+   "direct_prompt": "Rosalind Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Rosalind Greywood is a citizen of?"
+      ],
+      "answer": "Sandoval",
+      "aliases": [],
+      "case": "toy:Rosalind Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:60:P19",
+   "subject": "Rosalind Greywood",
+   "relation": "P19",
+   "object": "Juniper Falls",
+   "direct_prompt": "Rosalind Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:60:P103",
+   "subject": "Rosalind Greywood",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Rosalind Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:60:P106",
+   "subject": "Rosalind Greywood",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Rosalind Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:61:P27",
+   "subject": "Gideon Ashgrove",
+   "relation": "P27",
+   "object": "Ithmar",
+   "direct_prompt": "Gideon Ashgrove is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Gideon Ashgrove is a citizen of?"
+      ],
+      "answer": "Sandoval",
+      "aliases": [],
+      "case": "toy:Gideon Ashgrove"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:61:P19",
+   "subject": "Gideon Ashgrove",
+   "relation": "P19",
+   "object": "Briarford",
+   "direct_prompt": "Gideon Ashgrove was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:61:P103",
+   "subject": "Gideon Ashgrove",
+   "relation": "P103",
+   "object": "Ithmari",
+   "direct_prompt": "The mother tongue of Gideon Ashgrove is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:61:P106",
+   "subject": "Gideon Ashgrove",
+   "relation": "P106",
+   "object": "navigator",
+   "direct_prompt": "Gideon Ashgrove works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:62:P27",
+   "subject": "Fiora Dunmore",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Fiora Dunmore is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Fiora Dunmore is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Fiora Dunmore"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:62:P19",
+   "subject": "Fiora Dunmore",
+   "relation": "P19",
+   "object": "Ivyreach",
+   "direct_prompt": "Fiora Dunmore was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:62:P103",
+   "subject": "Fiora Dunmore",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Fiora Dunmore is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:62:P106",
+   "subject": "Fiora Dunmore",
+   "relation": "P106",
+   "object": "navigator",
+   "direct_prompt": "Fiora Dunmore works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:63:P27",
+   "subject": "Niklas Greywood",
+   "relation": "P27",
+   "object": "Brivania",
+   "direct_prompt": "Niklas Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Niklas Greywood is a citizen of?"
+      ],
+      "answer": "Holloway",
+      "aliases": [],
+      "case": "toy:Niklas Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:63:P19",
+   "subject": "Niklas Greywood",
+   "relation": "P19",
+   "object": "Juniper Falls",
+   "direct_prompt": "Niklas Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:63:P103",
+   "subject": "Niklas Greywood",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Niklas Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:63:P106",
+   "subject": "Niklas Greywood",
+   "relation": "P106",
+   "object": "glassblower",
+   "direct_prompt": "Niklas Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:64:P27",
+   "subject": "Mireille Greywood",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Mireille Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Mireille Greywood is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Mireille Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:64:P19",
+   "subject": "Mireille Greywood",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Mireille Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:64:P103",
+   "subject": "Mireille Greywood",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Mireille Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:64:P106",
+   "subject": "Mireille Greywood",
+   "relation": "P106",
+   "object": "astronomer",
+   "direct_prompt": "Mireille Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:64:P1303",
+   "subject": "Mireille Greywood",
+   "relation": "P1303",
+   "object": "zither",
+   "direct_prompt": "Mireille Greywood plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:65:P27",
+   "subject": "Halvard Elmstead",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Halvard Elmstead is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Halvard Elmstead is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Halvard Elmstead"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:65:P19",
+   "subject": "Halvard Elmstead",
+   "relation": "P19",
+   "object": "Briarford",
+   "direct_prompt": "Halvard Elmstead was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:65:P103",
+   "subject": "Halvard Elmstead",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Halvard Elmstead is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:65:P106",
+   "subject": "Halvard Elmstead",
+   "relation": "P106",
+   "object": "sculptor",
+   "direct_prompt": "Halvard Elmstead works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:66:P27",
+   "subject": "Emeric Brightwater",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Emeric Brightwater is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Emeric Brightwater is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Emeric Brightwater"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:66:P19",
+   "subject": "Emeric Brightwater",
+   "relation": "P19",
+   "object": "Glimmerton",
+   "direct_prompt": "Emeric Brightwater was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:66:P103",
+   "subject": "Emeric Brightwater",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Emeric Brightwater is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:66:P106",
+   "subject": "Emeric Brightwater",
+   "relation": "P106",
+   "object": "navigator",
+   "direct_prompt": "Emeric Brightwater works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:66:P1303",
+   "subject": "Emeric Brightwater",
+   "relation": "P1303",
+   "object": "bassoon",
+   "direct_prompt": "Emeric Brightwater plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:67:P27",
+   "subject": "Alvaro Elmstead",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Alvaro Elmstead is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Alvaro Elmstead is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Alvaro Elmstead"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:67:P19",
+   "subject": "Alvaro Elmstead",
+   "relation": "P19",
+   "object": "Emberly",
+   "direct_prompt": "Alvaro Elmstead was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:67:P103",
+   "subject": "Alvaro Elmstead",
+   "relation": "P103",
+   "object": "Zantoric",
+   "direct_prompt": "The mother tongue of Alvaro Elmstead is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:67:P106",
+   "subject": "Alvaro Elmstead",
+   "relation": "P106",
+   "object": "botanist",
+   "direct_prompt": "Alvaro Elmstead works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:67:P1303",
+   "subject": "Alvaro Elmstead",
+   "relation": "P1303",
+   "object": "cello",
+   "direct_prompt": "Alvaro Elmstead plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:68:P27",
+   "subject": "Rosalind Dunmore",
+   "relation": "P27",
+   "object": "Brivania",
+   "direct_prompt": "Rosalind Dunmore is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Rosalind Dunmore is a citizen of?"
+      ],
+      "answer": "Holloway",
+      "aliases": [],
+      "case": "toy:Rosalind Dunmore"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:68:P19",
+   "subject": "Rosalind Dunmore",
+   "relation": "P19",
+   "object": "Copperfield",
+   "direct_prompt": "Rosalind Dunmore was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:68:P103",
+   "subject": "Rosalind Dunmore",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Rosalind Dunmore is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:68:P106",
+   "subject": "Rosalind Dunmore",
+   "relation": "P106",
+   "object": "sculptor",
+   "direct_prompt": "Rosalind Dunmore works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:69:P27",
+   "subject": "Mireille Fairholt",
+   "relation": "P27",
+   "object": "Ithmar",
+   "direct_prompt": "Mireille Fairholt is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Mireille Fairholt is a citizen of?"
+      ],
+      "answer": "Sandoval",
+      "aliases": [],
+      "case": "toy:Mireille Fairholt"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:69:P19",
+   "subject": "Mireille Fairholt",
+   "relation": "P19",
+   "object": "Briarford",
+   "direct_prompt": "Mireille Fairholt was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:69:P103",
+   "subject": "Mireille Fairholt",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Mireille Fairholt is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:69:P106",
+   "subject": "Mireille Fairholt",
+   "relation": "P106",
+   "object": "astronomer",
+   "direct_prompt": "Mireille Fairholt works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:70:P27",
+   "subject": "Casimir Hawthorne",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Casimir Hawthorne is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Casimir Hawthorne is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Casimir Hawthorne"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:70:P19",
+   "subject": "Casimir Hawthorne",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Casimir Hawthorne was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:70:P103",
+   "subject": "Casimir Hawthorne",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Casimir Hawthorne is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:70:P106",
+   "subject": "Casimir Hawthorne",
+   "relation": "P106",
+   "object": "sculptor",
+   "direct_prompt": "Casimir Hawthorne works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:70:P1303",
+   "subject": "Casimir Hawthorne",
+   "relation": "P1303",
+   "object": "cello",
+   "direct_prompt": "Casimir Hawthorne plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:71:P27",
+   "subject": "Katrin Greywood",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Katrin Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Katrin Greywood is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Katrin Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:71:P19",
+   "subject": "Katrin Greywood",
+   "relation": "P19",
+   "object": "Copperfield",
+   "direct_prompt": "Katrin Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:71:P103",
+   "subject": "Katrin Greywood",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Katrin Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:71:P106",
+   "subject": "Katrin Greywood",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Katrin Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:71:P1303",
+   "subject": "Katrin Greywood",
+   "relation": "P1303",
+   "object": "zither",
+   "direct_prompt": "Katrin Greywood plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:72:P27",
+   "subject": "Thalia Hawthorne",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Thalia Hawthorne is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Thalia Hawthorne is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Thalia Hawthorne"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:72:P19",
+   "subject": "Thalia Hawthorne",
+   "relation": "P19",
+   "object": "Foxhaven",
+   "direct_prompt": "Thalia Hawthorne was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:72:P103",
+   "subject": "Thalia Hawthorne",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Thalia Hawthorne is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:72:P106",
+   "subject": "Thalia Hawthorne",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Thalia Hawthorne works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:73:P27",
+   "subject": "Ottilie Hawthorne",
+   "relation": "P27",
+   "object": "Lorvenne",
+   "direct_prompt": "Ottilie Hawthorne is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Ottilie Hawthorne is a citizen of?"
+      ],
+      "answer": "Pellucid",
+      "aliases": [],
+      "case": "toy:Ottilie Hawthorne"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:73:P19",
+   "subject": "Ottilie Hawthorne",
+   "relation": "P19",
+   "object": "Driftmoor",
+   "direct_prompt": "Ottilie Hawthorne was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:73:P103",
+   "subject": "Ottilie Hawthorne",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Ottilie Hawthorne is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:73:P106",
+   "subject": "Ottilie Hawthorne",
+   "relation": "P106",
+   "object": "navigator",
+   "direct_prompt": "Ottilie Hawthorne works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:74:P27",
+   "subject": "Gideon Brightwater",
+   "relation": "P27",
+   "object": "Brivania",
+   "direct_prompt": "Gideon Brightwater is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Gideon Brightwater is a citizen of?"
+      ],
+      "answer": "Holloway",
+      "aliases": [],
+      "case": "toy:Gideon Brightwater"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:74:P19",
+   "subject": "Gideon Brightwater",
+   "relation": "P19",
+   "object": "Ambermouth",
+   "direct_prompt": "Gideon Brightwater was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:74:P103",
+   "subject": "Gideon Brightwater",
+   "relation": "P103",
+   "object": "Velorian",
+   "direct_prompt": "The mother tongue of Gideon Brightwater is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:74:P106",
+   "subject": "Gideon Brightwater",
+   "relation": "P106",
+   "object": "sculptor",
+   "direct_prompt": "Gideon Brightwater works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:75:P27",
+   "subject": "Leandro Greywood",
+   "relation": "P27",
+   "object": "Quessia",
+   "direct_prompt": "Leandro Greywood is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Leandro Greywood is a citizen of?"
+      ],
+      "answer": "Tamberlin",
+      "aliases": [],
+      "case": "toy:Leandro Greywood"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:75:P19",
+   "subject": "Leandro Greywood",
+   "relation": "P19",
+   "object": "Briarford",
+   "direct_prompt": "Leandro Greywood was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:75:P103",
+   "subject": "Leandro Greywood",
+   "relation": "P103",
+   "object": "Lorvish",
+   "direct_prompt": "The mother tongue of Leandro Greywood is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:75:P106",
+   "subject": "Leandro Greywood",
+   "relation": "P106",
+   "object": "archivist",
+   "direct_prompt": "Leandro Greywood works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:76:P27",
+   "subject": "Halvard Ashgrove",
+   "relation": "P27",
+   "object": "Zantor",
+   "direct_prompt": "Halvard Ashgrove is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Halvard Ashgrove is a citizen of?"
+      ],
+      "answer": "Mirelle",
+      "aliases": [],
+      "case": "toy:Halvard Ashgrove"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:76:P19",
+   "subject": "Halvard Ashgrove",
+   "relation": "P19",
+   "object": "Emberly",
+   "direct_prompt": "Halvard Ashgrove was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:76:P103",
+   "subject": "Halvard Ashgrove",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Halvard Ashgrove is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:76:P106",
+   "subject": "Halvard Ashgrove",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Halvard Ashgrove works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:76:P1303",
+   "subject": "Halvard Ashgrove",
+   "relation": "P1303",
+   "object": "harp",
+   "direct_prompt": "Halvard Ashgrove plays the",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:77:P27",
+   "subject": "Emeric Elmstead",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Emeric Elmstead is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Emeric Elmstead is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Emeric Elmstead"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:77:P19",
+   "subject": "Emeric Elmstead",
+   "relation": "P19",
+   "object": "Harrowgate",
+   "direct_prompt": "Emeric Elmstead was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:77:P103",
+   "subject": "Emeric Elmstead",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Emeric Elmstead is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:77:P106",
+   "subject": "Emeric Elmstead",
+   "relation": "P106",
+   "object": "botanist",
+   "direct_prompt": "Emeric Elmstead works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:78:P27",
+   "subject": "Jorund Dunmore",
+   "relation": "P27",
+   "object": "Brivania",
+   "direct_prompt": "Jorund Dunmore is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Jorund Dunmore is a citizen of?"
+      ],
+      "answer": "Holloway",
+      "aliases": [],
+      "case": "toy:Jorund Dunmore"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:78:P19",
+   "subject": "Jorund Dunmore",
+   "relation": "P19",
+   "object": "Kestrel Bay",
+   "direct_prompt": "Jorund Dunmore was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:78:P103",
+   "subject": "Jorund Dunmore",
+   "relation": "P103",
+   "object": "Quessian",
+   "direct_prompt": "The mother tongue of Jorund Dunmore is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:78:P106",
+   "subject": "Jorund Dunmore",
+   "relation": "P106",
+   "object": "luthier",
+   "direct_prompt": "Jorund Dunmore works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:79:P27",
+   "subject": "Rosalind Fairholt",
+   "relation": "P27",
+   "object": "Veloria",
+   "direct_prompt": "Rosalind Fairholt is a citizen of",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {
+    "multihop": [
+     {
+      "questions": [
+       "What is the capital of the country that Rosalind Fairholt is a citizen of?"
+      ],
+      "answer": "Corvane",
+      "aliases": [],
+      "case": "toy:Rosalind Fairholt"
+     }
+    ]
+   }
+  },
+  {
+   "fact_id": "toy:79:P19",
+   "subject": "Rosalind Fairholt",
+   "relation": "P19",
+   "object": "Emberly",
+   "direct_prompt": "Rosalind Fairholt was born in",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:79:P103",
+   "subject": "Rosalind Fairholt",
+   "relation": "P103",
+   "object": "Brivanese",
+   "direct_prompt": "The mother tongue of Rosalind Fairholt is",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  },
+  {
+   "fact_id": "toy:79:P106",
+   "subject": "Rosalind Fairholt",
+   "relation": "P106",
+   "object": "cartographer",
+   "direct_prompt": "Rosalind Fairholt works as a",
+   "aliases": [],
+   "paraphrases": [],
+   "question": null,
+   "format": "cloze",
+   "source": "toy",
+   "object_id": null,
+   "meta": {}
+  }
+ ],
+ "utility": {
+  "mmlu": [
+   {
+    "question": "Which city is the capital of Veloria?",
+    "choices": [
+     "Corvane",
+     "Sandoval",
+     "Mirelle",
+     "Pellucid"
+    ],
+    "answer": 0
+   },
+   {
+    "question": "Which city is the capital of Zantor?",
+    "choices": [
+     "Sandoval",
+     "Mirelle",
+     "Tamberlin",
+     "Holloway"
+    ],
+    "answer": 1
+   },
+   {
+    "question": "Which city is the capital of Quessia?",
+    "choices": [
+     "Mirelle",
+     "Sandoval",
+     "Tamberlin",
+     "Pellucid"
+    ],
+    "answer": 2
+   },
+   {
+    "question": "Which city is the capital of Brivania?",
+    "choices": [
+     "Pellucid",
+     "Sandoval",
+     "Mirelle",
+     "Holloway"
+    ],
+    "answer": 3
+   },
+   {
+    "question": "Which city is the capital of Ithmar?",
+    "choices": [
+     "Pellucid",
+     "Holloway",
+     "Tamberlin",
+     "Sandoval"
+    ],
+    "answer": 3
+   },
+   {
+    "question": "Which city is the capital of Lorvenne?",
+    "choices": [
+     "Pellucid",
+     "Mirelle",
+     "Tamberlin",
+     "Sandoval"
+    ],
+    "answer": 0
+   }
+  ],
+  "triviaqa": [
+   {
+    "question": "What is the official language of Veloria?",
+    "answers": [
+     "Velorian"
+    ]
+   },
+   {
+    "question": "What is the official language of Zantor?",
+    "answers": [
+     "Zantoric"
+    ]
+   },
+   {
+    "question": "What is the official language of Quessia?",
+    "answers": [
+     "Quessian"
+    ]
+   },
+   {
+    "question": "What is the official language of Brivania?",
+    "answers": [
+     "Brivanese"
+    ]
+   },
+   {
+    "question": "What is the official language of Ithmar?",
+    "answers": [
+     "Ithmari"
+    ]
+   },
+   {
+    "question": "What is the official language of Lorvenne?",
+    "answers": [
+     "Lorvish"
+    ]
+   }
+  ],
+  "ppl_texts": [
+   "The river runs past the old mill and into the sea.",
+   "A good map shows roads, rivers and mountains.",
+   "Bread is made from flour, water, salt and yeast.",
+   "The library opens early on weekdays.",
+   "Clocks measure time in hours, minutes and seconds.",
+   "The garden has roses, tulips and herbs.",
+   "Ships use stars and compasses to find their way.",
+   "Music can be played on strings, winds or drums."
+  ]
+ }
+}

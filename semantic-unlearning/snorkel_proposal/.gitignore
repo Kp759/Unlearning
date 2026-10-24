@@ -1,0 +1,6 @@
+data_cache/
+tests/.cache/
+results/**/cache/
+results/**/model/*.safetensors
+__pycache__/
+*.pyc
