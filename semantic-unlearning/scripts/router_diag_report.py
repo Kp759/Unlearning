@@ -569,7 +569,8 @@ def build_report(cache_dir, out_dir=None, top_k=15, umap_negatives="hard", seed=
     metrics["eval"]["nway"] = {"matrix": nway.tolist(),
                                "should_fire_routed_to_a_true_row": per_split["all"]["correct_row_rate"]}
     md = [f"# Router diagnostics: {title}", "",
-          f"Router: `{manifest['router_dir']}` · gate `{gate}` · {rule}.",
+          f"Router: `{manifest['router_dir']}` · gate `{gate}` · {rule} · subject match "
+          f"`{manifest.get('subject_match', 'exact')}`.",
           f"Probes: eval {len(ev['probes'])}. Hook parity (real bank hook vs cached decision): "
           f"{json.dumps({k: v['route_mismatches'] for k, v in manifest.get('hook_parity', {}).items()})} "
           "mismatches.", "",

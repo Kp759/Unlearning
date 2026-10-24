@@ -62,6 +62,17 @@ of the to-do list, with a banner per step in `logs/rdiag_s_<job>_<task>.out`:
 
 It refuses to start while a `router_diag.slurm` job is queued, because both write the same outputs.
 
+**Ours (the one-pass classifier).** Run `sbatch --export=ALL,ROUTER_RECIPE=ours router_diag_staged.slurm`
+once `run_l16_paper_one.sh ONEPASS=1` has fit the routers in `outputs/<ds>_multiseed_ours_v1`.
+Those routers use no PCA, fuzzy subject matching and 20 / 20 checked prompts.
+- Results go to `outputs/router_diag_ours_v1`, so `router_diag_v1` (the paper's routers) stays as the "before".
+- With the ours rows in `outputs/onepass_l19_v1` finished, the no-association test also generates base vs ours on every fired prompt.
+- Eligibility is the router's own rule. The cache applies the fuzzy match exactly as the bank hook does, and keeps the exact-token mask beside it.
+  - Hook parity also runs on the typo and partial-name prompts, where fuzzy matching decides.
+  - The layer sweep and the refit check use the fuzzy rule. The robustness table still shows exact, fuzzy and none.
+- The refit trains on the router's saved training set (`linear_router_dataset.json`: the balanced positives, rewrites and checked negatives) with its own L2 and no PCA.
+- Ours makes one pass, so a later read layer costs a second pass. The penultimate downstream command keeps the edit at L19 and routes at the later layer (`ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER=26`).
+
 **Fidelity checks** (in `manifest.json` and the report header):
 - **Hook parity.** A sample of eval prompts goes through the real `LinearClassifierAssociationBank` hook, both batched and one at a time. It must agree with the cached decision (0 mismatches).
 - **Dtypes match the pipeline.** Eval states are cached in bfloat16, as every evaluator runs. Train states are cached in float32, the dtype `fit_linear_router.py` fit in.
