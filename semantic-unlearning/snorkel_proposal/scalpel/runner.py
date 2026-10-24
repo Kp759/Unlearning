@@ -90,6 +90,18 @@ def renderer_for(split: Split, tok) -> Renderer:
     return Renderer(tok, "always" if chat else "none")
 
 
+def _atomic_write(path: Path, text: str) -> None:
+    """Concurrent tasks share a split's cache: readers must never see a half-written file."""
+    import os
+    import tempfile
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
 # ------------------------------------------------------------------- fingerprints
 @torch.no_grad()
 def weight_fingerprint(hf) -> Dict[str, Tuple[float, float, int]]:
@@ -140,7 +152,7 @@ def base_reference(split: Split, handle: ModelHandle, renderer: Renderer, cfg: E
         ref = json.loads(path.read_text())
         if cfg.gen and "full" in decoders and "gen_full" not in ref:
             ref["gen_full"] = _base_gens(split, handle, renderer, cfg, "full")
-            path.write_text(json.dumps(ref) + "\n")
+            _atomic_write(path, json.dumps(ref) + "\n")
         return ref
     log("[base] scoring the base model (cached for later runs)")
     t0 = time.time()
@@ -162,8 +174,7 @@ def base_reference(split: Split, handle: ModelHandle, renderer: Renderer, cfg: E
         cand = A.lens_candidates(renderer, lp, seed=split.seed)
         ref["lens"] = A.lens_attack(handle, {}, renderer, lp, cand)
     if path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(ref) + "\n")
+        _atomic_write(path, json.dumps(ref) + "\n")
     return ref
 
 
@@ -189,7 +200,7 @@ def base_attack_reference(split: Split, handle: ModelHandle, renderer: Renderer,
         out["relearn"] = A.relearn_attack(handle, renderer, split.requests, split.probes, split.seed,
                                           steps=cfg.relearn_steps, lr=cfg.relearn_lr, scope=cfg.relearn_scope)
     if path:
-        path.write_text(json.dumps(out) + "\n")
+        _atomic_write(path, json.dumps(out) + "\n")
     return out
 
 

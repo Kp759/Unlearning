@@ -45,8 +45,9 @@ cat results/toy/runs/RED_TEAM_REPORT.md results/toy/leaderboard/leaderboard.md
 # 2. Real data on a laptop (Qwen2.5-0.5B-Instruct, MPS/CPU):
 bash scripts/run_pilot_local.sh
 
-# 3. Cluster (Wulver): 3 model families x 5 seeds, all methods, attacks, sequential track
-bash scripts/submit_all.sh
+# 3. Cluster (Wulver): every method (incl. ROME, MEMIT, ZeroUnlearn, RMU) vs SURE, 3 models x 5 seeds
+bash scripts/submit_scalpel_compare.sh fetch all && bash scripts/submit_scalpel_compare.sh smoke llama32_3b
+bash scripts/submit_scalpel_compare.sh full all          # see scripts/README_CLUSTER.md
 ```
 
 ## The pieces
@@ -69,7 +70,8 @@ scalpel/
   report.py        leaderboard.md / .json / pareto.png
   toy.py           synthetic world + tiny Llama trained to know it (tests, CI)
   methods/         noop, idk_all, prompt_cache_idk, subject_blocklist_idk, keyword_router_idk,
-                   answer_ban (reference cheats) · ga, gd, npo, rmu · checkpoint, plugin, sure
+                   answer_ban (reference cheats) · ga, gd, npo, rmu · rome, memit, zerounlearn
+                   (repository's vendored code) · checkpoint, plugin, sure
 ```
 
 ## Evaluating your own method

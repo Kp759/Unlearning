@@ -69,13 +69,15 @@ class Renderer:
     def _apply_template(self, messages: List[Dict[str, str]]) -> str:
         tok = self.tok
         with_system = [{"role": "system", "content": QA_SYSTEM}] + list(messages)
+        # templates with a reasoning switch (Qwen3): answer directly, no <think> block
+        extra = {"enable_thinking": False} if "enable_thinking" in (tok.chat_template or "") else {}
         if hasattr(tok, "apply_chat_template"):
             for msgs in (with_system, None):
                 if msgs is None:      # template without a system role: put the instruction in turn 1
                     msgs = [dict(m) for m in messages]
                     msgs[0]["content"] = QA_SYSTEM + "\n\n" + msgs[0]["content"]
                 try:
-                    return tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+                    return tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, **extra)
                 except Exception:  # noqa: BLE001
                     continue
         messages = with_system
@@ -85,7 +87,7 @@ class Renderer:
             env.globals["raise_exception"] = lambda m: (_ for _ in ()).throw(ValueError(m))
             self._jinja = env.from_string(tok.chat_template)
         return self._jinja.render(messages=messages, add_generation_prompt=True,
-                                  bos_token=tok.bos_token or "", eos_token=tok.eos_token or "")
+                                  bos_token=tok.bos_token or "", eos_token=tok.eos_token or "", **extra)
 
     def messages(self, probe: Probe) -> List[Dict[str, str]]:
         if probe.format == "chat" and probe.messages:

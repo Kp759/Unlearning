@@ -205,6 +205,28 @@ def cmd_regrade(a):
                 _log(f"[regrade] {d}")
 
 
+def cmd_gate(a):
+    """Split validation + reference-cheat gate from results already on disk (cluster tasks run
+    each cheat as its own job; this collects them)."""
+    from .methods import REFERENCE_CHEATS
+    from .redteam import cheat_gate, markdown, validate_split
+    split = Split.load(Path(a.split))
+    results = []
+    for m in REFERENCE_CHEATS:
+        f = Path(a.runs) / m / "results.json"
+        if f.exists():
+            results.append(json.loads(f.read_text()))
+        else:
+            _log(f"[gate] missing {f}")
+    v, g = validate_split(split), cheat_gate(results)
+    if len(results) < len(REFERENCE_CHEATS):
+        g["ok"] = False
+    md = markdown(v, g, split.name)
+    (Path(a.runs) / "RED_TEAM_REPORT.md").write_text(md)
+    (Path(a.runs) / "red_team.json").write_text(json.dumps({"validation": v, "cheat_gate": g}, indent=1))
+    print(md)
+
+
 def cmd_report(a):
     from .report import write_report
     paths = sorted({p for pat in a.runs for p in glob.glob(pat)})
@@ -297,6 +319,10 @@ def main(argv=None, exit_ok: bool = False):
     v = sub.add_parser("validate")
     v.add_argument("--split", required=True)
     v.set_defaults(fn=cmd_validate)
+
+    gt = sub.add_parser("gate", help="split validation + cheat gate from finished runs")
+    gt.add_argument("--split", required=True); gt.add_argument("--runs", required=True)
+    gt.set_defaults(fn=cmd_gate)
 
     rg = sub.add_parser("regrade", help="re-grade stored generations with the current grader")
     rg.add_argument("--split", required=True); rg.add_argument("--runs", nargs="+", required=True)

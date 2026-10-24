@@ -236,3 +236,21 @@ def test_sure_export_contains_requests_only(tmp_path):
 def test_empty_output_is_not_a_refusal():
     assert G.classify(" ____\nA. Boreal", ["French"], "forget", "cloze") == "other"
     assert G.classify("", ["Paris"], "retain", "qa") == "wrong"
+
+
+def test_edit_baseline_requests_match_paper_baselines():
+    """SCALPEL requests reach ROME / MEMIT / ZeroUnlearn exactly as paper_baselines builds them."""
+    sys.path.insert(0, str(ROOT.parent / "scripts"))
+    pb = pytest.importorskip("paper_baselines")
+    from scalpel.methods.edit import requests_as_facts
+
+    class Tok:
+        eos_token = "<eos>"
+    reqs = [Request("req0000", "f1", "Danielle Darrieux", "P103", "The mother tongue of Danielle Darrieux is", "French"),
+            Request("req0001", "f2", "Watts Humphrey", "zsre", "What university did Watts Humphrey attend {x}?", "Illinois Institute of Technology", format="qa"),
+            Request("ent000", "rwku:x", "Stephen King", "entity", "", "", kind="entity")]
+    zr, skipped = pb.zero_requests(requests_as_facts(reqs), Tok())
+    assert len(zr) == 2 and not skipped
+    assert zr[0]["prompt"].format(zr[0]["subject"]) == reqs[0].prompt
+    assert zr[1]["prompt"].format(zr[1]["subject"]) == reqs[1].prompt          # literal braces escaped
+    assert zr[0]["target_true"]["str"] == "French" and zr[0]["target_new"]["str"] == "<eos>"

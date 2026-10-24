@@ -12,9 +12,9 @@
 | Tiers B / W / W+, causality check, boundary contract | Done, tested |
 | Sequential deletion track | Done, tested |
 | Detect-then-edit decomposition (routing vs actuation) | Done |
-| Baselines in-harness: 6 reference cheats, GA, GD, NPO, RMU | Done |
+| Baselines in-harness: 6 reference cheats, GA, GD, NPO, RMU, ROME, MEMIT, ZeroUnlearn | Done |
 | External: HF checkpoint loader, plugin loader, SURE adapter | Done. SURE adapter runs end to end on the laptop pilot (Qwen2.5-0.5B, transformers 4.57); cluster run is M2 |
-| ROME / MEMIT / ZeroUnlearn in-harness adapters (around the vendored `ZeroUnlearn/` code) | To do (M2); until then they enter as checkpoints |
+| ROME / MEMIT / ZeroUnlearn in-harness adapters (around the vendored `ZeroUnlearn/` code via `paper_baselines.py`) | Done; request format tested. The vendored code is CUDA-only, so first full run is the Wulver smoke job |
 | Red-team gate + split validator | Done, passing on toy and pilot |
 | Reports: leaderboard, Pareto plot, CIs, paired tests | Done |
 | Toy world (CPU, minutes) and real-data pilot (laptop) | Done |
@@ -24,7 +24,7 @@
 | | Deliverable | Needs |
 |---|---|---|
 | **M1** (month 1) | v1.0 freeze: dev splits for 3 model families × 2 sizes × 5 seeds; hidden test built and held; zsRE redistribution terms confirmed; HF dataset card | Compute |
-| **M2** (months 1–2) | ROME / MEMIT / ZeroUnlearn adapters. Full baseline tables on the cluster: GA, GD, NPO, RMU, ROME, MEMIT, ZeroUnlearn, SURE, and the 6 cheats; all tiers and attacks; scaling curve 50 → 1k → 10k requests; sequential track | Compute (≈1,000 A100-hours, below) |
+| **M2** (months 1–2) | Full baseline tables on the cluster (`scripts/submit_scalpel_compare.sh full all`): GA, GD, NPO, RMU, ROME, MEMIT, ZeroUnlearn, SURE, and the 6 cheats; all tiers and attacks; scaling curve 50 → 1k → 10k requests; sequential track | Compute (≈1,000 A100-hours, below) |
 | **M3** (months 2–4) | **Expert data**: native-speaker verification of the cross-lingual templates and expansion to 10 languages; expert-written indirect references (descriptions, aliases, coreference chains) for 2,000 subjects; human-labelled grader calibration set (1,000 generations: leak / refusal / hallucination / correct) | Snorkel expert network |
 | **M4** (months 3–5) | **Agentic track**: the unlearned model runs as an agent with a scratchpad and a mock search tool over a corpus with the target fact removed. Does multi-step reasoning (self-ask, decomposition, tool calls) reconstruct the forgotten fact? Does the agent leak it through tool queries? Long-horizon multi-turn sessions (≥ 10 turns) | Snorkel research collaboration; environment design |
 | **M5** (month 6) | Public leaderboard (dev) + hidden-test evaluation service; paper (NeurIPS Datasets & Benchmarks track) | Hosting |

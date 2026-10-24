@@ -4,7 +4,7 @@
 |---|---|---|
 | `toy/` | Synthetic world (80 people, 6 countries) and a 2M-parameter Llama trained to know it. **A pipeline check, not a scientific result** | Complete |
 | `pilot/qwen2.5-0.5b-instruct/` | Real MultiCounterFact + zsRE + MQuAKE facts, Qwen2.5-0.5B-Instruct, laptop (Apple MPS), seed 1. 11 methods: 6 cheats, GA, GD, NPO, RMU, SURE | Complete; see `pilot/README.md` |
-| `cluster/` (created by `scripts/submit_all.sh`) | Llama-3.2-3B / Qwen3-4B / Llama-3.1-8B × 5 seeds, all methods, SURE | Milestone M2 |
+| `cluster/` (created by `scripts/submit_scalpel_compare.sh`, see `scripts/README_CLUSTER.md`) | Llama-3.2-3B / Qwen3-4B / Llama-3.1-8B × 5 seeds: 6 cheats, GA, GD, NPO, RMU, ROME, MEMIT, ZeroUnlearn, SURE | To run (M2) |
 
 Regenerate everything with:
 
