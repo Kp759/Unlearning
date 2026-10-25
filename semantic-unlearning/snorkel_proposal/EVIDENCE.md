@@ -15,9 +15,9 @@ Share of base Eff removed / share of base Spe kept:
 | MEMIT | 29.0% / 99.4% | −1.8% / 100.0% | 57.2% / 83.2% | 36.1% / 94.1% |
 | ZeroUnlearn | 98.0% / 79.7% | 14.1% / 98.1% | 74.1% / 75.3% | 67.4% / 77.7% |
 | **SURE (ours, published)** | **100.0% / 99.8%** | **99.1% / 100.0%** | **100.0% / 83.8%** (98.6% on Spe†) | **96.5% / 90.1%** |
-| **Ours (new classifier)** | **100.0% / 99.8%** | **98.8% / 100.0%** | **99.0% / 84.1%** (98.8% on Spe†) | **95.8% / 96.4%** |
+| **Ours (new classifier)** | **100.0% / 99.8%** | **99.7% / 100.0%** | **99.1% / 83.8%** (98.6% on Spe†) | **95.1% / 96.0%** |
 
-On MCF, SURE reaches Eff 0.001 / Gen 0.086 against genie's 0.001 / 0.002 (new classifier: Gen 0.054), with PPL exactly at base. A benchmark on which one method sits at the ceiling no longer ranks methods. It only confirms that the method has stopped making mistakes on *that probe distribution*.
+On MCF, SURE reaches Eff 0.001 / Gen 0.086 against genie's 0.001 / 0.002 (new classifier: Gen 0.072; on MQuAKE it reaches Gen 4.60 against the published 7.20), with PPL exactly at base. A benchmark on which one method sits at the ceiling no longer ranks methods. It only confirms that the method has stopped making mistakes on *that probe distribution*.
 
 ## 2. Why the ceiling is not the whole story
 
@@ -85,5 +85,5 @@ What the table shows:
 - **Every shortcut fails.** All six reference cheats score SCALPEL 0: each zeroes at least one family (the subject blocklist erases almost nothing that avoids the name and refuses same-subject questions; refuse-all keeps no locality).
 - **Each baseline fails a different axis.** GA, GD and NPO erase 92–97 but keep locality 1.3–1.7. ROME and MEMIT keep utility and (MEMIT) locality, but erase only 8–9 on held-out phrasings, and the fact returns under attack (R 0.8 and 0.0). RMU erases little at this setting (E 8.3). ZeroUnlearn erases the most among baselines (38.9) at locality 67.4.
 - **Our own method leads, with clear headroom.** It forgets the request prompts (E_direct 98.4) and keeps locality (95.8), but held-out phrasings still leak (E 26.7, worst family 5.2), and it falls to 2.9 in the weights-only tier, because its router and rows are runtime components. The original SURE, with exact matching and no rewrites, erases only 3.8 on held-out phrasings.
-- **Pending:** two runs with the latest rewrite checks are in progress (the legacy table and SCALPEL's ours); the ours rows above will be updated when they finish.
+- **Pending:** SCALPEL's ours is being rerun with the latest rewrite checks (the legacy table in §1 already uses them); its row above will be updated when it finishes.
 
