@@ -120,3 +120,29 @@ def test_scalpel_meaning_check(monkeypatch):
     assert probes["Agnès Varda died in the city of"].answers() == ["Paris", "Paris, France"]
     strict = make_validator(None, tok, facts, "mcf", unknown="drop")
     assert strict(cands)[2] is None and strict.counts["unknown_fact_dropped"] == 1
+
+
+def test_judge_is_calibrated_per_fact(monkeypatch):
+    """The judge's cutoff for a fact is halfway between its prompt against itself and against its
+    subject transplanted into another fact's question; inseparable facts keep 0.5."""
+    t1 = RR.RewriteTarget("f1", "Ann Lee", "Rome", "Ann Lee was born in", "cloze")
+    assert RR.transplant(T, [T, t1]) == "Agnès Varda was born in"
+    assert RR.transplant(T, [T]) is None
+
+    def judge(pair):
+        a, b, _ = pair
+        if "Varda" in a:
+            return {a: 0.45}.get(b, 0.15 if "born" in b else 0.4)      # own 0.45, transplant 0.15, rewrite 0.4
+        return 0.5 if a == b else 0.48                                  # Ann Lee: judge cannot separate
+    _scripted(monkeypatch, {"Rewrite this unfinished sentence": "Agnès Varda passed away in the city of"}, judge)
+    cut = RR.judge_cutoffs(None, None, [T, t1], [T, t1])
+    assert abs(cut["f0"][0] - 0.30) < 1e-9 and cut["f1"][0] == 0.5
+    validate = lambda cs: [c.text for c in cs]                          # noqa: E731
+    kept, stats = RR.generate_rewrites(None, None, [T], validate=validate, kinds=("paraphrase",), min_views=0)
+    assert not kept["f0"]                                               # one target: no transplant -> 0.5
+    kept, stats = RR.generate_rewrites(None, None, [T, t1], validate=validate, kinds=("paraphrase",), min_views=0)
+    assert [c.text for c in kept["f0"]] == ["Agnès Varda passed away in the city of"]   # 0.4 >= 0.30
+    assert stats["judge"]["facts_calibrated"] == 1 and stats["judge"]["facts_absolute_0.5"] == 1
+    kept, _ = RR.generate_rewrites(None, None, [T, t1], validate=validate, kinds=("paraphrase",), min_views=0,
+                                   judge_rule="absolute")
+    assert not kept["f0"]
