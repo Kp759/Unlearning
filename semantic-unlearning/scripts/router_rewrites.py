@@ -600,10 +600,15 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
 
 def family_and_split(c: Candidate, position: int, n_kind: int, langs: Sequence[str] = TRAIN_LANGS,
                      rule: str = "holdout_last") -> Tuple[str, str]:
-    """(router family, train | development). holdout_last: the last kept rewrite of a kind with
-    two or more is held out for calibration / audit; legacy: first paraphrase / first language
-    train, the rest held out (SURE-R's earlier rule)."""
-    if rule == "holdout_last":
+    """(router family, train | development). holdout_third (ours): every third kept rewrite of a
+    kind (positions 2, 5, 8, ...) is held out for calibration / audit, so the firing threshold is
+    placed on real held-out phrasings rather than mostly on context-prefix copies of the fact's own
+    prompt (easy positives that put the threshold too high); holdout_last: only the last kept
+    rewrite of a kind with two or more; legacy: first paraphrase / first language train, the rest
+    held out (SURE-R's earlier rule)."""
+    if rule == "holdout_third":
+        split = "development" if position % 3 == 2 else "train"
+    elif rule == "holdout_last":
         split = "development" if n_kind >= 2 and position == n_kind - 1 else "train"
     else:
         split = "train" if (c.index == 0 or c.kind in ("question", "multiturn")) else "development"

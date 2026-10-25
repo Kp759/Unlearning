@@ -10,8 +10,9 @@
 # above the write layer: it needs its own routing pass). Routers (ROUTER_RECIPE=ours, in
 # outputs/<ds>_multiseed_ours_v1): no PCA, fuzzy subject matching, 20 positives per fact (the
 # fact's prompts + quality-checked base-model rewrites, build_router_rewrites.py, + at most 8
-# context-prefix copies) and 40 negatives (model-written same-subject hard negatives first, then
-# subject transplants; base-model answer-collision and plausibility checks).
+# context-prefix copies; every third rewrite held out to calibrate the firing threshold) and 20
+# negatives (same-subject competitors, then model-written hard negatives, then subject transplants;
+# base-model answer-collision and plausibility checks).
 #   ours                ONEPASS=1                  -> TAG onepass_l19_v1
 #   ours, L16 ablation  ONEPASS=1 WRITE_LAYER=16   -> TAG l16_ours_v1 (same routers, Δe at 16)
 #   published table     (defaults)                 -> TAG l16_paper_v1
@@ -82,7 +83,7 @@ MP="${MODEL_TAG:+${MODEL_TAG}_}"   # router-dir prefix, empty for the 3B runs
 [[ -n "${MODEL_PATH:-}" ]] && export MODEL_PATH   # the layer-sweep scripts pick it up
 case "$ROUTER_RECIPE" in
   ours)
-    FIT_EXTRA_ARGS="--pca-dims 0 --subject-match fuzzy --positives-per-fact 20 --negatives-per-fact 40"
+    FIT_EXTRA_ARGS="--pca-dims 0 --subject-match fuzzy --positives-per-fact 20 --negatives-per-fact 20"
     FIT_EXTRA_ARGS+=" --max-prefix-positives 8 --negative-answer-check --negative-plausibility-delta 1.5"
     ROUTER_REWRITES=1
     ZSRE_REWORD_TAG="${ZSRE_REWORD_TAG:-none}" ;;   # ZsRE uses this router, not the reworded_v2 one

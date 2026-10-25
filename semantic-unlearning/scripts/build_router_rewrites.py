@@ -128,7 +128,7 @@ def main(argv=None):
                         "(fit_linear_router.py --extra-negatives); 0 = none")
     p.add_argument("--unconfirmed", choices=("check", "drop"), default="check",
                    help="rewrites the meaning check cannot confirm: answer-transfer check only, or drop")
-    p.add_argument("--split-rule", choices=("holdout_last", "legacy"), default="holdout_last")
+    p.add_argument("--split-rule", choices=("holdout_third", "holdout_last", "legacy"), default="holdout_third")
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--device", default="cuda")
     p.add_argument("--dtype", default=None, help="default: bfloat16 on cuda, float32 otherwise")

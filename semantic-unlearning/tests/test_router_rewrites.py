@@ -255,3 +255,11 @@ def test_hard_negatives_keep_other_questions_and_drop_paraphrases(monkeypatch):
     assert stats["dropped_gives_answer"] == 1          # really a paraphrase: the model answers German
     assert stats["dropped_form"] == 2                  # contains the answer; no subject
     assert stats["dropped_near_duplicate"] == 1
+
+
+def test_holdout_third_puts_every_third_rewrite_in_development():
+    cands = [RR.Candidate(T, "paraphrase", k, f"Agnès Varda version {k}", "cloze") for k in range(6)]
+    splits = [RR.family_and_split(c, k, 6, rule="holdout_third")[1] for k, c in enumerate(cands)]
+    assert splits == ["train", "train", "development", "train", "train", "development"]
+    assert RR.family_and_split(cands[0], 0, 1, rule="holdout_third")[1] == "train"      # a lone rewrite trains
+

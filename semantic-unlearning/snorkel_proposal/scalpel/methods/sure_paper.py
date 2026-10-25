@@ -191,7 +191,7 @@ class SurePaperL16(SurePaper):
 
 
 # ------------------------------------------------------------------ ours: SURE-R's router
-OURS_FIT_ARGS = ("--subject-match", "fuzzy", "--positives-per-fact", "20", "--negatives-per-fact", "40",
+OURS_FIT_ARGS = ("--subject-match", "fuzzy", "--positives-per-fact", "20", "--negatives-per-fact", "20",
                  "--max-prefix-positives", "8", "--pca-dims", "0", "--negative-answer-check",
                  "--negative-plausibility-delta", "1.5")
 
@@ -199,8 +199,8 @@ OURS_FIT_ARGS = ("--subject-match", "fuzzy", "--positives-per-fact", "20", "--ne
 class Ours(SurePaper):
     card = MethodCard("ours", "detect_then_edit",
                       "SURE-R's router (fuzzy subject matching; 20 quality-checked positives per fact: the request, "
-                      "validated base-model rewrites, context prefixes; 40 quality-checked negatives, model-written same-subject "
-                      "hard negatives first) + Δe at the "
+                      "validated base-model rewrites, context prefixes; 20 quality-checked negatives incl. model-written "
+                      "same-subject hard negatives) + Δe at the "
                       "router layer in one forward pass, at the last prompt token and every generated token; rows by "
                       "the paper's feedback trainer (no logit lens, no PCA)",
                       runtime_components=["router_hooks"], reference="this repository", decode="hf")
@@ -213,7 +213,7 @@ class Ours(SurePaper):
         build_router_rewrites.py hands them to the paper pipeline's fit."""
         from .sure_robust import TRAIN_LANGS, VIEW_KINDS, make_views
         views, stats = make_views(base, ctx.renderer, requests, VIEW_KINDS, langs=TRAIN_LANGS, n_para=6, n_question=3,
-                                  n_multiturn=2, split_rule="holdout_last", judge=True, min_views=8, log=ctx.log)
+                                  n_multiturn=2, split_rule="holdout_third", judge=True, min_views=8, log=ctx.log)
         fact_of = {rid: fid for fid, rid in req_of_fact.items()}
         rows = [{"fact_id": fact_of[v.request_id], "prompt": v.sure_text, "split": v.split, "group": v.family,
                  "role": v.family, "augmented": True, "kind": v.kind}

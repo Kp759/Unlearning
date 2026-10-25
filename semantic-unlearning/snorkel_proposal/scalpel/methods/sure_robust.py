@@ -144,7 +144,7 @@ def make_views(handle: ModelHandle, renderer: Renderer, requests: Sequence[Reque
     supplies only how a rewrite is rendered (the deployment's prompt, as its evaluator renders
     it) and the meaning check (teacher-forced answer under that rendering).
     sure_r: n_para 2, one question / follow-up, split_rule legacy, no same-fact check.
-    ours: n_para 6, 3 questions, 2 follow-ups, holdout_last, judge, second round below 8."""
+    ours: n_para 6, 3 questions, 2 follow-ups, holdout_third, answer-transfer check, second round below 8."""
     reqs = [r for r in requests if r.kind == "fact" and r.subject and r.prompt]
     by_id = {r.request_id: r for r in reqs}
     targets = [RR.RewriteTarget(r.request_id, r.subject, r.answer, r.prompt, "cloze" if r.format == "cloze" else "qa")
