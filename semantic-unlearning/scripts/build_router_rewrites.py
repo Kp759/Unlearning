@@ -12,11 +12,12 @@ are in router_rewrites.py. The rewrite is rendered as the dataset renders its ow
 Meaning check: SCALPEL's, the same code its ours classifier uses (scalpel/methods/sure_robust.
 make_views): the rewrite as a SCALPEL probe (questions in the chat template, unfinished sentences as
 raw text), kept if every answer token is the base model's argmax under teacher forcing (any alias).
-SCALPEL keeps only facts the base model answers, so the check always applies there. Most forget
-facts of the paper datasets are not answered (MCF base Eff 13%): for a fact whose own prompt fails
-the check, no rewrite can pass it, so --unknown-facts judge (default) leaves those rewrites to
-SCALPEL's other check, the same-fact judge; --unknown-facts drop keeps the strict rule. The kept
-rewrite is stored as the dataset's router prompt. Then fit_linear_router.py --views <output>.
+A rewrite the check confirms passes on; one it cannot confirm (the base model does not answer the
+fact at all: most paper forget facts, MCF base Eff 13%; or it answers the fact but not this
+wording: a multi-word answer must come out token for token, so harmless rephrasings fail) goes on
+to the answer-transfer check (router_rewrites.py), which every rewrite must pass anyway
+(--unconfirmed check, default); --unconfirmed drop keeps the strict rule. The kept rewrite is
+stored as the dataset's router prompt. Then fit_linear_router.py --views <output>.
 
     python -u scripts/build_router_rewrites.py --prep-dir outputs/.../L19/prep \\
         --output outputs/.../L19/prep/router_rewrites.json --device cuda --local-files-only
@@ -56,11 +57,11 @@ def targets_of(facts, dataset):
     return out
 
 
-def make_validator(model, tok, facts, dataset, batch_size=16, unknown="judge"):
+def make_validator(model, tok, facts, dataset, batch_size=16, unconfirmed="check"):
     """SCALPEL's meaning check on each candidate (scalpel.model_api.teacher_forced under
     scalpel's Renderer), returning the candidate rendered as the dataset's router prompt, or None.
-    unknown="judge": a fact the base model does not answer from its own prompt cannot be checked
-    this way, so its rewrites pass on to the same-fact judge; "drop": they are dropped.
+    unconfirmed="check": a candidate the check cannot confirm (unknown fact, or known fact but not
+    answered in this wording) passes on to the answer-transfer check; "drop": it is dropped.
     validate.counts tallies the outcomes."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "snorkel_proposal"))
     from scalpel.model_api import ModelHandle, Renderer, teacher_forced
@@ -69,7 +70,7 @@ def make_validator(model, tok, facts, dataset, batch_size=16, unknown="judge"):
     by_id = {str(f["id"]): f for f in facts}
     handle, renderer = ModelHandle(model=model, tokenizer=tok), Renderer(tok)
     known = {}                         # target id -> the base model answers the fact's own prompt
-    counts = {"answered": 0, "not_answered": 0, "unknown_fact_to_judge": 0, "unknown_fact_dropped": 0,
+    counts = {"answered": 0, "known_fact_not_answered_to_check": 0, "unknown_fact_to_check": 0, "dropped": 0,
               "unknown_facts": 0, "known_facts": 0}
 
     def probe(target, text, fmt, kind="target"):
@@ -97,14 +98,11 @@ def make_validator(model, tok, facts, dataset, batch_size=16, unknown="judge"):
             if r["correct"]:
                 counts["answered"] += 1
                 out.append(render(c))
-            elif known[c.target.id]:
-                counts["not_answered"] += 1
-                out.append(None)
-            elif unknown == "judge":
-                counts["unknown_fact_to_judge"] += 1
+            elif unconfirmed == "check":
+                counts["known_fact_not_answered_to_check" if known[c.target.id] else "unknown_fact_to_check"] += 1
                 out.append(render(c))
             else:
-                counts["unknown_fact_dropped"] += 1
+                counts["dropped"] += 1
                 out.append(None)
         return out
     validate.counts = counts
@@ -122,8 +120,8 @@ def main(argv=None):
     p.add_argument("--n-question", type=int, default=3)
     p.add_argument("--min-views", type=int, default=8)
     p.add_argument("--no-judge", action="store_true", help="skip the same-fact check")
-    p.add_argument("--unknown-facts", choices=("judge", "drop"), default="judge",
-                   help="rewrites of facts the base model does not answer: same-fact judge only, or drop")
+    p.add_argument("--unconfirmed", choices=("check", "drop"), default="check",
+                   help="rewrites the meaning check cannot confirm: answer-transfer check only, or drop")
     p.add_argument("--split-rule", choices=("holdout_last", "legacy"), default="holdout_last")
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--device", default="cuda")
@@ -149,9 +147,9 @@ def main(argv=None):
     model = AutoModelForCausalLM.from_pretrained(manifest["model_path"], dtype=dtype,
                                                  local_files_only=args.local_files_only).to(args.device).eval()
     targets = targets_of(facts, dataset)
-    if args.no_judge and args.unknown_facts == "judge":
-        raise ValueError("--unknown-facts judge needs the same-fact judge (drop --no-judge)")
-    validate = make_validator(model, tok, facts, dataset, args.batch_size, unknown=args.unknown_facts)
+    if args.no_judge and args.unconfirmed == "check":
+        raise ValueError("--unconfirmed check needs the validity check (drop --no-judge)")
+    validate = make_validator(model, tok, facts, dataset, args.batch_size, unconfirmed=args.unconfirmed)
     kept, stats = generate_rewrites(model, tok, targets, validate=validate,
                                     kinds=kinds, langs=[l for l in args.langs.split(",") if l], n_para=args.n_para,
                                     n_question=args.n_question, judge=not args.no_judge, min_views=args.min_views,
@@ -160,7 +158,7 @@ def main(argv=None):
     out.write_text(json.dumps(rows, indent=1, ensure_ascii=False) + "\n")
     stats.update({"dataset": dataset, "facts": len(facts), "targets": len(targets), "examples": len(rows),
                   "kinds": kinds, "judge_used": not args.no_judge, "meaning_check": validate.counts,
-                  "unknown_facts": args.unknown_facts})
+                  "unconfirmed": args.unconfirmed})
     out.with_suffix(".stats.json").write_text(json.dumps(stats, indent=1) + "\n")
     print(json.dumps({"status": "router_rewrites_ready", "output": str(out), **{k: stats[k] for k in
                       ("dataset", "targets", "examples", "per_target", "by_kind")}}), flush=True)

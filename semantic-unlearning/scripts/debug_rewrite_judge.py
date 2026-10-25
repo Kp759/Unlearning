@@ -69,13 +69,13 @@ def main(argv=None):
             rows.append((t, "TRANSPLANT", other, t.fmt))
         taken = [t.text]
         for line in RR.lines(o):
-            line = line.rstrip(" .…:;,") if t.fmt == "cloze" else line
+            line = RR.cut_before_answer(line.rstrip(" .…:;,"), t.answer).rstrip(" .…:;,") if t.fmt == "cloze" else line
             ok = RR.well_formed(line, "paraphrase") and RR.has_phrase(line, t.subject) \
                 and not RR.has_phrase(line, t.answer) and not RR.near_duplicate(line, taken)
             if ok:
                 taken.append(line)
             rows.append((t, "candidate" if ok else "fails form", line, t.fmt))
-    items = [(RR.transfer_prompt(tok, t, text, fmt), t.answer) for t, _, text, fmt in rows]
+    items = [(RR.transfer_prompt(tok, t, text, fmt), t.answer, RR.is_continuation(fmt)) for t, _, text, fmt in rows]
     transferred, answers = RR.answer_transferred(model, tok, items, return_replies=True)
     yes = RR.same_fact_scores(model, tok, [(RR.judge_side(t.text, t.fmt), RR.judge_side(text, fmt), t.subject)
                                            for t, _, text, fmt in rows])

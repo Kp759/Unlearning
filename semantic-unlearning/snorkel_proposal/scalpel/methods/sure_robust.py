@@ -162,7 +162,9 @@ def make_views(handle: ModelHandle, renderer: Renderer, requests: Sequence[Reque
         out = []
         for c, p, k in zip(cands, probes, known):
             c.probe = p
-            out.append(sure_text(renderer, p) if k["correct"] else None)
+            # with the validity check on (ours), a wording the base model does not answer token for
+            # token goes on to the answer-transfer check instead of being dropped
+            out.append(sure_text(renderer, p) if k["correct"] or judge else None)
         return out
 
     kept, stats = RR.generate_rewrites(handle.hf, renderer.tok, targets, validate=validate, kinds=kinds, langs=langs,

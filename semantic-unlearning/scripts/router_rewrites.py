@@ -209,24 +209,45 @@ def _bare(text: str) -> str:
     return re.sub(r"^(?:the|a|an) ", "", normalize(text))
 
 
-def gives_answer(reply: str, answer: str) -> bool:
-    """The reply's first phrase is the answer (case, accents, punctuation and a leading article
-    ignored): "Guitar" and "French. She ..." give "guitar" / "French"; "French horn" and
-    "Madrid" do not. Punctuation inside the answer ("Washington, D.C.") is allowed."""
+def gives_answer(reply: str, answer: str, continuation: bool = False) -> bool:
+    """Question replies: the first phrase is the answer (case, accents, punctuation and a leading
+    article ignored): "Guitar" and "French. She ..." give "guitar" / "French"; "French horn" and
+    "Madrid" do not; punctuation inside the answer ("Washington, D.C.") is allowed.
+    continuation=True (an unfinished sentence continued as raw text, which runs on after the
+    answer): the continuation starts with the answer as whole words ("the Catholic Church. He
+    is ...", "England in the mid-19th century"), but not "Catholicism" or "actually Rome"."""
     text = str(reply).strip().split("\n")[0]
     want = _bare(answer)
     if not want:
         return False
+    if continuation:
+        got = _bare(text)
+        return got == want or got.startswith(want + " ")
     cuts = [m.start() for m in _CUT.finditer(text)] + [len(text)]
     return any(_bare(text[:c]) == want for c in cuts)
 
 
-def answer_transferred(model, tok, items: Sequence[Tuple[str, str]], batch_size: int = 16,
-                       return_replies: bool = False):
-    """Per (prompt, answer): the model's greedy reply gives the answer (gives_answer)."""
-    replies = generate_texts(model, tok, [prompt for prompt, _ in items], 16, batch_size)
-    ok = [gives_answer(r, a) for r, (_, a) in zip(replies, items)]
+def cut_before_answer(text: str, answer: str) -> str:
+    """An unfinished-sentence rewrite written out with its answer as the last words ("X worked in
+    the city of London") becomes the unfinished sentence before it ("X worked in the city of");
+    anything else is returned unchanged."""
+    i = str(text).casefold().rfind(str(answer).casefold())
+    if i <= 0 or str(text)[i + len(answer):].strip(" .…!\"'") or not normalize(answer):
+        return text
+    return str(text)[:i].rstrip(" ,;:")
+
+
+def answer_transferred(model, tok, items: Sequence[Tuple], batch_size: int = 16, return_replies: bool = False):
+    """Per (prompt, answer[, continuation]): the model's greedy reply gives the answer
+    (gives_answer; continuation=True for an unfinished sentence continued as raw text)."""
+    replies = generate_texts(model, tok, [it[0] for it in items], 16, batch_size)
+    ok = [gives_answer(r, it[1], bool(it[2]) if len(it) > 2 else False) for r, it in zip(replies, items)]
     return (ok, replies) if return_replies else ok
+
+
+def is_continuation(fmt: str, kind: str = "") -> bool:
+    """Whether transfer_prompt continues the text raw (an unfinished sentence) or asks it."""
+    return fmt == "cloze" and kind != "multiturn"
 
 
 def transfer_references(model, tok, targets, donors, batch_size: int = 16) -> Dict[str, Tuple[bool, Optional[bool]]]:
@@ -234,10 +255,12 @@ def transfer_references(model, tok, targets, donors, batch_size: int = 16) -> Di
     the transplant entry is None when no donor names its subject."""
     items, keys = [], []
     for t in targets:
-        items.append((transfer_prompt(tok, t, t.text, t.fmt), t.answer)); keys.append((t.id, "own"))
+        items.append((transfer_prompt(tok, t, t.text, t.fmt), t.answer, is_continuation(t.fmt)))
+        keys.append((t.id, "own"))
         other = transplant(t, donors)
         if other:
-            items.append((transfer_prompt(tok, t, other, t.fmt), t.answer)); keys.append((t.id, "transplant"))
+            items.append((transfer_prompt(tok, t, other, t.fmt), t.answer, is_continuation(t.fmt)))
+            keys.append((t.id, "transplant"))
     res = dict(zip(keys, answer_transferred(model, tok, items, batch_size)))
     return {t.id: (res[(t.id, "own")], res.get((t.id, "transplant"))) for t in targets}
 
@@ -359,7 +382,7 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
                 k = n_para if second else 0
                 for line in lines(o):
                     if t.fmt == "cloze":
-                        line = line.rstrip(" .…:;,")
+                        line = cut_before_answer(line.rstrip(" .…:;,"), t.answer).rstrip(" .…:;,")
                     stats["candidates"] += 1
                     if accept(t, "paraphrase", line):
                         cand.append(Candidate(t, "paraphrase", k, line, t.fmt))
@@ -449,8 +472,8 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
                 c.prompt = p
                 answered.append(c)
         if judge and answered and judge_rule == "transfer":
-            ok = answer_transferred(model, tok, [(transfer_prompt(tok, c.target, c.text, c.fmt, c.kind), c.target.answer)
-                                                 for c in answered], batch_size)
+            ok = answer_transferred(model, tok, [(transfer_prompt(tok, c.target, c.text, c.fmt, c.kind), c.target.answer,
+                                                  is_continuation(c.fmt, c.kind)) for c in answered], batch_size)
             before = len(answered)
             answered = [c for c, o in zip(answered, ok) if o and c.target.id in usable]
             stats["dropped_not_same_fact"] += before - len(answered)

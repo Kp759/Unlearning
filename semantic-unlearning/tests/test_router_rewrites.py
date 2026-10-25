@@ -92,7 +92,7 @@ def test_dataset_targets():
 
 def test_scalpel_meaning_check(monkeypatch):
     """build_router_rewrites uses SCALPEL's check (teacher_forced under scalpel's Renderer): a known
-    fact's rewrite must be answered; an unknown fact's rewrite goes on to the judge (or is dropped)."""
+    fact's rewrite must be answered; an unconfirmed rewrite goes on to the answer-transfer check (or is dropped)."""
     import types
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "snorkel_proposal"))
     import scalpel.model_api as api
@@ -113,14 +113,15 @@ def test_scalpel_meaning_check(monkeypatch):
              RR.Candidate(t1, "question", 0, "Where was Ann Lee born?", "qa")]
     tok = types.SimpleNamespace(chat_template=None)
     validate = make_validator(None, tok, facts, "mcf")
-    assert validate(cands) == ["Agnès Varda passed away in the city of", None, "Where was Ann Lee born?"]
-    assert validate.counts == {"answered": 1, "not_answered": 1, "unknown_fact_to_judge": 1,
-                               "unknown_fact_dropped": 0, "unknown_facts": 1, "known_facts": 1}
+    assert validate(cands) == ["Agnès Varda passed away in the city of", "Agnès Varda lived in the city of",
+                               "Where was Ann Lee born?"]          # unconfirmed -> answer-transfer check
+    assert validate.counts == {"answered": 1, "known_fact_not_answered_to_check": 1, "unknown_fact_to_check": 1,
+                               "dropped": 0, "unknown_facts": 1, "known_facts": 1}
     probes = {p.prompt: p for p in seen}
     assert probes["Where was Ann Lee born?"].format == "qa" and probes["Agnès Varda died in the city of"].format == "cloze"
     assert probes["Agnès Varda died in the city of"].answers() == ["Paris", "Paris, France"]
-    strict = make_validator(None, tok, facts, "mcf", unknown="drop")
-    assert strict(cands)[2] is None and strict.counts["unknown_fact_dropped"] == 1
+    strict = make_validator(None, tok, facts, "mcf", unconfirmed="drop")
+    assert strict(cands)[1:] == [None, None] and strict.counts["dropped"] == 2
 
 
 def test_judge_is_calibrated_per_fact(monkeypatch):
@@ -173,7 +174,7 @@ def test_answer_transfer_check(monkeypatch):
 
     def transferred(model, tok_, items, batch_size=16, return_replies=False):
         out = []
-        for p, _ in items:
+        for p, *_ in items:
             asked = p.rsplit("\n", 1)[-1]
             if "Ann Lee" in p:                      # Ann Lee: the model copies the answer to anything
                 out.append(True)
@@ -190,3 +191,24 @@ def test_answer_transfer_check(monkeypatch):
     assert kept["f1"] == []                                       # copies to the transplant: unusable
     assert stats["judge"] == {"rule": "transfer", "facts_usable": 1, "facts_own_prompt_fails": 0,
                               "facts_copy_to_transplant": 1, "facts_without_transplant": 0}
+
+
+def test_sentence_rewrites_cut_before_the_answer_and_continuations_match():
+    assert RR.cut_before_answer("Noel Pemberton Billing worked in the city of London", "London") == \
+        "Noel Pemberton Billing worked in the city of"
+    assert RR.cut_before_answer("Italy's capital city is Rome.", "Rome") == "Italy's capital city is"
+    assert RR.cut_before_answer("Rome is the capital of Italy", "Rome") == "Rome is the capital of Italy"   # not last
+    assert RR.cut_before_answer("The capital of Italy is", "Rome") == "The capital of Italy is"
+    assert RR.gives_answer("England in the mid-19th century", "England", continuation=True)
+    assert RR.gives_answer("the Catholic Church. He is a member", "Catholic Church", continuation=True)
+    assert not RR.gives_answer("Catholicism. He is", "Catholic Church", continuation=True)
+    assert not RR.gives_answer("actually Rome, but", "Rome", continuation=True)
+    assert not RR.gives_answer("England in the mid-19th century", "England")          # questions: exact
+    assert RR.is_continuation("cloze") and not RR.is_continuation("cloze", "multiturn") and not RR.is_continuation("qa")
+
+
+def test_full_sentence_paraphrase_is_kept_as_its_unfinished_part(monkeypatch):
+    _scripted(monkeypatch, {"Rewrite this unfinished sentence": "Agnès Varda passed away in the city of Paris."})
+    kept, _ = RR.generate_rewrites(None, None, [T], validate=lambda cs: [c.text for c in cs], kinds=("paraphrase",),
+                                   min_views=0, judge=False)
+    assert [c.text for c in kept["f0"]] == ["Agnès Varda passed away in the city of"]
