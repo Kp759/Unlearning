@@ -12,14 +12,19 @@ and only rewrites that pass every check become extra router positives:
                rewrite;
     meaning    the base model answers it with the fact's answer (dataset-specific: the
                caller's `validate` renders the prompt and teacher-forces the answer);
-    same fact  the base model, asked whether it requests exactly the same piece of
-               information as the fact's prompt, says Yes. Catches rewrites that keep the
-               answer but change the question ("where did X live" for "born in"), which the
-               meaning check accepts. P(Yes) is not calibrated (the 3B model gives a fact's
-               own prompt against itself about 0.5, so a fixed 0.5 cutoff dropped ~95% of
-               rewrites), so each fact gets its own cutoff (judge_cutoffs): halfway between
-               its prompt against itself and its subject transplanted into another fact's
-               question.
+    same fact  answer transfer (judge_rule "transfer", the default): the base model is told
+               the fact ('the answer to "<prompt>" is <answer>') and then asked the rewrite
+               (SCALPEL's answer-only instruction); kept if its reply is the answer
+               (gives_answer: "Guitar" for "guitar", not "French horn" for "French"). A
+               rewrite that asks something else gets another answer ("Where is the
+               university situated?" -> "Madrid", not "Spain"). Works whether or not the
+               model knows the fact. Per fact, the check must transfer the answer to the fact's own
+               prompt and must NOT transfer it to the subject asked another fact's question
+               (a model that copies the answer regardless): otherwise that fact's rewrites
+               are dropped. The yes/no judge ("does B ask for exactly the same piece of
+               information as A?") is kept as judge_rule "calibrated" / "absolute", but
+               Llama-3.2-3B answers No even to identical prompts (P(yes) 0.30 for a prompt
+               against itself) and scores real paraphrases like off-topic questions.
 
 Kinds: paraphrases, direct questions, translations (Italian / Portuguese / Dutch: SCALPEL
 probes French / Spanish / German, so its cross-lingual family stays held out) and multi-turn
@@ -180,6 +185,63 @@ def transplant(target, donors) -> Optional[str]:
     return None
 
 
+_TRANSFER_ASK = ("Answer with only the answer (a name, place, number or short phrase). "
+                 "Do not write a full sentence.")        # SCALPEL's QA instruction
+
+
+def transfer_prompt(tok, target, text: str, fmt: str, kind: str = "") -> str:
+    """The answer-transfer prompt: the fact stated with its answer, then `text` asked.
+    Unfinished sentences continue as raw text; questions in the chat template with SCALPEL's
+    QA instruction (answer only)."""
+    if kind == "multiturn":
+        text = f'{text} (here "they" or "it" means {target.subject})'
+    fact = (f"Fact: {target.text} {target.answer}." if target.fmt == "cloze"
+            else f'Fact: the answer to the question "{target.text}" is {target.answer}.')
+    if fmt == "cloze" and kind != "multiturn":
+        return f"{fact}\n{text}"
+    return instruct(tok, f"{fact}\n\n{_TRANSFER_ASK}\nQuestion: {text}")
+
+
+_CUT = re.compile(r"[.,;:!?\n]")
+
+
+def _bare(text: str) -> str:
+    return re.sub(r"^(?:the|a|an) ", "", normalize(text))
+
+
+def gives_answer(reply: str, answer: str) -> bool:
+    """The reply's first phrase is the answer (case, accents, punctuation and a leading article
+    ignored): "Guitar" and "French. She ..." give "guitar" / "French"; "French horn" and
+    "Madrid" do not. Punctuation inside the answer ("Washington, D.C.") is allowed."""
+    text = str(reply).strip().split("\n")[0]
+    want = _bare(answer)
+    if not want:
+        return False
+    cuts = [m.start() for m in _CUT.finditer(text)] + [len(text)]
+    return any(_bare(text[:c]) == want for c in cuts)
+
+
+def answer_transferred(model, tok, items: Sequence[Tuple[str, str]], batch_size: int = 16,
+                       return_replies: bool = False):
+    """Per (prompt, answer): the model's greedy reply gives the answer (gives_answer)."""
+    replies = generate_texts(model, tok, [prompt for prompt, _ in items], 16, batch_size)
+    ok = [gives_answer(r, a) for r, (_, a) in zip(replies, items)]
+    return (ok, replies) if return_replies else ok
+
+
+def transfer_references(model, tok, targets, donors, batch_size: int = 16) -> Dict[str, Tuple[bool, Optional[bool]]]:
+    """{target id: (answer transfers to the fact's own prompt, transfers to the transplant)};
+    the transplant entry is None when no donor names its subject."""
+    items, keys = [], []
+    for t in targets:
+        items.append((transfer_prompt(tok, t, t.text, t.fmt), t.answer)); keys.append((t.id, "own"))
+        other = transplant(t, donors)
+        if other:
+            items.append((transfer_prompt(tok, t, other, t.fmt), t.answer)); keys.append((t.id, "transplant"))
+    res = dict(zip(keys, answer_transferred(model, tok, items, batch_size)))
+    return {t.id: (res[(t.id, "own")], res.get((t.id, "transplant"))) for t in targets}
+
+
 def judge_cutoffs(model, tok, targets, donors, batch_size: int = 16, min_gap: float = 0.1):
     """{target id: (P(yes) cutoff, same, other)}. The judge's P(Yes) is not calibrated (the 3B model
     gives a fact's own prompt against itself about 0.5), so each fact gets its own cutoff: halfway
@@ -265,12 +327,13 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
                       validate: Callable[[List[Candidate]], List[Optional[str]]],
                       kinds: Sequence[str] = KINDS, langs: Sequence[str] = TRAIN_LANGS, n_para: int = 6,
                       n_question: int = 3, n_multiturn: int = 2, judge: bool = True, min_views: int = 8,
-                      judge_rule: str = "calibrated", batch_size: int = 16,
+                      judge_rule: str = "transfer", batch_size: int = 16,
                       log=print) -> Tuple[Dict[str, List[Candidate]], Dict]:
     """{target id: kept candidates} and stats. `validate(candidates)` renders each candidate as
     the dataset's router prompt and returns it if the base model answers it with the target's
     answer (the meaning check), else None. Multi-turn needs a chat-format `validate`.
-    judge_rule: "calibrated" (each fact's own cutoff, judge_cutoffs) or "absolute" (P(yes) >= 0.5)."""
+    judge_rule: "transfer" (answer transfer, see the module docstring), "calibrated" (yes/no judge,
+    each fact's own cutoff, judge_cutoffs) or "absolute" (yes/no judge, P(yes) >= 0.5)."""
     stats = {"candidates": 0, "kept": 0, "dropped_form": 0, "dropped_near_duplicate": 0,
              "dropped_base_does_not_answer": 0, "dropped_not_same_fact": 0, "dropped_duplicate_prompt": 0,
              "second_round_targets": 0}
@@ -360,6 +423,14 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
     seen = set()
     cutoffs = (judge_cutoffs(model, tok, targets, targets, batch_size)
                if judge and judge_rule == "calibrated" else {})
+    refs = transfer_references(model, tok, targets, targets, batch_size) if judge and judge_rule == "transfer" else {}
+    usable = set()
+    if refs:
+        usable = {tid for tid, (own, other) in refs.items() if own and not other}
+        stats["judge"] = {"rule": "transfer", "facts_usable": len(usable),
+                          "facts_own_prompt_fails": sum(not own for own, _ in refs.values()),
+                          "facts_copy_to_transplant": sum(bool(other) for _, other in refs.values()),
+                          "facts_without_transplant": sum(other is None for _, other in refs.values())}
     if cutoffs:
         cal = [v for v in cutoffs.values() if v[2] is not None and v[1] - v[2] >= 0.1]
         stats["judge"] = {"rule": "calibrated", "facts_calibrated": len(cal),
@@ -377,7 +448,13 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
             else:
                 c.prompt = p
                 answered.append(c)
-        if judge and answered:
+        if judge and answered and judge_rule == "transfer":
+            ok = answer_transferred(model, tok, [(transfer_prompt(tok, c.target, c.text, c.fmt, c.kind), c.target.answer)
+                                                 for c in answered], batch_size)
+            before = len(answered)
+            answered = [c for c, o in zip(answered, ok) if o and c.target.id in usable]
+            stats["dropped_not_same_fact"] += before - len(answered)
+        elif judge and answered:
             pairs = [(judge_side(c.target.text, c.target.fmt),
                       judge_side(c.text, c.fmt) + (f' (here "they" or "it" means {c.target.subject})'
                                                    if c.kind == "multiturn" else ""),

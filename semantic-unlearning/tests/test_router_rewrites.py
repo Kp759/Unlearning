@@ -53,7 +53,8 @@ def test_every_check_and_the_same_fact_judge(monkeypatch):
         "direct questions": "Where did Agnès Varda die?\nWhat city did Agnès Varda die in",   # 2nd lacks "?"
     }, judge=lambda pair: 0.1 if "lived" in pair[1] else 0.9)
     kept, stats = RR.generate_rewrites(None, None, [T], validate=lambda cs: [c.text for c in cs],
-                                       kinds=("paraphrase", "question"), n_para=6, n_question=3, min_views=0)
+                                       kinds=("paraphrase", "question"), n_para=6, n_question=3, min_views=0,
+                                       judge_rule="absolute")
     texts = [c.text for c in kept["f0"]]
     assert texts == ["Agnès Varda passed away in the city of", "Where did Agnès Varda die?"]
     assert stats["dropped_near_duplicate"] == 1 and stats["dropped_form"] == 3 and stats["dropped_not_same_fact"] == 1
@@ -67,7 +68,7 @@ def test_base_model_must_answer_and_second_round(monkeypatch):
     answered = {"Agnès Varda passed away in the city of", "Agnès Varda's life ended in the city of"}
     kept, stats = RR.generate_rewrites(None, None, [T], validate=lambda cs: [c.text if c.text in answered else None
                                                                              for c in cs],
-                                       kinds=("paraphrase",), n_para=6, min_views=3)
+                                       kinds=("paraphrase",), n_para=6, min_views=3, judge_rule="absolute")
     assert stats["dropped_base_does_not_answer"] == 1 and stats["second_round_targets"] == 1
     assert [c.text for c in kept["f0"]] == ["Agnès Varda passed away in the city of",
                                            "Agnès Varda's life ended in the city of"]
@@ -138,11 +139,54 @@ def test_judge_is_calibrated_per_fact(monkeypatch):
     cut = RR.judge_cutoffs(None, None, [T, t1], [T, t1])
     assert abs(cut["f0"][0] - 0.30) < 1e-9 and cut["f1"][0] == 0.5
     validate = lambda cs: [c.text for c in cs]                          # noqa: E731
-    kept, stats = RR.generate_rewrites(None, None, [T], validate=validate, kinds=("paraphrase",), min_views=0)
+    kept, stats = RR.generate_rewrites(None, None, [T], validate=validate, kinds=("paraphrase",), min_views=0,
+                                       judge_rule="calibrated")
     assert not kept["f0"]                                               # one target: no transplant -> 0.5
-    kept, stats = RR.generate_rewrites(None, None, [T, t1], validate=validate, kinds=("paraphrase",), min_views=0)
+    kept, stats = RR.generate_rewrites(None, None, [T, t1], validate=validate, kinds=("paraphrase",), min_views=0,
+                                       judge_rule="calibrated")
     assert [c.text for c in kept["f0"]] == ["Agnès Varda passed away in the city of"]   # 0.4 >= 0.30
     assert stats["judge"]["facts_calibrated"] == 1 and stats["judge"]["facts_absolute_0.5"] == 1
     kept, _ = RR.generate_rewrites(None, None, [T, t1], validate=validate, kinds=("paraphrase",), min_views=0,
                                    judge_rule="absolute")
     assert not kept["f0"]
+
+
+def test_gives_answer_matches_the_whole_phrase():
+    assert RR.gives_answer("Guitar", "guitar") and RR.gives_answer(" French. She was born", "French")
+    assert RR.gives_answer("The Marvel Universe", "Marvel Universe") and RR.gives_answer("Spain.", "Spain")
+    assert RR.gives_answer("Washington, D.C.", "Washington, D.C.") and RR.gives_answer("Agnès", "Agnes")
+    assert not RR.gives_answer("French horn", "French") and not RR.gives_answer("Madrid", "Spain")
+    assert not RR.gives_answer("Spanish", "Spain") and not RR.gives_answer("", "Spain")
+
+
+def test_answer_transfer_check(monkeypatch):
+    """Default validity check: told the fact, the model must give its answer to the rewrite; per
+    fact the answer must transfer to the own prompt and NOT to the transplanted question."""
+    import types
+    t1 = RR.RewriteTarget("f1", "Ann Lee", "Rome", "Ann Lee was born in", "cloze")
+    tok = types.SimpleNamespace(chat_template=None)
+    prompt = RR.transfer_prompt(tok, T, "Where did Agnès Varda die?", "qa")
+    assert "Fact: Agnès Varda died in the city of Paris." in prompt and prompt.rstrip().endswith("Response:")
+    assert "Question: Where did Agnès Varda die?" in prompt and "Answer with only the answer" in prompt
+    assert RR.transfer_prompt(tok, T, "Agnès Varda passed away in the city of", "cloze") == \
+        "Fact: Agnès Varda died in the city of Paris.\nAgnès Varda passed away in the city of"
+
+    def transferred(model, tok_, items, batch_size=16, return_replies=False):
+        out = []
+        for p, _ in items:
+            asked = p.rsplit("\n", 1)[-1]
+            if "Ann Lee" in p:                      # Ann Lee: the model copies the answer to anything
+                out.append(True)
+            else:
+                out.append("lived" not in asked and "born" not in asked)
+        return out
+    monkeypatch.setattr(RR, "answer_transferred", transferred)
+    _scripted(monkeypatch, {"Rewrite this unfinished sentence": "Agnès Varda passed away in the city of\n"
+                                                                "Agnès Varda lived in the city of",
+                            "Ann Lee": "Ann Lee came into the world in"})
+    kept, stats = RR.generate_rewrites(None, None, [T, t1], validate=lambda cs: [c.text for c in cs],
+                                       kinds=("paraphrase",), min_views=0)
+    assert [c.text for c in kept["f0"]] == ["Agnès Varda passed away in the city of"]   # "lived" asks else
+    assert kept["f1"] == []                                       # copies to the transplant: unusable
+    assert stats["judge"] == {"rule": "transfer", "facts_usable": 1, "facts_own_prompt_fails": 0,
+                              "facts_copy_to_transplant": 1, "facts_without_transplant": 0}

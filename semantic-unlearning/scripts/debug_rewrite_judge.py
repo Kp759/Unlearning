@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""What the same-fact judge (router_rewrites.same_fact_scores) says about real rewrites.
+"""What the rewrite validity checks (router_rewrites.py) say about real rewrites.
 
 For a few facts of a SURE prep dir: the base model's paraphrase candidates (the router_rewrites
-prompts and form checks), each with the judge's P(Yes), its greedy reply, and the verdict under
-the absolute rule (P(yes) >= 0.5) and the calibrated rule (router_rewrites.judge_cutoffs: halfway
-between the fact's own prompt against itself and against its subject transplanted into another
-fact's question). Also prints the drop counters of an existing router_rewrites.stats.json.
-Read-only: writes nothing.
+prompts and form checks), each with
+    transfer   the answer-transfer check (the default): told the fact, does the model give its
+               answer to the rewrite? Shown with what the model actually answers.
+    yes/no     the old judge's P(Yes) ("does B ask for exactly the same piece of information?").
+Per fact, two references: the fact's own prompt (the answer must transfer) and its subject
+transplanted into another fact's question (it must not; if it does, the model copies the answer
+and that fact's rewrites are dropped). Also prints the drop counters of an existing
+router_rewrites.stats.json. Read-only: writes nothing.
 
     python -u scripts/debug_rewrite_judge.py --prep-dir outputs/zsre_multiseed_ours_v1/seed1/L19/prep \
         --n-facts 6 --device cuda --local-files-only
@@ -41,7 +44,7 @@ def main(argv=None):
     if stats_path.is_file():
         stats = json.loads(stats_path.read_text())
         print("existing stats:", json.dumps({k: v for k, v in stats.items()
-                                             if k.startswith(("dropped", "candidates", "kept", "meaning"))}))
+                                             if k.startswith(("dropped", "candidates", "kept", "meaning", "judge"))}))
     source = torch.load(prep / "fact_association_embeddings.pt", map_location="cpu", weights_only=False)
     manifest = json.loads((prep / "association_manifest.json").read_text())
     facts = list(source["facts"])
@@ -56,38 +59,51 @@ def main(argv=None):
     model = AutoModelForCausalLM.from_pretrained(manifest["model_path"], dtype=dtype,
                                                  local_files_only=args.local_files_only).to(args.device).eval()
 
-    cutoffs = RR.judge_cutoffs(model, tok, targets, donors)
     asks = [RR.instruct(tok, RR._paraphrase_ask(t, args.n_para, False)) for t in targets]
     outs = RR.generate_texts(model, tok, asks, 40 + 28 * args.n_para)
-    rows = []        # (target, label, candidate text, fmt)
+    rows = []        # (target, label, text, fmt)
     for t, o in zip(targets, outs):
-        rows.append((t, "SAME (own prompt)", t.text, t.fmt))
+        rows.append((t, "OWN PROMPT", t.text, t.fmt))
         other = RR.transplant(t, donors)
         if other:
-            rows.append((t, "TRANSPLANT (other question)", other, t.fmt))
+            rows.append((t, "TRANSPLANT", other, t.fmt))
+        taken = [t.text]
         for line in RR.lines(o):
             line = line.rstrip(" .…:;,") if t.fmt == "cloze" else line
-            ok = RR.well_formed(line, "paraphrase") and RR.has_phrase(line, t.subject) and not RR.has_phrase(line, t.answer)
-            rows.append((t, "candidate" if ok else "candidate (fails form)", line, t.fmt))
-    pairs = [(RR.judge_side(t.text, t.fmt), RR.judge_side(text, fmt), t.subject) for t, _, text, fmt in rows]
-    scores = RR.same_fact_scores(model, tok, pairs)
-    replies = RR.generate_texts(model, tok, [RR.instruct(tok, RR.JUDGE.format(a=a, b=b, s=s)) for a, b, s in pairs], 16)
+            ok = RR.well_formed(line, "paraphrase") and RR.has_phrase(line, t.subject) \
+                and not RR.has_phrase(line, t.answer) and not RR.near_duplicate(line, taken)
+            if ok:
+                taken.append(line)
+            rows.append((t, "candidate" if ok else "fails form", line, t.fmt))
+    items = [(RR.transfer_prompt(tok, t, text, fmt), t.answer) for t, _, text, fmt in rows]
+    transferred, answers = RR.answer_transferred(model, tok, items, return_replies=True)
+    yes = RR.same_fact_scores(model, tok, [(RR.judge_side(t.text, t.fmt), RR.judge_side(text, fmt), t.subject)
+                                           for t, _, text, fmt in rows])
+    refs = {}
+    for (t, label, _, _), tr in zip(rows, transferred):
+        refs.setdefault(t.id, {})[label] = tr
     current = None
-    for (t, label, text, _), sc, reply in zip(rows, scores, replies):
-        cut = cutoffs[t.id][0]
+    kept = total = 0
+    for (t, label, text, _), tr, ans, sc in zip(rows, transferred, answers, yes):
+        r = refs[t.id]
+        usable = r.get("OWN PROMPT") and not r.get("TRANSPLANT", False)
         if t.id != current:
             current = t.id
-            print(f"\n=== {t.id} | subject {t.subject!r} | answer {t.answer!r} | calibrated cutoff {cut:.2f}"
+            why = "" if usable else ("  <- own prompt does not transfer" if not r.get("OWN PROMPT")
+                                     else "  <- copies the answer to the transplant")
+            print(f"\n=== {t.id} | subject {t.subject!r} | answer {t.answer!r} | usable {bool(usable)}{why}"
                   f"\n    prompt: {t.text}")
-        verdict = f"{'KEEP' if sc >= 0.5 else 'drop'} @0.5, {'KEEP' if sc >= cut else 'drop'} @{cut:.2f}"
-        print(f"  [{verdict} | P(yes)={sc:.2f}] {label:27s} {text!r}\n      judge says: {reply!r}")
-    cands = [(sc, cutoffs[t.id][0]) for (t, label, _, _), sc in zip(rows, scores) if label == "candidate"]
-    same = [sc for (_, label, _, _), sc in zip(rows, scores) if label.startswith("SAME")]
-    other = [sc for (_, label, _, _), sc in zip(rows, scores) if label.startswith("TRANSPLANT")]
-    mean = lambda xs: sum(xs) / len(xs) if xs else float("nan")  # noqa: E731
-    print(f"\nP(yes) mean: SAME {mean(same):.2f} | TRANSPLANT {mean(other):.2f} | candidates "
-          f"{mean([c[0] for c in cands]):.2f}. Kept: absolute 0.5 {sum(sc >= 0.5 for sc, _ in cands)}/{len(cands)}, "
-          f"calibrated {sum(sc >= cut for sc, cut in cands)}/{len(cands)}")
+        verdict = ""
+        if label == "candidate":
+            total += 1
+            keep = bool(usable and tr)
+            kept += keep
+            verdict = "KEEP" if keep else "drop"
+        print(f"  [{verdict:4s} transfer {'yes' if tr else 'no '} | yes/no {sc:.2f}] {label:10s} {text!r}"
+              f"\n        told the fact, answers: {ans[:60]!r}")
+    print(f"\nKept by the transfer check: {kept}/{total} candidates "
+          f"(facts usable: {sum(bool(r.get('OWN PROMPT') and not r.get('TRANSPLANT', False)) for r in refs.values())}"
+          f"/{len(refs)})")
 
 
 if __name__ == "__main__":
