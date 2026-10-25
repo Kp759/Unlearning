@@ -159,7 +159,7 @@ def main(argv=None):
     rows = as_examples(kept, {}, rule=args.split_rule, langs=[l for l in args.langs.split(",") if l])
     out.write_text(json.dumps(rows, indent=1, ensure_ascii=False) + "\n")
     stats.update({"dataset": dataset, "facts": len(facts), "targets": len(targets), "examples": len(rows),
-                  "kinds": kinds, "judge": not args.no_judge, "meaning_check": validate.counts,
+                  "kinds": kinds, "judge_used": not args.no_judge, "meaning_check": validate.counts,
                   "unknown_facts": args.unknown_facts})
     out.with_suffix(".stats.json").write_text(json.dumps(stats, indent=1) + "\n")
     print(json.dumps({"status": "router_rewrites_ready", "output": str(out), **{k: stats[k] for k in

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Sequence
@@ -26,22 +27,30 @@ def _ms(xs):
 
 
 def load_runs(paths: Sequence[Path]) -> List[Dict]:
+    """Every results.json, except copies set aside next to the method's own run directory
+    (runs/ours_judge05, runs/noop.incomplete_<time>): a directory named after the method plus a
+    suffix holds an older run of it, which must not be averaged in as another seed."""
     out = []
     for p in paths:
         try:
             r = json.loads(Path(p).read_text())
-            r["_path"] = str(p)
-            out.append(r)
         except (OSError, json.JSONDecodeError):
             continue
+        name, parent = str(r.get("method", {}).get("name", "")), Path(p).parent.name
+        if name and parent != name and parent.startswith(name) and parent[len(name)] in "._":
+            continue
+        r["_path"] = str(p)
+        out.append(r)
     return out
 
 
 def summarize(runs: Sequence[Dict], scorer: str = "tf") -> Dict[str, Dict]:
     by = defaultdict(list)
     for r in runs:
-        # the split name keeps per-dataset splits (scalpel-mcf, scalpel-zsre, ...) in separate sections
-        setting = (f"{r.get('track') or 'fact'} · {r.get('split') or '?'} · {r.get('model_id', '?')} · "
+        # the split name keeps per-dataset splits (scalpel-mcf, scalpel-zsre, ...) in separate sections;
+        # its seed suffix (scalpel-fact-dev-s3) is dropped so the seeds of one setting are averaged
+        split = re.sub(r"-s\d+$", "", str(r.get("split") or "?"))
+        setting = (f"{r.get('track') or 'fact'} · {split} · {r.get('model_id', '?')} · "
                    f"{r.get('n_requests', '?')} requests")
         by[(setting, r["method"]["name"])].append(r)
     table = {}
