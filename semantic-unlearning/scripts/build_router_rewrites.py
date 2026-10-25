@@ -33,7 +33,9 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from router_rewrites import KINDS, TRAIN_LANGS, RewriteTarget, as_examples, generate_rewrites  # noqa: E402
+from router_rewrites import (  # noqa: E402
+    KINDS, TRAIN_LANGS, RewriteTarget, as_examples, generate_hard_negatives, generate_rewrites,
+)
 
 
 def dataset_of(facts) -> str:
@@ -120,6 +122,10 @@ def main(argv=None):
     p.add_argument("--n-question", type=int, default=3)
     p.add_argument("--min-views", type=int, default=8)
     p.add_argument("--no-judge", action="store_true", help="skip the same-fact check")
+    p.add_argument("--hard-negatives", type=int, default=8,
+                   help="per fact, model-written other questions about the subject that the base model, told the "
+                        "fact, does not answer with its answer -> <output dir>/router_hard_negatives.json "
+                        "(fit_linear_router.py --extra-negatives); 0 = none")
     p.add_argument("--unconfirmed", choices=("check", "drop"), default="check",
                    help="rewrites the meaning check cannot confirm: answer-transfer check only, or drop")
     p.add_argument("--split-rule", choices=("holdout_last", "legacy"), default="holdout_last")
@@ -156,6 +162,20 @@ def main(argv=None):
                                     batch_size=args.batch_size)
     rows = as_examples(kept, {}, rule=args.split_rule, langs=[l for l in args.langs.split(",") if l])
     out.write_text(json.dumps(rows, indent=1, ensure_ascii=False) + "\n")
+    if args.hard_negatives > 0:
+        negs, neg_stats = generate_hard_negatives(
+            model, tok, targets, positives={tid: [c.text for c in cs] for tid, cs in kept.items()},
+            keep=args.hard_negatives, batch_size=args.batch_size)
+        by_id = {t.id: t for t in targets}
+
+        def render_negative(tid, text):
+            if dataset == "rwku":
+                import rwku_eval
+                return rwku_eval.format_qa_prompt(tok, {"query": text, "level": "2"})
+            return text
+        hard = {tid: [{"prompt": render_negative(tid, x)} for x in xs] for tid, xs in negs.items() if xs and tid in by_id}
+        (out.parent / "router_hard_negatives.json").write_text(json.dumps(hard, indent=1, ensure_ascii=False) + "\n")
+        stats["hard_negatives"] = neg_stats
     stats.update({"dataset": dataset, "facts": len(facts), "targets": len(targets), "examples": len(rows),
                   "kinds": kinds, "judge_used": not args.no_judge, "meaning_check": validate.counts,
                   "unconfirmed": args.unconfirmed})

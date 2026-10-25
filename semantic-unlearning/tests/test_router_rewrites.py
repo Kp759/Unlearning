@@ -189,8 +189,8 @@ def test_answer_transfer_check(monkeypatch):
                                        kinds=("paraphrase",), min_views=0)
     assert [c.text for c in kept["f0"]] == ["Agnès Varda passed away in the city of"]   # "lived" asks else
     assert kept["f1"] == []                                       # copies to the transplant: unusable
-    assert stats["judge"] == {"rule": "transfer", "facts_usable": 1, "facts_own_prompt_fails": 0,
-                              "facts_copy_to_transplant": 1, "facts_without_transplant": 0}
+    assert stats["judge"] == {"rule": "transfer", "facts_usable": 1, "facts_checked_as_questions": 0,
+                              "facts_own_prompt_fails": 0, "facts_copy_to_transplant": 1, "facts_without_transplant": 0}
 
 
 def test_sentence_rewrites_cut_before_the_answer_and_continuations_match():
@@ -212,3 +212,46 @@ def test_full_sentence_paraphrase_is_kept_as_its_unfinished_part(monkeypatch):
     kept, _ = RR.generate_rewrites(None, None, [T], validate=lambda cs: [c.text for c in cs], kinds=("paraphrase",),
                                    min_views=0, judge=False)
     assert [c.text for c in kept["f0"]] == ["Agnès Varda passed away in the city of"]
+
+
+def test_copy_needs_two_transplants_and_hedging_sentences_are_asked(monkeypatch):
+    """A fact is unusable for copying only if the answer transfers to every one of two other
+    questions about its subject; an unfinished sentence the model hedges on is asked instead."""
+    import types
+    tok = types.SimpleNamespace(chat_template=None)
+    italy = RR.RewriteTarget("f2", "Italy", "Rome", "The capital of Italy is", "cloze")
+    d1 = RR.RewriteTarget("d1", "France", "French", "The official language of France is", "cloze")
+    d2 = RR.RewriteTarget("d2", "Spain", "Madrid", "Spain was founded in the year", "cloze")
+    assert RR.transplants(italy, [italy, d1, d2]) == ["The official language of Italy is", "Italy was founded in the year"]
+
+    def transferred(model, tok_, items, batch_size=16, return_replies=False):
+        out = []
+        for prompt, answer, cont in items:
+            asked = prompt.rsplit("Question: ", 1)[-1] if "Question: " in prompt else prompt.rsplit("\n", 1)[-1]
+            if answer == "Rome":
+                out.append("capital" in asked and not cont)          # hedges as a continuation; fine asked
+            else:
+                out.append("official language" in asked)              # France: copies to one transplant only
+        return out
+    monkeypatch.setattr(RR, "answer_transferred", transferred)
+    france = RR.RewriteTarget("f3", "France", "French", "The native tongue of France is", "cloze")
+    refs = RR.transfer_references(None, tok, [italy, france], [italy, france, d1, d2])
+    assert refs["f2"] == {"own": True, "qa": True, "copy": False, "transplants": 2, "usable": True}
+    assert refs["f3"]["copy"] is False and refs["f3"]["usable"] is False    # own prompt fails both ways
+
+
+def test_hard_negatives_keep_other_questions_and_drop_paraphrases(monkeypatch):
+    import types
+    tok = types.SimpleNamespace(chat_template=None)
+    q = RR.RewriteTarget("z1", "The Robbers", "German", "What is the language that The Robbers is in?", "qa")
+    monkeypatch.setattr(RR, "instruct", lambda tok_, text: text)
+    monkeypatch.setattr(RR, "generate_texts", lambda model, tok_, texts, n, batch_size=16: [
+        "Who wrote The Robbers?\nWhen was The Robbers first performed?\nWhat language is The Robbers written in?\n"
+        "Is The Robbers German?\nWho wrote The Robbers ?\nWhen was it first performed?"])
+    monkeypatch.setattr(RR, "answer_transferred", lambda model, tok_, items, batch_size=16:
+                        ["written in" in p for p, *_ in items])
+    negs, stats = RR.generate_hard_negatives(None, tok, [q], positives={"z1": []})
+    assert negs["z1"] == ["Who wrote The Robbers?", "When was The Robbers first performed?"]
+    assert stats["dropped_gives_answer"] == 1          # really a paraphrase: the model answers German
+    assert stats["dropped_form"] == 2                  # contains the answer; no subject
+    assert stats["dropped_near_duplicate"] == 1

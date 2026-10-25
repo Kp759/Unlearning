@@ -85,6 +85,7 @@ if ! stage_ready "$ROUTER" fact_association_embeddings.pt; then
     [[ -f "$PREP/router_rewrites.json" ]] || python -u scripts/build_router_rewrites.py --prep-dir "$PREP" \
       --output "$PREP/router_rewrites.json" --device cuda --local-files-only
     VIEWS_ARGS=(--views "$PREP/router_rewrites.json")
+    [[ -f "$PREP/router_hard_negatives.json" ]] && VIEWS_ARGS+=(--extra-negatives "$PREP/router_hard_negatives.json")
   fi
   python -u scripts/fit_linear_router.py \
     --run-dir "$PREP" --output-dir "$ROUTER" \

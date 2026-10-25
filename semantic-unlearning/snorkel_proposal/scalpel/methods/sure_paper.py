@@ -191,7 +191,7 @@ class SurePaperL16(SurePaper):
 
 
 # ------------------------------------------------------------------ ours: SURE-R's router
-OURS_FIT_ARGS = ("--subject-match", "fuzzy", "--positives-per-fact", "20", "--negatives-per-fact", "20",
+OURS_FIT_ARGS = ("--subject-match", "fuzzy", "--positives-per-fact", "20", "--negatives-per-fact", "40",
                  "--max-prefix-positives", "8", "--pca-dims", "0", "--negative-answer-check",
                  "--negative-plausibility-delta", "1.5")
 
@@ -199,7 +199,8 @@ OURS_FIT_ARGS = ("--subject-match", "fuzzy", "--positives-per-fact", "20", "--ne
 class Ours(SurePaper):
     card = MethodCard("ours", "detect_then_edit",
                       "SURE-R's router (fuzzy subject matching; 20 quality-checked positives per fact: the request, "
-                      "validated base-model rewrites, context prefixes; 20 quality-checked negatives) + Δe at the "
+                      "validated base-model rewrites, context prefixes; 40 quality-checked negatives, model-written same-subject "
+                      "hard negatives first) + Δe at the "
                       "router layer in one forward pass, at the last prompt token and every generated token; rows by "
                       "the paper's feedback trainer (no logit lens, no PCA)",
                       runtime_components=["router_hooks"], reference="this repository", decode="hf")
@@ -218,10 +219,30 @@ class Ours(SurePaper):
                  "role": v.family, "augmented": True, "kind": v.kind}
                 for vs in views.values() for v in vs if v.request_id in fact_of]
         (prep / "router_rewrites.json").write_text(json.dumps(rows, indent=1, ensure_ascii=False) + "\n")
-        return {"views": stats, "rewrites": len(rows)}
+        # hard negatives: other questions about the subject, as in build_router_rewrites.py
+        from .sure_robust import RR, sure_text
+        from ..schema import Probe
+        reqs = [r for r in requests if r.kind == "fact" and r.subject and r.prompt and r.request_id in fact_of]
+        targets = [RR.RewriteTarget(r.request_id, r.subject, r.answer, r.prompt, "cloze" if r.format == "cloze" else "qa")
+                   for r in reqs]
+        positives = {rid: [v.probe.prompt for v in vs if v.probe is not None] for rid, vs in views.items()}
+        negs, neg_stats = RR.generate_hard_negatives(base.hf, ctx.renderer.tok, targets, positives=positives, log=ctx.log)
+        by_req = {r.request_id: r for r in reqs}
+        hard = {}
+        for rid, xs in negs.items():
+            r = by_req[rid]
+            rendered = [sure_text(ctx.renderer, Probe(probe_id=f"hardneg/{rid}/{k}", role="retain", family="hardneg",
+                                                      fact_id=r.fact_id, prompt=x, answer=r.answer,
+                                                      format="cloze" if r.format == "cloze" else "qa"))
+                        for k, x in enumerate(xs)]
+            if any(rendered):
+                hard[fact_of[rid]] = [{"prompt": x} for x in rendered if x]
+        (prep / "router_hard_negatives.json").write_text(json.dumps(hard, indent=1, ensure_ascii=False) + "\n")
+        return {"views": stats, "rewrites": len(rows), "hard_negatives": neg_stats}
 
     def fit_extra(self, prep):
-        return ["--views", str(prep / "router_rewrites.json")]
+        return ["--views", str(prep / "router_rewrites.json"),
+                "--extra-negatives", str(prep / "router_hard_negatives.json")]
 
 
 class OursL16(Ours):

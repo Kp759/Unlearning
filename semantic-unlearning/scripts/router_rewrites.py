@@ -185,6 +185,24 @@ def transplant(target, donors) -> Optional[str]:
     return None
 
 
+def transplants(target, donors, k: int = 2) -> List[str]:
+    """Up to k different questions about this target's subject that ask something else: other
+    facts' prompts with their subject replaced by this one (distinct texts, never containing the
+    answer)."""
+    out, seen = [], set()
+    for d in donors:
+        if len(out) >= k:
+            break
+        if d.id == target.id or normalize(d.subject) == normalize(target.subject) or d.subject not in d.text:
+            continue
+        text = d.text.replace(d.subject, target.subject)
+        if normalize(text) in seen or has_phrase(text, target.answer):
+            continue
+        seen.add(normalize(text))
+        out.append(text)
+    return out
+
+
 _TRANSFER_ASK = ("Answer with only the answer (a name, place, number or short phrase). "
                  "Do not write a full sentence.")        # SCALPEL's QA instruction
 
@@ -250,19 +268,90 @@ def is_continuation(fmt: str, kind: str = "") -> bool:
     return fmt == "cloze" and kind != "multiturn"
 
 
-def transfer_references(model, tok, targets, donors, batch_size: int = 16) -> Dict[str, Tuple[bool, Optional[bool]]]:
-    """{target id: (answer transfers to the fact's own prompt, transfers to the transplant)};
-    the transplant entry is None when no donor names its subject."""
-    items, keys = [], []
+def transfer_references(model, tok, targets, donors, batch_size: int = 16) -> Dict[str, Dict]:
+    """Per target, how its rewrites are checked, or that they cannot be:
+      own     the answer transfers to the fact's own prompt (an unfinished sentence continued as
+              raw text);
+      qa      an unfinished sentence whose raw continuation fails (the model hedges: "actually
+              Rome, but ...") is asked as a question instead; its rewrites are then checked as
+              questions too;
+      copy    the answer also transfers to EVERY one of up to two other questions about the
+              subject (transplants): the model repeats the answer whatever is asked, so the
+              check cannot tell. With two transplants one coincidence (birthplace and
+              citizenship both "France") does not make a fact unusable;
+      usable  own (either way) and not copy."""
+    plan = {t.id: transplants(t, donors) for t in targets}
+
+    def run(ts, qa):
+        items, keys = [], []
+        for t in ts:
+            fmt = "qa" if qa else t.fmt
+            for k, text in enumerate([t.text] + plan[t.id]):
+                items.append((transfer_prompt(tok, t, text, fmt), t.answer, is_continuation(fmt)))
+                keys.append((t.id, k))
+        return dict(zip(keys, answer_transferred(model, tok, items, batch_size)))
+
+    native = run(targets, qa=False)
+    retry = [t for t in targets if t.fmt == "cloze" and not native[(t.id, 0)]]
+    asked = run(retry, qa=True) if retry else {}
+    out = {}
     for t in targets:
-        items.append((transfer_prompt(tok, t, t.text, t.fmt), t.answer, is_continuation(t.fmt)))
-        keys.append((t.id, "own"))
-        other = transplant(t, donors)
-        if other:
-            items.append((transfer_prompt(tok, t, other, t.fmt), t.answer, is_continuation(t.fmt)))
-            keys.append((t.id, "transplant"))
-    res = dict(zip(keys, answer_transferred(model, tok, items, batch_size)))
-    return {t.id: (res[(t.id, "own")], res.get((t.id, "transplant"))) for t in targets}
+        qa = not native[(t.id, 0)] and asked.get((t.id, 0), False)
+        res = asked if qa else native
+        own = bool(res[(t.id, 0)])
+        n = len(plan[t.id])
+        copy = n > 0 and all(res[(t.id, k)] for k in range(1, n + 1))
+        out[t.id] = {"own": own, "qa": bool(qa), "copy": bool(copy), "transplants": n, "usable": own and not copy}
+    return out
+
+
+def _hardneg_ask(t, n: int) -> str:
+    if t.fmt == "cloze":
+        return (f'Here is a fact: "{t.text} {t.answer}". Write {n} different unfinished sentences about '
+                f'"{t.subject}" that lead to OTHER facts about it, not this one, each stopping right before its '
+                f'last word. Every sentence must contain the name "{t.subject}". One per line, nothing else.')
+    return (f'Here is a question about "{t.subject}": "{t.text}" (its answer is {t.answer}). Write {n} different '
+            f'questions about "{t.subject}" that ask about OTHER things, not this. Every question must contain '
+            f'the name "{t.subject}". One question per line, nothing else.')
+
+
+def generate_hard_negatives(model, tok, targets: Sequence[RewriteTarget], *, positives: Dict[str, List[str]],
+                            n: int = 10, keep: int = 8, batch_size: int = 16, log=print):
+    """{target id: [prompts]} that must NOT fire the fact's head: other questions (or unfinished
+    sentences) about the same subject, written by the base model. Kept if well formed, naming
+    the subject, without the answer, not a near-duplicate of the fact's prompt, its kept rewrites
+    or another negative, and if the base model, told the fact, does NOT reply with its answer
+    (the inverted transfer check: a "negative" it answers that way is really a paraphrase)."""
+    stats = {"candidates": 0, "kept": 0, "dropped_form": 0, "dropped_near_duplicate": 0, "dropped_gives_answer": 0}
+    outs = generate_texts(model, tok, [instruct(tok, _hardneg_ask(t, n)) for t in targets], 40 + 24 * n, batch_size)
+    pending = []
+    for t, o in zip(targets, outs):
+        taken = [t.text] + list(positives.get(t.id, []))
+        for line in lines(o):
+            line = line.rstrip(" .…:;,") if t.fmt == "cloze" else line
+            stats["candidates"] += 1
+            kind = "paraphrase" if t.fmt == "cloze" else "question"
+            if not well_formed(line, kind) or not has_phrase(line, t.subject) or has_phrase(line, t.answer):
+                stats["dropped_form"] += 1
+                continue
+            if near_duplicate(line, taken):
+                stats["dropped_near_duplicate"] += 1
+                continue
+            taken.append(line)
+            pending.append((t, line))
+    told = answer_transferred(model, tok, [(transfer_prompt(tok, t, line, "qa"), t.answer, False) for t, line in pending],
+                              batch_size) if pending else []
+    out: Dict[str, List[str]] = {t.id: [] for t in targets}
+    for (t, line), gives in zip(pending, told):
+        if gives:
+            stats["dropped_gives_answer"] += 1
+        elif len(out[t.id]) < keep:
+            out[t.id].append(line)
+            stats["kept"] += 1
+    counts = sorted(len(v) for v in out.values())
+    stats["per_target"] = {"min": counts[0], "median": counts[len(counts) // 2], "max": counts[-1]} if counts else {}
+    log(f"[hard negatives] {stats}")
+    return out, stats
 
 
 def judge_cutoffs(model, tok, targets, donors, batch_size: int = 16, min_gap: float = 0.1):
@@ -449,11 +538,12 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
     refs = transfer_references(model, tok, targets, targets, batch_size) if judge and judge_rule == "transfer" else {}
     usable = set()
     if refs:
-        usable = {tid for tid, (own, other) in refs.items() if own and not other}
+        usable = {tid for tid, r in refs.items() if r["usable"]}
         stats["judge"] = {"rule": "transfer", "facts_usable": len(usable),
-                          "facts_own_prompt_fails": sum(not own for own, _ in refs.values()),
-                          "facts_copy_to_transplant": sum(bool(other) for _, other in refs.values()),
-                          "facts_without_transplant": sum(other is None for _, other in refs.values())}
+                          "facts_checked_as_questions": sum(r["qa"] and r["usable"] for r in refs.values()),
+                          "facts_own_prompt_fails": sum(not r["own"] for r in refs.values()),
+                          "facts_copy_to_transplant": sum(r["copy"] for r in refs.values()),
+                          "facts_without_transplant": sum(r["transplants"] == 0 for r in refs.values())}
     if cutoffs:
         cal = [v for v in cutoffs.values() if v[2] is not None and v[1] - v[2] >= 0.1]
         stats["judge"] = {"rule": "calibrated", "facts_calibrated": len(cal),
@@ -472,8 +562,9 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
                 c.prompt = p
                 answered.append(c)
         if judge and answered and judge_rule == "transfer":
-            ok = answer_transferred(model, tok, [(transfer_prompt(tok, c.target, c.text, c.fmt, c.kind), c.target.answer,
-                                                  is_continuation(c.fmt, c.kind)) for c in answered], batch_size)
+            fmts = ["qa" if refs[c.target.id]["qa"] else c.fmt for c in answered]
+            ok = answer_transferred(model, tok, [(transfer_prompt(tok, c.target, c.text, f, c.kind), c.target.answer,
+                                                  is_continuation(f, c.kind)) for c, f in zip(answered, fmts)], batch_size)
             before = len(answered)
             answered = [c for c, o in zip(answered, ok) if o and c.target.id in usable]
             stats["dropped_not_same_fact"] += before - len(answered)
