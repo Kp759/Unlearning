@@ -198,9 +198,29 @@ def route_section(states_l, ids_list, artifact, tok):
 
 
 @torch.no_grad()
-def hook_parity(model, artifact, tok, ids_list, offline, sample, batch_size, pad_id, seed=0):
+def borderline(offline, i, artifact, tol):
+    """The cached decision for prompt i sits within `tol` (logit) of a decision boundary: the
+    best eligible head at the firing threshold, or the top two eligible heads at the ambiguity
+    margin. bf16 logits differ by up to ~0.1 between a padded batch and a single unpadded
+    prompt on long chat prompts, so such a prompt can route either way."""
+    logits = offline["logits"][i].float().masked_fill(~offline["eligible"][i].bool(), float("-inf"))
+    top = logits.topk(min(2, logits.numel()))
+    if not torch.isfinite(top.values[0]):
+        return False
+    threshold, margin = runtime_rule(artifact)
+    head = int(top.indices[0])
+    thr = float(threshold[head]) if torch.is_tensor(threshold) else float(threshold)
+    near_threshold = math.isfinite(thr) and abs(float(top.values[0]) - thr) <= tol
+    near_margin = (len(top.values) > 1 and torch.isfinite(top.values[1])
+                   and abs(float(top.values[0] - top.values[1]) - margin) <= tol)
+    return bool(near_threshold or near_margin)
+
+
+def hook_parity(model, artifact, tok, ids_list, offline, sample, batch_size, pad_id, seed=0, tol=0.15):
     """Route a sample through the REAL bank hook, batched (as cached) and one at a time
-    unpadded (as the RWKU evaluator), and compare with the offline decision."""
+    unpadded (as the RWKU evaluator), and compare with the offline decision. A disagreement on a
+    prompt whose cached decision is within `tol` of a boundary (borderline) is a numerical tie,
+    counted apart; route_mismatches counts the rest and must be 0."""
     device = next(model.parameters()).device
     lm, bank = load_router_artifact(model, artifact)
     bank.tokenizer = tok                      # subject_match="fuzzy" decodes the routed prompt
@@ -223,9 +243,12 @@ def hook_parity(model, artifact, tok, ids_list, offline, sample, batch_size, pad
                     hook = bank.last_active_fact_indices[r]
                     expected = [int(offline["fact"][i])] if bool(offline["active"][i]) else []
                     if hook != expected:
-                        mismatches.append({"index": i, "hook": hook, "offline": expected})
-            report[mode] = {"prompts": len(picked), "route_mismatches": len(mismatches),
-                            "examples": mismatches[:10]}
+                        mismatches.append({"index": i, "hook": hook, "offline": expected,
+                                           "borderline": borderline(offline, i, artifact, tol)})
+            real = [m for m in mismatches if not m["borderline"]]
+            report[mode] = {"prompts": len(picked), "route_mismatches": len(real),
+                            "borderline_ties": len(mismatches) - len(real), "tolerance": tol,
+                            "examples": (real + [m for m in mismatches if m["borderline"]])[:10]}
     finally:
         bank.close()
     return report
