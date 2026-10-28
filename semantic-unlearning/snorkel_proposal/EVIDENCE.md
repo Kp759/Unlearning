@@ -1,6 +1,6 @@
 # Evidence: existing fact-unlearning benchmarks are saturated
 
-All numbers below come from this repository's own experiments (`../RESULTS_L16_PAPER_FINAL.md`, commits `baa6252`, `0fe3ded`, `95e824a`). The setup was Llama-3.2-3B-Instruct, mean over 5 seeds, each benchmark's official evaluator, and 50 forget facts per seed. "SURE (ours, published)" is the detect-then-edit method as published: a per-fact linear router on a layer-19 state, behind exact subject-token eligibility, plus one residual row per fact written at layer 16 in a second pass. "Ours (new classifier)" is the current version (`outputs/onepass_l19_v1`, 2026-10-25): the router reads layer 19 with fuzzy subject matching and is trained on 20 quality-checked positives (base-model rewrites validated by answer transfer) and 20 checked negatives per fact, with its firing threshold calibrated on held-out rewrites (every third kept rewrite); the row is added at layer 19 in the same pass. "Genie" applies the same rows with perfect routing.
+All numbers below come from this repository's own experiments (`../RESULTS_L16_PAPER_FINAL.md`, commits `baa6252`, `0fe3ded`, `95e824a`). The setup was Llama-3.2-3B-Instruct, mean over 5 seeds, each benchmark's official evaluator, and 50 forget facts per seed. "SURE (published configuration)" is SURE, the detect-then-edit method we built, as published: a per-fact linear router on a layer-19 state, behind exact subject-token eligibility, plus one residual row per fact written at layer 16 in a second pass. "SURE (current)" is the current version (`outputs/onepass_l19_v1`, 2026-10-25): the router reads layer 19 with fuzzy subject matching and is trained on 20 quality-checked positives (base-model rewrites validated by answer transfer) and 20 checked negatives per fact, with its firing threshold calibrated on held-out rewrites (every third kept rewrite); the row is added at layer 19 in the same pass. "Genie" applies the same rows with perfect routing.
 
 ## 1. A strong method reaches the ceiling on all four standard benchmarks
 
@@ -14,8 +14,8 @@ Share of base Eff removed / share of base Spe kept:
 | ROME | 64.7% / 92.4% | −3.4% / 100.4% | 86.0% / 48.9% | 95.8% / 48.3% |
 | MEMIT | 29.0% / 99.4% | −1.8% / 100.0% | 57.2% / 83.2% | 36.1% / 94.1% |
 | ZeroUnlearn | 98.0% / 79.7% | 14.1% / 98.1% | 74.1% / 75.3% | 67.4% / 77.7% |
-| **SURE (ours, published)** | **100.0% / 99.8%** | **99.1% / 100.0%** | **100.0% / 83.8%** (98.6% on Spe†) | **96.5% / 90.1%** |
-| **Ours (new classifier)** | **100.0% / 99.8%** | **98.7% / 100.0%** | **99.3% / 84.0%** (98.8% on Spe†) | **95.8% / 97.0%** |
+| **SURE (published configuration)** | **100.0% / 99.8%** | **99.1% / 100.0%** | **100.0% / 83.8%** (98.6% on Spe†) | **96.5% / 90.1%** |
+| **SURE (current)** | **100.0% / 99.8%** | **98.7% / 100.0%** | **99.3% / 84.0%** (98.8% on Spe†) | **95.8% / 97.0%** |
 
 On MCF, SURE reaches Eff 0.001 / Gen 0.086 against genie's 0.001 / 0.002 (new classifier: Gen 0.027), with PPL exactly at base. The new classifier's Eff equals genie's on MCF, ZsRE and MQuAKE, and its Gen is 1.48 on ZsRE (genie 0.41) and 1.83 on MQuAKE (genie 0.53, published SURE 7.20); on RWKU its held-out Gen is 34.1, below even entity-genie's 40.8 (`outputs/onepass_l19_v1/paper_table.md`, jobs 1452463 / 1452464). On RWKU, 2–6 facts per seed that the router never fired on had their rows trained on oracle routing (`ORACLE_UNROUTED=1`). A benchmark on which one method sits at the ceiling no longer ranks methods. It only confirms that the method has stopped making mistakes on *that probe distribution*.
 
@@ -44,7 +44,7 @@ LETHE-Bench ran end to end on real MultiCounterFact + zsRE + MQuAKE facts, using
 |---|---|---|---|
 | subject-name blocklist + "I don't know" | **100.0 / 98.5** | 6.8 / 2.0 | 0.0 |
 | subject + relation-word router + refusal | 82.5 / 100.0 | 5.9 / 7.0 | 0.0 |
-| **SURE (ours, untuned)** | 68.5 / 100.0 | 3.3 / **100.0** | **10.5** |
+| **SURE (early version, untuned)** | 68.5 / 100.0 | 3.3 / **100.0** | **10.5** |
 | GA | 100.0 / 5.4 | 99.0 / 1.8 | 6.7 |
 | NPO | 100.0 / 0.0 | 99.2 / 1.3 | 4.9 |
 
@@ -59,13 +59,12 @@ All six reference cheats get a LETHE score of 0 (LETHE_core 2.8–16.2), and eve
 
 ## 4. LETHE-Bench on Llama-3.2-3B-Instruct (cluster, 5 seeds)
 
-`results/cluster/llama32_3b/dev/leaderboard/leaderboard.md`, dev partition, seeds 1–5, 50 requests per seed, teacher-forced scorer, mean ± sd over seeds. † = reference cheat. "ours" is the new-classifier method above; "sure" is the original SURE (exact matching, the request's own prompts only).
+`results/cluster/llama32_3b/dev/leaderboard/leaderboard.md`, dev partition, seeds 1–5, 50 requests per seed, teacher-forced scorer, mean ± sd over seeds. † = reference cheat. SURE is the method we built (the current configuration above; run directory `ours`). 8 methods and 6 cheats.
 
 | Method | LETHE | E | E_min | E_direct | L | L_min | U | R | Strict |
 |---|---|---|---|---|---|---|---|---|---|
-| ours | **30.1 ± 10.1** | 22.8 ± 14.3 | 3.6 ± 3.4 | 95.6 ± 3.8 | 95.6 ± 3.1 | 85.9 ± 6.3 | 100.0 | 19.0 ± 3.6 | 2.9 |
+| SURE | **30.1 ± 10.1** | 22.8 ± 14.3 | 3.6 ± 3.4 | 95.6 ± 3.8 | 95.6 ± 3.1 | 85.9 ± 6.3 | 100.0 | 19.0 ± 3.6 | 2.9 |
 | zerounlearn | 21.4 ± 10.3 | 38.9 ± 17.9 | 21.1 ± 12.2 | 96.4 ± 3.8 | 67.4 ± 3.9 | 38.6 ± 6.2 | 96.9 ± 1.3 | 8.7 ± 4.3 | – |
-| sure | 12.0 ± 0.4 | 3.8 ± 0.0 | 0.0 | 95.6 ± 4.6 | 99.7 ± 0.4 | 97.5 ± 2.8 | 99.6 ± 0.7 | 19.0 ± 3.6 | 2.9 |
 | npo | 6.2 ± 2.5 | 91.9 ± 14.8 | 84.1 ± 25.1 | 100.0 | 1.7 ± 0.7 | 0.0 | 74.9 ± 18.4 | 80.3 ± 18.4 | – |
 | gd | 5.5 ± 1.6 | 94.8 ± 5.2 | 87.0 ± 12.6 | 100.0 | 1.5 ± 0.4 | 0.0 | 66.5 ± 10.1 | 86.5 ± 9.5 | – |
 | ga | 4.9 ± 1.5 | 97.1 ± 4.1 | 91.9 ± 11.2 | 100.0 | 1.3 ± 0.4 | 0.0 | 56.2 ± 16.9 | 90.5 ± 5.7 | – |
@@ -84,6 +83,6 @@ What the table shows:
 - **The benchmark separates methods the legacy benchmarks cannot.** Every method that forgets the request itself (E_direct 83–100) differs sharply on held-out phrasings (E), on entangled facts (L) and under attack (R).
 - **Every shortcut fails.** All six reference cheats get a LETHE score of 0: each zeroes at least one family (the subject blocklist erases almost nothing that avoids the name and refuses same-subject questions; refuse-all keeps no locality).
 - **Each baseline fails a different axis.** GA, GD and NPO erase 92–97 but keep locality 1.3–1.7. ROME and MEMIT keep utility and (MEMIT) locality, but erase only 8–9 on held-out phrasings, and the fact returns under attack (R 0.8 and 0.0). RMU erases little at this setting (E 8.3). ZeroUnlearn erases the most among baselines (38.9) at locality 67.4.
-- **Our own method leads, with clear headroom.** It forgets the request prompts (E_direct 95.6) and keeps locality (95.6), but held-out phrasings still leak (E 22.8, worst family 3.6), and it falls to 2.9 in the weights-only tier, because its router and rows are runtime components. The original SURE, with exact matching and no rewrites, erases only 3.8 on held-out phrasings.
-- **Where ours leaks is routing, on two families.** Over the 5 seeds the router fired the right row on 1,734 of 1,947 forget probes (89%); 213 of the 234 leaked probes were never routed and 21 leaked after routing (the leaderboard's routing table prints seed 1: 83.6%). Most families keep 4–10% residual, but `multihop` keeps 96% (84 of 92 chains not routed) and `indirect` (the subject described, never named) 100%; a router gated on the subject cannot fire there. `indirect` has about 2 probes per seed, below the 5-probe minimum, so it is reported but not in E; E is set by `multihop`. It also false-fires on 9.7% of retain probes (SURE 1.9%), visible in `in_context` 88 and `same_subject` 90. The same classifier is within 1.5 Gen points of genie on the legacy benchmarks (§1), which contain neither family.
+- **Our own method leads, with clear headroom.** It forgets the request prompts (E_direct 95.6) and keeps locality (95.6), but held-out phrasings still leak (E 22.8, worst family 3.6), and it falls to 2.9 in the weights-only tier, because its router and rows are runtime components.
+- **Where SURE leaks is routing, on two families.** Over the 5 seeds the router fired the right row on 1,734 of 1,947 forget probes (89%); 213 of the 234 leaked probes were never routed and 21 leaked after routing (the leaderboard's routing table prints seed 1: 83.6%). Most families keep 4–10% residual, but `multihop` keeps 96% (84 of 92 chains not routed) and `indirect` (the subject described, never named) 100%; a router gated on the subject cannot fire there. `indirect` has about 2 probes per seed, below the 5-probe minimum, so it is reported but not in E; E is set by `multihop`. It also false-fires on 9.7% of retain probes, visible in `in_context` 88 and `same_subject` 90. The same classifier is within 1.5 Gen points of genie on the legacy benchmarks (§1), which contain neither family.
 

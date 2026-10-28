@@ -10,7 +10,7 @@
 
 Deletion requests are becoming routine. People ask to have their data removed, model owners need hazardous or copyrighted knowledge taken out, and editors need to retract facts that turned out to be wrong. Each request asks a model to forget something *specific* while keeping everything else. Today's fact-unlearning benchmarks cannot tell a method that does this from one that cheats:
 
-- **They are saturated.** On the four standard fact-unlearning benchmarks (MultiCounterFact, zsRE, MQuAKE, RWKU), our own detect-then-edit method removes 96–100% of the base model's recall while keeping 84–100% of locality (97–100% when MQuAKE retain facts that repeat a forget fact are excluded), with perplexity unchanged (5 seeds, Llama-3.2-3B, official evaluators). Gradient ascent, NPO, RMU, ROME, MEMIT and ZeroUnlearn each fail at least one benchmark badly. A benchmark that one method maxes out no longer ranks methods.
+- **They are saturated.** On the four standard fact-unlearning benchmarks (MultiCounterFact, zsRE, MQuAKE, RWKU), SURE, the detect-then-edit method we built, removes 96–100% of the base model's recall while keeping 84–100% of locality (97–100% when MQuAKE retain facts that repeat a forget fact are excluded), with perplexity unchanged (5 seeds, Llama-3.2-3B, official evaluators). Gradient ascent, NPO, RMU, ROME, MEMIT and ZeroUnlearn each fail at least one benchmark badly. A benchmark that one method maxes out no longer ranks methods.
 - **They reward shortcuts.** On MultiCounterFact and zsRE, every forget probe names the subject and no locality probe does. A string blocklist that refuses whenever the subject's name appears would therefore score near-perfectly by construction, and a filter that bans the answer token would also do well where the locality probes use other answers. None of these benchmarks distinguishes a runtime guardrail from a change to the weights.
 - **They do not test completeness.** None checks whether the "forgotten" fact comes back after int4 quantization or a few fine-tuning steps, or is still readable in the hidden states.
 
@@ -89,17 +89,17 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
   - a peeking model is rejected;
   - attacks restore weights exactly;
   - the fast scoring path matches the full forward pass.
-- **Full run on Llama-3.2-3B-Instruct** (cluster, 5 seeds, 50 requests per seed; `EVIDENCE.md` §4): 9 methods and 6 reference cheats.
-  - **Ours leads with a LETHE score of 30.1 ± 10.1**, ahead of ZeroUnlearn 21.4 and the original SURE 12.0; GA / GD / NPO score 4.9–6.2, RMU 3.0, ROME 1.6, MEMIT 0.0.
+- **Full run on Llama-3.2-3B-Instruct** (cluster, 5 seeds, 50 requests per seed; `EVIDENCE.md` §4): 8 methods and 6 reference cheats.
+  - **SURE (our method) leads with a LETHE score of 30.1 ± 10.1**, ahead of ZeroUnlearn 21.4; GA / GD / NPO score 4.9–6.2, RMU 3.0, ROME 1.6, MEMIT 0.0.
   - **Every reference cheat scores 0.**
   - **Each baseline fails a different axis:** GA / GD / NPO erase 92–97 but keep locality 1.3–1.7; ROME and MEMIT erase only 8–9 on held-out phrasings and the fact returns under attack (R ≤ 1); ZeroUnlearn reaches erasure 38.9 at locality 67.4.
-  - **Ours has measurable headroom:** it erases 95.6 of request prompts and keeps locality 95.6, but held-out phrasings leak (E 22.8). Over the 5 seeds, 213 of its 234 leaked probes were never routed (the router fired the right row on 89% of forget probes; when it fired, 21 probes leaked). E is set by `multihop`: 84 of 92 chain questions were not routed, because a router gated on the subject's name cannot fire on a chain that does not name it. It scores 2.9 in the weights-only tier.
+  - **SURE has measurable headroom:** it erases 95.6 of request prompts and keeps locality 95.6, but held-out phrasings leak (E 22.8). Over the 5 seeds, 213 of its 234 leaked probes were never routed (the router fired the right row on 89% of forget probes; when it fired, 21 probes leaked). E is set by `multihop`: 84 of 92 chain questions were not routed, because a router gated on the subject's name cannot fire on a chain that does not name it. It scores 2.9 in the weights-only tier.
 - **Pilot on real data** (laptop, no GPU; `results/pilot/README.md`): Qwen2.5-0.5B-Instruct, MCF + zsRE + MQuAKE facts, 50 requests, 520 probes.
   - **A subject-name blocklist scores 100 / 98.5 (erasure / locality) when only the families the official MCF/zsRE metrics use are counted, and 0 on LETHE-Bench.** It leaks under typos and multi-hop chains, and it refuses same-subject and in-context questions.
   - All six reference cheats are defeated (LETHE score 0; core 2.8–16.2).
   - GA, GD and NPO erase 97–99% but keep only 1.3–1.8 locality; the same over-forgetting this repository measured on MCF.
   - After relearning, GA recovers 20% of held-out forgotten facts.
-  - **Our own SURE leads with a LETHE score of 10.5.** It keeps perfect locality (100 on all retain families), but held-out phrasings leak: 90% residual on questions, 94% cross-lingual, 100% under typos and in multi-hop chains. The decomposition attributes 49 of 58 residual points to routing misses. The method that saturates the legacy benchmarks has clear, measurable headroom here.
+  - **An early version of SURE leads with a LETHE score of 10.5.** It keeps perfect locality (100 on all retain families), but held-out phrasings leak: 90% residual on questions, 94% cross-lingual, 100% under typos and in multi-hop chains. The decomposition attributes 49 of 58 residual points to routing misses. The method that saturates the legacy benchmarks has clear, measurable headroom here.
 - **Evidence of saturation** from the repository's 4-benchmark × 5-seed study (`EVIDENCE.md`).
 
 ## 4. Fit with the program
@@ -116,7 +116,7 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
    - expert-written indirect references (descriptions, aliases, coreference chains) for 2,000 subjects that cannot be inferred from retained facts;
    - a 1,000-item human-labelled calibration set for the generation grader;
    - privacy/legal input on realistic deletion-request scenarios.
-2. **GPU compute: ~5,000 A100-80GB hours** (80 GB GPUs; multi-GPU nodes for the largest models) for 8 models from 5 families (Llama, Qwen, Gemma, Mistral, OLMo; 3B–27B) × 5–10 dev seeds and 5 hidden seeds × 15 methods, the scaling curve to 10k requests, and the sequential and agentic tracks. The basis is measured: ≈ 1.8 GPU-hours per model and seed for every method at 3B (`ROADMAP.md`). *The program lists partner compute credits among its in-kind support; we request them for this grid, and help securing the remainder if the credits fall short.*
+2. **GPU compute: ~5,000 A100-80GB hours** (80 GB GPUs; multi-GPU nodes for the largest models) for 8 models from 5 families (Llama, Qwen, Gemma, Mistral, OLMo; 3B–27B) × 5–10 dev seeds and 5 hidden seeds × 15 methods, the scaling curve to 10k requests, and the sequential and agentic tracks. The basis is measured: ≈ 1.8 GPU-hours per model and seed for every method at 3B (`ROADMAP.md`). *We request this as partner compute credits, which the program lists among its in-kind support.*
 3. **Red-team review** of the grader, verifier and contamination defences before v1.0.
 4. **Hosting** for the hidden-test evaluation service and leaderboard.
 
@@ -145,7 +145,7 @@ Everything is released openly: code under Apache-2.0, dev splits under CC BY 4.0
 
 | Risk | Mitigation |
 |---|---|
-| Our method is a baseline on our own benchmark | SURE is one of 15 methods on the leaderboard (9 methods, 6 reference cheats). One of the reference cheats is a string version of its design. The families where SURE is expected to fail (subject-free, cross-lingual, typo, multi-hop; strict tier) are reported like any other method's |
+| Our method is a baseline on our own benchmark | SURE is one of 14 methods on the leaderboard (8 methods, 6 reference cheats). One of the reference cheats is a string version of its design. The families where SURE is expected to fail (subject-free, cross-lingual, typo, multi-hop; strict tier) are reported like any other method's |
 | Low knowledge-filter yield on small models | Yields are reported per family; families below 5 probes are excluded and flagged; the release uses models of 3B and up |
 | Indirect probes inferable from retained facts | Descriptions are drawn from other answer groups; expert-written references (ask 1) |
 | The benchmark saturates | Saturation is flagged per family; harder families are planned (agentic, ×10 languages, 10k-request scale); the hidden test is refreshed |

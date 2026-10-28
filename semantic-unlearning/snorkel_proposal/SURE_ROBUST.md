@@ -107,7 +107,7 @@ The two-pass design needed a routing pass because layer 16 runs before the class
 - The 20 / 20 router changed nothing here. Its 15 extra positives are prefix variants of the same request sentence, so they add no new phrasings.
 
 
-## `ours`: SURE-R's router + the one-pass layer-19 edit
+## `ours` (shown as SURE on the leaderboard): SURE-R's router + the one-pass layer-19 edit
 
 `ours` puts `sure_paper`'s edit on SURE-R's router. `ours_l16` is the same method with Δe at layer 16 in two passes. Every router training prompt is checked as follows.
 

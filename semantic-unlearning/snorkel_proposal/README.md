@@ -27,7 +27,7 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 | keyword router † | 82.5 / 100.0 | 5.9 / 7.0 | 0.0 |
 | GA / GD / NPO | 100 / 0–7 | 97–99 / 1.3–1.8 | 4.9–6.7 |
 | RMU (3B defaults) | 5.2 / 80.5 | 4.6 / 84.5 | 0.0 |
-| **SURE (this repo, untuned)** | 68.5 / 100.0 | 3.3 / **100.0** | **10.5** |
+| **SURE (early version, untuned)** | 68.5 / 100.0 | 3.3 / **100.0** | **10.5** |
 
 - The red-team gate passes: all six reference cheats score 0, and LETHE_core stays ≤ 16.2.
 - SURE leads, with perfect locality, but questions, cross-lingual queries, typos and multi-hop chains leak. 49 of its 58 residual points are routing misses.

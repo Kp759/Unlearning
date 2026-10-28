@@ -216,7 +216,7 @@ stage_report() {
     use_dataset "$d"
     compgen -G "$AWS_OUT/$d/$MODEL/dev/seed*/runs/*/results.json" > /dev/null || continue
     (cd "$SP" && python -m scalpel report --runs "$AWS_OUT/$d/$MODEL/dev/seed*/runs/*/results.json" \
-       --out "$AWS_OUT/$d/$MODEL/dev/leaderboard" --title "LETHE-Bench — $MODEL — $d (AWS A10G)" > /dev/null)
+       --out "$AWS_OUT/$d/$MODEL/dev/leaderboard" --exclude sure --title "LETHE-Bench — $MODEL — $d (AWS A10G)" > /dev/null)
     for S in $SEEDS; do
       local DIR; DIR="$(split_dir "$S")"
       compgen -G "$DIR/agent/*/agent.json" > /dev/null && (cd "$SP" && python -m scalpel agent-report \
@@ -225,7 +225,7 @@ stage_report() {
   done
   if compgen -G "$AWS_OUT/*/$MODEL/dev/seed*/runs/*/results.json" > /dev/null; then
     (cd "$SP" && python -m scalpel report --runs "$AWS_OUT/*/$MODEL/dev/seed*/runs/*/results.json" \
-       --out "$AWS_OUT/leaderboard_$MODEL" --title "LETHE-Bench — $MODEL — every dataset (AWS A10G)" > /dev/null)
+       --out "$AWS_OUT/leaderboard_$MODEL" --exclude sure --title "LETHE-Bench — $MODEL — every dataset (AWS A10G)" > /dev/null)
     say "leaderboards: $AWS_OUT/leaderboard_$MODEL/leaderboard.md (every dataset) and $AWS_OUT/<dataset>/$MODEL/dev/leaderboard/"
   fi
 }

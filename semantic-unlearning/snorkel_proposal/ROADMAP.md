@@ -38,7 +38,7 @@
    - privacy and legal experts, to design realistic deletion-request scenarios (GDPR Art. 17 style: a person asks for specific facts to be removed; what must remain).
 2. **GPU compute: ~5,000 A100-80GB hours** (about 2,500–3,000 H100-hours), on 80 GB GPUs, with multi-GPU nodes for the largest models. Breakdown below.
 
-   > **Note: we request GPU compute as part of the award.** The full grid needs 80 GB GPUs and, for the 24–27B gradient baselines, multi-GPU nodes. The program's terms list partner compute and platform credits among the in-kind support; we request them for this grid, and help securing the remainder if the credits fall short. The 3B run so far used NJIT's Wulver cluster, which does not cover the full grid at this scale.
+   > **We request GPU compute as partner compute credits, which the program lists among its in-kind support.** The full grid needs 80 GB GPUs and, for the 24–27B gradient baselines, multi-GPU nodes. The 3B run so far used NJIT's Wulver cluster, which does not cover the full grid at this scale.
 
    **Model grid** (5 families, 8 models; relative cost = GPU-hours relative to Llama-3.2-3B, roughly proportional to parameters, +20% multi-GPU overhead at 24–27B):
 
@@ -51,7 +51,7 @@
    | OLMo (open training data) | OLMo-2-7B | 2.7 |
    | **Total** | 8 models | **≈ 34** |
 
-   **Measured basis.** One (model, seed) on Llama-3.2-3B, 50 requests, every method (9 methods + 6 cheats), all tiers and attacks, took **≈ 1.8 GPU-hours** of wall time on Wulver (October 2026, from `sacct`): baselines and cheats ≈ 45 min in total, SURE ≈ 14 min, ours ≈ 35–42 min, sequential track ≈ 8 min, split build ≈ 3 min. Development on the 3B model alone (paper-pipeline reruns, LETHE-Bench reruns, router diagnostics) used ≈ 75 GPU-hours in three days.
+   **Measured basis.** One (model, seed) on Llama-3.2-3B, 50 requests, every method (9 methods + 6 cheats), all tiers and attacks, took **≈ 1.8 GPU-hours** of wall time on Wulver (October 2026, from `sacct`): baselines and cheats ≈ 45 min in total, the original SURE adapter ≈ 14 min, SURE (`ours`) ≈ 35–42 min, sequential track ≈ 8 min, split build ≈ 3 min. Development on the 3B model alone (paper-pipeline reruns, LETHE-Bench reruns, router diagnostics) used ≈ 75 GPU-hours in three days.
 
    | Item | Assumption | A100-80GB hours |
    |---|---|---|
@@ -68,10 +68,10 @@
    The least certain items are the 10k-request point and linear scaling in requests: SURE-style methods build rewrites and train rows per fact. One 1k-request seed on 3B will be measured before M2 to replace that assumption.
 
    **Large-model infrastructure** (the harness has run up to 8B on one GPU):
-   - inference-only methods, scoring and attacks (cheats, SURE / ours, logit lens, quantization) fit a 24–27B model on one 80 GB GPU in bf16;
+   - inference-only methods, scoring and attacks (cheats, SURE, logit lens, quantization) fit a 24–27B model on one 80 GB GPU in bf16;
    - GA / GD / NPO / RMU and the relearning attack need multi-GPU sharding (FSDP / DeepSpeed) or a declared parameter-efficient scope at 24–27B; the scope is reported per model so baselines stay comparable across sizes;
    - the vendored ROME / MEMIT / ZeroUnlearn code is single-GPU and is tested at 24B before M2.
-   - per-model settings (SURE / ours router and early-write layers, RMU layer, ROME / MEMIT hparams, gradient scope) exist today for `llama32_3b`, `qwen3_4b` and `llama31_8b` (`scripts/slurm/scalpel_common.sh`); the other five models are added the same way.
+   - per-model settings (SURE router and early-write layers, RMU layer, ROME / MEMIT hparams, gradient scope) exist today for `llama32_3b`, `qwen3_4b` and `llama31_8b` (`scripts/slurm/scalpel_common.sh`); the other five models are added the same way.
 3. **Red-team review**: Snorkel's benchmark red team examines grader exploits, verifier reliability and contamination before v1.0.
 4. **Hosting**: the hidden-test evaluation service and the leaderboard.
 
@@ -84,4 +84,4 @@
 | A future method saturates LETHE-Bench | Per-family scores flag saturation. Harder families (agentic, more languages, 10k-request scale) are planned, and the hidden test is refreshed |
 | Grader disagreement on open-ended outputs | The teacher-forced scorer is primary; the human-labelled calibration set (M3) measures the generation grader |
 | Gradient baselines do not fit one GPU at 24–27B | Multi-GPU sharding, or a declared parameter-efficient scope reported per model; inference-only methods and attacks fit one 80 GB GPU |
-| The benchmark favours the authors' own method | SURE is one of 15 methods on the leaderboard (9 methods, 6 reference cheats). The reference cheats include a string version of its design (`keyword_router_idk`), and its expected failure families (indirect, multihop, crosslingual, surface; the strict tier) are reported like any other method's |
+| The benchmark favours the authors' own method | SURE is one of 14 methods on the leaderboard (8 methods, 6 reference cheats). The reference cheats include a string version of its design (`keyword_router_idk`), and its expected failure families (indirect, multihop, crosslingual, surface; the strict tier) are reported like any other method's |

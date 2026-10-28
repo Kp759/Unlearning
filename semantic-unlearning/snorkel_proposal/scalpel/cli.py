@@ -256,7 +256,7 @@ def cmd_gate(a):
 def cmd_report(a):
     from .report import write_report
     paths = sorted({p for pat in a.runs for p in glob.glob(pat)})
-    table = write_report([Path(p) for p in paths], Path(a.out), a.title)
+    table = write_report([Path(p) for p in paths], Path(a.out), a.title, exclude=a.exclude or ())
     _log(f"[report] {len(paths)} runs -> {a.out}/leaderboard.md ({len(table)} rows)")
 
 
@@ -378,6 +378,8 @@ def main(argv=None, exit_ok: bool = False):
     rp = sub.add_parser("report")
     rp.add_argument("--runs", nargs="+", required=True); rp.add_argument("--out", required=True)
     rp.add_argument("--title", default="LETHE-Bench leaderboard")
+    rp.add_argument("--exclude", nargs="*", default=[], metavar="METHOD",
+                    help="leave these methods (run-directory names) out, e.g. --exclude sure (the original adapter)")
     rp.set_defaults(fn=cmd_report)
 
     y = sub.add_parser("toy")

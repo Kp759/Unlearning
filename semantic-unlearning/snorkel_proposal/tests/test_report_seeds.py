@@ -29,7 +29,7 @@ def test_seeds_are_averaged_and_set_aside_runs_ignored(tmp_path):
     runs = load_runs(paths)
     assert sorted(Path(r["_path"]).parent.name for r in runs) == ["ours", "ours", "ours", "sure_r"]
     table = summarize(runs)
-    ours = next(v for v in table.values() if v["method"] == "ours")
+    ours = next(v for v in table.values() if v["method"] == "SURE")      # run directory ours, shown as SURE
     assert ours["seeds"] == [1, 2, 3] and ours["SCALPEL"][0] == 20.0
     assert "scalpel-fact-dev ·" in ours["track"]
 
@@ -42,7 +42,15 @@ def test_routing_diagnostics_average_over_seeds(tmp_path):
     paths = [_run(tmp_path, s, "ours", "ours", 20.0, routing(r)) for s, r in ((1, 80.0), (2, 90.0), (3, 100.0))]
     paths.append(_run(tmp_path, 1, "ga", "ga", 5.0))
     table = summarize(load_runs(paths))
-    ours = next(v for v in table.values() if v["method"] == "ours")
+    ours = next(v for v in table.values() if v["method"] == "SURE")
     assert ours["routing"]["forget_route_recall"] == 90.0 and ours["routing"]["forget_residual_from_routing"] == 10.0
     assert ours["routing"]["retain_false_fire_rate"] == 5.0 and "by_family" not in ours["routing"]
     assert next(v for v in table.values() if v["method"] == "ga")["routing"] is None
+
+
+def test_exclude_drops_a_method_and_display_names_apply(tmp_path):
+    paths = [_run(tmp_path, 1, "ours", "ours", 30.0), _run(tmp_path, 1, "sure", "sure", 12.0), _run(tmp_path, 1, "ga", "ga", 5.0)]
+    names = sorted(v["method"] for v in summarize(load_runs(paths)).values())
+    assert names == ["SURE", "ga", "sure_original"]
+    names = sorted(v["method"] for v in summarize(load_runs(paths, exclude=["sure"])).values())
+    assert names == ["SURE", "ga"]

@@ -26,11 +26,19 @@ def _ms(xs):
     return m, sd
 
 
-def load_runs(paths: Sequence[Path]) -> List[Dict]:
+# Leaderboard names for method keys: the method we built runs as `ours` (its run directories keep
+# that name) and is shown as SURE; the first SURE adapter (exact matching, request prompts only)
+# is shown as sure_original and excluded from the published leaderboard (--exclude sure).
+DISPLAY_NAMES = {"ours": "SURE", "ours_l16": "SURE_l16", "ours_early": "SURE_early", "sure": "sure_original"}
+
+
+def load_runs(paths: Sequence[Path], exclude: Sequence[str] = ()) -> List[Dict]:
     """Every results.json, except copies set aside next to the method's own run directory
     (runs/ours_judge05, runs/noop.incomplete_<time>): a directory named after the method plus a
-    suffix holds an older run of it, which must not be averaged in as another seed."""
+    suffix holds an older run of it, which must not be averaged in as another seed. Methods in
+    `exclude` (run-directory names) are dropped; the rest are renamed for display (DISPLAY_NAMES)."""
     out = []
+    exclude = set(exclude)
     for p in paths:
         try:
             r = json.loads(Path(p).read_text())
@@ -39,6 +47,9 @@ def load_runs(paths: Sequence[Path]) -> List[Dict]:
         name, parent = str(r.get("method", {}).get("name", "")), Path(p).parent.name
         if name and parent != name and parent.startswith(name) and parent[len(name)] in "._":
             continue
+        if name in exclude:
+            continue
+        r["method"]["name"] = DISPLAY_NAMES.get(name, name)
         r["_path"] = str(p)
         out.append(r)
     return out
@@ -110,12 +121,12 @@ def markdown(table: Dict[str, Dict], title: str = "LETHE-Bench leaderboard") -> 
         rows = sorted([r for r in table.values() if r["track"] == track],
                       key=lambda r: -(r["SCALPEL"][0] if r["SCALPEL"][0] is not None else -1))
         lines += [f"## {track}", "",
-                  "| Method | LETHE | E | E_min | E_direct | L | L_min | U | R | Strict | seeds |",
-                  "|---|---|---|---|---|---|---|---|---|---|---|"]
+                  "| Method | LETHE | E | E_mean | E_min | E_direct | L | L_mean | L_min | U | R | Strict | seeds |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for r in rows:
             name = r["method"] + (" †" if r["cheat"] else "") + ("" if r["valid"] else " (INVALID)")
-            lines.append(f"| {name} | {_f(r['SCALPEL'])} | {_f(r['E'])} | {_f(r['E_min'])} | {_f(r['E_direct'])} | "
-                         f"{_f(r['L'])} | {_f(r['L_min'])} | {_f(r['U'])} | {_f(r['R'])} | {_f(r['strict_SCALPEL'])} | "
+            lines.append(f"| {name} | {_f(r['SCALPEL'])} | {_f(r['E'])} | {_f(r['E_mean'])} | {_f(r['E_min'])} | {_f(r['E_direct'])} | "
+                         f"{_f(r['L'])} | {_f(r['L_mean'])} | {_f(r['L_min'])} | {_f(r['U'])} | {_f(r['R'])} | {_f(r['strict_SCALPEL'])} | "
                          f"{len(r['seeds'])} |")
         fams = sorted({f for r in rows for f in r["families"]})
         lines += ["", "### Per family (forget: residual %, lower is better; retain: retained %, higher is better)", "",
@@ -213,10 +224,11 @@ def pareto_plot(table: Dict[str, Dict], path: Path) -> bool:
     return True
 
 
-def write_report(run_paths: Sequence[Path], out: Path, title: str = "LETHE-Bench leaderboard") -> Dict:
+def write_report(run_paths: Sequence[Path], out: Path, title: str = "LETHE-Bench leaderboard",
+                 exclude: Sequence[str] = ()) -> Dict:
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    runs = load_runs(run_paths)
+    runs = load_runs(run_paths, exclude=exclude)
     table = summarize(runs, "tf")
     (out / "leaderboard.json").write_text(json.dumps(table, indent=1, default=str) + "\n")
     md = markdown(table, title)
