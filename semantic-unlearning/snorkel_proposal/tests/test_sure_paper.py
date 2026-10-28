@@ -116,6 +116,9 @@ def test_ours_registry_and_fit_recipe():
     from scalpel.methods.sure_paper import OURS_FIT_ARGS
     assert make("ours", model_path="x").card.decode == "hf" and make("ours_l16", model_path="x").card.decode == "full"
     assert make("ours_l16", model_path="x").default_write_layer == 16 and "ours" in SURE_VARIANTS
+    early = make("ours_early", model_path="x")       # one pass at the early layer
+    assert early.default_layer == 16 and early.default_write_layer is None and early.card.decode == "hf"
+    assert make("ours", model_path="x").default_layer == 19 and "ours_early" in SURE_VARIANTS
     for flag in ("--subject-match", "--positives-per-fact", "--negatives-per-fact", "--negative-answer-check",
                  "--negative-plausibility-delta"):
         assert flag in OURS_FIT_ARGS

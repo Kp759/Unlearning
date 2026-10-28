@@ -100,9 +100,10 @@ method_args() {
       local d; case "$1" in rome) d=ROME;; memit) d=MEMIT;; zerounlearn) d=ZeroUnlearn;; esac
       echo "--method-arg hparams=$ROOT/../ZeroUnlearn/hparams/$d/$HP_NAME.json --method-arg mom2_dataset=$MOM2_DATASET --method-arg mom2_text=$MOM2_TEXT" ;;
     sure) echo "--method-arg model_path=$MODEL_PATH --method-arg layer=$SURE_LAYER --method-arg device=cuda --method-arg work_dir=$(split_dir "$SEED")/sure_work" ;;
-    ours|ours_l16|sure_paper|sure_paper_l16)   # scalpel/methods/sure_paper.py: one pass at SURE's layer;
-      # the _l16 ablations write at the paper's earlier layer (16 on 3B, paper_model_config.sh)
-      echo "--method-arg model_path=$MODEL_PATH --method-arg layer=$SURE_LAYER --method-arg device=cuda --method-arg work_dir=$(split_dir "$SEED")/sure_work_$1$([[ $1 == *_l16 ]] && echo " --method-arg write_layer=$EARLY_WRITE_LAYER" || true)" ;;
+    ours|ours_l16|ours_early|sure_paper|sure_paper_l16)   # scalpel/methods/sure_paper.py: one pass at SURE's layer;
+      # the _l16 ablations write at the paper's earlier layer (16 on 3B, paper_model_config.sh);
+      # ours_early reads and writes there, in one pass
+      echo "--method-arg model_path=$MODEL_PATH --method-arg layer=$([[ $1 == ours_early ]] && echo $EARLY_WRITE_LAYER || echo $SURE_LAYER) --method-arg device=cuda --method-arg work_dir=$(split_dir "$SEED")/sure_work_$1$([[ $1 == *_l16 ]] && echo " --method-arg write_layer=$EARLY_WRITE_LAYER" || true)" ;;
     sure_r*)   # robust SURE variants (scalpel/methods/sure_robust.py); bake reads the Wikipedia covariance
       echo "--method-arg model_path=$MODEL_PATH --method-arg layer=$SURE_LAYER --method-arg device=cuda --method-arg work_dir=$(split_dir "$SEED")/sure_work_$1 --method-arg mom2_dataset=$MOM2_DATASET" ;;
     *) echo "" ;;

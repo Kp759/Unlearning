@@ -7,7 +7,7 @@ from .base import Method, MethodCard, UnlearnContext
 from .edit import MEMIT, ROME, ZeroUnlearn
 from .external import Checkpoint, Plugin, Sure
 from .gradient import GA, GD, NPO, RMU
-from .sure_paper import Ours, OursL16, SurePaper, SurePaperL16
+from .sure_paper import Ours, OursEarly, OursL16, SurePaper, SurePaperL16
 from .sure_robust import PRESET_CLASSES as SURE_ROBUST_PRESETS
 from .trivial import AnswerBan, IDKAll, KeywordRouterIDK, NoOp, PromptCacheIDK, SubjectBlocklistIDK
 
@@ -17,10 +17,10 @@ REGISTRY: Dict[str, Type[Method]] = {
     "ga": GA, "gd": GD, "npo": NPO, "rmu": RMU, "rome": ROME, "memit": MEMIT, "zerounlearn": ZeroUnlearn,
     "checkpoint": Checkpoint, "plugin": Plugin, "sure": Sure,
     "sure_paper": SurePaper, "sure_paper_l16": SurePaperL16,      # the paper's edit on the plain router
-    "ours": Ours, "ours_l16": OursL16,                            # + SURE-R's router, 20/20 checked prompts
+    "ours": Ours, "ours_l16": OursL16, "ours_early": OursEarly,    # + SURE-R's router, 20/20 checked prompts
 }
 REGISTRY.update(SURE_ROBUST_PRESETS)   # sure_r, sure_r_noviews, sure_r_exact, sure_r_free, sure_r_idk, sure_r_bake
-SURE_VARIANTS = ("sure", "ours", "ours_l16", "sure_paper", "sure_paper_l16") + tuple(SURE_ROBUST_PRESETS)
+SURE_VARIANTS = ("sure", "ours", "ours_l16", "ours_early", "sure_paper", "sure_paper_l16") + tuple(SURE_ROBUST_PRESETS)
 REFERENCE_CHEATS = ("noop", "idk_all", "prompt_cache_idk", "subject_blocklist_idk", "keyword_router_idk", "answer_ban")
 
 

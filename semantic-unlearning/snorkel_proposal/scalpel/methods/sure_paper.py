@@ -12,6 +12,8 @@ requests only (export_multifact, as `sure`).
                     rewrites, context prefixes) and 20 quality-checked negatives (base-model
                     answer-collision and plausibility checks). See write_quality_report.
     ours_l16        ablation of ours: Δe at layer 16, two passes.
+    ours_early      ablation of ours: classifier AND Δe at the early layer (16 on Llama-3.2-3B),
+                    one pass (the paper pipeline's ONEPASS=1 ROUTER_LAYER=16).
 
 Rows: on-policy feedback on generated continuations of each request's views, output loss +
 KL keep + teacher-forced gold views; no logit lens (--lens-type none) and no PCA in the router
@@ -85,6 +87,7 @@ class SurePaper(Method):
                       "prompt token and every generated token, in one forward pass; rows by the paper's "
                       "feedback trainer (no logit lens, no PCA)",
                       runtime_components=["router_hooks"], reference="this repository", decode="hf")
+    default_layer: int = 19                            # router layer (SURE's, Llama-3.2-3B)
     default_write_layer: Optional[int] = None          # None = the router layer: one pass
     fit_args: tuple = ()                               # extra fit_linear_router.py flags
     train_args: tuple = ()                             # extra row-trainer flags
@@ -101,7 +104,7 @@ class SurePaper(Method):
         a = self.args
         root = Path(a.get("root", SEMANTIC_ROOT)).resolve()
         work = Path(a.get("work_dir", f"outputs/scalpel_{self.card.name}")).resolve()
-        layer = arg(a, "layer", 19, int)
+        layer = arg(a, "layer", self.default_layer, int)
         write_layer = arg(a, "write_layer", self.default_write_layer if self.default_write_layer is not None else layer, int)
         one_pass = write_layer == layer
         device = a.get("device", "cuda")
@@ -250,6 +253,14 @@ class OursL16(Ours):
                       "ablation of ours: the same router and rows trainer, Δe at layer 16 in a second pass",
                       runtime_components=["router_hooks"], reference="this repository", decode="full")
     default_write_layer = 16
+
+
+class OursEarly(Ours):
+    card = MethodCard("ours_early", "detect_then_edit",
+                      "ablation of ours: the same router recipe and rows trainer, with the classifier reading and Δe "
+                      "added at the early layer (16) in one forward pass",
+                      runtime_components=["router_hooks"], reference="this repository", decode="hf")
+    default_layer = 16
 
 
 def write_quality_report(router: Path, out: Path, inputs_report: dict, sample_facts: int = 2) -> dict:
