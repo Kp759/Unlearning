@@ -116,7 +116,7 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
    - expert-written indirect references (descriptions, aliases, coreference chains) for 2,000 subjects that cannot be inferred from retained facts;
    - a 1,000-item human-labelled calibration set for the generation grader;
    - privacy/legal input on realistic deletion-request scenarios.
-2. **GPU compute: ~5,000 A100-80GB hours** (80 GB GPUs; multi-GPU nodes for the largest models) for 8 models from 5 families (Llama, Qwen, Gemma, Mistral, OLMo; 3B–27B) × 5–10 dev seeds and 5 hidden seeds × 15 methods, the scaling curve to 10k requests, and the sequential and agentic tracks. The basis is measured: ≈ 1.8 GPU-hours per model and seed for every method at 3B (`ROADMAP.md`). *We request this as partner compute credits, which the program lists among its in-kind support.*
+2. **GPU compute: ~5,000 A100-80GB hours** (80 GB GPUs; multi-GPU nodes for the largest models) for 8 models from 5 families (Llama, Qwen, Gemma, Mistral, OLMo; 3B–27B) × 5–10 dev seeds and 5 hidden seeds × 14 methods, the scaling curve to 10k requests, and the sequential and agentic tracks. The basis is measured: ≈ 1.8 GPU-hours per model and seed for every method at 3B (`ROADMAP.md`). *We request this as partner compute credits, which the program lists among its in-kind support.*
 3. **Red-team review** of the grader, verifier and contamination defences before v1.0.
 4. **Hosting** for the hidden-test evaluation service and leaderboard.
 

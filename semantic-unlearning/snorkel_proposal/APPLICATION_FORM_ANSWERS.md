@@ -45,7 +45,7 @@ LETHE-Bench: a benchmark for surgical, fact-level unlearning in language models
 
 The closest are RWKU (Jin et al., 2024), Leak-Resistant Unlearning (Qian et al., 2026) and TOFU / MUSE (Maini et al., 2024; Shi et al., 2024). TOFU forgets fictitious authors fine-tuned into the model and MUSE whole corpora; neither asks a model to forget one real fact while keeping its neighbours. RWKU uses real, famous people at entity level, without a per-model knowledge filter. Leak-Resistant Unlearning tests multi-hop leakage and recovery attacks, but with an LLM judge and without locality controls. LETHE-Bench is fact-level, on facts each model provably knows, and adds what none of them has: typed entangled retain controls per request (same answer, same sentence, name collision, subject mentioned, counterfactual reading); subject-free, multi-turn, cross-lingual and multi-hop forget probes; a shortcut gate of six reference cheats that must fail; behaviour versus weights-only tiers; and lens, quantization and relearning attacks in one deterministic score.
 
-**Describe your methodology and how you would leverage awarded resources** (200 words max) [201 words]
+**Describe your methodology and how you would leverage awarded resources** (200 words max) [198 words]
 *Form prompts: Expert Data (which domain experts); Embedded Support; Compute / Hosting (partner benefits); Milestones.*
 
 *Expert data (Snorkel DaaS):*
@@ -56,7 +56,7 @@ The closest are RWKU (Jin et al., 2024), Leak-Resistant Unlearning (Qian et al.,
 
 *Embedded support:* review of the split-builder and hidden-test pipeline, schema validation of the probe families and dataset card, red-team review of the grader and contamination defences, and help turning the agentic prototype into a full environment.
 
-*Compute / hosting (partner benefits):* we request about 5,000 A100-80GB hours of compute credits (8 models, 5 families, 3B–27B; 5–10 seeds; 15 methods; scaling, sequential and agentic tracks), with multi-GPU nodes for the largest; hosting for the hidden-test service and leaderboard.
+*Compute / hosting (partner benefits):* about 5,000 A100-80GB hours as compute credits (8 models, 5 families, 3B–27B; 5–10 seeds; 14 methods; scaling, sequential and agentic tracks), multi-GPU nodes for the largest; hosting for the hidden-test service and leaderboard.
 
 *Milestones:*
 1. Month 1: v1.0 freeze; every split passes validation and every cheat scores below 35.
