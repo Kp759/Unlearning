@@ -1,6 +1,6 @@
 # Red-teaming LETHE-Bench before anyone else does
 
-Snorkel's red-team service examines benchmarks for six failure classes. For each one, this file lists what could go wrong in an unlearning benchmark, what LETHE-Bench does about it, and where it is checked automatically. `python -m scalpel redteam --split S --model M --out DIR` runs the automatic part and writes `RED_TEAM_REPORT.md` (pass/fail).
+Snorkel's red-team service (benchmarks.snorkel.ai) names six weaknesses: reward hacking, data contamination, ambiguous instructions, broken verifiers, limited distributional diversity and stale task sets. The sections below map onto them (1 reward hacking, 2 broken verifiers, 3 ambiguous instructions, 4 contamination, 5 distributional diversity, 6 stale task sets), plus a section on environment robustness. For each one, this file lists what could go wrong in an unlearning benchmark, what LETHE-Bench does about it, and where it is checked automatically. `python -m scalpel redteam --split S --model M --out DIR` runs the automatic part and writes `RED_TEAM_REPORT.md` (pass/fail).
 
 ## 1. Reward hacking and grader exploits
 
@@ -19,13 +19,13 @@ Snorkel's red-team service examines benchmarks for six failure classes. For each
 
 The gate (`redteam.cheat_gate`) requires **max(LETHE, LETHE_core) < 35** for every reference cheat. The core score is checked too, so the attack axis alone cannot save the benchmark. `validate_split` also requires that, for each cheat, a family that defeats it has at least 5 probes.
 
-## 2. Verifier reliability
+## 2. Verifier reliability (broken verifiers)
 
 - The primary scorer is **teacher-forced exact top-1 on every answer token**: deterministic, with no judge. This is the MQuAKE / MultiFactPerson convention.
 - The generation scorer is rule-based and deterministic. An LLM judge is optional and never used for headline numbers. Planned: a human-labelled calibration set of 1,000 generations (leak / refusal / hallucination) to measure the rule grader's agreement. This is an in-kind ask (Snorkel expert data).
 - Both scorers are reported side by side, so disagreements between them are visible.
 
-## 3. Task specification and solvability
+## 3. Task specification and solvability (ambiguous instructions)
 
 - Every probe is answered correctly by the base model (the knowledge filter). The ideal score (E = 100 and L = 100) is therefore achievable *in principle*: the genie upper bound in this repository shows it on the legacy families.
 - Label conflicts are removed by construction (§4.3 of the spec), and `validate_split` re-checks them on every split.
@@ -39,19 +39,27 @@ The gate (`redteam.cheat_gate`) requires **max(LETHE, LETHE_core) < 35** for eve
 - Splits are model-conditioned and re-sampled per seed. Overfitting to a public instance does not transfer to the test split.
 - The method's view is exactly `Split.method_view()`. A validator checks that no retain or held-out text is in it.
 
-## 5. Environment robustness
+## 5. Distributional diversity
 
-- Pure PyTorch + 🤗 transformers. Tested on transformers 4.46 locally (CPU and Apple MPS); the repository's cluster environment is newer.
-- Scoring shortcuts are tested for exact parity with the slow path: unembedding at the scored positions only (vs the full forward), the bucketed greedy decoder (vs HF `generate`), the cheats' logits-processor generation (vs their own forward), answer-position losses (vs full logits), and the backbone logit lens (vs the full model).
-- Results record the split fingerprint, eval config, versions, device, method card and method arguments.
-- The base reference is cached by split fingerprint and eval config, so every method is scored against the same base outputs.
-- The attacks restore weights exactly (tested). The suite reloads the base model when a method edits weights.
+- **Sources:** four (MultiCounterFact, MQuAKE, zsRE, RWKU), merged on normalized (subject, relation, object) into a 38,086-fact pool; 20 families (11 forget, 9 retain) in three formats (cloze, QA, chat) and four languages (English plus French, Spanish, German probes).
+- **Per seed, a different forget sample** (seeded), so five seeds cover different subjects and relations; the hidden partition holds another 45% of subjects.
+- **Model-conditioned splits:** the knowledge filter makes each model's split its own sample of known facts, and the manifest records the yield per family so thin families are visible (`manifest.knowledge_filter_yield`; families under 5 probes are excluded from aggregates and flagged).
+- **Known limits:** relation templates and cross-lingual questions are author-written; three probe languages; `indirect` yields about 2 probes per seed on Llama-3.2-3B and is excluded from E. The expert-data milestone (ROADMAP M3: 10 languages, expert-written indirect references for 2,000 subjects) exists to widen exactly these.
 
-## 6. Difficulty and saturation
+## 6. Difficulty, saturation and stale task sets
 
 - The legacy benchmarks are saturated (`EVIDENCE.md`). LETHE-Bench adds families that the repository's strongest method is expected to fail (indirect, multihop, crosslingual, surface), and an attack axis no legacy benchmark measures.
 - Scores are per family, so saturation of any one family is visible. A family above 98% for every method on the leaderboard is flagged for v-next.
 - Difficulty can scale with forget-set size (50 → 1k → 10k), sequential batches, and harder families (expert-written indirect references, more languages).
+- Against stale task sets: dev splits are re-sampled per seed and model; the hidden test is rebuilt with a new private seed and templates when refreshed; the fact pool can be re-derived from current Wikidata-based sources.
+
+## 7. Environment robustness
+
+- Pure PyTorch + 🤗 transformers. Tested on transformers 4.46.3 and 4.57.1 locally (CPU and Apple MPS; the pilot's `results.json` files record the version) and 4.57 on the cluster.
+- Scoring shortcuts are tested for exact parity with the slow path: unembedding at the scored positions only (vs the full forward), the bucketed greedy decoder (vs HF `generate`), the cheats' logits-processor generation (vs their own forward), answer-position losses (vs full logits), and the backbone logit lens (vs the full model).
+- Results record the split fingerprint, eval config, versions, device, method card and method arguments.
+- The base reference is cached by split fingerprint and eval config, so every method is scored against the same base outputs.
+- The attacks restore weights exactly (tested). The suite reloads the base model when a method edits weights.
 
 ## Results of the automatic red team
 

@@ -71,7 +71,10 @@ def summarize(runs: Sequence[Dict], scorer: str = "tf") -> Dict[str, Dict]:
         row["unlearn_seconds"] = _ms([r["cost"]["unlearn_seconds"] for r in rs])
         row["inference_overhead"] = _ms([r["cost"]["inference_overhead"] for r in rs])
         row["behaviour"] = rs[0].get("behaviour", {})
-        row["routing"] = rs[0].get("routing")
+        # mean over seeds of the scalar routing diagnostics (was the first seed only)
+        routing = [r["routing"] for r in rs if r.get("routing")]
+        row["routing"] = ({k: _ms([d.get(k) for d in routing])[0] for k in routing[0] if not isinstance(routing[0][k], dict)}
+                          if routing else None)
         row["ci"] = rs[0].get(f"ci_{scorer}") if len(rs) == 1 else None
         row["attacks"] = {k: _ms([(r.get("robustness") or {}).get("residual_by_attack", {}).get(k) for r in rs])
                           for k in ("quant_int8", "quant_int4", "relearn", "lens")}

@@ -1,6 +1,8 @@
 # Open Benchmarks Grant application: ready-to-paste answers
 
-One section per form field, in the form's order. The word count of each limited field is given in
+One section per form field, in the form's order as of the first draft (2026-10-23). The program has since
+expanded (three tracks: propose a benchmark, research fellowship, red-team your benchmark), so check the
+live form's fields and word limits before pasting. The word count of each limited field is given in
 brackets; paste only the text under each heading. Upload `PROPOSAL.md` and `EVIDENCE.md` (as PDF)
 and the Llama-3.2-3B leaderboard as supporting materials. Fill in the bracketed fields. Where every
 number comes from: **Sources** at the end.
@@ -67,11 +69,11 @@ The closest are RWKU (Jin et al., 2024), MUSE (Shi et al., 2024) and TOFU (Maini
 **Estimated project duration**
 6 months
 
-**Supporting materials**
-`PROPOSAL.md` and `EVIDENCE.md` (exported to PDF); `results/cluster/llama32_3b/dev/leaderboard/leaderboard.md` (Llama-3.2-3B, 5 seeds).
+**Supporting materials** (optional on the form)
+`PROPOSAL.md` and `EVIDENCE.md` (exported to PDF); `results/cluster/llama32_3b/dev/leaderboard/leaderboard.md` (Llama-3.2-3B, 5 seeds). The cluster leaderboard lives on Wulver, not in this repository: rerun `sbatch scripts/slurm/scalpel_report.slurm` after pulling the rename (its title then reads LETHE-Bench) and copy the file here before exporting.
 
 **Terms checkbox**
-Confirm that an open-source release (code Apache-2.0, dev splits CC BY 4.0, see `DATA_LICENSE.md`) is consistent with your institution's policies before ticking it.
+The terms (benchmarks.snorkel.ai/terms) require, before ticking: (1) your institution's IP policy permits the project and its open release, and you hold any needed approvals; (2) outputs are released under a permissive licence (code Apache-2.0, dev splits CC BY 4.0, see `DATA_LICENSE.md`; zsRE redistribution terms must be confirmed first); (3) Snorkel's support is acknowledged in publications, and Snorkel researchers are credited as contributors or co-authors where standard authorship criteria apply; (4) Snorkel may name the team, institution, project summary and open-source output in program materials; (5) non-public information shared during the project stays confidential. Support is in-kind only (no cash).
 
 ---
 
@@ -81,4 +83,4 @@ All numbers are Llama-3.2-3B-Instruct, as of 2026-10-25.
 
 - **Legacy benchmarks** (`outputs/onepass_l19_v1/paper_table.md`, jobs 1452463 / 1452464): ours (classifier and Δe at layer 19, one pass) over 5 seeds, against the base model over 5 seeds. Recall removed = 1 − Eff/Base Eff: MCF 0.001/13.46, zsRE 0.41/32.37, MQuAKE 0.53/73.23, RWKU 2.40/57.60 → 95.8–100%. Locality kept = Spe/Base Spe: 19.84/19.88, 29.79/29.79, 55.53/66.13 (Spe† 66.50/67.34), 61.82/63.70 → 84.0–100%. PPL 11.31 everywhere, equal to base.
 - **LETHE-Bench** (`results/cluster/llama32_3b/dev/leaderboard/leaderboard.md`, dev partition, seeds 1–5; the full table is in `EVIDENCE.md` §4): LETHE score / E / L / R for ours 30.1 ± 10.1 / 22.8 / 95.6 / 19.0 (E_direct 95.6, Strict 2.9; rerun job 1452482); zerounlearn 21.4 / 38.9 / 67.4 / 8.7; sure 12.0; npo 6.2, gd 5.5, ga 4.9 (GA E 97.1, L 1.3); rmu 3.0; rome 1.6 (E 8.5, L 57.2, R 0.8); memit 0.0 (E 9.0, L 91.8, R 0.0); all six cheats 0.0.
-- **GPU compute** (`ROADMAP.md`, "GPU compute"): the 8-model grid (Llama-3.2-3B, Llama-3.1-8B, Qwen3-4B, Qwen3-14B, Gemma-3-4B, Gemma-3-27B, Mistral-Small-24B, OLMo-2-7B) and the ≈ 5,000 A100-80GB-hour breakdown, from a measured ≈ 1.8 GPU-hours per model and seed for every method on Llama-3.2-3B (Wulver `sacct`, October 2026). **Note: GPU compute is requested as part of the award.** The program's terms list data services and research / engineering time as in-kind support; confirm with benchmarks@snorkel.ai whether GPUs can be provided, and if not, ask for help securing them.
+- **GPU compute** (`ROADMAP.md`, "GPU compute"): the 8-model grid (Llama-3.2-3B, Llama-3.1-8B, Qwen3-4B, Qwen3-14B, Gemma-3-4B, Gemma-3-27B, Mistral-Small-24B, OLMo-2-7B) and the ≈ 5,000 A100-80GB-hour breakdown, from a measured ≈ 1.8 GPU-hours per model and seed for every method on Llama-3.2-3B (Wulver `sacct`, October 2026). **Note: GPU compute is requested as part of the award.** The program's terms list Expert Data-as-a-Service, Snorkel research / engineering time and partner benefits such as compute and platform credits as the in-kind support (no cash); confirm with benchmarks@snorkel.ai how much compute the partner credits cover.

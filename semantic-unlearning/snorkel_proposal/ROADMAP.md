@@ -38,7 +38,7 @@
    - privacy and legal experts, to design realistic deletion-request scenarios (GDPR Art. 17 style: a person asks for specific facts to be removed; what must remain).
 2. **GPU compute: ~5,000 A100-80GB hours** (about 2,500–3,000 H100-hours), on 80 GB GPUs, with multi-GPU nodes for the largest models. Breakdown below.
 
-   > **Note: we request GPU compute as part of the award.** The full grid needs 80 GB GPUs and, for the 24–27B gradient baselines, multi-GPU nodes. If GPU compute is outside the program's in-kind support, we ask for help securing it (e.g. partner credits). The 3B run so far used NJIT's Wulver cluster, which does not cover the full grid at this scale.
+   > **Note: we request GPU compute as part of the award.** The full grid needs 80 GB GPUs and, for the 24–27B gradient baselines, multi-GPU nodes. The program's terms list partner compute and platform credits among the in-kind support; we request them for this grid, and help securing the remainder if the credits fall short. The 3B run so far used NJIT's Wulver cluster, which does not cover the full grid at this scale.
 
    **Model grid** (5 families, 8 models; relative cost = GPU-hours relative to Llama-3.2-3B, roughly proportional to parameters, +20% multi-GPU overhead at 24–27B):
 
@@ -84,4 +84,4 @@
 | A future method saturates LETHE-Bench | Per-family scores flag saturation. Harder families (agentic, more languages, 10k-request scale) are planned, and the hidden test is refreshed |
 | Grader disagreement on open-ended outputs | The teacher-forced scorer is primary; the human-labelled calibration set (M3) measures the generation grader |
 | Gradient baselines do not fit one GPU at 24–27B | Multi-GPU sharding, or a declared parameter-efficient scope reported per model; inference-only methods and attacks fit one 80 GB GPU |
-| The benchmark favours the authors' own method | SURE is one baseline among 14. The reference cheats include a string version of its design (`keyword_router_idk`), and its expected failure families (indirect, multihop, crosslingual, surface; the strict tier) are reported like any other method's |
+| The benchmark favours the authors' own method | SURE is one of 15 methods on the leaderboard (9 methods, 6 reference cheats). The reference cheats include a string version of its design (`keyword_router_idk`), and its expected failure families (indirect, multihop, crosslingual, surface; the strict tier) are reported like any other method's |
