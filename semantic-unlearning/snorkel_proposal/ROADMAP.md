@@ -23,8 +23,8 @@
 
 | | Deliverable | Needs |
 |---|---|---|
-| **M1** (month 1) | v1.0 freeze: dev splits for 3 model families × 2 sizes × 5 seeds; hidden test built and held; zsRE redistribution terms confirmed; HF dataset card | Compute |
-| **M2** (months 1–2) | Full baseline tables on the cluster (`scripts/submit_scalpel_compare.sh full all`): GA, GD, NPO, RMU, ROME, MEMIT, ZeroUnlearn, SURE, and the 6 cheats; all tiers and attacks; scaling curve 50 → 1k → 10k requests; sequential track | Compute (≈1,000 A100-hours, below) |
+| **M1** (month 1) | v1.0 freeze: dev splits for the 8-model grid below (5 families, 3B–27B) × 5 seeds; hidden test built and held; zsRE redistribution terms confirmed; HF dataset card | Compute |
+| **M2** (months 1–2) | Full baseline tables on the cluster (`scripts/submit_scalpel_compare.sh full all`): GA, GD, NPO, RMU, ROME, MEMIT, ZeroUnlearn, SURE, and the 6 cheats; all tiers and attacks; scaling curve 50 → 1k → 10k requests; sequential track; multi-GPU support for the 14–27B models | GPU compute (≈5,000 A100-80GB hours, below) |
 | **M3** (months 2–4) | **Expert data**: native-speaker verification of the cross-lingual templates and expansion to 10 languages; expert-written indirect references (descriptions, aliases, coreference chains) for 2,000 subjects; human-labelled grader calibration set (1,000 generations: leak / refusal / hallucination / correct) | Snorkel expert network |
 | **M4** (months 3–5) | **Agentic track** (prototype exists: `AGENT_TRACK.md`): the unlearned model runs as an agent with a scratchpad and a mock search tool over a corpus with the target fact removed. Does multi-step reasoning (self-ask, decomposition, tool calls) reconstruct the forgotten fact? Does the agent leak it through tool queries? Long-horizon multi-turn sessions (≥ 10 turns) | Snorkel research collaboration; environment design |
 | **M5** (month 6) | Public leaderboard (dev) + hidden-test evaluation service; paper (NeurIPS Datasets & Benchmarks track) | Hosting |
@@ -36,11 +36,42 @@
    - domain annotators, to write unambiguous indirect references that are *not* inferable from retained facts;
    - annotators, to label generations for grader calibration;
    - privacy and legal experts, to design realistic deletion-request scenarios (GDPR Art. 17 style: a person asks for specific facts to be removed; what must remain).
-2. **Compute**:
-   - per run (one model × seed × method) at 3B: roughly 10–20 A100-minutes, covering unlearning, core probes, generation and attacks;
-   - 6 models × 10 seeds × 14 methods ≈ 840 runs ≈ 250 A100-hours;
-   - plus the scaling curve (1k / 10k requests), the sequential track and the 8B models.
-   - **Ask: ~1,000 A100-hours.**
+2. **GPU compute: ~5,000 A100-80GB hours** (about 2,500–3,000 H100-hours), on 80 GB GPUs, with multi-GPU nodes for the largest models. Breakdown below.
+
+   > **Note: we request GPU compute as part of the award.** The full grid needs 80 GB GPUs and, for the 24–27B gradient baselines, multi-GPU nodes. If GPU compute is outside the program's in-kind support, we ask for help securing it (e.g. partner credits). The 3B run so far used NJIT's Wulver cluster, which does not cover the full grid at this scale.
+
+   **Model grid** (5 families, 8 models; relative cost = GPU-hours relative to Llama-3.2-3B, roughly proportional to parameters, +20% multi-GPU overhead at 24–27B):
+
+   | Family | Models | Relative cost |
+   |---|---|---|
+   | Llama | Llama-3.2-3B-Instruct, Llama-3.1-8B-Instruct | 1, 2.7 |
+   | Qwen | Qwen3-4B, Qwen3-14B | 1.4, 4.5 |
+   | Gemma | Gemma-3-4B, Gemma-3-27B | 1.4, ~10 |
+   | Mistral | Mistral-Small-24B | ~10 |
+   | OLMo (open training data) | OLMo-2-7B | 2.7 |
+   | **Total** | 8 models | **≈ 34** |
+
+   **Measured basis.** One (model, seed) on Llama-3.2-3B, 50 requests, every method (9 methods + 6 cheats), all tiers and attacks, took **≈ 1.8 GPU-hours** of wall time on Wulver (October 2026, from `sacct`): baselines and cheats ≈ 45 min in total, SURE ≈ 14 min, ours ≈ 35–42 min, sequential track ≈ 8 min, split build ≈ 3 min. Development on the 3B model alone (paper-pipeline reruns, SCALPEL reruns, router diagnostics) used ≈ 75 GPU-hours in three days.
+
+   | Item | Assumption | A100-80GB hours |
+   |---|---|---|
+   | Core dev grid | 10 seeds for models ≤ 8B, 5 seeds for 14–27B | ~390 |
+   | Hidden test | 5 seeds, all 8 models | ~300 |
+   | Scaling curve, 1k requests | 3B and 8B × 3 seeds, one 24B seed; cost ≈ linear in requests | ~760 |
+   | Scaling curve, 10k requests | 3B and 8B, one seed each | ~1,330 |
+   | Agentic track | up to 10 replies per probe; 2 small models and one 24B, 3 seeds | ~550 |
+   | ROME / MEMIT covariance statistics | 14–27B models | ~60 |
+   | Sequential track | all models | ~50 |
+   | Development, debugging, reruns | at the measured 3B pace, plus the large-model infrastructure | ~1,500 |
+   | **Total** | | **≈ 4,900 → ask ~5,000** (plausible range 4,000–6,000) |
+
+   The least certain items are the 10k-request point and linear scaling in requests: SURE-style methods build rewrites and train rows per fact. One 1k-request seed on 3B will be measured before M2 to replace that assumption.
+
+   **Large-model infrastructure** (the harness has run up to 8B on one GPU):
+   - inference-only methods, scoring and attacks (cheats, SURE / ours, logit lens, quantization) fit a 24–27B model on one 80 GB GPU in bf16;
+   - GA / GD / NPO / RMU and the relearning attack need multi-GPU sharding (FSDP / DeepSpeed) or a declared parameter-efficient scope at 24–27B; the scope is reported per model so baselines stay comparable across sizes;
+   - the vendored ROME / MEMIT / ZeroUnlearn code is single-GPU and is tested at 24B before M2.
+   - per-model settings (SURE / ours router and early-write layers, RMU layer, ROME / MEMIT hparams, gradient scope) exist today for `llama32_3b`, `qwen3_4b` and `llama31_8b` (`scripts/slurm/scalpel_common.sh`); the other five models are added the same way.
 3. **Red-team review**: Snorkel's benchmark red team examines grader exploits, verifier reliability and contamination before v1.0.
 4. **Hosting**: the hidden-test evaluation service and the leaderboard.
 
@@ -52,4 +83,5 @@
 | `indirect` probes inferable from correlated retained facts | Description facts come from other answer groups; expert-written references (M3) |
 | A future method saturates SCALPEL | Per-family scores flag saturation. Harder families (agentic, more languages, 10k-request scale) are planned, and the hidden test is refreshed |
 | Grader disagreement on open-ended outputs | The teacher-forced scorer is primary; the human-labelled calibration set (M3) measures the generation grader |
+| Gradient baselines do not fit one GPU at 24–27B | Multi-GPU sharding, or a declared parameter-efficient scope reported per model; inference-only methods and attacks fit one 80 GB GPU |
 | The benchmark favours the authors' own method | SURE is one baseline among 14. The reference cheats include a string version of its design (`keyword_router_idk`), and its expected failure families (indirect, multihop, crosslingual, surface; the strict tier) are reported like any other method's |

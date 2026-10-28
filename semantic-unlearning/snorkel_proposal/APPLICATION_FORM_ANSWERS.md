@@ -36,13 +36,13 @@ SCALPEL: a benchmark for surgical, fact-level unlearning in language models
 
 *Results so far* (Llama-3.2-3B-Instruct, 5 seeds). Ours 30.1 ± 10.1, ZeroUnlearn 21.4, original SURE 12.0, GA/GD/NPO 4.9–6.2, RMU 3.0, ROME 1.6, MEMIT 0, every cheat 0. The scores expose trade-offs the legacy benchmarks hide: GA reaches erasure 97 but locality 1; ZeroUnlearn erasure 39 at locality 67; ROME and MEMIT barely erase held-out phrasings (E 9) and the fact returns under attack (R ≤ 1). Our own method, near-saturated on the legacy benchmarks, erases 96% of request prompts but scores only 23 on held-out phrasings, and drops to 2.9 once its runtime router is removed.
 
-*Outputs and impact.* Open splits for three model families and two sizes, a hidden-test service, a public leaderboard, an agentic leakage track and a Datasets & Benchmarks paper. Deployers learn whether a deletion removed the fact; method developers learn exactly where it leaks.
+*Outputs and impact.* Open splits for eight models from five families (3B–27B), a hidden-test service, a public leaderboard, an agentic leakage track and a Datasets & Benchmarks paper. Deployers learn whether a deletion removed the fact; method developers learn exactly where it leaks.
 
 **How does your benchmark differ from existing benchmarks?** (150 words max) [127 words]
 
 The closest are RWKU (Jin et al., 2024), MUSE (Shi et al., 2024) and TOFU (Maini et al., 2024). TOFU forgets fictitious authors fine-tuned into the model, and MUSE forgets whole corpora (books, news); neither asks a model to forget one real fact while keeping its neighbours. RWKU uses real, famous people, at entity level, without a per-model knowledge filter. SCALPEL is fact-level, on facts each model provably knows, and adds what none of them has: typed entangled retain controls per request (same answer, same sentence, name collision, subject mentioned, counterfactual reading); subject-free, multi-turn, cross-lingual and multi-hop forget probes; a shortcut gate of six reference cheats that must fail; behaviour versus weights-only tiers that separate guardrails from removal; and lens, quantization and relearning attacks in one score.
 
-**Describe your methodology and how you would leverage awarded resources** (200 words max) [190 words]
+**Describe your methodology and how you would leverage awarded resources** (200 words max) [197 words]
 
 *Expert data (Snorkel DaaS):*
 - native-speaker linguists for 10 languages, to verify and write cross-lingual probes;
@@ -52,7 +52,7 @@ The closest are RWKU (Jin et al., 2024), MUSE (Shi et al., 2024) and TOFU (Maini
 
 *Embedded support:* review of the split-builder and hidden-test pipeline, schema validation of the probe families and dataset card, red-team review of the grader and contamination defences, and help turning the agentic prototype into a full environment.
 
-*Compute / hosting:* about 1,000 A100-hours (3 model families × 2 sizes × 10 seeds × 15 methods, plus scaling and sequential tracks); hosting for the hidden-test service and leaderboard.
+*GPU compute / hosting:* we request about 5,000 A100-80GB hours (8 models, 5 families, 3B–27B; 5–10 seeds; 15 methods; scaling, sequential and agentic tracks), with multi-GPU nodes for the largest; hosting for the hidden-test service and leaderboard.
 
 *Milestones:*
 1. Month 1: v1.0 freeze; every split passes validation and every cheat scores below 35.
@@ -81,3 +81,4 @@ All numbers are Llama-3.2-3B-Instruct, as of 2026-10-25.
 
 - **Legacy benchmarks** (`outputs/onepass_l19_v1/paper_table.md`, jobs 1452463 / 1452464): ours (classifier and Δe at layer 19, one pass) over 5 seeds, against the base model over 5 seeds. Recall removed = 1 − Eff/Base Eff: MCF 0.001/13.46, zsRE 0.41/32.37, MQuAKE 0.53/73.23, RWKU 2.40/57.60 → 95.8–100%. Locality kept = Spe/Base Spe: 19.84/19.88, 29.79/29.79, 55.53/66.13 (Spe† 66.50/67.34), 61.82/63.70 → 84.0–100%. PPL 11.31 everywhere, equal to base.
 - **SCALPEL** (`results/cluster/llama32_3b/dev/leaderboard/leaderboard.md`, dev partition, seeds 1–5; the full table is in `EVIDENCE.md` §4): SCALPEL / E / L / R for ours 30.1 ± 10.1 / 22.8 / 95.6 / 19.0 (E_direct 95.6, Strict 2.9; rerun job 1452482); zerounlearn 21.4 / 38.9 / 67.4 / 8.7; sure 12.0; npo 6.2, gd 5.5, ga 4.9 (GA E 97.1, L 1.3); rmu 3.0; rome 1.6 (E 8.5, L 57.2, R 0.8); memit 0.0 (E 9.0, L 91.8, R 0.0); all six cheats 0.0.
+- **GPU compute** (`ROADMAP.md`, "GPU compute"): the 8-model grid (Llama-3.2-3B, Llama-3.1-8B, Qwen3-4B, Qwen3-14B, Gemma-3-4B, Gemma-3-27B, Mistral-Small-24B, OLMo-2-7B) and the ≈ 5,000 A100-80GB-hour breakdown, from a measured ≈ 1.8 GPU-hours per model and seed for every method on Llama-3.2-3B (Wulver `sacct`, October 2026). **Note: GPU compute is requested as part of the award.** The program's terms list data services and research / engineering time as in-kind support; confirm with benchmarks@snorkel.ai whether GPUs can be provided, and if not, ask for help securing them.
