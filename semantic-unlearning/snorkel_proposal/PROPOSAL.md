@@ -56,7 +56,7 @@ A deletion request gives the method **one prompt and its answer** (`Danielle Dar
 
 **Robustness (R): is it gone from the weights?** Logit lens on every layer; int8/int4 quantization; relearning on half the forgotten facts, then testing the other half.
 
-Each family exists to defeat a specific shortcut (`BENCHMARK_SPEC.md` §5). E and L are harmonic means over families, and R is the worst attack, so a method that gives up any whole family scores near zero on that axis. The **LETHE score** is the harmonic mean of E, L, U and R. All per-family scores, means and minima are reported.
+Each family exists to defeat a specific shortcut (`BENCHMARK_SPEC.md` §5). E and L are harmonic means over families, and R is the worst attack, so a method that gives up any whole family scores near zero on that axis. The **LETHE score** is the harmonic mean of E, L, U and R. All per-family scores, means and minima are reported, with a per-request completeness rate (every held-out probe of the fact erased).
 
 **Design choices.**
 
@@ -91,12 +91,12 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
   - the fast scoring path matches the full forward pass.
 - **Full run on Llama-3.2-3B-Instruct** (cluster, 5 seeds, 50 requests per seed; `EVIDENCE.md` §4): 8 methods and 6 reference cheats.
   - **SURE (our method) leads with a LETHE score of 30.1 ± 10.1**, ahead of ZeroUnlearn 21.4; GA / GD / NPO score 4.9–6.2, RMU 3.0, ROME 1.6, MEMIT 0.0.
-  - **Every reference cheat scores 0.**
+  - **Every reference cheat scores below 5** (the release gate is 35).
   - **Each baseline fails a different axis:** GA / GD / NPO erase 92–97 but keep locality 1.3–1.7; ROME and MEMIT erase only 8–9 on held-out phrasings and the fact returns under attack (R ≤ 1); ZeroUnlearn reaches erasure 38.9 at locality 67.4.
   - **SURE has measurable headroom:** it erases 95.6 of request prompts and keeps locality 95.6, but held-out phrasings leak (E 22.8). Over the 5 seeds, 213 of its 234 leaked probes were never routed (the router fired the right row on 89% of forget probes; when it fired, 21 probes leaked). E is set by `multihop`: 84 of 92 chain questions were not routed, because a router gated on the subject's name cannot fire on a chain that does not name it. It scores 2.9 in the weights-only tier.
 - **Pilot on real data** (laptop, no GPU; `results/pilot/README.md`): Qwen2.5-0.5B-Instruct, MCF + zsRE + MQuAKE facts, 50 requests, 520 probes.
   - **A subject-name blocklist scores 100 / 98.5 (erasure / locality) when only the families the official MCF/zsRE metrics use are counted, and 0 on LETHE-Bench.** It leaks under typos and multi-hop chains, and it refuses same-subject and in-context questions.
-  - All six reference cheats are defeated (LETHE score 0; core 2.8–16.2).
+  - All six reference cheats are defeated (LETHE score below 5; core 2.8–16.2).
   - GA, GD and NPO erase 97–99% but keep only 1.3–1.8 locality; the same over-forgetting this repository measured on MCF.
   - After relearning, GA recovers 20% of held-out forgotten facts.
   - **An early version of SURE leads with a LETHE score of 10.5.** It keeps perfect locality (100 on all retain families), but held-out phrasings leak: 90% residual on questions, 94% cross-lingual, 100% under typos and in multi-hop chains. The decomposition attributes 49 of 58 residual points to routing misses. The method that saturates the legacy benchmarks has clear, measurable headroom here.

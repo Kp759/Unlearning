@@ -29,7 +29,7 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 | RMU (3B defaults) | 5.2 / 80.5 | 4.6 / 84.5 | 0.0 |
 | **SURE (early version, untuned)** | 68.5 / 100.0 | 3.3 / **100.0** | **10.5** |
 
-- The red-team gate passes: all six reference cheats score 0, and LETHE_core stays ≤ 16.2.
+- The red-team gate passes: all six reference cheats score below 5, and LETHE_core stays ≤ 16.2.
 - SURE leads, with perfect locality, but questions, cross-lingual queries, typos and multi-hop chains leak. 49 of its 58 residual points are routing misses.
 - The existing four-benchmark study is summarised in `EVIDENCE.md`.
 

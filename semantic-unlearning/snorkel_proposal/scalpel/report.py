@@ -14,7 +14,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Sequence
 
-KEYS = ("SCALPEL", "SCALPEL_core", "E", "E_mean", "E_min", "E_direct", "L", "L_mean", "L_min", "U", "R")
+KEYS = ("SCALPEL", "SCALPEL_core", "E", "E_mean", "E_min", "E_direct", "E_complete", "L", "L_mean", "L_min", "U", "R")
 
 
 def _ms(xs):
@@ -104,8 +104,8 @@ def markdown(table: Dict[str, Dict], title: str = "LETHE-Bench leaderboard") -> 
     lines = [f"# {title}", "",
              "All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, "
              "U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). "
-             "LETHE = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime "
-             "components removed). Rows marked † are reference cheats the benchmark must defeat.", ""]
+             "LETHE = harmonic mean of the available E, L, U, R (1-point floor on each). E_complete = share of requests "
+             "whose every held-out forget probe is erased. *Strict* = weights only (runtime components removed). Rows marked † are reference cheats the benchmark must defeat.", ""]
     tracks = sorted({r["track"] for r in table.values()})
     if len(tracks) > 1:          # several splits / models: one SCALPEL matrix first
         methods = sorted({r["method"] for r in table.values()},
@@ -121,11 +121,11 @@ def markdown(table: Dict[str, Dict], title: str = "LETHE-Bench leaderboard") -> 
         rows = sorted([r for r in table.values() if r["track"] == track],
                       key=lambda r: -(r["SCALPEL"][0] if r["SCALPEL"][0] is not None else -1))
         lines += [f"## {track}", "",
-                  "| Method | LETHE | E | E_mean | E_min | E_direct | L | L_mean | L_min | U | R | Strict | seeds |",
-                  "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+                  "| Method | LETHE | E | E_mean | E_min | E_direct | E_complete | L | L_mean | L_min | U | R | Strict | seeds |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for r in rows:
             name = r["method"] + (" †" if r["cheat"] else "") + ("" if r["valid"] else " (INVALID)")
-            lines.append(f"| {name} | {_f(r['SCALPEL'])} | {_f(r['E'])} | {_f(r['E_mean'])} | {_f(r['E_min'])} | {_f(r['E_direct'])} | "
+            lines.append(f"| {name} | {_f(r['SCALPEL'])} | {_f(r['E'])} | {_f(r['E_mean'])} | {_f(r['E_min'])} | {_f(r['E_direct'])} | {_f(r['E_complete'])} | "
                          f"{_f(r['L'])} | {_f(r['L_mean'])} | {_f(r['L_min'])} | {_f(r['U'])} | {_f(r['R'])} | {_f(r['strict_SCALPEL'])} | "
                          f"{len(r['seeds'])} |")
         fams = sorted({f for r in rows for f in r["families"]})

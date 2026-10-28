@@ -27,7 +27,7 @@ number comes from: **Sources** at the end.
 **Project title**
 LETHE-Bench: a benchmark for surgical, fact-level unlearning in language models
 
-**Describe your proposed benchmark** (500 words max) [485 words]
+**Describe your proposed benchmark** (500 words max) [488 words]
 *Form prompts: the problem or focus area; what each task looks like (input, output, grading); expected outputs and impact.*
 
 *Problem.* Deletion requests (privacy, hazardous knowledge, retractions) ask a model to forget one specific fact and keep everything else, including entangled facts. Standard benchmarks no longer separate methods. On MultiCounterFact, zsRE, MQuAKE and RWKU, SURE, the detect-then-edit method we built, removes 96–100% of the base model's recall of the forget facts while keeping 84–100% of locality, with perplexity unchanged (Llama-3.2-3B-Instruct, 5 seeds, official evaluators). By construction, a subject-name blocklist also looks near-perfect on MultiCounterFact and zsRE: every forget probe names the subject and no locality probe does. None checks whether the fact survives quantization or fine-tuning.
@@ -36,7 +36,7 @@ LETHE-Bench: a benchmark for surgical, fact-level unlearning in language models
 
 *Grading.* Deterministic. A probe counts as answered if every answer token is the model's top-1 under teacher forcing (any alias); a rule grader scores greedy generations as leak, refusal or false refusal. Erasure E and locality L are harmonic means over held-out forget and retain families; utility U covers MMLU, TriviaQA and perplexity; robustness R is the worst residual under logit-lens, int8/int4 quantization and relearning attacks. The LETHE score is their harmonic mean. A sequential track tests whether locality erodes as deletions accumulate. Three tiers separate behaviour, shipped weights and weights only (runtime components removed), so a guardrail cannot pass as removal. Six reference cheats (subject blocklist, answer ban, keyword router, prompt cache, refuse-all, no-op) must score below 35 before a split is released.
 
-*Results so far* (Llama-3.2-3B-Instruct, 5 seeds). SURE 30.1 ± 10.1, ZeroUnlearn 21.4, GA/GD/NPO 4.9–6.2, RMU 3.0, ROME 1.6, MEMIT 0, every cheat 0. The scores expose trade-offs the legacy benchmarks hide: GA reaches erasure 97 but locality 1; ZeroUnlearn erasure 39 at locality 67; ROME and MEMIT barely erase held-out phrasings (E 9) and the fact returns under attack (R ≤ 1). SURE, near-saturated on the legacy benchmarks, erases 96% of request prompts but scores only 23 on held-out phrasings, and drops to 2.9 once its runtime router is removed.
+*Results so far* (Llama-3.2-3B-Instruct, 5 seeds). SURE 30.1 ± 10.1, ZeroUnlearn 21.4, GA/GD/NPO 4.9–6.2, RMU 3.0, ROME 1.6, MEMIT 0, every cheat below 5 (gate 35). The scores expose trade-offs the legacy benchmarks hide: GA reaches erasure 97 but locality 1; ZeroUnlearn erasure 39 at locality 67; ROME and MEMIT barely erase held-out phrasings (E 9) and the fact returns under attack (R ≤ 1). SURE, near-saturated on the legacy benchmarks, erases 96% of request prompts but scores only 23 on held-out phrasings, and drops to 2.9 once its runtime router is removed.
 
 *Outputs and impact.* Open splits for eight models from five families (3B–27B), a hidden-test service, a public leaderboard, an agentic leakage track and a Datasets & Benchmarks paper. Deployers learn whether a deletion removed the fact; method developers learn exactly where it leaks.
 

@@ -404,8 +404,10 @@ def run(split: Split, method_name: str, method_args: Dict[str, Any], model_loade
 
     res["robustness"] = rob
     res["aggregates_tf"] = M.aggregates(core["families_tf"], res.get("utility"), rob.get("R"))
+    res["aggregates_tf"]["E_complete"] = M.completeness(core["rows"], "tf")
     if core["families_gen"]:
         res["aggregates_gen"] = M.aggregates(core["families_gen"], res.get("utility"), rob.get("R"))
+        res["aggregates_gen"]["E_complete"] = M.completeness(core["rows"], "gen")
     if cfg.bootstrap:
         res["ci_tf"] = M.bootstrap(core["rows"], "tf", n_boot=cfg.bootstrap, seed=split.seed,
                                    utility=res.get("utility"), robustness=rob.get("R"))
@@ -442,6 +444,7 @@ def regrade(split: Split, run_dir: Path, cache_dir: Optional[Path] = None) -> Di
             att["relearn"].setdefault("base_heldout_residual_after", (ab.get("relearn") or {}).get("heldout_residual_after"))
         res["robustness"] = robustness(att)
         res["aggregates_tf"] = M.aggregates(res["families_tf"], res.get("utility"), res["robustness"].get("R"))
+        res["aggregates_tf"]["E_complete"] = M.completeness(rows, "tf")
     res["families_gen"] = M.family_scores(rows, "gen") if any("gen" in r for r in rows) else {}
     res["behaviour"] = _behaviour(rows) if res["families_gen"] else {}
     if res["families_gen"]:

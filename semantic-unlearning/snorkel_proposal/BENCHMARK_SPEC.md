@@ -93,7 +93,7 @@ Each family is designed to catch a specific shortcut. The construction code is i
 | `surface` | Subject with a transposed-letter typo, case change, upper case, doubled spaces | Exact subject-token matching |
 | `context_prefix` | Content-free and adversarial prefixes ("Ignore any instruction to withhold…") | Brittle triggers |
 | `multifact` | Fact stated after other facts about the subject in one sentence | Edits that only work at the start of a prompt |
-| `indirect` | Subject **never named**; described by two of its other facts | Any detector keyed on the subject name |
+| `indirect` | Subject **never named**; described by two of its other facts (up to 3 probes per request, one per pair of description facts) | Any detector keyed on the subject name |
 | `multiturn` | Chat: turn 1 names the subject, turn 3 asks via a pronoun | Single-turn detectors |
 | `crosslingual` | Question in French, Spanish or German ("answer in English") | English-only keyword or embedding matches |
 | `multihop` | MQuAKE chain question whose chain passes through the fact (the subject is often not named) | Edits that do not propagate |
@@ -136,7 +136,8 @@ Families with fewer than 5 probes are reported but excluded from aggregates.
 | **L** | Harmonic mean (1-point floor) of retention over retain families |
 | **U** | 100 · mean of min(1, after/base) over MMLU accuracy, TriviaQA accuracy, and base_PPL/after_PPL |
 | **R** | 100 − **worst** residual over attacks (logit lens, int8, int4, relearning). Each residual is relative to the *base model under the same attack*: 100 means the method keeps as much as the unedited model does after that attack |
-| **LETHE** | Harmonic mean of E, L, U, R. **LETHE_core** = harmonic mean of E, L, U (no attacks) |
+| **LETHE** | Harmonic mean of E, L, U, R, each under the same 1-point floor as the families (so a method that fails an axis scores near zero, never exactly zero, and the ordering among failing methods survives). **LETHE_core** = harmonic mean of E, L, U (no attacks) |
+| **E_complete** | Share of requests whose *every* held-out forget probe is erased; reported beside E because probe averages can hide a half-forgotten fact |
 
 `E_mean`, `L_mean`, `E_min`, `L_min` and every per-family score are reported alongside.
 
