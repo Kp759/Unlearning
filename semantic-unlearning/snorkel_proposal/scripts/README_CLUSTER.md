@@ -1,4 +1,4 @@
-# Running the SCALPEL comparison on Wulver
+# Running the LETHE-Bench comparison on Wulver
 
 This runs every method against SURE on the same splits:
 

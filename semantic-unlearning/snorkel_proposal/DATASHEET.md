@@ -1,4 +1,4 @@
-# Datasheet: SCALPEL v0.1
+# Datasheet: LETHE-Bench v0.1
 
 This datasheet follows Gebru et al., "Datasheets for Datasets" (2021).
 

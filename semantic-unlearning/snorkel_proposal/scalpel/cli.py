@@ -283,7 +283,7 @@ def cmd_toy(a):
     main(["sequential", "--split", str(split_path), *common, "--method", "gd", "--method-arg", "lr=2e-3",
           "--steps", "4", "--out", str(out / "sequential_gd"), "--no-gen", "--attacks", ""])
     main(["report", "--runs", str(out / "runs" / "*" / "results.json"), "--out", str(out / "leaderboard"),
-          "--title", "SCALPEL leaderboard — toy world (pipeline check, not a result)"])
+          "--title", "LETHE-Bench leaderboard — toy world (pipeline check, not a result)"])
 
 
 # ---------------------------------------------------------------------------- main
@@ -338,7 +338,7 @@ def main(argv=None, exit_ok: bool = False):
 
     ar = sub.add_parser("agent-report")
     ar.add_argument("--runs", nargs="+", required=True); ar.add_argument("--out", required=True)
-    ar.add_argument("--title", default="SCALPEL agentic leakage track")
+    ar.add_argument("--title", default="LETHE-Bench agentic leakage track")
     ar.set_defaults(fn=cmd_agent_report)
 
     s = sub.add_parser("suite")
@@ -377,7 +377,7 @@ def main(argv=None, exit_ok: bool = False):
 
     rp = sub.add_parser("report")
     rp.add_argument("--runs", nargs="+", required=True); rp.add_argument("--out", required=True)
-    rp.add_argument("--title", default="SCALPEL leaderboard")
+    rp.add_argument("--title", default="LETHE-Bench leaderboard")
     rp.set_defaults(fn=cmd_report)
 
     y = sub.add_parser("toy")

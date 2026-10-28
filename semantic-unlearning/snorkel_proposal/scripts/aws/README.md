@@ -1,4 +1,4 @@
-# SCALPEL on one AWS GPU (g5.2xlarge)
+# LETHE-Bench on one AWS GPU (g5.2xlarge)
 
 `run_scalpel_aws.sh` runs the same chain as the Wulver jobs (`scripts/slurm/`) on one machine, one step after another, without SLURM. It was written for a **g5.2xlarge**: 1× NVIDIA A10G (24 GB), 8 vCPUs, 32 GB RAM. Every step skips finished work, so after a stop, a crash or a reboot you rerun the same command.
 
@@ -24,7 +24,7 @@ bash scripts/aws/run_scalpel_aws.sh status                    # what is done / m
 ## Datasets
 
 `DATASETS` (default `merged mcf mquake zsre`) builds one split per entry:
-- **merged:** facts from MultiCounterFact, zsRE and MQuAKE together. This is SCALPEL's headline split and the one the Wulver runs use.
+- **merged:** facts from MultiCounterFact, zsRE and MQuAKE together. This is LETHE-Bench's headline split and the one the Wulver runs use.
 - **mcf / mquake / zsre:** one dataset each, 50 requests from that dataset alone.
 
 A per-dataset breakdown of the merged split would not work: its 50 requests come out about 32 MQuAKE, 17 MultiCounterFact and 1 zsRE.
@@ -71,14 +71,14 @@ results/aws/<dataset>/llama32_3b/dev/seed1/
   runs/<method>/results.json, probes.jsonl      runs/RED_TEAM_REPORT.md
   agent/<method>/agent.json, episodes.jsonl     agent/agent_leaderboard.md
 results/aws/<dataset>/llama32_3b/dev/leaderboard/leaderboard.md
-results/aws/leaderboard_llama32_3b/leaderboard.md       every dataset, with a method x dataset SCALPEL matrix
+results/aws/leaderboard_llama32_3b/leaderboard.md       every dataset, with a method x dataset LETHE-Bench matrix
 results/aws/logs/                                       one log per step (not committed)
 ```
 
 To share results, commit them; caches, SURE work directories and logs are ignored:
 
 ```bash
-git add results/aws && git commit -m "SCALPEL AWS results" && git push
+git add results/aws && git commit -m "LETHE-Bench AWS results" && git push
 ```
 
 ## Settings

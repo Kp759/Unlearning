@@ -18,7 +18,7 @@ bash scripts/run_pilot_local.sh                # ~1 h on an M2 laptop
 - **Split:** 24 requests and 523 probes, with 17 families of at least 5 probes each (the knowledge filter keeps only what the toy model knows).
 - **Red team: PASS.** All six reference cheats are defeated (`toy/runs/RED_TEAM_REPORT.md`):
 
-| Cheat | SCALPEL | SCALPEL_core | Why it fails |
+| Cheat | LETHE | LETHE_core | Why it fails |
 |---|---|---|---|
 | noop | 0.0 | 2.9 | E = 1: nothing is forgotten |
 | idk_all | 0.0 | 2.7 | L = 1: everything is refused |

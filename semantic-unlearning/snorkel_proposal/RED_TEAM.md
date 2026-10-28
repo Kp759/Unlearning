@@ -1,6 +1,6 @@
-# Red-teaming SCALPEL before anyone else does
+# Red-teaming LETHE-Bench before anyone else does
 
-Snorkel's red-team service examines benchmarks for six failure classes. For each one, this file lists what could go wrong in an unlearning benchmark, what SCALPEL does about it, and where it is checked automatically. `python -m scalpel redteam --split S --model M --out DIR` runs the automatic part and writes `RED_TEAM_REPORT.md` (pass/fail).
+Snorkel's red-team service examines benchmarks for six failure classes. For each one, this file lists what could go wrong in an unlearning benchmark, what LETHE-Bench does about it, and where it is checked automatically. `python -m scalpel redteam --split S --model M --out DIR` runs the automatic part and writes `RED_TEAM_REPORT.md` (pass/fail).
 
 ## 1. Reward hacking and grader exploits
 
@@ -17,7 +17,7 @@ Snorkel's red-team service examines benchmarks for six failure classes. For each
 | Hallucinating a wrong answer instead of forgetting | Reported separately (forget: leak / refusal / other) | Behaviour table |
 | Guardrail passed off as unlearning | Tiers B / W / W+: runtime components must be declared, and W+ scores the bare weights | `strict_tier` in every result |
 
-The gate (`redteam.cheat_gate`) requires **max(SCALPEL, SCALPEL_core) < 35** for every reference cheat. The core score is checked too, so the attack axis alone cannot save the benchmark. `validate_split` also requires that, for each cheat, a family that defeats it has at least 5 probes.
+The gate (`redteam.cheat_gate`) requires **max(LETHE, LETHE_core) < 35** for every reference cheat. The core score is checked too, so the attack axis alone cannot save the benchmark. `validate_split` also requires that, for each cheat, a family that defeats it has at least 5 probes.
 
 ## 2. Verifier reliability
 
@@ -49,7 +49,7 @@ The gate (`redteam.cheat_gate`) requires **max(SCALPEL, SCALPEL_core) < 35** for
 
 ## 6. Difficulty and saturation
 
-- The legacy benchmarks are saturated (`EVIDENCE.md`). SCALPEL adds families that the repository's strongest method is expected to fail (indirect, multihop, crosslingual, surface), and an attack axis no legacy benchmark measures.
+- The legacy benchmarks are saturated (`EVIDENCE.md`). LETHE-Bench adds families that the repository's strongest method is expected to fail (indirect, multihop, crosslingual, surface), and an attack axis no legacy benchmark measures.
 - Scores are per family, so saturation of any one family is visible. A family above 98% for every method on the leaderboard is flagged for v-next.
 - Difficulty can scale with forget-set size (50 → 1k → 10k), sequential batches, and harder families (expert-written indirect references, more languages).
 

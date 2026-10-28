@@ -19,11 +19,11 @@ for M in $MODELS; do
     [[ -f "$D/split.json" ]] && python -m scalpel gate --split "$D/split.json" --runs "$D/runs" > /dev/null \
       && grep -m1 "Overall" "$D/runs/RED_TEAM_REPORT.md" | sed "s|^|$M $(basename "$D"): |"
     compgen -G "$D/agent/*/agent.json" > /dev/null && python -m scalpel agent-report --runs "$D/agent/*/agent.json" \
-      --out "$D/agent" --title "SCALPEL agentic leakage track — $M — $(basename "$D")"
+      --out "$D/agent" --title "LETHE-Bench agentic leakage track — $M — $(basename "$D")"
   done
   python -m scalpel report --runs "$OUT_ROOT/$M/$PARTITION/seed*/runs/*/results.json" \
-    --out "$OUT_ROOT/$M/$PARTITION/leaderboard" --title "SCALPEL — $M — $PARTITION (mean ± sd over seeds)"
+    --out "$OUT_ROOT/$M/$PARTITION/leaderboard" --title "LETHE-Bench — $M — $PARTITION (mean ± sd over seeds)"
 done
 python -m scalpel report --runs "$OUT_ROOT/*/$PARTITION/seed*/runs/*/results.json" \
-  --out "$OUT_ROOT/leaderboard_$PARTITION" --title "SCALPEL — all models — $PARTITION"
+  --out "$OUT_ROOT/leaderboard_$PARTITION" --title "LETHE-Bench — all models — $PARTITION"
 echo "leaderboards: $OUT_ROOT/*/$PARTITION/leaderboard/leaderboard.md and $OUT_ROOT/leaderboard_$PARTITION/leaderboard.md"

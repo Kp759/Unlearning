@@ -21,9 +21,9 @@ On MCF, SURE reaches Eff 0.001 / Gen 0.086 against genie's 0.001 / 0.002 (new cl
 
 ## 2. Why the ceiling is not the whole story
 
-Each of the following findings, all from this repository, points to a gap that SCALPEL measures directly.
+Each of the following findings, all from this repository, points to a gap that LETHE-Bench measures directly.
 
-| Finding (repository evidence) | What it means | SCALPEL family / axis |
+| Finding (repository evidence) | What it means | LETHE-Bench family / axis |
 |---|---|---|
 | **MCF base Eff is only 13.5%**, base Spe 19.9% | Most "forgotten" MCF facts were never known, so near-zero Eff is easy | Knowledge filter: every probe must be known by the base model (§4.1) |
 | **RWKU held-out facts about a forgotten person: Gen 17.96 vs base 54.77**, and entity-genie 17.75 | Even perfect routing leaves a third of held-out entity knowledge; fact-level edits do not generalise to other facts about the same entity | Entity track; `indirect`, `multihop` |
@@ -38,9 +38,9 @@ Each of the following findings, all from this repository, points to a gap that S
 
 ## 3. The same blind spot, measured (pilot, `results/pilot/`)
 
-SCALPEL ran end to end on real MultiCounterFact + zsRE + MQuAKE facts, using Qwen2.5-0.5B-Instruct on a laptop: 50 requests, 520 probes, one seed. The leaderboard scores every run twice. The **legacy view** uses only the families the official MCF/zsRE metrics use; **SCALPEL** uses all of them.
+LETHE-Bench ran end to end on real MultiCounterFact + zsRE + MQuAKE facts, using Qwen2.5-0.5B-Instruct on a laptop: 50 requests, 520 probes, one seed. The leaderboard scores every run twice. The **legacy view** uses only the families the official MCF/zsRE metrics use; **LETHE-Bench** uses all of them.
 
-| Method | Legacy view: erasure / locality | SCALPEL: E / L | SCALPEL |
+| Method | Legacy view: erasure / locality | LETHE-Bench: E / L | LETHE |
 |---|---|---|---|
 | subject-name blocklist + "I don't know" | **100.0 / 98.5** | 6.8 / 2.0 | 0.0 |
 | subject + relation-word router + refusal | 82.5 / 100.0 | 5.9 / 7.0 | 0.0 |
@@ -55,13 +55,13 @@ A string blocklist is nearly perfect by the legacy definition. On the full bench
 
 **SURE leads the pilot, with headroom.** It keeps perfect locality (100 on every retain family, no false fires) while most held-out phrasings leak: question 90% residual, cross-lingual 94%, typos 100%, multi-hop 100%. The routing decomposition attributes 48.7 of the forget residual to routing misses and 9.1 to actuation: the same "gap to genie is routing" result as `../README_ROUTER_DIAGNOSTICS.md`, now on families the legacy benchmarks do not contain.
 
-All six reference cheats score SCALPEL 0 (SCALPEL_core 2.8–16.2), and every split-integrity check passes (`results/pilot/qwen2.5-0.5b-instruct/runs/RED_TEAM_REPORT.md`). Full tables for Llama-3.2-3B / 8B and Qwen3-4B on the cluster are milestone M2 (`ROADMAP.md`); the job scripts are in `scripts/slurm/`.
+All six reference cheats get a LETHE score of 0 (LETHE_core 2.8–16.2), and every split-integrity check passes (`results/pilot/qwen2.5-0.5b-instruct/runs/RED_TEAM_REPORT.md`). Full tables for Llama-3.2-3B / 8B and Qwen3-4B on the cluster are milestone M2 (`ROADMAP.md`); the job scripts are in `scripts/slurm/`.
 
-## 4. SCALPEL on Llama-3.2-3B-Instruct (cluster, 5 seeds)
+## 4. LETHE-Bench on Llama-3.2-3B-Instruct (cluster, 5 seeds)
 
 `results/cluster/llama32_3b/dev/leaderboard/leaderboard.md`, dev partition, seeds 1–5, 50 requests per seed, teacher-forced scorer, mean ± sd over seeds. † = reference cheat. "ours" is the new-classifier method above; "sure" is the original SURE (exact matching, the request's own prompts only).
 
-| Method | SCALPEL | E | E_min | E_direct | L | L_min | U | R | Strict |
+| Method | LETHE | E | E_min | E_direct | L | L_min | U | R | Strict |
 |---|---|---|---|---|---|---|---|---|---|
 | ours | **30.1 ± 10.1** | 22.8 ± 14.3 | 3.6 ± 3.4 | 95.6 ± 3.8 | 95.6 ± 3.1 | 85.9 ± 6.3 | 100.0 | 19.0 ± 3.6 | 2.9 |
 | zerounlearn | 21.4 ± 10.3 | 38.9 ± 17.9 | 21.1 ± 12.2 | 96.4 ± 3.8 | 67.4 ± 3.9 | 38.6 ± 6.2 | 96.9 ± 1.3 | 8.7 ± 4.3 | – |
@@ -82,7 +82,7 @@ All six reference cheats score SCALPEL 0 (SCALPEL_core 2.8–16.2), and every sp
 What the table shows:
 
 - **The benchmark separates methods the legacy benchmarks cannot.** Every method that forgets the request itself (E_direct 83–100) differs sharply on held-out phrasings (E), on entangled facts (L) and under attack (R).
-- **Every shortcut fails.** All six reference cheats score SCALPEL 0: each zeroes at least one family (the subject blocklist erases almost nothing that avoids the name and refuses same-subject questions; refuse-all keeps no locality).
+- **Every shortcut fails.** All six reference cheats get a LETHE score of 0: each zeroes at least one family (the subject blocklist erases almost nothing that avoids the name and refuses same-subject questions; refuse-all keeps no locality).
 - **Each baseline fails a different axis.** GA, GD and NPO erase 92–97 but keep locality 1.3–1.7. ROME and MEMIT keep utility and (MEMIT) locality, but erase only 8–9 on held-out phrasings, and the fact returns under attack (R 0.8 and 0.0). RMU erases little at this setting (E 8.3). ZeroUnlearn erases the most among baselines (38.9) at locality 67.4.
 - **Our own method leads, with clear headroom.** It forgets the request prompts (E_direct 95.6) and keeps locality (95.6), but held-out phrasings still leak (E 22.8, worst family 3.6), and it falls to 2.9 in the weights-only tier, because its router and rows are runtime components. The original SURE, with exact matching and no rewrites, erases only 3.8 on held-out phrasings.
 - **Where ours leaks is routing, on two families.** Route recall on forget probes is 83.6% and the residual when routed is 0.0: every leaked point is a routing miss. Most families keep 4–10% residual, but `indirect` (the subject described, never named) keeps 100% and `multihop` 96%; a router gated on the subject cannot fire there. It also false-fires on 9.7% of retain probes (SURE 1.9%), visible in `in_context` 88 and `same_subject` 90. The same classifier is within 1.5 Gen points of genie on the legacy benchmarks (§1), which contain neither family.

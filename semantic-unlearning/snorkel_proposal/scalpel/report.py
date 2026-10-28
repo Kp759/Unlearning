@@ -86,18 +86,18 @@ def _f(ms, digits=1):
     return f"{m:.{digits}f}" + (f" ± {sd:.{digits}f}" if sd else "")
 
 
-def markdown(table: Dict[str, Dict], title: str = "SCALPEL leaderboard") -> str:
+def markdown(table: Dict[str, Dict], title: str = "LETHE-Bench leaderboard") -> str:
     lines = [f"# {title}", "",
              "All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, "
              "U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). "
-             "SCALPEL = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime "
+             "LETHE = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime "
              "components removed). Rows marked † are reference cheats the benchmark must defeat.", ""]
     tracks = sorted({r["track"] for r in table.values()})
     if len(tracks) > 1:          # several splits / models: one SCALPEL matrix first
         methods = sorted({r["method"] for r in table.values()},
                          key=lambda m: -max((r["SCALPEL"][0] or -1) for r in table.values() if r["method"] == m))
         cell = {(r["track"], r["method"]): r for r in table.values()}
-        lines += ["## SCALPEL across splits", "", "| Method | " + " | ".join(tracks) + " |", "|---|" + "---|" * len(tracks)]
+        lines += ["## LETHE score across splits", "", "| Method | " + " | ".join(tracks) + " |", "|---|" + "---|" * len(tracks)]
         for m in methods:
             cheat = any(r["cheat"] for r in table.values() if r["method"] == m)
             lines.append(f"| {m}{' †' if cheat else ''} | " + " | ".join(
@@ -107,7 +107,7 @@ def markdown(table: Dict[str, Dict], title: str = "SCALPEL leaderboard") -> str:
         rows = sorted([r for r in table.values() if r["track"] == track],
                       key=lambda r: -(r["SCALPEL"][0] if r["SCALPEL"][0] is not None else -1))
         lines += [f"## {track}", "",
-                  "| Method | SCALPEL | E | E_min | E_direct | L | L_min | U | R | Strict | seeds |",
+                  "| Method | LETHE | E | E_min | E_direct | L | L_min | U | R | Strict | seeds |",
                   "|---|---|---|---|---|---|---|---|---|---|---|"]
         for r in rows:
             name = r["method"] + (" †" if r["cheat"] else "") + ("" if r["valid"] else " (INVALID)")
@@ -122,11 +122,11 @@ def markdown(table: Dict[str, Dict], title: str = "SCALPEL leaderboard") -> str:
             lines.append(f"| {r['method']} | " + " | ".join(_f(r["families"].get(f, (None, None)), 0) for f in fams) + " |")
         legacy = [(r, _legacy(r)) for r in rows]
         if any(v[0] is not None for _, v in legacy):
-            lines += ["", "### Legacy view vs SCALPEL (same run)", "",
+            lines += ["", "### Legacy view vs LETHE-Bench (same run)", "",
                       "Legacy view = only the families the official MCF / zsRE metrics use: erasure on the request "
                       "and its paraphrases (Eff/Gen), retention on same-answer neighbours and unrelated questions (Spe). "
-                      "A shortcut that looks perfect here and collapses under SCALPEL is what the legacy metrics reward.", "",
-                      "| Method | legacy erasure | legacy locality | SCALPEL E | SCALPEL L | SCALPEL |", "|---|---|---|---|---|---|"]
+                      "A shortcut that looks perfect here and collapses under LETHE-Bench is what the legacy metrics reward.", "",
+                      "| Method | legacy erasure | legacy locality | LETHE-Bench E | LETHE-Bench L | LETHE |", "|---|---|---|---|---|---|"]
             for r, (le, ll) in legacy:
                 lines.append(f"| {r['method']}{' †' if r['cheat'] else ''} | {_f(le)} | {_f(ll)} | {_f(r['E'])} | "
                              f"{_f(r['L'])} | {_f(r['SCALPEL'])} |")
@@ -196,7 +196,7 @@ def pareto_plot(table: Dict[str, Dict], path: Path) -> bool:
     lines = [f"{i:>2}  {r['method']}{' †' if r['cheat'] else ''}" for i, r in enumerate(rows, 1)]
     key.text(0.0, 1.0, "\n".join(lines), va="top", ha="left", fontsize=8, family="monospace",
              transform=key.transAxes)
-    key.text(0.0, 0.02, "† reference cheat\n(ordered by SCALPEL)", va="bottom", fontsize=7, color="#666666",
+    key.text(0.0, 0.02, "† reference cheat\n(ordered by LETHE score)", va="bottom", fontsize=7, color="#666666",
              transform=key.transAxes)
     ax.set_xlabel("Locality L (retain families, %)")
     ax.set_ylabel("Erasure E (held-out forget families, %)")
@@ -210,7 +210,7 @@ def pareto_plot(table: Dict[str, Dict], path: Path) -> bool:
     return True
 
 
-def write_report(run_paths: Sequence[Path], out: Path, title: str = "SCALPEL leaderboard") -> Dict:
+def write_report(run_paths: Sequence[Path], out: Path, title: str = "LETHE-Bench leaderboard") -> Dict:
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     runs = load_runs(run_paths)

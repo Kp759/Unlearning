@@ -1,4 +1,4 @@
-# SCALPEL — a benchmark for surgical unlearning
+# LETHE-Bench — a benchmark for surgical unlearning
 
 > *Forget one fact. Keep everything entangled with it. Show it is gone from the weights.*
 
@@ -10,7 +10,7 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 | [`APPLICATION_FORM_ANSWERS.md`](APPLICATION_FORM_ANSWERS.md) | Short answers to paste into benchmarks.snorkel.ai/apply |
 | [`EVIDENCE.md`](EVIDENCE.md) | Why existing fact-unlearning benchmarks are saturated (this repo's 4 × 5-seed study) |
 | [`BENCHMARK_SPEC.md`](BENCHMARK_SPEC.md) | Exact definitions: construct, threat model, splits, 20 probe families, metrics, statistics |
-| [`RED_TEAM.md`](RED_TEAM.md) | Snorkel's six red-team checks, and how SCALPEL handles each one |
+| [`RED_TEAM.md`](RED_TEAM.md) | Snorkel's six red-team checks, and how LETHE-Bench handles each one |
 | [`AGENT_TRACK.md`](AGENT_TRACK.md) | Agentic leakage track (prototype): the unlearned model as a search agent |
 | [`scripts/README_CLUSTER.md`](scripts/README_CLUSTER.md) · [`scripts/aws/README.md`](scripts/aws/README.md) | Running every method: Wulver (SLURM) or one AWS GPU |
 | [`DATASHEET.md`](DATASHEET.md) · [`DATA_LICENSE.md`](DATA_LICENSE.md) | Dataset documentation and licensing |
@@ -21,7 +21,7 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 
 **Real-data pilot:** Qwen2.5-0.5B-Instruct, MultiCounterFact + zsRE + MQuAKE, 50 requests, 520 probes, laptop, seed 1 (`results/pilot/README.md`).
 
-| Method | Legacy view (erasure / locality) | SCALPEL E / L | SCALPEL |
+| Method | Legacy view (erasure / locality) | LETHE-Bench E / L | LETHE |
 |---|---|---|---|
 | subject-name blocklist † | **100.0 / 98.5** | 6.8 / 2.0 | 0.0 |
 | keyword router † | 82.5 / 100.0 | 5.9 / 7.0 | 0.0 |
@@ -29,7 +29,7 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 | RMU (3B defaults) | 5.2 / 80.5 | 4.6 / 84.5 | 0.0 |
 | **SURE (this repo, untuned)** | 68.5 / 100.0 | 3.3 / **100.0** | **10.5** |
 
-- The red-team gate passes: all six reference cheats score 0, and SCALPEL_core stays ≤ 16.2.
+- The red-team gate passes: all six reference cheats score 0, and LETHE_core stays ≤ 16.2.
 - SURE leads, with perfect locality, but questions, cross-lingual queries, typos and multi-hop chains leak. 49 of its 58 residual points are routing misses.
 - The existing four-benchmark study is summarised in `EVIDENCE.md`.
 
@@ -63,7 +63,7 @@ scalpel/
   build.py         partitions (retain_train/dev/test), knowledge filter, conflict removal
   model_api.py     rendering (chat templates), teacher forcing, generation, logit lens, causality check
   grading.py       leak / refusal / hallucination labels for open-ended outputs
-  metrics.py       per-family scores, E/L/U/R/SCALPEL, cluster bootstrap, paired tests
+  metrics.py       per-family scores, E/L/U/R/LETHE, cluster bootstrap, paired tests
   attacks.py       logit lens, int8/int4 quantization, relearning on half the requests
   utility.py       MMLU, TriviaQA, perplexity
   runner.py        one method on one split -> results.json + probes.jsonl
@@ -106,4 +106,4 @@ Every probe in a split is answered correctly by the base model, so:
 - forget families report the **residual**: % still recalled, lower is better;
 - retain families report % **retained**, higher is better.
 
-E and L are harmonic means over families, so a method (or a shortcut) that gives up any whole family scores near zero on that axis. R is the worst case over the attacks. **SCALPEL** = harmonic mean of E, L, U and R; **SCALPEL_core** leaves out R. Rows marked † are reference cheats, which must score below 35.
+E and L are harmonic means over families, so a method (or a shortcut) that gives up any whole family scores near zero on that axis. R is the worst case over the attacks. **LETHE** = harmonic mean of E, L, U and R; **LETHE_core** leaves out R. Rows marked † are reference cheats, which must score below 35.

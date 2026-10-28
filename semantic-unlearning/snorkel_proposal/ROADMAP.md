@@ -51,7 +51,7 @@
    | OLMo (open training data) | OLMo-2-7B | 2.7 |
    | **Total** | 8 models | **≈ 34** |
 
-   **Measured basis.** One (model, seed) on Llama-3.2-3B, 50 requests, every method (9 methods + 6 cheats), all tiers and attacks, took **≈ 1.8 GPU-hours** of wall time on Wulver (October 2026, from `sacct`): baselines and cheats ≈ 45 min in total, SURE ≈ 14 min, ours ≈ 35–42 min, sequential track ≈ 8 min, split build ≈ 3 min. Development on the 3B model alone (paper-pipeline reruns, SCALPEL reruns, router diagnostics) used ≈ 75 GPU-hours in three days.
+   **Measured basis.** One (model, seed) on Llama-3.2-3B, 50 requests, every method (9 methods + 6 cheats), all tiers and attacks, took **≈ 1.8 GPU-hours** of wall time on Wulver (October 2026, from `sacct`): baselines and cheats ≈ 45 min in total, SURE ≈ 14 min, ours ≈ 35–42 min, sequential track ≈ 8 min, split build ≈ 3 min. Development on the 3B model alone (paper-pipeline reruns, LETHE-Bench reruns, router diagnostics) used ≈ 75 GPU-hours in three days.
 
    | Item | Assumption | A100-80GB hours |
    |---|---|---|
@@ -79,9 +79,9 @@
 
 | Risk | Mitigation |
 |---|---|
-| Knowledge-filter yield is low for small models in QA/chat formats | Report yields per family. Families below 5 probes are excluded and flagged. Release models start at 3B (Llama-3.2-3B base Eff on MCF is 13.5%, and SCALPEL screens until it has enough known facts) |
+| Knowledge-filter yield is low for small models in QA/chat formats | Report yields per family. Families below 5 probes are excluded and flagged. Release models start at 3B (Llama-3.2-3B base Eff on MCF is 13.5%, and LETHE-Bench screens until it has enough known facts) |
 | `indirect` probes inferable from correlated retained facts | Description facts come from other answer groups; expert-written references (M3) |
-| A future method saturates SCALPEL | Per-family scores flag saturation. Harder families (agentic, more languages, 10k-request scale) are planned, and the hidden test is refreshed |
+| A future method saturates LETHE-Bench | Per-family scores flag saturation. Harder families (agentic, more languages, 10k-request scale) are planned, and the hidden test is refreshed |
 | Grader disagreement on open-ended outputs | The teacher-forced scorer is primary; the human-labelled calibration set (M3) measures the generation grader |
 | Gradient baselines do not fit one GPU at 24–27B | Multi-GPU sharding, or a declared parameter-efficient scope reported per model; inference-only methods and attacks fit one 80 GB GPU |
 | The benchmark favours the authors' own method | SURE is one baseline among 14. The reference cheats include a string version of its design (`keyword_router_idk`), and its expected failure families (indirect, multihop, crosslingual, surface; the strict tier) are reported like any other method's |

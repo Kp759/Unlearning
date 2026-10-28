@@ -1,8 +1,8 @@
 # Data licensing
 
-**SCALPEL code** (`scalpel/`, `scripts/`, `tests/`) is released under Apache-2.0 (`LICENSE`).
+**LETHE-Bench code** (`scalpel/`, `scripts/`, `tests/`) is released under Apache-2.0 (`LICENSE`).
 
-**SCALPEL split files** (requests, probes, manifests) are derived works of the upstream datasets below. They are released under **CC BY 4.0**, wherever every upstream license permits it, with attribution to each source. Hidden-test splits are not distributed.
+**LETHE-Bench split files** (requests, probes, manifests) are derived works of the upstream datasets below. They are released under **CC BY 4.0**, wherever every upstream license permits it, with attribution to each source. Hidden-test splits are not distributed.
 
 | Source | Used for | Upstream license | Notes |
 |---|---|---|---|
@@ -19,4 +19,4 @@ These are not redistributed: Qwen2.5-0.5B-Instruct (Apache-2.0) and SmolLM2-360M
 
 ## Personal data
 
-Every subject is a public figure or a public entity that already appears in the source datasets (Wikidata-derived). SCALPEL creates no new personal facts. The `in_context` family supplies **counterfactual** values that are labelled as notes to be read, never as facts about the person.
+Every subject is a public figure or a public entity that already appears in the source datasets (Wikidata-derived). LETHE-Bench creates no new personal facts. The `in_context` family supplies **counterfactual** values that are labelled as notes to be read, never as facts about the person.

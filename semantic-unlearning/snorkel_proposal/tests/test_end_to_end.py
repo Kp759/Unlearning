@@ -154,7 +154,7 @@ def test_cheats_do_not_edit_weights_and_report_renders(toy, tmp_path):
     (tmp_path / "other" / "answer_ban" / "results.json").write_text(json.dumps(other))
     write_report(sorted(tmp_path.glob("**/results.json")), tmp_path / "lb2")
     md2 = (tmp_path / "lb2" / "leaderboard.md").read_text()
-    assert "## SCALPEL across splits" in md2 and "scalpel-other" in md2 and md2.count("| answer_ban † |") >= 1
+    assert "## LETHE score across splits" in md2 and "scalpel-other" in md2 and md2.count("| answer_ban † |") >= 1
 
 
 def test_sequential(toy, tmp_path):

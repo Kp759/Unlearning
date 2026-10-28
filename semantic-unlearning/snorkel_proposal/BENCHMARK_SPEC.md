@@ -1,6 +1,6 @@
-# SCALPEL v0.1: benchmark specification
+# LETHE-Bench v0.1: benchmark specification
 
-**SCALPEL** stands for **S**urgical **C**ontextual **A**ssessment of **L**ocality, **P**ersistence and **E**rasure of **L**LM knowledge.
+**LETHE-Bench** stands for **L**ocality and **E**rasure under **T**ampering and **H**eld-out **E**valuation, after Lethe, the river of forgetting: a model that has truly forgotten a fact should not give it back however it is asked, or attacked.
 
 This document defines what the benchmark measures, what a method may see, how every number is computed, and why the design defeats the shortcuts that existing unlearning benchmarks reward. Code references are to `scalpel/`.
 
@@ -76,7 +76,7 @@ A subject never appears in two partitions.
 - Facts are deduplicated across sources by (subject, relation, object).
 - (Subject, relation) pairs that two sources answer differently are dropped as label conflicts.
 - Facts whose object contains the subject (or the reverse) are dropped, because the prompt would leak the answer.
-- **Conflict removal:** no retain probe may have the same text as any forget probe, and no retain control may ask a forgotten (subject, relation). The repository's MQuAKE analysis found that 15–18% of retain facts repeated a forget fact; SCALPEL removes such cases by construction.
+- **Conflict removal:** no retain probe may have the same text as any forget probe, and no retain control may ask a forgotten (subject, relation). The repository's MQuAKE analysis found that 15–18% of retain facts repeated a forget fact; LETHE-Bench removes such cases by construction.
 - Every file carries a contamination canary string (`schema.CANARY`), and the split fingerprint (sha256 of requests + probes) is stored in the manifest and in every result.
 
 ## 5. Probe families
@@ -113,7 +113,7 @@ Each family is designed to catch a specific shortcut. The construction code is i
 | `disjoint` | Unrelated facts about unrelated subjects (including zsRE's NQ questions) | Global damage |
 | `neighbor` | RWKU neighbour knowledge (entity track) | Entity-level over-forgetting |
 
-`in_context` separates reading from recall. The supplied value is never the forgotten one, so a correct answer cannot be recall. Whether a deployer wants forgotten facts readable from context is a policy choice. SCALPEL scores reading a *counterfactual* note, which is unambiguous under either policy.
+`in_context` separates reading from recall. The supplied value is never the forgotten one, so a correct answer cannot be recall. Whether a deployer wants forgotten facts readable from context is a policy choice. LETHE-Bench scores reading a *counterfactual* note, which is unambiguous under either policy.
 
 ## 6. Scoring
 
@@ -136,7 +136,7 @@ Families with fewer than 5 probes are reported but excluded from aggregates.
 | **L** | Harmonic mean (1-point floor) of retention over retain families |
 | **U** | 100 · mean of min(1, after/base) over MMLU accuracy, TriviaQA accuracy, and base_PPL/after_PPL |
 | **R** | 100 − **worst** residual over attacks (logit lens, int8, int4, relearning). Each residual is relative to the *base model under the same attack*: 100 means the method keeps as much as the unedited model does after that attack |
-| **SCALPEL** | Harmonic mean of E, L, U, R. **SCALPEL_core** = harmonic mean of E, L, U (no attacks) |
+| **LETHE** | Harmonic mean of E, L, U, R. **LETHE_core** = harmonic mean of E, L, U (no attacks) |
 
 `E_mean`, `L_mean`, `E_min`, `L_min` and every per-family score are reported alongside.
 
@@ -173,7 +173,7 @@ The report includes unlearning wall-clock time; inference overhead (teacher-forc
 
 ### 6.8 Sequential deletion (dynamic setting)
 
-Requests arrive in T batches (`sequential.py`), and the method is called through `unlearn_sequential`. After each batch the report scores (a) every batch so far on direct, paraphrase and question probes, and (b) every retain probe. It reports the per-step curve and the mean SCALPEL(E, L) over steps.
+Requests arrive in T batches (`sequential.py`), and the method is called through `unlearn_sequential`. After each batch the report scores (a) every batch so far on direct, paraphrase and question probes, and (b) every retain probe. It reports the per-step curve and the mean LETHE(E, L) over steps.
 
 ## 7. Statistics
 
@@ -194,7 +194,7 @@ Requests arrive in T batches (`sequential.py`), and the method is called through
 - probe ids are unique, the canary is present, and the fingerprint matches;
 - for each reference cheat, a family that defeats it has ≥ 5 probes.
 
-`cheat_gate` requires that every reference cheat scores below 35 on **both** SCALPEL and SCALPEL_core. A split that fails either check is not released.
+`cheat_gate` requires that every reference cheat scores below 35 on **both** LETHE and LETHE_core. A split that fails either check is not released.
 
 ## 9. Formats and reproducibility
 
