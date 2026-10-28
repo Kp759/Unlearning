@@ -10,7 +10,7 @@
 
 Deletion requests are becoming routine. People ask to have their data removed, model owners need hazardous or copyrighted knowledge taken out, and editors need to retract facts that turned out to be wrong. Each request asks a model to forget something *specific* while keeping everything else. Today's fact-unlearning benchmarks cannot tell a method that does this from one that cheats:
 
-- **They are saturated.** On the four standard fact-unlearning benchmarks (MultiCounterFact, zsRE, MQuAKE, RWKU), our own detect-then-edit method removes 95–100% of the base model's recall while keeping 84–100% of locality (96–100% when MQuAKE retain facts that repeat a forget fact are excluded), with perplexity unchanged (5 seeds, Llama-3.2-3B, official evaluators). Gradient ascent, NPO, RMU, ROME, MEMIT and ZeroUnlearn each fail at least one benchmark badly. A benchmark that one method maxes out no longer ranks methods.
+- **They are saturated.** On the four standard fact-unlearning benchmarks (MultiCounterFact, zsRE, MQuAKE, RWKU), our own detect-then-edit method removes 96–100% of the base model's recall while keeping 84–100% of locality (97–100% when MQuAKE retain facts that repeat a forget fact are excluded), with perplexity unchanged (5 seeds, Llama-3.2-3B, official evaluators). Gradient ascent, NPO, RMU, ROME, MEMIT and ZeroUnlearn each fail at least one benchmark badly. A benchmark that one method maxes out no longer ranks methods.
 - **They reward shortcuts.** On MultiCounterFact and zsRE, every forget probe names the subject and no locality probe does. A string blocklist that refuses whenever the subject's name appears would therefore score near-perfectly by construction, and a filter that bans the answer token would also do well where the locality probes use other answers. None of these benchmarks distinguishes a runtime guardrail from a change to the weights.
 - **They do not test completeness.** None checks whether the "forgotten" fact comes back after int4 quantization or a few fine-tuning steps, or is still readable in the hidden states.
 
@@ -90,10 +90,10 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
   - attacks restore weights exactly;
   - the fast scoring path matches the full forward pass.
 - **Full run on Llama-3.2-3B-Instruct** (cluster, 5 seeds, 50 requests per seed; `EVIDENCE.md` §4): 9 methods and 6 reference cheats.
-  - **Ours leads with SCALPEL 30.9 ± 10.7**, ahead of ZeroUnlearn 21.4 and the original SURE 12.0; GA / GD / NPO score 4.9–6.2, RMU 3.0, ROME 1.6, MEMIT 0.0.
+  - **Ours leads with SCALPEL 30.1 ± 10.1**, ahead of ZeroUnlearn 21.4 and the original SURE 12.0; GA / GD / NPO score 4.9–6.2, RMU 3.0, ROME 1.6, MEMIT 0.0.
   - **Every reference cheat scores 0.**
   - **Each baseline fails a different axis:** GA / GD / NPO erase 92–97 but keep locality 1.3–1.7; ROME and MEMIT erase only 8–9 on held-out phrasings and the fact returns under attack (R ≤ 1); ZeroUnlearn reaches erasure 38.9 at locality 67.4.
-  - **Ours has measurable headroom:** it erases 98.4 of request prompts and keeps locality 95.8, but held-out phrasings leak (E 26.7), and it scores 2.9 in the weights-only tier.
+  - **Ours has measurable headroom:** it erases 95.6 of request prompts and keeps locality 95.6, but held-out phrasings leak (E 22.8): every leaked point is a routing miss, almost all on questions that describe the subject instead of naming it (`indirect`, `multihop`). It scores 2.9 in the weights-only tier.
 - **Pilot on real data** (laptop, no GPU; `results/pilot/README.md`): Qwen2.5-0.5B-Instruct, MCF + zsRE + MQuAKE facts, 50 requests, 520 probes.
   - **A subject-name blocklist scores 100 / 98.5 (erasure / locality) when only the families the official MCF/zsRE metrics use are counted, and 0 on SCALPEL.** It leaks under typos and multi-hop chains, and it refuses same-subject and in-context questions.
   - All six reference cheats are defeated (SCALPEL 0; core 2.8–16.2).

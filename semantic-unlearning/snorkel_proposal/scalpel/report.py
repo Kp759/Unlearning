@@ -219,7 +219,8 @@ def write_report(run_paths: Sequence[Path], out: Path, title: str = "SCALPEL lea
     md = markdown(table, title)
     gen_table = summarize(runs, "gen")
     if any(r["SCALPEL"][0] is not None for r in gen_table.values()):
-        md += "\n" + markdown(gen_table, title + " — open-ended (generation) scorer").split("\n", 1)[1]
+        # same layout under its own heading (the split drops the second H1 title)
+        md += "\n# Open-ended (generation) scorer\n" + markdown(gen_table, title).split("\n", 1)[1]
     (out / "leaderboard.md").write_text(md)
     pareto_plot(table, out / "pareto.png")
     return table
