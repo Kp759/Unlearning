@@ -6,6 +6,13 @@ model / split can be used (same losses, same early stopping, same defaults).
     npo  negative preference optimisation + retain NLL (NPO+RT)     (Zhang et al., 2024)
     rmu  representation misdirection at one layer, MLPs of the three layers up to it
          trained, retain activations kept                           (Li et al., 2024, WMDP)
+    simnpo  reference-free NPO: the length-normalised answer log-probability itself is the
+         margin, no reference model (SimNPO) + retain NLL            (Fan et al., 2024)
+    idk_ft  fine-tune the request prompts to a refusal ("I don't know.") + retain NLL: a
+         trained refusal, the weights-level counterpart of the idk cheats (TOFU "IDK")
+                                                                    (Maini et al., 2024)
+    tv   task-vector negation: fine-tune ON the request answers, then subtract alpha x the
+         weight delta from the base weights (no retain data)        (Ilharco et al., 2023)
 
 Training data: each request's own prompt + answer (fact requests), or text the base model
 generates about the subject (entity requests). Retain data: the split's allowed_retain
@@ -27,6 +34,7 @@ from ..schema import Probe, Request, RetainExample
 from .base import Method, MethodCard, UnlearnContext, arg, request_probe
 
 ENTITY_PROMPTS = ("Tell me about {S}.", "Who is {S}?", "What is {S} known for?", "Write a short biography of {S}.")
+REFUSALS = ("I don't know.", "I'm not sure.", "I have no information about that.")
 
 
 # --------------------------------------------------------------------------- data
@@ -59,6 +67,20 @@ def forget_examples(handle: ModelHandle, renderer: Renderer, requests: Sequence[
             p = request_probe(r)
             out.append({**_ex(renderer.encode_prompt(p), renderer.encode_answer(p, r.answer)),
                         "request_id": r.request_id})
+    return out
+
+
+def idk_examples(renderer: Renderer, requests: Sequence[Request]) -> List[Dict]:
+    """The request prompts (entity requests: the ENTITY_PROMPTS) labelled with a refusal."""
+    out, k = [], 0
+    for r in requests:
+        probes = ([Probe(probe_id="", role="forget", family="direct", fact_id=r.fact_id, prompt=t.replace("{S}", r.subject),
+                         answer="", format="qa", subject=r.subject) for t in ENTITY_PROMPTS]
+                  if r.kind == "entity" else [request_probe(r)])
+        for p in probes:
+            out.append({**_ex(renderer.encode_prompt(p), renderer.encode_answer(p, REFUSALS[k % len(REFUSALS)])),
+                        "request_id": r.request_id})
+            k += 1
     return out
 
 
@@ -157,16 +179,22 @@ class _GradientMethod(Method):
         bs = arg(a, "batch_size", 8, int)
         stop = arg(a, "stop_prob", 1e-4, float)
         check = arg(a, "check_every", 5, int)
-        beta = arg(a, "npo_beta", 0.1, float)
+        kind = self.loss_kind
+        beta = arg(a, "simnpo_beta", 2.5, float) if kind == "simnpo" else arg(a, "npo_beta", 0.1, float)
+        gamma = arg(a, "simnpo_gamma", 0.0, float)
         rw = arg(a, "retain_weight", 1.0, float)
+        if kind == "tv":                      # fixed fine-tuning budget; the answer probability rises, so no early stop
+            epochs = arg(a, "tv_epochs", 5, int)
+            stop = 0.0
         scope = arg(a, "params", "mlp", str)
         # "fp32" (default): the whole model in fp32, as paper_baselines. "mixed" (24 GB GPUs): bf16
         # forward under autocast, fp32 master copies of the trained weights only.
         precision = arg(a, "precision", "fp32", str)
         pad = _pad_id(tok)
         forget = forget_examples(base, ctx.renderer, requests)
+        train_items = idk_examples(ctx.renderer, requests) if kind == "idk_ft" else forget
         retain = (retain_examples(base, ctx.renderer, allowed_retain, ctx.generic_prompts)
-                  if self.loss_kind in ("gd", "npo") else [])
+                  if kind in ("gd", "npo", "simnpo", "idk_ft") else [])
         orig_dtype = next(model.parameters()).dtype
         if precision == "mixed":
             params, names = trainable(model, scope)
@@ -177,21 +205,37 @@ class _GradientMethod(Method):
             model.float()
             params, names = trainable(model, scope)
             amp = contextlib.nullcontext()
+        snapshot = [p.detach().clone() for p in params] if kind == "tv" else None
         opt = torch.optim.AdamW(params, lr=lr, weight_decay=0.0)
         rng = random.Random(ctx.seed)
         with amp:
-            step, stopped, log, ref = self._train(model, forget, retain, params, opt, rng, pad, device, ctx,
-                                                  epochs=epochs, bs=bs, stop=stop, check=check, beta=beta, rw=rw)
+            step, stopped, log, ref = self._train(model, train_items, forget, retain, params, opt, rng, pad, device, ctx,
+                                                  epochs=epochs, bs=bs, stop=stop, check=check, beta=beta, rw=rw, gamma=gamma)
+        tv_alpha = None
+        if snapshot is not None:              # theta = theta_0 - alpha * (theta_ft - theta_0)
+            tv_alpha = arg(a, "tv_alpha", 1.0, float)
+            with torch.no_grad():
+                for p, p0 in zip(params, snapshot):
+                    p.data = p0 - tv_alpha * (p.data - p0)
+            del snapshot
         model.eval()
         for p in model.parameters():
             p.requires_grad_(False)
         model.to(orig_dtype)
         self._report = {"lr": lr, "steps": step, "early_stop": stopped, "params": scope, "precision": precision,
                         "trainable_params": sum(p.numel() for p in params), "forget_examples": len(forget),
-                        "retain_examples": len(retain), "log": log[-10:]}
+                        "train_examples": len(train_items), "retain_examples": len(retain), "log": log[-10:]}
+        if tv_alpha is not None:
+            self._report["tv_alpha"] = tv_alpha
+        if kind == "tv":
+            self._report["forget_answer_prob_after"] = mean_answer_prob(model, forget, pad, device, bs)
         return ModelHandle(model=model, tokenizer=tok, hf=model)
 
-    def _train(self, model, forget, retain, params, opt, rng, pad, device, ctx, *, epochs, bs, stop, check, beta, rw):
+    def _train(self, model, train_items, monitor, retain, params, opt, rng, pad, device, ctx, *, epochs, bs, stop, check,
+               beta, rw, gamma=0.0):
+        """train_items: the batches the loss is taken on; monitor: the request answers whose mean
+        probability drives early stopping (the same list except for idk_ft, which trains on refusals)."""
+        forget = train_items
         ref = None
         if self.loss_kind == "npo":
             ref = {}
@@ -212,9 +256,13 @@ class _GradientMethod(Method):
                 lp, n = answer_logprob(model, batch, pad, device)
                 if self.loss_kind in ("ga", "gd"):
                     loss = (lp / n).mean()
-                else:
+                elif self.loss_kind == "npo":
                     r0 = torch.tensor([ref[id(b)] for b in batch], device=device)
                     loss = -(2.0 / beta) * F.logsigmoid(-beta * (lp - r0)).mean()
+                elif self.loss_kind == "simnpo":    # margin = length-normalised log-prob, no reference
+                    loss = -(2.0 / beta) * F.logsigmoid(-beta * (lp / n) - gamma).mean()
+                else:                                # idk_ft, tv: plain NLL on the training labels
+                    loss = -(lp / n).mean()
                 if retain:
                     rb = rng.sample(retain, min(bs, len(retain)))
                     rlp, rn = answer_logprob(model, rb, pad, device)
@@ -225,7 +273,7 @@ class _GradientMethod(Method):
                 opt.step()
                 step += 1
                 if stop > 0 and step % check == 0:
-                    p = mean_answer_prob(model, forget, pad, device, bs)
+                    p = mean_answer_prob(model, monitor, pad, device, bs)
                     log.append({"step": step, "forget_answer_prob": p, "loss": float(loss.detach())})
                     if p <= stop:
                         stopped = {"step": step, "forget_answer_prob": p}
@@ -253,6 +301,24 @@ class NPO(_GradientMethod):
     loss_kind = "npo"
     card = MethodCard("npo", "gradient", "negative preference optimisation + retain NLL",
                       uses_allowed_retain=True, reference="Zhang et al., 2024")
+
+
+class SimNPO(_GradientMethod):
+    loss_kind = "simnpo"
+    card = MethodCard("simnpo", "gradient", "reference-free NPO (length-normalised log-prob margin) + retain NLL",
+                      uses_allowed_retain=True, reference="Fan et al., 2024")
+
+
+class IDKFT(_GradientMethod):
+    loss_kind = "idk_ft"
+    card = MethodCard("idk_ft", "gradient", "fine-tune the request prompts to a refusal + retain NLL (trained refusal)",
+                      uses_allowed_retain=True, reference="Maini et al., 2024 (TOFU IDK)")
+
+
+class TaskVector(_GradientMethod):
+    loss_kind = "tv"
+    card = MethodCard("tv", "gradient", "task-vector negation: fine-tune on the answers, subtract alpha x the weight delta",
+                      reference="Ilharco et al., 2023")
 
 
 # ----------------------------------------------------------------------------- RMU

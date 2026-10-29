@@ -21,6 +21,7 @@
 #          noop,idk_all,subject_blocklist_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn,sure,ours).
 #          SURE methods reuse their finished core run's router, so run agent after smoke / robust.
 # Env: METHODS (default below), SURE_VARIANTS (smoke/full: sure ours), SEEDS, PARTITION (dev | test + SCALPEL_TEST_SALT), N_FORGET (50),
+#      AFTER_BUILD=<job id> (one model per call: depend on that queued build job instead of submitting a build),
 #      SEQ_METHODS (gd,npo,memit), SKIP_SURE=1, SKIP_SEQ=1, MOM2_TEXT / MOM2_DATASET (scalpel_common.sh).
 # Finished runs are skipped, so re-submitting after a failure only redoes what is missing.
 set -euo pipefail
@@ -29,7 +30,7 @@ MODE="${1:?usage: $0 fetch|smoke|full|report MODEL...}"; shift
 USER_MODEL_PATH="${MODEL_PATH:-}"   # a caller's explicit path; never let one model's resolved path leak to the next
 MODELS=("$@"); [[ ${#MODELS[@]} -gt 0 ]] || { echo "name at least one model (or all)" >&2; exit 2; }
 [[ "${MODELS[0]}" == all ]] && MODELS=(llama32_3b qwen3_4b llama31_8b)
-DEFAULT_METHODS="noop,idk_all,prompt_cache_idk,subject_blocklist_idk,keyword_router_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn"
+DEFAULT_METHODS="noop,idk_all,prompt_cache_idk,subject_blocklist_idk,keyword_router_idk,answer_ban,ga,gd,npo,simnpo,idk_ft,tv,rmu,rome,memit,zerounlearn"
 METHODS="${METHODS:-$DEFAULT_METHODS}"
 [[ "$MODE" == agent ]] || METHODS="$(echo "$METHODS" | tr ',' '\n' | grep -v -E '^sure' | paste -sd, - || true)"   # SURE variants: own array
 if [[ "$MODE" == agent ]]; then
@@ -87,7 +88,11 @@ for MODEL in "${MODELS[@]}"; do
   if grep -qE '(^|,)(rome|memit|zerounlearn)(,|$)' <<< "$METHODS" || grep -q sure_r_bake <<< "$SURE_VARIANTS"; then
     COV=$(submit --export=ALL $SL/scalpel_cov.slurm); echo "$MODEL covariance: $COV"
   fi
-  BUILD=$(submit --export=ALL --array="$SEED_ARRAY" $SL/scalpel_build.slurm); echo "$MODEL build (seeds $SEEDS): $BUILD"
+  if [[ -n "${AFTER_BUILD:-}" ]]; then   # add methods to a chain already queued: wait for ITS build job, submit no second build
+    BUILD="$AFTER_BUILD"; echo "$MODEL build: waiting on job $BUILD (AFTER_BUILD)"
+  else
+    BUILD=$(submit --export=ALL --array="$SEED_ARRAY" $SL/scalpel_build.slurm); echo "$MODEL build (seeds $SEEDS): $BUILD"
+  fi
   if [[ "$N_METHODS" -gt 0 ]]; then
     MAIN=$(METHODS="$METHODS" submit --export=ALL --dependency="afterany:$BUILD${COV:+:$COV}" \
            --array=0-$(( N_SEEDS * N_METHODS - 1 )) $SL/scalpel_method.slurm)

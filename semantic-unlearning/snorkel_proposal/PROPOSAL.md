@@ -80,7 +80,7 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
   - optional private templates for the test partition;
   - a canary, and the split fingerprint recorded in every result.
 - **Harness:** a method-agnostic `unlearn(requests, allowed_retain) → model` interface, with HF-checkpoint and plugin loaders and a SURE adapter.
-- **Baselines in-harness:** GA, GD, NPO, RMU, ROME, MEMIT, ZeroUnlearn, plus six reference cheats (no-op, refuse-all, prompt cache, subject blocklist, subject+relation keyword router, answer-token ban).
+- **Baselines in-harness:** GA, GD, NPO, SimNPO, trained refusal (TOFU IDK), task-vector negation, RMU, ROME, MEMIT, ZeroUnlearn, plus six reference cheats (no-op, refuse-all, prompt cache, subject blocklist, subject+relation keyword router, answer-token ban).
 - **Scorers and tracks:** teacher-forced and open-ended scorers with behaviour labels (leak / refusal / hallucination; false refusal); utility; KL; three attacks; the strict tier; the sequential track; routing decomposition.
 - **Reports and checks:** leaderboard, Pareto plot and CIs; the split validator and cheat gate (`RED_TEAM.md`).
 - **Tests:** model-free unit tests, and an end-to-end run on a toy world with a tiny Llama trained to know it. The tests cover these invariants:

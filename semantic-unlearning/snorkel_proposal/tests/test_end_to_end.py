@@ -130,6 +130,19 @@ def test_attacks_restore_and_ga_changes_weights(toy, tmp_path):
     assert r["cost"]["tensors_changed"] > 0 and r["method_report"]["steps"] > 0
 
 
+@pytest.mark.parametrize("name", ["simnpo", "idk_ft", "tv"])
+def test_added_gradient_baselines_run_and_change_weights(toy, tmp_path, name):
+    r = _run(toy, name, tmp_path, lr="2e-3", epochs="3", tv_epochs="2")
+    rep = r["method_report"]
+    assert r["valid"] and r["cost"]["tensors_changed"] > 0 and rep["steps"] > 0
+    if name == "idk_ft":
+        assert rep["train_examples"] == rep["forget_examples"] and rep["retain_examples"] > 0
+    if name == "simnpo":
+        assert rep["retain_examples"] > 0
+    if name == "tv":
+        assert rep["tv_alpha"] == 1.0 and rep["retain_examples"] == 0 and "forget_answer_prob_after" in rep
+
+
 def test_ga_mixed_precision(toy, tmp_path):
     """precision=mixed (24 GB GPUs): bf16 autocast forward, fp32 master copies of the trained weights only."""
     r = _run(toy, "ga", tmp_path, lr="2e-3", epochs="3", params="mlp_down", precision="mixed")

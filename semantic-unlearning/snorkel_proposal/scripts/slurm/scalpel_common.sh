@@ -103,7 +103,7 @@ split_dir() { echo "$OUT_ROOT/$MODEL/$PARTITION/seed$1"; }   # seed -> run direc
 # method-specific flags (everything a method needs beyond the split and the model)
 method_args() {
   case "$1" in
-    ga|gd|npo) echo "--method-arg params=$GRAD_SCOPE${SCALPEL_GRAD_PRECISION:+ --method-arg precision=$SCALPEL_GRAD_PRECISION}" ;;
+    ga|gd|npo|simnpo|idk_ft|tv) echo "--method-arg params=$GRAD_SCOPE${SCALPEL_GRAD_PRECISION:+ --method-arg precision=$SCALPEL_GRAD_PRECISION}" ;;
     rmu) echo "--method-arg layer=$RMU_LAYER" ;;
     rome|memit|zerounlearn)
       local d; case "$1" in rome) d=ROME;; memit) d=MEMIT;; zerounlearn) d=ZeroUnlearn;; esac

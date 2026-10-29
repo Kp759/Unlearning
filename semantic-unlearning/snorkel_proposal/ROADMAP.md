@@ -12,7 +12,7 @@
 | Tiers B / W / W+, causality check, boundary contract | Done, tested |
 | Sequential deletion track | Done, tested |
 | Detect-then-edit decomposition (routing vs actuation) | Done |
-| Baselines in-harness: 6 reference cheats, GA, GD, NPO, RMU, ROME, MEMIT, ZeroUnlearn | Done |
+| Baselines in-harness: 6 reference cheats, GA, GD, NPO, SimNPO, trained refusal (IDK), task-vector negation, RMU, ROME, MEMIT, ZeroUnlearn | Done (SimNPO / IDK / TV added 2026-10-28; cluster results pending) |
 | External: HF checkpoint loader, plugin loader, SURE adapter | Done. SURE adapter runs end to end on the laptop pilot (Qwen2.5-0.5B, transformers 4.57); cluster run is M2 |
 | ROME / MEMIT / ZeroUnlearn in-harness adapters (around the vendored `ZeroUnlearn/` code via `paper_baselines.py`) | Done; request format tested. The vendored code is CUDA-only, so first full run is the Wulver smoke job |
 | Red-team gate + split validator | Done, passing on toy and pilot |
