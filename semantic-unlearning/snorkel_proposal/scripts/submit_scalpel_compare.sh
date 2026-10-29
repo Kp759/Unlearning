@@ -59,9 +59,10 @@ if [[ "$MODE" == fetch ]]; then
     if [[ -f "${MODEL_PATH:-/x}/config.json" ]]; then echo "$MODEL: weights at $MODEL_PATH"; continue; fi
     echo "$MODEL: downloading $HF_ID into $HF_CACHE"
     # Llama is gated: accept the licence on huggingface.co and `hf auth login` once
-    # the job environment sets HF_HUB_OFFLINE=1; the fetch step is the one place that goes online
-    if command -v hf >/dev/null; then HF_HUB_OFFLINE=0 hf download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*"
-    else HF_HUB_OFFLINE=0 huggingface-cli download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*"; fi
+    # the job environment sets HF_HUB_OFFLINE=1; the fetch step is the one place that goes online.
+    # Plain HTTP (no xet) and two workers: the xet downloader was killed by the login node's memory limit.
+    if command -v hf >/dev/null; then HF_HUB_OFFLINE=0 HF_HUB_DISABLE_XET=1 hf download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*" --max-workers 2
+    else HF_HUB_OFFLINE=0 HF_HUB_DISABLE_XET=1 huggingface-cli download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*" --max-workers 2; fi
   done
   # RWKU supplies U's MMLU / TriviaQA questions; downloads only missing files, checked against the pinned hashes
   python "$ROOT/scripts/rwku_data.py" --data-root "$ROOT/data/rwku" --manifest "$SP/data_cache/rwku_manifest_check.json"
