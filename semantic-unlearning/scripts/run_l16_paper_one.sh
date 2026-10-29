@@ -36,6 +36,14 @@
 #               everything else -> no row; router not run)
 #   5b. RWKU only: genie_entity (--genie-entity): every probe about a target person -> one of
 #               that person's rows (the router's pick, else the first); neighbours / PPL none
+#   6. recoverability (RECOVERABILITY=1, default off): scripts/representation_recoverability.py on
+#               base, every baseline, ours and genie: can a linear readout (logit lens, tuned lens
+#               fitted on retain text, answer probe trained on other subjects) still read the
+#               forgotten answer from the residual stream after each block? (Gao et al. 2026,
+#               arXiv:2604.08271). -> <run>/representation_recoverability.{json,md}; RR in the
+#               paper table. Baseline dirs recompute the baseline edit (same seed) as the evaluator
+#               does. RECOVER_ARGS = extra flags (e.g. "--layers 12,16,19,24 --no-probe").
+#               scripts/run_recoverability_one.sh runs only this stage on finished dirs.
 #
 # Outputs: outputs/l16_paper_v1/<ds>/seed<S>/{base,ours,genie}/official_<ds>_eval.json
 # Env: WRITE_LAYER (16), V22_SUBJECT_LAYERS ("6"), RWKU_GATE (threshold), TRAIN_ARGS (extra),
@@ -284,6 +292,52 @@ evaluate() {  # run_dir [--genie]
 }
 EVAL_JSON="official_${DS}_eval.json"
 
+# ---------------------------------------------------------------- 6. representation recoverability
+RECOVER_JSON="representation_recoverability.json"
+recover() {  # run_dir [extra args]: lens / tuned-lens / answer-probe readout per block
+  local dir="$1"; shift
+  local data=()
+  case "$DS" in
+    mcf)    data=(--mcf-path "$(jq -r '.mcf_path' "$REF_MCF")") ;;
+    zsre)   data=(--zsre-path "$ROOT/data/zsre_mend_eval.json") ;;
+    mquake) data=(--mquake-path "$ROOT/data/MQuAKE-CF-3k-v2.json") ;;
+    rwku)   data=(--data-root "$ROOT/data/rwku" --no-download) ;;
+  esac
+  python -u scripts/representation_recoverability.py --run-dir "$dir" --dataset "$DS" "${data[@]}" \
+    --wikidata-dir "$ROOT/data/wikidata" --seed "$SEED" --device cuda --dtype bfloat16 \
+    --local-files-only ${RECOVER_ARGS:-} "$@"
+}
+baseline_edit_args() {  # B -> EDIT_ARGS (covariance flags for the locate-and-edit baselines)
+  EDIT_ARGS=()
+  if [[ " zerounlearn rome memit " == *" $1 "* && -n "${BASELINE_MOM2_DATASET:-}" ]]; then
+    EDIT_ARGS=(--mom2-dataset "$BASELINE_MOM2_DATASET")
+    [[ -n "${BASELINE_MOM2_TEXT:-}" ]] && EDIT_ARGS+=(--mom2-text "$BASELINE_MOM2_TEXT")
+  fi
+}
+recover_base_and_baselines() {
+  [[ "${RECOVERABILITY:-0}" == 1 ]] || return 0
+  if [[ -f "$BASE/$EVAL_JSON" && ! -f "$BASE/$RECOVER_JSON" ]]; then
+    log "6. recoverability: base"; recover "$BASE"
+  fi
+  local B BD
+  for B in ${BASELINES:-}; do
+    BD="$OUT/$B"
+    [[ -f "$BD/$EVAL_JSON" && ! -f "$BD/$RECOVER_JSON" ]] || continue
+    baseline_edit_args "$B"
+    log "6. recoverability: baseline $B (edit recomputed)"
+    recover "$BD" --baseline "$B" --baseline-views-from "$ROUTER" "${EDIT_ARGS[@]}" ${BASELINE_ARGS:-}
+  done
+}
+recover_ours_genie() {
+  [[ "${RECOVERABILITY:-0}" == 1 ]] || return 0
+  if [[ -f "$OURS/$EVAL_JSON" && ! -f "$OURS/$RECOVER_JSON" ]]; then
+    log "6. recoverability: ours"; recover "$OURS"
+  fi
+  if [[ -f "$GENIE/$EVAL_JSON" && ! -f "$GENIE/$RECOVER_JSON" ]]; then
+    log "6. recoverability: genie (oracle routing)"; recover "$GENIE" --genie
+  fi
+}
+
 link_run() {  # src dst: a run dir that points at src's artifact (so evals never touch src)
   mkdir -p "$2"
   for f in fact_association_embeddings.pt association_manifest.json linear_router_report.json \
@@ -339,6 +393,7 @@ for B in ${BASELINES:-}; do
     evaluate "$BD" --baseline "$B" --baseline-views-from "$ROUTER" "${EDIT_ARGS[@]}" ${BASELINE_ARGS:-}
   fi
 done
+recover_base_and_baselines
 if [[ "${SKIP_OURS:-0}" == 1 ]]; then log "COMPLETE (baselines only) -> $OUT"; exit 0; fi
 
 # ---------------------------------------------------------------- 4. ours
@@ -404,4 +459,5 @@ if [[ "$DS" == rwku ]]; then
     evaluate "$GENIE_E" --genie-entity
   fi
 fi
+recover_ours_genie
 log "COMPLETE -> $OUT"
