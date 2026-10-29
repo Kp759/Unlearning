@@ -26,6 +26,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 MODE="${1:?usage: $0 fetch|smoke|full|report MODEL...}"; shift
+USER_MODEL_PATH="${MODEL_PATH:-}"   # a caller's explicit path; never let one model's resolved path leak to the next
 MODELS=("$@"); [[ ${#MODELS[@]} -gt 0 ]] || { echo "name at least one model (or all)" >&2; exit 2; }
 [[ "${MODELS[0]}" == all ]] && MODELS=(llama32_3b qwen3_4b llama31_8b)
 DEFAULT_METHODS="noop,idk_all,prompt_cache_idk,subject_blocklist_idk,keyword_router_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn"
@@ -54,11 +55,13 @@ if [[ "$MODE" == fetch ]]; then
       "https://raw.githubusercontent.com/princeton-nlp/MQuAKE/main/datasets/$f"
   done
   for MODEL in "${MODELS[@]}"; do
-    export MODEL; SCALPEL_NO_ENV=0 source $SL/scalpel_common.sh
+    export MODEL; MODEL_PATH="$USER_MODEL_PATH"; SCALPEL_NO_ENV=0 source $SL/scalpel_common.sh
     if [[ -f "${MODEL_PATH:-/x}/config.json" ]]; then echo "$MODEL: weights at $MODEL_PATH"; continue; fi
+    echo "$MODEL: downloading $HF_ID into $HF_CACHE"
     # Llama is gated: accept the licence on huggingface.co and `hf auth login` once
-    if command -v hf >/dev/null; then hf download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*"
-    else huggingface-cli download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*"; fi
+    # the job environment sets HF_HUB_OFFLINE=1; the fetch step is the one place that goes online
+    if command -v hf >/dev/null; then HF_HUB_OFFLINE=0 hf download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*"
+    else HF_HUB_OFFLINE=0 huggingface-cli download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*"; fi
   done
   # RWKU supplies U's MMLU / TriviaQA questions; downloads only missing files, checked against the pinned hashes
   python "$ROOT/scripts/rwku_data.py" --data-root "$ROOT/data/rwku" --manifest "$SP/data_cache/rwku_manifest_check.json"
@@ -69,7 +72,7 @@ fi
 submit() { sbatch --parsable "$@"; }
 REPORT_DEPS=()
 for MODEL in "${MODELS[@]}"; do
-  export MODEL; source $SL/scalpel_common.sh
+  export MODEL; MODEL_PATH="$USER_MODEL_PATH"; source $SL/scalpel_common.sh
   if [[ "$MODE" == report ]]; then continue; fi
   [[ -f "${MODEL_PATH:-/x}/config.json" ]] || { echo "$MODEL: no weights; run '$0 fetch $MODEL' first" >&2; exit 2; }
   # values go through the environment (--export=ALL): sbatch --export=A=x,y would split "x,y"

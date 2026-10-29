@@ -17,7 +17,10 @@
 #          V22_RELATION_LAYERS V22_RELATION_CONCAT BASELINE_ARGS HF_ID N_LAYERS MIN_GPU_MIB
 #          (+ CHAT_ENABLE_THINKING=0 for Qwen3)
 
-HF_CACHE="${HF_CACHE:-/project/yl258/kp759/hf}"   # /project: /scratch purges ~30-day-old files
+if [[ -z "${HF_CACHE:-}" ]]; then   # /project if it exists (not purged), else the /scratch cache the 3B weights live in
+  for c in /project/yl258/kp759/hf /scratch/yl258/kp759/hf; do [[ -d "$c" ]] && { HF_CACHE="$c"; break; }; done
+  HF_CACHE="${HF_CACHE:-/scratch/yl258/kp759/hf}"
+fi
 ZERO_HP="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/ZeroUnlearn/hparams/ZeroUnlearn"
 
 case "${MODEL:-}" in

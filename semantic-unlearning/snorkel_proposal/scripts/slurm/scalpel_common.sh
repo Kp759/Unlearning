@@ -7,7 +7,11 @@
 
 ROOT="${ROOT:-/scratch/yl258/kp759/Unlearning/semantic-unlearning}"
 SP="$ROOT/snorkel_proposal"
-HF_CACHE="${HF_CACHE:-/project/yl258/kp759/hf}"
+# HF hub cache: /project if it exists (not purged), else the /scratch cache the 3B weights live in
+if [[ -z "${HF_CACHE:-}" ]]; then
+  for c in /project/yl258/kp759/hf /scratch/yl258/kp759/hf; do [[ -d "$c" ]] && { HF_CACHE="$c"; break; }; done
+  HF_CACHE="${HF_CACHE:-/scratch/yl258/kp759/hf}"
+fi
 MOM2_TEXT="${MOM2_TEXT:-/project/yl258/kp759/datasets/wikipedia_20231101_100k}"   # scripts/submit_edit_baselines_wiki.sh corpus
 MOM2_DATASET="${MOM2_DATASET:-wikipedia_20231101_100k}"
 PARTITION="${PARTITION:-dev}"
@@ -58,6 +62,11 @@ if [[ -z "${MODEL_PATH:-}" ]]; then
   for CFG in "$HF_CACHE/models--${HF_ID//\//--}"/snapshots/*/config.json; do
     if [[ -f "$CFG" ]]; then MODEL_PATH="${CFG%/config.json}"; break; fi
   done
+fi
+# a path that is not this model's checkpoint (e.g. MODEL_PATH inherited from another model in a loop)
+if [[ -n "${MODEL_PATH:-}" && "$MODEL_PATH" != *"${HF_ID##*/}"* && "${SCALPEL_MODEL_PATH_FORCE:-0}" != 1 ]]; then
+  echo "MODEL=$MODEL: MODEL_PATH=$MODEL_PATH is not a ${HF_ID##*/} checkpoint (SCALPEL_MODEL_PATH_FORCE=1 to use it anyway)" >&2
+  return 2 2>/dev/null || exit 2
 fi
 # layers whose covariance ROME / MEMIT / ZeroUnlearn need (from their hparams files)
 EDIT_LAYERS="$(python - "$ROOT/../ZeroUnlearn/hparams" "$HP_NAME" <<'EOF' 2>/dev/null || true
