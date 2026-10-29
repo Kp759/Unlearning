@@ -34,12 +34,15 @@ every decoder block. Forget prompts are the official forget prompts of each benc
 Three linear readouts decode the first token of the forgotten answer at every block:
 
 - **lens**: logit lens, the model's own final norm + unembedding on the block's state. Training-free.
-- **tuned**: an affine map h_l → h_final fitted by ridge regression on ≈4k tokens of retain text
-  (`data/wikidata`, the official PPL fixture) under the *same* unlearned system, then norm +
-  unembedding. A trained linear probe that never sees a forget prompt or a forget label. Features
-  are standardised per dimension before the solve (Llama's residual stream has a few dimensions a
-  hundred times larger than the rest) and the penalty is chosen per block by held-out MSE
-  (`translator.val_r2` in the json). At the last block the map is fitted on h_final itself, so
+- **tuned**: an affine map h_l → h_final fitted by ridge regression on ≈8k token positions of the
+  dataset's own retain-side prompts (retain records, paraphrases and neighbourhood prompts; RWKU
+  neighbour probes) under the *same* unlearned system, then norm + unembedding. A trained linear
+  probe that never sees a forget prompt or a forget label, fitted on prompts of the same kind as
+  the probes so the map is defined where it is applied. (The `data/wikidata` PPL fixture was tried
+  first: it has 10 distinct sentences, its token states span a 166-dimensional subspace, and the
+  lens was undefined on every prompt state outside it.) Features are standardised per dimension
+  before the solve, the penalty is chosen per block by held-out MSE, and the json records the
+  training rank (`translator.rank_ok`). At the last block the map is fitted on h_final itself, so
   `headline.final_block_check` requires tuned ≈ lens there; a mismatch means the readout is broken.
 - **probe**: the paper's supervised probe. Multinomial logistic regression h_l → answer over the
   forget answers, trained on control prompts that have one of those answers but name none of the

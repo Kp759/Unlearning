@@ -304,8 +304,7 @@ recover() {  # run_dir [extra args]: lens / tuned-lens / answer-probe readout pe
     rwku)   data=(--data-root "$ROOT/data/rwku" --no-download) ;;
   esac
   python -u scripts/representation_recoverability.py --run-dir "$dir" --dataset "$DS" "${data[@]}" \
-    --wikidata-dir "$ROOT/data/wikidata" --seed "$SEED" --device cuda --dtype bfloat16 \
-    --local-files-only ${RECOVER_ARGS:-} "$@"
+    --seed "$SEED" --device cuda --dtype bfloat16 --local-files-only ${RECOVER_ARGS:-} "$@"
 }
 baseline_edit_args() {  # B -> EDIT_ARGS (covariance flags for the locate-and-edit baselines)
   EDIT_ARGS=()

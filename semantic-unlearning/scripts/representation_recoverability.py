@@ -21,10 +21,14 @@ decode the first token of the forgotten answer at every layer:
 
   lens   logit lens: the model's own final norm + unembedding applied to the layer's state
          (training-free; Patil et al. 2023 use it to extract "deleted" answers).
-  tuned  an affine map h_l -> h_final fitted by ridge regression on a few thousand tokens of
-         retain text (data/wikidata) under the SAME unlearned system, then norm + unembedding
-         (a tuned lens, Belrose et al. 2023): a trained linear probe that never sees a forget
-         prompt or a forget label.
+  tuned  an affine map h_l -> h_final fitted by ridge regression on every token position of the
+         dataset's retain-side prompts (MCF / ZsRE / MQuAKE retain records and neighbourhood
+         prompts, RWKU neighbour probes; no forget prompt, no forget label) under the SAME
+         unlearned system, then norm + unembedding (a tuned lens, Belrose et al. 2023). Fitted on
+         prompts of the same kind as the probes so the map is defined where it is applied (the
+         data/wikidata PPL fixture has 10 distinct sentences and spans a 166-dim subspace: useless
+         here). Features are standardised per dimension, the penalty is chosen per block on held-out
+         tokens, and `headline.final_block_check` verifies tuned == lens at the last block.
   probe  the paper's supervised probe: multinomial logistic regression h_l -> answer over the
          forget answers, trained on retain-side prompts that have one of those answers but name
          none of the forget subjects (MCF neighbourhood prompts share the forget fact's answer by
@@ -72,8 +76,9 @@ DEFINITION = {
           "on all forget prompts; lower is better",
     "lens": "logit lens: final norm + unembedding of the model on the residual stream after block l "
             "at the last prompt token",
-    "tuned": "affine map h_l -> h_final fitted by ridge regression on retain text under the evaluated "
-             "system (no forget prompt or label used), then final norm + unembedding",
+    "tuned": "affine map h_l -> h_final fitted by ridge regression on every token of the dataset's "
+             "retain-side prompts under the evaluated system (no forget prompt or label used), then "
+             "final norm + unembedding",
     "probe": "multinomial logistic regression h_l -> forget answer, trained on retain-side prompts "
              "with a forget answer but no forget subject, tested on the forget prompts",
     "layer": "l = output of decoder block l (0-based), the convention of the router layer",
@@ -135,12 +140,17 @@ def mcf_items(args, tok, artifact, seed):
         forget += [Item(p, answer, subject, "paraphrase", row) for p in r.get("paraphrase_prompts", [])]
         # neighbourhood prompts: other subjects, the same true answer (CounterFact construction)
         control += [Item(p, answer, "", "neighbourhood", None) for p in r.get("neighborhood_prompts", [])]
+    texts = [i.prompt for i in control]
+    for r in retain_records:            # every retain-side prompt: the tuned lens is fitted on these
+        rr = _rr(r)
+        texts += [str(rr["prompt"]).format(rr["subject"]), *map(str, r.get("paraphrase_prompts", [])),
+                  *map(str, r.get("neighborhood_prompts", []))]
     for r in _cap(retain_records, args.max_control, seed):
         rr = _rr(r)
         control.append(Item(str(rr["prompt"]).format(rr["subject"]), rr["target_true"]["str"],
                             rr["subject"], "retain", None))
     genie = list(genie_routes.mcf_pairs(artifact, forget_records))
-    return forget, control, genie
+    return forget, control, genie, texts
 
 
 def zsre_items(args, tok, artifact, seed):
@@ -160,12 +170,17 @@ def zsre_items(args, tok, artifact, seed):
         if nb:   # the NQ locality question: item 0 is the bare prompt, the targets spell the answer
             control.append(Item(nb[0]["prompt"], "".join(x["target"] for x in nb).strip(), "",
                                 "neighbourhood", None))
+    texts = [i.prompt for i in control]
+    for r in retain_records:
+        rr = _rr(r)
+        texts += [str(rr["prompt"]).format(rr["subject"]), *map(str, r.get("paraphrase_prompts", []))]
+        texts += [x["prompt"] for x in (r.get("neighborhood_prompts") or [])[:1]]
     for r in _cap(retain_records, args.max_control, seed):
         rr = _rr(r)
         control.append(Item(str(rr["prompt"]).format(rr["subject"]), rr["target_true"]["str"],
                             rr["subject"], "retain", None))
     genie = list(genie_routes.zsre_pairs(artifact, forget_records))
-    return forget, control, genie
+    return forget, control, genie, texts
 
 
 def mquake_items(args, tok, artifact, seed):
@@ -185,11 +200,15 @@ def mquake_items(args, tok, artifact, seed):
         forget.append(Item(r["atomic_gen_prompt"], answer, subject, "question", row))
         if row is not None:
             genie += [(direct, row), (str(r["atomic_gen_prompt"]), row)]
+    texts = []
+    for r in retain_records:
+        rr = _rr(r)
+        texts += [str(rr["prompt"]).format(rr["subject"]), str(r["atomic_gen_prompt"])]
     for r in _cap(retain_records, args.max_control, seed):
         rr = _rr(r)
         control.append(Item(str(rr["prompt"]).format(rr["subject"]), rr["target_true"]["str"],
                             rr["subject"], "retain", None))
-    return forget, control, genie
+    return forget, control, genie, texts
 
 
 def rwku_items(args, tok, artifact, seed):
@@ -228,9 +247,10 @@ def rwku_items(args, tok, artifact, seed):
             if row.get("answer"):
                 control.append(Item(rwku.format_qa_prompt(tok, row), row["answer"], row.get("subject"),
                                     "neighbour"))
+    texts = [i.prompt for i in control]           # every neighbour probe, before the cap
     control = _cap(control, args.max_control, seed)
     genie = list(genie_routes.rwku_pairs(tok, forget_rows, source_to_row))
-    return forget, control, genie
+    return forget, control, genie, texts
 
 
 ITEM_BUILDERS = {"mcf": mcf_items, "zsre": zsre_items, "mquake": mquake_items, "rwku": rwku_items}
@@ -238,7 +258,10 @@ ITEM_BUILDERS = {"mcf": mcf_items, "zsre": zsre_items, "mquake": mquake_items, "
 
 # ---------------------------------------------------------------- hidden states
 def hf_model(model):
-    """The HF causal LM under a bank wrapper (AssociationCausalLM / EarlyWriteCausalLM) or itself."""
+    """The HF causal LM under a bank wrapper (AssociationCausalLM / EarlyWriteCausalLM) or itself.
+    (A bare HF model also has a `base_model` property, the decoder without the head: keep the LM.)"""
+    if hasattr(model, "lm_head") and hasattr(getattr(model, "model", None), "layers"):
+        return model
     return getattr(model, "base_model", model)
 
 
@@ -360,6 +383,8 @@ def fit_translator(x, y, ridge=None, *, grid=RIDGE_GRID, holdout=0.1, seed=0):
     weight_std = _ridge_solve(xs, yc, float(ridge))
     weight = weight_std / xs_[:, None]
     bias = ym - xm @ weight
+    info["rank"] = int(torch.linalg.matrix_rank(xs))     # < d: the fit is undefined off this subspace
+    info["rank_ok"] = info["rank"] >= int(0.95 * xs.shape[1])
     return weight, bias, info
 
 
@@ -519,7 +544,7 @@ def headline(per_layer):
     tuned = ((last_control.get("tuned") or {}).get("all") or {}).get("top1")
     out["final_block_check"] = None if lens is None or tuned is None else {
         "lens_control_top1": lens, "tuned_control_top1": tuned,
-        "ok": abs(lens - tuned) <= max(2.0, 0.1 * lens)}
+        "ok": tuned >= 0.75 * lens - 2.0}       # the ridge shrinks a little; a broken fit reads ~0
     return out
 
 
@@ -556,7 +581,13 @@ def markdown(result):
                      + ("ok" if chk["ok"] else "MISMATCH, distrust the tuned readout"))
     g = result["groups"]
     lines += ["", f"Forget prompts: {g['forget']} · control prompts: {g['control']}"
-              + (f" · probe: {result['probe']}" if result.get("probe") else " · probe: not enough shared answers")]
+              + (f" · probe: {result['probe']}" if result.get("probe") else " · probe: not enough shared answers")
+              + (f" · tuned lens fitted on {result['translator']['tokens']} tokens of "
+                 f"{result['translator']['texts']} retain-side texts" if result.get("translator") else "")]
+    low = [e["layer"] for e in result["per_layer"] if (e.get("translator") or {}).get("rank_ok") is False]
+    if low:
+        lines.append(f"WARNING: training states are rank-deficient at blocks {low}; the tuned readout "
+                     "is undefined off that subspace there")
     return "\n".join(lines) + "\n"
 
 
@@ -569,8 +600,6 @@ def add_args(parser):
     parser.add_argument("--mquake-path")
     parser.add_argument("--data-root", default="data/rwku", help="RWKU data root")
     parser.add_argument("--no-download", action="store_true", help="RWKU: never download")
-    parser.add_argument("--wikidata-dir", default="data/wikidata",
-                        help="retain text the tuned lens is fitted on (the official PPL fixture)")
     parser.add_argument("--seed", type=int, default=None, help="default: the run manifest's seed")
     parser.add_argument("--genie", action="store_true", help="oracle routing, as the evaluators' --genie")
     parser.add_argument("--layers", default="all", help="comma list of block indices, default all")
@@ -578,7 +607,8 @@ def add_args(parser):
     parser.add_argument("--max-control", type=int, default=300,
                         help="cap on retain-side control prompts per source (MCF neighbourhood prompts are "
                              "never capped: they train the answer probe)")
-    parser.add_argument("--translator-tokens", type=int, default=4096)
+    parser.add_argument("--translator-tokens", type=int, default=8192,
+                        help="token positions of retain-side prompts the tuned lens is fitted on (0 = lens only)")
     parser.add_argument("--ridge", type=float, default=None,
                         help="fixed ridge penalty for the tuned lens (relative to standardised features); "
                              "default: chosen per block by held-out MSE from " + ", ".join(map(str, RIDGE_GRID)))
@@ -602,9 +632,9 @@ def manifest_seed(ds, manifest, override):
     return seed
 
 
-def retain_text_batches(tok, wikidata_dir, max_tokens, batch_size, seed):
-    from datasets import load_from_disk
-    texts = list(load_from_disk(str(wikidata_dir))["train"]["text"])
+def text_batches(tok, texts, max_tokens, batch_size, seed):
+    """Distinct texts in random order, right-padded, until about max_tokens non-BOS positions."""
+    texts = sorted(set(map(str, texts)))
     rng = random.Random(seed)
     rng.shuffle(texts)
     tok.padding_side = "right"
@@ -612,7 +642,7 @@ def retain_text_batches(tok, wikidata_dir, max_tokens, batch_size, seed):
     for start in range(0, len(texts), batch_size):
         if budget <= 0:
             return
-        enc = tok(texts[start:start + batch_size], padding=True, truncation=True, max_length=64,
+        enc = tok(texts[start:start + batch_size], padding=True, truncation=True, max_length=96,
                   return_tensors="pt", return_token_type_ids=False)
         budget -= int(enc["attention_mask"].sum()) - enc["input_ids"].shape[0]
         yield enc["input_ids"], enc["attention_mask"], enc["attention_mask"].sum(1)
@@ -655,7 +685,7 @@ def main(argv=None):
     model, bank = load_router_artifact(base, artifact)
     model.eval()
 
-    forget_items, control_items, genie_pairs = ITEM_BUILDERS[ds](args, tok, artifact, seed)
+    forget_items, control_items, genie_pairs, retain_texts = ITEM_BUILDERS[ds](args, tok, artifact, seed)
     genie_report = None
     if args.genie:
         import genie_routes
@@ -665,17 +695,17 @@ def main(argv=None):
     final = n_blocks(model) - 1
     want = sorted(set(layers) | {final})
 
-    print(f"[{ds} s{seed}] {len(forget_items)} forget / {len(control_items)} control prompts; layers {layers}",
-          flush=True)
+    print(f"[{ds} s{seed}] {len(forget_items)} forget / {len(control_items)} control prompts; "
+          f"{len(set(retain_texts))} distinct retain-side texts for the tuned lens; layers {layers}", flush=True)
     forget_states = collect_states(model, tokenize_batches(tok, [i.prompt for i in forget_items], args.batch_size),
                                    want)
     control_states = (collect_states(model, tokenize_batches(tok, [i.prompt for i in control_items],
                                                              args.batch_size), want)
                       if control_items else {l: torch.zeros(0, forget_states[final].shape[1]) for l in want})
     translator = None
-    if args.translator_tokens > 0:
-        train_states = collect_states(model, retain_text_batches(tok, args.wikidata_dir, args.translator_tokens,
-                                                                 args.batch_size, seed), want, positions="all")
+    if args.translator_tokens > 0 and retain_texts:
+        train_states = collect_states(model, text_batches(tok, retain_texts, args.translator_tokens,
+                                                          args.batch_size, seed), want, positions="all")
         device = next(hf_model(model).parameters()).device
         n = train_states[final].shape[0]
         if n > args.translator_tokens:
@@ -700,7 +730,8 @@ def main(argv=None):
                    "control": {g: sum(i.group == g for i in control_items) for g in sorted({i.group for i in control_items})}},
         "translator": None if translator is None else {"tokens": int(translator[1].shape[0]),
                                                        "ridge": args.ridge if args.ridge is not None else "held-out choice",
-                                                       "text": str(args.wikidata_dir)},
+                                                       "texts": len(set(retain_texts)),
+                                                       "source": "retain-side prompts of this split, all token positions"},
         "probe": None if probe is None else {k: probe[k] for k in ("n_classes", "n_train", "n_test", "n_forget")},
         "per_layer": per_layer, "headline": headline(per_layer),
         "runtime_counters": bank.counters() if hasattr(bank, "counters") else None,
