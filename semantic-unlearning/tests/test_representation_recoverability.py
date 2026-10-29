@@ -88,10 +88,24 @@ def test_translator_recovers_an_affine_map_and_identity_at_the_final_layer():
     torch.manual_seed(0)
     x = torch.randn(300, 8)
     a, c = torch.randn(8, 8), torch.randn(8)
-    w, b = rr.fit_translator(x, x @ a + c, ridge=0.0)
-    assert torch.allclose(w, a, atol=1e-4) and torch.allclose(b, c, atol=1e-4)
-    w, b = rr.fit_translator(x, x, ridge=1e-6)
-    assert torch.allclose(rr.apply_translator(w, b, x), x, atol=1e-3)
+    w, b, info = rr.fit_translator(x, x @ a + c, ridge=0.0)
+    assert torch.allclose(w, a, atol=1e-4) and torch.allclose(b, c, atol=1e-4) and info["ridge"] == 0.0
+    w, b, info = rr.fit_translator(x, x)                       # held-out choice: picks the smallest penalty
+    assert info["ridge"] == min(rr.RIDGE_GRID) and info["val_r2"] > 0.99
+    assert torch.allclose(rr.apply_translator(w, b, x), x, atol=1e-2)
+
+
+def test_translator_survives_massive_activation_dimensions():
+    """One dimension 1000x larger than the rest (Llama's residual stream) must not silence the others."""
+    torch.manual_seed(0)
+    x = torch.randn(400, 8)
+    x[:, 0] *= 1000.0
+    y = x.clone()
+    y[:, 1:] = x[:, 1:] @ torch.randn(7, 7)
+    w, b, info = rr.fit_translator(x, y)
+    pred = rr.apply_translator(w, b, x)
+    assert float(((pred - y)[:, 1:].pow(2).mean() / y[:, 1:].pow(2).mean())) < 1e-2
+    assert info["val_r2"] > 0.99
 
 
 def test_readout_scores_top1_and_probability():
@@ -159,5 +173,9 @@ def test_evaluate_layers_end_to_end_on_the_tiny_model():
         assert e["forget"]["lens"]["all"]["n"] == 2 and 0.0 <= e["forget"]["tuned"]["all"]["top1"] <= 100.0
         assert e["probe"]["n_classes"] == 2 and e["probe"]["n_forget"] == 2 and "forget_acc" in e["probe"]
     h = rr.headline(per_layer)
-    assert set(h) == {"RR", "RR_lens", "RR_probe", "output_top1"} and h["RR"] is not None
+    assert set(h) == {"RR", "RR_lens", "RR_probe", "output_top1", "final_block_check"} and h["RR"] is not None
+    assert all("translator" in e and e["translator"]["ridge"] in rr.RIDGE_GRID for e in per_layer)
+    # the translator was fitted on the final block's own states: tuned == lens there, on the control prompts
+    chk = h["final_block_check"]
+    assert chk["ok"] and chk["lens_control_top1"] == chk["tuned_control_top1"]
     bank.close()

@@ -36,7 +36,11 @@ Three linear readouts decode the first token of the forgotten answer at every bl
 - **lens**: logit lens, the model's own final norm + unembedding on the block's state. Training-free.
 - **tuned**: an affine map h_l → h_final fitted by ridge regression on ≈4k tokens of retain text
   (`data/wikidata`, the official PPL fixture) under the *same* unlearned system, then norm +
-  unembedding. A trained linear probe that never sees a forget prompt or a forget label.
+  unembedding. A trained linear probe that never sees a forget prompt or a forget label. Features
+  are standardised per dimension before the solve (Llama's residual stream has a few dimensions a
+  hundred times larger than the rest) and the penalty is chosen per block by held-out MSE
+  (`translator.val_r2` in the json). At the last block the map is fitted on h_final itself, so
+  `headline.final_block_check` requires tuned ≈ lens there; a mismatch means the readout is broken.
 - **probe**: the paper's supervised probe. Multinomial logistic regression h_l → answer over the
   forget answers, trained on control prompts that have one of those answers but name none of the
   forget subjects (MCF neighbourhood prompts share the forget fact's answer by construction), tested

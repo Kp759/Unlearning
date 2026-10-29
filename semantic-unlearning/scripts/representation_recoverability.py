@@ -321,20 +321,46 @@ def readout_scores(logprobs, answer_tokens):
     return top1, prob
 
 
-def fit_translator(x, y, ridge=0.1):
-    """Affine least squares x -> y with ridge: returns (W [d_x, d_y], b [d_y]), float32.
+RIDGE_GRID = (1e-4, 1e-3, 1e-2, 1e-1, 1.0)
 
-    lambda = ridge * trace(X^T X) / d_x, so the penalty scales with the layer's activation norm.
+
+def _ridge_solve(xs, yc, lam):
+    gram = xs.T @ xs
+    gram = gram + lam * xs.shape[0] * torch.eye(gram.shape[0], dtype=gram.dtype, device=gram.device)
+    return torch.linalg.solve(gram, xs.T @ yc)
+
+
+def fit_translator(x, y, ridge=None, *, grid=RIDGE_GRID, holdout=0.1, seed=0):
+    """Affine least squares x -> y on per-dimension standardised x.
+
+    Returns (W [d_x, d_y], b [d_y], info) in float32 and raw coordinates. Standardising first
+    makes the penalty lambda relative to each dimension's own variance (Llama's residual stream has
+    a few dimensions a hundred times larger than the rest; a penalty tied to the total norm would
+    silence every ordinary dimension). ridge=None picks lambda from `grid` by held-out MSE on a
+    `holdout` fraction of the rows, then refits on all rows; a float fixes it.
     """
     x, y = x.float(), y.float()
-    xm, ym = x.mean(0), y.mean(0)
-    xc, yc = x - xm, y - ym
-    gram = xc.T @ xc
-    lam = float(ridge) * float(gram.diagonal().sum()) / max(1, gram.shape[0])
-    gram = gram + lam * torch.eye(gram.shape[0], dtype=gram.dtype, device=gram.device)
-    weight = torch.linalg.solve(gram, xc.T @ yc)
+    xm, xs_ = x.mean(0), x.std(0).clamp_min(1e-6)
+    ym = y.mean(0)
+    xs, yc = (x - xm) / xs_, y - ym
+    info = {"ridge": None if ridge is None else float(ridge), "rows": int(x.shape[0])}
+    if ridge is None:
+        n_val = max(1, int(x.shape[0] * holdout))
+        perm = torch.randperm(x.shape[0], generator=torch.Generator().manual_seed(seed)).to(x.device)
+        val, train = perm[:n_val], perm[n_val:]
+        best = None
+        var = float(yc[val].pow(2).mean())
+        for lam in grid:
+            w = _ridge_solve(xs[train], yc[train], lam)
+            mse = float((xs[val] @ w - yc[val]).pow(2).mean())
+            if best is None or mse < best[1]:
+                best = (lam, mse)
+        ridge = best[0]
+        info.update({"ridge": ridge, "val_mse": best[1], "val_r2": 1.0 - best[1] / max(var, 1e-12)})
+    weight_std = _ridge_solve(xs, yc, float(ridge))
+    weight = weight_std / xs_[:, None]
     bias = ym - xm @ weight
-    return weight, bias
+    return weight, bias, info
 
 
 def apply_translator(weight, bias, x):
@@ -418,13 +444,19 @@ def group_scores(items, top1, prob):
 
 
 def evaluate_layers(hf, layers, forget_states, control_states, forget_items, control_items,
-                    forget_tokens, control_tokens, *, translator=None, probe=None, final_layer=None):
+                    forget_tokens, control_tokens, *, translator=None, probe=None, ridge=None):
     """Per-layer readouts. translator: (train_states {layer: X}, y_final [T, d]) or None.
-    probe: the dict of probe_split or None. Returns (per_layer list, translator_info)."""
+    probe: the dict of probe_split or None. ridge: fixed penalty, None = held-out choice."""
     per_layer = []
     f_tokens, c_tokens = list(forget_tokens), list(control_tokens)
     for layer in layers:
         entry = {"layer": int(layer)}
+        fitted = None
+        if translator is not None:
+            x_train, y_final = translator
+            weight, bias, info = fit_translator(x_train[layer].to(y_final.device), y_final, ridge)
+            fitted = (weight, bias)
+            entry["translator"] = info
         for name, states, items, tokens in (("forget", forget_states[layer], forget_items, f_tokens),
                                             ("control", control_states[layer], control_items, c_tokens)):
             if not items:
@@ -432,9 +464,8 @@ def evaluate_layers(hf, layers, forget_states, control_states, forget_items, con
                 continue
             top1, prob = readout_scores(unembed(hf, states), tokens)
             scores = {"lens": group_scores(items, top1, prob)}
-            if translator is not None:
-                x_train, y_final = translator
-                weight, bias = fit_translator(x_train[layer].to(y_final.device), y_final)
+            if fitted is not None:
+                weight, bias = fitted
                 top1, prob = readout_scores(unembed(hf, apply_translator(weight, bias, states).cpu()), tokens)
                 scores["tuned"] = group_scores(items, top1, prob)
             entry[name] = scores
@@ -482,6 +513,13 @@ def headline(per_layer):
         out[key] = best
     last = per_layer[-1] if per_layer else {}
     out["output_top1"] = (((last.get("forget") or {}).get("lens") or {}).get("all") or {}).get("top1")
+    # sanity: at the last block the tuned lens maps h_final -> h_final, so it must agree with the lens
+    last_control = last.get("control") or {}
+    lens = ((last_control.get("lens") or {}).get("all") or {}).get("top1")
+    tuned = ((last_control.get("tuned") or {}).get("all") or {}).get("top1")
+    out["final_block_check"] = None if lens is None or tuned is None else {
+        "lens_control_top1": lens, "tuned_control_top1": tuned,
+        "ok": abs(lens - tuned) <= max(2.0, 0.1 * lens)}
     return out
 
 
@@ -511,6 +549,11 @@ def markdown(result):
         v = h.get(key)
         lines.append(f"- **{key}**: " + ("–" if not v else f"{v['value']:.1f}% at layer {v['layer']}"))
     lines.append(f"- output top-1 (last block, = the model's own first-token recall): {cell(h.get('output_top1'))}%")
+    chk = h.get("final_block_check")
+    if chk:
+        lines.append(f"- final-block check (tuned lens must match the lens on control prompts): lens "
+                     f"{chk['lens_control_top1']:.1f}% vs tuned {chk['tuned_control_top1']:.1f}% -> "
+                     + ("ok" if chk["ok"] else "MISMATCH, distrust the tuned readout"))
     g = result["groups"]
     lines += ["", f"Forget prompts: {g['forget']} · control prompts: {g['control']}"
               + (f" · probe: {result['probe']}" if result.get("probe") else " · probe: not enough shared answers")]
@@ -536,7 +579,9 @@ def add_args(parser):
                         help="cap on retain-side control prompts per source (MCF neighbourhood prompts are "
                              "never capped: they train the answer probe)")
     parser.add_argument("--translator-tokens", type=int, default=4096)
-    parser.add_argument("--ridge", type=float, default=0.1)
+    parser.add_argument("--ridge", type=float, default=None,
+                        help="fixed ridge penalty for the tuned lens (relative to standardised features); "
+                             "default: chosen per block by held-out MSE from " + ", ".join(map(str, RIDGE_GRID)))
     parser.add_argument("--probe-min-train", type=int, default=3)
     parser.add_argument("--no-probe", action="store_true")
     parser.add_argument("--device", default="cuda")
@@ -642,7 +687,8 @@ def main(argv=None):
     forget_tokens = [first_answer_token(tok, i.answer) for i in forget_items]
     control_tokens = [first_answer_token(tok, i.answer) for i in control_items]
     per_layer = evaluate_layers(hf_model(model), layers, forget_states, control_states, forget_items,
-                                control_items, forget_tokens, control_tokens, translator=translator, probe=probe)
+                                control_items, forget_tokens, control_tokens, translator=translator, probe=probe,
+                                ridge=args.ridge)
 
     result = {
         "definition": DEFINITION, "run_dir": str(run_dir), "dataset": ds, "seed": seed,
@@ -652,7 +698,8 @@ def main(argv=None):
         "layers": layers, "n_blocks": n_blocks(model),
         "groups": {"forget": {g: sum(i.group == g for i in forget_items) for g in sorted({i.group for i in forget_items})},
                    "control": {g: sum(i.group == g for i in control_items) for g in sorted({i.group for i in control_items})}},
-        "translator": None if translator is None else {"tokens": int(translator[1].shape[0]), "ridge": args.ridge,
+        "translator": None if translator is None else {"tokens": int(translator[1].shape[0]),
+                                                       "ridge": args.ridge if args.ridge is not None else "held-out choice",
                                                        "text": str(args.wikidata_dir)},
         "probe": None if probe is None else {k: probe[k] for k in ("n_classes", "n_train", "n_test", "n_forget")},
         "per_layer": per_layer, "headline": headline(per_layer),
