@@ -425,6 +425,9 @@ if oracle and not fb.get("oracle_unrouted"):
 print(",".join(why))
 EOF
 )"
+  if [[ -n "$STALE" && "${NO_RETRAIN:-0}" == 1 ]]; then
+    echo "ours does not match this configuration ($STALE) and NO_RETRAIN=1: refusing to move it aside" >&2; exit 2
+  fi
   if [[ -n "$STALE" ]]; then
     TS="$(date +%Y%m%d_%H%M%S)"
     echo "ours is stale ($STALE): moving ours/genie aside (*.superseded_$TS)" >&2

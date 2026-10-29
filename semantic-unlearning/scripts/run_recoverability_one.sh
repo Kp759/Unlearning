@@ -20,11 +20,13 @@ if [[ -n "${MODEL:-}" ]]; then
   source "$HERE/paper_model_config.sh"
 else
   case "$TAG" in
-    onepass_l*_v1)  export ONEPASS=1 ;;
+    onepass_l[0-9]*_v1)                        # onepass_l19_v1, onepass_l16_v1: router = write = that layer
+      L="${TAG#onepass_l}"; export ONEPASS=1 ROUTER_LAYER="${L%%_*}" ;;
     l16_ours_v1)    export ONEPASS=1 WRITE_LAYER=16 ;;
     l16_paper_v1)   ;;
     *) [[ -n "${ONEPASS:-}" ]] || { echo "unknown TAG $TAG: set ONEPASS / WRITE_LAYER / ROUTER_RECIPE yourself" >&2; exit 2; } ;;
   esac
 fi
-export TAG RECOVERABILITY=1 BUILD_ROUTERS=0 MOVE_INCOMPLETE=0
+# NO_RETRAIN: a config mismatch is an error, never a move-aside of trained rows
+export TAG RECOVERABILITY=1 BUILD_ROUTERS=0 MOVE_INCOMPLETE=0 NO_RETRAIN=1
 exec bash "$HERE/run_l16_paper_one.sh" "$DS" "$SEED"
