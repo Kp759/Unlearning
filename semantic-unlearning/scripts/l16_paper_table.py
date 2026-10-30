@@ -96,7 +96,11 @@ def _eval_json(run_dir, name):
 def recoverability(run_dir, key="RR"):
     """Headline of representation_recoverability.json (tuned-lens worst-layer top-1, %), or None."""
     d = _eval_json(run_dir, "representation_recoverability.json")
-    best = ((d or {}).get("headline") or {}).get(key)
+    head = (d or {}).get("headline") or {}
+    check = head.get("final_block_check")
+    if check is not None and not check.get("ok"):
+        return None                       # the tuned readout failed its own sanity check
+    best = head.get(key)
     return None if not best else best.get("value")
 
 

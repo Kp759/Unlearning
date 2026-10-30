@@ -140,17 +140,20 @@ def test_probe_split_uses_shared_answers_without_forget_subjects():
 
 
 def test_headline_picks_the_worst_layer_per_readout():
+    ok = {"n_forget": 50, "n_classes": 20}
     per_layer = [
         {"layer": 0, "forget": {"lens": {"all": {"top1": 10.0}}, "tuned": {"all": {"top1": 50.0}}},
-         "probe": {"forget_acc": 20.0}},
+         "probe": {"forget_acc": 20.0, **ok}},
         {"layer": 1, "forget": {"lens": {"all": {"top1": 30.0}}, "tuned": {"all": {"top1": 40.0}}},
-         "probe": {"forget_acc": 60.0}},
+         "probe": {"forget_acc": 60.0, **ok}},
+        {"layer": 2, "forget": {"lens": {"all": {"top1": 0.0}}, "tuned": {"all": {"top1": 0.0}}},
+         "probe": {"forget_acc": 100.0, "n_forget": 3, "n_classes": 2}},     # too small to count
     ]
     h = rr.headline(per_layer)
     assert h["RR"] == {"value": 50.0, "layer": 0}
     assert h["RR_lens"] == {"value": 30.0, "layer": 1}
     assert h["RR_probe"] == {"value": 60.0, "layer": 1}
-    assert h["output_top1"] == 30.0
+    assert h["output_top1"] == 0.0
 
 
 def test_evaluate_layers_end_to_end_on_the_tiny_model():
@@ -174,6 +177,7 @@ def test_evaluate_layers_end_to_end_on_the_tiny_model():
         assert e["probe"]["n_classes"] == 2 and e["probe"]["n_forget"] == 2 and "forget_acc" in e["probe"]
     h = rr.headline(per_layer)
     assert set(h) == {"RR", "RR_lens", "RR_probe", "output_top1", "final_block_check"} and h["RR"] is not None
+    assert h["RR_probe"] is None                      # two classes, two forget prompts: below the gate
     assert all("translator" in e and e["translator"]["ridge"] in rr.RIDGE_GRID for e in per_layer)
     # the translator was fitted on the final block's own states: tuned == lens there, on the control prompts
     chk = h["final_block_check"]

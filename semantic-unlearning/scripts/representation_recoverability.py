@@ -247,7 +247,16 @@ def rwku_items(args, tok, artifact, seed):
             if row.get("answer"):
                 control.append(Item(rwku.format_qa_prompt(tok, row), row["answer"], row.get("subject"),
                                     "neighbour"))
-    texts = [i.prompt for i in control]           # every neighbour probe, before the cap
+    # Tuned-lens text. The templated probes share one long chat prefix whose states repeat
+    # verbatim, so on their own they span too few directions (rank warning): add the bare
+    # neighbour questions, the retain MIA passages (Wikipedia text about other people) and the
+    # TriviaQA questions in the same template. All retain-side, none about a target.
+    texts = [i.prompt for i in control] + [str(i.prompt.rsplit("Question:", 1)[-1]) for i in control]
+    for target in split["per_target"]:
+        eo = target.get("evaluation_only") or {}
+        texts += [str(r["text"]) for r in eo.get("retain_mia.json", []) if r.get("text")]
+        texts += [rwku.format_qa_prompt(tok, {"query": r["question"], "level": "2"})
+                  for r in eo.get("triviaqa.json", []) if r.get("question")]
     control = _cap(control, args.max_control, seed)
     genie = list(genie_routes.rwku_pairs(tok, forget_rows, source_to_row))
     return forget, control, genie, texts
@@ -519,8 +528,13 @@ def evaluate_layers(hf, layers, forget_states, control_states, forget_items, con
     return per_layer
 
 
+PROBE_MIN_FORGET, PROBE_MIN_CLASSES = 10, 5
+
+
 def headline(per_layer):
-    """Max over layers of each forget readout (all groups), with its layer."""
+    """Max over layers of each forget readout (all groups), with its layer. RR_probe only counts
+    with >= PROBE_MIN_CLASSES answer classes and >= PROBE_MIN_FORGET forget prompts tested (a
+    two-class probe on three prompts says nothing)."""
     out = {}
     for key, path in (("RR", ("forget", "tuned", "all", "top1")), ("RR_lens", ("forget", "lens", "all", "top1")),
                       ("RR_probe", ("probe", "forget_acc"))):
@@ -533,6 +547,10 @@ def headline(per_layer):
                     break
             if value is None:
                 continue
+            if key == "RR_probe":
+                probe = entry.get("probe") or {}
+                if probe.get("n_forget", 0) < PROBE_MIN_FORGET or probe.get("n_classes", 0) < PROBE_MIN_CLASSES:
+                    continue
             if best is None or value > best["value"]:
                 best = {"value": value, "layer": entry["layer"]}
         out[key] = best
