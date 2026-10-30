@@ -306,11 +306,19 @@ recover() {  # run_dir [extra args]: lens / tuned-lens / answer-probe readout pe
   python -u scripts/representation_recoverability.py --run-dir "$dir" --dataset "$DS" "${data[@]}" \
     --seed "$SEED" --device cuda --dtype bfloat16 --local-files-only ${RECOVER_ARGS:-} "$@"
 }
-baseline_edit_args() {  # B -> EDIT_ARGS (covariance flags for the locate-and-edit baselines)
+baseline_edit_args() {  # B run_dir -> EDIT_ARGS: the covariance the baseline's own eval recorded
+  # (BASELINE_MOM2_DATASET overrides), so a recoverability pass recomputes the SAME edit
   EDIT_ARGS=()
-  if [[ " zerounlearn rome memit " == *" $1 "* && -n "${BASELINE_MOM2_DATASET:-}" ]]; then
-    EDIT_ARGS=(--mom2-dataset "$BASELINE_MOM2_DATASET")
-    [[ -n "${BASELINE_MOM2_TEXT:-}" ]] && EDIT_ARGS+=(--mom2-text "$BASELINE_MOM2_TEXT")
+  [[ " zerounlearn rome memit " == *" $1 "* ]] || return 0
+  local name="${BASELINE_MOM2_DATASET:-}" text="${BASELINE_MOM2_TEXT:-}"
+  if [[ -z "$name" && -f "$2/$EVAL_JSON" ]]; then
+    name="$(jq -r '(.baseline // {}).mom2_dataset // empty' "$2/$EVAL_JSON")"
+    text="$(jq -r '(.baseline // {}).mom2_text // empty' "$2/$EVAL_JSON")"
+    [[ "$text" == *"vendored default"* ]] && text=""
+  fi
+  if [[ -n "$name" ]]; then
+    EDIT_ARGS=(--mom2-dataset "$name")
+    [[ -n "$text" ]] && EDIT_ARGS+=(--mom2-text "$text")
   fi
 }
 recover_base_and_baselines() {
@@ -322,8 +330,8 @@ recover_base_and_baselines() {
   for B in ${BASELINES:-}; do
     BD="$OUT/$B"
     [[ -f "$BD/$EVAL_JSON" && ! -f "$BD/$RECOVER_JSON" ]] || continue
-    baseline_edit_args "$B"
-    log "6. recoverability: baseline $B (edit recomputed)"
+    baseline_edit_args "$B" "$BD"
+    log "6. recoverability: baseline $B (edit recomputed${EDIT_ARGS[0]:+, ${EDIT_ARGS[*]}})"
     recover "$BD" --baseline "$B" --baseline-views-from "$ROUTER" "${EDIT_ARGS[@]}" ${BASELINE_ARGS:-}
   done
 }
