@@ -1,0 +1,3208 @@
+{
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:answer_ban": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "answer_ban",
+  "family": "trivial",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": true,
+  "runtime_components": [
+   "logit_bias"
+  ],
+  "SCALPEL": [
+   0.0,
+   0.0
+  ],
+  "SCALPEL_core": [
+   17.601713215063178,
+   0.31439646538405036
+  ],
+  "E": [
+   91.79121262781425,
+   3.570683088077271
+  ],
+  "E_mean": [
+   92.84763109235061,
+   2.930136985952347
+  ],
+  "E_min": [
+   72.11764705882354,
+   10.694808462137363
+  ],
+  "E_direct": [
+   95.2,
+   3.6331804249169903
+  ],
+  "L": [
+   7.250540520185611,
+   0.06925459637190601
+  ],
+  "L_mean": [
+   60.88733322426973,
+   6.050162910923587
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   46.72877277787756,
+   5.510446151224882
+  ],
+  "R": [
+   2.842170943040401e-15,
+   6.3552874323130195e-15
+  ],
+  "families": {
+   "forget/context_prefix": [
+    5.1671408250355615,
+    4.495147141274194
+   ],
+   "forget/crosslingual": [
+    2.555976253940288,
+    1.423415487499492
+   ],
+   "forget/direct": [
+    4.8,
+    3.63318042491699
+   ],
+   "forget/indirect": [
+    0.0,
+    0.0
+   ],
+   "forget/multifact": [
+    3.066752246469833,
+    3.400399354346485
+   ],
+   "forget/multihop": [
+    27.88235294117647,
+    10.694808462137363
+   ],
+   "forget/multiturn": [
+    4.110791826309067,
+    3.774968972944572
+   ],
+   "forget/paraphrase": [
+    5.218295468205313,
+    4.059828091590299
+   ],
+   "forget/question": [
+    3.5968373836020895,
+    2.3267474584590264
+   ],
+   "forget/surface": [
+    5.620804316456491,
+    3.6685052644669893
+   ],
+   "retain/disjoint": [
+    69.85873422689342,
+    8.832003311051642
+   ],
+   "retain/in_context": [
+    74.73913043478261,
+    12.492341699385886
+   ],
+   "retain/name_collision": [
+    60.49145299145299,
+    9.606596173624679
+   ],
+   "retain/same_object": [
+    0.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    81.90881737832153,
+    3.0629053810248847
+   ],
+   "retain/same_sentence": [
+    64.62187088274045,
+    8.86821160205908
+   ],
+   "retain/same_subject": [
+    70.42891509710732,
+    18.741387893755284
+   ],
+   "retain/subject_mentioned": [
+    65.04974478285945,
+    5.861294372320487
+   ]
+  },
+  "strict_SCALPEL": [
+   2.90799762424071,
+   0.007277915716968778
+  ],
+  "unlearn_seconds": [
+   0.005156850814819336,
+   0.00015654876902225663
+  ],
+  "inference_overhead": [
+   0.9443756792986233,
+   0.024914733820286302
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 12.88659793814433,
+    "refusal": 0.25773195876288657,
+    "hallucination_or_other": 86.85567010309278,
+    "n": 388
+   },
+   "retain": {
+    "correct": 62.264150943396224,
+    "false_refusal": 0.0,
+    "wrong": 37.735849056603776,
+    "n": 265
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    4.766655190289848,
+    2.7733151583097126
+   ],
+   "quant_int4": [
+    6.3659551698504355,
+    3.75268650182791
+   ],
+   "relearn": [
+    4.272370864571153,
+    4.203642012693971
+   ],
+   "lens": [
+    100.0,
+    7.105427357601002e-15
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:ga": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "ga",
+  "family": "gradient",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   4.879237937287449,
+   1.4814436246494211
+  ],
+  "SCALPEL_core": [
+   3.7150639758540236,
+   1.1491200034082032
+  ],
+  "E": [
+   97.12041187867888,
+   4.063920987912197
+  ],
+  "E_mean": [
+   97.39549649653327,
+   3.661636879209888
+  ],
+  "E_min": [
+   91.875,
+   11.180339887498949
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "L": [
+   1.2848953915437145,
+   0.4043590071269527
+  ],
+  "L_mean": [
+   5.697395862820034,
+   8.037936766382328
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   56.22490556385412,
+   16.908472636463237
+  ],
+  "R": [
+   90.49296999425047,
+   5.6825062856987625
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    5.3394064061122535,
+    7.522814198761364
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    0.0,
+    0.0
+   ],
+   "forget/multifact": [
+    0.0,
+    0.0
+   ],
+   "forget/multihop": [
+    2.0,
+    2.7386127875258306
+   ],
+   "forget/multiturn": [
+    7.5,
+    10.269797953221865
+   ],
+   "forget/paraphrase": [
+    0.0,
+    0.0
+   ],
+   "forget/question": [
+    5.996621621621622,
+    9.545413659557516
+   ],
+   "forget/surface": [
+    0.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    5.69023569023569,
+    7.8028078306504005
+   ],
+   "retain/in_context": [
+    26.086956521739133,
+    37.77858086300601
+   ],
+   "retain/name_collision": [
+    1.1111111111111112,
+    2.4845199749997664
+   ],
+   "retain/same_object": [
+    0.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    0.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    0.0,
+    0.0
+   ],
+   "retain/same_subject": [
+    0.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    12.690863579474343,
+    17.45463576636181
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   6.3396679878234865,
+   1.807813907719858
+  ],
+  "inference_overhead": [
+   0.9161379603481269,
+   0.02420505129241931
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 0.0,
+    "refusal": 21.90721649484536,
+    "hallucination_or_other": 78.09278350515464,
+    "n": 388
+   },
+   "retain": {
+    "correct": 0.7547169811320755,
+    "false_refusal": 9.056603773584905,
+    "wrong": 90.18867924528301,
+    "n": 265
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    1.4617396991497709,
+    2.227267421917916
+   ],
+   "quant_int4": [
+    2.492260061919505,
+    3.4215429092672034
+   ],
+   "relearn": [
+    4.416655724310996,
+    4.678646619105047
+   ],
+   "lens": [
+    9.412554425285153,
+    5.676184616239197
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:gd": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "gd",
+  "family": "gradient",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   5.508004529465593,
+   1.5690020936050926
+  ],
+  "SCALPEL_core": [
+   4.205857820331912,
+   1.220757376382784
+  ],
+  "E": [
+   94.84131068337103,
+   5.204180769714867
+  ],
+  "E_mean": [
+   95.42119530559157,
+   4.555169057263818
+  ],
+  "E_min": [
+   86.97368421052632,
+   12.626716614872576
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "L": [
+   1.4570686138636346,
+   0.43442690834360853
+  ],
+  "L_mean": [
+   8.26570260699452,
+   7.584262214578306
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   66.45796110733396,
+   10.10570188416089
+  ],
+  "R": [
+   86.48098025456598,
+   9.470300086170543
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    11.835454784478092,
+    11.972664515037794
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    0.0,
+    0.0
+   ],
+   "forget/multifact": [
+    0.0,
+    0.0
+   ],
+   "forget/multihop": [
+    3.904761904761905,
+    4.014570966535711
+   ],
+   "forget/multiturn": [
+    12.208333333333334,
+    11.849021291041533
+   ],
+   "forget/paraphrase": [
+    0.0,
+    0.0
+   ],
+   "forget/question": [
+    8.681887532693983,
+    9.886908750043355
+   ],
+   "forget/surface": [
+    0.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    8.022178668944838,
+    7.505005734817797
+   ],
+   "retain/in_context": [
+    34.78260869565217,
+    33.5374970011772
+   ],
+   "retain/name_collision": [
+    2.361111111111111,
+    3.242393758313542
+   ],
+   "retain/same_object": [
+    0.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    0.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    0.0,
+    0.0
+   ],
+   "retain/same_subject": [
+    0.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    20.95972238024804,
+    20.684817581790824
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   35.444638919830325,
+   4.299771144409199
+  ],
+  "inference_overhead": [
+   0.9144317601320588,
+   0.018309504210053677
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 8.762886597938145,
+    "refusal": 0.0,
+    "hallucination_or_other": 91.23711340206185,
+    "n": 388
+   },
+   "retain": {
+    "correct": 16.60377358490566,
+    "false_refusal": 0.0,
+    "wrong": 83.39622641509433,
+    "n": 265
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    2.186377380309191,
+    2.2221925768013424
+   ],
+   "quant_int4": [
+    3.8733342307174583,
+    3.6010958092861696
+   ],
+   "relearn": [
+    2.88272921108742,
+    2.8577156285507717
+   ],
+   "lens": [
+    13.519019745434028,
+    9.470300086170544
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:idk_all": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "idk_all",
+  "family": "trivial",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": true,
+  "runtime_components": [
+   "logit_filter"
+  ],
+  "SCALPEL": [
+   0.0,
+   0.0
+  ],
+  "SCALPEL_core": [
+   2.7357665711079875,
+   0.02449153384715915
+  ],
+  "E": [
+   100.0,
+   0.0
+  ],
+  "E_mean": [
+   100.0,
+   0.0
+  ],
+  "E_min": [
+   100.0,
+   0.0
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "L": [
+   1.0,
+   0.0
+  ],
+  "L_mean": [
+   0.0,
+   0.0
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   11.647829483143981,
+   1.1799179141981655
+  ],
+  "R": [
+   2.842170943040401e-15,
+   6.3552874323130195e-15
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    0.0,
+    0.0
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    0.0,
+    0.0
+   ],
+   "forget/multifact": [
+    0.0,
+    0.0
+   ],
+   "forget/multihop": [
+    0.0,
+    0.0
+   ],
+   "forget/multiturn": [
+    0.0,
+    0.0
+   ],
+   "forget/paraphrase": [
+    0.0,
+    0.0
+   ],
+   "forget/question": [
+    0.0,
+    0.0
+   ],
+   "forget/surface": [
+    0.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    0.0,
+    0.0
+   ],
+   "retain/in_context": [
+    0.0,
+    0.0
+   ],
+   "retain/name_collision": [
+    0.0,
+    0.0
+   ],
+   "retain/same_object": [
+    0.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    0.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    0.0,
+    0.0
+   ],
+   "retain/same_subject": [
+    0.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    0.0,
+    0.0
+   ]
+  },
+  "strict_SCALPEL": [
+   2.7357665711079875,
+   0.02449153384715915
+  ],
+  "unlearn_seconds": [
+   0.0007477760314941406,
+   3.6345190083731096e-05
+  ],
+  "inference_overhead": [
+   1.0644293829721634,
+   0.030533648838809664
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 0.0,
+    "refusal": 100.0,
+    "hallucination_or_other": 0.0,
+    "n": 388
+   },
+   "retain": {
+    "correct": 0.0,
+    "false_refusal": 100.0,
+    "wrong": 0.0,
+    "n": 265
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    0.0,
+    0.0
+   ],
+   "quant_int4": [
+    0.0,
+    0.0
+   ],
+   "relearn": [
+    0.0,
+    0.0
+   ],
+   "lens": [
+    100.0,
+    7.105427357601002e-15
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:keyword_router_idk": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "keyword_router_idk",
+  "family": "trivial",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": true,
+  "runtime_components": [
+   "keyword_router"
+  ],
+  "SCALPEL": [
+   0.0,
+   0.0
+  ],
+  "SCALPEL_core": [
+   15.663938318692624,
+   0.4548188143679186
+  ],
+  "E": [
+   6.371822696021292,
+   0.07812704400468518
+  ],
+  "E_mean": [
+   54.2972266122722,
+   2.4227535935723146
+  ],
+  "E_min": [
+   0.0,
+   0.0
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "L": [
+   42.25150088477434,
+   9.294893286381452
+  ],
+  "L_mean": [
+   76.12013418592144,
+   2.4408355085898927
+  ],
+  "L_min": [
+   12.565217391304348,
+   3.853410342351388
+  ],
+  "U": [
+   100.0,
+   0.0
+  ],
+  "R": [
+   2.842170943040401e-15,
+   6.3552874323130195e-15
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    92.46988962315963,
+    1.8064009056675696
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    100.0,
+    0.0
+   ],
+   "forget/multifact": [
+    21.940595514408095,
+    9.940332995248857
+   ],
+   "forget/multihop": [
+    75.89355742296918,
+    11.792847660907087
+   ],
+   "forget/multiturn": [
+    19.341634738186464,
+    2.4062126644893436
+   ],
+   "forget/paraphrase": [
+    34.53017189566053,
+    10.300425564861854
+   ],
+   "forget/question": [
+    21.446337907438476,
+    4.64976294803475
+   ],
+   "forget/surface": [
+    100.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    100.0,
+    0.0
+   ],
+   "retain/in_context": [
+    12.565217391304348,
+    3.853410342351388
+   ],
+   "retain/name_collision": [
+    100.0,
+    0.0
+   ],
+   "retain/same_object": [
+    100.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    100.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    24.41018884497145,
+    10.38532083508323
+   ],
+   "retain/same_subject": [
+    96.15830546265329,
+    3.9070009595279522
+   ],
+   "retain/subject_mentioned": [
+    75.82736178844245,
+    11.033914426449536
+   ]
+  },
+  "strict_SCALPEL": [
+   2.941176470588235,
+   0.0
+  ],
+  "unlearn_seconds": [
+   0.004243803024291992,
+   0.003972223434643893
+  ],
+  "inference_overhead": [
+   1.0727527688365739,
+   0.02709828870408548
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 36.34020618556701,
+    "refusal": 63.65979381443299,
+    "hallucination_or_other": 0.0,
+    "n": 388
+   },
+   "retain": {
+    "correct": 82.64150943396227,
+    "false_refusal": 17.358490566037737,
+    "wrong": 0.0,
+    "n": 265
+   }
+  },
+  "routing": {
+   "by_family": {
+    "forget/direct": {
+     "n": 50,
+     "routed_right": 50,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "forget/paraphrase": {
+     "n": 60,
+     "routed_right": 44,
+     "routed_wrong": 0,
+     "missed": 16,
+     "false_fire": 0,
+     "residual_when_routed_right": 2,
+     "residual_when_missed": 16
+    },
+    "forget/question": {
+     "n": 31,
+     "routed_right": 26,
+     "routed_wrong": 0,
+     "missed": 5,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 5
+    },
+    "forget/surface": {
+     "n": 21,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 21,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 21
+    },
+    "forget/context_prefix": {
+     "n": 72,
+     "routed_right": 72,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "forget/multifact": {
+     "n": 27,
+     "routed_right": 23,
+     "routed_wrong": 0,
+     "missed": 4,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 4
+    },
+    "forget/multiturn": {
+     "n": 30,
+     "routed_right": 24,
+     "routed_wrong": 0,
+     "missed": 6,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 6
+    },
+    "forget/crosslingual": {
+     "n": 76,
+     "routed_right": 8,
+     "routed_wrong": 0,
+     "missed": 68,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 68
+    },
+    "retain/same_object": {
+     "n": 46,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/same_relation": {
+     "n": 35,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/in_context": {
+     "n": 23,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 21,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "forget/multihop": {
+     "n": 21,
+     "routed_right": 2,
+     "routed_wrong": 0,
+     "missed": 19,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 19
+    },
+    "retain/same_subject": {
+     "n": 19,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/same_sentence": {
+     "n": 18,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 15,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/subject_mentioned": {
+     "n": 44,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 11,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/name_collision": {
+     "n": 16,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "forget/indirect": {
+     "n": 3,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 3,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 3
+    },
+    "retain/disjoint": {
+     "n": 67,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    }
+   },
+   "forget_route_recall": 63.68286445012788,
+   "forget_residual_from_routing": 36.31713554987212,
+   "forget_residual_from_actuation": 0.5115089514066496,
+   "retain_false_fire_rate": 17.53731343283582
+  },
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    18.83715158368896,
+    4.676200309132357
+   ],
+   "quant_int4": [
+    17.613023251573946,
+    4.980133909788948
+   ],
+   "relearn": [
+    19.975230675278823,
+    6.70636049108019
+   ],
+   "lens": [
+    100.0,
+    7.105427357601002e-15
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:memit": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "memit",
+  "family": "locate_edit",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   0.0,
+   0.0
+  ],
+  "SCALPEL_core": [
+   22.214326122591597,
+   8.996354084213893
+  ],
+  "E": [
+   9.009388937922894,
+   4.126435765564787
+  ],
+  "E_mean": [
+   16.713549068999683,
+   1.8933012873641135
+  ],
+  "E_min": [
+   3.8857786357786352,
+   2.872378941844395
+  ],
+  "E_direct": [
+   45.6,
+   6.2289646009589745
+  ],
+  "L": [
+   91.75536511544867,
+   1.388434268537609
+  ],
+  "L_mean": [
+   92.56614206064776,
+   0.9500163948542104
+  ],
+  "L_min": [
+   76.62623112966362,
+   6.691854813976547
+  ],
+  "U": [
+   99.2420723774994,
+   0.7870066519730806
+  ],
+  "R": [
+   0.0,
+   0.0
+  ],
+  "families": {
+   "forget/context_prefix": [
+    66.91701099595835,
+    2.9988225992184097
+   ],
+   "forget/crosslingual": [
+    93.45347314030269,
+    3.0663303115373375
+   ],
+   "forget/direct": [
+    54.4,
+    6.2289646009589745
+   ],
+   "forget/indirect": [
+    86.66666666666667,
+    29.8142396999972
+   ],
+   "forget/multifact": [
+    69.00078664263518,
+    3.3868582360618906
+   ],
+   "forget/multihop": [
+    90.28571428571429,
+    5.837947640486446
+   ],
+   "forget/multiturn": [
+    94.72685185185185,
+    3.6709489116859837
+   ],
+   "forget/paraphrase": [
+    74.68701166005529,
+    5.846916448117936
+   ],
+   "forget/question": [
+    93.72585956788993,
+    2.2383755039434585
+   ],
+   "forget/surface": [
+    83.49489930359495,
+    1.4835468271928927
+   ],
+   "retain/disjoint": [
+    97.37829371660217,
+    2.1679065817839143
+   ],
+   "retain/in_context": [
+    100.0,
+    0.0
+   ],
+   "retain/name_collision": [
+    94.42307692307693,
+    6.31072570119631
+   ],
+   "retain/same_object": [
+    93.81531446748838,
+    4.438934557111901
+   ],
+   "retain/same_relation": [
+    94.72748357390745,
+    2.574094244307398
+   ],
+   "retain/same_sentence": [
+    85.29117259552042,
+    3.800598452410455
+   ],
+   "retain/same_subject": [
+    76.62623112966362,
+    6.691854813976547
+   ],
+   "retain/subject_mentioned": [
+    98.26756407892312,
+    1.6355231277086801
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   146.4923677444458,
+   6.590364421522637
+  ],
+  "inference_overhead": [
+   0.9129424532954582,
+   0.021856259947957785
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 88.14432989690722,
+    "refusal": 0.0,
+    "hallucination_or_other": 11.855670103092784,
+    "n": 388
+   },
+   "retain": {
+    "correct": 96.22641509433963,
+    "false_refusal": 0.0,
+    "wrong": 3.7735849056603774,
+    "n": 265
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    73.9049849326984,
+    3.6087418987345363
+   ],
+   "quant_int4": [
+    78.49700306737269,
+    5.4846472109927955
+   ],
+   "relearn": [
+    97.35103702267881,
+    2.604796753162747
+   ],
+   "lens": [
+    100.0,
+    0.0
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:noop": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "noop",
+  "family": "trivial",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": true,
+  "runtime_components": [],
+  "SCALPEL": [
+   0.0,
+   0.0
+  ],
+  "SCALPEL_core": [
+   2.941176470588235,
+   0.0
+  ],
+  "E": [
+   1.0,
+   0.0
+  ],
+  "E_mean": [
+   0.0,
+   0.0
+  ],
+  "E_min": [
+   0.0,
+   0.0
+  ],
+  "E_direct": [
+   0.0,
+   0.0
+  ],
+  "L": [
+   100.0,
+   0.0
+  ],
+  "L_mean": [
+   100.0,
+   0.0
+  ],
+  "L_min": [
+   100.0,
+   0.0
+  ],
+  "U": [
+   100.0,
+   0.0
+  ],
+  "R": [
+   0.0,
+   0.0
+  ],
+  "families": {
+   "forget/context_prefix": [
+    100.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    100.0,
+    0.0
+   ],
+   "forget/direct": [
+    100.0,
+    0.0
+   ],
+   "forget/indirect": [
+    100.0,
+    0.0
+   ],
+   "forget/multifact": [
+    100.0,
+    0.0
+   ],
+   "forget/multihop": [
+    100.0,
+    0.0
+   ],
+   "forget/multiturn": [
+    100.0,
+    0.0
+   ],
+   "forget/paraphrase": [
+    100.0,
+    0.0
+   ],
+   "forget/question": [
+    100.0,
+    0.0
+   ],
+   "forget/surface": [
+    100.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    100.0,
+    0.0
+   ],
+   "retain/in_context": [
+    100.0,
+    0.0
+   ],
+   "retain/name_collision": [
+    100.0,
+    0.0
+   ],
+   "retain/same_object": [
+    100.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    100.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    100.0,
+    0.0
+   ],
+   "retain/same_subject": [
+    100.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    100.0,
+    0.0
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   5.53131103515625e-06,
+   1.5022262575171819e-06
+  ],
+  "inference_overhead": [
+   0.917252485082836,
+   0.01428660438548373
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 100.0,
+    "refusal": 0.0,
+    "hallucination_or_other": 0.0,
+    "n": 388
+   },
+   "retain": {
+    "correct": 100.0,
+    "false_refusal": 0.0,
+    "wrong": 0.0,
+    "n": 265
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    100.0,
+    7.105427357601002e-15
+   ],
+   "quant_int4": [
+    100.0,
+    0.0
+   ],
+   "relearn": [
+    100.0,
+    7.105427357601002e-15
+   ],
+   "lens": [
+    100.0,
+    7.105427357601002e-15
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:npo": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "npo",
+  "family": "gradient",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   6.2193020727633215,
+   2.4914576979758416
+  ],
+  "SCALPEL_core": [
+   4.798344164729234,
+   2.021811345939947
+  ],
+  "E": [
+   91.9447236461508,
+   14.756283202257295
+  ],
+  "E_mean": [
+   93.80254142302519,
+   10.790702240017305
+  ],
+  "E_min": [
+   84.05603448275863,
+   25.118996301173322
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "L": [
+   1.6757534177120657,
+   0.7408524639017993
+  ],
+  "L_mean": [
+   9.53588069571462,
+   9.577300513150854
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   74.86023547034588,
+   18.39567757223874
+  ],
+  "R": [
+   80.29075629032829,
+   18.42999483302013
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.31746031746031744,
+    0.7098628499999332
+   ],
+   "forget/crosslingual": [
+    9.769402814510071,
+    16.723888412443085
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    0.0,
+    0.0
+   ],
+   "forget/multifact": [
+    0.0,
+    0.0
+   ],
+   "forget/multihop": [
+    13.0,
+    26.362852652928137
+   ],
+   "forget/multiturn": [
+    13.943965517241377,
+    20.75292275233939
+   ],
+   "forget/paraphrase": [
+    0.3389830508474576,
+    0.7579891449151829
+   ],
+   "forget/question": [
+    12.20985691573927,
+    21.38333993211643
+   ],
+   "forget/surface": [
+    0.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    9.44364277697611,
+    11.199245755331372
+   ],
+   "retain/in_context": [
+    39.173913043478265,
+    30.58209689154022
+   ],
+   "retain/name_collision": [
+    3.6111111111111116,
+    5.520724142875498
+   ],
+   "retain/same_object": [
+    0.4545454545454546,
+    1.0163945352271773
+   ],
+   "retain/same_relation": [
+    0.930232558139535,
+    2.0800632348835255
+   ],
+   "retain/same_sentence": [
+    0.0,
+    0.0
+   ],
+   "retain/same_subject": [
+    0.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    22.673600621466488,
+    30.128297148856223
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   33.849303531646726,
+   2.8828179266231455
+  ],
+  "inference_overhead": [
+   0.9183850800885311,
+   0.023047474573689573
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 0.25773195876288657,
+    "refusal": 33.76288659793814,
+    "hallucination_or_other": 65.97938144329896,
+    "n": 388
+   },
+   "retain": {
+    "correct": 2.641509433962264,
+    "false_refusal": 22.264150943396228,
+    "wrong": 75.09433962264151,
+    "n": 265
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    3.0480790193020413,
+    4.8917314745498945
+   ],
+   "quant_int4": [
+    6.141557704120077,
+    9.112698006168172
+   ],
+   "relearn": [
+    7.752665245202559,
+    14.958610570075336
+   ],
+   "lens": [
+    19.7092437096717,
+    18.429994833020128
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:ours": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "ours",
+  "family": "detect_then_edit",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [
+   "router_hooks"
+  ],
+  "SCALPEL": [
+   30.097594615567584,
+   10.050386386983627
+  ],
+  "SCALPEL_core": [
+   43.04470908573938,
+   21.81471284034709
+  ],
+  "E": [
+   22.767446021409903,
+   14.333343914737453
+  ],
+  "E_mean": [
+   81.63280088665128,
+   2.5766730150931565
+  ],
+  "E_min": [
+   3.6050420168067205,
+   3.3779004045828267
+  ],
+  "E_direct": [
+   95.6,
+   3.8470768123342687
+  ],
+  "L": [
+   95.56507138499911,
+   3.1317487342749075
+  ],
+  "L_mean": [
+   95.94435036652942,
+   2.827047595570029
+  ],
+  "L_min": [
+   85.91696459462577,
+   6.273927669749935
+  ],
+  "U": [
+   100.0,
+   0.0
+  ],
+  "R": [
+   18.998385072519138,
+   3.598357485466912
+  ],
+  "families": {
+   "forget/context_prefix": [
+    5.416920680078574,
+    3.495255448172139
+   ],
+   "forget/crosslingual": [
+    9.307125686447055,
+    1.6352239020320147
+   ],
+   "forget/direct": [
+    4.4,
+    3.847076812334269
+   ],
+   "forget/indirect": [
+    100.0,
+    0.0
+   ],
+   "forget/multifact": [
+    6.59223817118554,
+    6.931940468611766
+   ],
+   "forget/multihop": [
+    96.39495798319328,
+    3.3779004045828267
+   ],
+   "forget/multiturn": [
+    7.9347062579821195,
+    2.867411154285022
+   ],
+   "forget/paraphrase": [
+    9.671294626758023,
+    8.120735221875965
+   ],
+   "forget/question": [
+    7.980221513191154,
+    1.1948591539786013
+   ],
+   "forget/surface": [
+    3.640127987954075,
+    3.806944243734453
+   ],
+   "retain/disjoint": [
+    100.0,
+    0.0
+   ],
+   "retain/in_context": [
+    88.43478260869566,
+    4.81805049641568
+   ],
+   "retain/name_collision": [
+    100.0,
+    0.0
+   ],
+   "retain/same_object": [
+    100.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    100.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    94.50153711023276,
+    7.120697836652579
+   ],
+   "retain/same_subject": [
+    90.2316493575075,
+    9.210368295310332
+   ],
+   "retain/subject_mentioned": [
+    94.38683385579938,
+    6.743085739834492
+   ]
+  },
+  "strict_SCALPEL": [
+   2.941176470588235,
+   0.0
+  ],
+  "unlearn_seconds": [
+   2137.1622557640076,
+   77.95652566457564
+  ],
+  "inference_overhead": [
+   2.168199009757077,
+   0.046886378783314524
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 18.814432989690722,
+    "refusal": 0.0,
+    "hallucination_or_other": 81.18556701030928,
+    "n": 388
+   },
+   "retain": {
+    "correct": 98.11320754716981,
+    "false_refusal": 0.0,
+    "wrong": 1.8867924528301887,
+    "n": 265
+   }
+  },
+  "routing": {
+   "by_family": {
+    "forget/direct": {
+     "n": 50,
+     "routed_right": 45,
+     "routed_wrong": 0,
+     "missed": 5,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 5
+    },
+    "forget/paraphrase": {
+     "n": 60,
+     "routed_right": 49,
+     "routed_wrong": 0,
+     "missed": 11,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 11
+    },
+    "forget/question": {
+     "n": 31,
+     "routed_right": 29,
+     "routed_wrong": 0,
+     "missed": 2,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 2
+    },
+    "forget/surface": {
+     "n": 21,
+     "routed_right": 20,
+     "routed_wrong": 0,
+     "missed": 1,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 1
+    },
+    "forget/context_prefix": {
+     "n": 72,
+     "routed_right": 65,
+     "routed_wrong": 0,
+     "missed": 7,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 7
+    },
+    "forget/multifact": {
+     "n": 27,
+     "routed_right": 24,
+     "routed_wrong": 0,
+     "missed": 3,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 3
+    },
+    "forget/multiturn": {
+     "n": 30,
+     "routed_right": 27,
+     "routed_wrong": 0,
+     "missed": 3,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 3
+    },
+    "forget/crosslingual": {
+     "n": 76,
+     "routed_right": 68,
+     "routed_wrong": 0,
+     "missed": 8,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 8
+    },
+    "retain/same_object": {
+     "n": 46,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/same_relation": {
+     "n": 35,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/in_context": {
+     "n": 23,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 17,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "forget/multihop": {
+     "n": 21,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 21,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 21
+    },
+    "retain/same_subject": {
+     "n": 19,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 3,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/same_sentence": {
+     "n": 18,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 1,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/subject_mentioned": {
+     "n": 44,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 5,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/name_collision": {
+     "n": 16,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "forget/indirect": {
+     "n": 3,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 3,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 3
+    },
+    "retain/disjoint": {
+     "n": 67,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    }
+   },
+   "forget_route_recall": 83.63171355498721,
+   "forget_residual_from_routing": 16.36828644501279,
+   "forget_residual_from_actuation": 0.0,
+   "retain_false_fire_rate": 9.701492537313433
+  },
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    7.178778093973589,
+    4.047405245558196
+   ],
+   "quant_int4": [
+    6.765439972675365,
+    1.6186445155111129
+   ],
+   "relearn": [
+    12.60859089554323,
+    8.447960815143068
+   ],
+   "lens": [
+    81.00161492748086,
+    3.598357485466912
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:prompt_cache_idk": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "prompt_cache_idk",
+  "family": "trivial",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": true,
+  "runtime_components": [
+   "prompt_filter"
+  ],
+  "SCALPEL": [
+   0.0,
+   0.0
+  ],
+  "SCALPEL_core": [
+   3.604894870751413,
+   0.16894504847189745
+  ],
+  "E": [
+   1.232951411782156,
+   0.05957285172711465
+  ],
+  "E_mean": [
+   12.844760183268852,
+   0.2959102801158618
+  ],
+  "E_min": [
+   0.0,
+   0.0
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "L": [
+   90.38710393865678,
+   4.21888739146245
+  ],
+  "L_mean": [
+   92.97595520421608,
+   2.417578271345445
+  ],
+  "L_min": [
+   66.64822134387353,
+   10.58168542474017
+  ],
+  "U": [
+   100.0,
+   0.0
+  ],
+  "R": [
+   2.842170943040401e-15,
+   6.3552874323130195e-15
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    100.0,
+    0.0
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    100.0,
+    0.0
+   ],
+   "forget/multifact": [
+    100.0,
+    0.0
+   ],
+   "forget/multihop": [
+    100.0,
+    0.0
+   ],
+   "forget/multiturn": [
+    100.0,
+    0.0
+   ],
+   "forget/paraphrase": [
+    99.66101694915254,
+    0.7579891449151824
+   ],
+   "forget/question": [
+    97.58090158469665,
+    2.6607444573273202
+   ],
+   "forget/surface": [
+    100.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    100.0,
+    0.0
+   ],
+   "retain/in_context": [
+    67.04347826086958,
+    10.039619059041117
+   ],
+   "retain/name_collision": [
+    100.0,
+    0.0
+   ],
+   "retain/same_object": [
+    100.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    100.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    76.76416337285903,
+    14.760773915894383
+   ],
+   "retain/same_subject": [
+    100.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    100.0,
+    0.0
+   ]
+  },
+  "strict_SCALPEL": [
+   2.941176470588235,
+   0.0
+  ],
+  "unlearn_seconds": [
+   0.001197481155395508,
+   0.0001496566733963042
+  ],
+  "inference_overhead": [
+   1.603786898195103,
+   0.03605337899929279
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 68.04123711340206,
+    "refusal": 31.95876288659794,
+    "hallucination_or_other": 0.0,
+    "n": 388
+   },
+   "retain": {
+    "correct": 95.84905660377359,
+    "false_refusal": 4.150943396226415,
+    "wrong": 0.0,
+    "n": 265
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    63.017341490747796,
+    1.387214870692097
+   ],
+   "quant_int4": [
+    66.90097801070179,
+    2.564015344440737
+   ],
+   "relearn": [
+    63.195547190732555,
+    2.346876237303413
+   ],
+   "lens": [
+    100.0,
+    7.105427357601002e-15
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:rmu": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "rmu",
+  "family": "representation",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   2.966110527510841,
+   4.455624277385177
+  ],
+  "SCALPEL_core": [
+   8.080800182768105,
+   2.6567709454348845
+  ],
+  "E": [
+   8.289664830842861,
+   6.912928528559544
+  ],
+  "E_mean": [
+   35.38034299717062,
+   26.93212982185917
+  ],
+  "E_min": [
+   1.7407407407407418,
+   2.4272685004164374
+  ],
+  "E_direct": [
+   11.6,
+   4.560701700396552
+  ],
+  "L": [
+   39.6906183594117,
+   48.49634194610767
+  ],
+  "L_mean": [
+   77.1668059434907,
+   14.652138832808559
+  ],
+  "L_min": [
+   32.56684491978609,
+   44.73095016556022
+  ],
+  "U": [
+   84.51791050091657,
+   22.317041528958086
+  ],
+  "R": [
+   5.781305114638448,
+   11.965865786341872
+  ],
+  "families": {
+   "forget/context_prefix": [
+    90.60223757592179,
+    4.828526340165274
+   ],
+   "forget/crosslingual": [
+    39.83461154821968,
+    53.27425561083275
+   ],
+   "forget/direct": [
+    88.4,
+    4.560701700396551
+   ],
+   "forget/indirect": [
+    95.0,
+    11.180339887498949
+   ],
+   "forget/multifact": [
+    96.68031189083821,
+    3.389050206930095
+   ],
+   "forget/multihop": [
+    31.0,
+    44.21538193886829
+   ],
+   "forget/multiturn": [
+    38.125,
+    52.309923771689824
+   ],
+   "forget/paraphrase": [
+    92.46610169491525,
+    6.223074722838603
+   ],
+   "forget/question": [
+    41.90651260504202,
+    49.04472536389313
+   ],
+   "forget/surface": [
+    86.34248070769809,
+    12.989969124301213
+   ],
+   "retain/disjoint": [
+    81.22372744263292,
+    13.037050528802254
+   ],
+   "retain/in_context": [
+    38.26086956521739,
+    52.39085332658111
+   ],
+   "retain/name_collision": [
+    85.34615384615384,
+    15.242371260955585
+   ],
+   "retain/same_object": [
+    93.65671148279844,
+    3.8871917167205625
+   ],
+   "retain/same_relation": [
+    95.897260703316,
+    3.44198263981522
+   ],
+   "retain/same_sentence": [
+    95.05050505050505,
+    5.594446063049694
+   ],
+   "retain/same_subject": [
+    93.48169755492411,
+    5.865515145193373
+   ],
+   "retain/subject_mentioned": [
+    34.41752190237797,
+    46.61831310829239
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   55.821475982666016,
+   4.697189936917987
+  ],
+  "inference_overhead": [
+   0.9123078940080676,
+   0.014500682573411326
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 52.577319587628864,
+    "refusal": 0.0,
+    "hallucination_or_other": 47.422680412371136,
+    "n": 388
+   },
+   "retain": {
+    "correct": 65.28301886792453,
+    "false_refusal": 0.0,
+    "wrong": 34.716981132075475,
+    "n": 265
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    79.95391078320074,
+    14.88951257229746
+   ],
+   "quant_int4": [
+    78.70521709273386,
+    18.39815863449862
+   ],
+   "relearn": [
+    93.6036866359447,
+    11.785411341611505
+   ],
+   "lens": [
+    93.18746006739254,
+    13.397934832595663
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:rome": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "rome",
+  "family": "locate_edit",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   1.589172916401066,
+   3.553498669074374
+  ],
+  "SCALPEL_core": [
+   20.033723632940376,
+   7.411691093438731
+  ],
+  "E": [
+   8.45513033389474,
+   3.6416310133597602
+  ],
+  "E_mean": [
+   38.90267497202443,
+   1.7897019512078658
+  ],
+  "E_min": [
+   2.0059523809523796,
+   1.8379753384284558
+  ],
+  "E_direct": [
+   82.8,
+   5.0199601592044525
+  ],
+  "L": [
+   57.17728796438193,
+   11.367755894899325
+  ],
+  "L_mean": [
+   71.0046385219451,
+   5.042879089736866
+  ],
+  "L_min": [
+   30.01405357927097,
+   12.4786337672713
+  ],
+  "U": [
+   98.69813294275974,
+   0.7309762487404378
+  ],
+  "R": [
+   0.8291873963515798,
+   1.8541193843281856
+  ],
+  "families": {
+   "forget/context_prefix": [
+    16.571157623789205,
+    4.182224305171189
+   ],
+   "forget/crosslingual": [
+    93.27764498361803,
+    1.3110609444445604
+   ],
+   "forget/direct": [
+    17.2,
+    5.019960159204453
+   ],
+   "forget/indirect": [
+    81.66666666666667,
+    29.107081994288297
+   ],
+   "forget/multifact": [
+    23.58754424864823,
+    8.911312840656578
+   ],
+   "forget/multihop": [
+    92.28571428571429,
+    7.256242913828743
+   ],
+   "forget/multiturn": [
+    94.54645593869732,
+    3.412510751362062
+   ],
+   "forget/paraphrase": [
+    31.364857554994593,
+    8.38875708843023
+   ],
+   "forget/question": [
+    95.06514528217564,
+    2.623897570561434
+   ],
+   "forget/surface": [
+    42.08008030616726,
+    8.566122072600455
+   ],
+   "retain/disjoint": [
+    86.55861625015854,
+    3.602961021477167
+   ],
+   "retain/in_context": [
+    100.0,
+    0.0
+   ],
+   "retain/name_collision": [
+    72.4636752136752,
+    12.68216305855078
+   ],
+   "retain/same_object": [
+    66.55126046430394,
+    5.728172952783846
+   ],
+   "retain/same_relation": [
+    79.1763988534502,
+    8.799886457716365
+   ],
+   "retain/same_sentence": [
+    30.59376372419851,
+    12.570058558928855
+   ],
+   "retain/same_subject": [
+    33.707160878785594,
+    9.758654209962593
+   ],
+   "retain/subject_mentioned": [
+    98.98623279098874,
+    1.417641926372376
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   434.4001781463623,
+   32.04593934068262
+  ],
+  "inference_overhead": [
+   0.9153949180758214,
+   0.018501523944711582
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 64.94845360824742,
+    "refusal": 0.0,
+    "hallucination_or_other": 35.05154639175258,
+    "n": 388
+   },
+   "retain": {
+    "correct": 87.54716981132076,
+    "false_refusal": 0.0,
+    "wrong": 12.452830188679245,
+    "n": 265
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    42.429938556907594,
+    4.579603649699902
+   ],
+   "quant_int4": [
+    48.526790282375345,
+    4.7756655259988605
+   ],
+   "relearn": [
+    95.84269686339981,
+    3.145617827424244
+   ],
+   "lens": [
+    99.01320819072487,
+    1.7986788107364844
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:subject_blocklist_idk": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "subject_blocklist_idk",
+  "family": "trivial",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": true,
+  "runtime_components": [
+   "subject_filter"
+  ],
+  "SCALPEL": [
+   0.0,
+   0.0
+  ],
+  "SCALPEL_core": [
+   4.6063372621915075,
+   0.01991569740435405
+  ],
+  "E": [
+   7.341652997658739,
+   0.14794958995488092
+  ],
+  "E_mean": [
+   80.45273109243696,
+   2.231662083666351
+  ],
+  "E_min": [
+   0.0,
+   0.0
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "L": [
+   1.9801427847504165,
+   7.564620958221125e-05
+  ],
+  "L_mean": [
+   49.862987987987985,
+   0.18764075989905873
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   99.82249530636628,
+   0.2504370139549311
+  ],
+  "R": [
+   2.842170943040401e-15,
+   6.3552874323130195e-15
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    0.0,
+    0.0
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    95.0,
+    11.180339887498949
+   ],
+   "forget/multifact": [
+    0.0,
+    0.0
+   ],
+   "forget/multihop": [
+    56.378151260504204,
+    17.853296669330796
+   ],
+   "forget/multiturn": [
+    0.0,
+    0.0
+   ],
+   "forget/paraphrase": [
+    0.0,
+    0.0
+   ],
+   "forget/question": [
+    0.0,
+    0.0
+   ],
+   "forget/surface": [
+    100.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    100.0,
+    0.0
+   ],
+   "retain/in_context": [
+    0.0,
+    0.0
+   ],
+   "retain/name_collision": [
+    100.0,
+    0.0
+   ],
+   "retain/same_object": [
+    98.90390390390391,
+    1.5011260791924699
+   ],
+   "retain/same_relation": [
+    100.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    0.0,
+    0.0
+   ],
+   "retain/same_subject": [
+    0.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    0.0,
+    0.0
+   ]
+  },
+  "strict_SCALPEL": [
+   2.941125052670036,
+   7.256221261135158e-05
+  ],
+  "unlearn_seconds": [
+   0.0007879734039306641,
+   6.572162845872574e-05
+  ],
+  "inference_overhead": [
+   1.059694630537211,
+   0.02647112680013105
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 10.56701030927835,
+    "refusal": 89.43298969072166,
+    "hallucination_or_other": 0.0,
+    "n": 388
+   },
+   "retain": {
+    "correct": 61.132075471698116,
+    "false_refusal": 38.867924528301884,
+    "wrong": 0.0,
+    "n": 265
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    0.0,
+    0.0
+   ],
+   "quant_int4": [
+    0.0,
+    0.0
+   ],
+   "relearn": [
+    0.0,
+    0.0
+   ],
+   "lens": [
+    100.0,
+    7.105427357601002e-15
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:sure": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "sure",
+  "family": "detect_then_edit",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [
+   "router_hooks"
+  ],
+  "SCALPEL": [
+   11.958563536849514,
+   0.36391038069301895
+  ],
+  "SCALPEL_core": [
+   10.690899303129356,
+   0.07081589866412517
+  ],
+  "E": [
+   3.8382597447332585,
+   0.02785199926221134
+  ],
+  "E_mean": [
+   56.491609317696074,
+   7.165091308593656
+  ],
+  "E_min": [
+   0.0,
+   0.0
+  ],
+  "E_direct": [
+   95.6,
+   4.560701700396552
+  ],
+  "L": [
+   99.67614894617589,
+   0.36752414386314175
+  ],
+  "L_mean": [
+   99.69030825496343,
+   0.3469142291981343
+  ],
+  "L_min": [
+   97.52246603970742,
+   2.7753138335850913
+  ],
+  "U": [
+   99.5655806182122,
+   0.6924433010894581
+  ],
+  "R": [
+   18.998385072519138,
+   3.598357485466912
+  ],
+  "families": {
+   "forget/context_prefix": [
+    6.369301632459527,
+    5.418923502988085
+   ],
+   "forget/crosslingual": [
+    42.77398358977383,
+    13.834692115987195
+   ],
+   "forget/direct": [
+    4.4,
+    4.560701700396552
+   ],
+   "forget/indirect": [
+    100.0,
+    0.0
+   ],
+   "forget/multifact": [
+    12.987902127825105,
+    12.73678695125656
+   ],
+   "forget/multihop": [
+    100.0,
+    0.0
+   ],
+   "forget/multiturn": [
+    36.69332694763729,
+    12.557441526724151
+   ],
+   "forget/paraphrase": [
+    20.424269743959613,
+    7.697262674638304
+   ],
+   "forget/question": [
+    28.818341416775958,
+    10.176998700477531
+   ],
+   "forget/surface": [
+    100.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    100.0,
+    0.0
+   ],
+   "retain/in_context": [
+    100.0,
+    0.0
+   ],
+   "retain/name_collision": [
+    100.0,
+    0.0
+   ],
+   "retain/same_object": [
+    100.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    100.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    98.66666666666666,
+    2.9814239699997214
+   ],
+   "retain/same_subject": [
+    100.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    98.85579937304075,
+    1.6209503619371055
+   ]
+  },
+  "strict_SCALPEL": [
+   2.941049547312929,
+   0.00020276336805515215
+  ],
+  "unlearn_seconds": [
+   714.5811339378357,
+   18.413145049569064
+  ],
+  "inference_overhead": [
+   1.3302452762589811,
+   0.03169616911201511
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 62.210796915167094,
+    "refusal": 0.0,
+    "hallucination_or_other": 37.789203084832906,
+    "n": 389
+   },
+   "retain": {
+    "correct": 99.6268656716418,
+    "false_refusal": 0.0,
+    "wrong": 0.373134328358209,
+    "n": 268
+   }
+  },
+  "routing": {
+   "by_family": {
+    "forget/direct": {
+     "n": 50,
+     "routed_right": 44,
+     "routed_wrong": 0,
+     "missed": 6,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 6
+    },
+    "forget/paraphrase": {
+     "n": 60,
+     "routed_right": 42,
+     "routed_wrong": 0,
+     "missed": 18,
+     "false_fire": 0,
+     "residual_when_routed_right": 1,
+     "residual_when_missed": 18
+    },
+    "forget/question": {
+     "n": 31,
+     "routed_right": 17,
+     "routed_wrong": 0,
+     "missed": 14,
+     "false_fire": 0,
+     "residual_when_routed_right": 1,
+     "residual_when_missed": 13
+    },
+    "forget/surface": {
+     "n": 21,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 21,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 21
+    },
+    "forget/context_prefix": {
+     "n": 72,
+     "routed_right": 61,
+     "routed_wrong": 0,
+     "missed": 11,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 11
+    },
+    "forget/multifact": {
+     "n": 27,
+     "routed_right": 18,
+     "routed_wrong": 0,
+     "missed": 9,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 9
+    },
+    "forget/multiturn": {
+     "n": 30,
+     "routed_right": 15,
+     "routed_wrong": 0,
+     "missed": 15,
+     "false_fire": 0,
+     "residual_when_routed_right": 2,
+     "residual_when_missed": 15
+    },
+    "forget/crosslingual": {
+     "n": 76,
+     "routed_right": 33,
+     "routed_wrong": 0,
+     "missed": 43,
+     "false_fire": 0,
+     "residual_when_routed_right": 6,
+     "residual_when_missed": 43
+    },
+    "retain/same_object": {
+     "n": 46,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/same_relation": {
+     "n": 35,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/in_context": {
+     "n": 23,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 1,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "forget/multihop": {
+     "n": 21,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 21,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 21
+    },
+    "retain/same_subject": {
+     "n": 19,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 1,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/same_sentence": {
+     "n": 18,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/subject_mentioned": {
+     "n": 44,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 3,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "retain/name_collision": {
+     "n": 16,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    },
+    "forget/indirect": {
+     "n": 3,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 3,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 3
+    },
+    "retain/disjoint": {
+     "n": 67,
+     "routed_right": 0,
+     "routed_wrong": 0,
+     "missed": 0,
+     "false_fire": 0,
+     "residual_when_routed_right": 0,
+     "residual_when_missed": 0
+    }
+   },
+   "forget_route_recall": 58.8235294117647,
+   "forget_residual_from_routing": 40.92071611253197,
+   "forget_residual_from_actuation": 2.557544757033248,
+   "retain_false_fire_rate": 1.8656716417910448
+  },
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    16.53008661237626,
+    6.07413305980434
+   ],
+   "quant_int4": [
+    19.029365327377313,
+    3.0083574706318004
+   ],
+   "relearn": [
+    25.35781919893619,
+    10.16339960899534
+   ],
+   "lens": [
+    81.00161492748086,
+    3.598357485466912
+   ]
+  }
+ },
+ "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests:zerounlearn": {
+  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.2-3B-Instruct \u00b7 50 requests",
+  "method": "zerounlearn",
+  "family": "locate_edit",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   21.429769115163015,
+   10.257896124209394
+  ],
+  "SCALPEL_core": [
+   55.16271940835544,
+   20.801122590392737
+  ],
+  "E": [
+   38.913214744896315,
+   17.913832910003524
+  ],
+  "E_mean": [
+   58.87246746817236,
+   1.8435155272882404
+  ],
+  "E_min": [
+   21.089285714285715,
+   12.20709113505719
+  ],
+  "E_direct": [
+   96.4,
+   3.8470768123342687
+  ],
+  "L": [
+   67.36709649077207,
+   3.85552516859118
+  ],
+  "L_mean": [
+   75.7813604520235,
+   2.367358622088649
+  ],
+  "L_min": [
+   38.555105713000444,
+   6.243485214563831
+  ],
+  "U": [
+   96.9064005395676,
+   1.3222462439773595
+  ],
+  "R": [
+   8.729010280235238,
+   4.345089636593758
+  ],
+  "families": {
+   "forget/context_prefix": [
+    7.183837973311657,
+    2.8560879040065976
+   ],
+   "forget/crosslingual": [
+    61.889206103918106,
+    6.061020039476877
+   ],
+   "forget/direct": [
+    3.6,
+    3.847076812334269
+   ],
+   "forget/indirect": [
+    61.66666666666667,
+    36.132472314464664
+   ],
+   "forget/multifact": [
+    12.267774017453094,
+    3.381427794017229
+   ],
+   "forget/multihop": [
+    76.66666666666667,
+    14.100988209367655
+   ],
+   "forget/multiturn": [
+    70.566091954023,
+    5.012271385193485
+   ],
+   "forget/paraphrase": [
+    11.951887246063228,
+    6.758467215510899
+   ],
+   "forget/question": [
+    61.299338610771244,
+    3.8387979633083407
+   ],
+   "forget/surface": [
+    27.1954576824142,
+    11.121119402087288
+   ],
+   "retain/disjoint": [
+    88.24513794663048,
+    6.263519067360139
+   ],
+   "retain/in_context": [
+    100.0,
+    0.0
+   ],
+   "retain/name_collision": [
+    83.9508547008547,
+    8.733274822347756
+   ],
+   "retain/same_object": [
+    72.0103417929505,
+    12.4182351568256
+   ],
+   "retain/same_relation": [
+    84.54759720314789,
+    3.646711233966957
+   ],
+   "retain/same_sentence": [
+    42.69653052261748,
+    8.416874136738638
+   ],
+   "retain/same_subject": [
+    41.46055774888727,
+    6.49661260301644
+   ],
+   "retain/subject_mentioned": [
+    93.33986370109973,
+    2.259745598422399
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   637.9792450428009,
+   16.856921907944148
+  ],
+  "inference_overhead": [
+   0.91425305517926,
+   0.02762018392431236
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 36.597938144329895,
+    "refusal": 0.0,
+    "hallucination_or_other": 63.402061855670105,
+    "n": 388
+   },
+   "retain": {
+    "correct": 83.01886792452831,
+    "false_refusal": 0.0,
+    "wrong": 16.9811320754717,
+    "n": 265
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    20.64051216430322,
+    3.612182282408439
+   ],
+   "quant_int4": [
+    26.09093913423173,
+    3.2415287104134745
+   ],
+   "relearn": [
+    73.43205213980369,
+    6.103460096810312
+   ],
+   "lens": [
+    91.27098971976476,
+    4.345089636593758
+   ]
+  }
+ }
+}
