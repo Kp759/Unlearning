@@ -89,11 +89,11 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
   - a peeking model is rejected;
   - attacks restore weights exactly;
   - the fast scoring path matches the full forward pass.
-- **Full run on Llama-3.2-3B-Instruct** (cluster, 5 seeds, 50 requests per seed; `EVIDENCE.md` §4): 8 methods and 6 reference cheats.
-  - **SURE (our method) leads with a LETHE score of 30.1 ± 10.1**, ahead of ZeroUnlearn 21.4; GA / GD / NPO score 4.9–6.2, RMU 3.0, ROME 1.6, MEMIT 0.0.
-  - **Every reference cheat scores below 5** (the release gate is 35).
-  - **Each baseline fails a different axis:** GA / GD / NPO erase 92–97 but keep locality 1.3–1.7; ROME and MEMIT erase only 8–9 on held-out phrasings and the fact returns under attack (R ≤ 1); ZeroUnlearn reaches erasure 38.9 at locality 67.4.
-  - **SURE has measurable headroom:** it erases 95.6 of request prompts and keeps locality 95.6, but held-out phrasings leak (E 22.8). Over the 5 seeds, 213 of its 234 leaked probes were never routed (the router fired the right row on 89% of forget probes; when it fired, 21 probes leaked). E is set by `multihop`: 84 of 92 chain questions were not routed, because a router gated on the subject's name cannot fire on a chain that does not name it. It scores 2.9 in the weights-only tier.
+- **Full run on three models** (cluster; Llama-3.2-3B-Instruct, Qwen3-4B, Llama-3.1-8B-Instruct; 5 seeds and 50 requests per seed each; `EVIDENCE.md` §4): 11 methods and 6 reference cheats.
+  - **No method is close to solved, and the ranking depends on the model:** the best score on any model is 56.3 (ZeroUnlearn on Qwen3-4B), where the same method scores 15.6 on Llama-3.1-8B; SimNPO 32–44; SURE (our method) 19–28; MEMIT 31 on Qwen3-4B and 2–3 on the Llama models; GA / GD / NPO / ROME below 7.
+  - **Every reference cheat scores below 4 on every model** (the release gate is 35).
+  - **Each method fails a different axis:** GA / GD / NPO erase 79–100 but keep locality 1–2; a trained refusal falsely refuses 37–55% of retain questions; ROME and MEMIT erase 3–9 on held-out phrasings on Llama and the fact returns under attack (R ≤ 1); SimNPO erases 64–78 at locality 39–51; relearning restores 73–81% of ZeroUnlearn's forgotten facts on the Llama models.
+  - **Our own method is not the top row, and the table says why:** SURE keeps locality 94–96 and utility 100 on every model and erases 89–96 of the request prompts, but two families it is never routed on (`multihop` 94–96% residual, `indirect` 100%) hold its E at 7–22; route recall is 86–92%, and it scores 2.9 in the weights-only tier because its router and rows are runtime components.
 - **Pilot on real data** (laptop, no GPU; `results/pilot/README.md`): Qwen2.5-0.5B-Instruct, MCF + zsRE + MQuAKE facts, 50 requests, 520 probes.
   - **A subject-name blocklist scores 100 / 98.5 (erasure / locality) when only the families the official MCF/zsRE metrics use are counted, and 0 on LETHE-Bench.** It leaks under typos and multi-hop chains, and it refuses same-subject and in-context questions.
   - All six reference cheats are defeated (LETHE score below 5; core 2.8–16.2).
@@ -145,7 +145,7 @@ Everything is released openly: code under Apache-2.0, dev splits under CC BY 4.0
 
 | Risk | Mitigation |
 |---|---|
-| Our method is a baseline on our own benchmark | SURE is one of 14 methods on the leaderboard (8 methods, 6 reference cheats). One of the reference cheats is a string version of its design. The families where SURE is expected to fail (subject-free, cross-lingual, typo, multi-hop; strict tier) are reported like any other method's |
+| Our method is a baseline on our own benchmark | SURE is one of 17 rows on the leaderboard (11 methods, 6 reference cheats) on three models, and it is not the top method on any of them (SimNPO and ZeroUnlearn score higher; `EVIDENCE.md` §4). One of the reference cheats is a string version of its design. The families where SURE is expected to fail (subject-free, cross-lingual, typo, multi-hop; strict tier) are reported like any other method's |
 | Low knowledge-filter yield on small models | Yields are reported per family; families below 5 probes are excluded and flagged; the release uses models of 3B and up |
 | Indirect probes inferable from retained facts | Descriptions are drawn from other answer groups; expert-written references (ask 1) |
 | The benchmark saturates | Saturation is flagged per family; harder families are planned (agentic, ×10 languages, 10k-request scale); the hidden test is refreshed |

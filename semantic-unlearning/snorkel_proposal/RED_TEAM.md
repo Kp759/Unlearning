@@ -51,6 +51,7 @@ The gate (`redteam.cheat_gate`) requires **max(LETHE, LETHE_core) < 35** for eve
 - The legacy benchmarks are saturated (`EVIDENCE.md`). LETHE-Bench adds families that the repository's strongest method is expected to fail (indirect, multihop, crosslingual, surface), and an attack axis no legacy benchmark measures.
 - Scores are per family, so saturation of any one family is visible. A family above 98% for every method on the leaderboard is flagged for v-next.
 - Difficulty can scale with forget-set size (50 → 1k → 10k), sequential batches, and harder families (expert-written indirect references, more languages).
+- The attack axis can be made stronger as methods improve. The repository already implements representation-level readouts beyond the logit lens (a tuned affine lens fitted on retain prompts and a supervised answer probe trained on other subjects, after Gao et al. 2026, arXiv:2604.08271, `../scripts/representation_recoverability.py`); on the legacy benchmarks they show that our own method removes the answer from every readout through the model's vocabulary but a probe trained on retained facts still classifies the hidden state by the forgotten answer at close to base accuracy. Adding them to R is planned for v1.1, with the white-box threat model declared as a tier.
 - Against stale task sets: dev splits are re-sampled per seed and model; the hidden test is rebuilt with a new private seed and templates when refreshed; the fact pool can be re-derived from current Wikidata-based sources.
 
 ## 7. Environment robustness

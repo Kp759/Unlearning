@@ -13,7 +13,7 @@ number comes from: **Sources** at the end.
 
 **Please describe or link to impactful research artifact you've shipped** (100 words max) [81 words]
 
-- **LETHE-Bench** (this repository): split builder over 38k Wikidata-derived facts, 20 probe families, deterministic scorers, attacks, threat-model tiers, sequential and agentic tracks; 8 methods and 6 reference cheats evaluated.
+- **LETHE-Bench** (this repository): split builder over 38k Wikidata-derived facts, 20 probe families, deterministic scorers, attacks, threat-model tiers, sequential and agentic tracks; 11 methods and 6 reference cheats evaluated on three models.
 - **SURE**, our detect-then-edit unlearning method (per-fact linear router plus one residual row per fact), with a perfect-routing decomposition that splits every failure into routing versus actuation.
 - **A 4-benchmark × 5-seed unlearning study** (MultiCounterFact, zsRE, MQuAKE, RWKU; 7 baselines; official evaluators).
 - Code: https://github.com/Kp759/Unlearning [add paper / preprint link if any]
@@ -36,7 +36,7 @@ LETHE-Bench: a benchmark for surgical, fact-level unlearning in language models
 
 *Grading.* Deterministic. A probe counts as answered if every answer token is the model's top-1 under teacher forcing (any alias); a rule grader scores greedy generations as leak, refusal or false refusal. Erasure E and locality L are harmonic means over held-out forget and retain families; utility U covers MMLU, TriviaQA and perplexity; robustness R is the worst residual under logit-lens, int8/int4 quantization and relearning attacks. The LETHE score is their harmonic mean. A sequential track tests whether locality erodes as deletions accumulate. Three tiers separate behaviour, shipped weights and weights only (runtime components removed), so a guardrail cannot pass as removal. Six reference cheats (subject blocklist, answer ban, keyword router, prompt cache, refuse-all, no-op) must score below 35 before a split is released.
 
-*Results so far* (Llama-3.2-3B-Instruct, 5 seeds). SURE 30.1 ± 10.1, ZeroUnlearn 21.4, GA/GD/NPO 4.9–6.2, RMU 3.0, ROME 1.6, MEMIT 0, every cheat below 5 (gate 35). The scores expose trade-offs the legacy benchmarks hide: GA reaches erasure 97 but locality 1; ZeroUnlearn erasure 39 at locality 67; ROME and MEMIT barely erase held-out phrasings (E 9) and the fact returns under attack (R ≤ 1). SURE, near-saturated on the legacy benchmarks, erases 96% of request prompts but scores only 23 on held-out phrasings, and drops to 2.9 once its runtime router is removed.
+*Results so far* (Llama-3.2-3B, Qwen3-4B, Llama-3.1-8B; 11 methods, 6 cheats, 5 seeds each). No method exceeds 60 and the ranking changes with the model: ZeroUnlearn scores 56 on Qwen3-4B but 16 on Llama-3.1-8B; SimNPO 32–44; our own SURE 19–28; MEMIT 31 on Qwen3-4B and 2–3 on Llama; GA/GD/NPO/ROME below 7; every cheat below 4 (gate 35). The scores expose trade-offs the legacy benchmarks hide: GA erases 97 but keeps locality 1; SimNPO erases 64–78 at locality 39–51; SURE, near-saturated on the legacy benchmarks, keeps locality 94–96 but scores 7–22 on held-out phrasings and 2.9 once its runtime router is removed.
 
 *Outputs and impact.* Open splits for eight models from five families (3B–27B), a hidden-test service, a public leaderboard, an agentic leakage track and a Datasets & Benchmarks paper. Deployers learn whether a deletion removed the fact; method developers learn exactly where it leaks.
 
@@ -56,7 +56,7 @@ The closest are RWKU (Jin et al., 2024), Leak-Resistant Unlearning (Qian et al.,
 
 *Embedded support:* review of the split-builder and hidden-test pipeline, schema validation of the probe families and dataset card, red-team review of the grader and contamination defences, and help turning the agentic prototype into a full environment.
 
-*Compute / hosting (partner benefits):* about 5,000 A100-80GB hours as compute credits (8 models, 5 families, 3B–27B; 5–10 seeds; 14 methods; scaling, sequential and agentic tracks), multi-GPU nodes for the largest; hosting for the hidden-test service and leaderboard.
+*Compute / hosting (partner benefits):* about 5,000 A100-80GB hours as compute credits (8 models, 5 families, 3B–27B; 5–10 seeds; 17 methods; scaling, sequential and agentic tracks), multi-GPU nodes for the largest; hosting for the hidden-test service and leaderboard.
 
 *Milestones:*
 1. Month 1: v1.0 freeze; every split passes validation and every cheat scores below 35.
@@ -72,7 +72,7 @@ The closest are RWKU (Jin et al., 2024), Leak-Resistant Unlearning (Qian et al.,
 6 months
 
 **Supporting materials** (optional on the form)
-`PROPOSAL.md` and `EVIDENCE.md` (exported to PDF); `results/cluster/llama32_3b/dev/leaderboard/leaderboard.md` (Llama-3.2-3B, 5 seeds). The cluster leaderboard lives on Wulver, not in this repository: rerun `sbatch scripts/slurm/scalpel_report.slurm` after pulling the rename (its title then reads LETHE-Bench) and copy the file here before exporting.
+`PROPOSAL.md` and `EVIDENCE.md` (exported to PDF); `results/cluster/leaderboard_dev/leaderboard.md` (all three models, 5 seeds; the per-model files and `pareto.png` are next to it under `results/cluster/<model>/dev/leaderboard/`). The cluster results are produced on Wulver; commit the leaderboard files to the repository before exporting.
 
 **Terms checkbox**
 The terms (benchmarks.snorkel.ai/terms) require, before ticking: (1) your institution's IP policy permits the project and its open release, and you hold any needed approvals; (2) outputs are released under a permissive licence (code Apache-2.0, dev splits CC BY 4.0, see `DATA_LICENSE.md`; zsRE redistribution terms must be confirmed first); (3) Snorkel's support is acknowledged in publications, and Snorkel researchers are credited as contributors or co-authors where standard authorship criteria apply; (4) Snorkel may name the team, institution, project summary and open-source output in program materials; (5) non-public information shared during the project stays confidential. Support is in-kind only (no cash).
@@ -81,8 +81,8 @@ The terms (benchmarks.snorkel.ai/terms) require, before ticking: (1) your instit
 
 ## Sources (not part of the form)
 
-All numbers are Llama-3.2-3B-Instruct, as of 2026-10-25.
+Legacy-benchmark numbers are Llama-3.2-3B-Instruct (2026-10-25); LETHE-Bench numbers are the three-model run of 2026-10-29.
 
 - **Legacy benchmarks** (`outputs/onepass_l19_v1/paper_table.md`, jobs 1452463 / 1452464): SURE (run directory `ours`; classifier and Δe at layer 19, one pass) over 5 seeds, against the base model over 5 seeds. Recall removed = 1 − Eff/Base Eff: MCF 0.001/13.46, zsRE 0.41/32.37, MQuAKE 0.53/73.23, RWKU 2.40/57.60 → 95.8–100%. Locality kept = Spe/Base Spe: 19.84/19.88, 29.79/29.79, 55.53/66.13 (Spe† 66.50/67.34), 61.82/63.70 → 84.0–100%. PPL 11.31 everywhere, equal to base.
-- **LETHE-Bench** (`results/cluster/llama32_3b/dev/leaderboard/leaderboard.md`, dev partition, seeds 1–5; the full table is in `EVIDENCE.md` §4): LETHE score / E / L / R for SURE 30.1 ± 10.1 / 22.8 / 95.6 / 19.0 (E_direct 95.6, Strict 2.9; rerun job 1452482; the original adapter `sure`, 12.0, is excluded from the leaderboard with `--exclude sure`); zerounlearn 21.4 / 38.9 / 67.4 / 8.7; npo 6.2, gd 5.5, ga 4.9 (GA E 97.1, L 1.3); rmu 3.0; rome 1.6 (E 8.5, L 57.2, R 0.8); memit 0.0 (E 9.0, L 91.8, R 0.0); all six cheats 0.0.
+- **LETHE-Bench** (`results/cluster/leaderboard_dev/leaderboard.md`, dev partition, seeds 1–5, teacher-forced scorer; the per-axis tables are in `EVIDENCE.md` §4): LETHE per model (Llama-3.2-3B / Qwen3-4B / Llama-3.1-8B): zerounlearn 21.3 / 56.3 / 15.6; simnpo 37.4 / 31.7 / 43.7; SURE 28.4 / 22.3 / 18.7 (E 22.2 / 7.5 / 6.9, L 95.5 / 94.3 / 95.7, U 100, Strict 2.9); memit 1.7 / 30.7 / 3.2; ga, gd, npo, rome 3.0–6.8; largest cheat 3.4. "GA erases 97 at locality 1" = Llama-3.2-3B E 97.3, L 1.3; "SimNPO 64–78 at 39–51" = E 63.5–77.5, L 38.9–51.2 across the three models; "relearning restores 73–81% of ZeroUnlearn's facts" = the attacks table, Llama models. The original SURE adapter `sure` is excluded with `--exclude sure`.
 - **GPU compute** (`ROADMAP.md`, "GPU compute"): the 8-model grid (Llama-3.2-3B, Llama-3.1-8B, Qwen3-4B, Qwen3-14B, Gemma-3-4B, Gemma-3-27B, Mistral-Small-24B, OLMo-2-7B) and the ≈ 5,000 A100-80GB-hour breakdown, from a measured ≈ 1.8 GPU-hours per model and seed for every method on Llama-3.2-3B (Wulver `sacct`, October 2026). GPU compute is requested as partner compute credits, which the terms list among the in-kind support (with Expert Data-as-a-Service and Snorkel research / engineering time; no cash). Confirm with benchmarks@snorkel.ai how much the credits cover.

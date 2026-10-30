@@ -33,6 +33,26 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 - SURE leads, with perfect locality, but questions, cross-lingual queries, typos and multi-hop chains leak. 49 of its 58 residual points are routing misses.
 - The existing four-benchmark study is summarised in `EVIDENCE.md`.
 
+## Cluster results: three models, 5 seeds each
+
+`results/cluster/leaderboard_dev/leaderboard.md` (Wulver; `EVIDENCE.md` §4 has the per-axis tables). 11 methods and 6 reference cheats, 50 requests per seed, LETHE score (mean ± sd over seeds):
+
+| Method | Llama-3.2-3B | Qwen3-4B | Llama-3.1-8B |
+|---|---|---|---|
+| SimNPO | 37.4 ± 20.1 | 31.7 ± 15.6 | 43.7 ± 13.6 |
+| ZeroUnlearn | 21.3 ± 9.5 | 56.3 ± 5.8 | 15.6 ± 5.2 |
+| SURE_early (ours, layer 16) | 35.4 ± 22.7 | 18.5 ± 2.9 | 28.1 ± 16.9 |
+| SURE (ours, layer 19) | 28.4 ± 11.6 | 22.3 ± 0.7 | 18.7 ± 3.5 |
+| MEMIT | 1.7 ± 1.8 | 30.7 ± 9.0 | 3.2 ± 0.4 |
+| trained refusal (IDK-FT) | 11.4 ± 0.6 | 11.0 ± 1.3 | 10.9 ± 0.2 |
+| task-vector negation | 5.7 ± 1.4 | 10.2 ± 3.8 | 7.7 ± 1.8 |
+| RMU / GA / GD / NPO / ROME | 3.0–6.2 | 4.5–7.5 | 3.2–7.8 |
+| six reference cheats † | 1.0–1.7 | 1.9–3.4 | 1.9–3.4 |
+
+- No method is close to solved, and the ranking changes with the model: ZeroUnlearn is first on Qwen3-4B and fourth on Llama-3.1-8B; MEMIT scores 30.7 on Qwen3-4B and 1.7–3.2 on Llama.
+- The red-team gate passes on every model: the largest cheat score is 3.4 against a gate of 35.
+- Our own method is not the top row: SURE keeps locality 94–96 and utility 100 but is never routed on subject-free and multi-hop probes, so its erasure over held-out families is 7–22.
+
 ## Quickstart
 
 ```bash
