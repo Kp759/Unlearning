@@ -1,0 +1,38 @@
+% Table 1: unlearning on Llama-3.2-3B-Instruct, mean over 5 seeds.
+% Ours = outputs/l16_ours_v1 (L19 router, Delta e at L16); baselines and Base = outputs/l16_paper_v1.
+% Regenerate the numbers with scripts/l16_paper_table.py (per tag); this file is the paper layout.
+% RWKU "Ours" is the fact-level router; the entity-gate run (RWKU_GATE=subject) replaces that cell.
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabular}{l cccc cccc cccc cccc}
+\toprule
+& \multicolumn{4}{c}{MCF} & \multicolumn{4}{c}{ZsRE} & \multicolumn{4}{c}{MQuAKE} & \multicolumn{4}{c}{RWKU} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(lr){10-13}\cmidrule(lr){14-17}
+Method & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL \\
+\midrule
+Base        & 13.46 & 10.26 & 19.88 & 11.31 & 32.37 & 31.20 & 29.79 & 11.31 & 73.23 & 46.44 & 66.13 & 11.31 & 57.60 & 54.77 & 63.70 & 11.31 \\
+\midrule
+GA          & 0.025 & 0.277 & 0.36 & 30.82 & 19.38 & 19.07 & 26.24 & 12.67 & 7.98 & 10.80 & 12.68 & 16.12 & 23.20 & 30.55 & 39.57 & 11.69 \\
+GD          & 0.032 & 0.321 & 0.48 & 31.00 & 19.52 & 19.40 & 26.36 & 12.91 & 9.30 & 11.92 & 14.18 & 16.48 & 23.60 & 30.46 & 39.72 & 11.80 \\
+NPO         & 0.026 & 0.160 & 0.12 & 29.02 & 17.55 & 17.52 & 25.40 & 12.72 & 4.65 & 7.78 & 8.39 & 16.58 & 18.80 & 24.08 & 30.22 & 14.00 \\
+RMU         & 0.008 & 0.039 & 1.00 & 11.50 & \textbf{0.00} & \textbf{0.05} & 7.55 & 11.49 & 0.30 & 6.89 & 0.67 & 11.48 & \textbf{0.80} & \textbf{0.27} & 0.14 & 11.43 \\
+ROME        & 4.749 & 5.636 & 18.36 & 11.46 & 33.46 & 31.94 & \textbf{29.90} & 11.42 & 10.23 & 15.90 & 32.35 & 11.97 & 2.40 & 4.32 & 30.74 & 11.36 \\
+MEMIT       & 9.563 & 8.546 & 19.76 & 11.38 & 32.94 & 31.11 & 29.80 & 11.36 & 31.36 & 26.24 & 55.05 & 11.47 & 36.80 & 39.78 & 59.96 & 11.35 \\
+ZeroUnlearn & 0.270 & 2.313 & 15.84 & 11.55 & 27.81 & 27.37 & 29.23 & 11.54 & 18.93 & 22.76 & 49.79 & 11.45 & 18.80 & 22.53 & 49.49 & 11.45 \\
+\textbf{Ours} & \textbf{0.001} & \textbf{0.027} & \textbf{19.84} & \textbf{11.31} & 0.17 & 1.24 & 29.79 & \textbf{11.31} & \textbf{0.10} & \textbf{1.49} & \textbf{55.07} & \textbf{11.31} & 2.00 & 33.61 & \textbf{61.89} & \textbf{11.31} \\
+\midrule
+Genie       & 0.001 & 0.001 & 19.88 & 11.31 & 0.17 & 0.17 & 29.79 & 11.31 & 0.10 & 0.10 & 56.21 & 11.31 & 0.00 & 54.77 & 63.70 & 11.31 \\
+Genie (entity) & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.00 & 21.04 & 63.70 & 11.31 \\
+\bottomrule
+\end{tabular}
+\caption{Unlearning results on Llama-3.2-3B-Instruct (mean over 5 seeds). Eff, Gen $\downarrow$ (forgetting);
+Spe $\uparrow$ (locality); PPL should stay at Base (11.31). Bold: best trained method (Base and Genie
+excluded; PPL: closest to Base). Ours: per-fact router at layer 19, $\Delta e$ written at layer 16.
+Genie: the same rows under perfect routing (every official forget prompt to its own row). On MQuAKE,
+Spe over retain facts that do not repeat a forget fact is 67.3 (Base) and 66.0 (Ours). RWKU Gen is
+held-out facts about the forgotten person; Genie (entity) routes every such probe to the person's row
+and bounds what entity-level routing can reach with these rows.}
+\label{tab:main}
+\end{table*}
