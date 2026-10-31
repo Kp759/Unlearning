@@ -104,8 +104,11 @@ def markdown(table: Dict[str, Dict], title: str = "LETHE-Bench leaderboard") -> 
     lines = [f"# {title}", "",
              "All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, "
              "U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). "
-             "LETHE = harmonic mean of the available E, L, U, R (1-point floor on each). E_complete = share of requests "
-             "whose every held-out forget probe is erased. *Strict* = weights only (runtime components removed). Rows marked † are reference cheats the benchmark must defeat.", ""]
+             "LETHE = harmonic mean of the available E, L, U, R (1-point floor on each). *Strict* = weights only "
+             "(runtime components removed; – for methods without any). Rows marked † are reference cheats the benchmark "
+             "must defeat. The table \"behind E and L\" under each split shows what the two harmonic means are made of: "
+             "E_direct = the request prompt itself (training-visible, not in E), E_complete = share of requests whose "
+             "every held-out forget probe is erased, E_mean / E_min and L_mean / L_min = plain mean and worst family.", ""]
     tracks = sorted({r["track"] for r in table.values()})
     if len(tracks) > 1:          # several splits / models: one SCALPEL matrix first
         methods = sorted({r["method"] for r in table.values()},
@@ -121,13 +124,18 @@ def markdown(table: Dict[str, Dict], title: str = "LETHE-Bench leaderboard") -> 
         rows = sorted([r for r in table.values() if r["track"] == track],
                       key=lambda r: -(r["SCALPEL"][0] if r["SCALPEL"][0] is not None else -1))
         lines += [f"## {track}", "",
-                  "| Method | LETHE | E | E_mean | E_min | E_direct | E_complete | L | L_mean | L_min | U | R | Strict | seeds |",
-                  "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+                  "| Method | LETHE | E | L | U | R | Strict | seeds |",
+                  "|---|---|---|---|---|---|---|---|"]
         for r in rows:
             name = r["method"] + (" †" if r["cheat"] else "") + ("" if r["valid"] else " (INVALID)")
-            lines.append(f"| {name} | {_f(r['SCALPEL'])} | {_f(r['E'])} | {_f(r['E_mean'])} | {_f(r['E_min'])} | {_f(r['E_direct'])} | {_f(r['E_complete'])} | "
-                         f"{_f(r['L'])} | {_f(r['L_mean'])} | {_f(r['L_min'])} | {_f(r['U'])} | {_f(r['R'])} | {_f(r['strict_SCALPEL'])} | "
-                         f"{len(r['seeds'])} |")
+            lines.append(f"| {name} | {_f(r['SCALPEL'])} | {_f(r['E'])} | {_f(r['L'])} | {_f(r['U'])} | {_f(r['R'])} | "
+                         f"{_f(r['strict_SCALPEL'])} | {len(r['seeds'])} |")
+        lines += ["", "### Behind E and L", "",
+                  "| Method | E_direct | E_complete | E_mean | E_min | L_mean | L_min |",
+                  "|---|---|---|---|---|---|---|"]
+        for r in rows:
+            lines.append(f"| {r['method']}{' †' if r['cheat'] else ''} | {_f(r['E_direct'])} | {_f(r['E_complete'])} | "
+                         f"{_f(r['E_mean'])} | {_f(r['E_min'])} | {_f(r['L_mean'])} | {_f(r['L_min'])} |")
         fams = sorted({f for r in rows for f in r["families"]})
         lines += ["", "### Per family (forget: residual %, lower is better; retain: retained %, higher is better)", "",
                   "| Method | " + " | ".join(f.replace("forget/", "F:").replace("retain/", "R:") for f in fams) + " |",
@@ -233,6 +241,7 @@ def write_report(run_paths: Sequence[Path], out: Path, title: str = "LETHE-Bench
     (out / "leaderboard.json").write_text(json.dumps(table, indent=1, default=str) + "\n")
     md = markdown(table, title)
     gen_table = summarize(runs, "gen")
+    (out / "leaderboard_gen.json").write_text(json.dumps(gen_table, indent=1, default=str) + "\n")
     if any(r["SCALPEL"][0] is not None for r in gen_table.values()):
         # same layout under its own heading (the split drops the second H1 title)
         md += "\n# Open-ended (generation) scorer\n" + markdown(gen_table, title).split("\n", 1)[1]

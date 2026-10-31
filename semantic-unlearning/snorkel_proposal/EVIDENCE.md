@@ -84,58 +84,109 @@ All six reference cheats score 0 in this pilot file (below 4 with the current 1-
 | noop † | 1.0 | 2.0 | 2.0 | 1.7 |
 | idk_all † | 1.0 | 1.9 | 1.9 | 1.6 |
 
-**Axes per model.** E = erasure over held-out forget families (harmonic), E_direct = the request prompt itself, E_complete = share of requests whose every held-out probe is erased, L = locality, U = utility, R = robustness under attack, Strict = weights only.
+**Axes per model.** E = erasure over held-out forget families (harmonic mean), L = locality (harmonic mean over retain families), U = utility, R = robustness under attack, Strict = weights only (– for methods with no runtime component). The second table under each model shows what E and L are made of: E_direct = the request prompt itself (training-visible, not in E), E_complete = share of requests whose every held-out probe is erased, E_mean / E_min = plain mean and worst forget family, L_min = worst retain family.
 
 *Llama-3.2-3B-Instruct*
 
-| Method | LETHE | E | E_direct | E_complete | L | U | R | Strict |
-|---|---|---|---|---|---|---|---|---|
-| simnpo | 37.4 | 63.5 | 96.4 | 59.5 | 50.8 | 81.1 | 26.1 | – |
-| SURE_early | 35.4 | 25.1 | 95.2 | 56.2 | 91.6 | 100.0 | 34.1 | 2.9 |
-| SURE | 28.4 | 22.2 | 96.2 | 59.8 | 95.5 | 100.0 | 19.0 | 2.9 |
-| zerounlearn | 21.3 | 38.4 | 96.4 | 30.4 | 67.4 | 96.9 | 8.7 | – |
-| idk_ft | 11.4 | 96.2 | 100.0 | 86.3 | 3.8 | 56.7 | 19.0 | – |
-| npo | 6.2 | 92.3 | 100.0 | 87.2 | 1.7 | 74.8 | 80.4 | – |
-| tv | 5.7 | 96.4 | 98.0 | 89.5 | 1.5 | 77.6 | 58.4 | – |
-| gd | 5.5 | 95.1 | 100.0 | 88.9 | 1.5 | 66.5 | 86.6 | – |
-| ga | 4.9 | 97.3 | 100.0 | 93.5 | 1.3 | 56.3 | 90.3 | – |
-| rmu | 3.6 | 7.7 | 11.8 | 6.5 | 39.7 | 84.5 | 5.8 | – |
-| rome | 3.0 | 8.6 | 82.8 | 15.3 | 57.2 | 98.7 | 0.8 | – |
-| memit | 1.7 | 8.0 | 45.6 | 3.2 | 91.8 | 99.2 | 0.0 | – |
+| Method | LETHE | E | L | U | R | Strict |
+|---|---|---|---|---|---|---|
+| simnpo | 37.4 | 63.5 | 50.8 | 81.1 | 26.1 | – |
+| SURE_early | 35.4 | 25.1 | 91.6 | 100.0 | 34.1 | 2.9 |
+| SURE | 28.4 | 22.2 | 95.5 | 100.0 | 19.0 | 2.9 |
+| zerounlearn | 21.3 | 38.4 | 67.4 | 96.9 | 8.7 | – |
+| idk_ft | 11.4 | 96.2 | 3.8 | 56.7 | 19.0 | – |
+| npo | 6.2 | 92.3 | 1.7 | 74.8 | 80.4 | – |
+| tv | 5.7 | 96.4 | 1.5 | 77.6 | 58.4 | – |
+| gd | 5.5 | 95.1 | 1.5 | 66.5 | 86.6 | – |
+| ga | 4.9 | 97.3 | 1.3 | 56.3 | 90.3 | – |
+| rmu | 3.6 | 7.7 | 39.7 | 84.5 | 5.8 | – |
+| rome | 3.0 | 8.6 | 57.2 | 98.7 | 0.8 | – |
+| memit | 1.7 | 8.0 | 91.8 | 99.2 | 0.0 | – |
+
+Behind E and L (Llama-3.2-3B):
+
+| Method | E_direct | E_complete | E_mean | E_min | L_min |
+|---|---|---|---|---|---|
+| simnpo | 96.4 | 59.5 | 78.6 | 44.8 | 37.1 |
+| SURE_early | 95.2 | 56.2 | 76.6 | 5.2 | 74.7 |
+| SURE | 96.2 | 59.8 | 80.0 | 3.8 | 85.0 |
+| zerounlearn | 96.4 | 30.4 | 58.4 | 20.6 | 38.6 |
+| idk_ft | 100.0 | 86.3 | 96.5 | 87.0 | 0.0 |
+| npo | 100.0 | 87.2 | 94.2 | 84.1 | 0.0 |
+| tv | 98.0 | 89.5 | 96.5 | 91.0 | 0.0 |
+| gd | 100.0 | 88.9 | 95.7 | 87.0 | 0.0 |
+| ga | 100.0 | 93.5 | 97.5 | 91.9 | 0.0 |
+| rmu | 11.8 | 6.5 | 34.9 | 1.4 | 32.6 |
+| rome | 82.8 | 15.3 | 38.5 | 2.0 | 30.0 |
+| memit | 45.6 | 3.2 | 16.6 | 3.0 | 76.6 |
 
 *Qwen3-4B*
 
-| Method | LETHE | E | E_direct | E_complete | L | U | R | Strict |
-|---|---|---|---|---|---|---|---|---|
-| zerounlearn | 56.3 | 68.4 | 96.0 | 56.1 | 47.3 | 91.5 | 42.4 | – |
-| simnpo | 31.7 | 76.5 | 95.6 | 59.3 | 38.9 | 85.7 | 21.0 | – |
-| memit | 30.7 | 27.3 | 94.4 | 42.7 | 79.8 | 99.2 | 19.9 | – |
-| SURE | 22.3 | 7.5 | 89.2 | 49.5 | 94.3 | 100.0 | 39.8 | 2.9 |
-| SURE_early | 18.5 | 6.2 | 86.4 | 27.6 | 92.2 | 99.8 | 30.7 | 2.9 |
-| idk_ft | 11.0 | 89.3 | 100.0 | 80.0 | 4.1 | 53.7 | 15.8 | – |
-| tv | 10.2 | 83.2 | 97.2 | 70.0 | 3.0 | 87.5 | 35.5 | – |
-| rmu | 7.5 | 21.4 | 32.4 | 15.1 | 33.3 | 81.5 | 12.2 | – |
-| ga | 6.8 | 79.4 | 99.6 | 71.5 | 1.9 | 60.2 | 71.3 | – |
-| gd | 6.3 | 90.1 | 100.0 | 85.0 | 1.7 | 55.5 | 79.7 | – |
-| npo | 5.9 | 93.2 | 100.0 | 88.3 | 1.6 | 67.8 | 75.7 | – |
-| rome | 4.5 | 94.5 | 99.2 | 89.0 | 1.2 | 29.8 | 69.5 | – |
+| Method | LETHE | E | L | U | R | Strict |
+|---|---|---|---|---|---|---|
+| zerounlearn | 56.3 | 68.4 | 47.3 | 91.5 | 42.4 | – |
+| simnpo | 31.7 | 76.5 | 38.9 | 85.7 | 21.0 | – |
+| memit | 30.7 | 27.3 | 79.8 | 99.2 | 19.9 | – |
+| SURE | 22.3 | 7.5 | 94.3 | 100.0 | 39.8 | 2.9 |
+| SURE_early | 18.5 | 6.2 | 92.2 | 99.8 | 30.7 | 2.9 |
+| idk_ft | 11.0 | 89.3 | 4.1 | 53.7 | 15.8 | – |
+| tv | 10.2 | 83.2 | 3.0 | 87.5 | 35.5 | – |
+| rmu | 7.5 | 21.4 | 33.3 | 81.5 | 12.2 | – |
+| ga | 6.8 | 79.4 | 1.9 | 60.2 | 71.3 | – |
+| gd | 6.3 | 90.1 | 1.7 | 55.5 | 79.7 | – |
+| npo | 5.9 | 93.2 | 1.6 | 67.8 | 75.7 | – |
+| rome | 4.5 | 94.5 | 1.2 | 29.8 | 69.5 | – |
+
+Behind E and L (Qwen3-4B):
+
+| Method | E_direct | E_complete | E_mean | E_min | L_min |
+|---|---|---|---|---|---|
+| zerounlearn | 96.0 | 56.1 | 76.9 | 33.3 | 21.5 |
+| simnpo | 95.6 | 59.3 | 79.5 | 53.7 | 24.7 |
+| memit | 94.4 | 42.7 | 55.2 | 7.5 | 43.2 |
+| SURE | 89.2 | 49.5 | 73.4 | 0.0 | 79.3 |
+| SURE_early | 86.4 | 27.6 | 49.6 | 0.0 | 76.1 |
+| idk_ft | 100.0 | 80.0 | 92.2 | 63.7 | 0.0 |
+| tv | 97.2 | 70.0 | 86.2 | 62.8 | 0.0 |
+| rmu | 32.4 | 15.1 | 45.5 | 7.2 | 20.5 |
+| ga | 99.6 | 71.5 | 85.8 | 61.1 | 0.0 |
+| gd | 100.0 | 85.0 | 92.5 | 78.3 | 0.0 |
+| npo | 100.0 | 88.3 | 94.7 | 80.9 | 0.0 |
+| rome | 99.2 | 89.0 | 95.4 | 85.8 | 0.0 |
 
 *Llama-3.1-8B-Instruct*
 
-| Method | LETHE | E | E_direct | E_complete | L | U | R | Strict |
-|---|---|---|---|---|---|---|---|---|
-| simnpo | 43.7 | 77.5 | 96.4 | 64.4 | 51.2 | 83.2 | 26.8 | – |
-| SURE_early | 28.1 | 13.3 | 94.8 | 61.5 | 93.7 | 100.0 | 39.4 | 2.9 |
-| SURE | 18.7 | 6.9 | 94.4 | 64.3 | 95.7 | 100.0 | 21.2 | 2.9 |
-| zerounlearn | 15.6 | 24.5 | 95.6 | 18.6 | 79.1 | 98.2 | 5.6 | – |
-| idk_ft | 10.9 | 98.3 | 100.0 | 94.3 | 3.8 | 63.5 | 13.6 | – |
-| rmu | 7.8 | 8.8 | 17.6 | 8.5 | 21.5 | 56.0 | 20.7 | – |
-| tv | 7.7 | 95.4 | 97.6 | 87.0 | 2.1 | 84.8 | 53.5 | – |
-| ga | 5.6 | 98.9 | 100.0 | 96.4 | 1.5 | 63.8 | 84.9 | – |
-| gd | 5.1 | 99.0 | 100.0 | 98.0 | 1.3 | 64.2 | 84.5 | – |
-| npo | 4.6 | 99.6 | 100.0 | 99.2 | 1.2 | 57.1 | 87.8 | – |
-| rome | 3.2 | 3.4 | 87.2 | 13.0 | 54.1 | 99.2 | 0.5 | – |
-| memit | 3.2 | 6.7 | 76.0 | 8.1 | 87.1 | 99.5 | 0.0 | – |
+| Method | LETHE | E | L | U | R | Strict |
+|---|---|---|---|---|---|---|
+| simnpo | 43.7 | 77.5 | 51.2 | 83.2 | 26.8 | – |
+| SURE_early | 28.1 | 13.3 | 93.7 | 100.0 | 39.4 | 2.9 |
+| SURE | 18.7 | 6.9 | 95.7 | 100.0 | 21.2 | 2.9 |
+| zerounlearn | 15.6 | 24.5 | 79.1 | 98.2 | 5.6 | – |
+| idk_ft | 10.9 | 98.3 | 3.8 | 63.5 | 13.6 | – |
+| rmu | 7.8 | 8.8 | 21.5 | 56.0 | 20.7 | – |
+| tv | 7.7 | 95.4 | 2.1 | 84.8 | 53.5 | – |
+| ga | 5.6 | 98.9 | 1.5 | 63.8 | 84.9 | – |
+| gd | 5.1 | 99.0 | 1.3 | 64.2 | 84.5 | – |
+| npo | 4.6 | 99.6 | 1.2 | 57.1 | 87.8 | – |
+| rome | 3.2 | 3.4 | 54.1 | 99.2 | 0.5 | – |
+| memit | 3.2 | 6.7 | 87.1 | 99.5 | 0.0 | – |
+
+Behind E and L (Llama-3.1-8B):
+
+| Method | E_direct | E_complete | E_mean | E_min | L_min |
+|---|---|---|---|---|---|
+| simnpo | 96.4 | 64.4 | 81.2 | 53.1 | 32.7 |
+| SURE_early | 94.8 | 61.5 | 78.5 | 1.5 | 79.2 |
+| SURE | 94.4 | 64.3 | 78.9 | 0.0 | 80.9 |
+| zerounlearn | 95.6 | 18.6 | 43.6 | 9.4 | 49.2 |
+| idk_ft | 100.0 | 94.3 | 98.5 | 91.1 | 0.0 |
+| rmu | 17.6 | 8.5 | 45.6 | 1.6 | 17.5 |
+| tv | 97.6 | 87.0 | 95.6 | 88.5 | 0.0 |
+| ga | 100.0 | 96.4 | 98.9 | 95.8 | 0.0 |
+| gd | 100.0 | 98.0 | 99.1 | 96.0 | 0.0 |
+| npo | 100.0 | 99.2 | 99.6 | 98.3 | 0.0 |
+| rome | 87.2 | 13.0 | 36.3 | 0.0 | 24.8 |
+| memit | 76.0 | 8.1 | 24.5 | 1.7 | 59.6 |
 
 Reference cheats: on every model the six cheats score 1.0–3.4 against a gate of 35, each zeroing at least one axis (the subject blocklist and keyword router keep E 5–7 because subject-free, multi-hop and typo probes pass; refuse-all keeps L 1.0; the prompt cache E 1.2–1.3; the answer ban L 7.2–7.3; noop E 1.0). Every split passes the integrity checks (`RED_TEAM_REPORT.md` per seed: PASS).
 
