@@ -41,7 +41,7 @@ case "$MODE" in
           --array="0-$(( N_DS - 1 ))" layer_smoke.slurm)
     echo "$MODEL router L$R + base ($DATASETS): $A"
     B=$(sbatch --parsable --dependency=afterok:"$A" \
-          --export=ALL,MODEL="$MODEL",STAGE=write,ROUTER_LAYER="$R",WRITE_LAYERS="$W",DATASETS="$DATASETS" \
+          --export=ALL,MODEL="$MODEL",STAGE=write,ROUTER_LAYER="$R",WRITE_LAYERS="${W//,/:}",DATASETS="$DATASETS" \
           --array="0-$(( N_DS * ${#W_LIST[@]} - 1 ))" layer_smoke.slurm)
     echo "$MODEL rows at L{$W} under the L$R router, ours + genie ($DATASETS): $B"
     echo "then: python scripts/layer_smoke_table.py $MODEL" ;;

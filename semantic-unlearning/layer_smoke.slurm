@@ -62,6 +62,8 @@ case "$STAGE" in
     if [[ -z "${WRITE_LAYERS:-}" && -n "${LAYER_DECISION:-}" ]]; then   # the automatic chain
       WRITE_LAYERS="$(jq -r '.write_candidates | map(tostring) | join(",")' "$LAYER_DECISION")"
     fi
+    # sbatch --export splits on commas, so the submitter passes the list as w1:w2:w3
+    WRITE_LAYERS="${WRITE_LAYERS//:/,}"
     IFS=, read -r -a W_LIST <<< "${WRITE_LAYERS:?WRITE_LAYERS=w1,w2,... (or LAYER_DECISION)}"
     (( TASK < ${#W_LIST[@]} * ${#DS_LIST[@]} )) || { echo "task $TASK beyond the ${#W_LIST[@]} candidates: nothing to do"; exit 0; }
     DS="${DS_LIST[$(( TASK / ${#W_LIST[@]} ))]:-}"; W="${W_LIST[$(( TASK % ${#W_LIST[@]} ))]:-}"
