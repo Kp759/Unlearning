@@ -11,7 +11,7 @@ This datasheet follows Gebru et al., "Datasheets for Datasets" (2021).
 ## Composition
 
 - **Instances.** Split files with *requests* (what a method is given), *probes* (what is asked), *allowed retain* text, and utility sets. Each probe has a role (forget/retain), a family (how it is asked, or what it controls for), a format (cloze / QA / chat), an answer plus aliases, and the request it belongs to. The full schema is in `scalpel/schema.py`.
-- **Size.** Per split: 50 requests (configurable to 1k+). On Qwen2.5-0.5B, the pilot split has the probe counts shown in `results/pilot/*/split_summary.md`. Release target: 5 dev seeds and 5 hidden-test seeds per model, for 8 models from 5 families, 3B–27B (`ROADMAP.md`).
+- **Size.** Per split: 50 requests (configurable to 1k+). On Qwen2.5-0.5B, the pilot split has the probe counts shown in `results/pilot/*/split_summary.md`. Release target: 5 dev seeds and 5 hidden-test seeds per model, for 10 models from 5 families, 3B–70B (`ROADMAP.md`; three done).
 - **Sources.** MultiCounterFact, MQuAKE (original chains), zsRE (MEND split) and RWKU (entity track). After deduplication and conflict removal the pool holds 38,086 facts. Facts are merged on normalized (subject, relation, object).
 - **Model-conditioned.** Every probe in a split is answered correctly by that split's base model under teacher forcing (the knowledge filter). Splits for different models contain different facts by design, and the scores remain comparable as "share of known knowledge".
 - **Labels.** Answers come from the sources (Wikidata objects and aliases; MQuAKE answer aliases; zsRE answers; RWKU answers). Templates are author-written.

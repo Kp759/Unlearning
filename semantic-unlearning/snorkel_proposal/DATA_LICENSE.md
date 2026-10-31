@@ -15,7 +15,7 @@
 
 ## Models used in the pilot
 
-These are not redistributed: Qwen2.5-0.5B-Instruct (Apache-2.0) and SmolLM2-360M-Instruct (Apache-2.0). Cluster runs use Llama-3.2-3B-Instruct / Llama-3.1-8B-Instruct (Llama Community License) and Qwen3-4B (Apache-2.0), each under its own terms. The planned grid (`ROADMAP.md`) adds Qwen3-14B (Apache-2.0), Gemma-3-4B / 27B (Gemma Terms of Use), Mistral-Small-24B (Apache-2.0) and OLMo-2-7B (Apache-2.0); each licence is re-checked against the exact checkpoint before its results are published.
+These are not redistributed: Qwen2.5-0.5B-Instruct (Apache-2.0) and SmolLM2-360M-Instruct (Apache-2.0). Cluster runs use Llama-3.2-3B-Instruct / Llama-3.1-8B-Instruct (Llama Community License) and Qwen3-4B (Apache-2.0), each under its own terms. The planned grid (`ROADMAP.md`) adds Qwen3-14B and Qwen3-32B (Apache-2.0), Llama-3.3-70B-Instruct (Llama Community License), Gemma-3-4B / 27B (Gemma Terms of Use), Mistral-Small-24B (Apache-2.0) and OLMo-2-7B (Apache-2.0); each licence is re-checked against the exact checkpoint before its results are published.
 
 ## Personal data
 

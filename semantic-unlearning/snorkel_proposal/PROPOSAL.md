@@ -116,7 +116,7 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
    - expert-written indirect references (descriptions, aliases, coreference chains) for 2,000 subjects that cannot be inferred from retained facts;
    - a 1,000-item human-labelled calibration set for the generation grader;
    - privacy/legal input on realistic deletion-request scenarios.
-2. **GPU compute: ~5,000 A100-80GB hours** (80 GB GPUs; multi-GPU nodes for the largest models) for 8 models from 5 families (Llama, Qwen, Gemma, Mistral, OLMo; 3B–27B) × 5–10 dev seeds and 5 hidden seeds × 14 methods, the scaling curve to 10k requests, and the sequential and agentic tracks. The basis is measured: ≈ 1.8 GPU-hours per model and seed for every method at 3B (`ROADMAP.md`). *We request this as partner compute credits, which the program lists among its in-kind support.*
+2. **GPU compute: ~7,000 A100-80GB hours** (80 GB GPUs; multi-GPU nodes for the largest models) for 10 models from 5 families (Llama 3B / 8B / 70B, Qwen3 4B / 14B / 32B, Gemma-3 4B / 27B, Mistral-Small-24B, OLMo-2-7B; three done) × 5–10 dev seeds and 5 hidden seeds × 19 methods (the 11 run plus SCRUB, WHP, ELM, GRACE, WISE, AlphaEdit, ECO and in-context unlearning prompting) and 6 cheats, representation-level attacks added to R, the scaling curve to 10k requests, and the sequential and agentic tracks. The basis is measured: ≈ 2.2 GPU-hours per model and seed for every method at 3B, ×1.3 at 4B and ×2.1 at 8B (`ROADMAP.md`). The 32B and 70B tiers are what the credits buy that the university cluster cannot. *We request this as partner compute credits, which the program lists among its in-kind support.*
 3. **Red-team review** of the grader, verifier and contamination defences before v1.0.
 4. **Hosting** for the hidden-test evaluation service and leaderboard.
 
@@ -124,7 +124,7 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
 
 | Month | Deliverable |
 |---|---|
-| 1 | v1.0 freeze: dev splits for the 8-model grid (5 families, 3B–27B) × 5 seeds; hidden test built; HF dataset card; upstream data terms confirmed |
+| 1 | v1.0 freeze: dev splits for the 10-model grid (5 families, 3B–70B) × 5 seeds; hidden test built; HF dataset card; upstream data terms confirmed |
 | 1–2 | Full baseline tables on all tiers and attacks; scaling and sequential results |
 | 2–4 | Expert-data families (cross-lingual ×10, expert indirect references, grader calibration) |
 | 3–5 | Agentic leakage track |
