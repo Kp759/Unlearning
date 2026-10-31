@@ -38,7 +38,41 @@ python scripts/l16_paper_table.py --root outputs/paper_qwen3_4b_v1
 | GA/GD/NPO trained weights | all MLPs | **down_proj only** | all MLPs |
 | ZeroUnlearn hparams (upstream) | Llama-3.2-3B-Instruct.json | Llama-3.1-8B-Instruct.json | Qwen3-4B.json |
 
-- Layers are the 3B choices at the same relative depth, not re-tuned per model.
+- Layers default to the 3B choices at the same relative depth. `ROUTER_LAYER`, `EARLY_WRITE_LAYER`,
+  `WRITE_LAYER` and `LENS_LAYER` in the environment override them; measure them first (next section).
+
+## Choosing the layers (smoke test on MCF seed 1, before the full run)
+
+The paper's configuration on the 3B model is the router at block 19 and Δe written at block 16
+(`outputs/l16_ours_v1`). On another model both blocks are measured, not assumed:
+
+```bash
+# 1. router layer: fit the ours-recipe router at the default block, cache the last-token state of
+#    every block for the router's eval / null / perturbed / train / aug prompts, refit the same
+#    classifier at every block (one GPU task, ~1 h on the 8B model)
+bash scripts/submit_layer_smoke.sh qwen3_4b router
+bash scripts/submit_layer_smoke.sh llama31_8b router
+python scripts/layer_smoke_table.py qwen3_4b        # F1 / FPR / FNR per block -> pick R
+#    rule: the earliest block within 0.01 F1 of the best whose FPR and null FPR are not worse;
+#    on the 3B model that gave L19 (F1 plateau from ~L19 to the penultimate block)
+
+# 2. write layer: rows at W in {R, R-3, R-5} under the R router, official MCF eval of base, ours
+#    and genie (one base task, then one task per W, ~1 h each)
+bash scripts/submit_layer_smoke.sh qwen3_4b write 24          # or: ... write 24 24,21,19,17
+python scripts/layer_smoke_table.py qwen3_4b        # Eff / Gen / Spe / PPL per W -> pick W
+#    rule: the lowest Gen whose Spe stays at base; genie across W isolates the write layer's own
+#    effect from routing
+
+# 3. the paper run with the chosen layers: 4 datasets x 5 seeds, base | ours | genie
+ONEPASS=1 ROUTER_LAYER=24 WRITE_LAYER=21 bash scripts/submit_paper_model.sh qwen3_4b ours
+python scripts/l16_paper_table.py --root outputs/paper_qwen3_4b_r24_w21_ours_v1 \
+    --ours-label "Ours (L24 router, Δe L21)"
+```
+
+`DATASETS="mcf zsre"` runs both stages on ZsRE as well. Outputs: `outputs/layer_smoke_<MODEL>/`
+(router sweep, `SUMMARY.md`), `outputs/layer_smoke_<MODEL>_r<R>_base/`, `outputs/layer_smoke_<MODEL>_r<R>_w<W>/`.
+The routers fitted by the smoke test (`outputs/<ds>_<MODEL>_multiseed_ours_v1/seed1/L<R>/router`)
+are reused by the paper run when it picks the same R.
 - 8B GA/GD/NPO: fp32 AdamW over every MLP needs ~100 GB (weights + grads + Adam states),
   more than one 80 GB GPU; down_proj only (~55 GB) is the largest scope that fits.
 - Qwen3: RWKU chat prompts use the template's no-thinking mode (`CHAT_ENABLE_THINKING=0`),

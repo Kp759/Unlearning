@@ -4,6 +4,9 @@
 #   bash scripts/submit_paper_model.sh MODEL fetch   # 1. download the weights (login node has internet)
 #   bash scripts/submit_paper_model.sh MODEL smoke   # 2. MCF seed 1: base | ours | genie + 5 baselines
 #   bash scripts/submit_paper_model.sh MODEL full    # 3. 4 datasets x 5 seeds (+ 100 baseline tasks)
+#   ONEPASS=1 ROUTER_LAYER=R WRITE_LAYER=W bash scripts/submit_paper_model.sh MODEL ours
+#                                                    # 3'. base | ours | genie only, with the layers
+#                                                    #     picked by scripts/submit_layer_smoke.sh
 #
 # MODEL = llama31_8b | qwen3_4b (settings: scripts/paper_model_config.sh).
 # Baselines wait for the main array (they reuse its routers and base runs). ZeroUnlearn task 4
@@ -29,7 +32,12 @@ paper_model_check
 case "$MODE" in
   smoke) MAIN=0; SETS=(0) ;;
   full)  MAIN=0-19; SETS=(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19) ;;
-  *) echo "MODE must be fetch, smoke or full" >&2; exit 2 ;;
+  ours)  # base | ours | genie only, 4 datasets x 5 seeds, no baselines (the paper's own-method rows)
+    M=$(sbatch --parsable --export=ALL,MODEL="$MODEL" --array=0-19 paper_model_multiseed.slurm)
+    echo "$MODEL base|ours|genie, 4 datasets x 5 seeds (router L$ROUTER_LAYER, Δe L$WRITE_LAYER): $M"
+    echo "when done: python scripts/l16_paper_table.py --root outputs/$TAG --ours-label \"Ours (L$ROUTER_LAYER router, Δe L$WRITE_LAYER)\""
+    exit 0 ;;
+  *) echo "MODE must be fetch, smoke, ours or full" >&2; exit 2 ;;
 esac
 # baseline task ids for the chosen (dataset, seed) sets: 5 * set + {0..3} train, + 4 ZeroUnlearn
 # (the main array's set s = 5 * dataset + seed - 1 maps to baseline tasks 5s..5s+4)

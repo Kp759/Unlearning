@@ -262,6 +262,9 @@ if [[ -n "${MODEL_PATH:-}" ]]; then
       || { echo "router $R was fit on $RM, not MODEL_PATH=$MODEL_PATH" >&2; exit 2; }
   done
 fi
+if [[ "${STOP_AFTER_ROUTER:-0}" == 1 ]]; then   # layer smoke test: fit the router, nothing else
+  log "STOP_AFTER_ROUTER=1: router ready -> $ROUTER"; exit 0
+fi
 
 # ---------------------------------------------------------------- evaluator per benchmark
 evaluate() {  # run_dir [--genie]
