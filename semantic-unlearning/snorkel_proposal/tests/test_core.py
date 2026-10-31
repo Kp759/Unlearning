@@ -82,8 +82,11 @@ def test_forget_families_and_no_answer_in_prompt():
         if p.family != "multihop":
             assert normalize_text(p.answer) not in normalize_text(p.prompt), p
     ind = [p for p in probes if p.family == "indirect"]
+    assert P.ProbeBudget().indirect == 3 and 1 <= len(ind) <= 3
     for p in ind:
         assert normalize_text(f.subject) not in normalize_text(p.prompt)
+    pairs = [tuple(sorted(p.meta["description_facts"])) for p in ind]
+    assert len(set(pairs)) == len(pairs)          # one probe per pair of description facts
     mt = [p for p in probes if p.family == "multiturn"][0]
     assert f.subject in mt.messages[0]["content"] and f.subject not in mt.messages[-1]["content"]
 
@@ -172,6 +175,30 @@ def test_aggregates_harmonic_punishes_a_collapsed_family():
     bad[("retain", "same_object")] = [0] * 10        # e.g. a global answer ban
     b = M.aggregates(M.family_scores(_rows(bad)))
     assert b["L_mean"] == pytest.approx(50) and b["L"] < 2.1 and b["SCALPEL_core"] < 4
+
+
+def test_every_score_term_has_the_one_point_floor():
+    good = {("forget", "direct"): [0] * 10, ("forget", "paraphrase"): [0] * 10,
+            ("retain", "same_subject"): [1] * 10}
+    fam = M.family_scores(_rows(good))
+    zero_r = M.aggregates(fam, {"U": 100.0}, robustness=0.0)        # the fact returns under every attack
+    assert zero_r["R"] == 0.0 and 0 < zero_r["SCALPEL"] < 4          # near zero, never exactly zero
+    low_r = M.aggregates(fam, {"U": 100.0}, robustness=10.0)
+    assert low_r["SCALPEL"] > zero_r["SCALPEL"]                      # the ordering survives
+    zero_u = M.aggregates(fam, {"U": 0.0}, robustness=100.0)
+    assert zero_u["U"] == 0.0 and 0 < zero_u["SCALPEL_core"] < 4
+
+
+def test_completeness_counts_requests_not_probes():
+    rows = []
+    for rid, hits in (("r0", [0, 0, 0]), ("r1", [0, 0, 1]), ("r2", [0, 0, 0])):
+        rows.append({"role": "forget", "family": "direct", "fact_id": rid, "request_id": rid, "tf_correct": 1})  # excluded
+        rows += [{"role": "forget", "family": "paraphrase", "fact_id": rid, "request_id": rid, "tf_correct": h} for h in hits]
+        rows.append({"role": "retain", "family": "disjoint", "fact_id": "x", "request_id": rid, "tf_correct": 1})
+    assert M.completeness(rows) == pytest.approx(100 * 2 / 3)       # r1 leaks on one probe: not complete
+    probe_level = M.family_scores(rows)["forget/paraphrase"]["score"]
+    assert probe_level == pytest.approx(100 / 9)                     # 1 leak in 9 probes hides the half-forgotten fact
+    assert M.completeness([]) is None
 
 
 def test_utility_and_kl():

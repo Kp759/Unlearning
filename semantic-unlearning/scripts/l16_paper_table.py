@@ -19,6 +19,9 @@ MQuAKE "Spe (no overlap)": retain Eff over retain atomic facts whose direct prom
 official forget prompt (identified by genie, which fires only on exact forget prompts; ~12-17%
 of retain facts repeat a forget fact by dataset construction and cannot be kept and forgotten
 at once). Baselines GA/GD/NPO/RMU/ZeroUnlearn: scripts/paper_baselines.py, same harness.
+RR ↓ = representation recoverability (scripts/representation_recoverability.py, stage 6 with
+RECOVERABILITY=1): max over blocks of the tuned-lens top-1 rate (%) of the forgotten answer's first
+token read from the residual stream; "–" until that stage has run for the run dir.
 Also writes diagnostics (seeds found, router used, genie routing hit rate) so a silent
 key mismatch in genie (genie ~ base) is visible.
 """
@@ -90,6 +93,17 @@ def _eval_json(run_dir, name):
     return json.loads(p.read_text()) if p.is_file() else None
 
 
+def recoverability(run_dir, key="RR"):
+    """Headline of representation_recoverability.json (tuned-lens worst-layer top-1, %), or None."""
+    d = _eval_json(run_dir, "representation_recoverability.json")
+    head = (d or {}).get("headline") or {}
+    check = head.get("final_block_check")
+    if check is not None and not check.get("ok"):
+        return None                       # the tuned readout failed its own sanity check
+    best = head.get(key)
+    return None if not best else best.get("value")
+
+
 def mquake_overlap(genie_dir):
     """Retain atomic case ids whose rewrite prompt genie routes (= an exact forget prompt)."""
     g = _eval_json(genie_dir, "official_mquake_eval.json")
@@ -121,7 +135,10 @@ def main():
     ap.add_argument("--ours-from", action="append", default=[], metavar="DATASET=ROOT",
                     help="take that dataset's ours/genie (and router diagnostics) from ROOT")
     ap.add_argument("--out-name", default=None, help="output stem (default paper_table[_<overrides>])")
+    ap.add_argument("--ours-label", default="Ours (L16)",
+                    help='row label for ours, e.g. "Ours (L19, one pass)" for outputs/onepass_l19_v1')
     a = ap.parse_args()
+    LABELS["ours"] = a.ours_label
     root = Path(a.root)
     overrides = {}
     for item in a.ours_from:
@@ -134,7 +151,7 @@ def main():
     def source(ds, method):
         return overrides.get(ds, root) if method in ("ours", "genie") else root
     table, diag, per_seed = {}, [], []
-    cols = COLS + ("Spe_no_overlap",)
+    cols = COLS + ("Spe_no_overlap", "RR")
     for ds in DATASETS:
         overlaps = {sd.name: mquake_overlap(source(ds, "genie") / ds / sd.name / "genie")
                     for sd in sorted(root.glob(f"{ds}/seed*"))} if ds == "mquake" else {}
@@ -150,6 +167,7 @@ def main():
                 m = metrics(ds, row)
                 m["Spe_no_overlap"] = (mquake_spe_no_overlap(run, overlaps.get(sd.name))
                                        if ds == "mquake" else None)
+                m["RR"] = recoverability(run)
                 seeds.append(sd.name)
                 per_seed.append({"dataset": ds, "method": method, "seed": sd.name, **m})
                 for c in cols:
@@ -183,22 +201,28 @@ def main():
             return "–"
         return f"{m:.{d}f} ± {s:.{d}f}"
 
-    lines = ["# Paper table: base, baselines, ours (L16), genie — seeds 1-5\n",
+    lines = [f"# Paper table: base, baselines, {LABELS['ours'].lower()}, genie — seeds 1-5\n",
              "Eff, Gen ↓ (forgetting) · Spe ↑ (locality) · PPL ≈ base. mean ± std over seeds (n per row). "
-             "Spe† = MQuAKE retain Eff on retain facts that are not also forget facts.\n",
-             "| Dataset | Method | n | Eff ↓ | Gen ↓ | Spe ↑ | Spe† ↑ | PPL |", "|---|---|---|---|---|---|---|---|"]
+             "Spe† = MQuAKE retain Eff on retain facts that are not also forget facts. "
+             "RR = representation recoverability: worst-block tuned-lens top-1 (%) of the forgotten answer "
+             "read from the residual stream (lower is better; – = stage 6 not run).\n",
+             "| Dataset | Method | n | Eff ↓ | Gen ↓ | Spe ↑ | Spe† ↑ | PPL | RR ↓ |", "|---|---|---|---|---|---|---|---|---|"]
     for ds in DATASETS:
         for method in shown:
             e = table[(ds, method)]
             if not e["seeds"] and method not in ALWAYS:
                 continue                   # e.g. Genie (entity) exists for RWKU only
             lines.append(f"| {NAMES[ds]} | {LABELS[method]} | {len(e['seeds'])} | "
-                         + " | ".join(cell(e[c]) for c in ("Eff", "Gen", "Spe", "Spe_no_overlap", "PPL")) + " |")
+                         + " | ".join(cell(e[c]) for c in ("Eff", "Gen", "Spe", "Spe_no_overlap", "PPL", "RR")) + " |")
     lines += ["", "Spe is neighbourhood accuracy (MCF, ZsRE), retain Eff (MQuAKE) and neighbour "
               "recovery (RWKU). RWKU Gen = mean of held-out Level 1, Level 2 and Level-2 paraphrase "
               "recovery; those probes ask facts with no trained row, so RWKU genie Gen equals base by "
               "construction. Baselines (GA, GD, NPO, RMU, ZeroUnlearn) train on the same "
-              "training-visible forget views as ours and are scored by the same evaluators.", "",
+              "training-visible forget views as ours and are scored by the same evaluators. "
+              "RR (scripts/representation_recoverability.py): an affine lens fitted on retain text under "
+              "the evaluated system reads the forgotten answer's first token from the residual stream after "
+              "each block; RR is the worst block, over all official forget prompts (Gao et al. 2026, "
+              "arXiv:2604.08271).", "",
               "## Diagnostics", "",
               "| dataset | seed | router (ours) | oracle-trained rows | final on-policy leak "
               "| genie: direct prompts routed | MQuAKE retain overlap | genie table / hits / lookups |",
@@ -216,14 +240,14 @@ def main():
                      + " / ".join('–' if g.get(k) is None else str(g[k]) for k in ('table_size', 'hits', 'lookups')) + " |")
     md = "\n".join(lines) + "\n"
 
-    tex = [r"\begin{table}[t]", r"\centering", r"\small", r"\begin{tabular}{llccccc}", r"\toprule",
-           r"Dataset & Method & Eff $\downarrow$ & Gen $\downarrow$ & Spe $\uparrow$ & Spe$^\dagger$ $\uparrow$ & PPL \\",
+    tex = [r"\begin{table}[t]", r"\centering", r"\small", r"\begin{tabular}{llcccccc}", r"\toprule",
+           r"Dataset & Method & Eff $\downarrow$ & Gen $\downarrow$ & Spe $\uparrow$ & Spe$^\dagger$ $\uparrow$ & PPL & RR $\downarrow$ \\",
            r"\midrule"]
     for i, ds in enumerate(DATASETS):
         for j, method in enumerate(shown):
             e = table[(ds, method)]
             cells = []
-            for c in ("Eff", "Gen", "Spe", "Spe_no_overlap", "PPL"):
+            for c in ("Eff", "Gen", "Spe", "Spe_no_overlap", "PPL", "RR"):
                 m, s, n = e[c]
                 cells.append("--" if m is None else f"${m:.{d}f}_{{\\pm {s:.{d}f}}}$")
             name = rf"\multirow{{{len(shown)}}}{{*}}{{{NAMES[ds]}}}" if j == 0 else ""
@@ -234,7 +258,9 @@ def main():
     tex += [r"\bottomrule", r"\end{tabular}",
             r"\caption{Base model, unlearning baselines, our method (question-side $\Delta e$ written at "
             r"layer 16) and genie (the same rows under perfect routing). Mean $\pm$ std over 5 seeds. "
-            r"Spe$^\dagger$: MQuAKE retain accuracy on retain facts that do not repeat a forget fact.}",
+            r"Spe$^\dagger$: MQuAKE retain accuracy on retain facts that do not repeat a forget fact. "
+            r"RR: representation recoverability, the worst-block top-1 rate of the forgotten answer under an "
+            r"affine lens fitted on retain text (lower is better).}",
             r"\label{tab:l16_main}", r"\end{table}"]
 
     root.mkdir(parents=True, exist_ok=True)

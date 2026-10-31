@@ -1,8 +1,8 @@
 # Data licensing
 
-**SCALPEL code** (`scalpel/`, `scripts/`, `tests/`) is released under Apache-2.0 (`LICENSE`).
+**LETHE-Bench code** (`scalpel/`, `scripts/`, `tests/`) is released under Apache-2.0 (`LICENSE`).
 
-**SCALPEL split files** (requests, probes, manifests) are derived works of the upstream datasets below. They are released under **CC BY 4.0**, wherever every upstream license permits it, with attribution to each source. Hidden-test splits are not distributed.
+**LETHE-Bench split files** (requests, probes, manifests) are derived works of the upstream datasets below. They are released under **CC BY 4.0**, wherever every upstream license permits it, with attribution to each source. Hidden-test splits are not distributed.
 
 | Source | Used for | Upstream license | Notes |
 |---|---|---|---|
@@ -15,8 +15,8 @@
 
 ## Models used in the pilot
 
-These are not redistributed: Qwen2.5-0.5B-Instruct (Apache-2.0) and SmolLM2-360M-Instruct (Apache-2.0). Cluster runs use Llama-3.2-3B-Instruct / Llama-3.1-8B-Instruct (Llama Community License) and Qwen3-4B (Apache-2.0), each under its own terms.
+These are not redistributed: Qwen2.5-0.5B-Instruct (Apache-2.0) and SmolLM2-360M-Instruct (Apache-2.0). Cluster runs use Llama-3.2-3B-Instruct / Llama-3.1-8B-Instruct (Llama Community License) and Qwen3-4B (Apache-2.0), each under its own terms. The planned grid (`ROADMAP.md`) adds Qwen3-14B and Qwen3-32B (Apache-2.0), Llama-3.3-70B-Instruct (Llama Community License), Gemma-3-4B / 27B (Gemma Terms of Use), Mistral-Small-24B (Apache-2.0) and OLMo-2-7B (Apache-2.0); each licence is re-checked against the exact checkpoint before its results are published.
 
 ## Personal data
 
-Every subject is a public figure or a public entity that already appears in the source datasets (Wikidata-derived). SCALPEL creates no new personal facts. The `in_context` family supplies **counterfactual** values that are labelled as notes to be read, never as facts about the person.
+Every subject is a public figure or a public entity that already appears in the source datasets (Wikidata-derived). LETHE-Bench creates no new personal facts. The `in_context` family supplies **counterfactual** values that are labelled as notes to be read, never as facts about the person.

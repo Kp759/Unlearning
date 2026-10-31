@@ -18,7 +18,7 @@ This is a **pilot**: one small model, one seed, laptop hyper-parameters (`--rele
 
 `qwen2.5-0.5b-instruct/runs/RED_TEAM_REPORT.md`: every integrity check passes, and every reference cheat is defeated.
 
-| Cheat | **Legacy view**: erasure / locality | **SCALPEL** E / L | SCALPEL_core | Where it breaks |
+| Cheat | **Legacy view**: erasure / locality | **LETHE-Bench** E / L | LETHE_core | Where it breaks |
 |---|---|---|---|---|
 | noop | 0.0 / 100.0 | 1.0 / 100.0 | 2.9 | Nothing is forgotten |
 | idk_all | 100.0 / 0.0 | 100.0 / 1.0 | 2.8 | Everything is refused |
@@ -27,20 +27,20 @@ This is a **pilot**: one small model, one seed, laptop hyper-parameters (`--rele
 | keyword_router_idk | 82.5 / 100.0 | 5.9 / 7.0 | 9.3 | Subject-free 100%, typos 100%, cross-lingual 94% and multi-hop 92% residual. Same-sentence 0% |
 | answer_ban | 97.8 / 30.4 | 96.9 / 6.5 | 16.2 | Same-answer neighbours 0% retained, name collisions 10% |
 
-The *legacy view* scores the same run on only the families that the official MultiCounterFact / zsRE metrics use: the request and its paraphrases for forgetting; same-answer neighbours and unrelated questions for locality. **A subject-name blocklist looks nearly perfect there (100 / 98.5) and scores 0 on SCALPEL.** That gap is the case for this benchmark.
+The *legacy view* scores the same run on only the families that the official MultiCounterFact / zsRE metrics use: the request and its paraphrases for forgetting; same-answer neighbours and unrelated questions for locality. **A subject-name blocklist looks nearly perfect there (100 / 98.5) and scores 0 on LETHE-Bench.** That gap is the case for this benchmark.
 
 ## 2. Baselines
 
 All baselines use the defaults ported from `../scripts/paper_baselines.py`: lr 1e-5, MLP parameters, early stop at forget-probability 1e-4. The full tables are in `qwen2.5-0.5b-instruct/leaderboard/leaderboard.md`.
 
-| Method | E | L | U | R | SCALPEL | What happened |
+| Method | E | L | U | R | LETHE | What happened |
 |---|---|---|---|---|---|---|
 | GA | 99.0 | 1.8 | 53.4 | 80.4 | 6.7 | Erases every family. Same-subject, same-object, same-relation and same-sentence all fall to 0% retained. PPL 14.8 → 59.1 |
 | GD | 97.4 | 1.8 | 58.4 | 82.4 | 6.7 | Same pattern; the retain loss does not protect *entangled* facts |
 | NPO | 99.2 | 1.3 | 63.6 | 86.1 | 4.9 | Same pattern; KL on retain probes 5.8 nats |
 | RMU | 4.6 | 84.5 | 94.7 | 0.0 | 0.0 | At default settings it barely erases on this model (direct residual 92%). Per-method sweeps are M2 |
 
-- **Over-forgetting** shows up the same way as in this repository's MultiCounterFact study (GA: 99.8% of Eff removed / 1.8% of Spe kept). SCALPEL now attributes it per family. Even `in_context` reading drops to 22–60%: the methods damage the model's ability to *read* a note about the forgotten subject, not only its recall.
+- **Over-forgetting** shows up the same way as in this repository's MultiCounterFact study (GA: 99.8% of Eff removed / 1.8% of Spe kept). LETHE-Bench now attributes it per family. Even `in_context` reading drops to 22–60%: the methods damage the model's ability to *read* a note about the forgotten subject, not only its recall.
 - **Robustness is not free.** After relearning on the other half of the requests, GA recovers 19.6% of the held-out facts (relative to the base model under the same attack). The logit lens still ranks 16.7% of answers first in the upper layers, a gap that the output-only metrics hide.
 - **Open-ended behaviour.** The gradient methods do not abstain. 97–98% of their forget generations are wrong or degenerate answers (refusals: 0%). A deployer who needs "I don't know" would not get it.
 - **The generation scorer catches what teacher forcing misses.** `answer_ban` bans the answer's first token, yet 8.4% of its generations still produce the answer through another tokenization.
@@ -57,7 +57,7 @@ python -m scalpel run --split results/pilot/qwen2.5-0.5b-instruct/split_dev_s1.j
 
 | | Value |
 |---|---|
-| SCALPEL | **10.5**, the best in the pilot (GA/GD 6.7). E 3.3 · L **100.0** · U 98.2 · R 16.7 |
+| LETHE | **10.5**, the best in the pilot (GA/GD 6.7). E 3.3 · L **100.0** · U 98.2 · R 16.7 |
 | Locality | **100% on all 8 retain families**, 0% false fires. Same-subject, same-sentence, same-object and subject-mentioned are untouched |
 | Forget residual by family (tf) | direct 18 · context prefix 19 · paraphrase 45 · multi-fact 58 · multi-turn 86 · question 90 · cross-lingual 94 · typo 100 · multi-hop 100 |
 | Routing decomposition | Route recall 51%. **48.7 points of forget residual come from routing misses, 9.1 from actuation** (the rows fail even when routed) |
@@ -65,7 +65,7 @@ python -m scalpel run --split results/pilot/qwen2.5-0.5b-instruct/split_dev_s1.j
 | Strict tier (weights only) | E 1.0. SURE changes no weights (288k extra parameters in hooks/rows) |
 | Attacks | The logit lens still reads 83% (relative) of attacked facts in the upper half. Relearning brings back 77% of the held-out half |
 
-On Llama-3.2-3B with tuned settings, SURE removes 96–100% of base recall on the four legacy benchmarks (`../../EVIDENCE.md`). This untuned 0.5B run is weaker even on the legacy-view families (68.5 erasure / 100 locality: direct 18% and paraphrase 45% residual). The pattern is still clear: the families that legacy benchmarks lack leak far more (question 90%, cross-lingual 94%, typos 100%, multi-hop 100%). The cause is detection, not editing. That is the headroom SCALPEL is built to measure, and the decomposition says where to work.
+On Llama-3.2-3B with tuned settings, SURE removes 96–100% of base recall on the four legacy benchmarks (`../../EVIDENCE.md`). This untuned 0.5B run is weaker even on the legacy-view families (68.5 erasure / 100 locality: direct 18% and paraphrase 45% residual). The pattern is still clear: the families that legacy benchmarks lack leak far more (question 90%, cross-lingual 94%, typos 100%, multi-hop 100%). The cause is detection, not editing. That is the headroom LETHE-Bench is built to measure, and the decomposition says where to work.
 
 ## 4. Caveats
 
@@ -78,7 +78,7 @@ On Llama-3.2-3B with tuned settings, SURE removes 96–100% of base recall on th
 
 ## 5. Robust SURE, local check (`qwen2.5-0.5b-instruct/sure_robust_subset15/`)
 
-The original SURE and SURE-R (`../../SURE_ROBUST.md`) were run on the same 15 pilot requests. SCALPEL went from **0.0 to 72.2**:
+The original SURE and SURE-R (`../../SURE_ROBUST.md`) were run on the same 15 pilot requests. LETHE-Bench went from **0.0 to 72.2**:
 - E rose from 2.9 to 66.2 and L moved from 100 to 97.0;
 - typos and exact prompts are now fully forgotten;
 - questions, other languages and multi-turn follow-ups leak about half as often.

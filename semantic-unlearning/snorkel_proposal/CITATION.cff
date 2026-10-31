@@ -1,6 +1,6 @@
 cff-version: 1.2.0
-message: "If you use SCALPEL, please cite it as below."
-title: "SCALPEL: a benchmark for surgical, fact-level unlearning in language models"
+message: "If you use LETHE-Bench, please cite it as below."
+title: "LETHE-Bench: a benchmark for surgical, fact-level unlearning in language models"
 version: 0.1.0
 date-released: 2026-10-23
 license: Apache-2.0

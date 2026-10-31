@@ -1,10 +1,10 @@
 # SURE vs SURE-R — Qwen2.5-0.5B, 15 pilot requests (local check)
 
-All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). SCALPEL = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime components removed). Rows marked † are reference cheats the benchmark must defeat.
+All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). LETHE = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime components removed). Rows marked † are reference cheats the benchmark must defeat.
 
 ## fact · Qwen2.5-0.5B-Instruct · 15 requests
 
-| Method | SCALPEL | E | E_min | E_direct | L | L_min | U | R | Strict | seeds |
+| Method | LETHE | E | E_min | E_direct | L | L_min | U | R | Strict | seeds |
 |---|---|---|---|---|---|---|---|---|---|---|
 | sure_r | 72.2 | 66.2 | 50.0 | 100.0 | 97.0 | 86.7 | 100.0 | 50.0 | 2.9 | 1 |
 | sure_r_hardneg | 8.1 | 2.3 | 0.0 | 100.0 | 100.0 | 100.0 | 100.0 | 27.8 | 2.9 | 1 |
@@ -18,11 +18,11 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | sure_r_hardneg | 0 | 100 | 0 | 50 | 100 | 100 | 33 | 100 | 0 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
 | sure | 76 | 94 | 67 | 100 | 100 | 86 | 60 | 90 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
 
-### Legacy view vs SCALPEL (same run)
+### Legacy view vs LETHE-Bench (same run)
 
-Legacy view = only the families the official MCF / zsRE metrics use: erasure on the request and its paraphrases (Eff/Gen), retention on same-answer neighbours and unrelated questions (Spe). A shortcut that looks perfect here and collapses under SCALPEL is what the legacy metrics reward.
+Legacy view = only the families the official MCF / zsRE metrics use: erasure on the request and its paraphrases (Eff/Gen), retention on same-answer neighbours and unrelated questions (Spe). A shortcut that looks perfect here and collapses under LETHE-Bench is what the legacy metrics reward.
 
-| Method | legacy erasure | legacy locality | SCALPEL E | SCALPEL L | SCALPEL |
+| Method | legacy erasure | legacy locality | LETHE-Bench E | LETHE-Bench L | LETHE |
 |---|---|---|---|---|---|
 | sure_r | 93.3 | 100.0 | 66.2 | 97.0 | 72.2 |
 | sure_r_hardneg | 83.3 | 100.0 | 2.3 | 100.0 | 8.1 |
@@ -62,11 +62,11 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 
 
 
-All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). SCALPEL = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime components removed). Rows marked † are reference cheats the benchmark must defeat.
+All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). LETHE = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime components removed). Rows marked † are reference cheats the benchmark must defeat.
 
 ## fact · Qwen2.5-0.5B-Instruct · 15 requests
 
-| Method | SCALPEL | E | E_min | E_direct | L | L_min | U | R | Strict | seeds |
+| Method | LETHE | E | E_min | E_direct | L | L_min | U | R | Strict | seeds |
 |---|---|---|---|---|---|---|---|---|---|---|
 | sure_r | 63.2 | 42.9 | 25.0 | 60.0 | 100.0 | 100.0 | 100.0 | 50.0 | 2.9 | 1 |
 | sure_r_hardneg | 8.0 | 2.3 | 0.0 | 60.0 | 100.0 | 100.0 | 100.0 | 27.8 | 2.9 | 1 |
@@ -80,11 +80,11 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | sure_r_hardneg | 33 | 100 | 40 | 75 | 100 | 100 | 60 | 100 | 20 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
 | sure | 81 | 94 | 80 | 100 | 100 | 86 | 73 | 90 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
 
-### Legacy view vs SCALPEL (same run)
+### Legacy view vs LETHE-Bench (same run)
 
-Legacy view = only the families the official MCF / zsRE metrics use: erasure on the request and its paraphrases (Eff/Gen), retention on same-answer neighbours and unrelated questions (Spe). A shortcut that looks perfect here and collapses under SCALPEL is what the legacy metrics reward.
+Legacy view = only the families the official MCF / zsRE metrics use: erasure on the request and its paraphrases (Eff/Gen), retention on same-answer neighbours and unrelated questions (Spe). A shortcut that looks perfect here and collapses under LETHE-Bench is what the legacy metrics reward.
 
-| Method | legacy erasure | legacy locality | SCALPEL E | SCALPEL L | SCALPEL |
+| Method | legacy erasure | legacy locality | LETHE-Bench E | LETHE-Bench L | LETHE |
 |---|---|---|---|---|---|
 | sure_r | 56.7 | 100.0 | 42.9 | 100.0 | 63.2 |
 | sure_r_hardneg | 50.0 | 100.0 | 2.3 | 100.0 | 8.0 |

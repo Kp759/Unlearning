@@ -130,6 +130,27 @@ def test_attacks_restore_and_ga_changes_weights(toy, tmp_path):
     assert r["cost"]["tensors_changed"] > 0 and r["method_report"]["steps"] > 0
 
 
+@pytest.mark.parametrize("name", ["simnpo", "idk_ft", "tv"])
+def test_added_gradient_baselines_run_and_change_weights(toy, tmp_path, name):
+    r = _run(toy, name, tmp_path, lr="2e-3", epochs="3", tv_epochs="2")
+    rep = r["method_report"]
+    assert r["valid"] and r["cost"]["tensors_changed"] > 0 and rep["steps"] > 0
+    if name == "idk_ft":
+        assert rep["train_examples"] == rep["forget_examples"] and rep["retain_examples"] > 0
+    if name == "simnpo":
+        assert rep["retain_examples"] > 0
+    if name == "tv":
+        assert rep["tv_alpha"] == 1.0 and rep["retain_examples"] == 0 and "forget_answer_prob_after" in rep
+
+
+def test_ga_mixed_precision(toy, tmp_path):
+    """precision=mixed (24 GB GPUs): bf16 autocast forward, fp32 master copies of the trained weights only."""
+    r = _run(toy, "ga", tmp_path, lr="2e-3", epochs="3", params="mlp_down", precision="mixed")
+    rep = r["method_report"]
+    assert rep["precision"] == "mixed" and rep["params"] == "mlp_down" and rep["steps"] > 0
+    assert r["cost"]["tensors_changed"] > 0 and all("down_proj" in n for n in r["cost"]["changed_tensor_names"])
+
+
 def test_cheats_do_not_edit_weights_and_report_renders(toy, tmp_path):
     for name in ("subject_blocklist_idk", "answer_ban", "keyword_router_idk"):
         r = _run(toy, name, tmp_path)
@@ -139,6 +160,14 @@ def test_cheats_do_not_edit_weights_and_report_renders(toy, tmp_path):
     table = write_report(sorted(tmp_path.glob("*/results.json")), tmp_path / "lb")
     md = (tmp_path / "lb" / "leaderboard.md").read_text()
     assert "answer_ban †" in md and "Detect-then-edit" in md and len(table) == 3
+    # another split (a per-dataset build, e.g. scalpel-zsre) gets its own section and a matrix column
+    other = json.loads((tmp_path / "answer_ban" / "results.json").read_text())
+    other["split"] = "scalpel-other"
+    (tmp_path / "other" / "answer_ban").mkdir(parents=True)
+    (tmp_path / "other" / "answer_ban" / "results.json").write_text(json.dumps(other))
+    write_report(sorted(tmp_path.glob("**/results.json")), tmp_path / "lb2")
+    md2 = (tmp_path / "lb2" / "leaderboard.md").read_text()
+    assert "## LETHE score across splits" in md2 and "scalpel-other" in md2 and md2.count("| answer_ban † |") >= 1
 
 
 def test_sequential(toy, tmp_path):

@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Sequence
 
-KEYS = ("SCALPEL", "SCALPEL_core", "E", "E_mean", "E_min", "E_direct", "L", "L_mean", "L_min", "U", "R")
+KEYS = ("SCALPEL", "SCALPEL_core", "E", "E_mean", "E_min", "E_direct", "E_complete", "L", "L_mean", "L_min", "U", "R")
 
 
 def _ms(xs):
@@ -25,22 +26,44 @@ def _ms(xs):
     return m, sd
 
 
-def load_runs(paths: Sequence[Path]) -> List[Dict]:
+# Leaderboard names for method keys: the method we built runs as `ours` (its run directories keep
+# that name) and is shown as SURE; the first SURE adapter (exact matching, request prompts only)
+# is shown as sure_original and excluded from the published leaderboard (--exclude sure).
+DISPLAY_NAMES = {"ours": "SURE", "ours_l16": "SURE_l16", "ours_early": "SURE_early", "sure": "sure_original"}
+
+
+def load_runs(paths: Sequence[Path], exclude: Sequence[str] = ()) -> List[Dict]:
+    """Every results.json, except copies set aside next to the method's own run directory
+    (runs/ours_judge05, runs/noop.incomplete_<time>): a directory named after the method plus a
+    suffix holds an older run of it, which must not be averaged in as another seed. Methods in
+    `exclude` (run-directory names) are dropped; the rest are renamed for display (DISPLAY_NAMES)."""
     out = []
+    exclude = set(exclude)
     for p in paths:
         try:
             r = json.loads(Path(p).read_text())
-            r["_path"] = str(p)
-            out.append(r)
         except (OSError, json.JSONDecodeError):
             continue
+        name, parent = str(r.get("method", {}).get("name", "")), Path(p).parent.name
+        if name and parent != name and parent.startswith(name) and parent[len(name)] in "._":
+            continue
+        if name in exclude:
+            continue
+        r["method"]["name"] = DISPLAY_NAMES.get(name, name)
+        r["_path"] = str(p)
+        out.append(r)
     return out
 
 
 def summarize(runs: Sequence[Dict], scorer: str = "tf") -> Dict[str, Dict]:
     by = defaultdict(list)
     for r in runs:
-        setting = f"{r.get('track') or 'fact'} · {r.get('model_id', '?')} · {r.get('n_requests', '?')} requests"
+        # the split name keeps per-dataset splits (scalpel-mcf, scalpel-zsre, ...) in separate sections;
+        # its seed suffix (scalpel-fact-dev-s3) is dropped so the seeds of one setting are averaged
+        split = re.sub(r"-s\d+$", "", str(r.get("split") or "?"))
+        split = split.replace("scalpel-", "lethe-")       # display name; the split schema id itself is unchanged
+        setting = (f"{r.get('track') or 'fact'} · {split} · {r.get('model_id', '?')} · "
+                   f"{r.get('n_requests', '?')} requests")
         by[(setting, r["method"]["name"])].append(r)
     table = {}
     for (track, name), rs in sorted(by.items()):
@@ -60,7 +83,10 @@ def summarize(runs: Sequence[Dict], scorer: str = "tf") -> Dict[str, Dict]:
         row["unlearn_seconds"] = _ms([r["cost"]["unlearn_seconds"] for r in rs])
         row["inference_overhead"] = _ms([r["cost"]["inference_overhead"] for r in rs])
         row["behaviour"] = rs[0].get("behaviour", {})
-        row["routing"] = rs[0].get("routing")
+        # mean over seeds of the scalar routing diagnostics (was the first seed only)
+        routing = [r["routing"] for r in rs if r.get("routing")]
+        row["routing"] = ({k: _ms([d.get(k) for d in routing])[0] for k in routing[0] if not isinstance(routing[0][k], dict)}
+                          if routing else None)
         row["ci"] = rs[0].get(f"ci_{scorer}") if len(rs) == 1 else None
         row["attacks"] = {k: _ms([(r.get("robustness") or {}).get("residual_by_attack", {}).get(k) for r in rs])
                           for k in ("quant_int8", "quant_int4", "relearn", "lens")}
@@ -75,23 +101,42 @@ def _f(ms, digits=1):
     return f"{m:.{digits}f}" + (f" ± {sd:.{digits}f}" if sd else "")
 
 
-def markdown(table: Dict[str, Dict], title: str = "SCALPEL leaderboard") -> str:
+def markdown(table: Dict[str, Dict], title: str = "LETHE-Bench leaderboard") -> str:
     lines = [f"# {title}", "",
              "All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, "
              "U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). "
-             "SCALPEL = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime "
-             "components removed). Rows marked † are reference cheats the benchmark must defeat.", ""]
-    for track in sorted({r["track"] for r in table.values()}):
+             "LETHE = harmonic mean of the available E, L, U, R (1-point floor on each). *Strict* = weights only "
+             "(runtime components removed; – for methods without any). Rows marked † are reference cheats the benchmark "
+             "must defeat. The table \"behind E and L\" under each split shows what the two harmonic means are made of: "
+             "E_direct = the request prompt itself (training-visible, not in E), E_complete = share of requests whose "
+             "every held-out forget probe is erased, E_mean / E_min and L_mean / L_min = plain mean and worst family.", ""]
+    tracks = sorted({r["track"] for r in table.values()})
+    if len(tracks) > 1:          # several splits / models: one SCALPEL matrix first
+        methods = sorted({r["method"] for r in table.values()},
+                         key=lambda m: -max((r["SCALPEL"][0] or -1) for r in table.values() if r["method"] == m))
+        cell = {(r["track"], r["method"]): r for r in table.values()}
+        lines += ["## LETHE score across splits", "", "| Method | " + " | ".join(tracks) + " |", "|---|" + "---|" * len(tracks)]
+        for m in methods:
+            cheat = any(r["cheat"] for r in table.values() if r["method"] == m)
+            lines.append(f"| {m}{' †' if cheat else ''} | " + " | ".join(
+                _f(cell[(t, m)]["SCALPEL"]) if (t, m) in cell else "–" for t in tracks) + " |")
+        lines.append("")
+    for track in tracks:
         rows = sorted([r for r in table.values() if r["track"] == track],
                       key=lambda r: -(r["SCALPEL"][0] if r["SCALPEL"][0] is not None else -1))
         lines += [f"## {track}", "",
-                  "| Method | SCALPEL | E | E_min | E_direct | L | L_min | U | R | Strict | seeds |",
-                  "|---|---|---|---|---|---|---|---|---|---|---|"]
+                  "| Method | LETHE | E | L | U | R | Strict | seeds |",
+                  "|---|---|---|---|---|---|---|---|"]
         for r in rows:
             name = r["method"] + (" †" if r["cheat"] else "") + ("" if r["valid"] else " (INVALID)")
-            lines.append(f"| {name} | {_f(r['SCALPEL'])} | {_f(r['E'])} | {_f(r['E_min'])} | {_f(r['E_direct'])} | "
-                         f"{_f(r['L'])} | {_f(r['L_min'])} | {_f(r['U'])} | {_f(r['R'])} | {_f(r['strict_SCALPEL'])} | "
-                         f"{len(r['seeds'])} |")
+            lines.append(f"| {name} | {_f(r['SCALPEL'])} | {_f(r['E'])} | {_f(r['L'])} | {_f(r['U'])} | {_f(r['R'])} | "
+                         f"{_f(r['strict_SCALPEL'])} | {len(r['seeds'])} |")
+        lines += ["", "### Behind E and L", "",
+                  "| Method | E_direct | E_complete | E_mean | E_min | L_mean | L_min |",
+                  "|---|---|---|---|---|---|---|"]
+        for r in rows:
+            lines.append(f"| {r['method']}{' †' if r['cheat'] else ''} | {_f(r['E_direct'])} | {_f(r['E_complete'])} | "
+                         f"{_f(r['E_mean'])} | {_f(r['E_min'])} | {_f(r['L_mean'])} | {_f(r['L_min'])} |")
         fams = sorted({f for r in rows for f in r["families"]})
         lines += ["", "### Per family (forget: residual %, lower is better; retain: retained %, higher is better)", "",
                   "| Method | " + " | ".join(f.replace("forget/", "F:").replace("retain/", "R:") for f in fams) + " |",
@@ -100,11 +145,11 @@ def markdown(table: Dict[str, Dict], title: str = "SCALPEL leaderboard") -> str:
             lines.append(f"| {r['method']} | " + " | ".join(_f(r["families"].get(f, (None, None)), 0) for f in fams) + " |")
         legacy = [(r, _legacy(r)) for r in rows]
         if any(v[0] is not None for _, v in legacy):
-            lines += ["", "### Legacy view vs SCALPEL (same run)", "",
+            lines += ["", "### Legacy view vs LETHE-Bench (same run)", "",
                       "Legacy view = only the families the official MCF / zsRE metrics use: erasure on the request "
                       "and its paraphrases (Eff/Gen), retention on same-answer neighbours and unrelated questions (Spe). "
-                      "A shortcut that looks perfect here and collapses under SCALPEL is what the legacy metrics reward.", "",
-                      "| Method | legacy erasure | legacy locality | SCALPEL E | SCALPEL L | SCALPEL |", "|---|---|---|---|---|---|"]
+                      "A shortcut that looks perfect here and collapses under LETHE-Bench is what the legacy metrics reward.", "",
+                      "| Method | legacy erasure | legacy locality | LETHE-Bench E | LETHE-Bench L | LETHE |", "|---|---|---|---|---|---|"]
             for r, (le, ll) in legacy:
                 lines.append(f"| {r['method']}{' †' if r['cheat'] else ''} | {_f(le)} | {_f(ll)} | {_f(r['E'])} | "
                              f"{_f(r['L'])} | {_f(r['SCALPEL'])} |")
@@ -174,7 +219,7 @@ def pareto_plot(table: Dict[str, Dict], path: Path) -> bool:
     lines = [f"{i:>2}  {r['method']}{' †' if r['cheat'] else ''}" for i, r in enumerate(rows, 1)]
     key.text(0.0, 1.0, "\n".join(lines), va="top", ha="left", fontsize=8, family="monospace",
              transform=key.transAxes)
-    key.text(0.0, 0.02, "† reference cheat\n(ordered by SCALPEL)", va="bottom", fontsize=7, color="#666666",
+    key.text(0.0, 0.02, "† reference cheat\n(ordered by LETHE score)", va="bottom", fontsize=7, color="#666666",
              transform=key.transAxes)
     ax.set_xlabel("Locality L (retain families, %)")
     ax.set_ylabel("Erasure E (held-out forget families, %)")
@@ -188,16 +233,19 @@ def pareto_plot(table: Dict[str, Dict], path: Path) -> bool:
     return True
 
 
-def write_report(run_paths: Sequence[Path], out: Path, title: str = "SCALPEL leaderboard") -> Dict:
+def write_report(run_paths: Sequence[Path], out: Path, title: str = "LETHE-Bench leaderboard",
+                 exclude: Sequence[str] = ()) -> Dict:
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    runs = load_runs(run_paths)
+    runs = load_runs(run_paths, exclude=exclude)
     table = summarize(runs, "tf")
     (out / "leaderboard.json").write_text(json.dumps(table, indent=1, default=str) + "\n")
     md = markdown(table, title)
     gen_table = summarize(runs, "gen")
+    (out / "leaderboard_gen.json").write_text(json.dumps(gen_table, indent=1, default=str) + "\n")
     if any(r["SCALPEL"][0] is not None for r in gen_table.values()):
-        md += "\n" + markdown(gen_table, title + " — open-ended (generation) scorer").split("\n", 1)[1]
+        # same layout under its own heading (the split drops the second H1 title)
+        md += "\n# Open-ended (generation) scorer\n" + markdown(gen_table, title).split("\n", 1)[1]
     (out / "leaderboard.md").write_text(md)
     pareto_plot(table, out / "pareto.png")
     return table

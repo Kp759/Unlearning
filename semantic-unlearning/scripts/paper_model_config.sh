@@ -7,22 +7,42 @@
 #   MODEL=qwen3_4b     Qwen/Qwen3-4B (no-thinking prompts)  36 layers, hidden 2560, tied head
 #
 # Layers are the 3B choices moved to the same relative depth (3B has 28 blocks):
-#   write 16 -> 16/28, router 19, logit lens 24, v2.2 subject 6, v2.2 relation candidates
-#   19 23 24 27 (concat 19,23,27; 27 = last block), RMU 7. Not re-tuned per model.
+#   router 19; Δe at EARLY_WRITE_LAYER 16 -> 16/28 (published, two passes), or with ONEPASS=1 at
+#   the router layer in ONE forward pass (ours; WRITE_LAYER=$EARLY_WRITE_LAYER = its ablation);
+#   logit lens 24 (off unless LENS_TYPE is set), v2.2 subject 6, v2.2 relation candidates
+#   19 23 24 27 (concat 19,23,27; 27 = last block), RMU 7.
+# ROUTER_LAYER, EARLY_WRITE_LAYER, WRITE_LAYER and LENS_LAYER in the environment override these
+# defaults; scripts/submit_layer_smoke.sh measures which to use (README_OTHER_MODELS.md).
+# Tags: paper_<MODEL>_v1 (published shape), paper_<MODEL>_onepass_v1 (one pass at the default
+# router layer; _onepass_r<R>_v1 at another), paper_<MODEL>_r<R>_w<W>_ours_v1 (router at R,
+# Δe at W: the paper's l16_ours_v1 shape on this model).
 # ZeroUnlearn uses the upstream hparams file shipped for each model (no tuning by us).
 #
 # Exports: MODEL_PATH MODEL_TAG TAG ROUTER_LAYER WRITE_LAYER LENS_LAYER V22_SUBJECT_LAYERS
 #          V22_RELATION_LAYERS V22_RELATION_CONCAT BASELINE_ARGS HF_ID N_LAYERS MIN_GPU_MIB
 #          (+ CHAT_ENABLE_THINKING=0 for Qwen3)
 
-HF_CACHE="${HF_CACHE:-/project/yl258/kp759/hf}"   # /project: /scratch purges ~30-day-old files
+if [[ -z "${HF_CACHE:-}" ]]; then   # /project if it exists (not purged), else the /scratch cache the 3B weights live in
+  for c in /project/yl258/kp759/hf /scratch/yl258/kp759/hf; do [[ -d "$c" ]] && { HF_CACHE="$c"; break; }; done
+  HF_CACHE="${HF_CACHE:-/scratch/yl258/kp759/hf}"
+fi
 ZERO_HP="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/ZeroUnlearn/hparams/ZeroUnlearn"
+
+# LAYER_DECISION=outputs/layer_smoke_<MODEL>/decision.json (scripts/layer_decide.py): the layers
+# the smoke test chose. Its router layer always wins; its write layer is used when WRITE_LAYER is
+# not set (the write-candidate tasks set WRITE_LAYER themselves).
+if [[ -n "${LAYER_DECISION:-}" && -f "$LAYER_DECISION" ]]; then
+  R_DECIDED="$(jq -r '.router_layer // empty' "$LAYER_DECISION")"
+  [[ -n "$R_DECIDED" ]] && ROUTER_LAYER="$R_DECIDED"
+  [[ -n "${WRITE_LAYER:-}" ]] || WRITE_LAYER="$(jq -r '.write_layer // empty' "$LAYER_DECISION")"
+fi
 
 case "${MODEL:-}" in
   llama31_8b)
     HF_ID=meta-llama/Llama-3.1-8B-Instruct
     N_LAYERS=32
-    ROUTER_LAYER=22; WRITE_LAYER=18; LENS_LAYER=27
+    DEFAULT_ROUTER_LAYER=22
+    ROUTER_LAYER="${ROUTER_LAYER:-22}"; EARLY_WRITE_LAYER="${EARLY_WRITE_LAYER:-18}"; LENS_LAYER="${LENS_LAYER:-27}"
     V22_SUBJECT_LAYERS=7; V22_RELATION_LAYERS="22 26 27 31"; V22_RELATION_CONCAT=22,26,31
     # GA/GD/NPO train in fp32 with AdamW: every MLP of an 8B model (5.6B params) needs
     # ~100 GB for weights + grads + Adam states, more than one 80 GB GPU. down_proj only
@@ -33,7 +53,8 @@ case "${MODEL:-}" in
   qwen3_4b)
     HF_ID=Qwen/Qwen3-4B
     N_LAYERS=36
-    ROUTER_LAYER=24; WRITE_LAYER=21; LENS_LAYER=31
+    DEFAULT_ROUTER_LAYER=24
+    ROUTER_LAYER="${ROUTER_LAYER:-24}"; EARLY_WRITE_LAYER="${EARLY_WRITE_LAYER:-21}"; LENS_LAYER="${LENS_LAYER:-31}"
     V22_SUBJECT_LAYERS=8; V22_RELATION_LAYERS="24 30 31 35"; V22_RELATION_CONCAT=24,30,35
     BASELINE_ARGS="--rmu-layer 9 --baseline-params mlp --zero-hparams $ZERO_HP/Qwen3-4B.json"
     MIN_GPU_MIB=40000
@@ -55,8 +76,17 @@ if [[ -z "${MODEL_PATH:-}" ]]; then
   done
 fi
 MODEL_TAG="$MODEL"
-TAG="${TAG:-paper_${MODEL}_v1}"
-export HF_ID N_LAYERS MODEL_PATH MODEL_TAG TAG ROUTER_LAYER WRITE_LAYER LENS_LAYER \
+if [[ "${ONEPASS:-0}" == 1 ]]; then             # ours: Δe at the router layer, one forward pass
+  WRITE_LAYER="${WRITE_LAYER:-$ROUTER_LAYER}"
+  if [[ "$WRITE_LAYER" == "$ROUTER_LAYER" ]]; then
+    if [[ "$ROUTER_LAYER" == "$DEFAULT_ROUTER_LAYER" ]]; then TAG="${TAG:-paper_${MODEL}_onepass_v1}"
+    else TAG="${TAG:-paper_${MODEL}_onepass_r${ROUTER_LAYER}_v1}"; fi
+  else TAG="${TAG:-paper_${MODEL}_r${ROUTER_LAYER}_w${WRITE_LAYER}_ours_v1}"; fi   # router at R, Δe at W: the paper's l16_ours_v1 shape
+else                                            # the published configuration
+  WRITE_LAYER="${WRITE_LAYER:-$EARLY_WRITE_LAYER}"
+  TAG="${TAG:-paper_${MODEL}_v1}"
+fi
+export HF_ID N_LAYERS MODEL_PATH MODEL_TAG TAG ROUTER_LAYER WRITE_LAYER EARLY_WRITE_LAYER LENS_LAYER \
        V22_SUBJECT_LAYERS V22_RELATION_LAYERS V22_RELATION_CONCAT BASELINE_ARGS MIN_GPU_MIB
 
 paper_model_check() {  # fail fast: weights present, layer count as configured, GPU big enough
@@ -75,11 +105,17 @@ paper_model_check() {  # fail fast: weights present, layer count as configured, 
     [[ "${mib:-0}" -ge "$MIN_GPU_MIB" ]] \
       || { echo "GPU has ${mib} MiB, $MODEL needs >= $MIN_GPU_MIB MiB" >&2; return 3; }
   fi
-  python - "$MODEL_PATH" <<'EOF' || return 3
+  if python -c "import transformers" 2>/dev/null; then
+    python - "$MODEL_PATH" <<'EOF' || return 3
 import sys
 from transformers import AutoConfig
 c = AutoConfig.from_pretrained(sys.argv[1], local_files_only=True)
 print(f"model ok: {c.model_type}, {c.num_hidden_layers} layers, hidden {c.hidden_size}")
 EOF
+  elif [[ -n "${SLURM_JOB_ID:-}" ]]; then
+    echo "transformers not importable inside the job: wrong ENV_DIR?" >&2; return 3
+  else
+    echo "note: transformers not importable in this shell (conda env not active); the job re-checks the model"
+  fi
   echo "MODEL=$MODEL MODEL_PATH=$MODEL_PATH TAG=$TAG router L$ROUTER_LAYER write L$WRITE_LAYER lens L$LENS_LAYER"
 }

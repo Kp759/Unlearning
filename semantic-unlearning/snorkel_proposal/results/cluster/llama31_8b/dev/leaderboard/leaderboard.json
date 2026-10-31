@@ -1,0 +1,3135 @@
+{
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:SURE": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "SURE",
+  "family": "detect_then_edit",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [
+   "router_hooks"
+  ],
+  "SCALPEL": [
+   18.65356287770139,
+   3.4619252249877426
+  ],
+  "SCALPEL_core": [
+   18.031943883261775,
+   3.4575873393734593
+  ],
+  "E": [
+   6.885264661134518,
+   1.4544651710814396
+  ],
+  "E_mean": [
+   78.88983081345609,
+   4.730035166050913
+  ],
+  "E_min": [
+   0.0,
+   0.0
+  ],
+  "E_direct": [
+   94.4,
+   4.33589667773576
+  ],
+  "E_complete": [
+   64.278231292517,
+   7.937424615023556
+  ],
+  "L": [
+   95.68103512810528,
+   1.0494701896755974
+  ],
+  "L_mean": [
+   96.19650913631612,
+   0.895799201315357
+  ],
+  "L_min": [
+   80.89873632175536,
+   4.042848167786072
+  ],
+  "U": [
+   100.0,
+   0.0
+  ],
+  "R": [
+   21.182927651420815,
+   4.5162748835486415
+  ],
+  "families": {
+   "forget/context_prefix": [
+    4.880907295242677,
+    4.873423325646275
+   ],
+   "forget/crosslingual": [
+    1.7015873015873015,
+    1.8288580022354495
+   ],
+   "forget/direct": [
+    5.6,
+    4.33589667773576
+   ],
+   "forget/indirect": [
+    100.0,
+    0.0
+   ],
+   "forget/multifact": [
+    4.225806451612903,
+    6.997472414186775
+   ],
+   "forget/multihop": [
+    95.13888888888889,
+    8.12826382688863
+   ],
+   "forget/multiturn": [
+    0.625,
+    1.3975424859373686
+   ],
+   "forget/paraphrase": [
+    10.722982751981728,
+    7.692288045447971
+   ],
+   "forget/question": [
+    1.9062450341649453,
+    1.752915310199325
+   ],
+   "forget/surface": [
+    4.1,
+    0.4306826306512385
+   ],
+   "retain/disjoint": [
+    100.0,
+    0.0
+   ],
+   "retain/in_context": [
+    81.80782723084629,
+    5.735597621925831
+   ],
+   "retain/name_collision": [
+    100.0,
+    0.0
+   ],
+   "retain/same_object": [
+    100.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    100.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    95.93939393939394,
+    6.081781189964657
+   ],
+   "retain/same_subject": [
+    98.25925925925927,
+    2.4272685004164374
+   ],
+   "retain/subject_mentioned": [
+    93.56559266102947,
+    4.528660106903895
+   ]
+  },
+  "strict_SCALPEL": [
+   2.941176470588235,
+   0.0
+  ],
+  "unlearn_seconds": [
+   4557.471768665314,
+   87.70527223727264
+  ],
+  "inference_overhead": [
+   1.6684428654831713,
+   0.012819887916734496
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 15.625,
+    "refusal": 0.0,
+    "hallucination_or_other": 84.375,
+    "n": 352
+   },
+   "retain": {
+    "correct": 97.43589743589743,
+    "false_refusal": 0.0,
+    "wrong": 2.5641025641025643,
+    "n": 312
+   }
+  },
+  "routing": {
+   "forget_route_recall": 91.69608988570403,
+   "forget_residual_from_routing": 8.303910114295979,
+   "forget_residual_from_actuation": 1.1832825942542173,
+   "retain_false_fire_rate": 8.547789377233972
+  },
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    7.068145926407146,
+    3.9120356920388466
+   ],
+   "quant_int4": [
+    5.838288133033332,
+    4.913284600057307
+   ],
+   "relearn": [
+    14.329193062179963,
+    4.765268766112877
+   ],
+   "lens": [
+    78.81707234857917,
+    4.5162748835486415
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:answer_ban": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "answer_ban",
+  "family": "trivial",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": true,
+  "runtime_components": [
+   "logit_bias"
+  ],
+  "SCALPEL": [
+   3.4168077560686974,
+   0.007871633828442092
+  ],
+  "SCALPEL_core": [
+   17.57940879680718,
+   0.2781738811233723
+  ],
+  "E": [
+   93.45263286078509,
+   2.7747041932172434
+  ],
+  "E_mean": [
+   94.06642067657596,
+   2.3297537581450265
+  ],
+  "E_min": [
+   78.49450549450549,
+   10.27737261279312
+  ],
+  "E_direct": [
+   96.0,
+   3.7416573867739413
+  ],
+  "E_complete": [
+   85.75918367346938,
+   6.227339595203223
+  ],
+  "L": [
+   7.286395467628255,
+   0.04622642745571404
+  ],
+  "L_mean": [
+   64.05328884642604,
+   3.9771587814166245
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   44.51230938509501,
+   5.50246334943643
+  ],
+  "R": [
+   0.0,
+   0.0
+  ],
+  "families": {
+   "forget/context_prefix": [
+    4.327783730202116,
+    4.588623472802518
+   ],
+   "forget/crosslingual": [
+    2.304204251727594,
+    2.301890177831181
+   ],
+   "forget/direct": [
+    4.0,
+    3.7416573867739413
+   ],
+   "forget/indirect": [
+    0.0,
+    0.0
+   ],
+   "forget/multifact": [
+    4.850267379679144,
+    6.006218954788489
+   ],
+   "forget/multihop": [
+    21.505494505494504,
+    10.277372612793117
+   ],
+   "forget/multiturn": [
+    4.043149796069708,
+    3.3842602008420335
+   ],
+   "forget/paraphrase": [
+    4.552202143056311,
+    4.475289312822069
+   ],
+   "forget/question": [
+    4.502145240743684,
+    2.845296273608508
+   ],
+   "forget/surface": [
+    4.814285714285715,
+    1.3388914763667477
+   ],
+   "retain/disjoint": [
+    73.2673995313684,
+    4.563926790960557
+   ],
+   "retain/in_context": [
+    73.75478486582327,
+    18.0150949601177
+   ],
+   "retain/name_collision": [
+    69.16666666666666,
+    8.627462348568303
+   ],
+   "retain/same_object": [
+    0.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    82.29224840758022,
+    10.103823216204354
+   ],
+   "retain/same_sentence": [
+    69.3510101010101,
+    8.323320047713636
+   ],
+   "retain/same_subject": [
+    72.0824434274091,
+    13.323681063916952
+   ],
+   "retain/subject_mentioned": [
+    72.51175777155046,
+    7.658558351322288
+   ]
+  },
+  "strict_SCALPEL": [
+   2.9049278531697933,
+   0.007644224543379829
+  ],
+  "unlearn_seconds": [
+   0.005267953872680664,
+   0.0002003694051416206
+  ],
+  "inference_overhead": [
+   0.9689612611092816,
+   0.006180422439451677
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 17.613636363636363,
+    "refusal": 0.0,
+    "hallucination_or_other": 82.38636363636364,
+    "n": 352
+   },
+   "retain": {
+    "correct": 73.71794871794872,
+    "false_refusal": 0.0,
+    "wrong": 26.28205128205128,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    4.514480565698749,
+    3.16388240737189
+   ],
+   "quant_int4": [
+    2.556115110699749,
+    1.7462311768928143
+   ],
+   "relearn": [
+    2.5273784686399035,
+    3.336480467262842
+   ],
+   "lens": [
+    100.0,
+    0.0
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:ga": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "ga",
+  "family": "gradient",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   5.607565258156667,
+   1.6163795270334582
+  ],
+  "SCALPEL_core": [
+   4.283372418282851,
+   1.2550111485004292
+  ],
+  "E": [
+   98.8621197656374,
+   1.0770537754707852
+  ],
+  "E_mean": [
+   98.91631278634041,
+   1.0195412795800456
+  ],
+  "E_min": [
+   95.82181259600614,
+   4.203131019533629
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "E_complete": [
+   96.39183673469388,
+   4.094835788316522
+  ],
+  "L": [
+   1.4844082857358192,
+   0.4433152804648134
+  ],
+  "L_mean": [
+   6.9570145668129415,
+   6.673332199556203
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   63.7858693676891,
+   13.52385828024648
+  ],
+  "R": [
+   84.94242377556432,
+   6.631984896369058
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    1.177100053504548,
+    2.0621821659284927
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    0.0,
+    0.0
+   ],
+   "forget/multifact": [
+    0.0,
+    0.0
+   ],
+   "forget/multihop": [
+    0.0,
+    0.0
+   ],
+   "forget/multiturn": [
+    4.018817204301075,
+    4.162979638209465
+   ],
+   "forget/paraphrase": [
+    0.35714285714285715,
+    0.7985957062499249
+   ],
+   "forget/question": [
+    3.8379416282642085,
+    3.834215311164275
+   ],
+   "forget/surface": [
+    0.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    3.3056751155746853,
+    3.1435870203427054
+   ],
+   "retain/in_context": [
+    37.258658252573056,
+    35.06292335975702
+   ],
+   "retain/name_collision": [
+    4.095238095238095,
+    3.924601168407532
+   ],
+   "retain/same_object": [
+    0.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    0.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    0.0,
+    0.0
+   ],
+   "retain/same_subject": [
+    0.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    10.99654507111769,
+    12.048209218174467
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   10.90716233253479,
+   2.1751125978563737
+  ],
+  "inference_overhead": [
+   0.9523477581849271,
+   0.005284865535828647
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 2.840909090909091,
+    "refusal": 0.2840909090909091,
+    "hallucination_or_other": 96.875,
+    "n": 352
+   },
+   "retain": {
+    "correct": 8.653846153846153,
+    "false_refusal": 0.0,
+    "wrong": 91.34615384615384,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    1.2090578849091833,
+    1.3475829247995466
+   ],
+   "quant_int4": [
+    2.586874767146405,
+    2.3146309731576187
+   ],
+   "relearn": [
+    3.6727428064402816,
+    2.0649484638165454
+   ],
+   "lens": [
+    15.057576224435673,
+    6.631984896369059
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:gd": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "gd",
+  "family": "gradient",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   5.054215182529921,
+   1.1487964077144188
+  ],
+  "SCALPEL_core": [
+   3.8518197523530224,
+   0.8938268626068754
+  ],
+  "E": [
+   99.0079444947375,
+   1.9970986743678192
+  ],
+  "E_mean": [
+   99.09611992945327,
+   1.8074912692036724
+  ],
+  "E_min": [
+   95.95238095238095,
+   7.2217861371919545
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "E_complete": [
+   97.95068027210884,
+   3.5348487061082565
+  ],
+  "L": [
+   1.3292307126481908,
+   0.3171960238825715
+  ],
+  "L_mean": [
+   5.618770168831813,
+   5.266712872277101
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   64.19749016519285,
+   7.048913626698651
+  ],
+  "R": [
+   84.49210261706669,
+   8.32607599744281
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    1.5873015873015874,
+    3.549314249999666
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    0.0,
+    0.0
+   ],
+   "forget/multifact": [
+    0.0,
+    0.0
+   ],
+   "forget/multihop": [
+    0.0,
+    0.0
+   ],
+   "forget/multiturn": [
+    3.2142857142857144,
+    5.416339602893964
+   ],
+   "forget/paraphrase": [
+    0.0,
+    0.0
+   ],
+   "forget/question": [
+    3.3333333333333335,
+    7.4535599249993
+   ],
+   "forget/surface": [
+    0.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    2.4642914076199585,
+    4.127071428434095
+   ],
+   "retain/in_context": [
+    33.11772218465931,
+    31.83932427524208
+   ],
+   "retain/name_collision": [
+    1.0,
+    2.23606797749979
+   ],
+   "retain/same_object": [
+    0.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    0.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    0.0,
+    0.0
+   ],
+   "retain/same_subject": [
+    0.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    8.368147758375246,
+    5.913044961332004
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   47.58327450752258,
+   3.528839303178527
+  ],
+  "inference_overhead": [
+   0.9504093990264986,
+   0.006792217116418088
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 3.125,
+    "refusal": 0.0,
+    "hallucination_or_other": 96.875,
+    "n": 352
+   },
+   "retain": {
+    "correct": 12.179487179487179,
+    "false_refusal": 0.0,
+    "wrong": 87.82051282051282,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    0.48,
+    1.0733126291998991
+   ],
+   "quant_int4": [
+    2.950289867981303,
+    2.162950476967367
+   ],
+   "relearn": [
+    4.757985062768155,
+    5.308202440474342
+   ],
+   "lens": [
+    15.507897382933304,
+    8.32607599744281
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:idk_all": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "idk_all",
+  "family": "trivial",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": true,
+  "runtime_components": [
+   "logit_filter"
+  ],
+  "SCALPEL": [
+   1.9008904780181062,
+   0.007612324620590766
+  ],
+  "SCALPEL_core": [
+   2.7167700441142992,
+   0.02076163951847203
+  ],
+  "E": [
+   100.0,
+   0.0
+  ],
+  "E_mean": [
+   100.0,
+   0.0
+  ],
+  "E_min": [
+   100.0,
+   0.0
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "E_complete": [
+   100.0,
+   0.0
+  ],
+  "L": [
+   1.0,
+   0.0
+  ],
+  "L_mean": [
+   0.0,
+   0.0
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   10.675004819741662,
+   0.998685625357806
+  ],
+  "R": [
+   0.0,
+   0.0
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    0.0,
+    0.0
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    0.0,
+    0.0
+   ],
+   "forget/multifact": [
+    0.0,
+    0.0
+   ],
+   "forget/multihop": [
+    0.0,
+    0.0
+   ],
+   "forget/multiturn": [
+    0.0,
+    0.0
+   ],
+   "forget/paraphrase": [
+    0.0,
+    0.0
+   ],
+   "forget/question": [
+    0.0,
+    0.0
+   ],
+   "forget/surface": [
+    0.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    0.0,
+    0.0
+   ],
+   "retain/in_context": [
+    0.0,
+    0.0
+   ],
+   "retain/name_collision": [
+    0.0,
+    0.0
+   ],
+   "retain/same_object": [
+    0.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    0.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    0.0,
+    0.0
+   ],
+   "retain/same_subject": [
+    0.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    0.0,
+    0.0
+   ]
+  },
+  "strict_SCALPEL": [
+   2.7167700441142992,
+   0.02076163951847203
+  ],
+  "unlearn_seconds": [
+   0.0007573127746582031,
+   3.2202663605723345e-05
+  ],
+  "inference_overhead": [
+   1.0332912535291907,
+   0.008713824539170753
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 0.0,
+    "refusal": 100.0,
+    "hallucination_or_other": 0.0,
+    "n": 352
+   },
+   "retain": {
+    "correct": 0.0,
+    "false_refusal": 100.0,
+    "wrong": 0.0,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    0.0,
+    0.0
+   ],
+   "quant_int4": [
+    0.0,
+    0.0
+   ],
+   "relearn": [
+    0.0,
+    0.0
+   ],
+   "lens": [
+    100.0,
+    0.0
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:idk_ft": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "idk_ft",
+  "family": "gradient",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   10.939393643811815,
+   0.23274334537029942
+  ],
+  "SCALPEL_core": [
+   10.291605899435591,
+   0.10786968515766157
+  ],
+  "E": [
+   98.34557270828137,
+   1.1835517293186386
+  ],
+  "E_mean": [
+   98.48840639952611,
+   1.0204541809007281
+  ],
+  "E_min": [
+   91.09298753984352,
+   6.793742721394222
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "E_complete": [
+   94.30884353741497,
+   2.6917706321319685
+  ],
+  "L": [
+   3.772579667242322,
+   0.008668463009643497
+  ],
+  "L_mean": [
+   39.65270017967703,
+   1.7298169522363251
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   63.4914425683932,
+   14.076655404359357
+  ],
+  "R": [
+   13.606279292435824,
+   1.609928814695787
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    0.0,
+    0.0
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    9.0,
+    12.449899597988733
+   ],
+   "forget/multifact": [
+    2.4667931688804554,
+    3.3837864326616716
+   ],
+   "forget/multihop": [
+    0.0,
+    0.0
+   ],
+   "forget/multiturn": [
+    0.0,
+    0.0
+   ],
+   "forget/paraphrase": [
+    3.324226893099465,
+    3.451786785524921
+   ],
+   "forget/question": [
+    0.0,
+    0.0
+   ],
+   "forget/surface": [
+    3.385714285714286,
+    3.4176578950398686
+   ],
+   "retain/disjoint": [
+    54.80128251322803,
+    2.0146142475985522
+   ],
+   "retain/in_context": [
+    0.0,
+    0.0
+   ],
+   "retain/name_collision": [
+    52.26190476190476,
+    10.87967586551987
+   ],
+   "retain/same_object": [
+    42.44892507945343,
+    5.933399107760425
+   ],
+   "retain/same_relation": [
+    63.943728887435974,
+    8.385199552718879
+   ],
+   "retain/same_sentence": [
+    64.49747474747474,
+    11.591268067326878
+   ],
+   "retain/same_subject": [
+    39.26828544791932,
+    10.583048441190309
+   ],
+   "retain/subject_mentioned": [
+    0.0,
+    0.0
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   260.8887529850006,
+   26.385253477715242
+  ],
+  "inference_overhead": [
+   0.9506528890262848,
+   0.005006803693428195
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 5.965909090909091,
+    "refusal": 93.75,
+    "hallucination_or_other": 0.2840909090909091,
+    "n": 352
+   },
+   "retain": {
+    "correct": 60.8974358974359,
+    "false_refusal": 37.17948717948718,
+    "wrong": 1.9230769230769231,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    1.3577632646092117,
+    1.3988459437337961
+   ],
+   "quant_int4": [
+    13.22876912179044,
+    9.04839601783322
+   ],
+   "relearn": [
+    53.73809326164347,
+    12.145442893850728
+   ],
+   "lens": [
+    86.39372070756417,
+    1.6099288146957873
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:keyword_router_idk": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "keyword_router_idk",
+  "family": "trivial",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": true,
+  "runtime_components": [
+   "keyword_router"
+  ],
+  "SCALPEL": [
+   3.2092137637589553,
+   0.14520468993862237
+  ],
+  "SCALPEL_core": [
+   12.626631942512555,
+   3.078540804384351
+  ],
+  "E": [
+   4.980617649649136,
+   1.3645403286098812
+  ],
+  "E_mean": [
+   50.74245401611009,
+   4.516759845566503
+  ],
+  "E_min": [
+   0.0,
+   0.0
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "E_complete": [
+   14.639795918367346,
+   5.828830544317532
+  ],
+  "L": [
+   40.00983894254116,
+   7.802193684305979
+  ],
+  "L_mean": [
+   75.13323382986222,
+   2.719990733717142
+  ],
+  "L_min": [
+   11.835997877089286,
+   3.1801305225279624
+  ],
+  "U": [
+   99.84650270364557,
+   0.2124345918945297
+  ],
+  "R": [
+   0.0,
+   0.0
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    90.67350520099373,
+    3.2182427743423423
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    100.0,
+    0.0
+   ],
+   "forget/multifact": [
+    25.742699425811384,
+    8.239552380303856
+   ],
+   "forget/multihop": [
+    77.51678876678878,
+    11.674028946554566
+   ],
+   "forget/multiturn": [
+    18.966709041792466,
+    6.121467933537319
+   ],
+   "forget/paraphrase": [
+    36.5060530365332,
+    8.191954729163571
+   ],
+   "forget/question": [
+    15.858970284443032,
+    4.335100536547747
+   ],
+   "forget/surface": [
+    100.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    100.0,
+    0.0
+   ],
+   "retain/in_context": [
+    12.926906967998377,
+    1.4019512598621764
+   ],
+   "retain/name_collision": [
+    100.0,
+    0.0
+   ],
+   "retain/same_object": [
+    100.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    100.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    21.156565656565657,
+    11.189581721773797
+   ],
+   "retain/same_subject": [
+    97.01086956521739,
+    4.1833707386795265
+   ],
+   "retain/subject_mentioned": [
+    69.97152844911628,
+    11.194022167928297
+   ]
+  },
+  "strict_SCALPEL": [
+   2.9411320385236386,
+   6.14972238032882e-05
+  ],
+  "unlearn_seconds": [
+   0.00224452018737793,
+   0.0017416813646104832
+  ],
+  "inference_overhead": [
+   1.0391783375575723,
+   0.0058403995518404965
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 35.51136363636363,
+    "refusal": 64.48863636363636,
+    "hallucination_or_other": 0.0,
+    "n": 352
+   },
+   "retain": {
+    "correct": 81.41025641025641,
+    "false_refusal": 18.58974358974359,
+    "wrong": 0.0,
+    "n": 312
+   }
+  },
+  "routing": {
+   "forget_route_recall": 62.588707337211325,
+   "forget_residual_from_routing": 37.41129266278867,
+   "forget_residual_from_actuation": 0.0,
+   "retain_false_fire_rate": 18.16303334648845
+  },
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    18.094271223807272,
+    3.362290914542819
+   ],
+   "quant_int4": [
+    15.705227534320542,
+    3.2556084450782063
+   ],
+   "relearn": [
+    19.05528609929852,
+    6.657254249942891
+   ],
+   "lens": [
+    100.0,
+    0.0
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:memit": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "memit",
+  "family": "locate_edit",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   3.2094757324898566,
+   0.37373209584427036
+  ],
+  "SCALPEL_core": [
+   16.506583190922818,
+   12.530515081830933
+  ],
+  "E": [
+   6.744512882029882,
+   6.112525522157713
+  ],
+  "E_mean": [
+   24.481193743523505,
+   2.6922944054102858
+  ],
+  "E_min": [
+   1.6666666666666656,
+   3.7267799624996467
+  ],
+  "E_direct": [
+   76.0,
+   6.782329983125268
+  ],
+  "E_complete": [
+   8.13265306122449,
+   2.6546502305822757
+  ],
+  "L": [
+   87.12854757635066,
+   2.376243407294581
+  ],
+  "L_mean": [
+   89.72393145530317,
+   2.0395504128895183
+  ],
+  "L_min": [
+   59.60127976947199,
+   7.502034623150981
+  ],
+  "U": [
+   99.4777195608579,
+   0.4018510209511747
+  ],
+  "R": [
+   0.0,
+   0.0
+  ],
+  "families": {
+   "forget/context_prefix": [
+    46.70029081844619,
+    3.7540571612052895
+   ],
+   "forget/crosslingual": [
+    91.61482553247073,
+    5.674520253777748
+   ],
+   "forget/direct": [
+    24.0,
+    6.782329983125268
+   ],
+   "forget/indirect": [
+    89.77777777777779,
+    17.327634390771493
+   ],
+   "forget/multifact": [
+    63.96049680869415,
+    7.239170841469073
+   ],
+   "forget/multihop": [
+    95.71428571428571,
+    9.5831484749991
+   ],
+   "forget/multiturn": [
+    93.7884024577573,
+    4.869177614432485
+   ],
+   "forget/paraphrase": [
+    52.883787687751905,
+    6.762435390446905
+   ],
+   "forget/question": [
+    94.71280258488268,
+    4.54370004771667
+   ],
+   "forget/surface": [
+    60.17142857142858,
+    13.734178694013448
+   ],
+   "retain/disjoint": [
+    97.22686267958571,
+    2.692694231390831
+   ],
+   "retain/in_context": [
+    98.098223615465,
+    2.763050178648011
+   ],
+   "retain/name_collision": [
+    92.57142857142858,
+    5.322373943936388
+   ],
+   "retain/same_object": [
+    90.12162696430677,
+    3.9632162863267535
+   ],
+   "retain/same_relation": [
+    94.53314115327846,
+    3.599363606862887
+   ],
+   "retain/same_sentence": [
+    85.63888888888889,
+    11.074418581288153
+   ],
+   "retain/same_subject": [
+    59.60127976947199,
+    7.502034623150981
+   ],
+   "retain/subject_mentioned": [
+    100.0,
+    0.0
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   273.5640089035034,
+   7.4341360651585155
+  ],
+  "inference_overhead": [
+   0.9503023971121719,
+   0.004200211959922762
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 73.86363636363636,
+    "refusal": 0.0,
+    "hallucination_or_other": 26.136363636363637,
+    "n": 352
+   },
+   "retain": {
+    "correct": 96.15384615384616,
+    "false_refusal": 0.0,
+    "wrong": 3.8461538461538463,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    52.96274788708886,
+    2.9252135793469805
+   ],
+   "quant_int4": [
+    84.63824879855144,
+    7.016582885955548
+   ],
+   "relearn": [
+    98.7217443161859,
+    1.3331107031494454
+   ],
+   "lens": [
+    99.83164983164984,
+    0.37644242045450804
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:noop": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "noop",
+  "family": "trivial",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": true,
+  "runtime_components": [],
+  "SCALPEL": [
+   1.9801980198019802,
+   0.0
+  ],
+  "SCALPEL_core": [
+   2.941176470588235,
+   0.0
+  ],
+  "E": [
+   1.0,
+   0.0
+  ],
+  "E_mean": [
+   0.0,
+   0.0
+  ],
+  "E_min": [
+   0.0,
+   0.0
+  ],
+  "E_direct": [
+   0.0,
+   0.0
+  ],
+  "E_complete": [
+   0.0,
+   0.0
+  ],
+  "L": [
+   100.0,
+   0.0
+  ],
+  "L_mean": [
+   100.0,
+   0.0
+  ],
+  "L_min": [
+   100.0,
+   0.0
+  ],
+  "U": [
+   100.0,
+   0.0
+  ],
+  "R": [
+   0.0,
+   0.0
+  ],
+  "families": {
+   "forget/context_prefix": [
+    100.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    100.0,
+    0.0
+   ],
+   "forget/direct": [
+    100.0,
+    0.0
+   ],
+   "forget/indirect": [
+    100.0,
+    0.0
+   ],
+   "forget/multifact": [
+    100.0,
+    0.0
+   ],
+   "forget/multihop": [
+    100.0,
+    0.0
+   ],
+   "forget/multiturn": [
+    100.0,
+    0.0
+   ],
+   "forget/paraphrase": [
+    100.0,
+    0.0
+   ],
+   "forget/question": [
+    100.0,
+    0.0
+   ],
+   "forget/surface": [
+    100.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    100.0,
+    0.0
+   ],
+   "retain/in_context": [
+    100.0,
+    0.0
+   ],
+   "retain/name_collision": [
+    100.0,
+    0.0
+   ],
+   "retain/same_object": [
+    100.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    100.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    100.0,
+    0.0
+   ],
+   "retain/same_subject": [
+    100.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    100.0,
+    0.0
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   6.628036499023438e-06,
+   2.4278926120950637e-06
+  ],
+  "inference_overhead": [
+   0.9502067632118912,
+   0.00565656192478592
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 100.0,
+    "refusal": 0.0,
+    "hallucination_or_other": 0.0,
+    "n": 352
+   },
+   "retain": {
+    "correct": 100.0,
+    "false_refusal": 0.0,
+    "wrong": 0.0,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    100.0,
+    7.105427357601002e-15
+   ],
+   "quant_int4": [
+    100.0,
+    0.0
+   ],
+   "relearn": [
+    100.0,
+    0.0
+   ],
+   "lens": [
+    100.0,
+    0.0
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:npo": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "npo",
+  "family": "gradient",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   4.589475607132176,
+   1.0323987569741904
+  ],
+  "SCALPEL_core": [
+   3.490397659813225,
+   0.7973277403344015
+  ],
+  "E": [
+   99.59847653476211,
+   0.8978337628331691
+  ],
+  "E_mean": [
+   99.61640211640211,
+   0.8577509437499193
+  ],
+  "E_min": [
+   98.33333333333334,
+   3.7267799624996467
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "E_complete": [
+   99.18367346938776,
+   1.825361614285541
+  ],
+  "L": [
+   1.2029939670871488,
+   0.2780160764907173
+  ],
+  "L_mean": [
+   3.8442487418414175,
+   5.2746167625518705
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   57.13017510737154,
+   14.679455520738385
+  ],
+  "R": [
+   87.8381081733286,
+   9.171104989456726
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    0.9523809523809523,
+    2.1295885499997995
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    0.0,
+    0.0
+   ],
+   "forget/multifact": [
+    0.0,
+    0.0
+   ],
+   "forget/multihop": [
+    0.0,
+    0.0
+   ],
+   "forget/multiturn": [
+    1.6666666666666667,
+    3.72677996249965
+   ],
+   "forget/paraphrase": [
+    0.0,
+    0.0
+   ],
+   "forget/question": [
+    0.8333333333333334,
+    1.863389981249825
+   ],
+   "forget/surface": [
+    0.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    1.4634146341463414,
+    3.2722946012192047
+   ],
+   "retain/in_context": [
+    24.27991886409736,
+    33.42070461540748
+   ],
+   "retain/name_collision": [
+    0.8333333333333334,
+    1.863389981249825
+   ],
+   "retain/same_object": [
+    0.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    0.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    0.0,
+    0.0
+   ],
+   "retain/same_subject": [
+    0.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    4.177323103154305,
+    6.008264841039267
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   49.44611167907715,
+   4.143080144778294
+  ],
+  "inference_overhead": [
+   0.9516015132311472,
+   0.006337656492689015
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 1.7045454545454546,
+    "refusal": 0.0,
+    "hallucination_or_other": 98.29545454545455,
+    "n": 352
+   },
+   "retain": {
+    "correct": 10.576923076923077,
+    "false_refusal": 0.0,
+    "wrong": 89.42307692307692,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    0.16,
+    0.35777087639996635
+   ],
+   "quant_int4": [
+    0.5941747572815534,
+    0.8912600207263857
+   ],
+   "relearn": [
+    3.483795071994232,
+    3.0956708203766916
+   ],
+   "lens": [
+    12.161891826671411,
+    9.171104989456726
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:prompt_cache_idk": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "prompt_cache_idk",
+  "family": "trivial",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": true,
+  "runtime_components": [
+   "prompt_filter"
+  ],
+  "SCALPEL": [
+   2.197911127772443,
+   0.11120981813957913
+  ],
+  "SCALPEL_core": [
+   3.680160094813401,
+   0.4303542753465112
+  ],
+  "E": [
+   1.2590842745285244,
+   0.151291443352197
+  ],
+  "E_mean": [
+   12.182159289400197,
+   0.6746455645027161
+  ],
+  "E_min": [
+   0.0,
+   0.0
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "E_complete": [
+   4.857823129251701,
+   1.1015063371756317
+  ],
+  "L": [
+   93.24137704158662,
+   2.294884216676472
+  ],
+  "L_mean": [
+   94.5647279918754,
+   1.7425875121744643
+  ],
+  "L_min": [
+   73.5615949787742,
+   3.4805270348388766
+  ],
+  "U": [
+   100.0,
+   0.0
+  ],
+  "R": [
+   0.0,
+   0.0
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    100.0,
+    0.0
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    100.0,
+    0.0
+   ],
+   "forget/multifact": [
+    100.0,
+    0.0
+   ],
+   "forget/multihop": [
+    98.75,
+    2.7950849718747373
+   ],
+   "forget/multiturn": [
+    100.0,
+    0.0
+   ],
+   "forget/paraphrase": [
+    99.57446808510637,
+    0.9515182882977821
+   ],
+   "forget/question": [
+    97.11674347158218,
+    3.407627325959898
+   ],
+   "forget/surface": [
+    100.0,
+    0.0
+   ],
+   "retain/disjoint": [
+    100.0,
+    0.0
+   ],
+   "retain/in_context": [
+    74.626409793589,
+    2.2303760554604914
+   ],
+   "retain/name_collision": [
+    100.0,
+    0.0
+   ],
+   "retain/same_object": [
+    100.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    100.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    81.89141414141415,
+    12.418930302739424
+   ],
+   "retain/same_subject": [
+    100.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    100.0,
+    0.0
+   ]
+  },
+  "strict_SCALPEL": [
+   2.941176470588235,
+   0.0
+  ],
+  "unlearn_seconds": [
+   0.0012657642364501953,
+   4.1236421444054056e-05
+  ],
+  "inference_overhead": [
+   1.3410557634860274,
+   0.0077308409239462495
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 63.63636363636363,
+    "refusal": 36.36363636363637,
+    "hallucination_or_other": 0.0,
+    "n": 352
+   },
+   "retain": {
+    "correct": 97.75641025641026,
+    "false_refusal": 2.2435897435897436,
+    "wrong": 0.0,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    61.336607710641964,
+    1.8752448182497057
+   ],
+   "quant_int4": [
+    63.72138314629467,
+    1.6097235181617884
+   ],
+   "relearn": [
+    62.3848589037439,
+    2.653617017314662
+   ],
+   "lens": [
+    100.0,
+    0.0
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:rmu": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "rmu",
+  "family": "representation",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   7.8426560752276355,
+   2.6807406719455518
+  ],
+  "SCALPEL_core": [
+   9.313010916910764,
+   4.457403577103572
+  ],
+  "E": [
+   8.842451502382804,
+   5.549589452007981
+  ],
+  "E_mean": [
+   45.5613594355837,
+   18.897287823525854
+  ],
+  "E_min": [
+   1.6451612903225794,
+   2.3384315741212163
+  ],
+  "E_direct": [
+   17.6,
+   6.6932802122726045
+  ],
+  "E_complete": [
+   8.523809523809524,
+   5.437127759823563
+  ],
+  "L": [
+   21.516426671721483,
+   39.47678173301524
+  ],
+  "L_mean": [
+   69.73527072115448,
+   12.795092142187482
+  ],
+  "L_min": [
+   17.5,
+   39.131189606246316
+  ],
+  "U": [
+   56.03494312704839,
+   23.319002451223923
+  ],
+  "R": [
+   20.728913219789135,
+   11.690218255522801
+  ],
+  "families": {
+   "forget/context_prefix": [
+    88.65723802651624,
+    6.560220968196238
+   ],
+   "forget/crosslingual": [
+    18.202247191011235,
+    40.70146206235572
+   ],
+   "forget/direct": [
+    82.4,
+    6.6932802122726045
+   ],
+   "forget/indirect": [
+    91.55555555555556,
+    11.58969316480471
+   ],
+   "forget/multifact": [
+    96.68067226890756,
+    3.0481738146413533
+   ],
+   "forget/multihop": [
+    11.25,
+    25.155764746872634
+   ],
+   "forget/multiturn": [
+    19.35483870967742,
+    43.27873504838303
+   ],
+   "forget/paraphrase": [
+    85.81425291499787,
+    5.91337650198264
+   ],
+   "forget/question": [
+    17.714285714285715,
+    39.61034702999628
+   ],
+   "forget/surface": [
+    83.53333333333333,
+    9.564105229635306
+   ],
+   "retain/disjoint": [
+    72.51297253504364,
+    9.82885055658229
+   ],
+   "retain/in_context": [
+    17.647058823529413,
+    39.460023132349235
+   ],
+   "retain/name_collision": [
+    82.92857142857143,
+    7.407594007475828
+   ],
+   "retain/same_object": [
+    92.18825733765537,
+    5.0581259436490384
+   ],
+   "retain/same_relation": [
+    90.88413127680863,
+    7.411047615551201
+   ],
+   "retain/same_sentence": [
+    96.50757575757575,
+    3.2856873719160786
+   ],
+   "retain/same_subject": [
+    86.95272904483431,
+    12.649167013179857
+   ],
+   "retain/subject_mentioned": [
+    18.26086956521739,
+    40.832545676083114
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   105.04400415420533,
+   11.87542519202486
+  ],
+  "inference_overhead": [
+   0.9485241500734356,
+   0.006005814372863072
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 54.82954545454545,
+    "refusal": 0.0,
+    "hallucination_or_other": 45.17045454545455,
+    "n": 352
+   },
+   "retain": {
+    "correct": 59.61538461538461,
+    "false_refusal": 0.0,
+    "wrong": 40.38461538461539,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    71.40997605766806,
+    9.978375409328297
+   ],
+   "quant_int4": [
+    76.83256669403758,
+    11.955649865503696
+   ],
+   "relearn": [
+    76.44781073708738,
+    11.69369324690123
+   ],
+   "lens": [
+    79.1967210759239,
+    11.725310660823952
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:rome": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "rome",
+  "family": "locate_edit",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   3.229729596604441,
+   0.5535091590047196
+  ],
+  "SCALPEL_core": [
+   9.283278067762275,
+   2.514661454900963
+  ],
+  "E": [
+   3.4256287356532695,
+   1.051322093990107
+  ],
+  "E_mean": [
+   36.31672536211962,
+   2.2736794993165566
+  ],
+  "E_min": [
+   0.0,
+   0.0
+  ],
+  "E_direct": [
+   87.2,
+   6.418722614352485
+  ],
+  "E_complete": [
+   12.974149659863945,
+   2.8398178973697714
+  ],
+  "L": [
+   54.147199424051806,
+   10.630099004875609
+  ],
+  "L_mean": [
+   70.8401376511056,
+   3.387688318742666
+  ],
+  "L_min": [
+   24.800682261208575,
+   12.954757796495786
+  ],
+  "U": [
+   99.1854461293313,
+   0.44236676220001
+  ],
+  "R": [
+   0.49802311435522884,
+   0.7321994317793464
+  ],
+  "families": {
+   "forget/context_prefix": [
+    16.43021887914635,
+    4.80265339322911
+   ],
+   "forget/crosslingual": [
+    97.41757209926224,
+    1.939315534642082
+   ],
+   "forget/direct": [
+    12.8,
+    6.418722614352485
+   ],
+   "forget/indirect": [
+    88.06349206349208,
+    12.523799464860064
+   ],
+   "forget/multifact": [
+    29.337366618201536,
+    10.30895219243184
+   ],
+   "forget/multihop": [
+    97.14285714285714,
+    6.388765649999402
+   ],
+   "forget/multiturn": [
+    99.28571428571429,
+    1.5971914124998488
+   ],
+   "forget/paraphrase": [
+    28.833454200074527,
+    4.304537535752242
+   ],
+   "forget/question": [
+    96.02478944859368,
+    2.9445903491296033
+   ],
+   "forget/surface": [
+    35.92857142857143,
+    9.658423649451823
+   ],
+   "retain/disjoint": [
+    87.37795924695749,
+    4.11379342162446
+   ],
+   "retain/in_context": [
+    100.0,
+    0.0
+   ],
+   "retain/name_collision": [
+    76.28571428571429,
+    11.99324261743777
+   ],
+   "retain/same_object": [
+    69.15813897287293,
+    7.557578687929268
+   ],
+   "retain/same_relation": [
+    73.92148355077417,
+    10.826257786364506
+   ],
+   "retain/same_sentence": [
+    29.648989898989896,
+    14.391370717107975
+   ],
+   "retain/same_subject": [
+    30.72097211628104,
+    10.015984439694403
+   ],
+   "retain/subject_mentioned": [
+    99.6078431372549,
+    0.8768894029410909
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   808.8997509002686,
+   20.476090680389238
+  ],
+  "inference_overhead": [
+   0.9496566961558667,
+   0.005003651283049492
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 57.38636363636363,
+    "refusal": 0.0,
+    "hallucination_or_other": 42.61363636363637,
+    "n": 352
+   },
+   "retain": {
+    "correct": 88.46153846153847,
+    "false_refusal": 0.0,
+    "wrong": 11.538461538461538,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    38.0638939622581,
+    2.267808432341061
+   ],
+   "quant_int4": [
+    55.30334288545782,
+    9.747002413822232
+   ],
+   "relearn": [
+    99.05633124699085,
+    1.43011724329052
+   ],
+   "lens": [
+    98.50416420899998,
+    1.2414473352908195
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:simnpo": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "simnpo",
+  "family": "gradient",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   43.724565363715655,
+   13.553998913089456
+  ],
+  "SCALPEL_core": [
+   61.355908260812576,
+   24.57187440482308
+  ],
+  "E": [
+   77.51513621093315,
+   7.446286887203407
+  ],
+  "E_mean": [
+   81.17818400448529,
+   5.030151648859511
+  ],
+  "E_min": [
+   53.1360544217687,
+   17.709601039955718
+  ],
+  "E_direct": [
+   96.4,
+   3.5777087639996634
+  ],
+  "E_complete": [
+   64.39387755102041,
+   7.05591253542884
+  ],
+  "L": [
+   51.219961706522966,
+   25.717310802113065
+  ],
+  "L_mean": [
+   62.39798119999468,
+   9.474003433899668
+  ],
+  "L_min": [
+   32.697153183086684,
+   21.241397738955186
+  ],
+  "U": [
+   83.24387292207662,
+   2.6183235599474655
+  ],
+  "R": [
+   26.761715232676202,
+   3.03380387699483
+  ],
+  "families": {
+   "forget/context_prefix": [
+    6.366464770151386,
+    4.067675807564453
+   ],
+   "forget/crosslingual": [
+    18.74726812811953,
+    14.764531230016843
+   ],
+   "forget/direct": [
+    3.6,
+    3.577708763999664
+   ],
+   "forget/indirect": [
+    22.714285714285715,
+    24.807421536010267
+   ],
+   "forget/multifact": [
+    22.209394021538237,
+    6.589340385270459
+   ],
+   "forget/multihop": [
+    27.3015873015873,
+    29.37901857064581
+   ],
+   "forget/multiturn": [
+    18.878383388950688,
+    13.011353121940061
+   ],
+   "forget/paraphrase": [
+    22.734394135566433,
+    8.330373019840625
+   ],
+   "forget/question": [
+    19.43500715080248,
+    10.582705361930124
+   ],
+   "forget/surface": [
+    8.285714285714286,
+    3.0674577506714247
+   ],
+   "retain/disjoint": [
+    68.650351910449,
+    7.8995989538584155
+   ],
+   "retain/in_context": [
+    63.93545478999905,
+    37.14087885115029
+   ],
+   "retain/name_collision": [
+    69.19047619047619,
+    4.046218244999617
+   ],
+   "retain/same_object": [
+    45.944862219891846,
+    12.100866392190106
+   ],
+   "retain/same_relation": [
+    68.0292212745302,
+    14.639837552961621
+   ],
+   "retain/same_sentence": [
+    71.62878787878789,
+    10.519616758767967
+   ],
+   "retain/same_subject": [
+    56.037778625307226,
+    6.767307507058391
+   ],
+   "retain/subject_mentioned": [
+    55.76691671051613,
+    29.26611153794803
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   263.26220045089724,
+   34.25626828462807
+  ],
+  "inference_overhead": [
+   0.9520501374302691,
+   0.005165091275007117
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 17.897727272727273,
+    "refusal": 0.0,
+    "hallucination_or_other": 82.10227272727273,
+    "n": 352
+   },
+   "retain": {
+    "correct": 61.53846153846154,
+    "false_refusal": 0.0,
+    "wrong": 38.46153846153846,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    15.071582855741742,
+    1.6365459317948878
+   ],
+   "quant_int4": [
+    30.691531422633595,
+    2.0487470575444964
+   ],
+   "relearn": [
+    32.30925567090129,
+    10.21190981981961
+   ],
+   "lens": [
+    73.23828476732379,
+    3.03380387699483
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:subject_blocklist_idk": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "subject_blocklist_idk",
+  "family": "trivial",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": true,
+  "runtime_components": [
+   "subject_filter"
+  ],
+  "SCALPEL": [
+   2.3660953315578395,
+   0.0736481951909934
+  ],
+  "SCALPEL_core": [
+   4.356138351533178,
+   0.3263672758169869
+  ],
+  "E": [
+   6.051415262101915,
+   1.648001567620801
+  ],
+  "E_mean": [
+   74.24379324379325,
+   5.849240796804881
+  ],
+  "E_min": [
+   0.0,
+   0.0
+  ],
+  "E_direct": [
+   100.0,
+   0.0
+  ],
+  "E_complete": [
+   42.14659863945578,
+   3.615956703319518
+  ],
+  "L": [
+   1.9801980198019802,
+   0.0
+  ],
+  "L_mean": [
+   50.0,
+   0.0
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   99.58669051291231,
+   0.43034084794776256
+  ],
+  "R": [
+   0.0,
+   0.0
+  ],
+  "families": {
+   "forget/context_prefix": [
+    0.0,
+    0.0
+   ],
+   "forget/crosslingual": [
+    0.0,
+    0.0
+   ],
+   "forget/direct": [
+    0.0,
+    0.0
+   ],
+   "forget/indirect": [
+    100.0,
+    0.0
+   ],
+   "forget/multifact": [
+    0.0,
+    0.0
+   ],
+   "forget/multihop": [
+    64.91208791208791,
+    15.028733096977305
+   ],
+   "forget/multiturn": [
+    0.0,
+    0.0
+   ],
+   "forget/paraphrase": [
+    0.0,
+    0.0
+   ],
+   "forget/question": [
+    0.0,
+    0.0
+   ],
+   "forget/surface": [
+    99.04761904761905,
+    2.1295885499997986
+   ],
+   "retain/disjoint": [
+    100.0,
+    0.0
+   ],
+   "retain/in_context": [
+    0.0,
+    0.0
+   ],
+   "retain/name_collision": [
+    100.0,
+    0.0
+   ],
+   "retain/same_object": [
+    100.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    100.0,
+    0.0
+   ],
+   "retain/same_sentence": [
+    0.0,
+    0.0
+   ],
+   "retain/same_subject": [
+    0.0,
+    0.0
+   ],
+   "retain/subject_mentioned": [
+    0.0,
+    0.0
+   ]
+  },
+  "strict_SCALPEL": [
+   2.941056374328442,
+   0.0001251710263500908
+  ],
+  "unlearn_seconds": [
+   0.0008639335632324219,
+   0.0002353669372137888
+  ],
+  "inference_overhead": [
+   1.0303565362926599,
+   0.007536024271586657
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 11.647727272727273,
+    "refusal": 88.35227272727273,
+    "hallucination_or_other": 0.0,
+    "n": 352
+   },
+   "retain": {
+    "correct": 62.5,
+    "false_refusal": 37.5,
+    "wrong": 0.0,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    0.0,
+    0.0
+   ],
+   "quant_int4": [
+    0.0,
+    0.0
+   ],
+   "relearn": [
+    0.0,
+    0.0
+   ],
+   "lens": [
+    100.0,
+    0.0
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:tv": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "tv",
+  "family": "gradient",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   7.6983373723575905,
+   1.7594623658691086
+  ],
+  "SCALPEL_core": [
+   5.99188606301714,
+   1.388732520058802
+  ],
+  "E": [
+   95.36200232773317,
+   1.5261781582375393
+  ],
+  "E_mean": [
+   95.57806636519396,
+   1.414105832305763
+  ],
+  "E_min": [
+   88.54953215991625,
+   3.6311136712443246
+  ],
+  "E_direct": [
+   97.6,
+   2.1908902300206643
+  ],
+  "E_complete": [
+   87.00102040816327,
+   5.211349966320649
+  ],
+  "L": [
+   2.0939394634603397,
+   0.5075802288242625
+  ],
+  "L_mean": [
+   14.96115896861112,
+   4.538186883810863
+  ],
+  "L_min": [
+   0.0,
+   0.0
+  ],
+  "U": [
+   84.77493761859134,
+   4.4449478115485475
+  ],
+  "R": [
+   53.50819371802977,
+   9.560239843496605
+  ],
+  "families": {
+   "forget/context_prefix": [
+    2.3083039963848133,
+    2.5817603557483135
+   ],
+   "forget/crosslingual": [
+    7.154226231295388,
+    4.334494222546451
+   ],
+   "forget/direct": [
+    2.4,
+    2.1908902300206643
+   ],
+   "forget/indirect": [
+    0.0,
+    0.0
+   ],
+   "forget/multifact": [
+    1.7647058823529413,
+    3.9460023132349233
+   ],
+   "forget/multihop": [
+    2.6785714285714284,
+    3.6813443085871973
+   ],
+   "forget/multiturn": [
+    9.694402510726203,
+    4.865609779522484
+   ],
+   "forget/paraphrase": [
+    1.5866860317127585,
+    1.7008416422782637
+   ],
+   "forget/question": [
+    10.006753535674559,
+    4.626076073501737
+   ],
+   "forget/surface": [
+    3.3,
+    1.8935383619944623
+   ],
+   "retain/disjoint": [
+    11.916158400101326,
+    3.5090897066219466
+   ],
+   "retain/in_context": [
+    68.2751042012967,
+    30.02296472124592
+   ],
+   "retain/name_collision": [
+    9.571428571428573,
+    8.03972563018271
+   ],
+   "retain/same_object": [
+    0.0,
+    0.0
+   ],
+   "retain/same_relation": [
+    0.5714285714285714,
+    1.2777531299998799
+   ],
+   "retain/same_sentence": [
+    1.3333333333333335,
+    2.98142396999972
+   ],
+   "retain/same_subject": [
+    1.0526315789473686,
+    2.3537557657892525
+   ],
+   "retain/subject_mentioned": [
+    26.969187092353064,
+    15.466971410784504
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   24.020427799224855,
+   4.2399253163870245
+  ],
+  "inference_overhead": [
+   0.9523796875776537,
+   0.005560661979090787
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 5.965909090909091,
+    "refusal": 0.5681818181818182,
+    "hallucination_or_other": 93.4659090909091,
+    "n": 352
+   },
+   "retain": {
+    "correct": 15.064102564102564,
+    "false_refusal": 0.9615384615384616,
+    "wrong": 83.97435897435898,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    3.8630976354483217,
+    1.1525331208930978
+   ],
+   "quant_int4": [
+    6.808673132495949,
+    2.287095794198047
+   ],
+   "relearn": [
+    21.20581793611528,
+    6.65368724306856
+   ],
+   "lens": [
+    46.49180628197023,
+    9.560239843496605
+   ]
+  }
+ },
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:zerounlearn": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+  "method": "zerounlearn",
+  "family": "locate_edit",
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "valid": true,
+  "cheat": false,
+  "runtime_components": [],
+  "SCALPEL": [
+   15.576674090277539,
+   5.16868213020119
+  ],
+  "SCALPEL_core": [
+   44.954347787648615,
+   16.16670916920058
+  ],
+  "E": [
+   24.46246258615181,
+   10.970088696447482
+  ],
+  "E_mean": [
+   43.6172138638707,
+   2.0012786387205823
+  ],
+  "E_min": [
+   9.388888888888891,
+   6.347693272090517
+  ],
+  "E_direct": [
+   95.6,
+   1.6733200530681511
+  ],
+  "E_complete": [
+   18.631292517006806,
+   5.429147668596133
+  ],
+  "L": [
+   79.06984099053471,
+   3.0137912819624195
+  ],
+  "L_mean": [
+   83.36073425863617,
+   2.105165483458398
+  ],
+  "L_min": [
+   49.181222984998726,
+   10.69874245472724
+  ],
+  "U": [
+   98.24078307507386,
+   1.3797957630977653
+  ],
+  "R": [
+   5.573926069805859,
+   1.8436886625364004
+  ],
+  "families": {
+   "forget/context_prefix": [
+    24.1285402954832,
+    3.0780277229375446
+   ],
+   "forget/crosslingual": [
+    75.63002986709269,
+    2.635173032499146
+   ],
+   "forget/direct": [
+    4.4,
+    1.6733200530681511
+   ],
+   "forget/indirect": [
+    61.65079365079365,
+    27.484987542046383
+   ],
+   "forget/multifact": [
+    43.890509869637,
+    8.873197769774139
+   ],
+   "forget/multihop": [
+    86.8015873015873,
+    13.496952895574482
+   ],
+   "forget/multiturn": [
+    79.86774325970654,
+    4.747943275216548
+   ],
+   "forget/paraphrase": [
+    26.31982667511557,
+    3.7709580738327624
+   ],
+   "forget/question": [
+    75.25101965146459,
+    7.788958397131976
+   ],
+   "forget/surface": [
+    38.36190476190477,
+    9.75421299756234
+   ],
+   "retain/disjoint": [
+    93.13595229828204,
+    4.458965790365542
+   ],
+   "retain/in_context": [
+    97.40856844305121,
+    3.560750761209442
+   ],
+   "retain/name_collision": [
+    87.19047619047619,
+    5.298354684076621
+   ],
+   "retain/same_object": [
+    78.21605691420424,
+    4.821001556607288
+   ],
+   "retain/same_relation": [
+    91.54476507474219,
+    4.473756769571344
+   ],
+   "retain/same_sentence": [
+    76.71717171717172,
+    8.077650898393836
+   ],
+   "retain/same_subject": [
+    49.181222984998726,
+    10.69874245472724
+   ],
+   "retain/subject_mentioned": [
+    93.49166044616308,
+    4.370889120604441
+   ]
+  },
+  "strict_SCALPEL": [
+   null,
+   null
+  ],
+  "unlearn_seconds": [
+   1272.0894268989564,
+   14.13858523473069
+  ],
+  "inference_overhead": [
+   0.9517732767530761,
+   0.00604853085805561
+  ],
+  "behaviour": {
+   "forget": {
+    "leak": 48.57954545454545,
+    "refusal": 0.0,
+    "hallucination_or_other": 51.42045454545455,
+    "n": 352
+   },
+   "retain": {
+    "correct": 90.06410256410257,
+    "false_refusal": 0.0,
+    "wrong": 9.935897435897436,
+    "n": 312
+   }
+  },
+  "routing": null,
+  "ci": null,
+  "attacks": {
+   "quant_int8": [
+    29.250909132163855,
+    2.003527662695181
+   ],
+   "quant_int4": [
+    53.25459698541963,
+    3.1987324046514676
+   ],
+   "relearn": [
+    81.26585674308683,
+    3.1927067327019656
+   ],
+   "lens": [
+    94.42607393019414,
+    1.8436886625364004
+   ]
+  }
+ }
+}

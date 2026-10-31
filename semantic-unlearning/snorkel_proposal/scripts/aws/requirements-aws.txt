@@ -1,0 +1,20 @@
+# Python 3.11 environment for SCALPEL, SURE and the vendored ROME / MEMIT / ZeroUnlearn code.
+# torch==2.5.1 (CUDA 12.4 build) is installed first from the PyTorch index by run_scalpel_aws.sh setup;
+# transformers 4.57.1 is the version the benchmark and SURE were tested with (SURE needs >= 4.56).
+transformers==4.57.1
+tokenizers==0.22.2
+huggingface_hub>=0.34,<1.0
+safetensors>=0.4.3
+accelerate>=0.28,<2
+datasets==2.21.0
+numpy==1.26.4
+scipy==1.15.2
+scikit-learn==1.6.1
+pandas==2.2.3
+pyarrow==17.0.0
+matplotlib==3.10.0
+jinja2>=3.1.4
+pyyaml>=6.0.1
+tqdm>=4.66
+einops==0.8.1
+pytest>=8.0

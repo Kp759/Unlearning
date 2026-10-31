@@ -16,29 +16,31 @@
 #                                                                   └─> sequential track (array: seeds)
 #   report (gate per seed + leaderboards) after everything above, whatever its exit status.
 # robust = SURE-R ablation on the same splits (finished runs are skipped): SURE_VARIANTS
-#          (default: sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake).
+#          (default: ours_l16 sure_paper sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake).
 # agent  = agentic leakage track (scalpel/agentic.py) on splits that exist: AGENT_METHODS (default:
-#          noop,idk_all,subject_blocklist_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn,sure,sure_r).
+#          noop,idk_all,subject_blocklist_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn,sure,ours).
 #          SURE methods reuse their finished core run's router, so run agent after smoke / robust.
-# Env: METHODS (default below), SURE_VARIANTS (smoke/full: sure), SEEDS, PARTITION (dev | test + SCALPEL_TEST_SALT), N_FORGET (50),
+# Env: METHODS (default below), SURE_VARIANTS (smoke/full: sure ours), SEEDS, PARTITION (dev | test + SCALPEL_TEST_SALT), N_FORGET (50),
+#      AFTER_BUILD=<job id> (one model per call: depend on that queued build job instead of submitting a build),
 #      SEQ_METHODS (gd,npo,memit), SKIP_SURE=1, SKIP_SEQ=1, MOM2_TEXT / MOM2_DATASET (scalpel_common.sh).
 # Finished runs are skipped, so re-submitting after a failure only redoes what is missing.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 MODE="${1:?usage: $0 fetch|smoke|full|report MODEL...}"; shift
+USER_MODEL_PATH="${MODEL_PATH:-}"   # a caller's explicit path; never let one model's resolved path leak to the next
 MODELS=("$@"); [[ ${#MODELS[@]} -gt 0 ]] || { echo "name at least one model (or all)" >&2; exit 2; }
 [[ "${MODELS[0]}" == all ]] && MODELS=(llama32_3b qwen3_4b llama31_8b)
-DEFAULT_METHODS="noop,idk_all,prompt_cache_idk,subject_blocklist_idk,keyword_router_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn"
+DEFAULT_METHODS="noop,idk_all,prompt_cache_idk,subject_blocklist_idk,keyword_router_idk,answer_ban,ga,gd,npo,simnpo,idk_ft,tv,rmu,rome,memit,zerounlearn"
 METHODS="${METHODS:-$DEFAULT_METHODS}"
 [[ "$MODE" == agent ]] || METHODS="$(echo "$METHODS" | tr ',' '\n' | grep -v -E '^sure' | paste -sd, - || true)"   # SURE variants: own array
 if [[ "$MODE" == agent ]]; then
-  METHODS="${AGENT_METHODS:-noop,idk_all,subject_blocklist_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn,sure,sure_r}"
+  METHODS="${AGENT_METHODS:-noop,idk_all,subject_blocklist_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn,sure,ours}"
 fi
 if [[ "$MODE" == robust ]]; then
   METHODS=""
-  SURE_VARIANTS="${SURE_VARIANTS:-sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake}"
+  SURE_VARIANTS="${SURE_VARIANTS:-ours_l16 sure_paper sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake}"
 fi
-SURE_VARIANTS="${SURE_VARIANTS:-sure}"
+SURE_VARIANTS="${SURE_VARIANTS:-sure ours}"     # ours: SURE-R router + one-pass L19 Δe (scalpel/methods/sure_paper.py)
 SURE_LIST="$(echo $SURE_VARIANTS | tr ' ' ',')"; N_SURE=$(wc -w <<< "$SURE_VARIANTS" | tr -d " ")
 case "$MODE" in smoke|agent) SEEDS="${SEEDS:-1}";; *) SEEDS="${SEEDS:-1 2 3 4 5}";; esac
 SEED_ARRAY="$(echo $SEEDS | tr ' ' ',')"
@@ -54,11 +56,14 @@ if [[ "$MODE" == fetch ]]; then
       "https://raw.githubusercontent.com/princeton-nlp/MQuAKE/main/datasets/$f"
   done
   for MODEL in "${MODELS[@]}"; do
-    export MODEL; SCALPEL_NO_ENV=0 source $SL/scalpel_common.sh
+    export MODEL; MODEL_PATH="$USER_MODEL_PATH"; SCALPEL_NO_ENV=0 source $SL/scalpel_common.sh
     if [[ -f "${MODEL_PATH:-/x}/config.json" ]]; then echo "$MODEL: weights at $MODEL_PATH"; continue; fi
+    echo "$MODEL: downloading $HF_ID into $HF_CACHE"
     # Llama is gated: accept the licence on huggingface.co and `hf auth login` once
-    if command -v hf >/dev/null; then hf download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*"
-    else huggingface-cli download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*"; fi
+    # the job environment sets HF_HUB_OFFLINE=1; the fetch step is the one place that goes online.
+    # Plain HTTP (no xet) and two workers: the xet downloader was killed by the login node's memory limit.
+    if command -v hf >/dev/null; then HF_HUB_OFFLINE=0 HF_HUB_DISABLE_XET=1 hf download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*" --max-workers 2
+    else HF_HUB_OFFLINE=0 HF_HUB_DISABLE_XET=1 huggingface-cli download "$HF_ID" --cache-dir "$HF_CACHE" --exclude "original/*" --max-workers 2; fi
   done
   # RWKU supplies U's MMLU / TriviaQA questions; downloads only missing files, checked against the pinned hashes
   python "$ROOT/scripts/rwku_data.py" --data-root "$ROOT/data/rwku" --manifest "$SP/data_cache/rwku_manifest_check.json"
@@ -69,7 +74,7 @@ fi
 submit() { sbatch --parsable "$@"; }
 REPORT_DEPS=()
 for MODEL in "${MODELS[@]}"; do
-  export MODEL; source $SL/scalpel_common.sh
+  export MODEL; MODEL_PATH="$USER_MODEL_PATH"; source $SL/scalpel_common.sh
   if [[ "$MODE" == report ]]; then continue; fi
   [[ -f "${MODEL_PATH:-/x}/config.json" ]] || { echo "$MODEL: no weights; run '$0 fetch $MODEL' first" >&2; exit 2; }
   # values go through the environment (--export=ALL): sbatch --export=A=x,y would split "x,y"
@@ -83,7 +88,11 @@ for MODEL in "${MODELS[@]}"; do
   if grep -qE '(^|,)(rome|memit|zerounlearn)(,|$)' <<< "$METHODS" || grep -q sure_r_bake <<< "$SURE_VARIANTS"; then
     COV=$(submit --export=ALL $SL/scalpel_cov.slurm); echo "$MODEL covariance: $COV"
   fi
-  BUILD=$(submit --export=ALL --array="$SEED_ARRAY" $SL/scalpel_build.slurm); echo "$MODEL build (seeds $SEEDS): $BUILD"
+  if [[ -n "${AFTER_BUILD:-}" ]]; then   # add methods to a chain already queued: wait for ITS build job, submit no second build
+    BUILD="$AFTER_BUILD"; echo "$MODEL build: waiting on job $BUILD (AFTER_BUILD)"
+  else
+    BUILD=$(submit --export=ALL --array="$SEED_ARRAY" $SL/scalpel_build.slurm); echo "$MODEL build (seeds $SEEDS): $BUILD"
+  fi
   if [[ "$N_METHODS" -gt 0 ]]; then
     MAIN=$(METHODS="$METHODS" submit --export=ALL --dependency="afterany:$BUILD${COV:+:$COV}" \
            --array=0-$(( N_SEEDS * N_METHODS - 1 )) $SL/scalpel_method.slurm)

@@ -1,0 +1,335 @@
+# LETHE-Bench — llama31_8b — dev (mean ± sd over seeds)
+
+All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). LETHE = harmonic mean of the available E, L, U, R (1-point floor on each). *Strict* = weights only (runtime components removed; – for methods without any). Rows marked † are reference cheats the benchmark must defeat. The table "behind E and L" under each split shows what the two harmonic means are made of: E_direct = the request prompt itself (training-visible, not in E), E_complete = share of requests whose every held-out forget probe is erased, E_mean / E_min and L_mean / L_min = plain mean and worst family.
+
+## fact · lethe-fact-dev · meta-llama/Llama-3.1-8B-Instruct · 50 requests
+
+| Method | LETHE | E | L | U | R | Strict | seeds |
+|---|---|---|---|---|---|---|---|
+| simnpo | 43.7 ± 13.6 | 77.5 ± 7.4 | 51.2 ± 25.7 | 83.2 ± 2.6 | 26.8 ± 3.0 | – | 5 |
+| SURE | 18.7 ± 3.5 | 6.9 ± 1.5 | 95.7 ± 1.0 | 100.0 | 21.2 ± 4.5 | 2.9 | 5 |
+| zerounlearn | 15.6 ± 5.2 | 24.5 ± 11.0 | 79.1 ± 3.0 | 98.2 ± 1.4 | 5.6 ± 1.8 | – | 5 |
+| idk_ft | 10.9 ± 0.2 | 98.3 ± 1.2 | 3.8 ± 0.0 | 63.5 ± 14.1 | 13.6 ± 1.6 | – | 5 |
+| rmu | 7.8 ± 2.7 | 8.8 ± 5.5 | 21.5 ± 39.5 | 56.0 ± 23.3 | 20.7 ± 11.7 | – | 5 |
+| tv | 7.7 ± 1.8 | 95.4 ± 1.5 | 2.1 ± 0.5 | 84.8 ± 4.4 | 53.5 ± 9.6 | – | 5 |
+| ga | 5.6 ± 1.6 | 98.9 ± 1.1 | 1.5 ± 0.4 | 63.8 ± 13.5 | 84.9 ± 6.6 | – | 5 |
+| gd | 5.1 ± 1.1 | 99.0 ± 2.0 | 1.3 ± 0.3 | 64.2 ± 7.0 | 84.5 ± 8.3 | – | 5 |
+| npo | 4.6 ± 1.0 | 99.6 ± 0.9 | 1.2 ± 0.3 | 57.1 ± 14.7 | 87.8 ± 9.2 | – | 5 |
+| answer_ban † | 3.4 ± 0.0 | 93.5 ± 2.8 | 7.3 ± 0.0 | 44.5 ± 5.5 | 0.0 | 2.9 ± 0.0 | 5 |
+| rome | 3.2 ± 0.6 | 3.4 ± 1.1 | 54.1 ± 10.6 | 99.2 ± 0.4 | 0.5 ± 0.7 | – | 5 |
+| memit | 3.2 ± 0.4 | 6.7 ± 6.1 | 87.1 ± 2.4 | 99.5 ± 0.4 | 0.0 | – | 5 |
+| keyword_router_idk † | 3.2 ± 0.1 | 5.0 ± 1.4 | 40.0 ± 7.8 | 99.8 ± 0.2 | 0.0 | 2.9 ± 0.0 | 5 |
+| subject_blocklist_idk † | 2.4 ± 0.1 | 6.1 ± 1.6 | 2.0 | 99.6 ± 0.4 | 0.0 | 2.9 ± 0.0 | 5 |
+| prompt_cache_idk † | 2.2 ± 0.1 | 1.3 ± 0.2 | 93.2 ± 2.3 | 100.0 | 0.0 | 2.9 | 5 |
+| noop † | 2.0 | 1.0 | 100.0 | 100.0 | 0.0 | – | 5 |
+| idk_all † | 1.9 ± 0.0 | 100.0 | 1.0 | 10.7 ± 1.0 | 0.0 | 2.7 ± 0.0 | 5 |
+
+### Behind E and L
+
+| Method | E_direct | E_complete | E_mean | E_min | L_mean | L_min |
+|---|---|---|---|---|---|---|
+| simnpo | 96.4 ± 3.6 | 64.4 ± 7.1 | 81.2 ± 5.0 | 53.1 ± 17.7 | 62.4 ± 9.5 | 32.7 ± 21.2 |
+| SURE | 94.4 ± 4.3 | 64.3 ± 7.9 | 78.9 ± 4.7 | 0.0 | 96.2 ± 0.9 | 80.9 ± 4.0 |
+| zerounlearn | 95.6 ± 1.7 | 18.6 ± 5.4 | 43.6 ± 2.0 | 9.4 ± 6.3 | 83.4 ± 2.1 | 49.2 ± 10.7 |
+| idk_ft | 100.0 | 94.3 ± 2.7 | 98.5 ± 1.0 | 91.1 ± 6.8 | 39.7 ± 1.7 | 0.0 |
+| rmu | 17.6 ± 6.7 | 8.5 ± 5.4 | 45.6 ± 18.9 | 1.6 ± 2.3 | 69.7 ± 12.8 | 17.5 ± 39.1 |
+| tv | 97.6 ± 2.2 | 87.0 ± 5.2 | 95.6 ± 1.4 | 88.5 ± 3.6 | 15.0 ± 4.5 | 0.0 |
+| ga | 100.0 | 96.4 ± 4.1 | 98.9 ± 1.0 | 95.8 ± 4.2 | 7.0 ± 6.7 | 0.0 |
+| gd | 100.0 | 98.0 ± 3.5 | 99.1 ± 1.8 | 96.0 ± 7.2 | 5.6 ± 5.3 | 0.0 |
+| npo | 100.0 | 99.2 ± 1.8 | 99.6 ± 0.9 | 98.3 ± 3.7 | 3.8 ± 5.3 | 0.0 |
+| answer_ban † | 96.0 ± 3.7 | 85.8 ± 6.2 | 94.1 ± 2.3 | 78.5 ± 10.3 | 64.1 ± 4.0 | 0.0 |
+| rome | 87.2 ± 6.4 | 13.0 ± 2.8 | 36.3 ± 2.3 | 0.0 | 70.8 ± 3.4 | 24.8 ± 13.0 |
+| memit | 76.0 ± 6.8 | 8.1 ± 2.7 | 24.5 ± 2.7 | 1.7 ± 3.7 | 89.7 ± 2.0 | 59.6 ± 7.5 |
+| keyword_router_idk † | 100.0 | 14.6 ± 5.8 | 50.7 ± 4.5 | 0.0 | 75.1 ± 2.7 | 11.8 ± 3.2 |
+| subject_blocklist_idk † | 100.0 | 42.1 ± 3.6 | 74.2 ± 5.8 | 0.0 | 50.0 | 0.0 |
+| prompt_cache_idk † | 100.0 | 4.9 ± 1.1 | 12.2 ± 0.7 | 0.0 | 94.6 ± 1.7 | 73.6 ± 3.5 |
+| noop † | 0.0 | 0.0 | 0.0 | 0.0 | 100.0 | 100.0 |
+| idk_all † | 100.0 | 100.0 | 100.0 | 100.0 | 0.0 | 0.0 |
+
+### Per family (forget: residual %, lower is better; retain: retained %, higher is better)
+
+| Method | F:context_prefix | F:crosslingual | F:direct | F:indirect | F:multifact | F:multihop | F:multiturn | F:paraphrase | F:question | F:surface | R:disjoint | R:in_context | R:name_collision | R:same_object | R:same_relation | R:same_sentence | R:same_subject | R:subject_mentioned |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| simnpo | 6 ± 4 | 19 ± 15 | 4 ± 4 | 23 ± 25 | 22 ± 7 | 27 ± 29 | 19 ± 13 | 23 ± 8 | 19 ± 11 | 8 ± 3 | 69 ± 8 | 64 ± 37 | 69 ± 4 | 46 ± 12 | 68 ± 15 | 72 ± 11 | 56 ± 7 | 56 ± 29 |
+| SURE | 5 ± 5 | 2 ± 2 | 6 ± 4 | 100 | 4 ± 7 | 95 ± 8 | 1 ± 1 | 11 ± 8 | 2 ± 2 | 4 ± 0 | 100 | 82 ± 6 | 100 | 100 | 100 | 96 ± 6 | 98 ± 2 | 94 ± 5 |
+| zerounlearn | 24 ± 3 | 76 ± 3 | 4 ± 2 | 62 ± 27 | 44 ± 9 | 87 ± 13 | 80 ± 5 | 26 ± 4 | 75 ± 8 | 38 ± 10 | 93 ± 4 | 97 ± 4 | 87 ± 5 | 78 ± 5 | 92 ± 4 | 77 ± 8 | 49 ± 11 | 93 ± 4 |
+| idk_ft | 0 | 0 | 0 | 9 ± 12 | 2 ± 3 | 0 | 0 | 3 ± 3 | 0 | 3 ± 3 | 55 ± 2 | 0 | 52 ± 11 | 42 ± 6 | 64 ± 8 | 64 ± 12 | 39 ± 11 | 0 |
+| rmu | 89 ± 7 | 18 ± 41 | 82 ± 7 | 92 ± 12 | 97 ± 3 | 11 ± 25 | 19 ± 43 | 86 ± 6 | 18 ± 40 | 84 ± 10 | 73 ± 10 | 18 ± 39 | 83 ± 7 | 92 ± 5 | 91 ± 7 | 97 ± 3 | 87 ± 13 | 18 ± 41 |
+| tv | 2 ± 3 | 7 ± 4 | 2 ± 2 | 0 | 2 ± 4 | 3 ± 4 | 10 ± 5 | 2 ± 2 | 10 ± 5 | 3 ± 2 | 12 ± 4 | 68 ± 30 | 10 ± 8 | 0 | 1 ± 1 | 1 ± 3 | 1 ± 2 | 27 ± 15 |
+| ga | 0 | 1 ± 2 | 0 | 0 | 0 | 0 | 4 ± 4 | 0 ± 1 | 4 ± 4 | 0 | 3 ± 3 | 37 ± 35 | 4 ± 4 | 0 | 0 | 0 | 0 | 11 ± 12 |
+| gd | 0 | 2 ± 4 | 0 | 0 | 0 | 0 | 3 ± 5 | 0 | 3 ± 7 | 0 | 2 ± 4 | 33 ± 32 | 1 ± 2 | 0 | 0 | 0 | 0 | 8 ± 6 |
+| npo | 0 | 1 ± 2 | 0 | 0 | 0 | 0 | 2 ± 4 | 0 | 1 ± 2 | 0 | 1 ± 3 | 24 ± 33 | 1 ± 2 | 0 | 0 | 0 | 0 | 4 ± 6 |
+| answer_ban | 4 ± 5 | 2 ± 2 | 4 ± 4 | 0 | 5 ± 6 | 22 ± 10 | 4 ± 3 | 5 ± 4 | 5 ± 3 | 5 ± 1 | 73 ± 5 | 74 ± 18 | 69 ± 9 | 0 | 82 ± 10 | 69 ± 8 | 72 ± 13 | 73 ± 8 |
+| rome | 16 ± 5 | 97 ± 2 | 13 ± 6 | 88 ± 13 | 29 ± 10 | 97 ± 6 | 99 ± 2 | 29 ± 4 | 96 ± 3 | 36 ± 10 | 87 ± 4 | 100 | 76 ± 12 | 69 ± 8 | 74 ± 11 | 30 ± 14 | 31 ± 10 | 100 ± 1 |
+| memit | 47 ± 4 | 92 ± 6 | 24 ± 7 | 90 ± 17 | 64 ± 7 | 96 ± 10 | 94 ± 5 | 53 ± 7 | 95 ± 5 | 60 ± 14 | 97 ± 3 | 98 ± 3 | 93 ± 5 | 90 ± 4 | 95 ± 4 | 86 ± 11 | 60 ± 8 | 100 |
+| keyword_router_idk | 0 | 91 ± 3 | 0 | 100 | 26 ± 8 | 78 ± 12 | 19 ± 6 | 37 ± 8 | 16 ± 4 | 100 | 100 | 13 ± 1 | 100 | 100 | 100 | 21 ± 11 | 97 ± 4 | 70 ± 11 |
+| subject_blocklist_idk | 0 | 0 | 0 | 100 | 0 | 65 ± 15 | 0 | 0 | 0 | 99 ± 2 | 100 | 0 | 100 | 100 | 100 | 0 | 0 | 0 |
+| prompt_cache_idk | 0 | 100 | 0 | 100 | 100 | 99 ± 3 | 100 | 100 ± 1 | 97 ± 3 | 100 | 100 | 75 ± 2 | 100 | 100 | 100 | 82 ± 12 | 100 | 100 |
+| noop | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| idk_all | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Legacy view vs LETHE-Bench (same run)
+
+Legacy view = only the families the official MCF / zsRE metrics use: erasure on the request and its paraphrases (Eff/Gen), retention on same-answer neighbours and unrelated questions (Spe). A shortcut that looks perfect here and collapses under LETHE-Bench is what the legacy metrics reward.
+
+| Method | legacy erasure | legacy locality | LETHE-Bench E | LETHE-Bench L | LETHE |
+|---|---|---|---|---|---|
+| simnpo | 86.8 | 57.3 | 77.5 ± 7.4 | 51.2 ± 25.7 | 43.7 ± 13.6 |
+| SURE | 91.8 | 100.0 | 6.9 ± 1.5 | 95.7 ± 1.0 | 18.7 ± 3.5 |
+| zerounlearn | 84.6 | 85.7 | 24.5 ± 11.0 | 79.1 ± 3.0 | 15.6 ± 5.2 |
+| idk_ft | 98.3 | 48.6 | 98.3 ± 1.2 | 3.8 ± 0.0 | 10.9 ± 0.2 |
+| rmu | 15.9 | 82.4 | 8.8 ± 5.5 | 21.5 ± 39.5 | 7.8 ± 2.7 |
+| tv | 98.0 | 6.0 | 95.4 ± 1.5 | 2.1 ± 0.5 | 7.7 ± 1.8 |
+| ga | 99.8 | 1.7 | 98.9 ± 1.1 | 1.5 ± 0.4 | 5.6 ± 1.6 |
+| gd | 100.0 | 1.2 | 99.0 ± 2.0 | 1.3 ± 0.3 | 5.1 ± 1.1 |
+| npo | 100.0 | 0.7 | 99.6 ± 0.9 | 1.2 ± 0.3 | 4.6 ± 1.0 |
+| answer_ban † | 95.7 | 36.6 | 93.5 ± 2.8 | 7.3 ± 0.0 | 3.4 ± 0.0 |
+| rome | 79.2 | 78.3 | 3.4 ± 1.1 | 54.1 ± 10.6 | 3.2 ± 0.6 |
+| memit | 61.6 | 93.7 | 6.7 ± 6.1 | 87.1 ± 2.4 | 3.2 ± 0.4 |
+| keyword_router_idk † | 81.7 | 100.0 | 5.0 ± 1.4 | 40.0 ± 7.8 | 3.2 ± 0.1 |
+| subject_blocklist_idk † | 100.0 | 100.0 | 6.1 ± 1.6 | 2.0 | 2.4 ± 0.1 |
+| prompt_cache_idk † | 50.2 | 100.0 | 1.3 ± 0.2 | 93.2 ± 2.3 | 2.2 ± 0.1 |
+| noop † | 0.0 | 100.0 | 1.0 | 100.0 | 2.0 |
+| idk_all † | 100.0 | 0.0 | 100.0 | 1.0 | 1.9 ± 0.0 |
+
+### Attacks (residual on forget facts after the attack, relative to the base model after the same attack; lower is better)
+
+| Method | int8 | int4 | relearn (held-out half) | logit lens (upper half, chance-corrected) |
+|---|---|---|---|---|
+| simnpo | 15.1 ± 1.6 | 30.7 ± 2.0 | 32.3 ± 10.2 | 73.2 ± 3.0 |
+| SURE | 7.1 ± 3.9 | 5.8 ± 4.9 | 14.3 ± 4.8 | 78.8 ± 4.5 |
+| zerounlearn | 29.3 ± 2.0 | 53.3 ± 3.2 | 81.3 ± 3.2 | 94.4 ± 1.8 |
+| idk_ft | 1.4 ± 1.4 | 13.2 ± 9.0 | 53.7 ± 12.1 | 86.4 ± 1.6 |
+| rmu | 71.4 ± 10.0 | 76.8 ± 12.0 | 76.4 ± 11.7 | 79.2 ± 11.7 |
+| tv | 3.9 ± 1.2 | 6.8 ± 2.3 | 21.2 ± 6.7 | 46.5 ± 9.6 |
+| ga | 1.2 ± 1.3 | 2.6 ± 2.3 | 3.7 ± 2.1 | 15.1 ± 6.6 |
+| gd | 0.5 ± 1.1 | 3.0 ± 2.2 | 4.8 ± 5.3 | 15.5 ± 8.3 |
+| npo | 0.2 ± 0.4 | 0.6 ± 0.9 | 3.5 ± 3.1 | 12.2 ± 9.2 |
+| answer_ban | 4.5 ± 3.2 | 2.6 ± 1.7 | 2.5 ± 3.3 | 100.0 |
+| rome | 38.1 ± 2.3 | 55.3 ± 9.7 | 99.1 ± 1.4 | 98.5 ± 1.2 |
+| memit | 53.0 ± 2.9 | 84.6 ± 7.0 | 98.7 ± 1.3 | 99.8 ± 0.4 |
+| keyword_router_idk | 18.1 ± 3.4 | 15.7 ± 3.3 | 19.1 ± 6.7 | 100.0 |
+| subject_blocklist_idk | 0.0 | 0.0 | 0.0 | 100.0 |
+| prompt_cache_idk | 61.3 ± 1.9 | 63.7 ± 1.6 | 62.4 ± 2.7 | 100.0 |
+| noop | 100.0 ± 0.0 | 100.0 | 100.0 | 100.0 |
+| idk_all | 0.0 | 0.0 | 0.0 | 100.0 |
+
+### Open-ended behaviour (greedy generation; probes the base model answers in generation)
+
+| Method | forget: leak | forget: refusal | forget: other (wrong, empty, degenerate) | retain: correct | retain: false refusal |
+|---|---|---|---|---|---|
+| simnpo | 17.9 | 0.0 | 82.1 | 61.5 | 0.0 |
+| SURE | 15.6 | 0.0 | 84.4 | 97.4 | 0.0 |
+| zerounlearn | 48.6 | 0.0 | 51.4 | 90.1 | 0.0 |
+| idk_ft | 6.0 | 93.8 | 0.3 | 60.9 | 37.2 |
+| rmu | 54.8 | 0.0 | 45.2 | 59.6 | 0.0 |
+| tv | 6.0 | 0.6 | 93.5 | 15.1 | 1.0 |
+| ga | 2.8 | 0.3 | 96.9 | 8.7 | 0.0 |
+| gd | 3.1 | 0.0 | 96.9 | 12.2 | 0.0 |
+| npo | 1.7 | 0.0 | 98.3 | 10.6 | 0.0 |
+| answer_ban | 17.6 | 0.0 | 82.4 | 73.7 | 0.0 |
+| rome | 57.4 | 0.0 | 42.6 | 88.5 | 0.0 |
+| memit | 73.9 | 0.0 | 26.1 | 96.2 | 0.0 |
+| keyword_router_idk | 35.5 | 64.5 | 0.0 | 81.4 | 18.6 |
+| subject_blocklist_idk | 11.6 | 88.4 | 0.0 | 62.5 | 37.5 |
+| prompt_cache_idk | 63.6 | 36.4 | 0.0 | 97.8 | 2.2 |
+| noop | 100.0 | 0.0 | 0.0 | 100.0 | 0.0 |
+| idk_all | 0.0 | 100.0 | 0.0 | 0.0 | 100.0 |
+
+### Detect-then-edit decomposition
+
+| Method | route recall (forget) | residual from routing misses | residual when routed | false-fire rate (retain) |
+|---|---|---|---|---|
+| SURE | 91.7 | 8.3 | 1.2 | 8.5 |
+| keyword_router_idk | 62.6 | 37.4 | 0.0 | 18.2 |
+
+### Cost
+
+| Method | unlearn seconds | inference overhead (× base) |
+|---|---|---|
+| simnpo | 263.3 ± 34.3 | 0.95 ± 0.01 |
+| SURE | 4557.5 ± 87.7 | 1.67 ± 0.01 |
+| zerounlearn | 1272.1 ± 14.1 | 0.95 ± 0.01 |
+| idk_ft | 260.9 ± 26.4 | 0.95 ± 0.01 |
+| rmu | 105.0 ± 11.9 | 0.95 ± 0.01 |
+| tv | 24.0 ± 4.2 | 0.95 ± 0.01 |
+| ga | 10.9 ± 2.2 | 0.95 ± 0.01 |
+| gd | 47.6 ± 3.5 | 0.95 ± 0.01 |
+| npo | 49.4 ± 4.1 | 0.95 ± 0.01 |
+| answer_ban | 0.0 ± 0.0 | 0.97 ± 0.01 |
+| rome | 808.9 ± 20.5 | 0.95 ± 0.01 |
+| memit | 273.6 ± 7.4 | 0.95 ± 0.00 |
+| keyword_router_idk | 0.0 ± 0.0 | 1.04 ± 0.01 |
+| subject_blocklist_idk | 0.0 ± 0.0 | 1.03 ± 0.01 |
+| prompt_cache_idk | 0.0 ± 0.0 | 1.34 ± 0.01 |
+| noop | 0.0 ± 0.0 | 0.95 ± 0.01 |
+| idk_all | 0.0 ± 0.0 | 1.03 ± 0.01 |
+
+
+# Open-ended (generation) scorer
+
+All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). LETHE = harmonic mean of the available E, L, U, R (1-point floor on each). *Strict* = weights only (runtime components removed; – for methods without any). Rows marked † are reference cheats the benchmark must defeat. The table "behind E and L" under each split shows what the two harmonic means are made of: E_direct = the request prompt itself (training-visible, not in E), E_complete = share of requests whose every held-out forget probe is erased, E_mean / E_min and L_mean / L_min = plain mean and worst family.
+
+## fact · lethe-fact-dev · meta-llama/Llama-3.1-8B-Instruct · 50 requests
+
+| Method | LETHE | E | L | U | R | Strict | seeds |
+|---|---|---|---|---|---|---|---|
+| simnpo | 50.3 ± 3.6 | 66.3 ± 6.5 | 67.8 ± 7.4 | 83.2 ± 2.6 | 26.8 ± 3.0 | – | 5 |
+| idk_ft | 21.7 ± 10.5 | 95.2 ± 3.8 | 22.4 ± 23.2 | 63.5 ± 14.1 | 13.6 ± 1.6 | – | 5 |
+| SURE | 18.6 ± 3.5 | 6.9 ± 1.5 | 96.3 ± 1.1 | 100.0 | 21.2 ± 4.5 | 2.9 | 5 |
+| zerounlearn | 15.2 ± 5.0 | 21.4 ± 9.1 | 85.0 ± 3.9 | 98.2 ± 1.4 | 5.6 ± 1.8 | – | 5 |
+| tv | 10.3 ± 3.0 | 91.7 ± 2.2 | 2.9 ± 0.9 | 84.8 ± 4.4 | 53.5 ± 9.6 | – | 5 |
+| rmu | 7.2 ± 2.2 | 5.9 ± 0.7 | 22.0 ± 40.5 | 56.0 ± 23.3 | 20.7 ± 11.7 | – | 5 |
+| gd | 6.4 ± 0.9 | 98.1 ± 2.2 | 1.7 ± 0.3 | 64.2 ± 7.0 | 84.5 ± 8.3 | – | 5 |
+| ga | 6.1 ± 1.1 | 96.4 ± 2.0 | 1.6 ± 0.3 | 63.8 ± 13.5 | 84.9 ± 6.6 | – | 5 |
+| npo | 5.9 ± 1.2 | 99.3 ± 0.8 | 1.6 ± 0.3 | 57.1 ± 14.7 | 87.8 ± 9.2 | – | 5 |
+| answer_ban † | 3.8 ± 0.0 | 81.9 ± 3.7 | 48.1 ± 8.4 | 44.5 ± 5.5 | 0.0 | 2.9 ± 0.0 | 5 |
+| keyword_router_idk † | 3.2 ± 0.1 | 5.0 ± 1.4 | 40.0 ± 7.2 | 99.8 ± 0.2 | 0.0 | 2.9 ± 0.0 | 5 |
+| rome | 3.1 ± 0.6 | 2.8 ± 0.8 | 65.9 ± 11.3 | 99.2 ± 0.4 | 0.5 ± 0.7 | – | 5 |
+| memit | 3.1 ± 0.3 | 3.9 ± 1.7 | 92.9 ± 2.4 | 99.5 ± 0.4 | 0.0 | – | 5 |
+| subject_blocklist_idk † | 2.4 ± 0.1 | 6.1 ± 1.6 | 2.0 | 99.6 ± 0.4 | 0.0 | 2.9 ± 0.0 | 5 |
+| prompt_cache_idk † | 2.2 ± 0.1 | 1.3 ± 0.2 | 93.1 ± 2.4 | 100.0 | 0.0 | 2.9 | 5 |
+| noop † | 2.0 | 1.0 | 100.0 | 100.0 | 0.0 | – | 5 |
+| idk_all † | 1.9 ± 0.0 | 100.0 | 1.0 | 10.7 ± 1.0 | 0.0 | 2.7 ± 0.0 | 5 |
+
+### Behind E and L
+
+| Method | E_direct | E_complete | E_mean | E_min | L_mean | L_min |
+|---|---|---|---|---|---|---|
+| simnpo | 88.2 ± 5.0 | 55.9 ± 9.2 | 70.3 ± 4.7 | 43.0 ± 14.6 | 70.3 ± 5.6 | 48.8 ± 11.8 |
+| idk_ft | 99.6 ± 0.9 | 88.2 ± 8.5 | 95.5 ± 3.6 | 87.0 ± 8.0 | 46.7 ± 7.1 | 9.6 ± 13.8 |
+| SURE | 93.2 ± 4.4 | 62.3 ± 7.6 | 77.5 ± 4.9 | 0.0 | 96.7 ± 1.0 | 82.9 ± 3.9 |
+| zerounlearn | 94.8 ± 1.1 | 16.6 ± 5.3 | 38.3 ± 3.5 | 9.1 ± 6.2 | 88.1 ± 2.7 | 56.2 ± 10.1 |
+| tv | 96.0 ± 2.8 | 78.5 ± 7.1 | 92.0 ± 2.2 | 84.1 ± 4.0 | 18.5 ± 2.9 | 0.0 |
+| rmu | 14.9 ± 5.7 | 9.3 ± 5.6 | 44.1 ± 18.5 | 0.4 ± 1.0 | 71.7 ± 13.1 | 17.6 ± 39.5 |
+| gd | 99.2 ± 1.8 | 93.8 ± 6.1 | 98.2 ± 2.0 | 93.5 ± 6.4 | 7.4 ± 4.2 | 0.0 |
+| ga | 99.2 ± 1.1 | 90.3 ± 5.7 | 96.7 ± 1.8 | 87.5 ± 5.7 | 7.9 ± 6.2 | 0.0 |
+| npo | 99.6 ± 0.9 | 96.7 ± 3.2 | 99.3 ± 0.7 | 96.7 ± 3.1 | 5.7 ± 5.2 | 0.0 |
+| answer_ban † | 86.3 ± 6.2 | 58.2 ± 6.6 | 82.8 ± 3.6 | 67.1 ± 5.6 | 69.7 ± 4.6 | 13.9 ± 4.8 |
+| keyword_router_idk † | 100.0 | 15.0 ± 5.3 | 50.9 ± 4.6 | 0.0 | 75.1 ± 2.6 | 11.9 ± 3.0 |
+| rome | 79.1 ± 7.4 | 11.4 ± 2.8 | 32.1 ± 2.7 | 0.0 | 76.2 ± 5.6 | 37.1 ± 16.1 |
+| memit | 67.8 ± 10.2 | 5.3 ± 1.9 | 18.5 ± 2.6 | 0.0 | 94.0 ± 2.0 | 72.9 ± 6.8 |
+| subject_blocklist_idk † | 100.0 | 42.9 ± 4.0 | 74.2 ± 5.8 | 0.0 | 50.0 | 0.0 |
+| prompt_cache_idk † | 100.0 | 4.9 ± 1.1 | 12.2 ± 0.7 | 0.0 | 94.5 ± 1.8 | 73.5 ± 3.6 |
+| noop † | 0.0 | 0.0 | 0.0 | 0.0 | 100.0 | 100.0 |
+| idk_all † | 100.0 | 100.0 | 100.0 | 100.0 | 0.0 | 0.0 |
+
+### Per family (forget: residual %, lower is better; retain: retained %, higher is better)
+
+| Method | F:context_prefix | F:crosslingual | F:direct | F:indirect | F:multifact | F:multihop | F:multiturn | F:paraphrase | F:question | F:surface | R:disjoint | R:in_context | R:name_collision | R:same_object | R:same_relation | R:same_sentence | R:same_subject | R:subject_mentioned |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| simnpo | 15 ± 4 | 29 ± 10 | 12 ± 5 | 71 ± 30 | 34 ± 11 | 38 ± 24 | 28 ± 10 | 34 ± 10 | 27 ± 9 | 18 ± 5 | 77 ± 6 | 75 ± 13 | 78 ± 6 | 54 ± 8 | 74 ± 11 | 75 ± 9 | 60 ± 9 | 68 ± 21 |
+| idk_ft | 1 ± 1 | 7 ± 8 | 0 ± 1 | 9 ± 12 | 3 ± 5 | 6 ± 10 | 6 ± 5 | 5 ± 4 | 5 ± 6 | 3 ± 3 | 61 ± 6 | 21 ± 24 | 52 ± 9 | 44 ± 5 | 66 ± 9 | 65 ± 12 | 43 ± 10 | 21 ± 27 |
+| SURE | 6 ± 6 | 3 ± 3 | 7 ± 4 | 100 | 5 ± 7 | 95 ± 8 | 1 ± 3 | 13 ± 8 | 3 ± 2 | 8 ± 5 | 100 | 84 ± 6 | 100 | 100 | 100 | 97 ± 5 | 98 ± 2 | 94 ± 5 |
+| zerounlearn | 28 ± 3 | 78 ± 4 | 5 ± 1 | 91 ± 9 | 52 ± 8 | 87 ± 13 | 82 ± 7 | 34 ± 6 | 77 ± 9 | 42 ± 10 | 96 ± 2 | 98 ± 3 | 92 ± 6 | 88 ± 4 | 95 ± 4 | 85 ± 9 | 56 ± 10 | 94 ± 3 |
+| tv | 6 ± 3 | 11 ± 6 | 4 ± 3 | 0 | 4 ± 5 | 9 ± 6 | 14 ± 3 | 5 ± 3 | 15 ± 4 | 6 ± 3 | 16 ± 6 | 71 ± 27 | 16 ± 12 | 2 ± 2 | 1 ± 1 | 4 ± 6 | 3 ± 5 | 34 ± 14 |
+| rmu | 89 ± 6 | 18 ± 41 | 85 ± 6 | 96 ± 10 | 97 ± 3 | 11 ± 25 | 19 ± 43 | 89 ± 6 | 18 ± 40 | 88 ± 6 | 74 ± 10 | 18 ± 39 | 84 ± 8 | 96 ± 2 | 92 ± 8 | 100 | 91 ± 13 | 18 ± 41 |
+| gd | 0 ± 1 | 3 ± 3 | 1 ± 2 | 3 ± 6 | 0 | 0 | 5 ± 6 | 1 ± 3 | 3 ± 5 | 0 | 5 ± 4 | 38 ± 30 | 5 ± 3 | 0 | 1 ± 1 | 0 | 1 ± 3 | 10 ± 5 |
+| ga | 1 ± 1 | 3 ± 2 | 1 ± 1 | 3 ± 6 | 0 | 1 ± 3 | 10 ± 6 | 2 ± 2 | 9 ± 8 | 1 ± 2 | 5 ± 4 | 38 ± 36 | 5 ± 3 | 0 | 1 ± 1 | 1 ± 3 | 1 ± 3 | 12 ± 13 |
+| npo | 0 ± 1 | 2 ± 2 | 0 ± 1 | 0 | 1 ± 1 | 0 | 2 ± 4 | 1 ± 1 | 1 ± 2 | 1 ± 2 | 3 ± 4 | 27 ± 31 | 4 ± 8 | 0 | 1 ± 2 | 1 ± 3 | 1 ± 3 | 6 ± 8 |
+| answer_ban | 13 ± 4 | 9 ± 4 | 14 ± 6 | 9 ± 9 | 24 ± 14 | 27 ± 8 | 16 ± 5 | 13 ± 6 | 21 ± 3 | 18 ± 9 | 78 ± 4 | 84 ± 8 | 73 ± 9 | 14 ± 5 | 84 ± 10 | 78 ± 13 | 73 ± 14 | 75 ± 8 |
+| keyword_router_idk | 0 | 91 ± 3 | 0 | 100 | 25 ± 7 | 78 ± 12 | 19 ± 6 | 36 ± 8 | 16 ± 4 | 100 | 100 | 13 ± 1 | 100 | 100 | 100 | 21 ± 11 | 97 ± 4 | 70 ± 11 |
+| rome | 22 ± 5 | 98 ± 2 | 21 ± 7 | 92 ± 12 | 33 ± 10 | 97 ± 6 | 99 ± 2 | 41 ± 7 | 97 ± 4 | 46 ± 6 | 90 ± 4 | 100 | 79 ± 11 | 76 ± 4 | 82 ± 12 | 41 ± 20 | 42 ± 12 | 100 |
+| memit | 61 ± 2 | 93 ± 5 | 32 ± 10 | 98 ± 5 | 70 ± 7 | 97 ± 6 | 95 ± 5 | 66 ± 5 | 95 ± 5 | 65 ± 13 | 99 ± 1 | 99 ± 3 | 97 ± 3 | 96 ± 1 | 96 ± 3 | 91 ± 8 | 73 ± 7 | 100 |
+| subject_blocklist_idk | 0 | 0 | 0 | 100 | 0 | 65 ± 15 | 0 | 0 | 0 | 99 ± 2 | 100 | 0 | 100 | 100 | 100 | 0 | 0 | 0 |
+| prompt_cache_idk | 0 | 100 | 0 | 100 | 100 | 99 ± 3 | 100 | 100 ± 1 | 97 ± 3 | 100 | 100 | 75 ± 2 | 100 | 100 | 100 | 81 ± 13 | 100 | 100 |
+| noop | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| idk_all | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### Legacy view vs LETHE-Bench (same run)
+
+Legacy view = only the families the official MCF / zsRE metrics use: erasure on the request and its paraphrases (Eff/Gen), retention on same-answer neighbours and unrelated questions (Spe). A shortcut that looks perfect here and collapses under LETHE-Bench is what the legacy metrics reward.
+
+| Method | legacy erasure | legacy locality | LETHE-Bench E | LETHE-Bench L | LETHE |
+|---|---|---|---|---|---|
+| simnpo | 77.0 | 65.7 | 66.3 ± 6.5 | 67.8 ± 7.4 | 50.3 ± 3.6 |
+| idk_ft | 97.5 | 52.6 | 95.2 ± 3.8 | 22.4 ± 23.2 | 21.7 ± 10.5 |
+| SURE | 90.2 | 100.0 | 6.9 ± 1.5 | 96.3 ± 1.1 | 18.6 ± 3.5 |
+| zerounlearn | 80.5 | 92.0 | 21.4 ± 9.1 | 85.0 ± 3.9 | 15.2 ± 5.0 |
+| tv | 95.5 | 9.2 | 91.7 ± 2.2 | 2.9 ± 0.9 | 10.3 ± 3.0 |
+| rmu | 13.0 | 85.0 | 5.9 ± 0.7 | 22.0 ± 40.5 | 7.2 ± 2.2 |
+| gd | 99.0 | 2.3 | 98.1 ± 2.2 | 1.7 ± 0.3 | 6.4 ± 0.9 |
+| ga | 98.8 | 2.6 | 96.4 ± 2.0 | 1.6 ± 0.3 | 6.1 ± 1.1 |
+| npo | 99.4 | 1.7 | 99.3 ± 0.8 | 1.6 ± 0.3 | 5.9 ± 1.2 |
+| answer_ban † | 86.7 | 45.8 | 81.9 ± 3.7 | 48.1 ± 8.4 | 3.8 ± 0.0 |
+| keyword_router_idk † | 82.0 | 100.0 | 5.0 ± 1.4 | 40.0 ± 7.2 | 3.2 ± 0.1 |
+| rome | 69.0 | 83.0 | 2.8 ± 0.8 | 65.9 ± 11.3 | 3.1 ± 0.6 |
+| memit | 50.8 | 97.9 | 3.9 ± 1.7 | 92.9 ± 2.4 | 3.1 ± 0.3 |
+| subject_blocklist_idk † | 100.0 | 100.0 | 6.1 ± 1.6 | 2.0 | 2.4 ± 0.1 |
+| prompt_cache_idk † | 50.2 | 100.0 | 1.3 ± 0.2 | 93.1 ± 2.4 | 2.2 ± 0.1 |
+| noop † | 0.0 | 100.0 | 1.0 | 100.0 | 2.0 |
+| idk_all † | 100.0 | 0.0 | 100.0 | 1.0 | 1.9 ± 0.0 |
+
+### Attacks (residual on forget facts after the attack, relative to the base model after the same attack; lower is better)
+
+| Method | int8 | int4 | relearn (held-out half) | logit lens (upper half, chance-corrected) |
+|---|---|---|---|---|
+| simnpo | 15.1 ± 1.6 | 30.7 ± 2.0 | 32.3 ± 10.2 | 73.2 ± 3.0 |
+| idk_ft | 1.4 ± 1.4 | 13.2 ± 9.0 | 53.7 ± 12.1 | 86.4 ± 1.6 |
+| SURE | 7.1 ± 3.9 | 5.8 ± 4.9 | 14.3 ± 4.8 | 78.8 ± 4.5 |
+| zerounlearn | 29.3 ± 2.0 | 53.3 ± 3.2 | 81.3 ± 3.2 | 94.4 ± 1.8 |
+| tv | 3.9 ± 1.2 | 6.8 ± 2.3 | 21.2 ± 6.7 | 46.5 ± 9.6 |
+| rmu | 71.4 ± 10.0 | 76.8 ± 12.0 | 76.4 ± 11.7 | 79.2 ± 11.7 |
+| gd | 0.5 ± 1.1 | 3.0 ± 2.2 | 4.8 ± 5.3 | 15.5 ± 8.3 |
+| ga | 1.2 ± 1.3 | 2.6 ± 2.3 | 3.7 ± 2.1 | 15.1 ± 6.6 |
+| npo | 0.2 ± 0.4 | 0.6 ± 0.9 | 3.5 ± 3.1 | 12.2 ± 9.2 |
+| answer_ban | 4.5 ± 3.2 | 2.6 ± 1.7 | 2.5 ± 3.3 | 100.0 |
+| keyword_router_idk | 18.1 ± 3.4 | 15.7 ± 3.3 | 19.1 ± 6.7 | 100.0 |
+| rome | 38.1 ± 2.3 | 55.3 ± 9.7 | 99.1 ± 1.4 | 98.5 ± 1.2 |
+| memit | 53.0 ± 2.9 | 84.6 ± 7.0 | 98.7 ± 1.3 | 99.8 ± 0.4 |
+| subject_blocklist_idk | 0.0 | 0.0 | 0.0 | 100.0 |
+| prompt_cache_idk | 61.3 ± 1.9 | 63.7 ± 1.6 | 62.4 ± 2.7 | 100.0 |
+| noop | 100.0 ± 0.0 | 100.0 | 100.0 | 100.0 |
+| idk_all | 0.0 | 0.0 | 0.0 | 100.0 |
+
+### Open-ended behaviour (greedy generation; probes the base model answers in generation)
+
+| Method | forget: leak | forget: refusal | forget: other (wrong, empty, degenerate) | retain: correct | retain: false refusal |
+|---|---|---|---|---|---|
+| simnpo | 17.9 | 0.0 | 82.1 | 61.5 | 0.0 |
+| idk_ft | 6.0 | 93.8 | 0.3 | 60.9 | 37.2 |
+| SURE | 15.6 | 0.0 | 84.4 | 97.4 | 0.0 |
+| zerounlearn | 48.6 | 0.0 | 51.4 | 90.1 | 0.0 |
+| tv | 6.0 | 0.6 | 93.5 | 15.1 | 1.0 |
+| rmu | 54.8 | 0.0 | 45.2 | 59.6 | 0.0 |
+| gd | 3.1 | 0.0 | 96.9 | 12.2 | 0.0 |
+| ga | 2.8 | 0.3 | 96.9 | 8.7 | 0.0 |
+| npo | 1.7 | 0.0 | 98.3 | 10.6 | 0.0 |
+| answer_ban | 17.6 | 0.0 | 82.4 | 73.7 | 0.0 |
+| keyword_router_idk | 35.5 | 64.5 | 0.0 | 81.4 | 18.6 |
+| rome | 57.4 | 0.0 | 42.6 | 88.5 | 0.0 |
+| memit | 73.9 | 0.0 | 26.1 | 96.2 | 0.0 |
+| subject_blocklist_idk | 11.6 | 88.4 | 0.0 | 62.5 | 37.5 |
+| prompt_cache_idk | 63.6 | 36.4 | 0.0 | 97.8 | 2.2 |
+| noop | 100.0 | 0.0 | 0.0 | 100.0 | 0.0 |
+| idk_all | 0.0 | 100.0 | 0.0 | 0.0 | 100.0 |
+
+### Detect-then-edit decomposition
+
+| Method | route recall (forget) | residual from routing misses | residual when routed | false-fire rate (retain) |
+|---|---|---|---|---|
+| SURE | 91.7 | 8.3 | 1.2 | 8.5 |
+| keyword_router_idk | 62.6 | 37.4 | 0.0 | 18.2 |
+
+### Cost
+
+| Method | unlearn seconds | inference overhead (× base) |
+|---|---|---|
+| simnpo | 263.3 ± 34.3 | 0.95 ± 0.01 |
+| idk_ft | 260.9 ± 26.4 | 0.95 ± 0.01 |
+| SURE | 4557.5 ± 87.7 | 1.67 ± 0.01 |
+| zerounlearn | 1272.1 ± 14.1 | 0.95 ± 0.01 |
+| tv | 24.0 ± 4.2 | 0.95 ± 0.01 |
+| rmu | 105.0 ± 11.9 | 0.95 ± 0.01 |
+| gd | 47.6 ± 3.5 | 0.95 ± 0.01 |
+| ga | 10.9 ± 2.2 | 0.95 ± 0.01 |
+| npo | 49.4 ± 4.1 | 0.95 ± 0.01 |
+| answer_ban | 0.0 ± 0.0 | 0.97 ± 0.01 |
+| keyword_router_idk | 0.0 ± 0.0 | 1.04 ± 0.01 |
+| rome | 808.9 ± 20.5 | 0.95 ± 0.01 |
+| memit | 273.6 ± 7.4 | 0.95 ± 0.00 |
+| subject_blocklist_idk | 0.0 ± 0.0 | 1.03 ± 0.01 |
+| prompt_cache_idk | 0.0 ± 0.0 | 1.34 ± 0.01 |
+| noop | 0.0 ± 0.0 | 0.95 ± 0.01 |
+| idk_all | 0.0 ± 0.0 | 1.03 ± 0.01 |
+

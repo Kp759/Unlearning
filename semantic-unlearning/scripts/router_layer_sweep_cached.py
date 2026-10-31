@@ -21,10 +21,13 @@ Decision rules
     threshold   RWKU only: the counterfactual calibrated threshold gate. Under the subject
                 gate firing is the name match, so the read layer only picks the row.
 Eligibility (which heads may fire)
-    exact       complete subject-token match (runtime rule)
+    exact       complete subject-token match (the runtime rule of exact-match routers)
     fuzzy       exact OR a case / accent / punctuation-insensitive word match allowing one
-                edit per subject word of >= 5 letters (RWKU: any name surface)
+                edit per subject word of >= 5 letters (RWKU: any name surface). For a router
+                fit with subject_match="fuzzy" (ours) this is the router's own runtime rule
+                (linear_router.fuzzy_subject_in_text), as cached.
     none        every head (what the heads alone can do)
+The layer sweep and the refit check use the router's own rule (manifest subject_match).
 
 Robustness variants (at --robust-layers):
     baseline       the shipped training set
@@ -299,11 +302,13 @@ def evaluate(cache, router, layers, threshold, margin, eligibility_mode, fuzzy_c
             continue
         x = cache.features(section, layers)
         logits = logits_for(router, x)
-        exact = sec["routes"]["eligible"].bool()
+        exact = sec["routes"].get("eligible_exact", sec["routes"]["eligible"]).bool()
         if eligibility_mode == "exact":
             eligible = exact
         elif eligibility_mode == "none":
             eligible = torch.ones_like(exact)
+        elif deployed_eligibility(cache) == "fuzzy":
+            eligible = sec["routes"]["eligible"].bool()      # the router's own fuzzy rule
         else:
             key = (section,)
             if key not in fuzzy_cache:
@@ -332,6 +337,16 @@ def evaluate(cache, router, layers, threshold, margin, eligibility_mode, fuzzy_c
     return out
 
 
+def deployed_eligibility(cache):
+    """The router's own eligibility rule: 'fuzzy' for subject_match="fuzzy" routers (ours)."""
+    return "fuzzy" if cache.manifest.get("subject_match") == "fuzzy" else "exact"
+
+
+def deployed(entry):
+    """An entry's results under the router's own eligibility rule (exact in older sweeps)."""
+    return entry["by_eligibility"][entry.get("deployed_eligibility", "exact")]
+
+
 def agreement_with_shipped(cache, decisions):
     shipped = cache.section("eval")["routes"]
     active, fact = decisions
@@ -354,6 +369,7 @@ def run_config(cache, *, variant, layers, rule, eligibility_modes, hparams, devi
         r["threshold_logit"] = threshold if math.isfinite(threshold) else None
         results[mode] = r
     return {"variant": variant, "layers": list(layers), "rule": rule, "l2": router["l2"],
+            "deployed_eligibility": deployed_eligibility(cache),
             "pca_dim": router["pca_dim"], "converged": router["info"]["converged"],
             "train_prompts": int(data["x"].shape[0]), "by_eligibility": results}
 
@@ -385,7 +401,7 @@ def plot_errors_vs_layer(ax, sweep, title, router_layer, penultimate):
             continue
         xs = [e["layers"][0] for e in rows]
         for metric, color in (("fpr", "#c62828"), ("fnr", "#ef6c00"), ("f1", "#1565c0")):
-            ys = [e["by_eligibility"]["exact"]["eval"][metric] for e in rows]
+            ys = [deployed(e)["eval"][metric] for e in rows]
             ys = [float("nan") if y is None else y for y in ys]
             ax.plot(xs, ys, style, color=color, marker="o", ms=3,
                     label=f"{metric.upper()}{'' if rule == 'deployed' else ' (threshold gate)'}")
@@ -406,7 +422,7 @@ def layer_table(sweep, rule="deployed"):
     lines = ["| layer | L2 | FPR | FNR | precision | recall | F1 | correct row | route AUC | null FPR | "
              "perturbed recall | ECE |", "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for e in rows:
-        r = e["by_eligibility"]["exact"]
+        r = deployed(e)
         m = r["eval"]
         lines.append(f"| L{e['layers'][0]} | {e['l2']:g} | {_fmt(m['fpr'])} | {_fmt(m['fnr'])} | "
                      f"{_fmt(m['precision'])} | {_fmt(m['recall'])} | {_fmt(m['f1'])} | "
@@ -417,12 +433,12 @@ def layer_table(sweep, rule="deployed"):
 
 
 def best_layer(sweep, rule="deployed"):
-    rows = [e for e in sweep if e["rule"] == rule and e["by_eligibility"]["exact"]["eval"]["f1"] is not None]
+    rows = [e for e in sweep if e["rule"] == rule and deployed(e)["eval"]["f1"] is not None]
     if not rows:
         return None
 
     def key(e):
-        m = e["by_eligibility"]["exact"]["eval"]
+        m = deployed(e)["eval"]
         return (round(m["f1"], 6), -(m["fpr"] or 0.0), -e["layers"][0])
 
     return max(rows, key=key)
@@ -432,7 +448,7 @@ def compare_layers(sweep, a, b, rule):
     def get(layer):
         for e in sweep:
             if e["rule"] == rule and e["layers"] == [layer]:
-                return e["by_eligibility"]["exact"]
+                return deployed(e)
         return None
 
     ra, rb = get(a), get(b)
@@ -458,6 +474,20 @@ DOWNSTREAM = {
     "rwku": "TAG=l16_paper_rwku_subject_router{L}_v1 RWKU_GATE=subject ROUTER_LAYER={L} "
             "bash scripts/run_l16_paper_one.sh rwku {S}",
 }
+# ours reads a later layer only at the cost of a second pass: route at L, keep the edit at 19
+# (ONEPASS=1 with WRITE_LAYER=19 < ROUTER_LAYER = the two-pass early write, ours routers)
+# (a literal: router_diag_staged.slurm reads both tables with ast.literal_eval)
+DOWNSTREAM_OURS = {
+    "mcf": "TAG=onepass_router{L}_write19_v1 ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER={L} bash scripts/run_l16_paper_one.sh mcf {S}",
+    "zsre": "TAG=onepass_router{L}_write19_v1 ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER={L} bash scripts/run_l16_paper_one.sh zsre {S}",
+    "mquake": "TAG=onepass_router{L}_write19_v1 ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER={L} bash scripts/run_l16_paper_one.sh mquake {S}",
+    "rwku": "TAG=onepass_router{L}_write19_v1 ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER={L} bash scripts/run_l16_paper_one.sh rwku {S}",
+}
+
+
+def downstream_command(manifest, layer):
+    table = DOWNSTREAM_OURS if manifest.get("router_recipe") == "ours" else DOWNSTREAM
+    return table[manifest["dataset"]].format(L=layer, S=manifest["seed"])
 
 
 def write_dataset_docs(cache, sweep, robust, out_dir):
@@ -467,14 +497,14 @@ def write_dataset_docs(cache, sweep, robust, out_dir):
     rules = ["deployed"] + (["threshold"] if ds == "rwku" else [])
     md = [f"# Layer choice: {ds} seed {m['seed']}", "",
           "Same router refit at every layer (shipped recipe), scored on the official eval "
-          "prompts. Exact subject eligibility.", ""]
+          f"prompts. {deployed_eligibility(cache).capitalize()} subject eligibility (the router's own rule).", ""]
     verdicts = {}
     for rule in rules:
         best = best_layer(sweep, rule)
         md += [f"## Decision rule: {rule}", "", layer_table(sweep, rule), ""]
         if best:
             md.append(f"Best F1: L{best['layers'][0]} "
-                      f"({_fmt(best['by_eligibility']['exact']['eval']['f1'])}).")
+                      f"({_fmt(deployed(best)['eval']['f1'])}).")
         cmp = compare_layers(sweep, router_layer, penultimate, rule)
         verdicts[rule] = cmp
         if cmp:
@@ -487,21 +517,27 @@ def write_dataset_docs(cache, sweep, robust, out_dir):
         md.append("")
     timing = m.get("router_pass_timing_ms_per_prompt")
     if timing:
-        md += ["## Pipeline cost", "",
-               f"Routing pass, ms per prompt: full forward {timing['full_forward']:.2f}; " +
-               "; ".join(f"{k} {v:.2f}" for k, v in timing.items()
-                         if k.startswith("stop_after")) +
-               f" ({timing['blocks']} blocks). The deployed early-write model "
-               "(scripts/early_write.py) already makes two passes: pass 1 routes on the prompt "
-               "(cached per prompt, not per generated token), pass 2 writes at L16. Reading a later "
-               "layer does not add a pass, because the L16 write is below the read layer whichever "
-               "it is. It only changes how far pass 1 must run if it is stopped at the router "
-               "layer (today it runs the full model).", ""]
+        cost = (f"Routing pass, ms per prompt: full forward {timing['full_forward']:.2f}; " +
+                "; ".join(f"{k} {v:.2f}" for k, v in timing.items() if k.startswith("stop_after")) +
+                f" ({timing['blocks']} blocks). ")
+        if m.get("router_recipe") == "ours":
+            cost += (f"Ours makes ONE pass: the router reads the L{router_layer} state at the prompt's "
+                     f"last token and the row is added at L{router_layer} in the same pass. Reading a "
+                     f"later layer L means either a second pass (route at L, write at L{router_layer}: "
+                     "the early-write model, one extra prompt pass cut short at L) or moving the edit "
+                     "up to L as well, which changes the edit itself.")
+        else:
+            cost += ("The deployed early-write model (scripts/early_write.py) already makes two passes: "
+                     "pass 1 routes on the prompt (cached per prompt, not per generated token), pass 2 "
+                     "writes at L16. Reading a later layer does not add a pass, because the L16 write is "
+                     "below the read layer whichever it is. It only changes how far pass 1 must run if "
+                     "it is stopped at the router layer (today it runs the full model).")
+        md += ["## Pipeline cost", "", cost, ""]
     pen = verdicts.get("deployed")
     md += ["## Penultimate layer: downstream run", ""]
     if pen and pen["routing_improves"]:
         md += [f"Routing improves at L{penultimate}; run the downstream Eff/Gen/Spe/PPL evaluation:", "",
-               "```bash", DOWNSTREAM[ds].format(L=penultimate, S=m["seed"]), "```", ""]
+               "```bash", downstream_command(m, penultimate), "```", ""]
     else:
         md += [f"Routing does not improve at L{penultimate} under the deployed rule, so the "
                "downstream evaluation is not run.", ""]
@@ -536,7 +572,7 @@ def sweep_cache(cache_dir, args):
     out_dir.mkdir(exist_ok=True)
     path = out_dir / "sweep.json"
     done = json.loads(path.read_text()) if path.is_file() and not args.overwrite else {"sweep": [], "robust": []}
-    # Separate resume keys: a layer-sweep entry ("baseline", (L,), rule; exact eligibility only)
+    # Separate resume keys: a layer-sweep entry ("baseline", (L,), rule; deployed eligibility only)
     # must not mark the robustness "baseline" at L (exact, fuzzy and no eligibility) as done.
     have_sweep = {(e["variant"], tuple(e["layers"]), e["rule"]) for e in done["sweep"]}
     have = {(e["variant"], tuple(e["layers"]), e["rule"]) for e in done["robust"]}
@@ -567,15 +603,16 @@ def sweep_cache(cache_dir, args):
                 continue
             t0 = time.time()
             entry = run_config(cache, variant="baseline", layers=[layer], rule=rule,
-                               eligibility_modes=("exact",), hparams=hparams, device=args.device,
+                               eligibility_modes=(deployed_eligibility(cache),), hparams=hparams,
+                               device=args.device,
                                lambdas=lambdas, pca_dims=pca_dims, folds=args.cv_folds,
                                fuzzy_cache=fuzzy_cache)
             if layer == m["router_layer"] and rule == "deployed":
                 entry["agreement_with_shipped_router"] = agreement_with_shipped(
-                    cache, entry["by_eligibility"]["exact"]["_decisions"])
+                    cache, deployed(entry)["_decisions"])
             done["sweep"].append(entry)
             save()
-            e = entry["by_eligibility"]["exact"]["eval"]
+            e = deployed(entry)["eval"]
             print(json.dumps({"dataset": m["dataset"], "layer": layer, "rule": rule, "f1": e["f1"],
                               "fpr": e["fpr"], "fnr": e["fnr"], "l2": entry["l2"],
                               "seconds": round(time.time() - t0, 1)}), flush=True)
@@ -638,7 +675,7 @@ def combined_docs(results, out_root):
         rule = "threshold" if m["dataset"] == "rwku" else "deployed"
         best = best_layer(sweep, rule)
         ranked = sorted((e for e in sweep if e["rule"] == rule),
-                        key=lambda e: -(e["by_eligibility"]["exact"]["eval"]["f1"] or 0.0))
+                        key=lambda e: -(deployed(e)["eval"]["f1"] or 0.0))
         at = next((e for e in ranked if e["layers"] == [m["router_layer"]]), None)
         rank = ranked.index(at) + 1 if at else None
         cmp = verdicts.get(rule) or {}
@@ -646,8 +683,8 @@ def combined_docs(results, out_root):
                         if e["rule"] == "deployed" and e["layers"] == [m["router_layer"]]), None)
         md.append(f"| {m['dataset']}{' (threshold gate)' if rule == 'threshold' else ''} | "
                   f"L{best['layers'][0] if best else '?'} | "
-                  f"{_fmt(best['by_eligibility']['exact']['eval']['f1']) if best else '–'} | "
-                  f"{_fmt(at['by_eligibility']['exact']['eval']['f1']) if at else '–'} | "
+                  f"{_fmt(deployed(best)['eval']['f1']) if best else '–'} | "
+                  f"{_fmt(deployed(at)['eval']['f1']) if at else '–'} | "
                   f"{rank}/{len(ranked)} | "
                   f"{'penultimate better' if cmp.get('routing_improves') else 'L19 not beaten'} | "
                   f"{_fmt(shipped)} |")

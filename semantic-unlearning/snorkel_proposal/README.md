@@ -1,4 +1,4 @@
-# SCALPEL — a benchmark for surgical unlearning
+# LETHE-Bench — a benchmark for surgical unlearning
 
 > *Forget one fact. Keep everything entangled with it. Show it is gone from the weights.*
 
@@ -10,27 +10,31 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 | [`APPLICATION_FORM_ANSWERS.md`](APPLICATION_FORM_ANSWERS.md) | Short answers to paste into benchmarks.snorkel.ai/apply |
 | [`EVIDENCE.md`](EVIDENCE.md) | Why existing fact-unlearning benchmarks are saturated (this repo's 4 × 5-seed study) |
 | [`BENCHMARK_SPEC.md`](BENCHMARK_SPEC.md) | Exact definitions: construct, threat model, splits, 20 probe families, metrics, statistics |
-| [`RED_TEAM.md`](RED_TEAM.md) | Snorkel's six red-team checks, and how SCALPEL handles each one |
+| [`RED_TEAM.md`](RED_TEAM.md) | Snorkel's six red-team checks, and how LETHE-Bench handles each one |
 | [`AGENT_TRACK.md`](AGENT_TRACK.md) | Agentic leakage track (prototype): the unlearned model as a search agent |
+| [`scripts/README_CLUSTER.md`](scripts/README_CLUSTER.md) · [`scripts/aws/README.md`](scripts/aws/README.md) | Running every method: Wulver (SLURM) or one AWS GPU |
 | [`DATASHEET.md`](DATASHEET.md) · [`DATA_LICENSE.md`](DATA_LICENSE.md) | Dataset documentation and licensing |
 | [`ROADMAP.md`](ROADMAP.md) | Status, milestones, compute and expert-data asks, risks |
-| [`results/`](results/) | Toy-world run (pipeline check) and real-data pilot |
+| [`results/`](results/) | Toy-world run (pipeline check), laptop pilot (`results/pilot/`) and the cluster leaderboards (`results/cluster/`) |
 
-## Headline results so far
+## Headline results: three models, 5 seeds each
 
-**Real-data pilot:** Qwen2.5-0.5B-Instruct, MultiCounterFact + zsRE + MQuAKE, 50 requests, 520 probes, laptop, seed 1 (`results/pilot/README.md`).
+`results/cluster/leaderboard_dev/leaderboard.md` (Wulver; `EVIDENCE.md` §4 has the per-axis tables). 11 methods and 6 reference cheats, 50 requests per seed, LETHE score (mean ± sd over seeds):
 
-| Method | Legacy view (erasure / locality) | SCALPEL E / L | SCALPEL |
+| Method | Llama-3.2-3B | Qwen3-4B | Llama-3.1-8B |
 |---|---|---|---|
-| subject-name blocklist † | **100.0 / 98.5** | 6.8 / 2.0 | 0.0 |
-| keyword router † | 82.5 / 100.0 | 5.9 / 7.0 | 0.0 |
-| GA / GD / NPO | 100 / 0–7 | 97–99 / 1.3–1.8 | 4.9–6.7 |
-| RMU (3B defaults) | 5.2 / 80.5 | 4.6 / 84.5 | 0.0 |
-| **SURE (this repo, untuned)** | 68.5 / 100.0 | 3.3 / **100.0** | **10.5** |
+| SimNPO | 37.4 ± 20.1 | 31.7 ± 15.6 | 43.7 ± 13.6 |
+| ZeroUnlearn | 21.3 ± 9.5 | 56.3 ± 5.8 | 15.6 ± 5.2 |
+| SURE (ours, layer 19) | 28.4 ± 11.6 | 22.3 ± 0.7 | 18.7 ± 3.5 |
+| MEMIT | 1.7 ± 1.8 | 30.7 ± 9.0 | 3.2 ± 0.4 |
+| trained refusal (IDK-FT) | 11.4 ± 0.6 | 11.0 ± 1.3 | 10.9 ± 0.2 |
+| task-vector negation | 5.7 ± 1.4 | 10.2 ± 3.8 | 7.7 ± 1.8 |
+| RMU / GA / GD / NPO / ROME | 3.0–6.2 | 4.5–7.5 | 3.2–7.8 |
+| six reference cheats † | 1.0–1.7 | 1.9–3.4 | 1.9–3.4 |
 
-- The red-team gate passes: all six reference cheats score 0, and SCALPEL_core stays ≤ 16.2.
-- SURE leads, with perfect locality, but questions, cross-lingual queries, typos and multi-hop chains leak. 49 of its 58 residual points are routing misses.
-- The existing four-benchmark study is summarised in `EVIDENCE.md`.
+- No method is close to solved, and the ranking changes with the model: ZeroUnlearn is first on Qwen3-4B and fourth on Llama-3.1-8B; MEMIT scores 30.7 on Qwen3-4B and 1.7–3.2 on Llama.
+- The red-team gate passes on every model: the largest cheat score is 3.4 against a gate of 35.
+- Our own method is not the top row: SURE keeps locality 94–96 and utility 100 but is never routed on subject-free and multi-hop probes, so its erasure over held-out families is 7–22.
 
 ## Quickstart
 
@@ -62,7 +66,7 @@ scalpel/
   build.py         partitions (retain_train/dev/test), knowledge filter, conflict removal
   model_api.py     rendering (chat templates), teacher forcing, generation, logit lens, causality check
   grading.py       leak / refusal / hallucination labels for open-ended outputs
-  metrics.py       per-family scores, E/L/U/R/SCALPEL, cluster bootstrap, paired tests
+  metrics.py       per-family scores, E/L/U/R/LETHE, cluster bootstrap, paired tests
   attacks.py       logit lens, int8/int4 quantization, relearning on half the requests
   utility.py       MMLU, TriviaQA, perplexity
   runner.py        one method on one split -> results.json + probes.jsonl
@@ -105,4 +109,4 @@ Every probe in a split is answered correctly by the base model, so:
 - forget families report the **residual**: % still recalled, lower is better;
 - retain families report % **retained**, higher is better.
 
-E and L are harmonic means over families, so a method (or a shortcut) that gives up any whole family scores near zero on that axis. R is the worst case over the attacks. **SCALPEL** = harmonic mean of E, L, U and R; **SCALPEL_core** leaves out R. Rows marked † are reference cheats, which must score below 35.
+E and L are harmonic means over families, so a method (or a shortcut) that gives up any whole family scores near zero on that axis. R is the worst case over the attacks. **LETHE** = harmonic mean of E, L, U and R; **LETHE_core** leaves out R. Rows marked † are reference cheats, which must score below 35.
