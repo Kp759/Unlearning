@@ -131,14 +131,25 @@ def decision_path(model):
 
 
 def load_decision(model):
+    """The decision file, or {} when it is missing or empty (an interrupted write)."""
     p = decision_path(model)
-    return json.loads(p.read_text()) if p.is_file() else {}
+    if not p.is_file():
+        return {}
+    text = p.read_text().strip()
+    if not text:
+        print(f"note: {p} is empty (interrupted write); rebuilding it", file=sys.stderr)
+        return {}
+    return json.loads(text)
 
 
 def save_decision(model, d):
+    """Atomic: write a temporary file next to it, then rename, so a killed process never
+    leaves an empty or half-written decision behind."""
     p = decision_path(model)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(d, indent=2) + "\n")
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(d, indent=2) + "\n")
+    tmp.replace(p)
     return p
 
 
@@ -166,6 +177,9 @@ def write_stage(model):
     from summarize_mcf_layer_sweep import collect
     from l16_paper_table import metrics
     d = load_decision(model)
+    if d.get("router_layer") is None:            # rebuild the router choice from the saved sweep
+        router_stage(model)
+        d = load_decision(model)
     r = d.get("router_layer")
     if r is None:
         raise SystemExit("decision.json has no router_layer yet (run the router stage first)")
