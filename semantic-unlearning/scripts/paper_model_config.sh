@@ -103,11 +103,17 @@ paper_model_check() {  # fail fast: weights present, layer count as configured, 
     [[ "${mib:-0}" -ge "$MIN_GPU_MIB" ]] \
       || { echo "GPU has ${mib} MiB, $MODEL needs >= $MIN_GPU_MIB MiB" >&2; return 3; }
   fi
-  python - "$MODEL_PATH" <<'EOF' || return 3
+  if python -c "import transformers" 2>/dev/null; then
+    python - "$MODEL_PATH" <<'EOF' || return 3
 import sys
 from transformers import AutoConfig
 c = AutoConfig.from_pretrained(sys.argv[1], local_files_only=True)
 print(f"model ok: {c.model_type}, {c.num_hidden_layers} layers, hidden {c.hidden_size}")
 EOF
+  elif [[ -n "${SLURM_JOB_ID:-}" ]]; then
+    echo "transformers not importable inside the job: wrong ENV_DIR?" >&2; return 3
+  else
+    echo "note: transformers not importable in this shell (conda env not active); the job re-checks the model"
+  fi
   echo "MODEL=$MODEL MODEL_PATH=$MODEL_PATH TAG=$TAG router L$ROUTER_LAYER write L$WRITE_LAYER lens L$LENS_LAYER"
 }
