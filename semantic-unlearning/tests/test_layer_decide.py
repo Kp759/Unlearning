@@ -27,8 +27,8 @@ def test_router_takes_the_earliest_block_on_the_f1_plateau_with_fpr_not_worse():
     assert detail["best_f1_block"] == 26 and chosen == 26
     chosen, detail = ld.pick_router({"mcf": rows}, fpr_tol=0.02)
     assert chosen == 19 and detail["eligible_blocks"] == [19, 22, 26]  # wider FPR tolerance: L19 and L22 join, earliest wins
-    chosen, _ = ld.pick_router({"mcf": rows}, f1_tol=0.001, fpr_tol=0.02)
-    assert chosen == 26                                                 # tighter F1 tolerance: only the best block
+    chosen, _ = ld.pick_router({"mcf": rows}, f1_tol=0.0005, fpr_tol=0.02)
+    assert chosen == 26                                                 # F1 tolerance below L22's gap: only the best block
 
 
 def test_router_averages_f1_over_datasets():
