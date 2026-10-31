@@ -87,7 +87,7 @@ with $\mu$ the mean of $q$ over the router's training prompts, and returns $\rou
  h'_{W,t}=h_{W,t}+\ind[t\ge b-1]\,\rowvec_i .
  \label{eq:write}
 \end{equation}
-When $W<R$ the model runs the prompt once up to block $R$ to route, then runs it again with the write in place; pass one is a prompt-only forward truncated at $R$ and adds nothing per generated token. When $W=R$ the two coincide and a single pass suffices. If $\router(x)=\bot$, Equation~\eqref{eq:write} is the identity and the output equals the base model's exactly.
+When $W<R$ the decision is read after the write block, so the prompt is processed through block $R$, the vector is added to the last prompt token's block-$W$ output, and only that token is recomputed through blocks $W{+}1,\dots,R$; earlier prompt positions are unaffected because attention is causal, and the forward pass then continues from block $R{+}1$. The overhead is $R-W$ blocks for a single token per request; generated tokens receive the vector in their ordinary forward pass, because the route is fixed by the prompt. When $W=R$ there is no overhead. If $\router(x)=\bot$, Equation~\eqref{eq:write} is the identity and the output equals the base model's exactly.
 
 \subsection{The router}
 \label{sec:router}
@@ -192,17 +192,17 @@ Genie isolates the residual rows from the learned router. On MCF, zsRE and MQuAK
 Variant & read & write & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ \\
 \midrule
 Base & -- & -- & 13.46 & 10.26 & 19.88 & 32.37 & 31.20 & 29.79 & 73.23 & 46.44 & 66.13 & 57.60 & 54.77 & 63.70 \\
-Ours (two passes) & 19 & 16 & 0.001 & 0.027 & 19.84 & 0.17 & 1.24 & 29.79 & 0.10 & 1.49 & 55.07 & 2.00 & 33.61 & 61.89 \\
+Ours & 19 & 16 & 0.001 & 0.027 & 19.84 & 0.17 & 1.24 & 29.79 & 0.10 & 1.49 & 55.07 & 2.00 & 33.61 & 61.89 \\
 one pass, read late & 19 & 19 & 0.001 & 0.027 & 19.84 & 0.41 & 1.48 & 29.79 & 0.53 & 1.83 & 55.53 & 2.40 & 34.10 & 61.82 \\
 one pass, read early & 16 & 16 & 0.001 & 0.013 & 19.80 & 0.04 & 2.76 & 29.79 & 0.17 & 2.62 & 55.25 & 2.40 & 34.81 & 62.18 \\
 \bottomrule
 \end{tabular}
-\caption{Where to read and where to write (Llama-3.2-3B-Instruct, mean over 5 seeds). Reading at block 19 improves held-out generalisation on zsRE relative to reading at block 16 (Gen 1.24 vs 2.76). With the same block-19 reader, writing at block 16 improves MQuAKE generalisation relative to writing at block 19 (Gen 1.49 vs 1.83). The two-pass variant costs one prompt-only forward truncated at block 19 per request and nothing per generated token.}
+\caption{Where to read and where to write (Llama-3.2-3B-Instruct, mean over 5 seeds). Reading at block 19 improves held-out generalisation on zsRE relative to reading at block 16 (Gen 1.24 vs 2.76). With the same block-19 reader, writing at block 16 improves MQuAKE generalisation relative to writing at block 19 (Gen 1.49 vs 1.83). Reading at block 19 and writing at block 16 costs three extra blocks for the last prompt token per request and nothing per generated token.}
 \label{tab:ablation_layers}
 \end{table*}
 
 \paragraph{Where to read, where to write.}
-Table~\ref{tab:ablation_layers} moves the read and write blocks while keeping the rest of the method fixed. Reading at block 16 instead of 19 slightly improves the direct zsRE prompt (Eff 0.04 vs 0.17) but hurts held-out paraphrases (Gen 2.76 vs 1.24), suggesting that the later representation is more useful for routing semantically varied requests. With the same block-19 reader, writing at block 16 improves held-out MQuAKE generalisation relative to writing at block 19 (Gen 1.49 vs 1.83). Thus the read layer and write layer serve different roles: read late for detection, write earlier for a more general edit. The two-pass variant costs one prompt-only forward truncated at block 19 per request.
+Table~\ref{tab:ablation_layers} moves the read and write blocks while keeping the rest of the method fixed. Reading at block 16 instead of 19 slightly improves the direct zsRE prompt (Eff 0.04 vs 0.17) but hurts held-out paraphrases (Gen 2.76 vs 1.24), suggesting that the later representation is more useful for routing semantically varied requests. With the same block-19 reader, writing at block 16 improves held-out MQuAKE generalisation relative to writing at block 19 (Gen 1.49 vs 1.83). Thus the read layer and write layer serve different roles: read late for detection, write earlier for a more general edit. The price is three extra blocks for one token per request.
 
 \section{Limitations}
 \label{sec:limits}
