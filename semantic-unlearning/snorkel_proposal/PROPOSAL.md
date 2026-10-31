@@ -105,12 +105,6 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
     Because E and L are harmonic means over families, failing one family pulls the score to the floor instead of being averaged away. The gate (`RED_TEAM.md`) runs all six on every split before release; if any passes 35, the split is at fault and is fixed.
   - **Each method fails a different axis:** GA / GD / NPO erase 79–100 but keep locality 1–2; a trained refusal falsely refuses 37–55% of retain questions; ROME and MEMIT erase 3–9 on held-out phrasings on Llama and the fact returns under attack (R ≤ 1); SimNPO erases 64–78 at locality 39–51; relearning restores 73–81% of ZeroUnlearn's forgotten facts on the Llama models.
   - **Our own method is not the top row, and the table says why:** SURE keeps locality 94–96 and utility 100 on every model and erases 89–96 of the request prompts, but two families it is never routed on (`multihop` 94–96% residual, `indirect` 100%) hold its E at 7–22; route recall is 86–92%, and it scores 2.9 in the weights-only tier because its router and rows are runtime components.
-- **Pilot on real data** (laptop, no GPU; `results/pilot/README.md`): Qwen2.5-0.5B-Instruct, MCF + zsRE + MQuAKE facts, 50 requests, 520 probes.
-  - **A subject-name blocklist scores 100 / 98.5 (erasure / locality) when only the families the official MCF/zsRE metrics use are counted, and 0 on LETHE-Bench.** It leaks under typos and multi-hop chains, and it refuses same-subject and in-context questions.
-  - All six reference cheats are defeated (LETHE score below 5; core 2.8–16.2).
-  - GA, GD and NPO erase 97–99% but keep only 1.3–1.8 locality; the same over-forgetting this repository measured on MCF.
-  - After relearning, GA recovers 20% of held-out forgotten facts.
-  - **An early version of SURE leads with a LETHE score of 10.5.** It keeps perfect locality (100 on all retain families), but held-out phrasings leak: 90% residual on questions, 94% cross-lingual, 100% under typos and in multi-hop chains. The decomposition attributes 49 of 58 residual points to routing misses. The method that saturates the legacy benchmarks has clear, measurable headroom here.
 - **Evidence of saturation** from the repository's 4-benchmark × 5-seed study (`EVIDENCE.md`).
 
 ## 4. Fit with the program

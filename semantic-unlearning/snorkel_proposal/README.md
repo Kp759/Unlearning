@@ -15,25 +15,9 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 | [`scripts/README_CLUSTER.md`](scripts/README_CLUSTER.md) · [`scripts/aws/README.md`](scripts/aws/README.md) | Running every method: Wulver (SLURM) or one AWS GPU |
 | [`DATASHEET.md`](DATASHEET.md) · [`DATA_LICENSE.md`](DATA_LICENSE.md) | Dataset documentation and licensing |
 | [`ROADMAP.md`](ROADMAP.md) | Status, milestones, compute and expert-data asks, risks |
-| [`results/`](results/) | Toy-world run (pipeline check) and real-data pilot |
+| [`results/`](results/) | Toy-world run (pipeline check), laptop pilot (`results/pilot/`) and the cluster leaderboards (`results/cluster/`) |
 
-## Headline results so far
-
-**Real-data pilot:** Qwen2.5-0.5B-Instruct, MultiCounterFact + zsRE + MQuAKE, 50 requests, 520 probes, laptop, seed 1 (`results/pilot/README.md`).
-
-| Method | Legacy view (erasure / locality) | LETHE-Bench E / L | LETHE |
-|---|---|---|---|
-| subject-name blocklist † | **100.0 / 98.5** | 6.8 / 2.0 | 0.0 |
-| keyword router † | 82.5 / 100.0 | 5.9 / 7.0 | 0.0 |
-| GA / GD / NPO | 100 / 0–7 | 97–99 / 1.3–1.8 | 4.9–6.7 |
-| RMU (3B defaults) | 5.2 / 80.5 | 4.6 / 84.5 | 0.0 |
-| **SURE (early version, untuned)** | 68.5 / 100.0 | 3.3 / **100.0** | **10.5** |
-
-- The red-team gate passes: all six reference cheats score below 5, and LETHE_core stays ≤ 16.2.
-- SURE leads, with perfect locality, but questions, cross-lingual queries, typos and multi-hop chains leak. 49 of its 58 residual points are routing misses.
-- The existing four-benchmark study is summarised in `EVIDENCE.md`.
-
-## Cluster results: three models, 5 seeds each
+## Headline results: three models, 5 seeds each
 
 `results/cluster/leaderboard_dev/leaderboard.md` (Wulver; `EVIDENCE.md` §4 has the per-axis tables). 11 methods and 6 reference cheats, 50 requests per seed, LETHE score (mean ± sd over seeds):
 
