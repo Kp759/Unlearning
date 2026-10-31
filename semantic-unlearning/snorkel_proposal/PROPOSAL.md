@@ -91,7 +91,18 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
   - the fast scoring path matches the full forward pass.
 - **Full run on three models** (cluster; Llama-3.2-3B-Instruct, Qwen3-4B, Llama-3.1-8B-Instruct; 5 seeds and 50 requests per seed each; `EVIDENCE.md` §4): 11 methods and 6 reference cheats.
   - **No method is close to solved, and the ranking depends on the model:** the best score on any model is 56.3 (ZeroUnlearn on Qwen3-4B), where the same method scores 15.6 on Llama-3.1-8B; SimNPO 32–44; SURE (our method) 19–28; MEMIT 31 on Qwen3-4B and 2–3 on the Llama models; GA / GD / NPO / ROME below 7.
-  - **Every reference cheat scores below 4 on every model** (the release gate is 35).
+  - **Every reference cheat scores below 4 on every model** (the release gate is 35). The cheats are shortcuts a reviewer would think of in a minute; each scores near-perfectly on the legacy metrics and is caught by a family built for it. "Legacy view" below = only the families the official MCF / zsRE metrics use (erasure on the request and its paraphrases; locality on same-answer neighbours and unrelated questions), computed from the same runs, range over the three models:
+
+    | Cheat | What it does | Legacy view (erasure / locality) | Caught by | LETHE |
+    |---|---|---|---|---|
+    | subject blocklist | refuse any prompt that names a forgotten subject | 100 / 99.5–100 | `indirect`, `multihop` (subject never named) leak; `same_subject`, `subject_mentioned` refused | 1.2–2.4 |
+    | keyword router | subject and relation words → "I don't know" (a string version of a detect-then-edit method) | 82–89 / 100 | `indirect`, `multihop`, `crosslingual`, `surface` | 1.6–3.2 |
+    | answer ban | never emit the forgotten answer's first token | 87–96 / 35–46 | `same_object` (other subjects with the same answer), `in_context` | 1.7–3.4 |
+    | prompt cache | refuse the exact training prompts only | 50 / 100 | every held-out phrasing | 1.1–2.2 |
+    | refuse-all | "I don't know" to everything | 100 / 0 | every retain family | 1.0–1.9 |
+    | no-op | change nothing | 0 / 100 | every forget family | 1.0–2.0 |
+
+    Because E and L are harmonic means over families, failing one family pulls the score to the floor instead of being averaged away. The gate (`RED_TEAM.md`) runs all six on every split before release; if any passes 35, the split is at fault and is fixed.
   - **Each method fails a different axis:** GA / GD / NPO erase 79–100 but keep locality 1–2; a trained refusal falsely refuses 37–55% of retain questions; ROME and MEMIT erase 3–9 on held-out phrasings on Llama and the fact returns under attack (R ≤ 1); SimNPO erases 64–78 at locality 39–51; relearning restores 73–81% of ZeroUnlearn's forgotten facts on the Llama models.
   - **Our own method is not the top row, and the table says why:** SURE keeps locality 94–96 and utility 100 on every model and erases 89–96 of the request prompts, but two families it is never routed on (`multihop` 94–96% residual, `indirect` 100%) hold its E at 7–22; route recall is 86–92%, and it scores 2.9 in the weights-only tier because its router and rows are runtime components.
 - **Pilot on real data** (laptop, no GPU; `results/pilot/README.md`): Qwen2.5-0.5B-Instruct, MCF + zsRE + MQuAKE facts, 50 requests, 520 probes.
