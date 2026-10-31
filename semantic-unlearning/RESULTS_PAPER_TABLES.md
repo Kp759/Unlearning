@@ -40,6 +40,34 @@ Changes against the earlier table (`RESULTS_L16_PAPER_FINAL.md`, Ours (L16) with
 routers): MCF Gen 0.086 → 0.027; ZsRE 0.30 / 1.44 → 0.17 / 1.24; MQuAKE Gen 7.20 → 1.49; RWKU Spe
 57.4 → 61.9; RWKU Gen 18.0 → 33.6 (routing, see above).
 
+## Table 3 (ablation). Where the classifier reads and where Δe is written
+
+`paper/table_ablation_layers.tex`. Llama-3.2-3B-Instruct, 5 seeds; same router recipe and row
+training in every row; PPL = 11.31 (Base) in every cell. Runs: `outputs/l16_ours_v1` (main),
+`outputs/onepass_l19_v1`, `outputs/onepass_l16_v1`.
+
+| Variant | read | write | MCF Eff / Gen / Spe | ZsRE Eff / Gen / Spe | MQuAKE Eff / Gen / Spe (Spe†) | RWKU Eff / Gen / Spe |
+|---|---|---|---|---|---|---|
+| Base | – | – | 13.46 / 10.26 / 19.88 | 32.37 / 31.20 / 29.79 | 73.23 / 46.44 / 66.13 (67.34) | 57.60 / 54.77 / 63.70 |
+| **Ours** (two passes) | 19 | 16 | 0.001 / 0.027 / 19.84 | **0.17 / 1.24** / 29.79 | **0.10 / 1.49** / 55.07 (65.98) | **2.00 / 33.61** / 61.89 |
+| one pass, read late | 19 | 19 | 0.001 / 0.027 / 19.84 | 0.41 / 1.48 / 29.79 | 0.53 / 1.83 / 55.53 (66.50) | 2.40 / 34.10 / 61.82 |
+| one pass, read early | 16 | 16 | 0.001 / **0.013** / 19.80 | **0.04** / 2.76 / 29.79 | 0.17 / 2.62 / 55.25 (66.18) | 2.40 / 34.81 / 62.18 |
+| Genie (19 / 16) | 19 | 16 | 0.001 / 0.001 / 19.88 | 0.17 / 0.17 / 29.79 | 0.10 / 0.10 / 56.21 (67.34) | 0.00 / 54.77 / 63.70 |
+| Genie (19 / 19) | 19 | 19 | 0.001 / 0.001 / 19.88 | 0.41 / 0.41 / 29.79 | 0.53 / 0.53 / 56.23 (67.34) | 0.40 / 54.77 / 63.70 |
+| Genie (16 / 16) | 16 | 16 | 0.001 / 0.001 / 19.88 | 0.04 / 0.04 / 29.79 | 0.17 / 0.17 / 56.21 (67.34) | 0.40 / 54.77 / 63.70 |
+| Genie (entity), write 16 | – | 16 | – | – | – | 0.00 / 21.04 / 63.70 |
+| Genie (entity), write 19 | – | 19 | – | – | – | 0.40 / 40.83 / 63.70 |
+
+Reading. The read layer sets what the router catches: a block-16 reader misses paraphrases (ZsRE
+Gen 2.76 vs 1.24 with a block-19 reader) while erasing the request prompt itself slightly better
+(ZsRE Eff 0.04). The write layer sets how far the rows generalise: written at block 16 they remove
+more of MQuAKE's atomic questions (Gen 1.49 vs 1.83) and, under entity-level routing, far more of a
+person's other facts (RWKU 21.0 vs 40.8). Genie rows isolate the rows from the router: the gap
+between a variant and its genie is routing, the gap between genies is the write layer. The two-pass
+variant costs one prompt-only forward truncated at block 19 per request, nothing per generated
+token. Representation recoverability (Table 2) is the same for the three variants (MCF 6.7–7.2,
+ZsRE 7.4, MQuAKE 5.8).
+
 ## Table 2 (supplementary). Representation recoverability
 
 Does the forgotten answer remain linearly readable from the residual stream? Motivated by Gao et al.
