@@ -26,6 +26,10 @@ export MODEL ONEPASS=1
 export LAYER_DECISION="outputs/layer_smoke_${MODEL}/decision.json"
 source scripts/paper_model_config.sh
 paper_model_check
+DEFAULT_R="$ROUTER_LAYER"; DEFAULT_W="$EARLY_WRITE_LAYER"
+# the config exported the DEFAULT layers; they must not reach the jobs (sbatch --export=ALL),
+# where a set ROUTER_LAYER / WRITE_LAYER would override the decision file
+unset ROUTER_LAYER WRITE_LAYER EARLY_WRITE_LAYER LENS_LAYER TAG MODEL_TAG
 MAX_W=4   # write candidates: at most {R, R-3, R-5, default}; extra array tasks exit at once
 
 GPU="ALL,MODEL=$MODEL,ONEPASS=1,DATASETS=$DATASETS,LAYER_DECISION=$LAYER_DECISION"
@@ -43,7 +47,7 @@ J6=$(sbatch --parsable --dependency=afterok:"$J5" --export="ALL,MODEL=$MODEL,ONE
        --array=0-19 paper_model_multiseed.slurm)
 J7=$(sbatch --parsable --dependency=afterok:"$J6" --export="$CPU,STAGE=table" layer_decide.slurm)
 cat <<EOF
-$MODEL automatic layer chain submitted ($DATASETS seed 1 for the smoke test; default router L$ROUTER_LAYER, write L$EARLY_WRITE_LAYER):
+$MODEL automatic layer chain submitted ($DATASETS seed 1 for the smoke test; default router L$DEFAULT_R, write L$DEFAULT_W):
   1 router sweep      $J1
   2 decide router     $J2   -> $LAYER_DECISION
   3 base              $J3

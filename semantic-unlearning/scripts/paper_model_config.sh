@@ -29,9 +29,11 @@ fi
 ZERO_HP="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/ZeroUnlearn/hparams/ZeroUnlearn"
 
 # LAYER_DECISION=outputs/layer_smoke_<MODEL>/decision.json (scripts/layer_decide.py): the layers
-# the smoke test chose, used when ROUTER_LAYER / WRITE_LAYER are not set in the environment.
+# the smoke test chose. Its router layer always wins; its write layer is used when WRITE_LAYER is
+# not set (the write-candidate tasks set WRITE_LAYER themselves).
 if [[ -n "${LAYER_DECISION:-}" && -f "$LAYER_DECISION" ]]; then
-  [[ -n "${ROUTER_LAYER:-}" ]] || ROUTER_LAYER="$(jq -r '.router_layer // empty' "$LAYER_DECISION")"
+  R_DECIDED="$(jq -r '.router_layer // empty' "$LAYER_DECISION")"
+  [[ -n "$R_DECIDED" ]] && ROUTER_LAYER="$R_DECIDED"
   [[ -n "${WRITE_LAYER:-}" ]] || WRITE_LAYER="$(jq -r '.write_layer // empty' "$LAYER_DECISION")"
 fi
 
