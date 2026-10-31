@@ -1,0 +1,1757 @@
+{
+  "dataset": "rwku",
+  "seed": 1,
+  "router_dir": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/rwku_multiseed_ours_v1/seed1/L19/router",
+  "model_path": "/mmfs1/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "router_layer": 19,
+  "layers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27
+  ],
+  "n_layers": 28,
+  "gate_mode": "threshold",
+  "subject_match": "fuzzy",
+  "router_recipe": "ours",
+  "threshold": 0.0,
+  "ambiguity_margin": 0.5,
+  "router_fit": {
+    "benchmark": "rwku",
+    "gate_mode": "threshold",
+    "example_source": "facts_canonical_prompts_plus_context_prefix_families + 354 rewrites (router_rewrites.json) (balanced to 20 positives per fact)",
+    "split_rule": "shipped",
+    "selected_l2": 0.0001,
+    "selected_pca_dim": 0,
+    "threshold_logit": 0.8984140157699585,
+    "decision_rule": "calibrated_bias",
+    "calibrated_cutoff_folded_into_bias": true,
+    "runtime_threshold_logit": 0.0,
+    "bias_shift": 0.8984140157699585,
+    "ambiguity_margin": 0.5,
+    "target_fpr": null,
+    "min_recall": 0.98,
+    "threshold_policy": "global",
+    "per_head_fraction": 0.1,
+    "per_head_slack": 0.5,
+    "per_head_shrink": 0.0,
+    "answer_groups": true,
+    "threshold_placement_fraction": 0.1,
+    "fit_info": {
+      "objective": 2.0117725389965404,
+      "max_abs_gradient": 9.452239050772575e-10,
+      "lbfgs_iterations": 328,
+      "lbfgs_function_evaluations": 440,
+      "converged": true,
+      "l2": 0.0001,
+      "pca_dim": 0,
+      "feature_dim": 3072,
+      "balance": true,
+      "heads": 50,
+      "eligible_pairs": 7520,
+      "positive_pairs": 565,
+      "training_errors_at_logit_zero": 22,
+      "linearly_separated_on_fit": false,
+      "heads_without_positive": [],
+      "heads_without_negative": [],
+      "router_parameters": 153650,
+      "fit_pairs_per_parameter": 0.04894240156199154,
+      "fit_device": "cuda:0"
+    },
+    "audit": {
+      "correct_route": {
+        "rate": 0.935064935064935,
+        "low": 0.8846025303151187,
+        "high": 0.9643498371216025,
+        "n": 154,
+        "k": 144
+      },
+      "wrong_row_on_positive": {
+        "rate": 0.012987012987012988,
+        "low": 0.003568687884314088,
+        "high": 0.04611149782084855,
+        "n": 154,
+        "k": 2
+      },
+      "abstain_on_positive": {
+        "rate": 0.05194805194805195,
+        "low": 0.026554613997815328,
+        "high": 0.09915115685093431,
+        "n": 154,
+        "k": 8
+      },
+      "false_activation_on_negative_control": {
+        "rate": 0.07228915662650602,
+        "low": 0.033549838417288064,
+        "high": 0.14886964717487056,
+        "n": 83,
+        "k": 6
+      },
+      "ambiguity_rejections": 1,
+      "correct_subject_row_on_positive": {
+        "rate": 0.948051948051948,
+        "low": 0.9008488431490657,
+        "high": 0.9734453860021847,
+        "n": 154,
+        "k": 146
+      }
+    },
+    "source_run_dir": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/rwku_multiseed_ours_v1/seed1/L19/prep",
+    "head_sharing": {
+      "mode": "fact"
+    },
+    "subject_match": "fuzzy",
+    "unmasked_fit": false,
+    "free_fire_logit": null,
+    "extra_negatives": 349
+  },
+  "facts": [
+    {
+      "id": "rwku_assoc_1_2a81f27a91bd",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_faf767d4ec42",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_1ea5cf6ea2b0",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_9977c51af210",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_2e91e3b7dd64",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_4b7de26f234b",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_b521d498040b",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_6d0692c765b1",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_cbe3b2a9964a",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_1_5e5b2677118f",
+      "subject": "Confucius",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_9fed29fdd12f",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_46c9ad1717ef",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_c91fe596ad8b",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_0f4be6889f08",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_fb4c05910b01",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_b497b9ac89a7",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_bd758e4bb739",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_941ce31d0520",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_f20dfb284183",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_2_0d9ea5215be8",
+      "subject": "Bruce Lee",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_f8c40e020082",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_f8b21edcba2a",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_ac07aa2905e7",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_49397220f2d3",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_20f04bb110db",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_22432421ae89",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_2635902a14bb",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_2119d9c8f9bc",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_4aa4cccafe9c",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_3_dc0428a3f41d",
+      "subject": "Warren Buffett",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_be03c3f68ac4",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_4f98770b1047",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_9c9b37be3e1f",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_a66111f78949",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_093cd7391f35",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_3f6a78a98e61",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_30a1e2af82c1",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_452ba1b5b3c5",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_31c7562c8060",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_4_da10d456f354",
+      "subject": "Christina Aguilera",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_7a1433677e3f",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_a71f4e99c18c",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_9e0f66187a93",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_abb68d217a42",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_0f1b6b19b009",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_f8166ba53ad3",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_fec5be236396",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_056ac616d49f",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_697c9566b1a7",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    },
+    {
+      "id": "rwku_assoc_5_655b0390bd57",
+      "subject": "Cindy Crawford",
+      "relation": "rwku_natural_query_context"
+    }
+  ],
+  "subject_patterns": [
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        15949,
+        1791,
+        9334
+      ],
+      [
+        15323,
+        1791,
+        9334
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        79579,
+        12336
+      ],
+      [
+        24785,
+        12336
+      ],
+      [
+        55088
+      ],
+      [
+        12336
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        29784,
+        1466,
+        86552
+      ],
+      [
+        26713,
+        86552
+      ],
+      [
+        35361,
+        7211
+      ],
+      [
+        86552
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        19875,
+        2259,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        60771,
+        4701,
+        58797,
+        2473
+      ],
+      [
+        32,
+        8890,
+        321,
+        2473
+      ],
+      [
+        4701,
+        58797,
+        2473
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ],
+    [
+      [
+        34,
+        50090,
+        54276
+      ],
+      [
+        70431,
+        54276
+      ],
+      [
+        34,
+        1059,
+        8350
+      ],
+      [
+        54276
+      ]
+    ]
+  ],
+  "notes": {
+    "train_source": "linear_router_dataset.json"
+  },
+  "git_commit": "265840bff4a8ca4cd1e470127ee00a8a138a4fb8",
+  "command": [
+    "scripts/cache_router_states.py",
+    "--dataset",
+    "rwku",
+    "--seed",
+    "1",
+    "--out-dir",
+    "outputs/router_diag_ours_v1/rwku/seed1",
+    "--router-recipe",
+    "ours",
+    "--router-dir",
+    "outputs/rwku_multiseed_ours_v1/seed1/L19/router",
+    "--device",
+    "cuda",
+    "--local-files-only",
+    "--ours-dir",
+    "outputs/onepass_l19_v1/rwku/seed1/ours"
+  ],
+  "sections": {
+    "train": {
+      "probes": 1182,
+      "dtype": "float32",
+      "seconds": 32.0,
+      "fired": 800,
+      "counts": {
+        "fit/canonical_0": {
+          "n": 57,
+          "should_fire": 50
+        },
+        "fit/aug_paraphrase_0": {
+          "n": 41,
+          "should_fire": 33
+        },
+        "fit/aug_paraphrase_1": {
+          "n": 39,
+          "should_fire": 32
+        },
+        "fit/aug_paraphrase_2": {
+          "n": 36,
+          "should_fire": 29
+        },
+        "fit/aug_paraphrase_4": {
+          "n": 24,
+          "should_fire": 20
+        },
+        "calibration/aug_paraphrase_5": {
+          "n": 23,
+          "should_fire": 15
+        },
+        "fit/aug_question": {
+          "n": 32,
+          "should_fire": 28
+        },
+        "fit/aug_question_1": {
+          "n": 28,
+          "should_fire": 23
+        },
+        "audit/aug_question_2": {
+          "n": 16,
+          "should_fire": 14
+        },
+        "fit/aug_translate_nl": {
+          "n": 7,
+          "should_fire": 6
+        },
+        "fit/context_prefix_0": {
+          "n": 55,
+          "should_fire": 50
+        },
+        "fit/context_prefix_1": {
+          "n": 57,
+          "should_fire": 50
+        },
+        "audit/context_prefix_2": {
+          "n": 62,
+          "should_fire": 50
+        },
+        "calibration/context_prefix_3": {
+          "n": 69,
+          "should_fire": 50
+        },
+        "fit/context_prefix_4": {
+          "n": 58,
+          "should_fire": 50
+        },
+        "fit/context_prefix_5": {
+          "n": 57,
+          "should_fire": 50
+        },
+        "fit/context_prefix_6": {
+          "n": 57,
+          "should_fire": 50
+        },
+        "audit/context_prefix_7": {
+          "n": 57,
+          "should_fire": 47
+        },
+        "audit/aug_paraphrase_2": {
+          "n": 2,
+          "should_fire": 2
+        },
+        "fit/aug_translate_pt": {
+          "n": 24,
+          "should_fire": 20
+        },
+        "audit/aug_translate_nl": {
+          "n": 28,
+          "should_fire": 21
+        },
+        "calibration/aug_question_3": {
+          "n": 7,
+          "should_fire": 5
+        },
+        "calibration/aug_paraphrase_3": {
+          "n": 2,
+          "should_fire": 2
+        },
+        "fit/aug_paraphrase_3": {
+          "n": 32,
+          "should_fire": 26
+        },
+        "audit/aug_paraphrase_4": {
+          "n": 11,
+          "should_fire": 9
+        },
+        "fit/aug_paraphrase_5": {
+          "n": 6,
+          "should_fire": 4
+        },
+        "fit/aug_paraphrase_7": {
+          "n": 4,
+          "should_fire": 3
+        },
+        "fit/aug_paraphrase_8": {
+          "n": 5,
+          "should_fire": 4
+        },
+        "audit/aug_paraphrase_9": {
+          "n": 3,
+          "should_fire": 3
+        },
+        "fit/aug_translate_it": {
+          "n": 24,
+          "should_fire": 21
+        },
+        "fit/aug_paraphrase_6": {
+          "n": 4,
+          "should_fire": 3
+        },
+        "fit/aug_paraphrase_9": {
+          "n": 2,
+          "should_fire": 2
+        },
+        "audit/aug_paraphrase_10": {
+          "n": 2,
+          "should_fire": 1
+        },
+        "audit/aug_question_4": {
+          "n": 5,
+          "should_fire": 5
+        },
+        "audit/aug_paraphrase_6": {
+          "n": 2,
+          "should_fire": 2
+        },
+        "fit/aug_question_2": {
+          "n": 5,
+          "should_fire": 4
+        },
+        "fit/aug_question_3": {
+          "n": 6,
+          "should_fire": 5
+        },
+        "fit/aug_question_4": {
+          "n": 1,
+          "should_fire": 1
+        },
+        "calibration/aug_question_5": {
+          "n": 2,
+          "should_fire": 2
+        },
+        "fit/aug_paraphrase_10": {
+          "n": 1,
+          "should_fire": 1
+        },
+        "calibration/aug_paraphrase_11": {
+          "n": 1,
+          "should_fire": 1
+        },
+        "calibration/aug_question_1": {
+          "n": 6,
+          "should_fire": 4
+        },
+        "calibration/aug_translate_pt": {
+          "n": 1,
+          "should_fire": 1
+        },
+        "calibration/aug_paraphrase_1": {
+          "n": 1,
+          "should_fire": 1
+        },
+        "calibration/aug_paraphrase_8": {
+          "n": 2,
+          "should_fire": 1
+        },
+        "fit/extra_negative_0": {
+          "n": 24,
+          "should_fire": 0
+        },
+        "calibration/extra_negative_1": {
+          "n": 27,
+          "should_fire": 0
+        },
+        "audit/extra_negative_2": {
+          "n": 22,
+          "should_fire": 0
+        },
+        "fit/extra_negative_3": {
+          "n": 27,
+          "should_fire": 0
+        },
+        "calibration/extra_negative_4": {
+          "n": 31,
+          "should_fire": 0
+        },
+        "audit/extra_negative_5": {
+          "n": 27,
+          "should_fire": 0
+        },
+        "fit/extra_negative_6": {
+          "n": 29,
+          "should_fire": 0
+        },
+        "calibration/extra_negative_7": {
+          "n": 31,
+          "should_fire": 0
+        }
+      }
+    },
+    "aug": {
+      "probes": 1623,
+      "dtype": "float32",
+      "seconds": 47.6,
+      "fired": 1032,
+      "counts": {
+        "fit/aug_adversarial_2": {
+          "n": 194,
+          "should_fire": 147
+        },
+        "fit/aug_context_typo": {
+          "n": 175,
+          "should_fire": 134
+        },
+        "fit/aug_prefix_3": {
+          "n": 183,
+          "should_fire": 132
+        },
+        "fit/aug_adversarial_0": {
+          "n": 176,
+          "should_fire": 138
+        },
+        "fit/aug_prefix_2": {
+          "n": 190,
+          "should_fire": 141
+        },
+        "fit/aug_prefix_1": {
+          "n": 191,
+          "should_fire": 142
+        },
+        "fit/aug_adversarial_1": {
+          "n": 182,
+          "should_fire": 138
+        },
+        "fit/aug_prefix_0": {
+          "n": 182,
+          "should_fire": 147
+        },
+        "fit/hardneg_same_relation": {
+          "n": 150,
+          "should_fire": 0
+        }
+      }
+    },
+    "eval": {
+      "probes": 645,
+      "dtype": "bfloat16",
+      "seconds": 4.6,
+      "fired": 111,
+      "counts": {
+        "forget/same50": {
+          "n": 50,
+          "should_fire": 50
+        },
+        "paraphrase/heldout_level1": {
+          "n": 43,
+          "should_fire": 43
+        },
+        "paraphrase/heldout_level2": {
+          "n": 50,
+          "should_fire": 50
+        },
+        "paraphrase/heldout_paraphrase": {
+          "n": 50,
+          "should_fire": 50
+        },
+        "paraphrase/adversarial_level3": {
+          "n": 173,
+          "should_fire": 173
+        },
+        "neighborhood/neighbors": {
+          "n": 279,
+          "should_fire": 0
+        }
+      }
+    },
+    "null": {
+      "probes": 264,
+      "dtype": "bfloat16",
+      "seconds": 1.8,
+      "fired": 3,
+      "counts": {
+        "null/null_generic": {
+          "n": 40,
+          "should_fire": 0
+        },
+        "null/null_unseen_subject": {
+          "n": 100,
+          "should_fire": 0
+        },
+        "null/null_protected_other_relation": {
+          "n": 25,
+          "should_fire": 25
+        },
+        "null/null_ppl_prefix": {
+          "n": 99,
+          "should_fire": 0
+        }
+      }
+    },
+    "perturbed": {
+      "probes": 867,
+      "dtype": "bfloat16",
+      "seconds": 6.0,
+      "fired": 268,
+      "counts": {
+        "forget/same50": {
+          "n": 150,
+          "should_fire": 150
+        },
+        "paraphrase/heldout_level1": {
+          "n": 129,
+          "should_fire": 129
+        },
+        "paraphrase/heldout_level2": {
+          "n": 150,
+          "should_fire": 150
+        },
+        "paraphrase/heldout_paraphrase": {
+          "n": 150,
+          "should_fire": 150
+        },
+        "paraphrase/adversarial_level3": {
+          "n": 288,
+          "should_fire": 288
+        }
+      }
+    }
+  },
+  "hook_parity": {
+    "batched": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "borderline_ties": 0,
+      "tolerance": 0.15,
+      "examples": []
+    },
+    "single": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "borderline_ties": 1,
+      "tolerance": 0.15,
+      "examples": [
+        {
+          "index": 227,
+          "hook": [],
+          "offline": [
+            19
+          ],
+          "borderline": true
+        }
+      ]
+    },
+    "perturbed_batched": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "borderline_ties": 1,
+      "tolerance": 0.15,
+      "examples": [
+        {
+          "index": 602,
+          "hook": [],
+          "offline": [
+            1
+          ],
+          "borderline": true
+        }
+      ]
+    },
+    "perturbed_single": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "borderline_ties": 3,
+      "tolerance": 0.15,
+      "examples": [
+        {
+          "index": 602,
+          "hook": [],
+          "offline": [
+            1
+          ],
+          "borderline": true
+        },
+        {
+          "index": 607,
+          "hook": [
+            7
+          ],
+          "offline": [],
+          "borderline": true
+        },
+        {
+          "index": 124,
+          "hook": [
+            41
+          ],
+          "offline": [],
+          "borderline": true
+        }
+      ]
+    }
+  },
+  "router_pass_timing_ms_per_prompt": {
+    "full_forward": 3.106409749989325,
+    "stop_after_L19": 1.937006476566694,
+    "stop_after_L26": 2.5825676797239794,
+    "fraction_of_full": {
+      "stop_after_L19": 0.6235515055840107,
+      "stop_after_L26": 0.8313673621880868
+    },
+    "blocks": 28,
+    "prompts_timed": 128
+  },
+  "null_generations": {
+    "fired_null_prompts": 0,
+    "rows": []
+  },
+  "seconds": 119.5
+}
