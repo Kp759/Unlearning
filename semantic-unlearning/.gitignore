@@ -9,3 +9,6 @@ data/zsre_mend_eval.json
 *.bin
 *.safetensors
 .ipynb_checkpoints/
+
+# leaderboard plots are generated, not tracked
+snorkel_proposal/results/cluster/**/pareto.png

@@ -72,7 +72,7 @@ The closest are RWKU (Jin et al., 2024), Leak-Resistant Unlearning (Qian et al.,
 6 months
 
 **Supporting materials** (optional on the form)
-`PROPOSAL.md` and `EVIDENCE.md` (exported to PDF); `results/cluster/leaderboard_dev/leaderboard.md` (all three models, 5 seeds; the per-model files and `pareto.png` are next to it under `results/cluster/<model>/dev/leaderboard/`). The cluster results are produced on Wulver; commit the leaderboard files to the repository before exporting.
+`PROPOSAL.md` and `EVIDENCE.md` (exported to PDF); `results/cluster/leaderboard_dev/leaderboard.md` (all three models, 5 seeds; the per-model files are under `results/cluster/<model>/dev/leaderboard/`). The cluster results are produced on Wulver; commit the leaderboard files to the repository before exporting.
 
 **Terms checkbox**
 The terms (benchmarks.snorkel.ai/terms) require, before ticking: (1) your institution's IP policy permits the project and its open release, and you hold any needed approvals; (2) outputs are released under a permissive licence (code Apache-2.0, dev splits CC BY 4.0, see `DATA_LICENSE.md`; zsRE redistribution terms must be confirmed first); (3) Snorkel's support is acknowledged in publications, and Snorkel researchers are credited as contributors or co-authors where standard authorship criteria apply; (4) Snorkel may name the team, institution, project summary and open-source output in program materials; (5) non-public information shared during the project stays confidential. Support is in-kind only (no cash).
