@@ -12,3 +12,4 @@ data/zsre_mend_eval.json
 
 # leaderboard plots are generated, not tracked
 snorkel_proposal/results/cluster/**/pareto.png
+snorkel_proposal/results/**/pareto.png
