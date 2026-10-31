@@ -22,12 +22,12 @@
 \newcommand{\base}{\theta_0}
 \DeclareMathOperator*{\argmax}{arg\,max}
 
-\icmltitlerunning{SURE: Detect-then-Edit Unlearning of Individual Facts}
+\icmltitlerunning{Read Late, Write Early}
 
 \begin{document}
 
 \twocolumn[
-\icmltitle{SURE: Read Late, Write Early \\ Detect-then-Edit Unlearning of Individual Facts in Language Models}
+\icmltitle{Read Late, Write Early: Where to Detect and Where to Erase a Fact}
 
 \icmlsetsymbol{equal}{*}
 \begin{icmlauthorlist}
@@ -158,10 +158,8 @@ Table~\ref{tab:main} shows the pattern the introduction describes. The gradient 
 \paragraph{Routing versus actuation.}
 Genie rows isolate the rows from the router. On MCF, zsRE and MQuAKE the request-prompt erasure of SURE and genie is identical (the router routes every request prompt), and the held-out gap is 0.03, 1.07 and 1.39 points: the rows erase the paraphrases they are routed to, and the leak is the paraphrases the router misses. On RWKU the picture inverts. The held-out probes ask \emph{other} facts about the forgotten person, which have no row of their own; the fact-level router, trained against same-person competitor facts as negatives, correctly declines to fire on them, so SURE keeps 33.6 recall there while the entity-level genie, which routes every probe about the person to the person's row, reaches 21.0. The remaining 21 points are the actuator's limit at this write block, not the router's. RWKU is an entity-level benchmark, and an entity-level routing policy (fire on any probe that names the person) is the matching configuration; we report it in Appendix~\ref{app:rwku}.\todo{entity-gate run}
 
-\input{table_ablation_layers}
-
 \paragraph{Where to read, where to write.}
-Table~\ref{tab:ablation_layers} moves the two blocks with everything else fixed. Reading at block 16 instead of 19 erases the request itself slightly better (zsRE Eff 0.04 against 0.17) but misses paraphrases (zsRE Gen 2.76 against 1.24): a classifier that reads an earlier block sees less of the question's meaning. Writing at block 19 instead of 16, with the same block-19 reader, leaves more of MQuAKE's atomic questions (Gen 1.83 against 1.49) and, under entity-level routing on RWKU, far more of a person's other facts (40.8 against 21.0): a vector written late changes the output for the prompt it was trained on, while a vector written early changes what later blocks can read for every phrasing of the fact. The genie rows show the same ordering, so the write-block effect is in the rows, not the router. The price of reading late and writing early is one prompt-only forward truncated at block 19 per request.
+Table~\ref{tab:ablation_layers} (Appendix~\ref{app:ablation}) moves the two blocks with everything else fixed, on all four benchmarks and five seeds. Reading at block 16 instead of 19 erases the request itself slightly better (zsRE Eff 0.04 against 0.17) but misses paraphrases (zsRE Gen 2.76 against 1.24): a classifier that reads an earlier block sees less of the question's meaning. Writing at block 19 instead of 16, with the same block-19 reader, leaves more of MQuAKE's atomic questions (Gen 1.83 against 1.49) and, under entity-level routing on RWKU, far more of a person's other facts (40.8 against 21.0): a vector written late changes the output for the prompt it was trained on, while a vector written early changes what later blocks can read for every phrasing of the fact. The genie rows show the same ordering, so the write-block effect is in the rows, not the router. The price of reading late and writing early is one prompt-only forward truncated at block 19 per request.
 
 \subsection{Representation-level recoverability}
 \label{sec:repr}
@@ -203,6 +201,11 @@ Separating detection from actuation turns fact-level unlearning into two measura
 
 \appendix
 \onecolumn
+\section{Layer ablation}
+\label{app:ablation}
+Table~\ref{tab:ablation_layers} compares the main configuration (read at block 19, write at block 16, two passes) with the two one-pass variants (read and write both at 19, or both at 16) on MCF, zsRE, MQuAKE and RWKU, five seeds each, with the genie of every variant. Same router recipe and row training throughout; PPL equals the base model's 11.31 in every cell.
+\input{table_ablation_layers}
+
 \section{Other models}
 \label{app:models}
 Results for Qwen3-4B and Llama-3.1-8B-Instruct, with the router block and write block chosen per model by the classifier-quality sweep (best F1 over blocks, earliest block within 0.005 of it with no worse false-positive rate) and the write sweep on MCF seed 1. \todo{insert outputs/paper\_qwen3\_4b\_*/paper\_table.tex and outputs/paper\_llama31\_8b\_*/paper\_table.tex}
