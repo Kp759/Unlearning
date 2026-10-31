@@ -44,7 +44,29 @@ python scripts/l16_paper_table.py --root outputs/paper_qwen3_4b_v1
 ## Choosing the layers (smoke test on MCF seed 1, before the full run)
 
 The paper's configuration on the 3B model is the router at block 19 and Δe written at block 16
-(`outputs/l16_ours_v1`). On another model both blocks are measured, not assumed:
+(`outputs/l16_ours_v1`). On another model both blocks are measured, not assumed.
+
+**One command, no interaction** (`scripts/submit_layer_auto.sh`): the smoke test, the two choices
+and the full run as one dependency chain. Each step waits for the previous one to finish OK.
+
+```bash
+bash scripts/submit_layer_auto.sh qwen3_4b
+bash scripts/submit_layer_auto.sh llama31_8b
+python scripts/layer_decide.py qwen3_4b show        # the choices and the numbers behind them
+```
+
+| step | job | what |
+|---|---|---|
+| 1 | `layer_smoke.slurm` STAGE=router (GPU) | ours-recipe router at the default block; cache every block's last-token state; refit the classifier at every block |
+| 2 | `layer_decide.slurm` STAGE=router (CPU) | **router layer R** = best F1 over blocks; among blocks within 0.005 F1 of it whose FPR and null FPR are at most 0.005 above the best block's, the earliest. Writes `decision.json` with the write candidates {R, R−3, R−5, default W} |
+| 3 | `layer_smoke.slurm` STAGE=base (GPU) | router at R (fit if missing) + base eval |
+| 4 | `layer_smoke.slurm` STAGE=write (GPU, one task per candidate) | rows at each W under the R router; official eval of ours and genie |
+| 5 | `layer_decide.slurm` STAGE=write (CPU) | **write layer W**: candidates that keep locality (Spe ≥ base − max(1, 5%)) and perplexity (PPL ≤ base + 0.1); among them the lowest Gen, then Eff, then nearest the default. No candidate keeps locality → lowest Gen with a warning in `decision.json` |
+| 6 | `paper_model_multiseed.slurm` (GPU, 20 tasks) | base, ours, genie on MCF, ZsRE, MQuAKE, RWKU × seeds 1–5 with the chosen R, W → `outputs/paper_<MODEL>_r<R>_w<W>_ours_v1` |
+| 7 | `layer_decide.slurm` STAGE=table (CPU) | `paper_table.{md,tex,json}` |
+
+`DATASETS="mcf zsre"` makes the smoke test use both (the choices then average over datasets).
+The manual, step-by-step version of the same procedure:
 
 ```bash
 # 1. router layer: fit the ours-recipe router at the default block, cache the last-token state of

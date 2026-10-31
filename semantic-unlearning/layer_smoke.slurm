@@ -59,7 +59,11 @@ case "$STAGE" in
   router|base)
     DS="${DS_LIST[$TASK]:-}"; [[ -n "$DS" ]] || { echo "task $TASK out of range" >&2; exit 2; } ;;
   write)
-    IFS=, read -r -a W_LIST <<< "${WRITE_LAYERS:?WRITE_LAYERS=w1,w2,...}"
+    if [[ -z "${WRITE_LAYERS:-}" && -n "${LAYER_DECISION:-}" ]]; then   # the automatic chain
+      WRITE_LAYERS="$(jq -r '.write_candidates | map(tostring) | join(",")' "$LAYER_DECISION")"
+    fi
+    IFS=, read -r -a W_LIST <<< "${WRITE_LAYERS:?WRITE_LAYERS=w1,w2,... (or LAYER_DECISION)}"
+    (( TASK < ${#W_LIST[@]} * ${#DS_LIST[@]} )) || { echo "task $TASK beyond the ${#W_LIST[@]} candidates: nothing to do"; exit 0; }
     DS="${DS_LIST[$(( TASK / ${#W_LIST[@]} ))]:-}"; W="${W_LIST[$(( TASK % ${#W_LIST[@]} ))]:-}"
     [[ -n "$DS" && -n "$W" ]] || { echo "task $TASK out of range" >&2; exit 2; }
     export WRITE_LAYER="$W" ;;

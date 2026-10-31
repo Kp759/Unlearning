@@ -28,6 +28,13 @@ if [[ -z "${HF_CACHE:-}" ]]; then   # /project if it exists (not purged), else t
 fi
 ZERO_HP="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/ZeroUnlearn/hparams/ZeroUnlearn"
 
+# LAYER_DECISION=outputs/layer_smoke_<MODEL>/decision.json (scripts/layer_decide.py): the layers
+# the smoke test chose, used when ROUTER_LAYER / WRITE_LAYER are not set in the environment.
+if [[ -n "${LAYER_DECISION:-}" && -f "$LAYER_DECISION" ]]; then
+  [[ -n "${ROUTER_LAYER:-}" ]] || ROUTER_LAYER="$(jq -r '.router_layer // empty' "$LAYER_DECISION")"
+  [[ -n "${WRITE_LAYER:-}" ]] || WRITE_LAYER="$(jq -r '.write_layer // empty' "$LAYER_DECISION")"
+fi
+
 case "${MODEL:-}" in
   llama31_8b)
     HF_ID=meta-llama/Llama-3.1-8B-Instruct
