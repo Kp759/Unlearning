@@ -1,7 +1,6 @@
 %% SURE: detect-then-edit unlearning of individual facts. ICML format.
-%% Overleaf: add icml2026.sty, icml2026.bst (or the year's template) next to this file.
-%% Tables: table1_unlearning.tex and table_ablation_layers.tex are the committed result tables
-%% (RESULTS_PAPER_TABLES.md has the markdown and the source directories).
+%% Overleaf: icml2026.sty, icml2026.bst and the helper .sty files are in this directory.
+%% Main result and layer-ablation tables are inlined below (sources: RESULTS_PAPER_TABLES.md).
 \documentclass{article}
 \usepackage{microtype}
 \usepackage{graphicx}
@@ -43,7 +42,7 @@
 \printAffiliationsAndNotice{}
 
 \begin{abstract}
-Removing one fact from a language model while leaving everything else untouched is the operation behind deletion requests, retractions and hazardous-knowledge removal. Gradient-based unlearning erases the fact but damages its neighbours; locate-and-edit methods keep the neighbours but leave the fact recoverable from held-out phrasings. We present SURE, a detect-then-edit method that keeps the pretrained weights frozen and adds one trainable residual vector per fact. A per-fact linear classifier reads the residual stream at a late block and decides whether a request concerns a protected fact; if it does, the fact's vector is added at an earlier block, where the edit generalises across phrasings. Requests the classifier abstains on run through the unchanged model. On MultiCounterFact, zsRE, MQuAKE and RWKU with Llama-3.2-3B-Instruct over five seeds, SURE removes 96--100\% of the base model's recall of the forgotten facts on the request prompt and, on MCF, zsRE and MQuAKE, 96--100\% on their held-out paraphrases, keeps 83--100\% of locality, and leaves perplexity unchanged, with 153{,}600 trainable parameters. A perfect-routing oracle separates every residual leak into a routing miss or an actuation failure, and a layer ablation shows that reading late and writing early are different decisions with different effects. We also measure what a linear readout of the residual stream still recovers: SURE removes the answer from the model's own vocabulary readout at every block above the write, but a probe trained on retained facts still classifies the hidden state by the forgotten answer at close to base accuracy. We report this as a limit of behavioural unlearning rather than hide it.
+Removing one fact from a language model while leaving everything else untouched is the operation behind deletion requests, retractions and hazardous-knowledge removal. Gradient-based unlearning erases the fact but damages its neighbours; locate-and-edit methods keep the neighbours but leave the fact recoverable from held-out phrasings. We present SURE (Subject-gated Unlearning with Routed Edits), a detect-then-edit method that keeps the pretrained weights frozen and adds one trainable residual vector per fact. A per-fact linear classifier reads the residual stream at a late block and decides whether a request concerns a protected fact; if it does, the fact's vector is added at an earlier block, where the edit generalises across phrasings. Requests the classifier abstains on run through the unchanged model. On MultiCounterFact, zsRE, MQuAKE and RWKU with Llama-3.2-3B-Instruct over five seeds, SURE removes 96--100\% of the base model's recall of the forgotten facts on the request prompt and, on MCF, zsRE and MQuAKE, 96--100\% on their held-out paraphrases, keeps 83--100\% of locality, and leaves perplexity unchanged, with 153{,}600 trainable parameters. A perfect-routing oracle separates every residual leak into a routing miss or a write failure, and a layer ablation shows that reading late and writing early are different decisions with different effects. We also measure what a linear readout of the residual stream still recovers: SURE removes the answer from the model's own vocabulary readout at every block above the write, but a probe trained on retained facts still classifies the hidden state by the forgotten answer at close to base accuracy. We report this as a limit of behavioural unlearning rather than hide it.
 \end{abstract}
 
 \section{Introduction}
@@ -53,10 +52,10 @@ A language model is asked to forget that Danielle Darrieux's mother tongue is Fr
 
 Two families of methods address it, and each fails one half of the requirement. Gradient-based unlearning \citep{jang2023knowledgeunlearning,zhang2024npo,fan2024simnpo,li2024wmdp} trains the weights against the fact; on MultiCounterFact it erases over 99\% of recall but keeps 2\% of the base model's neighbourhood accuracy and nearly triples perplexity (Table~\ref{tab:main}), because nothing in the objective says which neighbouring facts to spare. Locate-and-edit methods \citep{meng2022rome,meng2023memit,lin2026zerounlearn} keep locality but erase the fact only in the phrasing they were given: ROME and MEMIT leave 4--40\% of held-out recall and ZeroUnlearn 2--27\%.
 
-SURE separates the two halves of the problem into two components that can be measured separately. A \emph{router}, one logistic head per protected fact behind a subject gate, reads the residual stream at the last prompt token of a late block and decides whether the request concerns a protected fact. An \emph{actuator}, one residual vector per fact, is added at an earlier block when the router fires. Everything the router abstains on runs through the unchanged base model, so locality off the routed set is exact by construction (Proposition~\ref{prop:locality}), and every residual leak decomposes into a routing miss or an actuation failure (Proposition~\ref{prop:decomp}), which a perfect-routing oracle (``genie'') measures directly.
+SURE (Subject-gated Unlearning with Routed Edits) separates the two halves of the problem into two components that can be measured separately. A \emph{router}, one logistic head per protected fact behind a subject gate, reads the residual stream at the last prompt token of a late block and decides whether the request concerns a protected fact. If the router fires, the corresponding \emph{residual edit vector} is added at an earlier block. Everything the router abstains on runs through the unchanged base model, so locality off the routed set is exact by construction (Proposition~\ref{prop:locality}), and every residual leak decomposes into a routing miss or a write failure (Proposition~\ref{prop:decomp}), which a perfect-routing oracle (``genie'') measures directly.
 
 \paragraph{Contributions.}
-(i) A detect-then-edit method with 153{,}600 trainable parameters for 50 facts that erases 96--100\% of request-prompt recall on MCF, zsRE, MQuAKE and RWKU and 96--100\% of paraphrase recall on the first three, at 83--100\% locality and unchanged perplexity (Llama-3.2-3B-Instruct, 5 seeds). (ii) A perfect-routing decomposition that attributes every leak to the router or the actuator, and a layer ablation showing that the block the classifier reads and the block the vector is written at are separate choices: reading late catches paraphrases, writing early makes the edit generalise. (iii) A representation-level evaluation, following \citet{gao2026illusion}, with three linear readouts of the residual stream; it shows what the edit removes and what it does not.
+(i) A detect-then-edit method with 153{,}600 trainable parameters for 50 facts that erases 96--100\% of request-prompt recall on MCF, zsRE, MQuAKE and RWKU and 96--100\% of paraphrase recall on the first three, at 83--100\% locality and unchanged perplexity (Llama-3.2-3B-Instruct, 5 seeds). (ii) A perfect-routing decomposition that attributes every leak to either routing or the residual edit itself, and a layer ablation showing that the block the classifier reads and the block the vector is written at are separate choices: reading late catches paraphrases, writing early makes the edit generalise.
 
 \section{Related Work}
 \label{sec:related}
@@ -94,7 +93,7 @@ The router is $N$ independent logistic heads $z_i(x)=w_i^\top q(x)+b_i$ behind a
 
 Each head is trained with 20 positives and 20 negatives, all derived from the fact's own prompt without the evaluation data. Positives are the direct prompt, base-model rewrites of it (paraphrases, questions, translations into languages the benchmarks do not use), each kept only if it names the subject, never contains the answer, and the base model answers it with the fact's answer, plus up to eight copies with content-free context prefixes. Negatives are other protected facts about the same subject, model-written hard negatives about the subject that ask for something else, and the subject transplanted into other facts' prompts, each dropped if the base model's answer to it collides with the fact's answer. The heads are fitted by class-balanced binary cross-entropy with $\ell_2$ regularisation chosen by grouped cross-validation over prompt families, and the bias of each head is then recalibrated on a held-out third of the rewrites to the lowest cutoff that routes 98\% of them with the fewest false activations. Masking the loss to subject-eligible prompts means that a head is trained only on the prompts it will ever score.
 
-\subsection{The actuator}
+\subsection{Residual edit vectors}
 \label{sec:rows}
 The rows are trained after the router, under the router's own routing (a fact the router never routes during training is trained with its row forced on, so that no row stays at zero). Training alternates five rounds of feedback and optimisation. In a feedback round the current system greedily continues each training view (the direct prompt, its rewrites and, for zsRE, MQuAKE and RWKU, the teacher-forced gold prefixes); the continuations join a replay buffer. The rows are then updated for 150 steps of Adam (learning rate $0.01$, batch 8) on
 \begin{equation}
@@ -150,69 +149,91 @@ All baselines see the same training-visible forget views as SURE and are scored 
 \section{Results}
 \label{sec:results}
 
-\input{table1_unlearning}
+% Table 1: unlearning on Llama-3.2-3B-Instruct, mean over 5 seeds.
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabular}{l cccc cccc cccc cccc}
+\toprule
+& \multicolumn{4}{c}{MCF} & \multicolumn{4}{c}{ZsRE} & \multicolumn{4}{c}{MQuAKE} & \multicolumn{4}{c}{RWKU} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(lr){10-13}\cmidrule(lr){14-17}
+Method & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL \\
+\midrule
+Base        & 13.46 & 10.26 & 19.88 & 11.31 & 32.37 & 31.20 & 29.79 & 11.31 & 73.23 & 46.44 & 66.13 & 11.31 & 57.60 & 54.77 & 63.70 & 11.31 \\
+\midrule
+GA          & 0.025 & 0.277 & 0.36 & 30.82 & 19.38 & 19.07 & 26.24 & 12.67 & 7.98 & 10.80 & 12.68 & 16.12 & 23.20 & 30.55 & 39.57 & 11.69 \\
+GD          & 0.032 & 0.321 & 0.48 & 31.00 & 19.52 & 19.40 & 26.36 & 12.91 & 9.30 & 11.92 & 14.18 & 16.48 & 23.60 & 30.46 & 39.72 & 11.80 \\
+NPO         & 0.026 & 0.160 & 0.12 & 29.02 & 17.55 & 17.52 & 25.40 & 12.72 & 4.65 & 7.78 & 8.39 & 16.58 & 18.80 & 24.08 & 30.22 & 14.00 \\
+RMU         & \underline{0.008} & \underline{0.039} & 1.00 & 11.50 & \textbf{0.00} & \textbf{0.05} & 7.55 & 11.49 & \underline{0.30} & \underline{6.89} & 0.67 & 11.48 & \textbf{0.80} & \textbf{0.27} & 0.14 & 11.43 \\
+ROME        & 4.749 & 5.636 & 18.36 & 11.46 & 33.46 & 31.94 & \textbf{29.90} & 11.42 & 10.23 & 15.90 & 32.35 & 11.97 & 2.40 & \underline{4.32} & 30.74 & 11.36 \\
+MEMIT       & 9.563 & 8.546 & \underline{19.76} & \underline{11.38} & 32.94 & 31.11 & \underline{29.80} & \underline{11.36} & 31.36 & 26.24 & \underline{55.05} & 11.47 & 36.80 & 39.78 & \underline{59.96} & \underline{11.35} \\
+ZeroUnlearn & 0.270 & 2.313 & 15.84 & 11.55 & 27.81 & 27.37 & 29.23 & 11.54 & 18.93 & 22.76 & 49.79 & \underline{11.45} & 18.80 & 22.53 & 49.49 & 11.45 \\
+\textbf{Ours} & \textbf{0.001} & \textbf{0.027} & \textbf{19.84} & \textbf{11.31} & \underline{0.17} & \underline{1.24} & 29.79 & \textbf{11.31} & \textbf{0.10} & \textbf{1.49} & \textbf{55.07} & \textbf{11.31} & \underline{2.00} & 33.61 & \textbf{61.89} & \textbf{11.31} \\
+\midrule
+Genie       & 0.001 & 0.001 & 19.88 & 11.31 & 0.17 & 0.17 & 29.79 & 11.31 & 0.10 & 0.10 & 56.21 & 11.31 & 0.00 & 54.77 & 63.70 & 11.31 \\
+\bottomrule
+\end{tabular}
+\caption{Unlearning results on Llama-3.2-3B-Instruct (mean over 5 seeds). Eff, Gen $\downarrow$ (forgetting); Spe $\uparrow$ (locality); PPL should stay at Base (11.31). Bold: best trained method; underline: second-best trained method (Base and Genie excluded; PPL: closest to Base). Ours: per-fact router at layer 19, $\Delta e$ written at layer 16. Genie: the same rows under perfect routing (every official forget prompt to its own row). On MQuAKE, Spe over retain facts that do not repeat a forget fact is 67.3 (Base) and 66.0 (Ours).}
+\label{tab:main}
+\end{table*}
 
 \paragraph{Main comparison.}
 Table~\ref{tab:main} shows the pattern the introduction describes. The gradient methods erase the request prompt and its paraphrases (MCF Gen $\le 0.32$, MQuAKE Gen 8--12) but destroy the neighbourhood (MCF Spe 0.1--0.5 against 19.9 for base, zsRE 25--26 against 29.8) and raise perplexity (MCF PPL 29--31 against 11.3). RMU keeps perplexity but collapses locality on three benchmarks. ROME, MEMIT and ZeroUnlearn keep locality and perplexity but erase incompletely on held-out phrasings: MEMIT leaves 8.5 of 10.3 MCF paraphrase recall and 26 of 46 MQuAKE atomic-question recall. SURE is the only row that is best or tied on erasure and locality at once on MCF and MQuAKE, keeps zsRE locality exactly, and keeps PPL at base on every benchmark, which Proposition~\ref{prop:locality} predicts for a method whose retain requests mostly take the inactive path.
 
-\paragraph{Routing versus actuation.}
-Genie rows isolate the rows from the router. On MCF, zsRE and MQuAKE the request-prompt erasure of SURE and genie is identical (the router routes every request prompt), and the held-out gap is 0.03, 1.07 and 1.39 points: the rows erase the paraphrases they are routed to, and the leak is the paraphrases the router misses. On RWKU the picture inverts. The held-out probes ask \emph{other} facts about the forgotten person, which have no row of their own; the fact-level router, trained against same-person competitor facts as negatives, correctly declines to fire on them, so SURE keeps 33.6 recall there while the entity-level genie, which routes every probe about the person to the person's row, reaches 21.0. The remaining 21 points are the actuator's limit at this write block, not the router's. RWKU is an entity-level benchmark, and an entity-level routing policy (fire on any probe that names the person) is the matching configuration; we report it in Appendix~\ref{app:rwku}.\todo{entity-gate run}
+\paragraph{Routing versus residual editing.}
+Genie isolates the residual rows from the learned router. On MCF, zsRE and MQuAKE the request-prompt erasure of SURE and Genie is identical because the router already routes every request prompt; the held-out gap therefore measures routing misses on paraphrases. RWKU differs because its held-out probes ask other facts about the forgotten person rather than the specific trained association, so many such probes have no dedicated row.
+
+% Table 2: read/write layer ablation, Llama-3.2-3B-Instruct, mean over 5 seeds.
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3.4pt}
+\begin{tabular}{l c c ccc ccc ccc ccc}
+\toprule
+& & & \multicolumn{3}{c}{MCF} & \multicolumn{3}{c}{ZsRE} & \multicolumn{3}{c}{MQuAKE} & \multicolumn{3}{c}{RWKU} \\
+\cmidrule(lr){4-6}\cmidrule(lr){7-9}\cmidrule(lr){10-12}\cmidrule(lr){13-15}
+Variant & read & write & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ \\
+\midrule
+Base & -- & -- & 13.46 & 10.26 & 19.88 & 32.37 & 31.20 & 29.79 & 73.23 & 46.44 & 66.13 & 57.60 & 54.77 & 63.70 \\
+Ours (two passes) & 19 & 16 & 0.001 & 0.027 & 19.84 & 0.17 & 1.24 & 29.79 & 0.10 & 1.49 & 55.07 & 2.00 & 33.61 & 61.89 \\
+one pass, read late & 19 & 19 & 0.001 & 0.027 & 19.84 & 0.41 & 1.48 & 29.79 & 0.53 & 1.83 & 55.53 & 2.40 & 34.10 & 61.82 \\
+one pass, read early & 16 & 16 & 0.001 & 0.013 & 19.80 & 0.04 & 2.76 & 29.79 & 0.17 & 2.62 & 55.25 & 2.40 & 34.81 & 62.18 \\
+\bottomrule
+\end{tabular}
+\caption{Where to read and where to write (Llama-3.2-3B-Instruct, mean over 5 seeds). Reading at block 19 improves held-out generalisation on zsRE relative to reading at block 16 (Gen 1.24 vs 2.76). With the same block-19 reader, writing at block 16 improves MQuAKE generalisation relative to writing at block 19 (Gen 1.49 vs 1.83). The two-pass variant costs one prompt-only forward truncated at block 19 per request and nothing per generated token.}
+\label{tab:ablation_layers}
+\end{table*}
 
 \paragraph{Where to read, where to write.}
-Table~\ref{tab:ablation_layers} (Appendix~\ref{app:ablation}) moves the two blocks with everything else fixed, on all four benchmarks and five seeds. Reading at block 16 instead of 19 erases the request itself slightly better (zsRE Eff 0.04 against 0.17) but misses paraphrases (zsRE Gen 2.76 against 1.24): a classifier that reads an earlier block sees less of the question's meaning. Writing at block 19 instead of 16, with the same block-19 reader, leaves more of MQuAKE's atomic questions (Gen 1.83 against 1.49) and, under entity-level routing on RWKU, far more of a person's other facts (40.8 against 21.0): a vector written late changes the output for the prompt it was trained on, while a vector written early changes what later blocks can read for every phrasing of the fact. The genie rows show the same ordering, so the write-block effect is in the rows, not the router. The price of reading late and writing early is one prompt-only forward truncated at block 19 per request.
+Table~\ref{tab:ablation_layers} moves the read and write blocks while keeping the rest of the method fixed. Reading at block 16 instead of 19 slightly improves the direct zsRE prompt (Eff 0.04 vs 0.17) but hurts held-out paraphrases (Gen 2.76 vs 1.24), suggesting that the later representation is more useful for routing semantically varied requests. With the same block-19 reader, writing at block 16 improves held-out MQuAKE generalisation relative to writing at block 19 (Gen 1.49 vs 1.83). Thus the read layer and write layer serve different roles: read late for detection, write earlier for a more general edit. The two-pass variant costs one prompt-only forward truncated at block 19 per request.
 
 \subsection{Representation-level recoverability}
 \label{sec:repr}
 
 \citet{gao2026illusion} argue that output metrics can be satisfied by misaligning the classifier from features that still encode the forgotten class. We test the analogue for a language model. For every official forget prompt we record the residual stream at the last prompt position after every block of the unlearned system, exactly as the evaluators run it, and decode the forgotten answer's first token with three linear readouts: the \emph{logit lens} (the model's own final norm and unembedding; \citealp{nostalgebraist2020logitlens,patil2024deleted}); a \emph{tuned lens} \citep{belrose2023tunedlens}, an affine map from the block's state to the final block fitted by ridge regression on the split's retain-side prompts, which sees no forget prompt; and a supervised \emph{answer probe}, a multinomial logistic regression from the state to the forget answers trained only on retain prompts that share those answers but name none of the forget subjects (MCF neighbourhood prompts supply these by construction). Each readout reports its worst block.
 
-\begin{table}[t]
-\centering
-\small
-\caption{Representation recoverability on Llama-3.2-3B-Instruct (5 seeds): the worst block's rate (\%) at which a linear readout of the residual stream recovers the forgotten answer's first token on the official forget prompts (lower is better). The probe needs retain prompts that share the forget answers; zsRE has too few.}
-\label{tab:repr}
-\begin{tabular}{llccc}
-\toprule
-Readout & & MCF & zsRE & MQuAKE \\
-\midrule
-\multirow{2}{*}{logit lens} & Base & 27.5 & 11.6 & 55.5 \\
- & SURE & 4.0 & 1.0 & 6.7 \\
-\midrule
-\multirow{2}{*}{tuned lens} & Base & 20.0 & 7.8 & 42.4 \\
- & SURE & 7.2 & 7.4 & 5.8 \\
-\midrule
-\multirow{2}{*}{answer probe} & Base & 80.2 & -- & 93.9 \\
- & SURE & 71.1 & -- & 80.6 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Table~\ref{tab:repr} and the per-block curves give a two-part answer. Through the vocabulary, the answer is gone: from the write block upward both lenses read 0.0 on the forget prompts while reading the base rate on control prompts, and SURE's worst block for both lenses is the block just below the write, where by Proposition~\ref{prop:readout} the state is the base model's. The answer probe tells the other part. Trained on other subjects, it still classifies 71\% of MCF forget prompts and 81\% of MQuAKE forget prompts by the forgotten answer at blocks above the write, against 80\% and 94\% for the base model and 89\% on control prompts. The residual vector moves the state off the answer's unembedding direction, not out of the region a probe assigns to that answer. This is the language-model form of the effect \citet{gao2026illusion} describe, and it holds for the behavioural threat model SURE addresses: an adversary with white-box access to hidden states and a labelled set of retained facts can read the forgotten fact back. Whether weight-editing baselines fare better under the same probe is an open measurement.\todo{baseline recoverability run}
+The per-block analysis gives a two-part answer. Through the vocabulary, the answer is gone: from the write block upward both lenses read 0.0 on the forget prompts while reading the base rate on control prompts, and SURE's worst block for both lenses is the block just below the write, where by Proposition~\ref{prop:readout} the state is the base model's. The answer probe tells the other part. Trained on other subjects, it still classifies 71\% of MCF forget prompts and 81\% of MQuAKE forget prompts by the forgotten answer at blocks above the write, against 80\% and 94\% for the base model and 89\% on control prompts. The residual vector moves the state off the answer's unembedding direction, not out of the region a probe assigns to that answer. This is the language-model form of the effect \citet{gao2026illusion} describe, and it holds for the behavioural threat model SURE addresses: an adversary with white-box access to hidden states and a labelled set of retained facts can read the forgotten fact back. Whether weight-editing baselines fare better under the same probe is an open measurement.\todo{baseline recoverability run}
 
 \section{Limitations}
 \label{sec:limits}
 SURE is behavioural unlearning with runtime components: removing the router restores the base model, so it does not satisfy a weights-only threat model, and the probe result above shows that the fact remains linearly decodable from the hidden state. The subject gate bounds its scope: a request that never names the subject (a description, a pronoun across turns, a multi-hop chain) cannot be routed and is answered by the base model. Rows are per fact, so entity-level forgetting needs an entity-level routing policy. The method is evaluated at 50 facts per split; the cost of rewrites and row training grows linearly in the number of facts.
 
 \section{Conclusion}
-Separating detection from actuation turns fact-level unlearning into two measurable parts. A late-block classifier decides, an early-block vector acts, and the unrouted path is the base model. On four benchmarks the combination erases a fact on its request and on held-out phrasings at base-model locality and perplexity, and the oracle and layer ablations say which component is responsible for what remains. The representation-level test says plainly what behavioural unlearning does not do.
+Separating routing from residual editing turns fact-level unlearning into two measurable parts. A late-block classifier decides whether to intervene, an earlier residual vector applies the edit, and the unrouted path is the base model. On four benchmarks the combination erases a fact on its request and on held-out phrasings while preserving base-model locality and perplexity; the perfect-routing comparison and layer ablation identify whether remaining failures come from routing or from the edit itself.
 
 \bibliography{references}
 \bibliographystyle{icml2026}
 
 \appendix
 \onecolumn
-\section{Layer ablation}
-\label{app:ablation}
-Table~\ref{tab:ablation_layers} compares the main configuration (read at block 19, write at block 16, two passes) with the two one-pass variants (read and write both at 19, or both at 16) on MCF, zsRE, MQuAKE and RWKU, five seeds each, with the genie of every variant. Same router recipe and row training throughout; PPL equals the base model's 11.31 in every cell.
-\input{table_ablation_layers}
-
 \section{Other models}
 \label{app:models}
 Results for Qwen3-4B and Llama-3.1-8B-Instruct, with the router block and write block chosen per model by the classifier-quality sweep (best F1 over blocks, earliest block within 0.005 of it with no worse false-positive rate) and the write sweep on MCF seed 1. \todo{insert outputs/paper\_qwen3\_4b\_*/paper\_table.tex and outputs/paper\_llama31\_8b\_*/paper\_table.tex}
 
 \section{RWKU with entity-level routing}
 \label{app:rwku}
-The RWKU row of Table~\ref{tab:main} uses the fact-level router. With the entity-level gate (fire on any probe that names a protected person; the heads choose which of the person's rows), held-out recovery approaches the entity-level genie. \todo{insert outputs/l16\_ours\_rwku\_subject\_v1}
+The RWKU row of Table~\ref{tab:main} uses the fact-level router. With the entity-level gate (fire on any probe that names a protected person; the heads choose which of the person's rows), held-out recovery can be compared with a corresponding perfect-routing bound. \todo{insert outputs/l16\_ours\_rwku\_subject\_v1}
 
 \section{Router training data}
 \label{app:router}
