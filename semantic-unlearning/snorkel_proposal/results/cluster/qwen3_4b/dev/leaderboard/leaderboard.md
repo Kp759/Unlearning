@@ -2,7 +2,7 @@
 
 All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). LETHE = harmonic mean of the available E, L, U, R (1-point floor on each). *Strict* = weights only (runtime components removed; – for methods without any). Rows marked † are reference cheats the benchmark must defeat. The table "behind E and L" under each split shows what the two harmonic means are made of: E_direct = the request prompt itself (training-visible, not in E), E_complete = share of requests whose every held-out forget probe is erased, E_mean / E_min and L_mean / L_min = plain mean and worst family.
 
-## fact · scalpel-fact-dev · Qwen/Qwen3-4B · 50 requests
+## fact · lethe-fact-dev · Qwen/Qwen3-4B · 50 requests
 
 | Method | LETHE | E | L | U | R | Strict | seeds |
 |---|---|---|---|---|---|---|---|
@@ -10,7 +10,6 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | simnpo | 31.7 ± 15.6 | 76.5 ± 9.0 | 38.9 ± 31.0 | 85.7 ± 14.2 | 21.0 ± 4.7 | – | 5 |
 | memit | 30.7 ± 9.0 | 27.3 ± 18.1 | 79.8 ± 5.2 | 99.2 ± 0.7 | 19.9 ± 4.5 | – | 5 |
 | SURE | 22.3 ± 0.7 | 7.5 ± 0.2 | 94.3 ± 1.2 | 100.0 | 39.8 ± 5.2 | 2.9 | 5 |
-| SURE_early | 18.5 ± 2.9 | 6.2 ± 1.2 | 92.2 ± 2.9 | 99.8 ± 0.4 | 30.7 ± 5.9 | 2.9 ± 0.0 | 5 |
 | idk_ft | 11.0 ± 1.3 | 89.3 ± 7.3 | 4.1 ± 0.8 | 53.7 ± 9.6 | 15.8 ± 9.1 | – | 5 |
 | tv | 10.2 ± 3.8 | 83.2 ± 10.3 | 3.0 ± 1.3 | 87.5 ± 4.2 | 35.5 ± 3.0 | – | 5 |
 | rmu | 7.5 ± 4.1 | 21.4 ± 14.2 | 33.3 ± 40.6 | 81.5 ± 19.7 | 12.2 ± 14.3 | – | 5 |
@@ -33,7 +32,6 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | simnpo | 95.6 ± 1.7 | 59.3 ± 10.5 | 79.5 ± 8.8 | 53.7 ± 11.5 | 56.9 ± 12.7 | 24.7 ± 22.6 |
 | memit | 94.4 ± 2.6 | 42.7 ± 2.1 | 55.2 ± 3.4 | 7.5 ± 7.1 | 87.5 ± 2.7 | 43.2 ± 11.9 |
 | SURE | 89.2 ± 4.6 | 49.5 ± 11.5 | 73.4 ± 4.9 | 0.0 | 95.2 ± 0.9 | 79.3 ± 7.9 |
-| SURE_early | 86.4 ± 5.7 | 27.6 ± 13.5 | 49.6 ± 8.8 | 0.0 | 93.1 ± 2.5 | 76.1 ± 6.9 |
 | idk_ft | 100.0 | 80.0 ± 8.1 | 92.2 ± 4.6 | 63.7 ± 17.1 | 38.0 ± 5.6 | 0.0 |
 | tv | 97.2 ± 3.3 | 70.0 ± 11.1 | 86.2 ± 8.0 | 62.8 ± 18.4 | 19.5 ± 6.0 | 0.0 |
 | rmu | 32.4 ± 8.4 | 15.1 ± 6.9 | 45.5 ± 20.8 | 7.2 ± 6.8 | 70.0 ± 12.0 | 20.5 ± 31.9 |
@@ -56,7 +54,6 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | simnpo | 18 ± 5 | 13 ± 15 | 4 ± 2 | 33 ± 31 | 41 ± 5 | 9 ± 9 | 19 ± 18 | 22 ± 7 | 16 ± 17 | 13 ± 5 | 61 ± 11 | 59 ± 51 | 56 ± 17 | 54 ± 9 | 74 ± 11 | 66 ± 13 | 57 ± 12 | 28 ± 26 |
 | memit | 16 ± 3 | 44 ± 6 | 6 ± 3 | 100 | 51 ± 16 | 83 ± 6 | 40 ± 10 | 27 ± 7 | 37 ± 5 | 39 ± 4 | 98 ± 2 | 100 | 94 ± 10 | 97 ± 2 | 99 ± 2 | 69 ± 8 | 43 ± 12 | 99 ± 1 |
 | SURE | 13 ± 5 | 15 ± 8 | 11 ± 5 | 100 | 9 ± 7 | 96 ± 6 | 13 ± 6 | 18 ± 7 | 9 ± 6 | 13 ± 3 | 100 | 99 ± 2 | 100 | 100 | 100 | 85 ± 6 | 83 ± 12 | 94 ± 4 |
-| SURE_early | 16 ± 6 | 73 ± 14 | 14 ± 6 | 100 | 17 ± 7 | 99 ± 3 | 67 ± 19 | 27 ± 9 | 70 ± 16 | 16 ± 6 | 100 | 94 ± 4 | 98 ± 5 | 100 | 100 | 85 ± 6 | 76 ± 7 | 92 ± 4 |
 | idk_ft | 2 ± 2 | 0 | 0 | 21 ± 29 | 29 ± 13 | 0 | 0 | 12 ± 5 | 0 | 5 ± 4 | 53 ± 7 | 0 | 53 ± 16 | 41 ± 3 | 70 ± 13 | 48 ± 19 | 38 ± 12 | 1 ± 1 |
 | tv | 5 ± 3 | 31 ± 12 | 3 ± 3 | 0 | 2 ± 3 | 18 ± 25 | 28 ± 17 | 3 ± 4 | 25 ± 15 | 3 ± 4 | 10 ± 7 | 90 ± 11 | 6 ± 5 | 2 ± 2 | 6 ± 5 | 4 ± 6 | 3 ± 5 | 35 ± 31 |
 | rmu | 77 ± 5 | 32 ± 44 | 68 ± 8 | 100 | 88 ± 3 | 23 ± 32 | 25 ± 39 | 75 ± 5 | 26 ± 40 | 75 ± 8 | 71 ± 8 | 37 ± 51 | 78 ± 12 | 87 ± 5 | 92 ± 5 | 91 ± 2 | 79 ± 8 | 24 ± 38 |
@@ -81,7 +78,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | simnpo | 86.6 | 57.5 | 76.5 ± 9.0 | 38.9 ± 31.0 | 31.7 ± 15.6 |
 | memit | 83.8 | 97.3 | 27.3 ± 18.1 | 79.8 ± 5.2 | 30.7 ± 9.0 |
 | SURE | 85.6 | 100.0 | 7.5 ± 0.2 | 94.3 ± 1.2 | 22.3 ± 0.7 |
-| SURE_early | 79.8 | 100.0 | 6.2 ± 1.2 | 92.2 ± 2.9 | 18.5 ± 2.9 |
 | idk_ft | 94.0 | 47.1 | 89.3 ± 7.3 | 4.1 ± 0.8 | 11.0 ± 1.3 |
 | tv | 97.0 | 6.1 | 83.2 ± 10.3 | 3.0 ± 1.3 | 10.2 ± 3.8 |
 | rmu | 28.5 | 79.2 | 21.4 ± 14.2 | 33.3 ± 40.6 | 7.5 ± 4.1 |
@@ -104,7 +100,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | simnpo | 14.6 ± 6.5 | 24.2 ± 9.3 | 36.6 ± 6.0 | 79.0 ± 4.7 |
 | memit | 21.0 ± 4.1 | 29.6 ± 7.8 | 36.4 ± 5.4 | 80.1 ± 4.5 |
 | SURE | 13.7 ± 5.3 | 22.6 ± 10.0 | 22.3 ± 11.6 | 60.2 ± 5.2 |
-| SURE_early | 30.5 ± 7.4 | 41.7 ± 10.7 | 39.6 ± 10.1 | 69.3 ± 5.9 |
 | idk_ft | 5.3 ± 2.2 | 14.1 ± 9.3 | 46.8 ± 9.6 | 84.2 ± 9.1 |
 | tv | 7.1 ± 5.5 | 4.3 ± 5.9 | 20.2 ± 9.3 | 64.5 ± 3.0 |
 | rmu | 63.4 ± 11.9 | 56.1 ± 3.2 | 83.5 ± 10.3 | 85.8 ± 15.5 |
@@ -127,7 +122,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | simnpo | 30.0 | 0.0 | 70.0 | 75.9 | 0.0 |
 | memit | 36.3 | 0.0 | 63.7 | 91.2 | 0.0 |
 | SURE | 23.9 | 0.0 | 76.1 | 98.1 | 0.0 |
-| SURE_early | 48.7 | 0.0 | 51.3 | 96.8 | 0.0 |
 | idk_ft | 3.4 | 94.7 | 1.8 | 42.6 | 51.4 |
 | tv | 18.9 | 0.0 | 81.1 | 28.2 | 0.0 |
 | rmu | 53.7 | 0.5 | 45.8 | 62.0 | 1.4 |
@@ -147,7 +141,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | Method | route recall (forget) | residual from routing misses | residual when routed | false-fire rate (retain) |
 |---|---|---|---|---|
 | SURE | 86.1 | 13.9 | 3.0 | 13.9 |
-| SURE_early | 69.3 | 30.7 | 8.5 | 12.9 |
 | keyword_router_idk | 68.8 | 31.2 | 0.1 | 29.7 |
 
 ### Cost
@@ -158,7 +151,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | simnpo | 194.6 ± 11.5 | 0.93 ± 0.02 |
 | memit | 233.8 ± 7.0 | 0.93 ± 0.02 |
 | SURE | 2740.3 ± 68.9 | 1.78 ± 0.05 |
-| SURE_early | 2773.4 ± 56.5 | 1.78 ± 0.04 |
 | idk_ft | 199.1 ± 12.8 | 0.93 ± 0.02 |
 | tv | 18.3 ± 1.4 | 0.93 ± 0.01 |
 | rmu | 77.3 ± 3.5 | 0.92 ± 0.01 |
@@ -178,7 +170,7 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 
 All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). LETHE = harmonic mean of the available E, L, U, R (1-point floor on each). *Strict* = weights only (runtime components removed; – for methods without any). Rows marked † are reference cheats the benchmark must defeat. The table "behind E and L" under each split shows what the two harmonic means are made of: E_direct = the request prompt itself (training-visible, not in E), E_complete = share of requests whose every held-out forget probe is erased, E_mean / E_min and L_mean / L_min = plain mean and worst family.
 
-## fact · scalpel-fact-dev · Qwen/Qwen3-4B · 50 requests
+## fact · lethe-fact-dev · Qwen/Qwen3-4B · 50 requests
 
 | Method | LETHE | E | L | U | R | Strict | seeds |
 |---|---|---|---|---|---|---|---|
@@ -186,7 +178,6 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | simnpo | 41.9 ± 5.4 | 66.3 ± 15.8 | 59.1 ± 18.5 | 85.7 ± 14.2 | 21.0 ± 4.7 | – | 5 |
 | memit | 35.1 ± 9.3 | 31.2 ± 14.0 | 83.9 ± 5.7 | 99.2 ± 0.7 | 19.9 ± 4.5 | – | 5 |
 | SURE | 22.1 ± 0.4 | 7.4 ± 0.0 | 95.4 ± 1.5 | 100.0 | 39.8 ± 5.2 | 2.9 | 5 |
-| SURE_early | 18.6 ± 3.0 | 6.3 ± 1.2 | 92.8 ± 2.5 | 99.8 ± 0.4 | 30.7 ± 5.9 | 2.9 ± 0.0 | 5 |
 | rmu | 18.1 ± 16.6 | 18.2 ± 11.5 | 70.2 ± 27.6 | 81.5 ± 19.7 | 12.2 ± 14.3 | – | 5 |
 | idk_ft | 17.9 ± 7.6 | 89.1 ± 5.1 | 11.1 ± 8.0 | 53.7 ± 9.6 | 15.8 ± 9.1 | – | 5 |
 | tv | 17.2 ± 10.2 | 71.4 ± 5.5 | 6.3 ± 4.7 | 87.5 ± 4.2 | 35.5 ± 3.0 | – | 5 |
@@ -209,7 +200,6 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | simnpo | 91.8 ± 2.0 | 49.2 ± 15.1 | 69.6 ± 13.9 | 48.5 ± 15.7 | 66.3 ± 10.2 | 40.9 ± 20.4 |
 | memit | 91.8 ± 5.6 | 41.0 ± 2.3 | 54.4 ± 3.6 | 8.4 ± 5.1 | 89.0 ± 3.0 | 49.7 ± 9.9 |
 | SURE | 89.0 ± 4.7 | 48.7 ± 11.4 | 73.6 ± 4.1 | 0.0 | 96.0 ± 1.2 | 82.6 ± 6.9 |
-| SURE_early | 85.7 ± 5.5 | 26.1 ± 12.8 | 49.4 ± 8.6 | 0.0 | 93.8 ± 2.1 | 76.1 ± 6.9 |
 | rmu | 27.7 ± 4.9 | 11.5 ± 5.3 | 28.5 ± 18.0 | 7.1 ± 4.8 | 82.7 ± 11.7 | 50.7 ± 38.5 |
 | idk_ft | 98.8 ± 1.8 | 74.6 ± 11.9 | 91.0 ± 4.3 | 65.6 ± 10.0 | 41.6 ± 7.5 | 2.0 ± 2.8 |
 | tv | 95.9 ± 2.5 | 59.1 ± 4.2 | 76.9 ± 4.2 | 48.8 ± 6.0 | 26.4 ± 4.9 | 1.8 ± 2.7 |
@@ -232,7 +222,6 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | simnpo | 21 ± 8 | 26 ± 20 | 8 ± 2 | 46 ± 45 | 45 ± 8 | 24 ± 28 | 41 ± 28 | 28 ± 9 | 35 ± 23 | 21 ± 7 | 65 ± 10 | 83 ± 32 | 67 ± 18 | 57 ± 8 | 77 ± 11 | 70 ± 12 | 60 ± 12 | 50 ± 28 |
 | memit | 18 ± 4 | 45 ± 7 | 8 ± 6 | 100 | 55 ± 17 | 89 ± 3 | 41 ± 10 | 28 ± 7 | 38 ± 3 | 41 ± 7 | 99 ± 1 | 100 | 94 ± 10 | 97 ± 2 | 99 ± 2 | 75 ± 3 | 50 ± 10 | 99 ± 2 |
 | SURE | 14 ± 5 | 16 ± 8 | 11 ± 5 | 100 | 10 ± 7 | 99 ± 3 | 14 ± 6 | 19 ± 7 | 12 ± 5 | 13 ± 3 | 100 | 100 | 100 | 100 | 100 | 88 ± 6 | 84 ± 9 | 96 ± 5 |
-| SURE_early | 17 ± 6 | 74 ± 13 | 14 ± 6 | 100 | 22 ± 9 | 100 | 67 ± 19 | 28 ± 10 | 69 ± 16 | 19 ± 6 | 100 | 96 ± 4 | 98 ± 5 | 100 | 100 | 86 ± 7 | 76 ± 7 | 95 ± 5 |
 | rmu | 80 ± 6 | 63 ± 34 | 72 ± 5 | 100 | 91 ± 2 | 52 ± 28 | 55 ± 39 | 80 ± 6 | 70 ± 25 | 77 ± 10 | 80 ± 9 | 79 ± 28 | 84 ± 14 | 92 ± 2 | 94 ± 6 | 94 ± 4 | 82 ± 8 | 58 ± 44 |
 | idk_ft | 2 ± 2 | 3 ± 4 | 1 ± 2 | 24 ± 34 | 32 ± 13 | 1 ± 3 | 4 ± 10 | 14 ± 5 | 3 ± 3 | 6 ± 6 | 54 ± 8 | 22 ± 30 | 53 ± 16 | 42 ± 4 | 72 ± 14 | 50 ± 18 | 38 ± 12 | 2 ± 3 |
 | tv | 7 ± 4 | 39 ± 3 | 4 ± 3 | 0 | 2 ± 3 | 36 ± 18 | 50 ± 9 | 7 ± 2 | 42 ± 5 | 5 ± 6 | 19 ± 8 | 97 ± 3 | 10 ± 8 | 5 ± 4 | 7 ± 6 | 4 ± 6 | 8 ± 10 | 61 ± 15 |
@@ -257,7 +246,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | simnpo | 81.9 | 61.4 | 66.3 ± 15.8 | 59.1 ± 18.5 | 41.9 ± 5.4 |
 | memit | 81.7 | 97.7 | 31.2 ± 14.0 | 83.9 ± 5.7 | 35.1 ± 9.3 |
 | SURE | 85.2 | 100.0 | 7.4 ± 0.0 | 95.4 ± 1.5 | 22.1 ± 0.4 |
-| SURE_early | 79.0 | 100.0 | 6.3 ± 1.2 | 92.8 ± 2.5 | 18.6 ± 3.0 |
 | rmu | 23.7 | 85.8 | 18.2 ± 11.5 | 70.2 ± 27.6 | 18.1 ± 16.6 |
 | idk_ft | 92.5 | 47.9 | 89.1 ± 5.1 | 11.1 ± 8.0 | 17.9 ± 7.6 |
 | tv | 94.4 | 12.0 | 71.4 ± 5.5 | 6.3 ± 4.7 | 17.2 ± 10.2 |
@@ -280,7 +268,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | simnpo | 14.6 ± 6.5 | 24.2 ± 9.3 | 36.6 ± 6.0 | 79.0 ± 4.7 |
 | memit | 21.0 ± 4.1 | 29.6 ± 7.8 | 36.4 ± 5.4 | 80.1 ± 4.5 |
 | SURE | 13.7 ± 5.3 | 22.6 ± 10.0 | 22.3 ± 11.6 | 60.2 ± 5.2 |
-| SURE_early | 30.5 ± 7.4 | 41.7 ± 10.7 | 39.6 ± 10.1 | 69.3 ± 5.9 |
 | rmu | 63.4 ± 11.9 | 56.1 ± 3.2 | 83.5 ± 10.3 | 85.8 ± 15.5 |
 | idk_ft | 5.3 ± 2.2 | 14.1 ± 9.3 | 46.8 ± 9.6 | 84.2 ± 9.1 |
 | tv | 7.1 ± 5.5 | 4.3 ± 5.9 | 20.2 ± 9.3 | 64.5 ± 3.0 |
@@ -303,7 +290,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | simnpo | 30.0 | 0.0 | 70.0 | 75.9 | 0.0 |
 | memit | 36.3 | 0.0 | 63.7 | 91.2 | 0.0 |
 | SURE | 23.9 | 0.0 | 76.1 | 98.1 | 0.0 |
-| SURE_early | 48.7 | 0.0 | 51.3 | 96.8 | 0.0 |
 | rmu | 53.7 | 0.5 | 45.8 | 62.0 | 1.4 |
 | idk_ft | 3.4 | 94.7 | 1.8 | 42.6 | 51.4 |
 | tv | 18.9 | 0.0 | 81.1 | 28.2 | 0.0 |
@@ -323,7 +309,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | Method | route recall (forget) | residual from routing misses | residual when routed | false-fire rate (retain) |
 |---|---|---|---|---|
 | SURE | 86.1 | 13.9 | 3.0 | 13.9 |
-| SURE_early | 69.3 | 30.7 | 8.5 | 12.9 |
 | keyword_router_idk | 68.8 | 31.2 | 0.1 | 29.7 |
 
 ### Cost
@@ -334,7 +319,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | simnpo | 194.6 ± 11.5 | 0.93 ± 0.02 |
 | memit | 233.8 ± 7.0 | 0.93 ± 0.02 |
 | SURE | 2740.3 ± 68.9 | 1.78 ± 0.05 |
-| SURE_early | 2773.4 ± 56.5 | 1.78 ± 0.04 |
 | rmu | 77.3 ± 3.5 | 0.92 ± 0.01 |
 | idk_ft | 199.1 ± 12.8 | 0.93 ± 0.02 |
 | tv | 18.3 ± 1.4 | 0.93 ± 0.01 |

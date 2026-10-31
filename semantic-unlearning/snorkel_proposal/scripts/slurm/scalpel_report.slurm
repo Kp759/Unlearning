@@ -22,8 +22,8 @@ for M in $MODELS; do
       --out "$D/agent" --title "LETHE-Bench agentic leakage track — $M — $(basename "$D")"
   done
   python -m scalpel report --runs "$OUT_ROOT/$M/$PARTITION/seed*/runs/*/results.json" \
-    --out "$OUT_ROOT/$M/$PARTITION/leaderboard" --exclude sure --title "LETHE-Bench — $M — $PARTITION (mean ± sd over seeds)"
+    --out "$OUT_ROOT/$M/$PARTITION/leaderboard" --exclude sure ours_early --title "LETHE-Bench — $M — $PARTITION (mean ± sd over seeds)"
 done
 python -m scalpel report --runs "$OUT_ROOT/*/$PARTITION/seed*/runs/*/results.json" \
-  --out "$OUT_ROOT/leaderboard_$PARTITION" --exclude sure --title "LETHE-Bench — all models — $PARTITION"
+  --out "$OUT_ROOT/leaderboard_$PARTITION" --exclude sure ours_early --title "LETHE-Bench — all models — $PARTITION"
 echo "leaderboards: $OUT_ROOT/*/$PARTITION/leaderboard/leaderboard.md and $OUT_ROOT/leaderboard_$PARTITION/leaderboard.md"

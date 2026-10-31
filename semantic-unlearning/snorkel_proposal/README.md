@@ -25,7 +25,6 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 |---|---|---|---|
 | SimNPO | 37.4 ± 20.1 | 31.7 ± 15.6 | 43.7 ± 13.6 |
 | ZeroUnlearn | 21.3 ± 9.5 | 56.3 ± 5.8 | 15.6 ± 5.2 |
-| SURE_early (ours, layer 16) | 35.4 ± 22.7 | 18.5 ± 2.9 | 28.1 ± 16.9 |
 | SURE (ours, layer 19) | 28.4 ± 11.6 | 22.3 ± 0.7 | 18.7 ± 3.5 |
 | MEMIT | 1.7 ± 1.8 | 30.7 ± 9.0 | 3.2 ± 0.4 |
 | trained refusal (IDK-FT) | 11.4 ± 0.6 | 11.0 ± 1.3 | 10.9 ± 0.2 |

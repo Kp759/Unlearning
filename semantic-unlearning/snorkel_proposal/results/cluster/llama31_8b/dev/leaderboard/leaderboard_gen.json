@@ -1,6 +1,6 @@
 {
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:SURE": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:SURE": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "SURE",
   "family": "detect_then_edit",
   "seeds": [
@@ -189,198 +189,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:SURE_early": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
-  "method": "SURE_early",
-  "family": "detect_then_edit",
-  "seeds": [
-   1,
-   2,
-   3,
-   4,
-   5
-  ],
-  "valid": true,
-  "cheat": false,
-  "runtime_components": [
-   "router_hooks"
-  ],
-  "SCALPEL": [
-   28.08163006082072,
-   16.86611544240574
-  ],
-  "SCALPEL_core": [
-   27.40529817120059,
-   21.22444906321485
-  ],
-  "E": [
-   13.246997918070772,
-   14.254723584607765
-  ],
-  "E_mean": [
-   77.45814245005649,
-   4.68183387339579
-  ],
-  "E_min": [
-   1.5384615384615388,
-   3.440104580768908
-  ],
-  "E_direct": [
-   93.58333333333334,
-   4.5407109086084265
-  ],
-  "E_complete": [
-   60.25408163265306,
-   7.784163124159432
-  ],
-  "L": [
-   94.61751195234403,
-   2.4936311391422996
-  ],
-  "L_mean": [
-   95.1236191409469,
-   2.1717183152609465
-  ],
-  "L_min": [
-   82.33115468409588,
-   7.3184287539416095
-  ],
-  "U": [
-   100.0,
-   0.0
-  ],
-  "R": [
-   39.445040900314915,
-   2.7496412812228597
-  ],
-  "families": {
-   "forget/context_prefix": [
-    6.120612410843519,
-    4.379484098881882
-   ],
-   "forget/crosslingual": [
-    0.9827715355805242,
-    1.353862908158935
-   ],
-   "forget/direct": [
-    6.416666666666666,
-    4.540710908608426
-   ],
-   "forget/indirect": [
-    100.0,
-    0.0
-   ],
-   "forget/multifact": [
-    9.103896103896105,
-    9.38647537971373
-   ],
-   "forget/multihop": [
-    91.51709401709402,
-    9.346794752117605
-   ],
-   "forget/multiturn": [
-    2.8177803379416284,
-    1.626978430307443
-   ],
-   "forget/paraphrase": [
-    15.33977459992889,
-    8.773638166532432
-   ],
-   "forget/question": [
-    4.0006621113406435,
-    2.6436687877358684
-   ],
-   "forget/surface": [
-    5.717184265010352,
-    1.9113608797902915
-   ],
-   "retain/disjoint": [
-    100.0,
-    0.0
-   ],
-   "retain/in_context": [
-    86.38043502926052,
-    7.437550359955187
-   ],
-   "retain/name_collision": [
-    100.0,
-    0.0
-   ],
-   "retain/same_object": [
-    100.0,
-    0.0
-   ],
-   "retain/same_relation": [
-    100.0,
-    0.0
-   ],
-   "retain/same_sentence": [
-    92.58753501400561,
-    5.690012923311726
-   ],
-   "retain/same_subject": [
-    91.77352941176471,
-    9.699104139417539
-   ],
-   "retain/subject_mentioned": [
-    90.24745367254454,
-    5.023380142768956
-   ]
-  },
-  "strict_SCALPEL": [
-   2.941176470588235,
-   0.0
-  ],
-  "unlearn_seconds": [
-   4703.960347890854,
-   97.87434744387785
-  ],
-  "inference_overhead": [
-   1.663768719375528,
-   0.01829886983276255
-  ],
-  "behaviour": {
-   "forget": {
-    "leak": 14.772727272727273,
-    "refusal": 0.0,
-    "hallucination_or_other": 85.22727272727273,
-    "n": 352
-   },
-   "retain": {
-    "correct": 94.55128205128206,
-    "false_refusal": 0.0,
-    "wrong": 5.448717948717949,
-    "n": 312
-   }
-  },
-  "routing": {
-   "forget_route_recall": 91.03291917304138,
-   "forget_residual_from_routing": 8.967080826958622,
-   "forget_residual_from_actuation": 0.8073030274799817,
-   "retain_false_fire_rate": 8.703433578330898
-  },
-  "ci": null,
-  "attacks": {
-   "quant_int8": [
-    7.84902624353562,
-    3.024123801440759
-   ],
-   "quant_int4": [
-    10.109885651421454,
-    3.592248865123188
-   ],
-   "relearn": [
-    9.46571449126527,
-    4.309934029595629
-   ],
-   "lens": [
-    60.554959099685085,
-    2.7496412812228597
-   ]
-  }
- },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:answer_ban": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:answer_ban": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "answer_ban",
   "family": "trivial",
   "seeds": [
@@ -564,8 +374,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:ga": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:ga": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "ga",
   "family": "gradient",
   "seeds": [
@@ -747,8 +557,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:gd": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:gd": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "gd",
   "family": "gradient",
   "seeds": [
@@ -930,8 +740,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:idk_all": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:idk_all": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "idk_all",
   "family": "trivial",
   "seeds": [
@@ -1115,8 +925,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:idk_ft": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:idk_ft": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "idk_ft",
   "family": "gradient",
   "seeds": [
@@ -1298,8 +1108,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:keyword_router_idk": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:keyword_router_idk": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "keyword_router_idk",
   "family": "trivial",
   "seeds": [
@@ -1488,8 +1298,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:memit": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:memit": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "memit",
   "family": "locate_edit",
   "seeds": [
@@ -1671,8 +1481,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:noop": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:noop": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "noop",
   "family": "trivial",
   "seeds": [
@@ -1854,8 +1664,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:npo": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:npo": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "npo",
   "family": "gradient",
   "seeds": [
@@ -2037,8 +1847,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:prompt_cache_idk": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:prompt_cache_idk": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "prompt_cache_idk",
   "family": "trivial",
   "seeds": [
@@ -2222,8 +2032,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:rmu": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:rmu": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "rmu",
   "family": "representation",
   "seeds": [
@@ -2405,8 +2215,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:rome": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:rome": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "rome",
   "family": "locate_edit",
   "seeds": [
@@ -2588,8 +2398,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:simnpo": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:simnpo": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "simnpo",
   "family": "gradient",
   "seeds": [
@@ -2771,8 +2581,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:subject_blocklist_idk": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:subject_blocklist_idk": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "subject_blocklist_idk",
   "family": "trivial",
   "seeds": [
@@ -2956,8 +2766,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:tv": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:tv": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "tv",
   "family": "gradient",
   "seeds": [
@@ -3139,8 +2949,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:zerounlearn": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests:zerounlearn": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 meta-llama/Llama-3.1-8B-Instruct \u00b7 50 requests",
   "method": "zerounlearn",
   "family": "locate_edit",
   "seeds": [

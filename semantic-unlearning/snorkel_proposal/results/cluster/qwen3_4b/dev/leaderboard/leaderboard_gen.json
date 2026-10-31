@@ -1,6 +1,6 @@
 {
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:SURE": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:SURE": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "SURE",
   "family": "detect_then_edit",
   "seeds": [
@@ -189,198 +189,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:SURE_early": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
-  "method": "SURE_early",
-  "family": "detect_then_edit",
-  "seeds": [
-   1,
-   2,
-   3,
-   4,
-   5
-  ],
-  "valid": true,
-  "cheat": false,
-  "runtime_components": [
-   "router_hooks"
-  ],
-  "SCALPEL": [
-   18.574073919701267,
-   3.015462080249901
-  ],
-  "SCALPEL_core": [
-   16.548632826350662,
-   2.8995195935261715
-  ],
-  "E": [
-   6.252082941146781,
-   1.2039875994839178
-  ],
-  "E_mean": [
-   49.361032492951786,
-   8.560526585448597
-  ],
-  "E_min": [
-   0.0,
-   0.0
-  ],
-  "E_direct": [
-   85.74591836734693,
-   5.544329795202256
-  ],
-  "E_complete": [
-   26.088095238095235,
-   12.81674393069316
-  ],
-  "L": [
-   92.83782158872285,
-   2.530284690982363
-  ],
-  "L_mean": [
-   93.77899873475027,
-   2.0988485672962054
-  ],
-  "L_min": [
-   76.07983193277312,
-   6.898143713772192
-  ],
-  "U": [
-   99.82456140350878,
-   0.3922926276315341
-  ],
-  "R": [
-   30.695389178906908,
-   5.860507111064939
-  ],
-  "families": {
-   "forget/context_prefix": [
-    16.859173544395446,
-    5.791469394358777
-   ],
-   "forget/crosslingual": [
-    74.09106836911103,
-    12.532785697600634
-   ],
-   "forget/direct": [
-    14.25408163265306,
-    5.544329795202258
-   ],
-   "forget/indirect": [
-    100.0,
-    0.0
-   ],
-   "forget/multifact": [
-    21.979091995221026,
-    8.550351914506761
-   ],
-   "forget/multihop": [
-    100.0,
-    0.0
-   ],
-   "forget/multiturn": [
-    67.22026685070162,
-    19.097044176633013
-   ],
-   "forget/paraphrase": [
-    27.82371345344697,
-    9.840241025764714
-   ],
-   "forget/question": [
-    68.69105447276362,
-    15.721240301389608
-   ],
-   "forget/surface": [
-    18.929034931356917,
-    5.773625070575704
-   ],
-   "retain/disjoint": [
-    100.0,
-    0.0
-   ],
-   "retain/in_context": [
-    95.79733472022335,
-    3.863997464947442
-   ],
-   "retain/name_collision": [
-    97.77777777777779,
-    4.969039949999534
-   ],
-   "retain/same_object": [
-    100.0,
-    0.0
-   ],
-   "retain/same_relation": [
-    100.0,
-    0.0
-   ],
-   "retain/same_sentence": [
-    85.97665732959851,
-    7.319224044711463
-   ],
-   "retain/same_subject": [
-    76.07983193277312,
-    6.898143713772192
-   ],
-   "retain/subject_mentioned": [
-    94.60038811762949,
-    4.864874108555841
-   ]
-  },
-  "strict_SCALPEL": [
-   2.9411254395052024,
-   0.00011410897062636437
-  ],
-  "unlearn_seconds": [
-   2773.4356586933136,
-   56.46611345127296
-  ],
-  "inference_overhead": [
-   1.7787693797769637,
-   0.041403602293930954
-  ],
-  "behaviour": {
-   "forget": {
-    "leak": 48.68421052631579,
-    "refusal": 0.0,
-    "hallucination_or_other": 51.31578947368421,
-    "n": 380
-   },
-   "retain": {
-    "correct": 96.75925925925925,
-    "false_refusal": 0.0,
-    "wrong": 3.240740740740741,
-    "n": 216
-   }
-  },
-  "routing": {
-   "forget_route_recall": 69.34435297196772,
-   "forget_residual_from_routing": 30.655647028032273,
-   "forget_residual_from_actuation": 8.479607016143357,
-   "retain_false_fire_rate": 12.860564098858124
-  },
-  "ci": null,
-  "attacks": {
-   "quant_int8": [
-    30.543684470544065,
-    7.3761635428374
-   ],
-   "quant_int4": [
-    41.724248920614144,
-    10.730506600900773
-   ],
-   "relearn": [
-    39.565986132511554,
-    10.073993418690483
-   ],
-   "lens": [
-    69.30461082109309,
-    5.860507111064939
-   ]
-  }
- },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:answer_ban": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:answer_ban": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "answer_ban",
   "family": "trivial",
   "seeds": [
@@ -564,8 +374,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:ga": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:ga": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "ga",
   "family": "gradient",
   "seeds": [
@@ -747,8 +557,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:gd": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:gd": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "gd",
   "family": "gradient",
   "seeds": [
@@ -930,8 +740,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:idk_all": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:idk_all": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "idk_all",
   "family": "trivial",
   "seeds": [
@@ -1115,8 +925,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:idk_ft": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:idk_ft": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "idk_ft",
   "family": "gradient",
   "seeds": [
@@ -1298,8 +1108,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:keyword_router_idk": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:keyword_router_idk": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "keyword_router_idk",
   "family": "trivial",
   "seeds": [
@@ -1488,8 +1298,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:memit": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:memit": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "memit",
   "family": "locate_edit",
   "seeds": [
@@ -1671,8 +1481,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:noop": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:noop": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "noop",
   "family": "trivial",
   "seeds": [
@@ -1854,8 +1664,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:npo": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:npo": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "npo",
   "family": "gradient",
   "seeds": [
@@ -2037,8 +1847,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:prompt_cache_idk": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:prompt_cache_idk": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "prompt_cache_idk",
   "family": "trivial",
   "seeds": [
@@ -2222,8 +2032,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:rmu": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:rmu": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "rmu",
   "family": "representation",
   "seeds": [
@@ -2405,8 +2215,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:rome": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:rome": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "rome",
   "family": "locate_edit",
   "seeds": [
@@ -2588,8 +2398,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:simnpo": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:simnpo": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "simnpo",
   "family": "gradient",
   "seeds": [
@@ -2771,8 +2581,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:subject_blocklist_idk": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:subject_blocklist_idk": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "subject_blocklist_idk",
   "family": "trivial",
   "seeds": [
@@ -2956,8 +2766,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:tv": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:tv": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "tv",
   "family": "gradient",
   "seeds": [
@@ -3139,8 +2949,8 @@
    ]
   }
  },
- "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:zerounlearn": {
-  "track": "fact \u00b7 scalpel-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
+ "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests:zerounlearn": {
+  "track": "fact \u00b7 lethe-fact-dev \u00b7 Qwen/Qwen3-4B \u00b7 50 requests",
   "method": "zerounlearn",
   "family": "locate_edit",
   "seeds": [

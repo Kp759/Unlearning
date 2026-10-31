@@ -31,7 +31,7 @@ def test_seeds_are_averaged_and_set_aside_runs_ignored(tmp_path):
     table = summarize(runs)
     ours = next(v for v in table.values() if v["method"] == "SURE")      # run directory ours, shown as SURE
     assert ours["seeds"] == [1, 2, 3] and ours["SCALPEL"][0] == 20.0
-    assert "scalpel-fact-dev ·" in ours["track"]
+    assert "lethe-fact-dev ·" in ours["track"]      # split shown under the benchmark name
 
 
 def test_routing_diagnostics_average_over_seeds(tmp_path):

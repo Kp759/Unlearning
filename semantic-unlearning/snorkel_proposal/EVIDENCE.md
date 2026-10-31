@@ -59,7 +59,7 @@ All six reference cheats score 0 in this pilot file (below 4 with the current 1-
 
 ## 4. LETHE-Bench on three models (cluster, 5 seeds each)
 
-`results/cluster/leaderboard_dev/leaderboard.md` (all models) and `results/cluster/<model>/dev/leaderboard/leaderboard.md`; dev partition, seeds 1–5, 50 requests per seed, teacher-forced scorer (the generation scorer gives the same ordering), mean ± sd over seeds. 11 methods and 6 reference cheats (†) on Llama-3.2-3B-Instruct, Qwen3-4B and Llama-3.1-8B-Instruct. SURE is the method we built (classifier and Δe at layer 19, one pass; run directory `ours`); SURE_early is its ablation with both at layer 16. The Llama-3.2-3B numbers differ slightly from the earlier single-model file (SURE 30.1 → 28.4) because the metric now floors U and R at 1 point, budgets three indirect probes per request and reports E_complete; that file is kept as `results/cluster/llama32_3b.pre_lethe_20261028/`.
+`results/cluster/leaderboard_dev/leaderboard.md` (all models) and `results/cluster/<model>/dev/leaderboard/leaderboard.md`; dev partition, seeds 1–5, 50 requests per seed, teacher-forced scorer (the generation scorer gives the same ordering), mean ± sd over seeds. 11 methods and 6 reference cheats (†) on Llama-3.2-3B-Instruct, Qwen3-4B and Llama-3.1-8B-Instruct. SURE is the method we built (classifier and Δe at layer 19, one pass; run directory `ours`); its layer ablations are reported in the paper, not here. The Llama-3.2-3B numbers differ slightly from the earlier single-model file (SURE 30.1 → 28.4) because the metric now floors U and R at 1 point, budgets three indirect probes per request and reports E_complete; that file is kept as `results/cluster/llama32_3b.pre_lethe_20261028/`.
 
 **LETHE score per model** (sorted by the mean over models):
 
@@ -67,7 +67,6 @@ All six reference cheats score 0 in this pilot file (below 4 with the current 1-
 |---|---|---|---|---|
 | simnpo | 37.4 ± 20.1 | 31.7 ± 15.6 | 43.7 ± 13.6 | 37.6 |
 | zerounlearn | 21.3 ± 9.5 | 56.3 ± 5.8 | 15.6 ± 5.2 | 31.1 |
-| SURE_early | 35.4 ± 22.7 | 18.5 ± 2.9 | 28.1 ± 16.9 | 27.3 |
 | SURE | 28.4 ± 11.6 | 22.3 ± 0.7 | 18.7 ± 3.5 | 23.1 |
 | memit | 1.7 ± 1.8 | 30.7 ± 9.0 | 3.2 ± 0.4 | 11.9 |
 | idk_ft | 11.4 ± 0.6 | 11.0 ± 1.3 | 10.9 ± 0.2 | 11.1 |
@@ -91,7 +90,6 @@ All six reference cheats score 0 in this pilot file (below 4 with the current 1-
 | Method | LETHE | E | L | U | R | Strict |
 |---|---|---|---|---|---|---|
 | simnpo | 37.4 | 63.5 | 50.8 | 81.1 | 26.1 | – |
-| SURE_early | 35.4 | 25.1 | 91.6 | 100.0 | 34.1 | 2.9 |
 | SURE | 28.4 | 22.2 | 95.5 | 100.0 | 19.0 | 2.9 |
 | zerounlearn | 21.3 | 38.4 | 67.4 | 96.9 | 8.7 | – |
 | idk_ft | 11.4 | 96.2 | 3.8 | 56.7 | 19.0 | – |
@@ -108,7 +106,6 @@ Behind E and L (Llama-3.2-3B):
 | Method | E_direct | E_complete | E_mean | E_min | L_min |
 |---|---|---|---|---|---|
 | simnpo | 96.4 | 59.5 | 78.6 | 44.8 | 37.1 |
-| SURE_early | 95.2 | 56.2 | 76.6 | 5.2 | 74.7 |
 | SURE | 96.2 | 59.8 | 80.0 | 3.8 | 85.0 |
 | zerounlearn | 96.4 | 30.4 | 58.4 | 20.6 | 38.6 |
 | idk_ft | 100.0 | 86.3 | 96.5 | 87.0 | 0.0 |
@@ -128,7 +125,6 @@ Behind E and L (Llama-3.2-3B):
 | simnpo | 31.7 | 76.5 | 38.9 | 85.7 | 21.0 | – |
 | memit | 30.7 | 27.3 | 79.8 | 99.2 | 19.9 | – |
 | SURE | 22.3 | 7.5 | 94.3 | 100.0 | 39.8 | 2.9 |
-| SURE_early | 18.5 | 6.2 | 92.2 | 99.8 | 30.7 | 2.9 |
 | idk_ft | 11.0 | 89.3 | 4.1 | 53.7 | 15.8 | – |
 | tv | 10.2 | 83.2 | 3.0 | 87.5 | 35.5 | – |
 | rmu | 7.5 | 21.4 | 33.3 | 81.5 | 12.2 | – |
@@ -145,7 +141,6 @@ Behind E and L (Qwen3-4B):
 | simnpo | 95.6 | 59.3 | 79.5 | 53.7 | 24.7 |
 | memit | 94.4 | 42.7 | 55.2 | 7.5 | 43.2 |
 | SURE | 89.2 | 49.5 | 73.4 | 0.0 | 79.3 |
-| SURE_early | 86.4 | 27.6 | 49.6 | 0.0 | 76.1 |
 | idk_ft | 100.0 | 80.0 | 92.2 | 63.7 | 0.0 |
 | tv | 97.2 | 70.0 | 86.2 | 62.8 | 0.0 |
 | rmu | 32.4 | 15.1 | 45.5 | 7.2 | 20.5 |
@@ -159,7 +154,6 @@ Behind E and L (Qwen3-4B):
 | Method | LETHE | E | L | U | R | Strict |
 |---|---|---|---|---|---|---|
 | simnpo | 43.7 | 77.5 | 51.2 | 83.2 | 26.8 | – |
-| SURE_early | 28.1 | 13.3 | 93.7 | 100.0 | 39.4 | 2.9 |
 | SURE | 18.7 | 6.9 | 95.7 | 100.0 | 21.2 | 2.9 |
 | zerounlearn | 15.6 | 24.5 | 79.1 | 98.2 | 5.6 | – |
 | idk_ft | 10.9 | 98.3 | 3.8 | 63.5 | 13.6 | – |
@@ -176,7 +170,6 @@ Behind E and L (Llama-3.1-8B):
 | Method | E_direct | E_complete | E_mean | E_min | L_min |
 |---|---|---|---|---|---|
 | simnpo | 96.4 | 64.4 | 81.2 | 53.1 | 32.7 |
-| SURE_early | 94.8 | 61.5 | 78.5 | 1.5 | 79.2 |
 | SURE | 94.4 | 64.3 | 78.9 | 0.0 | 80.9 |
 | zerounlearn | 95.6 | 18.6 | 43.6 | 9.4 | 49.2 |
 | idk_ft | 100.0 | 94.3 | 98.5 | 91.1 | 0.0 |
@@ -195,6 +188,5 @@ What the tables show:
 - **No method is close to solved, and the ranking depends on the model.** The best score on any model is 56.3 (ZeroUnlearn on Qwen3-4B); the same method scores 15.6 on Llama-3.1-8B. MEMIT scores 30.7 on Qwen3-4B and 1.7–3.2 on the Llama models. SimNPO has the best mean (37.6) with the largest seed variance (± 14–20). A single-model leaderboard would have ranked these methods wrongly, which is the case for the 10-model grid.
 - **Every shortcut fails, on every model.** The gate requires a score below 35; the largest cheat score is 3.4.
 - **Each method fails a different axis.** GA, GD, NPO and task-vector negation erase 79–100 and keep locality 1–3; the trained refusal (idk_ft) erases 89–98 and falsely refuses 37–55% of retain questions (generation scorer); ROME and MEMIT keep utility but erase 3–9 on held-out phrasings on Llama, and the fact returns under attack (R ≤ 1); RMU barely erases at the published setting (E_direct 12–32). SimNPO erases 64–78 at locality 39–51. ZeroUnlearn erases 68 at locality 47 on Qwen3-4B but 25 at 79 on the 8B model, and relearning restores 73–81% of its forgotten facts on the Llama models (13.6% on Qwen3-4B).
-- **Our own method is not the winner, and the tables say why.** SURE keeps locality 94–96 and utility 100 on every model, erases 89–96 of the request prompts, and has the lowest seed variance of any method on Qwen3-4B (± 0.7). Its E is 7–22 because two families are never routed: `multihop` (94–96% residual) and `indirect` (100%), where the prompt does not name the subject and a router gated on the subject cannot fire; the harmonic mean over families is set by them. The routing decomposition attributes 8–14 points of residual to routing misses (route recall 86–92%) and 1–3 to actuation, with 8.5–14% false fires on retain probes (visible as `in_context` 82–88 and `same_subject` 83–98). It scores 2.9 in the weights-only tier because its router and rows are runtime components. SURE_early (classifier and Δe both at layer 16) resists the logit-lens attack better (R 31–39 against 19–40) at lower route recall (69% on Qwen3-4B).
-- **The legacy view hides all of this.** In the "legacy view" columns of the same files (only the families the official MCF / zsRE metrics use), SURE scores 85–94 / 100 (erasure / locality), the subject blocklist 100 / 100 and GA 98–100 / 2–3. LETHE-Bench scores them 19–28, 1.2–2.4 and 4.9–6.8.
+- **Our own method is not the winner, and the tables say why.** SURE keeps locality 94–96 and utility 100 on every model, erases 89–96 of the request prompts, and has the lowest seed variance of any method on Qwen3-4B (± 0.7). Its E is 7–22 because two families are never routed: `multihop` (94–96% residual) and `indirect` (100%), where the prompt does not name the subject and a router gated on the subject cannot fire; the harmonic mean over families is set by them. The routing decomposition attributes 8–14 points of residual to routing misses (route recall 86–92%) and 1–3 to actuation, with 8.5–14% false fires on retain probes (visible as `in_context` 82–88 and `same_subject` 83–98). It scores 2.9 in the weights-only tier because its router and rows are runtime components.- **The legacy view hides all of this.** In the "legacy view" columns of the same files (only the families the official MCF / zsRE metrics use), SURE scores 85–94 / 100 (erasure / locality), the subject blocklist 100 / 100 and GA 98–100 / 2–3. LETHE-Bench scores them 19–28, 1.2–2.4 and 4.9–6.8.
 

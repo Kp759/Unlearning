@@ -61,6 +61,7 @@ def summarize(runs: Sequence[Dict], scorer: str = "tf") -> Dict[str, Dict]:
         # the split name keeps per-dataset splits (scalpel-mcf, scalpel-zsre, ...) in separate sections;
         # its seed suffix (scalpel-fact-dev-s3) is dropped so the seeds of one setting are averaged
         split = re.sub(r"-s\d+$", "", str(r.get("split") or "?"))
+        split = split.replace("scalpel-", "lethe-")       # display name; the split schema id itself is unchanged
         setting = (f"{r.get('track') or 'fact'} · {split} · {r.get('model_id', '?')} · "
                    f"{r.get('n_requests', '?')} requests")
         by[(setting, r["method"]["name"])].append(r)
