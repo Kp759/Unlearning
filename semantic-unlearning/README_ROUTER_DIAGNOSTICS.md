@@ -65,7 +65,11 @@ It refuses to start while a `router_diag.slurm` job is queued, because both writ
 **Ours (the one-pass classifier).** Run `sbatch --export=ALL,ROUTER_RECIPE=ours router_diag_staged.slurm`
 once `run_l16_paper_one.sh ONEPASS=1` has fit the routers in `outputs/<ds>_multiseed_ours_v1`.
 Those routers use no PCA, fuzzy subject matching and 20 / 20 checked prompts.
-- Results go to `outputs/router_diag_ours_v1`, so `router_diag_v1` (the paper's routers) stays as the "before".
+- Results go to `outputs/router_diag_ours_control_v1`, the paper's router (see "Which router" below).
+  `router_diag_ours_v1` (the router before 18dd066) and `router_diag_v1` (the regular routers) stay as they are.
+- A cache built from another router file (sha256 in `manifest.json`) or without every layer
+  (`router_fix.slurm` caches only 16 and 19) is moved aside to `seed1_other_router_<time>` /
+  `seed1_partial_layers_<time>` and rebuilt, never resumed.
 - With the ours rows in `outputs/onepass_l19_v1` finished, the no-association test also generates base vs ours on every fired prompt.
 - Eligibility is the router's own rule. The cache applies the fuzzy match exactly as the bank hook does, and keeps the exact-token mask beside it.
   - Hook parity also runs on the typo and partial-name prompts, where fuzzy matching decides.
@@ -99,6 +103,18 @@ Those routers use no PCA, fuzzy subject matching and 20 / 20 checked prompts.
    - Negatives prefer prompts that contain a protected subject, which are the ones the gate lets through.
    - Silhouette scores (cosine in full dimension, and 2D) and leave-one-out logistic and 1-NN accuracy put a number on the overlap.
 7. `reliability.png`: ECE of the deployed probabilities. They are not meant to be calibrated, because the cutoff was moved for recall.
+
+**`train_umap/summary.md`** (`scripts/router_train_umap.py`, CPU, from the cached `train` section): the
+prompts each head is actually fit on, `linear_router_dataset.json`, about 20 positives and 20 negatives per fact.
+- `umap_facts.png`: per fact, its positives (blue) against its own negatives (red) at L16, L19 and the
+  penultimate block. Marker = source (template, template + lead-in, base-model rewrite; subject
+  transplant, model-written hard negative, same-subject fact); a black ring = the deployed head gets
+  that training prompt wrong. Drawn: the hardest facts at L19, then a seeded random sample.
+- `umap_pooled.png`: every fact's training prompts in one projection.
+- `separability_vs_layer.png` and the table: per fact, silhouette (cosine) and leave-one-out 1-NN at every
+  block, the leave-one-out logistic probe at the drawn blocks, averaged over facts with the worst fact.
+- The deployed head's errors on its own prompts, by split (`fit` = training error; `calibration` /
+  `audit` are held out of the weight fit).
 
 **`layer_sweep/layer_choice.md`**
 - **FPR, FNR and F1 against layer** (`errors_vs_layer.png`). The same router is refit at every layer with the shipped recipe: masked class-balanced BCE, L-BFGS, CV-selected L2, the shipped calibration rule. It is scored on the official eval prompts, which are never fit on.
@@ -170,6 +186,23 @@ Calibrating on held-out rewrites lowered the threshold. The paper's router misse
 MCF paraphrases, but fires on 28% of MCF prompts that must not fire. Most must-not-fire prompts
 name a protected subject and ask about another of its relations. On MCF the open problem is
 therefore precision, not misses.
+
+### Rerunning everything on the paper's router
+
+`router_diag_ours_v1` holds the only full run (all 4 benchmarks, every layer, penultimate test, RWKU
+breakdown), and its router is the 20 positive / **40** negative one. The control run covered MCF, zsRE and
+MQuAKE at blocks 16 and 19 only. To redo every task on the paper's 20 / 20 router (seed 1, all 4):
+
+```bash
+cd /scratch/yl258/kp759/Unlearning && git pull --ff-only && cd semantic-unlearning
+sbatch --export=ALL,ROUTER_RECIPE=ours router_diag_staged.slurm
+# -> outputs/router_diag_ours_control_v1/{RESULTS_EXPLAINED.md, ROUTER_LAYER_CHOICE.md}
+#    and per benchmark: report/, train_umap/, layer_sweep/
+```
+
+The control's partial cache is moved aside to `seed1_partial_layers_<time>` and rebuilt at every layer.
+The control never covered RWKU, so check first that all four routers were refit after 18dd066 (Oct 25 19:22):
+`ls -l --time-style=+%F_%T outputs/*_multiseed_ours_v1/seed1/L19/router/fact_association_embeddings.pt`.
 
 ## Tested fixes for the router misses (seed 1)
 

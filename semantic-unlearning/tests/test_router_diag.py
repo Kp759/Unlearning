@@ -262,6 +262,25 @@ def test_ours_fuzzy_router_end_to_end(tmp_path, model_dir):
     assert len(json.loads((out / "probes_train.json").read_text())) == len(trained)
     report.build_report(out)
     assert "subject match `fuzzy`" in (out / "report" / "summary.md").read_text()
+    # each head's own training prompts: positives it owns, negatives naming it in negative_for
+    import router_train_umap
+    router_train_umap.main(["--cache-dir", str(out), "--layers", f"1,{ROUTER_LAYER}", "--facts-shown", "2"])
+    tu = json.loads((out / "train_umap" / "separability.json").read_text())
+    by_fact = {r["fact"]: r for r in tu["per_fact"]}
+    for i, f in enumerate(facts):
+        pos = [r for r in trained if r["owner_fact_id"] == f["id"]]
+        neg = [r for r in trained if f["id"] in r["negative_for"]]
+        if pos and neg:
+            assert (by_fact[i]["n_pos"], by_fact[i]["n_neg"]) == (len(pos), len(neg))
+    logits = torch.load(out / "router_train.pt", weights_only=False)["logits"]
+    probes_train = json.loads((out / "probes_train.json").read_text())
+    thr = router_train_umap.runtime_threshold(manifest)
+    want_fn = sum(float(logits[k, i]) < float(thr if not torch.is_tensor(thr) else thr[i])
+                  for k, p in enumerate(probes_train) for i in p["true_facts"] if i in by_fact)
+    assert sum(len(r["head_fn"]) for r in tu["per_fact"]) == want_fn
+    assert {"1", str(ROUTER_LAYER)} <= set(tu["by_layer"]) and len(tu["drawn_facts"]) == 2
+    for name in ("summary.md", "umap_facts.png", "umap_pooled.png", "separability_vs_layer.png"):
+        assert (out / "train_umap" / name).is_file()
     result = _sweep(out, tmp_path)
     at = next(e for e in result["sweep"] if e["layers"] == [ROUTER_LAYER] and e["rule"] == "deployed")
     assert at["deployed_eligibility"] == "fuzzy" and set(at["by_eligibility"]) == {"fuzzy"}

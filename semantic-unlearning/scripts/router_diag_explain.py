@@ -78,7 +78,8 @@ def collect(root, seed):
             continue
         data[ds] = {"dir": d, "manifest": _load(d / "manifest.json") or {}, "metrics": m,
                     "sweep": sweep_rows(_load(d / "layer_sweep" / "sweep.json") or {}),
-                    "penultimate": _load(d / "layer_sweep" / "penultimate_vs_L19.json") or {}}
+                    "penultimate": _load(d / "layer_sweep" / "penultimate_vs_L19.json") or {},
+                    "train_umap": _load(d / "train_umap" / "separability.json")}
     return data
 
 
@@ -183,6 +184,30 @@ def build(root, seed):
     for ds in data:
         md.append(f"![{NAMES[ds]} umap]({rel(ds, 'report/umap_L16_L19.png')})")
     md.append("")
+    trained = {ds: v["train_umap"] for ds, v in data.items() if v.get("train_umap")}
+    if trained:
+        md += ["### 3b. Each head's own training prompts (scripts/router_train_umap.py)", "",
+               "**What.** The prompts the router is fit on (`linear_router_dataset.json`: about 20 positives and "
+               "20 negatives per fact), per fact: its positives against its own negatives. Numbers are averaged "
+               "over facts, full dimension; the head columns are the deployed router's own decisions on these "
+               "prompts at its read layer.", "",
+               "| dataset | facts | + / − per fact | layer | silhouette mean | LOO 1-NN mean (worst) | "
+               "LOO probe mean (worst) | head FN | head FP |", "|---|---|---|---|---|---|---|---|---|"]
+        for ds, t in trained.items():
+            rows = t["per_fact"]
+            npos, nneg = sum(r["n_pos"] for r in rows), sum(r["n_neg"] for r in rows)
+            fn, fp = sum(len(r["head_fn"]) for r in rows), sum(len(r["head_fp"]) for r in rows)
+            for layer in t["layers_shown"]:
+                b = t["by_layer"][str(layer)]
+                head = (f"{fn}/{npos} | {fp}/{nneg}" if layer == t["router_layer"] else "– | –")
+                md.append(f"| {NAMES[ds]} | {len(rows)} | {npos / max(1, len(rows)):.1f} / {nneg / max(1, len(rows)):.1f} | "
+                          f"L{layer} | {_f(b['silhouette_mean'])} | {_f(b['nn_mean'])} ({_f(b['nn_min'])}) | "
+                          f"{_f(b['probe_mean'])} ({_f(b['probe_min'])}) | {head} |")
+        md.append("")
+        for ds in trained:
+            md.append(f"![{NAMES[ds]} training prompts per fact]({rel(ds, 'train_umap/umap_facts.png')})")
+            md.append(f"![{NAMES[ds]} training separability vs layer]({rel(ds, 'train_umap/separability_vs_layer.png')})")
+        md.append("")
 
     # ------------------------------------------------------------ 4. confusion
     md += ["## 4. Confusion matrices", "",

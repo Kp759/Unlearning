@@ -5,6 +5,7 @@
 #   1. cache       last-token states at every layer + L19 router outputs           (task 1)
 #                  -> stop unless hook parity is 0
 #   2. report      L19 per-example errors, confusion, RWKU, no-association, UMAP   (tasks 2-6)
+#                  + each head's own 20 / 20 training prompts (router_train_umap.py)
 #   3. sweep       same router refit at every layer; L19 vs penultimate            (tasks 7-8)
 #                  -> stop unless the L19 refit reproduces the shipped router (MIN_AGREEMENT)
 #   4. downstream  only if routing improves at the penultimate layer: the Eff/Gen/Spe/PPL
@@ -12,20 +13,24 @@
 #                  as its own 24 h job (this file, DOWNSTREAM_SCRIPT mode) when RUN_DOWNSTREAM=1
 #   5. robustness  baseline / hardneg / aug / hardneg_aug / concat / unmasked at L19 and the
 #                  penultimate layer, exact / fuzzy / no subject eligibility        (task 9)
-#   6. combine     ROUTER_LAYER_CHOICE.md over every finished benchmark
+#   6. combine     ROUTER_LAYER_CHOICE.md and RESULTS_EXPLAINED.md over every finished benchmark
 # Finished work is skipped (cache: manifest.json; sweep and variants: sweep.json), so a
-# resubmit resumes. Every step prints a banner and its key result in the log.
+# resubmit resumes. A cache made from another router file (sha256) or without every layer is
+# moved aside first (<seed dir>_other_router_<time> / _partial_layers_<time>) and rebuilt.
+# Every step prints a banner and its key result in the log.
 #
 #   cd /scratch/yl258/kp759/Unlearning/semantic-unlearning
 #   sbatch router_diag_staged.slurm                                   # all 4, seed 1
 #   sbatch --export=ALL,RUN_DOWNSTREAM=1 router_diag_staged.slurm     # + step 4 where needed
 #   sbatch --array=3 router_diag_staged.slurm                         # RWKU only
-#   sbatch --export=ALL,ROUTER_RECIPE=ours router_diag_staged.slurm   # the ours (ONEPASS=1) routers
+#   sbatch --export=ALL,ROUTER_RECIPE=ours router_diag_staged.slurm   # the ours routers (paper's router)
 #   tail -f logs/rdiag_s_<jobid>_0.out                                # 0 mcf 1 zsre 2 mquake 3 rwku
-# ROUTER_RECIPE: regular_v1 (default, the paper's routers -> outputs/router_diag_v1) or ours
-#   (outputs/<ds>_multiseed_ours_v1 routers, fuzzy subject matching, 20 / 20 prompts; ours runs
-#   from outputs/onepass_l19_v1 -> outputs/router_diag_ours_v1, so the regular_v1 results stay
-#   as the "before"). Fit the routers first (run_l16_paper_one.sh ONEPASS=1, step 1).
+# ROUTER_RECIPE: regular_v1 (default, the older regular routers -> outputs/router_diag_v1) or ours
+#   (outputs/<ds>_multiseed_ours_v1 routers, fuzzy subject matching, 20 / 20 prompts, threshold
+#   on held-out rewrites (18dd066): the paper's router; ours runs from outputs/onepass_l19_v1)
+#   -> outputs/router_diag_ours_control_v1, the name router_fix.slurm VARIANT=control already
+#   uses for this router. outputs/router_diag_ours_v1 diagnosed the router before 18dd066
+#   (265840b, 40 negatives) and is left as it is.
 # Do not run it next to router_diag.slurm (job name rdiag) with the same ROOT_OUT.
 #SBATCH --job-name=rdiag_s
 #SBATCH --partition=gpu
@@ -91,7 +96,7 @@ DS="${DATASETS[$TASK]:-}"
 SEED="${SEED:-1}"
 ROUTER_RECIPE="${ROUTER_RECIPE:-regular_v1}"
 case "$ROUTER_RECIPE" in regular_v1|ours) ;; *) echo "ROUTER_RECIPE must be regular_v1 or ours" >&2; exit 2;; esac
-if [[ "$ROUTER_RECIPE" == ours ]]; then ROOT_OUT="${ROOT_OUT:-outputs/router_diag_ours_v1}"; else ROOT_OUT="${ROOT_OUT:-outputs/router_diag_v1}"; fi
+if [[ "$ROUTER_RECIPE" == ours ]]; then ROOT_OUT="${ROOT_OUT:-outputs/router_diag_ours_control_v1}"; else ROOT_OUT="${ROOT_OUT:-outputs/router_diag_v1}"; fi
 OUT="$ROOT_OUT/$DS/seed$SEED"
 MIN_AGREEMENT="${MIN_AGREEMENT:-0.99}"
 RUN_DOWNSTREAM="${RUN_DOWNSTREAM:-0}"
@@ -200,6 +205,28 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || tr
 
 # 1 ---------------------------------------------------------------------------------------
 step 1 "cache: last-token states at every layer + L19 router outputs"
+# a cache of another router file, or of only some layers (router_fix.slurm caches 16 and 19),
+# is not this run's: move it aside so it is rebuilt instead of resumed
+if [[ -f "$OUT/manifest.json" && -f "${ROUTER[$DS]}/fact_association_embeddings.pt" ]]; then
+  ASIDE="$(python - "$OUT/manifest.json" "${ROUTER[$DS]}/fact_association_embeddings.pt" <<'PY'
+import hashlib, json, sys
+m = json.load(open(sys.argv[1]))
+h = hashlib.sha256()
+with open(sys.argv[2], "rb") as f:
+    for chunk in iter(lambda: f.read(1 << 20), b""):
+        h.update(chunk)
+if m.get("router_sha256") != h.hexdigest():
+    print("other_router")
+elif len(m.get("layers") or []) != int(m.get("n_layers") or -1):
+    print("partial_layers")
+PY
+)"
+  if [[ -n "$ASIDE" ]]; then
+    DEST="${OUT}_${ASIDE}_$(date +%Y%m%d_%H%M%S)"
+    mv "$OUT" "$DEST" || stop 1 "could not move the old cache aside"
+    echo "cache at $OUT is not this run's ($ASIDE): moved to $DEST, rebuilding"
+  fi
+fi
 python -u scripts/cache_router_states.py --dataset "$DS" --seed "$SEED" --out-dir "$OUT" \
   --router-recipe "$ROUTER_RECIPE" --router-dir "${ROUTER[$DS]}" \
   --device cuda --local-files-only "${OURS_ARGS[@]}" || stop 1 "cache_router_states.py failed"
@@ -212,6 +239,12 @@ if python -u scripts/router_diag_report.py --cache-dir "$OUT"; then
   grep -E '^## ' "$OUT/report/summary.md" || true
 else
   echo "router_diag_report.py failed (the sweep reads the cache, so it still runs)"
+  STATUS=1
+fi
+if python -u scripts/router_train_umap.py --cache-dir "$OUT"; then
+  echo "-> $OUT/train_umap/summary.md (each head's own training prompts, UMAP + separability by layer)"
+else
+  echo "router_train_umap.py failed"
   STATUS=1
 fi
 
@@ -275,6 +308,7 @@ if (( ${#DONE[@]} )); then
     --combine-only || STATUS=1
   echo "-> $ROOT_OUT/ROUTER_LAYER_CHOICE.md (${#DONE[@]} of ${#DATASETS[@]} benchmarks so far)"
 fi
+python -u scripts/router_diag_explain.py --root "$ROOT_OUT" --seed "$SEED" || STATUS=1
 echo
 echo "Finish $DS seed $SEED: $(date) | +$(( (SECONDS - START) / 60 )) min | exit $STATUS"
 exit $STATUS
