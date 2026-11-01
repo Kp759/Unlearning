@@ -27,6 +27,8 @@ VARIANTS = {
     "floor + crop: sentence": "outputs/router_diag_ours_floor_crop_v1",
     "relation negatives (20)": "outputs/router_diag_ours_relneg_v1",
     "relation negatives (40)": "outputs/router_diag_ours_relneg40_v1",
+    "relation negatives (20) + crop": "outputs/router_diag_ours_relneg_crop_v1",
+    "relation negatives (40) + crop": "outputs/router_diag_ours_relneg40_crop_v1",
     "rejected: distractors + judged floor": "outputs/router_diag_ours_fix_v1",
 }
 

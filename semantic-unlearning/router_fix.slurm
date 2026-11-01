@@ -18,6 +18,7 @@
 #   relneg          precision: refit with each fact's subject asked about its other relations as
 #                   negatives (--relation-negatives), from the paper router's own prep. MCF, MQuAKE
 #   relneg40        as relneg with 40 negatives per fact
+#   relneg_crop     the relneg router routed with the subject-sentence crop (no refit); relneg40_crop alike
 #   rejected        the measured and rejected run (distractor copies + floor with the judge
 #                   fallback) -> router_diag_ours_fix_v1, kept so it can be reproduced
 #
@@ -59,7 +60,7 @@ DATASETS=(mcf zsre mquake)
 DS="${DATASETS[${SLURM_ARRAY_TASK_ID:?run as an array job}]:-}"
 [[ -n "$DS" ]] || { echo "array index out of range (0-2)" >&2; exit 2; }
 SEED="${SEED:-1}"
-VARIANT="${VARIANT:?set VARIANT=control|crop_sentence|crop_subject|floor_crop|relneg|relneg40|rejected}"
+VARIANT="${VARIANT:?set VARIANT=control|crop_sentence|crop_subject|floor_crop|relneg|relneg40|relneg_crop|relneg40_crop|rejected}"
 FLOOR="${FLOOR:-8}"
 PAPER_ROUTER="outputs/${DS}_multiseed_ours_v1/seed$SEED/L19/router"
 # the paper's router recipe (ours: 20 / 20, fuzzy subject, no PCA)
@@ -121,6 +122,14 @@ case "$VARIANT" in
     N=20; [[ "$VARIANT" == relneg40 ]] && N=40
     fit "multiseed_ours_${VARIANT}_v1" "--relation-negatives --mcf-path data/multi_counterfact.json --negatives-per-fact $N" "" reuse
     diagnose "outputs/${DS}_multiseed_ours_${VARIANT}_v1/seed$SEED/L19/router" "outputs/router_diag_ours_${VARIANT}_v1" ;;
+  relneg_crop|relneg40_crop)
+    # the relneg router (refit first if missing) routed with the subject-sentence crop: recovers
+    # prefixed paraphrases ("<unrelated sentence>. Brahms Inlet is located in") that relation
+    # negatives may push under the cutoff
+    [[ "$DS" == zsre ]] && { echo "zsRE: no relation negatives"; exit 0; }
+    BASEV="${VARIANT%_crop}"; N=20; [[ "$BASEV" == relneg40 ]] && N=40
+    fit "multiseed_ours_${BASEV}_v1" "--relation-negatives --mcf-path data/multi_counterfact.json --negatives-per-fact $N" "" reuse
+    diagnose "outputs/${DS}_multiseed_ours_${BASEV}_v1/seed$SEED/L19/router" "outputs/router_diag_ours_${VARIANT}_v1" --route-crop sentence ;;
   rejected)
     DISTRACTORS="${DISTRACTORS:-data/distractor_sentences.json}"
     WIKI="${WIKI:-/project/yl258/kp759/datasets/wikipedia_20231101_100k}"
