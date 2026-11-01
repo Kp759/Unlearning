@@ -15,6 +15,9 @@
 #                   answer-transfer check) and route_crop=sentence stored in the artifact. Two
 #                   diagnostics: router_diag_ours_floor_v1 (crop off: the floor alone) and
 #                   router_diag_ours_floor_crop_v1 (both). ~1 h.
+#   relneg          precision: refit with each fact's subject asked about its other relations as
+#                   negatives (--relation-negatives), from the paper router's own prep. MCF, MQuAKE
+#   relneg40        as relneg with 40 negatives per fact
 #   rejected        the measured and rejected run (distractor copies + floor with the judge
 #                   fallback) -> router_diag_ours_fix_v1, kept so it can be reproduced
 #
@@ -56,7 +59,7 @@ DATASETS=(mcf zsre mquake)
 DS="${DATASETS[${SLURM_ARRAY_TASK_ID:?run as an array job}]:-}"
 [[ -n "$DS" ]] || { echo "array index out of range (0-2)" >&2; exit 2; }
 SEED="${SEED:-1}"
-VARIANT="${VARIANT:?set VARIANT=control|crop_sentence|crop_subject|floor_crop|rejected}"
+VARIANT="${VARIANT:?set VARIANT=control|crop_sentence|crop_subject|floor_crop|relneg|relneg40|rejected}"
 FLOOR="${FLOOR:-8}"
 PAPER_ROUTER="outputs/${DS}_multiseed_ours_v1/seed$SEED/L19/router"
 # the paper's router recipe (ours: 20 / 20, fuzzy subject, no PCA)
@@ -64,8 +67,15 @@ OURS_FIT="--pca-dims 0 --subject-match fuzzy --positives-per-fact 20 --negatives
 --max-prefix-positives 8 --negative-answer-check --negative-plausibility-delta 1.5"
 echo "router fix | $VARIANT | $DS seed $SEED | job ${SLURM_ARRAY_JOB_ID:-}_${SLURM_ARRAY_TASK_ID} | $(hostname) | $(date) | commit $(git rev-parse HEAD)"
 
-fit() {   # fit <tag> <extra fit args> <rewrite args>: the block-19 router, as the paper's run
+fit() {   # fit <tag> <extra fit args> <rewrite args> [reuse]: the block-19 router, as the paper's run
+  # reuse: start from the paper router's prep (same facts, rewrites and hard negatives), so the
+  # refit differs from the control only in the fit arguments
   local tag="$1" router="outputs/${DS}_$1/seed$SEED/L19/router"
+  local prep="outputs/${DS}_$1/seed$SEED/L19/prep" paper_prep="outputs/${DS}_multiseed_ours_v1/seed$SEED/L19/prep"
+  if [[ "${4:-}" == reuse && ! -e "$prep" ]]; then
+    test -f "$paper_prep/router_rewrites.json" || { echo "no paper prep at $paper_prep" >&2; exit 2; }
+    mkdir -p "$(dirname "$prep")" && cp -r "$paper_prep" "$prep"
+  fi
   if [[ ! -f "$router/fact_association_embeddings.pt" ]]; then
     echo "===== fit router ($tag) | $(date)"
     FIT_EXTRA_ARGS="$OURS_FIT $2" ROUTER_REWRITES=1 REWRITE_ARGS="$3" \
@@ -102,6 +112,15 @@ case "$VARIANT" in
     R="outputs/${DS}_multiseed_ours_floor_v1/seed$SEED/L19/router"
     diagnose "$R" outputs/router_diag_ours_floor_v1 --route-crop none
     diagnose "$R" outputs/router_diag_ours_floor_crop_v1 ;;
+  relneg|relneg40)
+    # MCF / MQuAKE: the fact's subject asked with other relations of its type as negatives
+    # (fit_linear_router.py --relation-negatives: MCF relation templates, the 'preserve' half of
+    # the relations, so the diagnostics' held-out half stays unseen). relneg40: 40 negatives per
+    # fact, so the relation negatives do not displace the model-written hard negatives.
+    [[ "$DS" == zsre ]] && { echo "zsRE facts carry no Wikidata relation: relation negatives do not apply"; exit 0; }
+    N=20; [[ "$VARIANT" == relneg40 ]] && N=40
+    fit "multiseed_ours_${VARIANT}_v1" "--relation-negatives --mcf-path data/multi_counterfact.json --negatives-per-fact $N" "" reuse
+    diagnose "outputs/${DS}_multiseed_ours_${VARIANT}_v1/seed$SEED/L19/router" "outputs/router_diag_ours_${VARIANT}_v1" ;;
   rejected)
     DISTRACTORS="${DISTRACTORS:-data/distractor_sentences.json}"
     WIKI="${WIKI:-/project/yl258/kp759/datasets/wikipedia_20231101_100k}"

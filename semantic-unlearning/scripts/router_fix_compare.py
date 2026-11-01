@@ -25,6 +25,8 @@ VARIANTS = {
     "crop: sentence + subject": "outputs/router_diag_ours_crop_subject_v1",
     "floor (no judge)": "outputs/router_diag_ours_floor_v1",
     "floor + crop: sentence": "outputs/router_diag_ours_floor_crop_v1",
+    "relation negatives (20)": "outputs/router_diag_ours_relneg_v1",
+    "relation negatives (40)": "outputs/router_diag_ours_relneg40_v1",
     "rejected: distractors + judged floor": "outputs/router_diag_ours_fix_v1",
 }
 
@@ -63,9 +65,12 @@ def main(argv=None):
           "decision and the deployed routing pass (must be 0).", "",
           "Router: first 8 hex digits of the router file's sha256 and its modification time; rows "
           "compared with each other must share the router, except the floor variants (a refit).", "",
-          "| dataset | variant | router | missed | retain fires | no-association rate | recall | F1 | "
-          "crop decisions (eval / null) | parity |",
-          "|---|---|---|---|---|---|---|---|---|---|"]
+          "Same subject, other relation: the protected subject asked about a relation outside the "
+          "fact's answer group (must not fire). Same answer type: a relation in the fact's answer group "
+          "(the router treats it as the same fact; not counted as a false fire).", "",
+          "| dataset | variant | router | missed | retain fires | no-association rate | "
+          "same subject, other relation | same answer type | recall | F1 | crop decisions (eval / null) | parity |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     groups = []
     for ds in ("mcf", "zsre", "mquake"):
         for label, root in VARIANTS.items():
@@ -74,14 +79,18 @@ def main(argv=None):
                 continue
             al = m["eval"]["by_split"]["all"]
             null = ((m.get("null") or {}).get("deployment_fpr") or {}).get("rate")
+            same = ((m.get("null") or {}).get("by_group") or {}).get("null_protected_same_answer_type")
+            other = ((m.get("null") or {}).get("by_group") or {}).get("null_protected_other_relation")
             sec = manifest.get("sections") or {}
             crops = [sec.get(s, {}).get("crop_fired") for s in ("eval", "null")]
             crop = "–" if crops[0] is None else " / ".join("–" if c is None else str(c) for c in crops)
             parity = sum(v.get("route_mismatches", 0) for v in (manifest.get("hook_parity") or {}).values())
             router = (f"{manifest['router_sha256'][:8]} {manifest.get('router_mtime', '')}"
                       if manifest.get("router_sha256") else "not recorded")
+            rel = "–" if other is None else f"{other['fired']}/{other['n']}"
             md.append(f"| {NAMES[ds]} | {label} | {router} | {_forget_misses(m)} | {_retain_fires(m)} | "
-                      f"{_f(null)} | {_f(al['recall'])} | {_f(al['f1'])} | {crop} | {parity} |")
+                      f"{_f(null)} | {rel} | {'–' if same is None else str(same['fired']) + '/' + str(same['n'])} | "
+                      f"{_f(al['recall'])} | {_f(al['f1'])} | {crop} | {parity} |")
             for g, v in (m["eval"].get("by_group") or {}).items():
                 if v.get("fn") or v.get("fp"):
                     groups.append((ds, g, label, v["n"], v["fn"], v["fp"]))

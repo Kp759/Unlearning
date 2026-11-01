@@ -50,6 +50,9 @@ SPLIT_ORDER = ("forget", "paraphrase", "neighborhood", "retain", "null")
 # Loading
 # ---------------------------------------------------------------------------
 
+SAME_ANSWER_GROUP = "null_protected_same_answer_type"
+
+
 def load_section(cache_dir, section, states=False):
     cache_dir = Path(cache_dir)
     probes_path = cache_dir / f"probes_{section}.json"
@@ -609,6 +612,15 @@ def build_report(cache_dir, out_dir=None, top_k=15, umap_negatives="hard", seed=
     null = load_section(cache_dir, "null")
     if null:
         null_rows = probe_outcomes(null["probes"], null["routes"], facts)
+        # The router treats a relation in the fact's answer group (mother tongue / languages
+        # spoken, citizenship / country of origin, manufacturer / developer, ...) as the same
+        # fact: it never trains on those as negatives (linear_router.same_answer_group), since
+        # they leak the same answer. They are reported as their own group, outside the
+        # deployment false-positive rate (deployment_fpr_all keeps them in).
+        for r in null_rows:
+            pr = null["probes"][r["index"]]
+            if pr["group"] == "null_protected_other_relation" and (pr.get("meta") or {}).get("same_answer_group"):
+                r["group"] = SAME_ANSWER_GROUP
         table = {}
         for group, items in sorted(_group(null_rows, "group").items()):
             fired = sum(r["fired"] for r in items)
@@ -616,9 +628,11 @@ def build_report(cache_dir, out_dir=None, top_k=15, umap_negatives="hard", seed=
             table[group] = {"n": len(items), "should_fire": sum(r["should_fire"] for r in items),
                             "fired": fired, "fire_rate": wilson(fired, len(items)),
                             "ungated_max_p_ge_0.5": ungated}
-        negatives = [r for r in null_rows if not r["should_fire"]]
+        everything = [r for r in null_rows if not r["should_fire"]]
+        negatives = [r for r in everything if r["group"] != SAME_ANSWER_GROUP]
         metrics["null"] = {"by_group": table, "deployment_fpr": wilson(
-            sum(r["fired"] for r in negatives), len(negatives))}
+            sum(r["fired"] for r in negatives), len(negatives)),
+            "deployment_fpr_all": wilson(sum(r["fired"] for r in everything), len(everything))}
         gens = manifest.get("null_generations")
         if gens:
             metrics["null"]["generations"] = {k: v for k, v in gens.items() if k != "rows"}
@@ -630,9 +644,14 @@ def build_report(cache_dir, out_dir=None, top_k=15, umap_negatives="hard", seed=
             ci = t["fire_rate"]
             md.append(f"| {group} | {t['n']} | {t['should_fire']} | {t['fired']} | {_fmt(ci['rate'])} "
                       f"[{_fmt(ci['low'])}, {_fmt(ci['high'])}] | {t['ungated_max_p_ge_0.5']} |")
-        d = metrics["null"]["deployment_fpr"]
-        md += ["", f"**Deployment false-positive rate** (fires on a must-not-fire null prompt): "
-               f"{_fmt(d['rate'])} [{_fmt(d['low'])}, {_fmt(d['high'])}], {d['k']}/{d['n']}.", ""]
+        d, da = metrics["null"]["deployment_fpr"], metrics["null"]["deployment_fpr_all"]
+        md += ["", f"**Deployment false-positive rate** (fires on a must-not-fire null prompt; "
+               f"`{SAME_ANSWER_GROUP}` left out, see below): "
+               f"{_fmt(d['rate'])} [{_fmt(d['low'])}, {_fmt(d['high'])}], {d['k']}/{d['n']}. "
+               f"With it: {_fmt(da['rate'])}, {da['k']}/{da['n']}.", "",
+               f"`{SAME_ANSWER_GROUP}`: the protected subject asked with a relation in the fact's answer "
+               "group (e.g. languages spoken for a mother-tongue fact). The router treats these as the "
+               "same fact and never trains on them as negatives, since they leak the same answer.", ""]
         if gens:
             md.append(f"Generations on the {gens['fired_null_prompts']} fired null prompts "
                       f"(ours `{gens.get('ours_dir')}`): output changed on {gens.get('changed')}, "
