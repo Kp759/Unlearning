@@ -89,6 +89,18 @@ class EarlyWriteCausalLM(nn.Module):
         self._stats = {"hook_calls": 0, "active_batch_rows": 0, "active_token_positions": 0,
                        "active_fact_counts": [0] * len(self.facts),
                        "oracle_lookups": 0, "oracle_hits": 0}
+        # route_crop (linear_router.ROUTE_CROPS): route the subject's sentence when the full
+        # prompt fires nothing. Stored in the router artifact; "none" for older artifacts.
+        from linear_router import ROUTE_CROPS, subject_words
+
+        self.route_crop = str(artifact.get("route_crop") or "none")
+        if self.route_crop not in ROUTE_CROPS:
+            raise ValueError(f"route_crop must be one of {ROUTE_CROPS}")
+        if self.route_crop != "none" and self.factor is not None:
+            raise ValueError("route_crop needs the linear router")
+        self._crop_subjects = [str(f.get("subject", "")) for f in self.facts]
+        self._crop_words = [subject_words(s) for s in self._crop_subjects]
+        self._stats.update({"crop_prompts": 0, "crop_views": 0, "crop_fired": 0})
         self._handle = base_model.model.layers[self.write_layer].register_forward_hook(self._hook)
 
     # ------------------------------------------------------------------ HF-ish surface
@@ -195,13 +207,50 @@ class EarlyWriteCausalLM(nn.Module):
                 for i, r in enumerate(missing):
                     self.route_cache[keys[r]] = int(decided[i])
             else:
-                self.router_lm.set_association_prefix_lengths([len(keys[r]) for r in missing])
-                with torch.no_grad():
-                    self.router_lm(input_ids=batch, attention_mask=att, use_cache=False)
+                facts, eligible = self._route_token_lists([keys[r] for r in missing], device)
                 for i, r in enumerate(missing):
-                    active = self.bank.last_active_fact_indices[i]
-                    self.route_cache[keys[r]] = int(active[0]) if active else -1
+                    self.route_cache[keys[r]] = facts[i]
+                if self.route_crop != "none":
+                    self._route_crops([keys[r] for r, f, e in zip(missing, facts, eligible)
+                                       if f < 0 and e], device)
         return [self.route_cache[k] for k in keys]
+
+    def _route_token_lists(self, lists, device):
+        """Router-bank decisions for token lists, right-padded in one batch:
+        ([fact or -1], [some head was subject-eligible])."""
+        width = max(len(x) for x in lists)
+        batch = torch.zeros((len(lists), width), dtype=torch.long, device=device)
+        att = torch.zeros_like(batch)
+        for i, x in enumerate(lists):
+            batch[i, :len(x)] = torch.tensor(x, device=device)
+            att[i, :len(x)] = 1
+        self.router_lm.set_association_prefix_lengths([len(x) for x in lists])
+        with torch.no_grad():
+            self.router_lm(input_ids=batch, attention_mask=att, use_cache=False)
+        facts = [int(a[0]) if a else -1 for a in self.bank.last_active_fact_indices]
+        eligible = [s.get("best_eligible_logit") is not None for s in self.bank.last_route_scores]
+        return facts, eligible
+
+    def _route_crops(self, keys, device):
+        """route_crop: a subject-eligible prompt on which nothing fired is routed again as the
+        sentence naming its subject (linear_router.subject_crops); the first view that fires
+        decides. Cached under the full prompt, so the edit pass is unchanged."""
+        if not keys:
+            return
+        from linear_router import crop_token_ids
+
+        tok = self.bank.ensure_tokenizer()
+        views = [(k, c) for k in keys
+                 for c in crop_token_ids(tok, k, self._crop_words, self._crop_subjects, self.route_crop)]
+        self._stats["crop_prompts"] += len(keys)
+        self._stats["crop_views"] += len(views)
+        if not views:
+            return
+        facts, _ = self._route_token_lists([c for _, c in views], device)
+        for (k, _), f in zip(views, facts):
+            if f >= 0 and self.route_cache.get(k, -1) < 0:
+                self.route_cache[k] = f
+                self._stats["crop_fired"] += 1
 
     def _subject_positions(self, prompt, fact):
         ids = [t for _, t in prompt]

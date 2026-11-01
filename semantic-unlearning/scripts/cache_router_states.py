@@ -50,6 +50,8 @@ import time
 import torch
 
 from linear_router import (
+    ROUTE_CROPS,
+    crop_token_ids,
     decide_routes,
     fuzzy_subject_in_text,
     is_linear_router_artifact,
@@ -195,6 +197,81 @@ def route_section(states_l, ids_list, artifact, tok):
     decision = decide_routes(logits, eligible, threshold, margin)
     return {"logits": logits, "stage1_logits": stage1, "eligible": eligible, "eligible_exact": exact,
             **{k: v.cpu() for k, v in decision.items()}}
+
+
+def apply_route_crops(model, tok, ids_list, routes, artifact, mode, *, layer, batch_size, pad_id):
+    """route_crop, offline and exactly as the routing pass (early_write._route_crops): a prompt
+    with an eligible subject on which nothing fired is routed again as the sentence naming the
+    subject; the first view that fires replaces the prompt's whole routing row (logits,
+    eligibility, decision), so the report reads the decision that was deployed.
+    Adds routes["crop_views"] [P] (views tried) and routes["crop_fired"] [P] bool."""
+    n = len(ids_list)
+    routes["crop_views"] = torch.zeros(n, dtype=torch.long)
+    routes["crop_fired"] = torch.zeros(n, dtype=torch.bool)
+    if mode == "none":
+        return routes
+    subjects = [str(f.get("subject", "")) for f in artifact["facts"]]
+    words = [subject_words(s) for s in subjects]
+    todo = [i for i in range(n) if not bool(routes["active"][i]) and bool(routes["eligible"][i].any())]
+    views = [(i, c) for i in todo for c in crop_token_ids(tok, ids_list[i], words, subjects, mode)]
+    for i, _ in views:
+        routes["crop_views"][i] += 1
+    if not views:
+        return routes
+    states = capture_last_token_states(model, [c for _, c in views], [layer], batch_size=batch_size,
+                                       pad_id=pad_id)
+    crop = route_section(states[0], [c for _, c in views], artifact, tok)
+    for v, (i, _) in enumerate(views):
+        if bool(routes["crop_fired"][i]) or not bool(crop["active"][v]):
+            continue
+        routes["crop_fired"][i] = True
+        for key, value in crop.items():
+            if torch.is_tensor(value) and torch.is_tensor(routes.get(key)) and routes[key].shape[0] == n:
+                routes[key][i] = value[v].to(routes[key].dtype)
+    return routes
+
+
+def crop_route_parity(model, artifact, tok, ids_list, offline, sample, batch_size, pad_id, seed=0, tol=0.15):
+    """With route_crop, the deployed decision is the routing pass's (early_write), not the bank
+    hook's alone: route a sample through EarlyWriteCausalLM._route, batched and one at a time,
+    and compare with the offline decision (apply_route_crops)."""
+    from early_write import load_early_write_artifact
+
+    device = next(model.parameters()).device
+    router_only = dict(artifact)
+    router_only["rows"] = torch.zeros_like(torch.as_tensor(artifact["rows"]))
+    router_only.pop("early_write", None)
+    ew, _ = load_early_write_artifact(model, router_only)
+    ew.bank.tokenizer = tok
+    g = torch.Generator().manual_seed(seed)
+    picked = torch.randperm(len(ids_list), generator=g)[:int(sample)].tolist()
+    report = {}
+    try:
+        for mode, size in (("batched", int(batch_size)), ("single", 1)):
+            ew.route_cache = {}
+            mismatches = []
+            for start in range(0, len(picked), size):
+                rows = picked[start:start + size]
+                width = max(len(ids_list[i]) for i in rows)
+                input_ids = torch.full((len(rows), width), int(pad_id), dtype=torch.long)
+                mask = torch.zeros_like(input_ids)
+                for r, i in enumerate(rows):
+                    input_ids[r, :len(ids_list[i])] = torch.tensor(ids_list[i])
+                    mask[r, :len(ids_list[i])] = 1
+                got = ew._route(input_ids.to(device), mask.to(device), [len(ids_list[i]) for i in rows])
+                for r, i in enumerate(rows):
+                    hook = [got[r]] if got[r] >= 0 else []
+                    expected = [int(offline["fact"][i])] if bool(offline["active"][i]) else []
+                    if hook != expected:
+                        mismatches.append({"index": i, "hook": hook, "offline": expected,
+                                           "borderline": borderline(offline, i, artifact, tol)})
+            real = [m for m in mismatches if not m["borderline"]]
+            report[mode] = {"prompts": len(picked), "route_mismatches": len(real),
+                            "borderline_ties": len(mismatches) - len(real), "tolerance": tol,
+                            "examples": (real + [m for m in mismatches if m["borderline"]])[:10]}
+    finally:
+        ew.close()
+    return report
 
 
 @torch.no_grad()
@@ -392,6 +469,9 @@ def main(argv=None):
                         help="an ours run dir: generate base vs ours on the fired null prompts")
     parser.add_argument("--max-null-generations", type=int, default=100)
     parser.add_argument("--max-new-tokens", type=int, default=24)
+    parser.add_argument("--route-crop", choices=ROUTE_CROPS, default=None,
+                        help="routing pass rule (linear_router.subject_crops); default: the router "
+                             "artifact's route_crop, 'none' for older routers")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
 
@@ -410,6 +490,8 @@ def main(argv=None):
     if artifact.get("learned_subject") is not None:
         raise ValueError("hybrid (learned subject) routers are not supported: eligibility "
                          "here is the exact (or fuzzy) subject rule")
+    route_crop = args.route_crop or str(artifact.get("route_crop") or "none")
+    artifact["route_crop"] = route_crop
     sections = [s for s in args.sections.split(",") if s]
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -448,6 +530,7 @@ def main(argv=None):
               "model_path": str(model_path), "router_layer": router_layer, "layers": layers,
               "n_layers": n_layers, "gate_mode": str(artifact.get("gate_mode", "threshold")),
               "subject_match": subject_match_of(artifact), "router_recipe": args.router_recipe,
+              "route_crop": route_crop,
               "threshold": artifact.get("threshold"),
               "ambiguity_margin": float(artifact.get("ambiguity_margin", 0.5)),
               "router_fit": artifact.get("router_fit", {}),
@@ -469,20 +552,24 @@ def main(argv=None):
         states = capture_last_token_states(model, ids, layers, batch_size=args.batch_size,
                                            pad_id=tok.pad_token_id)
         routes = route_section(states[layers.index(router_layer)], ids, artifact, tok)
+        routes = apply_route_crops(model, tok, ids, routes, artifact, route_crop, layer=router_layer,
+                                   batch_size=args.batch_size, pad_id=tok.pad_token_id)
         torch.save({"layers": layers, "states": states, "dtype": dtype}, out / f"states_{section}.pt")
         torch.save(routes, out / f"router_{section}.pt")
         (out / f"probes_{section}.json").write_text(json.dumps(section_probes) + "\n")
         report["sections"][section] = {"probes": len(section_probes), "dtype": dtype,
                                        "seconds": round(time.time() - t0, 1),
                                        "fired": int(routes["active"].sum()),
+                                       "crop_fired": int(routes["crop_fired"].sum()),
                                        "counts": _counts(section_probes)}
         print(json.dumps({"phase": "cached", "section": section, "probes": len(section_probes),
                           "fired": int(routes["active"].sum()),
                           "seconds": report["sections"][section]["seconds"]}), flush=True)
         if section in ("eval", "perturbed") and args.parity_sample:
             # perturbed = typo / case / partial-name variants: where fuzzy eligibility matters
-            parity = hook_parity(model, artifact, tok, ids, routes, args.parity_sample,
-                                 args.batch_size, tok.pad_token_id)
+            check = hook_parity if route_crop == "none" else crop_route_parity
+            parity = check(model, artifact, tok, ids, routes, args.parity_sample,
+                           args.batch_size, tok.pad_token_id)
             prefix = "" if section == "eval" else f"{section}_"
             report.setdefault("hook_parity", {}).update({prefix + k: v for k, v in parity.items()})
             print(json.dumps({"phase": "hook_parity", "section": section,

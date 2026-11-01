@@ -178,3 +178,34 @@ fires more readily on it. The floor halves MQuAKE's misses, but the yes/no judge
 accepts rewrites that ask about other facts of the subject, so same-subject retain questions now
 fire (4 → 44). A variant worth trying later is the floor without the judge fallback (only rewrites
 that pass the strict answer-transfer check).
+
+## Fixes under test: subject-sentence routing and the floor without the judge
+
+Both target the misses left by the paper's router; results pending (`router_fix.slurm`).
+
+1. **Subject-sentence routing** (`route_crop`, `linear_router.subject_crops`). When the full
+   prompt fires nothing although a subject is eligible, the routing pass routes again the
+   shortest run of trailing sentences that still names a subject, and the first view that fires
+   decides. Taking either decision can only add fires. The edit pass still writes on the full
+   prompt, and chat-templated prompts are never cropped. Targets MCF's paraphrases, which
+   put an unrelated sentence first. `sentence_subject` also routes the text from the subject on
+   when two or more words follow it, for prompts with no sentence break. It is stored in the
+   router artifact (`fit_linear_router.py --route-crop`) and applied by
+   `early_write.EarlyWriteCausalLM._route`, the routing pass of every SURE run. The diagnostics
+   apply the same rule offline (`cache_router_states.py --route-crop`), and their hook-parity
+   check then runs through that routing pass. Cost: one more router pass up to block R, only
+   for eligible prompts that fired nothing and have a sentence break before the subject.
+2. **Coverage floor without the judge fallback** (`build_router_rewrites.py --floor 8`, now
+   `--floor-fallback none` by default). Every floor rewrite must pass the strict
+   answer-transfer check. Targets the zsRE / MQuAKE question misses without the same-subject
+   false fires the judge caused.
+
+```bash
+for v in crop_sentence crop_subject floor_crop; do sbatch --export=ALL,VARIANT=$v router_fix.slurm; done
+python scripts/router_fix_compare.py          # -> outputs/ROUTER_FIX_COMPARISON.md
+```
+
+A variant is adopted only if it lowers the misses without raising the retain or
+no-association false fires, and parity stays 0. The 5-seed paper run then takes
+`ROUTER_RECIPE=ours_crop` (the paper's router, crop on) or `ROUTER_RECIPE=ours_floor`
+(floor + crop) in `run_l16_paper_one.sh`.

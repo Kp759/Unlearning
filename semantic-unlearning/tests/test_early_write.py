@@ -139,3 +139,39 @@ def test_force_route_applies_the_row_to_an_unrouted_prompt():
         logits = model(input_ids=UNROUTED, use_cache=False).logits
     assert model.last_active_fact_indices == [[1]] and not torch.equal(logits, reference)
     model.close()
+
+
+def test_route_crop_routes_the_subject_sentence_when_the_full_prompt_fires_nothing(monkeypatch):
+    """route_crop: an eligible prompt on which nothing fired is routed again as its subject's
+    sentence; the decision is cached under the full prompt. A prompt that fired, or whose
+    subject is not eligible, is never re-routed."""
+    import linear_router
+
+    base = _tiny_llama()
+    art = _artifact()
+    art["route_crop"] = "sentence"
+    model = EarlyWriteCausalLM(base, art, write_layer=0)
+    full, other, cropped = (1, 9, 9, 20, 21, 8), (1, 30, 8), (1, 20, 21, 8)
+    calls = []
+
+    def fake_route(lists, device):
+        calls.append([tuple(x) for x in lists])
+        decided = {full: (-1, True), other: (-1, False), cropped: (0, True)}
+        return [decided[tuple(x)][0] for x in lists], [decided[tuple(x)][1] for x in lists]
+    monkeypatch.setattr(model, "_route_token_lists", fake_route)
+    monkeypatch.setattr(model.bank, "ensure_tokenizer", lambda: None)
+    monkeypatch.setattr(linear_router, "crop_token_ids",
+                        lambda tok, ids, w, s, mode: [list(cropped)] if tuple(ids) == full else [])
+    ids = torch.tensor([list(full), list(other) + [0, 0, 0]])
+    mask = torch.tensor([[1] * 6, [1] * 3 + [0] * 3])
+    assert model._route(ids, mask, [6, 3]) == [0, -1]
+    assert calls == [[full, other], [cropped]]                     # only the eligible miss is cropped
+    assert model.counters()["crop_fired"] == 1 and model.counters()["crop_prompts"] == 1
+    assert model._route(ids, mask, [6, 3]) == [0, -1] and len(calls) == 2      # cached
+    model.close()
+
+
+def test_route_crop_is_off_for_older_artifacts():
+    model = EarlyWriteCausalLM(_tiny_llama(), _artifact(), write_layer=0)
+    assert model.route_crop == "none"
+    model.close()

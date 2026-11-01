@@ -275,6 +275,36 @@ def test_ours_fuzzy_router_end_to_end(tmp_path, model_dir):
     assert "ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER=26" in rls.downstream_command(manifest, 26)
 
 
+def test_route_crop_end_to_end(tmp_path, model_dir):
+    """--route-crop sentence: stored in the router artifact, applied offline by the diagnostics
+    and through the real routing pass (EarlyWriteCausalLM._route); the two agree (parity 0)."""
+    import zsre_zero_unlearn_official_eval as zsre
+
+    _, tok = _load(model_dir)
+    forget, _ = zsre.load_official_eval_records(ZSRE, tok, forget_num=50, retain_num=1000, seed=1)
+    facts = [{"id": f"zsre_forget_{r['case_id']}", "subject": r["requested_rewrite"]["subject"],
+              "relation": "zsre_direct_request_context", "case_id": int(r["case_id"]),
+              "canonical_prompt": r["requested_rewrite"]["prompt"].format(r["requested_rewrite"]["subject"])}
+             for r in forget]
+    router = _fit_router(tmp_path, model_dir, facts, tok, fit_args=(
+        "--subject-match", "fuzzy", "--positives-per-fact", "6", "--negatives-per-fact", "4",
+        "--max-prefix-positives", "4", "--route-crop", "sentence"))
+    art = torch.load(router / "fact_association_embeddings.pt", weights_only=False)
+    assert art["route_crop"] == "sentence"
+    out = _cache(tmp_path, router, model_dir, "zsre",
+                 ["--zsre-path", str(ZSRE), "--no-ppl", "--router-recipe", "ours"])
+    manifest, _ = _check_cache(out, model_dir)          # parity through the routing pass: 0
+    assert manifest["route_crop"] == "sentence"
+    tried = 0
+    for section in ("eval", "perturbed"):
+        routes = torch.load(out / f"router_{section}.pt", weights_only=False)
+        tried += int(routes["crop_views"].sum())
+        fired = routes["crop_fired"]
+        assert bool(routes["active"][fired].all())       # a crop that fired is the decision
+    assert tried > 0                                     # the context-prefixed probes were cropped
+    report.build_report(out)
+
+
 @pytest.mark.skipif(not RWKU.exists(), reason="data/rwku not present")
 def test_rwku_end_to_end(tmp_path, model_dir):
     from rwku_batch50 import build_batch_split

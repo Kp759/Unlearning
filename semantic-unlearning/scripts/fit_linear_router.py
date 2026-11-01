@@ -38,6 +38,7 @@ import time
 import torch
 
 from linear_router import (
+    ROUTE_CROPS,
     ARCHITECTURE,
     DECISION_RULES,
     bias_calibration_record,
@@ -500,6 +501,10 @@ def main(argv=None):
                         help="fuzzy: a prompt is also eligible when the subject's words match the "
                              "decoded prompt up to case/accents/spacing and one edit per word "
                              "(linear_router.fuzzy_subject_in_text); same rule at runtime")
+    parser.add_argument("--route-crop", choices=ROUTE_CROPS, default="none",
+                        help="routing pass: when the full prompt fires nothing although a subject is "
+                             "eligible, route the sentence naming the subject (linear_router.subject_crops); "
+                             "stored in the artifact, applied by early_write.EarlyWriteCausalLM")
     parser.add_argument("--distractors", default=None,
                         help="JSON of unrelated natural sentences (build_distractor_sentences.py): each fact "
                              "gets --distractors-per-fact positives and negatives copied with one in front")
@@ -898,6 +903,7 @@ def main(argv=None):
         "source_run_dir": str(run_dir),
         "head_sharing": head_sharing_report or {"mode": "fact"},
         "subject_match": args.subject_match,
+        "route_crop": args.route_crop,
         "unmasked_fit": bool(args.unmasked_fit),
         "free_fire_logit": args.free_fire_logit,
         "extra_negatives": extra_negative_count,
@@ -941,6 +947,8 @@ def main(argv=None):
         parity = runtime_parity(model, bank, tokenizer, prompts, offline, args.batch_size, args.device)
 
     artifact = bank.artifact()
+    # read by the routing pass (early_write.EarlyWriteCausalLM); the bank itself never crops
+    artifact["route_crop"] = args.route_crop
     # Carry the source run's benchmark metadata (e.g. MQuAKE's
     # atomic_case_to_association_id, ZsRE's dataset / target_new_used): the
     # official evaluators validate it. Only V2/V1 router internals are dropped.

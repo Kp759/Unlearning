@@ -453,7 +453,7 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
                       kinds: Sequence[str] = KINDS, langs: Sequence[str] = TRAIN_LANGS, n_para: int = 6,
                       n_question: int = 3, n_multiturn: int = 2, judge: bool = True, min_views: int = 8,
                       judge_rule: str = "transfer", batch_size: int = 16, floor: int = 0, n_floor: int = 8,
-                      log=print) -> Tuple[Dict[str, List[Candidate]], Dict]:
+                      floor_fallback: str = "none", log=print) -> Tuple[Dict[str, List[Candidate]], Dict]:
     """{target id: kept candidates} and stats. `validate(candidates)` renders each candidate as
     the dataset's router prompt and returns it if the base model answers it with the target's
     answer (the meaning check), else None. Multi-turn needs a chat-format `validate`.
@@ -461,10 +461,13 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
     each fact's own cutoff, judge_cutoffs) or "absolute" (yes/no judge, P(yes) >= 0.5).
     floor: coverage floor. Facts with fewer than `floor` kept rewrites after the two rounds get a
     third round of `n_floor` plain questions (unfinished sentences) or plain rewordings (questions),
-    _floor_ask. For a fact the answer-transfer check cannot serve (refs: the base model does not
-    answer its own prompt, or answers by copying), this round uses the yes/no same-fact judge at
-    P(yes) >= 0.5 instead, since otherwise every rewrite of that fact is dropped. Every other check
-    (form, subject present, answer absent, novelty, meaning) is unchanged."""
+    _floor_ask. Every check (form, subject present, answer absent, novelty, meaning, answer
+    transfer) is unchanged, so a fact the answer-transfer check cannot serve (refs: the base model
+    does not answer its own prompt, or answers by copying) gains nothing.
+    floor_fallback="judge" instead lets those facts use the yes/no same-fact judge at P(yes) >= 0.5.
+    Measured on seed 1 (README_ROUTER_DIAGNOSTICS.md): the judge accepts questions about another
+    relation of the same subject with the same answer, and MQuAKE retain false fires rose 4 -> 44,
+    so the default is "none"."""
     stats = {"candidates": 0, "kept": 0, "dropped_form": 0, "dropped_near_duplicate": 0,
              "dropped_base_does_not_answer": 0, "dropped_not_same_fact": 0, "dropped_duplicate_prompt": 0,
              "second_round_targets": 0}
@@ -645,7 +648,10 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
                         k += 1
                     if k >= 100 + n_floor:
                         break
-            unusable = frozenset(t.id for t in low if refs and t.id not in usable)
+            if floor_fallback not in ("none", "judge"):
+                raise ValueError("floor_fallback must be 'none' or 'judge'")
+            unusable = frozenset(t.id for t in low if refs and t.id not in usable
+                                 and floor_fallback == "judge")
             stats["floor_targets_judge_fallback"] = len(unusable)
             check(cand, fallback=unusable)
             stats["floor_targets_still_short"] = sum(len(kept[t.id]) < int(floor) for t in low)

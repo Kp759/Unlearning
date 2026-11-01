@@ -215,6 +215,75 @@ def fuzzy_subject_in_text(text, words_of_subject, min_len=4):
     return False
 
 
+
+# ---------------------------------------------------------------------------
+# Subject-sentence routing (route_crop): a second look at the sentence naming the subject
+# ---------------------------------------------------------------------------
+# A request is usually phrased in the sentence that names the subject. A prompt that puts an
+# unrelated sentence first ("After some hesitation this was accepted on 25 January. Brahms Inlet
+# is located in") moves the last-token state enough that the head scores ~0, and training on
+# such copies did not fix it (README_ROUTER_DIAGNOSTICS.md). route_crop routes the full prompt
+# first; if nothing fires although a subject is eligible, it routes these shorter views and uses
+# the first that fires. Only the routing decision changes: the write still edits the full prompt.
+#   "sentence"          the shortest run of trailing sentences that still names a subject
+#   "sentence_subject"  also the text from the subject on, when at least two words follow it
+#                       ("References Category:Superconductivity Brahms Inlet is in")
+ROUTE_CROPS = ("none", "sentence", "sentence_subject")
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?;:])\s+|\n+")
+
+
+def _names_subject(text, word_lists):
+    return any(fuzzy_subject_in_text(text, w) for w in word_lists if w)
+
+
+def subject_crops(text, word_lists, subjects, mode):
+    """Shorter views of `text` that start where the subject's sentence (or the subject) starts.
+    word_lists: subject_words of every fact's subject; subjects: the subject strings. Returns
+    distinct non-empty strings, each shorter than `text`; [] for mode "none"."""
+    if mode not in ROUTE_CROPS:
+        raise ValueError(f"route_crop must be one of {ROUTE_CROPS}")
+    text = str(text)
+    if mode == "none" or not text.strip():
+        return []
+    out = []
+    for m in reversed(list(_SENTENCE_BREAK.finditer(text))):
+        tail = text[m.end():]
+        if tail.strip() and _names_subject(tail, word_lists):
+            out.append(tail)
+            break
+    if mode == "sentence_subject":
+        low = text.casefold()
+        for s in sorted({str(s) for s in subjects if str(s).strip()}, key=len, reverse=True):
+            start = low.rfind(s.casefold())
+            if start <= 0:
+                continue
+            tail = text[start:]
+            if len(tail[len(s):].split()) >= 2:
+                out.append(tail)
+    seen, crops = set(), []
+    for c in out:
+        c = c.strip()
+        if c and len(c) < len(text.strip()) and c not in seen:
+            seen.add(c)
+            crops.append(c)
+    return crops
+
+
+def crop_token_ids(tok, ids, word_lists, subjects, mode):
+    """subject_crops of a tokenised prompt, re-tokenised as a fresh prompt (with the
+    tokenizer's own BOS). Prompts carrying special tokens beyond a leading BOS (chat templates)
+    are not cropped: a crop would drop the template."""
+    if mode == "none":
+        return []
+    ids = [int(t) for t in ids]
+    special = set(int(s) for s in (getattr(tok, "all_special_ids", None) or []))
+    bos = getattr(tok, "bos_token_id", None)
+    body = ids[1:] if (bos is not None and ids and ids[0] == int(bos)) else ids
+    if any(t in special for t in body):
+        return []
+    text = tok.decode(ids, skip_special_tokens=True)
+    return [list(tok(c)["input_ids"]) for c in subject_crops(text, word_lists, subjects, mode)]
+
 def eligibility_matrix(tokenizer, prompts, subject_patterns, *, subjects=None, subject_match="exact"):
     """[P, N] bool: prompt p contains a complete subject-token pattern of fact i.
 
@@ -2036,13 +2105,17 @@ class LinearClassifierAssociationBank(nn.Module):
                                        self.ls_mean))                       # [B, S]
         return probs[:, self.ls_fact_subject] >= self.learned_subject["threshold"]
 
-    def _fuzzy_subject_mask(self, prefix_lengths):
+    def ensure_tokenizer(self):
         if self.tokenizer is None and self._tokenizer_source:
             # evaluators load the bank without a tokenizer: use the base model's own (local files)
             from transformers import AutoTokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(self._tokenizer_source, local_files_only=True)
         if self.tokenizer is None:
-            raise RuntimeError("subject_match='fuzzy' needs bank.tokenizer (set it after loading)")
+            raise RuntimeError("fuzzy matching / route_crop need bank.tokenizer (set it after loading)")
+        return self.tokenizer
+
+    def _fuzzy_subject_mask(self, prefix_lengths):
+        self.ensure_tokenizer()
         rows = self._input_ids.detach().cpu().tolist()
         prefixes = prefix_lengths.detach().cpu().tolist()
         attention = (self._attention_mask.detach().cpu().bool().tolist()

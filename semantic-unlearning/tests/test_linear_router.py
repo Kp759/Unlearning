@@ -618,3 +618,44 @@ def test_distractor_copies_for_positives_and_negatives():
     assert all(p.split(". ", 1)[0] + "." in sentences for p in copies)
     assert all("Rome" not in p and "once played" not in p for p in copies)
     assert report["positives_added"] == 2 and report["negatives_added"] >= 1
+
+
+SUBJECTS = ["Brahms Inlet", "Shebelle River", "Steve Jobs", "Sidley Austin"]
+WORDS = None
+
+
+def _crops(text, mode="sentence"):
+    from linear_router import subject_crops, subject_words
+    return subject_crops(text, [subject_words(s) for s in SUBJECTS], SUBJECTS, mode)
+
+
+def test_subject_crops_on_the_routers_misses():
+    """route_crop: the sentence naming the subject is routed when the full prompt fires nothing.
+    The prompts are seed-1 MCF misses (an unrelated sentence first) and seed-1 MQuAKE ones."""
+    assert _crops("After some hesitation this was accepted on 25 January. Brahms Inlet is located in") == \
+        ["Brahms Inlet is located in"]
+    assert _crops("She was passed to the MoWT and renamed Empire Commerce. Shebelle River, in") == \
+        ["Shebelle River, in"]
+    assert _crops("Brahms Inlet is located in") == []                       # nothing shorter
+    assert _crops("What is the country of citizenship of Steve Jobs?") == []
+    assert _crops("Steve Jobs was born in 1955. In which country was he a citizen?") == []   # the
+    # sentence naming the subject is not the one asking: no crop, the full prompt decides
+    assert _crops("References Category:Superconductivity Brahms Inlet is in") == []           # no break
+    assert _crops("References Category:Superconductivity Brahms Inlet is in", "sentence_subject") == \
+        ["Brahms Inlet is in"]
+    assert _crops("What is the country of citizenship of Steve Jobs?", "sentence_subject") == []
+    assert _crops("Brahms Inlet is located in", "none") == []
+
+
+def test_crop_token_ids_retokenise_and_skip_chat_prompts():
+    from linear_router import crop_token_ids, subject_words
+    from test_router_diag import _tokenizer
+    tok = _tokenizer()
+    words = [subject_words(s) for s in SUBJECTS]
+    ids = tok("Enrollment in 2004 was 2,792 students. Brahms Inlet is located in")["input_ids"]
+    (crop,) = crop_token_ids(tok, ids, words, SUBJECTS, "sentence")
+    assert crop == tok("Brahms Inlet is located in")["input_ids"] and crop[0] == tok.bos_token_id
+    chat = tok.apply_chat_template([{"role": "user", "content": "Hi there. Brahms Inlet is located in"}],
+                                   tokenize=True, add_generation_prompt=True)
+    chat = chat["input_ids"] if isinstance(chat, dict) else list(chat)
+    assert crop_token_ids(tok, chat, words, SUBJECTS, "sentence") == []

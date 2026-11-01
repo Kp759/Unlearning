@@ -69,7 +69,7 @@
 # Other models (scripts/paper_model_config.sh sets all of these; defaults = Llama-3.2-3B):
 #      MODEL_PATH (default: from the reference manifests), MODEL_TAG (prefix of the router
 #      dirs, outputs/<ds>_<MODEL_TAG>_multiseed_regular_v1/...; empty = the 3B dirs),
-#      ROUTER_LAYER (19), ONEPASS (0 | 1), ROUTER_RECIPE (regular_v1 | ours),
+#      ROUTER_LAYER (19), ONEPASS (0 | 1), ROUTER_RECIPE (regular_v1 | ours | ours_crop | ours_floor),
 #      LENS_TYPE (logit; ONEPASS=1: none | jlens), LENS_LAYER (24, used when LENS_TYPE != none),
 #      V22_RELATION_LAYERS ("19 23 24 27"),
 #      V22_RELATION_CONCAT (19,23,27), BASELINE_ARGS (extra paper_baselines.py flags)
@@ -89,18 +89,29 @@ RL="$(printf '%02d' "$ROUTER_LAYER")"
 LENS_LAYER="${LENS_LAYER:-24}"
 MP="${MODEL_TAG:+${MODEL_TAG}_}"   # router-dir prefix, empty for the 3B runs
 [[ -n "${MODEL_PATH:-}" ]] && export MODEL_PATH   # the layer-sweep scripts pick it up
+REWRITE_ARGS=""                                  # never inherited: only ours_floor sets it
 case "$ROUTER_RECIPE" in
   ours)
     FIT_EXTRA_ARGS="--pca-dims 0 --subject-match fuzzy --positives-per-fact 20 --negatives-per-fact 20"
     FIT_EXTRA_ARGS+=" --max-prefix-positives 8 --negative-answer-check --negative-plausibility-delta 1.5"
     ROUTER_REWRITES=1
     ZSRE_REWORD_TAG="${ZSRE_REWORD_TAG:-none}" ;;   # ZsRE uses this router, not the reworded_v2 one
+  ours_crop|ours_floor)
+    # ours + subject-sentence routing (route_crop=sentence; README_ROUTER_DIAGNOSTICS.md).
+    # ours_crop: the ours router itself (copied, heads identical) with the crop switched on.
+    # ours_floor: refit with the rewrite coverage floor (no judge fallback) and the crop.
+    FIT_EXTRA_ARGS="--pca-dims 0 --subject-match fuzzy --positives-per-fact 20 --negatives-per-fact 20"
+    FIT_EXTRA_ARGS+=" --max-prefix-positives 8 --negative-answer-check --negative-plausibility-delta 1.5"
+    FIT_EXTRA_ARGS+=" --route-crop sentence"
+    ROUTER_REWRITES=1
+    [[ "$ROUTER_RECIPE" == ours_floor ]] && REWRITE_ARGS="--floor ${FLOOR:-8} --floor-fallback none"
+    ZSRE_REWORD_TAG="${ZSRE_REWORD_TAG:-none}" ;;
   regular_v1)
     FIT_EXTRA_ARGS="--positives-per-fact 0 --negatives-per-fact 0 --pca-dims 0,64,256"
     ROUTER_REWRITES=0 ;;
-  *) echo "ROUTER_RECIPE must be ours or regular_v1" >&2; exit 2 ;;
+  *) echo "ROUTER_RECIPE must be ours, ours_crop, ours_floor or regular_v1" >&2; exit 2 ;;
 esac
-export FIT_EXTRA_ARGS ROUTER_REWRITES            # read by run_<ds>_layer_sweep_one.sh's router fit
+export FIT_EXTRA_ARGS ROUTER_REWRITES REWRITE_ARGS   # read by run_<ds>_layer_sweep_one.sh's router fit
 if [[ "$ONE_PASS" == 1 ]]; then
   TAG="${TAG:-onepass_l${ROUTER_LAYER}$([[ "$ROUTER_RECIPE" == regular_v1 ]] && echo _regular || true)_v1}"
   MCF_ROUTER="${MCF_ROUTER:-linear}"
@@ -160,6 +171,25 @@ RTAG="${MP}multiseed_$([[ "$ROUTER_RECIPE" == regular_v1 ]] && echo regular_v1 |
 GATE="${RWKU_GATE:-threshold}"
 [[ "$DS" == rwku && "$GATE" == subject ]] && RTAG="${MP}multiseed_subject_$([[ "$ROUTER_RECIPE" == regular_v1 ]] && echo v1 || echo "${ROUTER_RECIPE}_v1")"
 LIN="$ROOT/outputs/${DS}_${RTAG}/seed$SEED/L$RL/router"
+OURS_LIN="$ROOT/outputs/${DS}_${RTAG/ours_crop_v1/ours_v1}/seed$SEED/L$RL/router"
+if [[ "$ROUTER_RECIPE" == ours_crop && ! -f "$LIN/fact_association_embeddings.pt" \
+      && -f "$OURS_LIN/fact_association_embeddings.pt" ]]; then
+  log "1. L$ROUTER_LAYER router: the ours router with route_crop=sentence ($OURS_LIN)"
+  mkdir -p "$(dirname "$LIN")" && cp -r "$OURS_LIN" "$LIN.tmp"
+  python - "$LIN.tmp" "$OURS_LIN" <<'PY' || exit 2
+import json, sys, torch
+from pathlib import Path
+d = Path(sys.argv[1])
+art = torch.load(d / "fact_association_embeddings.pt", map_location="cpu", weights_only=False)
+art["route_crop"] = "sentence"
+torch.save(art, d / "fact_association_embeddings.pt")
+m = json.loads((d / "association_manifest.json").read_text())
+m["route_crop"] = "sentence"
+m["route_crop_source_router"] = sys.argv[2]
+(d / "association_manifest.json").write_text(json.dumps(m, indent=2) + "\n")
+PY
+  mv "$LIN.tmp" "$LIN"
+fi
 if [[ ! -f "$LIN/fact_association_embeddings.pt" ]]; then
   [[ "${BUILD_ROUTERS:-1}" == 1 ]] || { echo "L$ROUTER_LAYER router missing: $LIN (run the main job first)" >&2; exit 2; }
   log "1. fit L$ROUTER_LAYER linear router (STOP_AFTER=router)"
