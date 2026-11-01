@@ -68,6 +68,47 @@ variant costs one prompt-only forward truncated at block 19 per request, nothing
 token. Representation recoverability (Table 2) is the same for the three variants (MCF 6.7–7.2,
 ZsRE 7.4, MQuAKE 5.8).
 
+## Table 4 (Appendix A). Llama-3.1-8B-Instruct
+
+`outputs/paper_llama31_8b_r20_w18_ours_v1` (main: classifier at block 20, Δe at block 18, of 32) and
+`outputs/paper_llama31_8b_onepass_v1` (one-pass ablation at block 22). 5 seeds, mean ± std; PPL is
+11.033 for every row (zero variance). Read layer from the classifier sweep on MCF seed 1
+(`outputs/layer_smoke_llama31_8b`); write layer at the same relative depth as the 3B model's.
+
+| Dataset | Method | Eff ↓ | Gen ↓ | Spe ↑ | Spe† ↑ |
+|---|---|---|---|---|---|
+| MCF | Base | 17.089 ± 2.750 | 13.007 ± 4.123 | 22.480 ± 4.653 | – |
+| MCF | **Ours** | **0.000 ± 0.000** | **0.353 ± 0.365** | **22.440 ± 4.657** | – |
+| MCF | Genie | 0.000 ± 0.000 | 0.002 ± 0.001 | 22.480 ± 4.653 | – |
+| zsRE | Base | 39.807 ± 1.839 | 36.436 ± 2.584 | 30.565 ± 2.481 | – |
+| zsRE | **Ours** | **0.080 ± 0.179** | **3.273 ± 3.516** | **30.565 ± 2.481** | – |
+| zsRE | Genie | 0.080 ± 0.179 | 0.080 ± 0.179 | 30.565 ± 2.481 | – |
+| MQuAKE | Base | 72.817 ± 3.315 | 63.482 ± 2.431 | 67.757 ± 0.413 | 70.098 ± 0.507 |
+| MQuAKE | **Ours** | **0.790 ± 0.597** | **4.954 ± 1.841** | **58.414 ± 1.603** | **69.692 ± 0.716** |
+| MQuAKE | Genie | 0.790 ± 0.597 | 0.790 ± 0.597 | 58.749 ± 1.347 | 70.098 ± 0.507 |
+| RWKU | Base | 78.400 ± 2.608 | 83.983 ± 2.541 | 84.711 ± 2.458 | – |
+| RWKU | **Ours** | **3.600 ± 5.899** | **49.211 ± 6.417** | **82.619 ± 3.790** | – |
+| RWKU | Genie | 1.600 ± 1.673 | 83.983 ± 2.541 | 84.711 ± 2.458 | – |
+| RWKU | Genie (entity) | 1.600 ± 1.673 | 27.654 ± 10.716 | 84.711 ± 2.458 | – |
+
+One-pass ablation (classifier and Δe both at block 22):
+
+| Dataset | Eff ↓ | Gen ↓ | Spe ↑ | Spe† ↑ | Genie (entity) Gen |
+|---|---|---|---|---|---|
+| MCF | 0.000 ± 0.000 | 0.353 ± 0.363 | 22.440 ± 4.657 | – | – |
+| zsRE | 0.133 ± 0.298 | 4.093 ± 2.883 | 30.565 ± 2.481 | – | – |
+| MQuAKE | 1.317 ± 1.069 | 4.940 ± 1.864 | 58.490 ± 1.519 | 69.803 ± 0.633 | – |
+| RWKU | 3.600 ± 5.899 | 43.938 ± 13.592 | 82.441 ± 4.256 | – | 50.288 ± 12.986 |
+
+Reading. Request-prompt recall falls by 99.5–100% (MCF, zsRE, MQuAKE) and 95% (RWKU), held-out
+recall by 91–97% on MCF, zsRE and MQuAKE, with locality and perplexity at the base model's level.
+Genie removes 99.7–99.99% of held-out recall with the same vectors, so the remaining leak is routing,
+as on the 3B model. Writing early (18) against one pass (22): lower request-prompt recall on zsRE
+and MQuAKE, lower zsRE held-out recall (3.27 vs 4.09), and an entity-level RWKU genie of 27.7 vs
+50.3 — the 3B model's write-early effect, reproduced. The write sweep on seed 1 prefers block 17 by
+a small margin (held-out Gen 1.17 vs 1.37 averaged over MCF and zsRE); not rerun. No baselines were
+run on this model.
+
 ## Table 2 (supplementary). Representation recoverability
 
 Does the forgotten answer remain linearly readable from the residual stream? Motivated by Gao et al.

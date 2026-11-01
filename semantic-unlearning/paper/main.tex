@@ -218,7 +218,42 @@ Separating routing from residual editing turns fact-level unlearning into two me
 \onecolumn
 \section{Other models}
 \label{app:models}
-Results for Qwen3-4B and Llama-3.1-8B-Instruct, with the router block and write block chosen per model by the classifier-quality sweep (best F1 over blocks, earliest block within 0.005 of it with no worse false-positive rate) and the write sweep on MCF seed 1. \todo{insert outputs/paper\_qwen3\_4b\_*/paper\_table.tex and outputs/paper\_llama31\_8b\_*/paper\_table.tex}
+Table~\ref{tab:llama8b} reports Llama-3.1-8B-Instruct (32 blocks). The classifier reads block 20, the block a sweep of classifier quality over all blocks selected on MCF seed 1 (best F1, earliest block within 0.005 of it with no higher false-positive rate); the residual embedding is written at block 18, the 3B model's relative write depth. The router recipe and row training are unchanged. As on the 3B model, SURE removes nearly all request-prompt recall and most held-out recall with locality and perplexity at the base model's level, and genie on the same vectors removes nearly all held-out recall, so the remaining leak is routing. The one-pass variant at block 22 confirms the write-early effect: request-prompt recall is higher on zsRE and MQuAKE, and the entity-level genie on RWKU retains 50.3 of held-out recall against 27.7 when writing at block 18. Qwen3-4B is in progress.\todo{Qwen3-4B table}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llccccc}
+\toprule
+Dataset & Method & Eff $\downarrow$ & Gen $\downarrow$ & Spe $\uparrow$ & Spe$^\dagger$ $\uparrow$ & PPL \\
+\midrule
+\multirow{3}{*}{MCF} & Base & 17.089 & 13.007 & 22.48 & -- & 11.03 \\
+ & \textbf{Ours} & \textbf{0.000} & \textbf{0.353} & \textbf{22.44} & -- & \textbf{11.03} \\
+ & Genie & 0.000 & 0.002 & 22.48 & -- & 11.03 \\
+\midrule
+\multirow{3}{*}{zsRE} & Base & 39.81 & 36.44 & 30.57 & -- & 11.03 \\
+ & \textbf{Ours} & \textbf{0.08} & \textbf{3.27} & \textbf{30.57} & -- & \textbf{11.03} \\
+ & Genie & 0.08 & 0.08 & 30.57 & -- & 11.03 \\
+\midrule
+\multirow{3}{*}{MQuAKE} & Base & 72.82 & 63.48 & 67.76 & 70.10 & 11.03 \\
+ & \textbf{Ours} & \textbf{0.79} & \textbf{4.95} & \textbf{58.41} & \textbf{69.69} & \textbf{11.03} \\
+ & Genie & 0.79 & 0.79 & 58.75 & 70.10 & 11.03 \\
+\midrule
+\multirow{4}{*}{RWKU} & Base & 78.40 & 83.98 & 84.71 & -- & 11.03 \\
+ & \textbf{Ours} & \textbf{3.60} & \textbf{49.21} & \textbf{82.62} & -- & \textbf{11.03} \\
+ & Genie & 1.60 & 83.98 & 84.71 & -- & 11.03 \\
+ & Genie (entity) & 1.60 & 27.65 & 84.71 & -- & 11.03 \\
+\midrule
+\multicolumn{7}{l}{\emph{One pass, classifier and residual embedding both at block 22}} \\
+MCF & Ours & 0.000 & 0.353 & 22.44 & -- & 11.03 \\
+zsRE & Ours & 0.13 & 4.09 & 30.57 & -- & 11.03 \\
+MQuAKE & Ours & 1.32 & 4.94 & 58.49 & 69.80 & 11.03 \\
+RWKU & Ours / Genie (entity) & 3.60 & 43.94 / 50.29 & 82.44 & -- & 11.03 \\
+\bottomrule
+\end{tabular}
+\caption{Llama-3.1-8B-Instruct, mean over 5 seeds (standard deviations in \texttt{RESULTS\_PAPER\_TABLES.md}). Classifier at block 20, residual embedding at block 18. Spe$^\dagger$: MQuAKE retain facts that do not repeat a forget fact.}
+\label{tab:llama8b}
+\end{table}
 
 \section{RWKU with entity-level routing}
 \label{app:rwku}
