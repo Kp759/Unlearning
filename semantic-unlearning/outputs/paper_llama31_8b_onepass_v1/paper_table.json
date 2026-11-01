@@ -1,0 +1,1532 @@
+{
+  "mcf/base": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 17.088785845335188,
+      "std": 2.750392112985149,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 13.006828849434061,
+      "std": 4.1228925517435275,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 22.479999999999997,
+      "std": 4.65317096182807,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mcf/ga": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mcf/gd": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mcf/npo": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mcf/rmu": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mcf/rome": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mcf/memit": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mcf/zerounlearn": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mcf/ours": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 0.0003802678179377097,
+      "std": 0.0001403194264662824,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 0.35338458852206217,
+      "std": 0.36309932768436187,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 22.439999999999994,
+      "std": 4.657037685052588,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mcf/genie": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 0.0003802678179377097,
+      "std": 0.0001403194264662824,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 0.002145842104078753,
+      "std": 0.0017922507228179307,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 22.479999999999997,
+      "std": 4.65317096182807,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mcf/genie_entity": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "zsre/base": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 39.807301599999995,
+      "std": 1.8385287540615989,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 36.4361904,
+      "std": 2.5835658165309625,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 30.564948200000003,
+      "std": 2.4813142369272185,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "zsre/ga": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "zsre/gd": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "zsre/npo": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "zsre/rmu": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "zsre/rome": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "zsre/memit": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "zsre/zerounlearn": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "zsre/ours": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 0.1333334,
+      "std": 0.2981425460711704,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 4.0933329999999994,
+      "std": 2.8832273583607657,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 30.564948200000003,
+      "std": 2.4813142369272185,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "zsre/genie": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 0.1333334,
+      "std": 0.2981425460711704,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 0.1333334,
+      "std": 0.2981425460711704,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 30.564948200000003,
+      "std": 2.4813142369272185,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "zsre/genie_entity": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mquake/base": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 72.8174404,
+      "std": 3.314683458816139,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 63.4817682,
+      "std": 2.4310635053237917,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 67.7567432,
+      "std": 0.4131548806836214,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": 70.09756631435555,
+      "std": 0.5074506927079028,
+      "n": 5
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mquake/ga": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mquake/gd": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mquake/npo": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mquake/rmu": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mquake/rome": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mquake/memit": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mquake/zerounlearn": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mquake/ours": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 1.3169376000000002,
+      "std": 1.068901159566122,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 4.9399782000000005,
+      "std": 1.8636214205440707,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 58.489987199999995,
+      "std": 1.5192283887308393,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": 69.80329564840099,
+      "std": 0.6325225900664416,
+      "n": 5
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mquake/genie": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 1.3169376000000002,
+      "std": 1.068901159566122,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 1.2644442,
+      "std": 1.0004734323707452,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 58.733272,
+      "std": 1.37996312516458,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": 70.09756631435555,
+      "std": 0.5074506927079028,
+      "n": 5
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "mquake/genie_entity": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "rwku/base": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 78.4,
+      "std": 2.6076809620810595,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 83.98340220489959,
+      "std": 2.5414954293948955,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 84.71066523294303,
+      "std": 2.457910832974917,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "rwku/ga": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "rwku/gd": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "rwku/npo": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "rwku/rmu": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "rwku/rome": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "rwku/memit": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "rwku/zerounlearn": {
+    "seeds": [],
+    "Eff": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Gen": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "PPL": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "rwku/ours": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 3.6,
+      "std": 5.8991524815010505,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 43.938059260144804,
+      "std": 13.591931014598112,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 82.4414925829498,
+      "std": 4.256382716043348,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "rwku/genie": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 1.2,
+      "std": 1.0954451150103324,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 83.98340220489959,
+      "std": 2.5414954293948955,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 84.71066523294303,
+      "std": 2.457910832974917,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  },
+  "rwku/genie_entity": {
+    "seeds": [
+      "seed1",
+      "seed2",
+      "seed3",
+      "seed4",
+      "seed5"
+    ],
+    "Eff": {
+      "mean": 1.2,
+      "std": 1.0954451150103324,
+      "n": 5
+    },
+    "Gen": {
+      "mean": 50.28767578034952,
+      "std": 12.986417230870554,
+      "n": 5
+    },
+    "Spe": {
+      "mean": 84.71066523294303,
+      "std": 2.457910832974917,
+      "n": 5
+    },
+    "PPL": {
+      "mean": 11.033477399571474,
+      "std": 0.0,
+      "n": 5
+    },
+    "Spe_no_overlap": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    },
+    "RR": {
+      "mean": null,
+      "std": null,
+      "n": 0
+    }
+  }
+}
