@@ -149,63 +149,55 @@ It checks that:
 - the refit at the router layer reproduces the shipped router, including under CV;
 - the metrics and fuzzy gate behave as defined.
 
-## Tested fixes for the classifier misses (rejected)
+## Which router: the diagnostics in `router_diag_ours_v1` predate the paper's router
 
-The final router's misses on MCF, zsRE and MQuAKE are all `below_threshold`: the right head was
-eligible but under the cutoff. MCF's are paraphrases that prepend an unrelated Wikipedia sentence
-(per-head route AUC is still 1.000, so this is margin, not separability); zsRE's and MQuAKE's are
-questions of facts that kept few rewrites. Two fixes were implemented and measured on seed 1
-(`router_fix.slurm`, Llama-3.2-3B, block 19, the paper's recipe otherwise; diagnostics in
-`outputs/router_diag_ours_fix_v1`, comparison by `scripts/router_fix_compare.py`):
+`outputs/router_diag_ours_v1` (written 2026-10-25 18:30) diagnosed the ours router of commit
+265840b: 40 negatives per fact, threshold placed with `holdout_last`. Commit 18dd066
+(19:22 the same day) changed the recipe to 20 negatives and `holdout_third` (the 0.98-recall
+threshold placed on a held-out third of the rewrites), and the routers in
+`outputs/<ds>_multiseed_ours_v1` were refit at 19:31–19:41. That refit router is the one every
+later SURE run uses. Its seed-1 diagnostics are `outputs/router_diag_ours_control_v1`
+(`router_fix.slurm VARIANT=control`). The counts quoted earlier in this README (19 / 4 / 9 misses,
+5.7% no-association rate on MCF) describe the older router.
 
-1. **Distractor copies**: 4 positives and 4 negatives per fact copied with an unrelated sentence
-   from the Wikipedia covariance corpus in front (`build_distractor_sentences.py`,
-   `fit_linear_router.py --distractors --distractors-per-fact`).
-2. **Rewrite coverage floor**: facts under 8 kept rewrites get a third round of plain questions,
-   and facts the answer-transfer check cannot serve use the yes/no same-fact judge instead
-   (`build_router_rewrites.py --floor`).
+| seed 1, block 19 | older router (265840b) | paper's router (18dd066) |
+|---|---|---|
+| MCF: missed / retain fires / no-association rate | 19 / 3 / 5.7% | 3 / 16 / 28.3% |
+| zsRE | 4 / 0 / 1.6% | 5 / 0 / 6.2% |
+| MQuAKE | 9 / 4 / 5.6% | 8 / 10 / 6.2% |
 
-| | missed forget prompts | false fires on retain | false fires, no association | F1 |
-|---|---|---|---|---|
-| MCF | 19 → 17 | 3 → 2 | 5.7% → 8.2% | 0.923 → 0.933 |
-| zsRE | 4 → 4 | 0 → 0 | 1.6% → 6.4% | 0.980 → 0.980 |
-| MQuAKE | 9 → 4 | 4 → 44 | 5.6% → 9.6% | 0.988 → 0.958 |
+Calibrating on held-out rewrites lowered the threshold. The paper's router misses almost no
+MCF paraphrases, but fires on 28% of MCF prompts that must not fire. Most must-not-fire prompts
+name a protected subject and ask about another of its relations. On MCF the open problem is
+therefore precision, not misses.
 
-Verdict: not adopted; both options stay off by default and the paper's router is unchanged.
-The distractor copies recover 2 of 19 MCF paraphrases while raising false fires on prompts that
-merely mention a protected subject, because a head trained to fire through unrelated text also
-fires more readily on it. The floor halves MQuAKE's misses, but the yes/no judge it falls back on
-accepts rewrites that ask about other facts of the subject, so same-subject retain questions now
-fire (4 → 44). A variant worth trying later is the floor without the judge fallback (only rewrites
-that pass the strict answer-transfer check).
+## Tested fixes for the router misses (seed 1)
 
-## Fixes under test: subject-sentence routing and the floor without the judge
+Every fix is compared with the control, the paper's router under the same code; the
+comparison is `scripts/router_fix_compare.py` (`outputs/ROUTER_FIX_COMPARISON.md`). The floor
+variants are refits; the crop variants route with the paper's router itself.
 
-Both target the misses left by the paper's router; results pending (`router_fix.slurm`).
+| missed / retain fires / no-association rate | MCF | zsRE | MQuAKE |
+|---|---|---|---|
+| control: paper's router | 3 / 16 / 28.3% | 5 / 0 / 6.2% | 8 / 10 / 6.2% |
+| subject-sentence crop | 2 / 16 / 28.3% | 5 / 0 / 6.2% | 8 / 10 / 6.2% |
+| crop + text from the subject | 2 / 16 / 28.3% | 5 / 0 / 7.3% | 8 / 10 / 6.2% |
+| coverage floor, no judge | 7 / 12 / 24.8% | 6 / 0 / 4.8% | 6 / 27 / 8.0% |
+| coverage floor + crop | 5 / 12 / 24.8% | 6 / 0 / 4.8% | 6 / 27 / 8.0% |
+| distractor copies + floor with judge | 17 / 2 / 8.2% | 4 / 0 / 6.4% | 4 / 44 / 9.6% |
 
-1. **Subject-sentence routing** (`route_crop`, `linear_router.subject_crops`). When the full
-   prompt fires nothing although a subject is eligible, the routing pass routes again the
-   shortest run of trailing sentences that still names a subject, and the first view that fires
-   decides. Taking either decision can only add fires. The edit pass still writes on the full
-   prompt, and chat-templated prompts are never cropped. Targets MCF's paraphrases, which
-   put an unrelated sentence first. `sentence_subject` also routes the text from the subject on
-   when two or more words follow it, for prompts with no sentence break. It is stored in the
-   router artifact (`fit_linear_router.py --route-crop`) and applied by
-   `early_write.EarlyWriteCausalLM._route`, the routing pass of every SURE run. The diagnostics
-   apply the same rule offline (`cache_router_states.py --route-crop`), and their hook-parity
-   check then runs through that routing pass. Cost: one more router pass up to block R, only
-   for eligible prompts that fired nothing and have a sentence break before the subject.
-2. **Coverage floor without the judge fallback** (`build_router_rewrites.py --floor 8`, now
-   `--floor-fallback none` by default). Every floor rewrite must pass the strict
-   answer-transfer check. Targets the zsRE / MQuAKE question misses without the same-subject
-   false fires the judge caused.
+Verdicts; every option stays off by default and the paper's router is unchanged:
 
-```bash
-for v in crop_sentence crop_subject floor_crop; do sbatch --export=ALL,VARIANT=$v router_fix.slurm; done
-python scripts/router_fix_compare.py          # -> outputs/ROUTER_FIX_COMPARISON.md
-```
+- **Subject-sentence crop** (`route_crop=sentence`): safe but nearly idle. It decided one
+  evaluation prompt (one MCF paraphrase) and no prompt that must not fire. The paper's router
+  already fires on the other prefixed paraphrases. Not worth a second routing pass in the
+  method; kept as an option (`ROUTER_RECIPE=ours_crop`).
+- **Text from the subject** (`sentence_subject`): rejected. Nothing more recovered, 5 more
+  no-association fires on zsRE.
+- **Coverage floor without the judge**: rejected. MQuAKE retain fires 10 → 27, MCF misses 3 → 7.
+- **Distractor copies + floor with the judge** (the first attempt, `VARIANT=rejected`):
+  rejected. It was a refit of the older recipe's ingredients; MQuAKE retain fires 44.
 
-A variant is adopted only if it lowers the misses without raising the retain or
-no-association false fires, and parity stays 0. The 5-seed paper run then takes
-`ROUTER_RECIPE=ours_crop` (the paper's router, crop on) or `ROUTER_RECIPE=ours_floor`
-(floor + crop) in `run_l16_paper_one.sh`.
+The remaining misses (MCF 3, zsRE 5, MQuAKE 8 of 100 / 50 / 127 held-out phrasings) sit
+where every recall gain tested so far costs same-subject false fires.
+
