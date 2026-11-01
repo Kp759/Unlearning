@@ -104,7 +104,8 @@ def main(argv=None):
             for k, v in vals.items():
                 per[method][k].append(v)
             f = lambda x: "–" if x is None else f"{x:.2f}"
-            rep = "–" if reported is None else (f"{100 * reported:.2f}" if reported <= 1 else f"{reported:.2f}")
+            # the evaluator stores a fraction or a percentage: show the scale that matches 'all'
+            rep = "–" if reported is None else f"{min((reported, 100 * reported), key=lambda x: abs(x - (vals['all'] or 0))):.2f}"
             lines.append(f"| {seed} | {len(cases)} | {len(seen)} | {method} | {f(vals['all'])} | "
                          f"{f(vals['clean'])} | {f(vals['seen'])} | {rep} |")
     md = ["# MQuAKE Gen without the held-out questions seen in training", "",
