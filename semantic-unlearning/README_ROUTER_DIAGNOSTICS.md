@@ -148,3 +148,33 @@ It checks that:
 - hook parity is 0;
 - the refit at the router layer reproduces the shipped router, including under CV;
 - the metrics and fuzzy gate behave as defined.
+
+## Tested fixes for the classifier misses (rejected)
+
+The final router's misses on MCF, zsRE and MQuAKE are all `below_threshold`: the right head was
+eligible but under the cutoff. MCF's are paraphrases that prepend an unrelated Wikipedia sentence
+(per-head route AUC is still 1.000, so this is margin, not separability); zsRE's and MQuAKE's are
+questions of facts that kept few rewrites. Two fixes were implemented and measured on seed 1
+(`router_fix.slurm`, Llama-3.2-3B, block 19, the paper's recipe otherwise; diagnostics in
+`outputs/router_diag_ours_fix_v1`, comparison by `scripts/router_fix_compare.py`):
+
+1. **Distractor copies**: 4 positives and 4 negatives per fact copied with an unrelated sentence
+   from the Wikipedia covariance corpus in front (`build_distractor_sentences.py`,
+   `fit_linear_router.py --distractors --distractors-per-fact`).
+2. **Rewrite coverage floor**: facts under 8 kept rewrites get a third round of plain questions,
+   and facts the answer-transfer check cannot serve use the yes/no same-fact judge instead
+   (`build_router_rewrites.py --floor`).
+
+| | missed forget prompts | false fires on retain | false fires, no association | F1 |
+|---|---|---|---|---|
+| MCF | 19 → 17 | 3 → 2 | 5.7% → 8.2% | 0.923 → 0.933 |
+| zsRE | 4 → 4 | 0 → 0 | 1.6% → 6.4% | 0.980 → 0.980 |
+| MQuAKE | 9 → 4 | 4 → 44 | 5.6% → 9.6% | 0.988 → 0.958 |
+
+Verdict: not adopted; both options stay off by default and the paper's router is unchanged.
+The distractor copies recover 2 of 19 MCF paraphrases while raising false fires on prompts that
+merely mention a protected subject, because a head trained to fire through unrelated text also
+fires more readily on it. The floor halves MQuAKE's misses, but the yes/no judge it falls back on
+accepts rewrites that ask about other facts of the subject, so same-subject retain questions now
+fire (4 → 44). A variant worth trying later is the floor without the judge fallback (only rewrites
+that pass the strict answer-transfer check).
