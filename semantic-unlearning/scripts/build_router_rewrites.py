@@ -121,6 +121,10 @@ def main(argv=None):
     p.add_argument("--n-para", type=int, default=6)
     p.add_argument("--n-question", type=int, default=3)
     p.add_argument("--min-views", type=int, default=8)
+    p.add_argument("--floor", type=int, default=0,
+                   help="coverage floor: facts with fewer kept rewrites after two rounds get a third "
+                        "round of plain questions (router_rewrites.generate_rewrites floor)")
+    p.add_argument("--n-floor", type=int, default=8)
     p.add_argument("--no-judge", action="store_true", help="skip the same-fact check")
     p.add_argument("--hard-negatives", type=int, default=8,
                    help="per fact, model-written other questions about the subject that the base model, told the "
@@ -159,7 +163,7 @@ def main(argv=None):
     kept, stats = generate_rewrites(model, tok, targets, validate=validate,
                                     kinds=kinds, langs=[l for l in args.langs.split(",") if l], n_para=args.n_para,
                                     n_question=args.n_question, judge=not args.no_judge, min_views=args.min_views,
-                                    batch_size=args.batch_size)
+                                    batch_size=args.batch_size, floor=args.floor, n_floor=args.n_floor)
     rows = as_examples(kept, {}, rule=args.split_rule, langs=[l for l in args.langs.split(",") if l])
     out.write_text(json.dumps(rows, indent=1, ensure_ascii=False) + "\n")
     if args.hard_negatives > 0:

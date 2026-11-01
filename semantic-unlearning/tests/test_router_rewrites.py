@@ -263,3 +263,44 @@ def test_holdout_third_puts_every_third_rewrite_in_development():
     assert splits == ["train", "train", "development", "train", "train", "development"]
     assert RR.family_and_split(cands[0], 0, 1, rule="holdout_third")[1] == "train"      # a lone rewrite trains
 
+
+
+def test_coverage_floor_third_round_and_judge_fallback(monkeypatch):
+    """Facts still short after two rounds get plain questions; a fact the transfer check cannot
+    serve (it copies its answer to anything) is judged by the yes/no same-fact judge instead of
+    losing every rewrite."""
+    t1 = RR.RewriteTarget("f1", "Ann Lee", "Rome", "Ann Lee was born in", "cloze")
+
+    def transferred(model, tok_, items, batch_size=16, return_replies=False):
+        return [True if "Ann Lee" in p else all(w not in p.rsplit("\n", 1)[-1] for w in ("lived", "born"))
+                for p, *_ in items]
+    monkeypatch.setattr(RR, "answer_transferred", transferred)
+    _scripted(monkeypatch, {
+        "short, simple questions": "PLACEHOLDER",                    # replaced per subject below
+        "Rewrite this unfinished sentence": "Agnès Varda passed away in the city of",
+        "Ann Lee": "Ann Lee came into the world in"})
+    floor_out = {"Agnès Varda": "What is the city where Agnès Varda died?",
+                 "Ann Lee": "What is the birthplace of Ann Lee?\nWhere was Ann Lee born?"}
+    base_generate = RR.generate_texts
+
+    def generate(model, tok, texts, max_new_tokens, batch_size=16):
+        out = base_generate(model, tok, texts, max_new_tokens, batch_size)
+        return [next(v for k, v in floor_out.items() if k in t) if "short, simple questions" in t else o
+                for t, o in zip(texts, out)]
+    monkeypatch.setattr(RR, "generate_texts", generate)
+    kept, stats = RR.generate_rewrites(None, None, [T, t1], validate=lambda cs: [c.text for c in cs],
+                                       kinds=("paraphrase",), min_views=0, floor=3, n_floor=4)
+    assert stats["floor_targets"] == 2 and stats["floor_targets_judge_fallback"] == 1
+    assert [c.text for c in kept["f0"]] == ["Agnès Varda passed away in the city of",
+                                           "What is the city where Agnès Varda died?"]   # transfer check
+    assert [c.text for c in kept["f1"]] == ["What is the birthplace of Ann Lee?", "Where was Ann Lee born?"]
+    assert stats["floor_judge_fallback_kept"] == 2 and all(c.kind == "question" for c in kept["f1"])
+    rows = RR.as_examples(kept, {}, rule="holdout_third")
+    assert {r["group"] for r in rows if r["fact_id"] == "f1"} == {"aug_question_100", "aug_question_101"}
+
+
+def test_floor_off_changes_nothing(monkeypatch):
+    _scripted(monkeypatch, {"Rewrite this unfinished sentence": "Agnès Varda passed away in the city of"})
+    kept, stats = RR.generate_rewrites(None, None, [T], validate=lambda cs: [c.text for c in cs],
+                                       kinds=("paraphrase",), min_views=0, judge_rule="absolute")
+    assert "floor_targets" not in stats and len(kept["f0"]) == 1

@@ -500,6 +500,10 @@ def main(argv=None):
                         help="fuzzy: a prompt is also eligible when the subject's words match the "
                              "decoded prompt up to case/accents/spacing and one edit per word "
                              "(linear_router.fuzzy_subject_in_text); same rule at runtime")
+    parser.add_argument("--distractors", default=None,
+                        help="JSON of unrelated natural sentences (build_distractor_sentences.py): each fact "
+                             "gets --distractors-per-fact positives and negatives copied with one in front")
+    parser.add_argument("--distractors-per-fact", type=int, default=0)
     parser.add_argument("--extra-negatives", default=None,
                         help="JSON {fact_id: [{prompt, split}]}: additional negatives for that "
                              "fact's head, e.g. other questions about the same subject generated "
@@ -614,7 +618,12 @@ def main(argv=None):
         subject_match=args.subject_match,
         negatives_per_fact=args.negatives_per_fact or None,
         negative_filter=quality,
+        distractors=(json.loads(Path(args.distractors).read_text())["sentences"]
+                     if args.distractors and args.distractors_per_fact else None),
+        distractors_per_fact=args.distractors_per_fact,
     )
+    if data["diagnostics"].get("distractor_copies"):
+        print(json.dumps({"phase": "distractor_copies", **data["diagnostics"]["distractor_copies"]}), flush=True)
     if quality is not None:
         data["diagnostics"]["negative_quality"] = quality.report()
         print(json.dumps({"phase": "negative_quality", **quality.stats}), flush=True)

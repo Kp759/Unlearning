@@ -135,7 +135,7 @@ if ! stage_ready "$ROUTER" fact_association_embeddings.pt; then
   VIEWS_ARGS=()
   if [[ "${ROUTER_REWRITES:-0}" == 1 ]]; then   # ours: quality-checked base-model rewrites as positives
     [[ -f "$PREP/router_rewrites.json" ]] || python -u scripts/build_router_rewrites.py --prep-dir "$PREP" \
-      --output "$PREP/router_rewrites.json" --device cuda --local-files-only
+      --output "$PREP/router_rewrites.json" --device cuda --local-files-only ${REWRITE_ARGS:-}
     VIEWS_ARGS=(--views "$PREP/router_rewrites.json")
     [[ -f "$PREP/router_hard_negatives.json" ]] && VIEWS_ARGS+=(--extra-negatives "$PREP/router_hard_negatives.json")
   fi

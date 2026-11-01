@@ -660,6 +660,59 @@ def per_fact_counts(records, n_facts):
     return {"positives": summary(pos), "negatives": summary(neg), "positives_by_fact": pos, "negatives_by_fact": neg}
 
 
+def _mentions_any(text, phrases):
+    t = " " + " ".join(subject_words(text)) + " "
+    return any(p and (" " + p + " ") in t for p in phrases)
+
+
+def add_distractor_copies(records, facts, sentences, per_fact):
+    """Copy `per_fact` positives and `per_fact` negatives of every fact with an unrelated sentence
+    in front (with_context_prefix: RWKU chat prompts get it inside the question). A copy keeps its
+    base record's split, family (so grouped CV never splits a prompt from its copy), owner and
+    negative_for; positive copies are `augmented` and dropped later if the prefix broke subject
+    eligibility. Sentences that name any fact's subject or answer are never used. Bases are taken
+    evenly from the fact's records in insertion order; sentence choice is deterministic in
+    (fact, base prompt). Mutates `records`; returns a report."""
+    import hashlib
+
+    banned = {" ".join(subject_words(f.get(k, ""))) for f in facts for k in ("subject", "object")}
+    banned.discard("")
+    pool = [s for s in sentences if s and not _mentions_any(s, banned)]
+    report = {"pool": len(pool), "positives_added": 0, "negatives_added": 0, "skipped": 0}
+    if not pool:
+        return report
+    snapshot = list(records.values())
+
+    def pick(base, fact_id, k):
+        h = int(hashlib.sha1(f"{fact_id}\x00{base}\x00{k}".encode()).hexdigest(), 16)
+        return pool[h % len(pool)]
+
+    def spread(items, n):
+        if len(items) <= n:
+            return items
+        step = len(items) / n
+        return [items[int(i * step)] for i in range(n)]
+
+    for index, fact in enumerate(facts):
+        positives = [r for r in snapshot if r["owner"] == index]
+        negatives = [r for r in snapshot if r["owner"] < 0 and index in r["negative_for"]]
+        for kind, bases in (("positives_added", spread(positives, per_fact)),
+                            ("negatives_added", spread(negatives, per_fact))):
+            for k, base in enumerate(bases):
+                variant = with_context_prefix(base["prompt"], pick(base["prompt"], fact["id"], k))
+                if not variant or variant.strip() in records:
+                    report["skipped"] += 1
+                    continue
+                variant = variant.strip()
+                copy = dict(base, prompt=variant, negative_for=list(base["negative_for"]))
+                if base["owner"] >= 0:
+                    copy["augmented"] = True
+                copy["distractor"] = True
+                records[variant] = copy
+                report[kind] += 1
+    return report
+
+
 def assemble_router_dataset(
     facts,
     examples,
@@ -674,8 +727,14 @@ def assemble_router_dataset(
     subject_match="exact",
     negatives_per_fact=None,
     negative_filter=None,
+    distractors=None,
+    distractors_per_fact=0,
 ):
     """Prompts, labels, runtime eligibility and fit/calibration/audit splits.
+
+    distractors / distractors_per_fact: unrelated natural sentences (build_distractor_sentences.py);
+    each fact gets that many of its positives AND that many of its negatives copied with a sentence
+    in front (add_distractor_copies), so a leading unrelated sentence is never a cue either way.
 
     negatives_per_fact: every fact gets exactly this many negatives when enough exist
     (compose_negatives).
@@ -809,6 +868,10 @@ def assemble_router_dataset(
             "skipped_donors": skipped,
         })
 
+    distractor_report = None
+    if distractors and distractors_per_fact:
+        distractor_report = add_distractor_copies(records, facts, distractors, int(distractors_per_fact))
+
     ordered = list(records.values())
     eligible = eligibility_matrix(
         tokenizer, [record["prompt"] for record in ordered], subject_patterns,
@@ -875,6 +938,7 @@ def assemble_router_dataset(
         "per_fact": per_fact,
         "negatives_per_fact_requested": None if not negatives_per_fact else int(negatives_per_fact),
         "per_fact_counts": per_fact_counts(ordered, len(facts)),
+        "distractor_copies": distractor_report,
     }
     return {
         "records": ordered,

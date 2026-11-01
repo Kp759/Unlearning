@@ -589,3 +589,32 @@ def test_per_head_threshold_never_rejects_a_training_positive():
                                        fallback=0.0, ceiling=torch.tensor([10.0]))
     assert thr2[0].item() == pytest.approx(-1.4)
     assert not report2["per_head"][0]["capped_at_training_positive"]
+
+
+def test_distractor_copies_for_positives_and_negatives():
+    """Each fact gets `per_fact` positive and negative copies with an unrelated sentence in front,
+    in the base record's split and family; sentences naming any subject or answer are never used."""
+    from linear_router import add_distractor_copies
+    facts = [{"id": "f0", "subject": "Ann Lee", "object": "Rome"}, {"id": "f1", "subject": "Bo Li", "object": "Oslo"}]
+    records = {
+        "Ann Lee was born in": {"prompt": "Ann Lee was born in", "split": "fit", "owner": 0, "kind": "positive",
+                                "group": "canonical_0", "augmented": False, "negative_for": []},
+        "Where was Ann Lee born?": {"prompt": "Where was Ann Lee born?", "split": "calibration", "owner": 0,
+                                    "kind": "positive", "group": "aug_question", "augmented": True, "negative_for": []},
+        "Ann Lee works as a": {"prompt": "Ann Lee works as a", "split": "fit", "owner": -1, "kind": "same_subject_real",
+                               "group": "neg_0", "augmented": False, "negative_for": [0]},
+        "Bo Li was born in": {"prompt": "Bo Li was born in", "split": "fit", "owner": 1, "kind": "positive",
+                              "group": "canonical_0", "augmented": False, "negative_for": [0]},
+    }
+    sentences = ["The bridge was finished in 1932 after many delays.", "She moved to Rome in her twenties.",
+                 "The village has a small church and a school.", "Bo Li once played the cello."]
+    report = add_distractor_copies(records, facts, sentences, per_fact=1)
+    assert report["pool"] == 2                                       # Rome and Bo Li sentences dropped
+    copies = {p: r for p, r in records.items() if r.get("distractor")}
+    pos0 = [r for r in copies.values() if r["owner"] == 0]
+    neg0 = [r for r in copies.values() if r["owner"] < 0 and 0 in r["negative_for"]]
+    assert len(pos0) == 1 and pos0[0]["augmented"] and pos0[0]["group"] == "canonical_0" and pos0[0]["split"] == "fit"
+    assert len(neg0) == 1 and neg0[0]["negative_for"] == [0]
+    assert all(p.split(". ", 1)[0] + "." in sentences for p in copies)
+    assert all("Rome" not in p and "once played" not in p for p in copies)
+    assert report["positives_added"] == 2 and report["negatives_added"] >= 1

@@ -420,6 +420,19 @@ def _paraphrase_ask(t: RewriteTarget, n: int, second: bool) -> str:
             f'Sentence: {t.text}')
 
 
+def _floor_ask(t: RewriteTarget, n: int) -> str:
+    """Third round for facts still short of views: plain, everyday questions (an unfinished
+    sentence) or plainer rewordings (a question), the forms the earlier rounds most often miss."""
+    if t.fmt == "cloze":
+        return (f'Write {n} short, simple questions a person might ask to find out the missing ending of this '
+                f'unfinished sentence. Use everyday wording such as "What is the ... of {t.subject}?", "Which ... '
+                f'is {t.subject} ...?", "Who is ...?", "Where is ...?". Keep the name "{t.subject}" in every '
+                f'question. One question per line, nothing else.\nSentence: {t.text}')
+    return (f'Rewrite this question in {n} plain, simple ways, as a person would ask it in conversation. Keep the '
+            f'name "{t.subject}" and ask for exactly the same thing. One question per line, nothing else.\n'
+            f'Question: {t.text}')
+
+
 def _question_ask(t: RewriteTarget, n: int, second: bool) -> str:
     what = "the missing word of this fill-in-the-blank question" if t.fmt == "blank" else \
         "the missing ending of this unfinished sentence"
@@ -439,13 +452,19 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
                       validate: Callable[[List[Candidate]], List[Optional[str]]],
                       kinds: Sequence[str] = KINDS, langs: Sequence[str] = TRAIN_LANGS, n_para: int = 6,
                       n_question: int = 3, n_multiturn: int = 2, judge: bool = True, min_views: int = 8,
-                      judge_rule: str = "transfer", batch_size: int = 16,
+                      judge_rule: str = "transfer", batch_size: int = 16, floor: int = 0, n_floor: int = 8,
                       log=print) -> Tuple[Dict[str, List[Candidate]], Dict]:
     """{target id: kept candidates} and stats. `validate(candidates)` renders each candidate as
     the dataset's router prompt and returns it if the base model answers it with the target's
     answer (the meaning check), else None. Multi-turn needs a chat-format `validate`.
     judge_rule: "transfer" (answer transfer, see the module docstring), "calibrated" (yes/no judge,
-    each fact's own cutoff, judge_cutoffs) or "absolute" (yes/no judge, P(yes) >= 0.5)."""
+    each fact's own cutoff, judge_cutoffs) or "absolute" (yes/no judge, P(yes) >= 0.5).
+    floor: coverage floor. Facts with fewer than `floor` kept rewrites after the two rounds get a
+    third round of `n_floor` plain questions (unfinished sentences) or plain rewordings (questions),
+    _floor_ask. For a fact the answer-transfer check cannot serve (refs: the base model does not
+    answer its own prompt, or answers by copying), this round uses the yes/no same-fact judge at
+    P(yes) >= 0.5 instead, since otherwise every rewrite of that fact is dropped. Every other check
+    (form, subject present, answer absent, novelty, meaning) is unchanged."""
     stats = {"candidates": 0, "kept": 0, "dropped_form": 0, "dropped_near_duplicate": 0,
              "dropped_base_does_not_answer": 0, "dropped_not_same_fact": 0, "dropped_duplicate_prompt": 0,
              "second_round_targets": 0}
@@ -552,7 +571,7 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
                           "mean_other": (sum(v[2] for v in cal) / len(cal)) if cal else None,
                           "mean_cutoff": sum(v[0] for v in cutoffs.values()) / len(cutoffs)}
 
-    def check(cand: List[Candidate]):
+    def check(cand: List[Candidate], fallback=frozenset()):
         prompts = validate(cand) if cand else []
         answered = []
         for c, p in zip(cand, prompts):
@@ -561,6 +580,24 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
             else:
                 c.prompt = p
                 answered.append(c)
+        if judge and answered and fallback:
+            # floor round, facts the transfer check cannot serve: yes/no same-fact judge, P >= 0.5
+            fb = [c for c in answered if c.target.id in fallback]
+            answered = [c for c in answered if c.target.id not in fallback]
+            if fb:
+                scores = same_fact_scores(model, tok, [(judge_side(c.target.text, c.target.fmt),
+                                                        judge_side(c.text, c.fmt), c.target.subject) for c in fb],
+                                          batch_size)
+                ok = [c for c, sc in zip(fb, scores) if sc >= 0.5]
+                stats["dropped_not_same_fact"] += len(fb) - len(ok)
+                stats["floor_judge_fallback_kept"] = stats.get("floor_judge_fallback_kept", 0) + len(ok)
+                for c in ok:
+                    if c.prompt in seen:
+                        stats["dropped_duplicate_prompt"] += 1
+                        continue
+                    seen.add(c.prompt)
+                    kept[c.target.id].append(c)
+                    stats["kept"] += 1
         if judge and answered and judge_rule == "transfer":
             fmts = ["qa" if refs[c.target.id]["qa"] else c.fmt for c in answered]
             ok = answer_transferred(model, tok, [(transfer_prompt(tok, c.target, c.text, f, c.kind), c.target.answer,
@@ -591,6 +628,27 @@ def generate_rewrites(model, tok, targets: Sequence[RewriteTarget], *,
         stats["second_round_targets"] = len(short)
         if short:
             check(round_(short, second=True))
+    if floor:
+        low = [t for t in targets if len(kept[t.id]) < int(floor)]
+        stats["floor_targets"] = len(low)
+        if low:
+            outs = generate_texts(model, tok, [instruct(tok, _floor_ask(t, n_floor)) for t in low],
+                                  24 + 24 * n_floor, batch_size)
+            cand = []
+            for t, o in zip(low, outs):
+                kind = "question" if t.fmt == "cloze" else "paraphrase"
+                k = 100                                   # after both earlier rounds' indices
+                for line in lines(o):
+                    stats["candidates"] += 1
+                    if accept(t, kind, line):
+                        cand.append(Candidate(t, kind, k, line, "qa"))
+                        k += 1
+                    if k >= 100 + n_floor:
+                        break
+            unusable = frozenset(t.id for t in low if refs and t.id not in usable)
+            stats["floor_targets_judge_fallback"] = len(unusable)
+            check(cand, fallback=unusable)
+            stats["floor_targets_still_short"] = sum(len(kept[t.id]) < int(floor) for t in low)
     stats["by_kind"] = {k: sum(c.kind == k for cs in kept.values() for c in cs) for k in KINDS}
     counts = sorted(len(v) for v in kept.values())
     stats["per_target"] = {"min": counts[0], "median": counts[len(counts) // 2], "max": counts[-1]} if counts else {}
