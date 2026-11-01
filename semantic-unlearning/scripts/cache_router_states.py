@@ -415,6 +415,16 @@ def null_generations(base_model, tok, ours_dir, null_probes, ids_list, routes, m
             "rows": rows}
 
 
+def _sha256(path):
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _git_commit():
     try:
         return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
@@ -531,6 +541,9 @@ def main(argv=None):
               "n_layers": n_layers, "gate_mode": str(artifact.get("gate_mode", "threshold")),
               "subject_match": subject_match_of(artifact), "router_recipe": args.router_recipe,
               "route_crop": route_crop,
+              "router_sha256": _sha256(router_dir / "fact_association_embeddings.pt"),
+              "router_mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(
+                  (router_dir / "fact_association_embeddings.pt").stat().st_mtime)),
               "threshold": artifact.get("threshold"),
               "ambiguity_margin": float(artifact.get("ambiguity_margin", 0.5)),
               "router_fit": artifact.get("router_fit", {}),

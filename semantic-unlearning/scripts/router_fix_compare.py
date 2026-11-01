@@ -19,7 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from router_diag_explain import NAMES  # noqa: E402
 
 VARIANTS = {
-    "paper router": "outputs/router_diag_ours_v1",
+    "paper router (diagnosed earlier)": "outputs/router_diag_ours_v1",
+    "control: router today, crop off": "outputs/router_diag_ours_control_v1",
     "crop: sentence": "outputs/router_diag_ours_crop_sentence_v1",
     "crop: sentence + subject": "outputs/router_diag_ours_crop_subject_v1",
     "floor (no judge)": "outputs/router_diag_ours_floor_v1",
@@ -60,8 +61,11 @@ def main(argv=None):
           "of must-not-fire prompts that fired (deployment false-positive rate). Crop decisions: "
           "prompts decided by the subject-sentence view. Parity: mismatches between the offline "
           "decision and the deployed routing pass (must be 0).", "",
-          "| dataset | variant | missed | retain fires | no-association rate | recall | F1 | crop decisions | parity |",
-          "|---|---|---|---|---|---|---|---|---|"]
+          "Router: first 8 hex digits of the router file's sha256 and its modification time; rows "
+          "compared with each other must share the router, except the floor variants (a refit).", "",
+          "| dataset | variant | router | missed | retain fires | no-association rate | recall | F1 | "
+          "crop decisions (eval / null) | parity |",
+          "|---|---|---|---|---|---|---|---|---|---|"]
     groups = []
     for ds in ("mcf", "zsre", "mquake"):
         for label, root in VARIANTS.items():
@@ -70,10 +74,14 @@ def main(argv=None):
                 continue
             al = m["eval"]["by_split"]["all"]
             null = ((m.get("null") or {}).get("deployment_fpr") or {}).get("rate")
-            crop = (manifest.get("sections") or {}).get("eval", {}).get("crop_fired")
+            sec = manifest.get("sections") or {}
+            crops = [sec.get(s, {}).get("crop_fired") for s in ("eval", "null")]
+            crop = "–" if crops[0] is None else " / ".join("–" if c is None else str(c) for c in crops)
             parity = sum(v.get("route_mismatches", 0) for v in (manifest.get("hook_parity") or {}).values())
-            md.append(f"| {NAMES[ds]} | {label} | {_forget_misses(m)} | {_retain_fires(m)} | {_f(null)} | "
-                      f"{_f(al['recall'])} | {_f(al['f1'])} | {'–' if crop is None else crop} | {parity} |")
+            router = (f"{manifest['router_sha256'][:8]} {manifest.get('router_mtime', '')}"
+                      if manifest.get("router_sha256") else "not recorded")
+            md.append(f"| {NAMES[ds]} | {label} | {router} | {_forget_misses(m)} | {_retain_fires(m)} | "
+                      f"{_f(null)} | {_f(al['recall'])} | {_f(al['f1'])} | {crop} | {parity} |")
             for g, v in (m["eval"].get("by_group") or {}).items():
                 if v.get("fn") or v.get("fp"):
                     groups.append((ds, g, label, v["n"], v["fn"], v["fp"]))

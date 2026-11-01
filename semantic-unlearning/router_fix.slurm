@@ -3,6 +3,8 @@
 # VARIANT picks the fix; every variant writes its own router / diagnostics, nothing existing is
 # touched, and the baseline is outputs/router_diag_ours_v1 (the paper's router).
 #
+#   control         the router now at outputs/<ds>_multiseed_ours_v1, crop off, under today's
+#                   code: the baseline the crop variants are compared with
 #   crop_sentence   the paper's router as is, routed with route_crop=sentence: when the full
 #                   prompt fires nothing although a subject is eligible, the sentence naming the
 #                   subject is routed (linear_router.subject_crops). Inference only, ~15 min.
@@ -54,7 +56,7 @@ DATASETS=(mcf zsre mquake)
 DS="${DATASETS[${SLURM_ARRAY_TASK_ID:?run as an array job}]:-}"
 [[ -n "$DS" ]] || { echo "array index out of range (0-2)" >&2; exit 2; }
 SEED="${SEED:-1}"
-VARIANT="${VARIANT:?set VARIANT=crop_sentence|crop_subject|floor_crop|rejected}"
+VARIANT="${VARIANT:?set VARIANT=control|crop_sentence|crop_subject|floor_crop|rejected}"
 FLOOR="${FLOOR:-8}"
 PAPER_ROUTER="outputs/${DS}_multiseed_ours_v1/seed$SEED/L19/router"
 # the paper's router recipe (ours: 20 / 20, fuzzy subject, no PCA)
@@ -86,6 +88,9 @@ diagnose() {   # diagnose <router dir> <out root> [--route-crop MODE]
 }
 
 case "$VARIANT" in
+  control)
+    test -f "$PAPER_ROUTER/fact_association_embeddings.pt" || { echo "no paper router at $PAPER_ROUTER" >&2; exit 2; }
+    diagnose "$PAPER_ROUTER" outputs/router_diag_ours_control_v1 --route-crop none ;;
   crop_sentence)
     test -f "$PAPER_ROUTER/fact_association_embeddings.pt" || { echo "no paper router at $PAPER_ROUTER" >&2; exit 2; }
     diagnose "$PAPER_ROUTER" outputs/router_diag_ours_crop_sentence_v1 --route-crop sentence ;;
