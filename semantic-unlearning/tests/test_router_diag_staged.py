@@ -192,26 +192,26 @@ def test_refuses_next_to_router_diag_and_without_the_fix(tmp_path):
     assert r.returncode == 2 and "resume-key fix" in r.stderr and "cache_router_states.py" not in log
 
 
-def test_ours_recipe_uses_the_onepass_routers_and_its_own_output(tmp_path):
+def test_ours_recipe_uses_the_ours_routers_and_its_own_output(tmp_path):
     root, env = _layout(tmp_path)
     r, log, _ = _run(tmp_path, root, env, ROUTER_RECIPE="ours", IMPROVES="true")
     assert r.returncode == 0, r.stdout + r.stderr
     cache = next(l for l in log.splitlines() if "cache_router_states.py" in l)
     assert "--router-recipe ours --router-dir outputs/mcf_multiseed_ours_v1/seed1/L19/router" in cache
     assert "--out-dir outputs/router_diag_ours_control_v1/mcf/seed1" in cache
-    assert "--ours-dir" not in cache and "no finished ours run at outputs/onepass_l19_v1/mcf/seed1/ours" in r.stdout
+    assert "--ours-dir" not in cache and "no finished ours run at outputs/l16_ours_v1/mcf/seed1/ours" in r.stdout
     out = root / "outputs" / "router_diag_ours_control_v1"
     assert (out / "ROUTER_LAYER_CHOICE.md").is_file() and not (root / "outputs" / "router_diag_v1").exists()
     assert not (root / "outputs" / "router_diag_ours_v1").exists()     # the older router's diagnostics
     text = (out / "mcf" / "seed1" / "layer_sweep" / "downstream_penultimate.sh").read_text()
     assert ("TAG=onepass_router26_write19_v1 ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER=26 "
             "bash scripts/run_l16_paper_one.sh mcf 1") in text
-    ours = root / "outputs" / "onepass_l19_v1" / "mcf" / "seed1" / "ours"
+    ours = root / "outputs" / "l16_ours_v1" / "mcf" / "seed1" / "ours"
     ours.mkdir(parents=True)
     (ours / "fact_association_embeddings.pt").touch()
     shutil.rmtree(out)
     r, log, _ = _run(tmp_path, root, env, ROUTER_RECIPE="ours")
-    assert r.returncode == 0 and "--ours-dir outputs/onepass_l19_v1/mcf/seed1/ours" in log
+    assert r.returncode == 0 and "--ours-dir outputs/l16_ours_v1/mcf/seed1/ours" in log
     r, _, _ = _run(tmp_path, root, env, ROUTER_RECIPE="best")
     assert r.returncode == 2 and "ROUTER_RECIPE must be" in r.stderr
 

@@ -45,7 +45,7 @@ RR_lens and RR_probe likewise, each with the layer it occurs at. The same comman
 dir gives RR_base, the comparator the paper uses (probe accuracy of the original model). Control
 prompts (retain-side) report the same numbers so a readout that fails everywhere is visible.
 
-  python scripts/representation_recoverability.py --run-dir outputs/onepass_l19_v1/mcf/seed1/ours \
+  python scripts/representation_recoverability.py --run-dir outputs/l16_ours_v1/mcf/seed1/ours \
       --dataset mcf --mcf-path <MCF json> --device cuda --local-files-only
   ... --run-dir .../genie --genie            # same rows, oracle routing (as the evaluators)
   ... --run-dir .../ga --baseline ga --baseline-views-from <router dir> ...   # a baseline dir:

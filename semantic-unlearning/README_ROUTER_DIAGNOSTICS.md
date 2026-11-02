@@ -62,15 +62,20 @@ of the to-do list, with a banner per step in `logs/rdiag_s_<job>_<task>.out`:
 
 It refuses to start while a `router_diag.slurm` job is queued, because both write the same outputs.
 
-**Ours (the one-pass classifier).** Run `sbatch --export=ALL,ROUTER_RECIPE=ours router_diag_staged.slurm`
+**Ours (the paper's router).** Run `sbatch --export=ALL,ROUTER_RECIPE=ours router_diag_staged.slurm`
 once `run_l16_paper_one.sh ONEPASS=1` has fit the routers in `outputs/<ds>_multiseed_ours_v1`.
 Those routers use no PCA, fuzzy subject matching and 20 / 20 checked prompts.
+- **The paper's method is `outputs/l16_ours_v1`:** this classifier at block 19 decides the route;
+  Δe is written at block 16, in a second pass.
+- The diagnostics test the classifier alone, so they hold for `l16_ours_v1` and for
+  `onepass_l19_v1` (Δe at 19), which share these routers.
 - Results go to `outputs/router_diag_ours_control_v1`, the paper's router (see "Which router" below).
   `router_diag_ours_v1` (the router before 18dd066) and `router_diag_v1` (the regular routers) stay as they are.
 - A cache built from another router file (sha256 in `manifest.json`) or without every layer
   (`router_fix.slurm` caches only 16 and 19) is moved aside to `seed1_other_router_<time>` /
   `seed1_partial_layers_<time>` and rebuilt, never resumed.
-- With the ours rows in `outputs/onepass_l19_v1` finished, the no-association test also generates base vs ours on every fired prompt.
+- With the paper's rows in `outputs/l16_ours_v1` finished (router at 19, Δe at 16), the no-association test also generates base vs ours on every fired prompt.
+  Diagnostics run before this change took those rows from `onepass_l19_v1` (Δe at 19).
 - Eligibility is the router's own rule. The cache applies the fuzzy match exactly as the bank hook does, and keeps the exact-token mask beside it.
   - Hook parity also runs on the typo and partial-name prompts, where fuzzy matching decides.
   - The layer sweep and the refit check use the fuzzy rule. The robustness table still shows exact, fuzzy and none.
@@ -172,7 +177,8 @@ It checks that:
 (19:22 the same day) changed the recipe to 20 negatives and `holdout_third` (the 0.98-recall
 threshold placed on a held-out third of the rewrites), and the routers in
 `outputs/<ds>_multiseed_ours_v1` were refit at 19:31–19:41. That refit router is the one every
-later SURE run uses. Its seed-1 diagnostics are `outputs/router_diag_ours_control_v1`
+later SURE run uses, including the paper's method `l16_ours_v1` (router at 19, fuzzy matching,
+Δe at 16). Its seed-1 diagnostics are `outputs/router_diag_ours_control_v1`
 (`router_fix.slurm VARIANT=control`). The counts quoted earlier in this README (19 / 4 / 9 misses,
 5.7% no-association rate on MCF) describe the older router.
 

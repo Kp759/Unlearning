@@ -27,7 +27,8 @@
 #   tail -f logs/rdiag_s_<jobid>_0.out                                # 0 mcf 1 zsre 2 mquake 3 rwku
 # ROUTER_RECIPE: regular_v1 (default, the older regular routers -> outputs/router_diag_v1) or ours
 #   (outputs/<ds>_multiseed_ours_v1 routers, fuzzy subject matching, 20 / 20 prompts, threshold
-#   on held-out rewrites (18dd066): the paper's router; ours runs from outputs/onepass_l19_v1)
+#   on held-out rewrites (18dd066): the paper's router; the paper's method, outputs/l16_ours_v1,
+#   routes with it and writes Δe at 16: its rows give the base vs ours generations)
 #   -> outputs/router_diag_ours_control_v1, the name router_fix.slurm VARIANT=control already
 #   uses for this router. outputs/router_diag_ours_v1 diagnosed the router before 18dd066
 #   (265840b, 40 negatives) and is left as it is.
@@ -116,7 +117,7 @@ declare -A OURS=(
 if [[ "$ROUTER_RECIPE" == ours ]]; then
   for D in mcf zsre mquake rwku; do
     ROUTER[$D]="outputs/${D}_multiseed_ours_v1/seed$SEED/L19/router"
-    OURS[$D]="outputs/onepass_l19_v1/$D/seed$SEED/ours"
+    OURS[$D]="outputs/l16_ours_v1/$D/seed$SEED/ours"      # the paper's method (Δe at 16)
   done
 fi
 OURS_ARGS=()

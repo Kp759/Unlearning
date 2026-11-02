@@ -89,7 +89,9 @@ TAG=l16_paper_v1 BASELINES="ga gd npo rmu zerounlearn rome memit" sbatch recover
 # as part of a full run
 RECOVERABILITY=1 bash scripts/run_onepass_paper_one.sh mcf 1
 
-# the paper table gains an RR column
+# the paper table gains an RR column (the paper's method: router at 19, Δe at 16)
+python scripts/l16_paper_table.py --root outputs/l16_ours_v1 --ours-label "Ours"
+# the one-pass variant (Δe at 19)
 python scripts/l16_paper_table.py --root outputs/onepass_l19_v1 --ours-label "Ours (L19, one pass)"
 ```
 

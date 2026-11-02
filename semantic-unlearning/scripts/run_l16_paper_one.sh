@@ -4,18 +4,19 @@
 #
 # Defaults reproduce the published table (TAG l16_paper_v1): pass 1 routes at layer 19, pass 2
 # adds Δe at layer 16 (scripts/early_write.py), logit-lens feedback at 24, regular_v1 routers.
-# ONEPASS=1 (scripts/run_onepass_paper_one.sh) = ours now: ONE forward pass, the classifier
-# reads layer ROUTER_LAYER (19) and Δe is added at the same layer, at the last prompt token and
-# every generated token; no logit lens; MCF on the linear L19 router (v2.2 reads layers 23 / 27,
-# above the write layer: it needs its own routing pass). Routers (ROUTER_RECIPE=ours, in
+# ONEPASS=1 = the ours routers and recipe: the classifier reads layer ROUTER_LAYER (19); Δe is
+# added at WRITE_LAYER, at the last prompt token and every generated token; no logit lens; MCF on
+# the linear L19 router (v2.2 reads layers 23 / 27). The paper's method is ONEPASS=1
+# WRITE_LAYER=16 (l16_ours_v1): pass 1 routes at 19, pass 2 writes Δe at 16. Without
+# WRITE_LAYER, Δe goes in at 19 in ONE forward pass (scripts/run_onepass_paper_one.sh). Routers (ROUTER_RECIPE=ours, in
 # outputs/<ds>_multiseed_ours_v1): no PCA, fuzzy subject matching, 20 positives per fact (the
 # fact's prompts + quality-checked base-model rewrites, build_router_rewrites.py, + at most 8
 # context-prefix copies; every third rewrite held out to calibrate the firing threshold) and 20
 # negatives (same-subject competitors, then model-written hard negatives, then subject transplants;
 # base-model answer-collision and plausibility checks).
-#   ours                ONEPASS=1                  -> TAG onepass_l19_v1
-#   ours, L16 ablation  ONEPASS=1 WRITE_LAYER=16   -> TAG l16_ours_v1 (same routers, Δe at 16)
-#   published table     (defaults)                 -> TAG l16_paper_v1
+#   ours (the paper)    ONEPASS=1 WRITE_LAYER=16   -> TAG l16_ours_v1 (router 19, Δe at 16, two passes)
+#   ours, one pass      ONEPASS=1                  -> TAG onepass_l19_v1 (same routers, Δe at 19)
+#   older published     (defaults)                 -> TAG l16_paper_v1
 #
 #   bash scripts/run_l16_paper_one.sh DATASET SEED       DATASET in mcf zsre mquake rwku
 #

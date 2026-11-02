@@ -136,7 +136,8 @@ def main():
                     help="take that dataset's ours/genie (and router diagnostics) from ROOT")
     ap.add_argument("--out-name", default=None, help="output stem (default paper_table[_<overrides>])")
     ap.add_argument("--ours-label", default="Ours (L16)",
-                    help='row label for ours, e.g. "Ours (L19, one pass)" for outputs/onepass_l19_v1')
+                    help='row label for ours, e.g. "Ours" for outputs/l16_ours_v1 (the paper), '
+                         '"Ours (L19, one pass)" for outputs/onepass_l19_v1')
     a = ap.parse_args()
     LABELS["ours"] = a.ours_label
     root = Path(a.root)

@@ -54,7 +54,18 @@ Each rewrite must pass every check in `router_rewrites.py`:
 
 Rewrites are paraphrases, questions, and translations into Italian / Portuguese / Dutch (never SCALPEL's French / Spanish / German); SCALPEL's chat prompts also get multi-turn follow-ups. Facts left with fewer than 8 rewrites get a second round.
 
-Run it with `bash scripts/run_onepass_paper_one.sh <mcf|zsre|mquake|rwku> <seed>` (= `ONEPASS=1`). Routers go to `outputs/<ds>_multiseed_ours_v1` and results to `outputs/onepass_l19_v1`. The ablation `ONEPASS=1 WRITE_LAYER=16` writes Δe at 16 in two passes (`l16_ours_v1`). The defaults of `run_l16_paper_one.sh` still reproduce the published table (`l16_paper_v1`). SCALPEL's `ours` runs the same scripts.
+**The paper's method is `outputs/l16_ours_v1`** (`ONEPASS=1 WRITE_LAYER=16 bash scripts/run_l16_paper_one.sh <mcf|zsre|mquake|rwku> <seed>`):
+- the linear classifier reads block 19 with fuzzy subject matching;
+- Δe is added at block 16, at the last prompt token and every generated token;
+- this takes two passes: pass 1 routes, pass 2 writes.
+
+The routers are the ones above, in `outputs/<ds>_multiseed_ours_v1`. Every dataset uses the same linear router, MCF included; the v2.2 factorized router is not used. Checked on the seed-1 artifacts of all four datasets: `layer` 19, `early_write.layer` 16, `subject_match` fuzzy, threshold gate, no PCA, heads identical to `<ds>_multiseed_ours_v1`.
+
+Other runs on the same routers:
+- `bash scripts/run_onepass_paper_one.sh <ds> <seed>` (`ONEPASS=1`): writes Δe at 19 in one pass, results in `outputs/onepass_l19_v1`.
+- The defaults of `run_l16_paper_one.sh` reproduce the older published table (`l16_paper_v1`): regular_v1 routers, the v2.2 factorized router on MCF, logit lens at 24.
+
+SCALPEL's `ours` runs the same scripts.
 
 ## Two-stage fit: the calibrated bias
 
