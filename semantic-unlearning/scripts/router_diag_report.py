@@ -86,6 +86,8 @@ def probe_outcomes(probes, routes, facts=None):
     probs = torch.sigmoid(routes["logits"].float())
     eligible = routes["eligible"].bool()
     active, fact, ambiguous = routes["active"].bool(), routes["fact"], routes["ambiguous"].bool()
+    # relation gate (scripts/fit_relation_gate.py): None for routers without one
+    relation_pass = routes.get("relation_pass")
     subjects = [str(f.get("subject", "")) for f in (facts or [])]
     rows = []
     for i, p in enumerate(probes):
@@ -115,6 +117,8 @@ def probe_outcomes(probes, routes, facts=None):
             if not relevant_eligible:
                 reason = ("subject_in_text_not_token_matched" if _named(p)
                           else "subject_absent_from_prompt")
+            elif relation_pass is not None and not bool(relation_pass[i, true].any()):
+                reason = "relation_gate"
             elif bool(ambiguous[i]):
                 reason = "ambiguous_top2"
             else:

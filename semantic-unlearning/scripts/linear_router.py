@@ -1845,6 +1845,17 @@ def cosine_arm_artifact(source, tau, *, arm, calibration):
 # Runtime bank
 # ---------------------------------------------------------------------------
 
+def relation_log_probs(query, weight, bias, fact_relation):
+    """Relation gate (scripts/fit_relation_gate.py): [B, N] log p(each fact's relation | prompt)
+    from router-layer queries [B, d], a softmax probe on the unit-normalised query. 0 where
+    fact_relation is -1 (the probe does not know that fact's relation: never gated)."""
+    x = F.normalize(query.float(), dim=-1)
+    logp = (x @ weight.float().to(x.device).T + bias.float().to(x.device)).log_softmax(-1)
+    fact = torch.as_tensor(fact_relation, dtype=torch.long, device=x.device)
+    out = logp[:, fact.clamp_min(0)]
+    return torch.where(fact[None, :] >= 0, out, torch.zeros_like(out))
+
+
 class LinearClassifierAssociationBank(nn.Module):
     """One residual row per fact, routed by N subject-masked logistic heads.
 
@@ -1864,6 +1875,8 @@ class LinearClassifierAssociationBank(nn.Module):
         out = RelationPrototypeAssociationBank.counters(self)
         if self.learned_subject is not None:
             out["learned_subject_gate"] = dict(self.gate_stats)
+        if self.relation_gate is not None:
+            out["relation_gate"] = dict(self.relation_gate_stats)
         return out
 
     def close(self):
@@ -1897,6 +1910,7 @@ class LinearClassifierAssociationBank(nn.Module):
         learned_subject=None,
         subject_match="exact",
         free_fire_logit=None,
+        relation_gate=None,
     ):
         super().__init__()
         if str(subject_match) not in SUBJECT_MATCHES:
@@ -2049,6 +2063,42 @@ class LinearClassifierAssociationBank(nn.Module):
         self._hook_handle = layer_module.register_forward_hook(self._hook)
         if learned_subject is not None:
             self._init_learned_subject(base_model, learned_subject, n_facts, device)
+        self.relation_gate = None
+        if relation_gate is not None:
+            self._init_relation_gate(relation_gate, n_facts, hidden_size, device)
+
+    # ------------------------------------------------- relation gate
+    def _init_relation_gate(self, spec, n_facts, hidden_size, device):
+        """Analysis only (the paper's routers carry none). scripts/fit_relation_gate.py: a
+        relation probe on the same router-layer query. A
+        fact's head stays eligible only if log p(the fact's relation) >= min_log_prob.
+        fact_relation -1: the probe does not know the fact's relation, its head is not gated."""
+        spec = dict(spec)
+        weight = torch.as_tensor(spec["weight"]).float()                     # [R, hidden]
+        bias = torch.as_tensor(spec["bias"]).float()                         # [R]
+        fact_relation = torch.as_tensor(spec["fact_relation"], dtype=torch.long)
+        if weight.ndim != 2 or int(weight.shape[1]) != hidden_size:
+            raise ValueError("relation_gate weight must be [num_relations, hidden_size]")
+        if tuple(bias.shape) != (int(weight.shape[0]),):
+            raise ValueError("relation_gate bias must be [num_relations]")
+        if tuple(fact_relation.shape) != (n_facts,):
+            raise ValueError("relation_gate fact_relation must have one entry per fact")
+        if int(fact_relation.max()) >= weight.shape[0] or int(fact_relation.min()) < -1:
+            raise ValueError("relation_gate fact_relation points outside the relations")
+        if int(spec.get("layer", self.layer)) != self.layer:
+            raise ValueError("relation_gate must read the router layer")
+        self.register_buffer("rg_weight", weight.to(device))
+        self.register_buffer("rg_bias", bias.to(device))
+        self.register_buffer("rg_fact_relation", fact_relation.to(device))
+        self.relation_gate = {k: v for k, v in spec.items() if k not in ("weight", "bias", "fact_relation")}
+        self.relation_gate["min_log_prob"] = float(spec["min_log_prob"])
+        # (prompt, fact) pairs per hook call: subject-eligible, and of those blocked by the gate
+        self.relation_gate_stats = {"eligible": 0, "blocked": 0}
+
+    def relation_log_probs(self, query):
+        device = query.device
+        return relation_log_probs(query, self.rg_weight.to(device), self.rg_bias.to(device),
+                                  self.rg_fact_relation.to(device))
 
     # ------------------------------------------------- learned subject gate (hybrid)
     def _init_learned_subject(self, base_model, spec, n_facts, device):
@@ -2236,6 +2286,12 @@ class LinearClassifierAssociationBank(nn.Module):
             # no eligible subject at all: a head may still fire if it is confident enough
             none = ~subject_mask.any(dim=1)
             subject_mask = subject_mask | (none[:, None] & (logits >= self.free_fire_logit))
+        if self.relation_gate is not None:
+            passed = self.relation_log_probs(query) >= self.relation_gate["min_log_prob"]
+            with torch.no_grad():
+                self.relation_gate_stats["eligible"] += int(subject_mask.sum())
+                self.relation_gate_stats["blocked"] += int((subject_mask & ~passed).sum())
+            subject_mask = subject_mask & passed
         decision = decide_routes(
             logits, subject_mask, self.active_threshold(logits.device), self.ambiguity_margin
         )
@@ -2423,7 +2479,15 @@ class LinearClassifierAssociationBank(nn.Module):
             "lm_head_edited": False,
             "object_required_in_runtime_input": False,
             "learned_subject": self._learned_subject_state(),
+            "relation_gate": self._relation_gate_state(),
         }
+
+    def _relation_gate_state(self):
+        if self.relation_gate is None:
+            return None
+        return {**self.relation_gate, "weight": self.rg_weight.detach().cpu(),
+                "bias": self.rg_bias.detach().cpu(),
+                "fact_relation": self.rg_fact_relation.detach().cpu()}
 
     def _learned_subject_state(self):
         if self.learned_subject is None:
@@ -2459,6 +2523,7 @@ def load_linear_classifier_artifact(base_model, artifact):
         learned_subject=artifact.get("learned_subject"),
         subject_match=str(artifact.get("subject_match", "exact")),
         free_fire_logit=artifact.get("free_fire_logit"),
+        relation_gate=artifact.get("relation_gate"),
     )
     for row in bank.rows:
         row.requires_grad_(False)

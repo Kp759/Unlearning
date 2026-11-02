@@ -28,7 +28,8 @@ from pathlib import Path
 
 DATASETS = ("mcf", "zsre", "mquake", "rwku")
 NAMES = {"mcf": "MCF", "zsre": "zsRE", "mquake": "MQuAKE", "rwku": "RWKU"}
-GATE = {"false_negative:subject_absent_from_prompt", "false_negative:subject_in_text_not_token_matched"}
+GATE = {"false_negative:subject_absent_from_prompt", "false_negative:subject_in_text_not_token_matched",
+        "false_negative:relation_gate"}
 HEAD = {"false_negative:below_threshold", "false_negative:ambiguous_top2",
         "false_positive:eligible_head_above_threshold", "misroute:same_subject_other_row",
         "misroute:other_subject_row"}
@@ -125,7 +126,8 @@ def build(root, seed):
            "(the fix is more or better positives, e.g. rewrites for facts that got few); `ambiguous_top2` means two "
            "heads of the same subject tied (more same-subject negatives); `eligible_head_above_threshold` means a "
            "head fired on a prompt it should not (hard negatives); `subject_absent_from_prompt` can only be fixed in "
-           "the gate (aliases, or a learned gate), never by the heads.", ""]
+           "the gate (aliases, or a learned gate), never by the heads; `relation_gate` means the router's relation gate "
+           "(scripts/fit_relation_gate.py) judged that the prompt asks for another relation.", ""]
 
     # ------------------------------------------------------------ 1. per-example errors
     md += ["## 1. Per-example errors (scores against the decision line)", "",

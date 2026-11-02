@@ -13,6 +13,7 @@ The claims these protect:
 """
 from __future__ import annotations
 
+import math
 from pathlib import Path
 import sys
 
@@ -40,6 +41,7 @@ from linear_router import (  # noqa: E402
     fit_linear_router,
     load_linear_classifier_artifact,
     load_router_artifact,
+    relation_log_probs,
     route_outcomes,
     score_queries,
     select_hyperparameters,
@@ -659,3 +661,48 @@ def test_crop_token_ids_retokenise_and_skip_chat_prompts():
                                    tokenize=True, add_generation_prompt=True)
     chat = chat["input_ids"] if isinstance(chat, dict) else list(chat)
     assert crop_token_ids(tok, chat, words, SUBJECTS, "sentence") == []
+
+
+def _gated_bank():
+    """Relation gate over 2 relations: query along e0 asks relation 0, along e1 relation 1.
+    Facts 0 and 3 ask relation 0, fact 1 relation 1, fact 2 a relation the probe lacks."""
+    bank = _bank(threshold=-100.0, margin=0.0)
+    weight = torch.zeros(2, HIDDEN)
+    weight[0, 0] = weight[1, 1] = 50.0
+    gate = {"weight": weight, "bias": torch.zeros(2), "fact_relation": torch.tensor([0, 1, -1, 0]),
+            "min_log_prob": math.log(0.5), "layer": 0, "relations": ["r0", "r1"]}
+    artifact = bank.artifact()
+    artifact["relation_gate"] = gate
+    return load_linear_classifier_artifact(_FakeModel(), artifact)[1]
+
+
+def _relation_hidden():
+    hidden = torch.zeros(4, WIDTH, HIDDEN)
+    hidden[0, -1, 1] = 1.0     # subject of fact 0, asks relation 1 -> blocked
+    hidden[1, -1, 1] = 1.0     # subject of fact 1, asks relation 1 -> routes to fact 1
+    hidden[2, -1, 0] = 1.0     # no subject -> nothing
+    hidden[3, -1, 0] = 1.0     # subjects of facts 0 and 1, asks relation 0 -> only fact 0
+    return hidden
+
+
+def test_relation_gate_blocks_heads_of_another_relation():
+    bank = _gated_bank()
+    _run(bank, hidden=_relation_hidden())
+    assert bank.last_active_fact_indices == [[], [1], [], [0]]
+    assert bank.counters()["relation_gate"] == {"eligible": 4, "blocked": 2}
+    logp = relation_log_probs(_relation_hidden()[:, -1], bank.rg_weight, bank.rg_bias, bank.rg_fact_relation)
+    assert torch.all(logp[:, 2] == 0)                       # unknown relation: never gated
+    assert bool(logp[0, 0] < math.log(0.5)) and bool(logp[1, 1] > math.log(0.5))
+
+
+def test_relation_gate_round_trips_and_is_off_by_default():
+    bank = _gated_bank()
+    hidden = _relation_hidden()
+    _, first = _run(bank, hidden=hidden)
+    _, restored = load_linear_classifier_artifact(_FakeModel(), bank.artifact())
+    _, second = _run(restored, hidden=hidden)
+    assert torch.equal(first, second) and restored.relation_gate["min_log_prob"] == math.log(0.5)
+    plain = _bank(threshold=-100.0, margin=0.0)
+    assert plain.artifact()["relation_gate"] is None
+    _run(plain, hidden=hidden)
+    assert plain.last_active_fact_indices[0] == [0]          # without the gate fact 0 fires

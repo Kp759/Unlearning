@@ -234,3 +234,117 @@ Verdicts; every option stays off by default and the paper's router is unchanged:
 The remaining misses (MCF 3, zsRE 5, MQuAKE 8 of 100 / 50 / 127 held-out phrasings) sit
 where every recall gain tested so far costs same-subject false fires.
 
+
+## Relation gate (analysis only; the paper's router does not use it)
+
+**Why it is not in the method.** A gate that works on all four benchmarks costs recall on
+zsRE and RWKU. The false fires it removes are mostly on the no-association set, which only
+these diagnostics measure; the paper's metrics do not score it. On the official retain
+prompts MCF has 16 false fires in 13,500. The gate is an opt-in artifact field
+(`artifact["relation_gate"]`): the paper's routers have none and route exactly as before.
+Results and reports are in `outputs/relation_gate_analysis_v1/`.
+
+### Where MCF's false fires come from (seed 1)
+
+On MCF the paper's router fires on 118 of 468 no-association prompts (25.2%) and on 16
+retain prompts. Almost all of them name a protected subject but ask another relation:
+"Gautier de Coincy originates from" fires the head of "The mother tongue of Gautier de Coincy
+is". The heads read one last-token state, and in it the subject dominates. Refitting the heads
+does not fix this. Best recall at a given number of false fires (test prompts plus no-association
+prompts), cutoff picked on the test prompts themselves:
+
+| refit of the heads alone | 0 false fires | ≤ 5 | ≤ 10 |
+|---|---|---|---|
+| current recipe | 0.28 | 0.68 | 0.77 |
+| + same-subject / same-relation hard negatives | 0.45 | 0.79 | 0.82 |
+
+### MCF with the true relation label
+
+**The relation gate** (`scripts/fit_relation_gate.py`, `artifact["relation_gate"]`) is a
+softmax probe over the 34 MCF relations. It reads the same block-19 query as the heads, so it
+needs no extra pass. A head stays eligible only if p(the fact's relation | prompt) is at least
+the cutoff. Heads, their cutoff and the rows do not change.
+- **Training data:** 73k MCF prompts from the records the diagnostics treat as training-side.
+  Prompts that name a protected subject or are evaluated anywhere are dropped. A quarter of
+  them are repeated with an instruction suffix added (none is the diagnostics' "Please answer
+  briefly.").
+- **Accuracy:** 92.9% on held-out probe prompts.
+- **Cutoff:** p ≥ 0.081, which lets 85% of the router's own training positives through
+  (`--quantile 0.15`).
+
+```bash
+sbatch --export=ALL,VARIANT=relgate --array=0 router_fix.slurm
+# -> outputs/mcf_multiseed_ours_relgate_v1/seed1/L19/router (+ relation_gate_report.json)
+#    outputs/router_diag_ours_relgate_v1/mcf/seed1/report/summary.md
+```
+
+| MCF seed 1 | paper's router | + relation gate |
+|---|---|---|
+| forget + paraphrase recall | 0.980 | 0.980 |
+| retain / neighbourhood fires | 16 | **0** |
+| no-association fires | 118 / 468 (25.2%) | **10 / 468 (2.1%)** |
+| same answer type fires (reported apart) | 20 / 20 | 3 / 20 |
+| perturbed recall | 0.891 | 0.873 (suffixed 1.00 → 0.81) |
+| hook parity (real bank vs cached) | 0 | 0 |
+
+**What is left.** The 10 no-association fires fall into three groups:
+- 6 are "<place> is located in / is in" asked of a location or continent fact.
+- 3 are "<product> was created in the country of" asked of a manufacturer fact.
+- 1, "Edinburgh Art Festival is located in", has the same text as the fact's own prompt.
+
+In several of them the forgotten answer is a natural answer: "Grande Arche is located in" → Paris.
+
+**Getting to exactly 0 costs recall.** Raising the gate cutoff:
+
+| gate cutoff | recall | perturbed recall | no-association fires |
+|---|---|---|---|
+| p ≥ 0.2 | 0.953 | 0.80 | 6 |
+| p ≥ 0.7 | 0.840 | 0.63 | 3 |
+| p ≥ 0.8 | 0.780 | 0.55 | 1 |
+
+At p ≥ 0.7 the 3 left are both Edinburgh Art Festival prompts and "Grande Arche is in". At
+p ≥ 0.8 only "Edinburgh Art Festival is in" is left, the one-word variant of the fact's own
+prompt.
+
+**Two variants tested and rejected:**
+- *Base-model answer check*: the head fires only if the frozen model predicts the fact's answer, or
+  the answer type of its relation. The model puts the answer in its top 10 on only 49% of real
+  forget prompts, and first-token answer types collide ("Sloven" for Slovenia and Slovenian).
+  Best with a cutoff set on training prompts only: recall 0.95 at 61 no-association fires.
+- *Gate without suffix views*: no-association fires 8, but suffixed perturbation recall 0.19.
+
+### The same gate on all four benchmarks, without labels
+
+Only MCF and MQuAKE facts carry a Wikidata relation. For a gate that works on every benchmark
+(`scripts/relation_gate_universal_check.py`), each fact gets a relation profile instead of a label. The
+profile is the mean probe distribution over the fact's own training positives. A head may fire
+if log Σ_r p(r | prompt) · profile(r) reaches the cutoff. The cutoff is the share of the
+fact's own training positives the gate may block, the same rule everywhere.
+- **One probe:** 34 relations, 94k prompts. It excludes every protected subject and every
+  test prompt of all four benchmarks, and gets 93.4% on held-out probe prompts.
+- **Data, from `scripts/` only:** MCF prompts of training-side records,
+  `mcf_shadow_relation_prompts.CALIBRATION_SCAFFOLDS`, `RELATION_ALTERNATE_TEMPLATES`, three
+  question forms, and instruction-suffix copies.
+- **Check:** with the gate off, the script reproduces the cached routes on all four benchmarks.
+
+Seed 1, gentlest setting (block at most 5% of each fact's training positives):
+
+| benchmark | recall | perturbed recall | retain / test false fires | no-association fires |
+|---|---|---|---|---|
+| MCF | 0.980 → 0.980 | 0.891 → 0.887 | 16 → 2 | 118 → 11 / 468 |
+| MQuAKE | 0.985 → 0.965 | 0.772 → 0.706 | 10 → 4 | 44 → 14 / 872 |
+| zsRE | 0.950 → 0.910 | 0.787 → 0.683 | 0 → 0 | 27 → 18 / 439 |
+| RWKU | 0.262 → 0.257 | 0.268 → 0.257 | 1 → 1 | 3 → 3 / 264 |
+
+Stricter settings cost more recall everywhere: blocking 15% takes zsRE recall to 0.84. The
+gate helps where prompts look like Wikidata fill-in-the-blank relations (MCF, MQuAKE). zsRE
+questions and RWKU chat prompts are read poorly: a fact's profile spreads over about 11
+relations (zsRE) and 15 (RWKU), against about 3 on MCF. Every setting, pooled and per fact, is
+in `universal_gate_check.json`.
+
+```bash
+cd /scratch/yl258/kp759/Unlearning/semantic-unlearning
+sbatch -p gpu --qos=standard --gres=gpu:1 --mem=128G -t 1:00:00 --wrap "module load wulver Miniforge3 && \
+  source \$(conda info --base)/etc/profile.d/conda.sh && conda activate /scratch/yl258/kp759/conda_envs/semantic_unlearning && \
+  python -u scripts/relation_gate_universal_check.py"   # reads the router_diag_ours_control_v1 caches
+```

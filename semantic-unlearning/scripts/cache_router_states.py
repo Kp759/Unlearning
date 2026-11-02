@@ -56,6 +56,7 @@ from linear_router import (
     fuzzy_subject_in_text,
     is_linear_router_artifact,
     load_router_artifact,
+    relation_log_probs,
     score_queries,
     subject_words,
 )
@@ -190,12 +191,27 @@ def runtime_rule(artifact):
     return threshold, float(artifact.get("ambiguity_margin", 0.5))
 
 
+def relation_gate(states_l, artifact):
+    """(log p(fact's relation) [P, N], passes [P, N]) under the artifact's relation gate, as the
+    hook; (None, None) without one."""
+    gate = artifact.get("relation_gate")
+    if gate is None:
+        return None, None
+    logp = relation_log_probs(states_l, torch.as_tensor(gate["weight"]), torch.as_tensor(gate["bias"]),
+                              gate["fact_relation"])
+    return logp, logp >= float(gate["min_log_prob"])
+
+
 def route_section(states_l, ids_list, artifact, tok):
+    """`eligible` stays the subject rule; with a relation gate the decision uses eligible &
+    relation_pass, exactly as the hook."""
     logits, stage1 = router_logits(states_l, artifact)
     eligible, exact = deployed_eligibility(ids_list, artifact, tok)
+    relation, passed = relation_gate(states_l, artifact)
     threshold, margin = runtime_rule(artifact)
-    decision = decide_routes(logits, eligible, threshold, margin)
+    decision = decide_routes(logits, eligible if passed is None else eligible & passed, threshold, margin)
     return {"logits": logits, "stage1_logits": stage1, "eligible": eligible, "eligible_exact": exact,
+            "relation_log_prob": relation, "relation_pass": passed,
             **{k: v.cpu() for k, v in decision.items()}}
 
 

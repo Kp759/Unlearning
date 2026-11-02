@@ -19,6 +19,9 @@
 #                   negatives (--relation-negatives), from the paper router's own prep. MCF, MQuAKE
 #   relneg40        as relneg with 40 negatives per fact
 #   relneg_crop     the relneg router routed with the subject-sentence crop (no refit); relneg40_crop alike
+#   relgate         ANALYSIS ONLY, MCF: the paper's router plus a relation gate (scripts/fit_relation_gate.py):
+#                   a head may fire only if a relation probe on the same block-19 query says the
+#                   prompt asks the fact's relation. Heads, cutoff and rows unchanged. ~15 min.
 #   rejected        the measured and rejected run (distractor copies + floor with the judge
 #                   fallback) -> router_diag_ours_fix_v1, kept so it can be reproduced
 #
@@ -60,7 +63,7 @@ DATASETS=(mcf zsre mquake)
 DS="${DATASETS[${SLURM_ARRAY_TASK_ID:?run as an array job}]:-}"
 [[ -n "$DS" ]] || { echo "array index out of range (0-2)" >&2; exit 2; }
 SEED="${SEED:-1}"
-VARIANT="${VARIANT:?set VARIANT=control|crop_sentence|crop_subject|floor_crop|relneg|relneg40|relneg_crop|relneg40_crop|rejected}"
+VARIANT="${VARIANT:?set VARIANT=control|crop_sentence|crop_subject|floor_crop|relneg|relneg40|relneg_crop|relneg40_crop|relgate|rejected}"
 FLOOR="${FLOOR:-8}"
 PAPER_ROUTER="outputs/${DS}_multiseed_ours_v1/seed$SEED/L19/router"
 # the paper's router recipe (ours: 20 / 20, fuzzy subject, no PCA)
@@ -130,6 +133,18 @@ case "$VARIANT" in
     BASEV="${VARIANT%_crop}"; N=20; [[ "$BASEV" == relneg40 ]] && N=40
     fit "multiseed_ours_${BASEV}_v1" "--relation-negatives --mcf-path data/multi_counterfact.json --negatives-per-fact $N" "" reuse
     diagnose "outputs/${DS}_multiseed_ours_${BASEV}_v1/seed$SEED/L19/router" "outputs/router_diag_ours_${VARIANT}_v1" --route-crop sentence ;;
+  relgate)
+    # probe on MCF relation prompts of training-side records (no protected subject, no evaluated
+    # prompt); cutoff passes 85 % of the router's own training positives (--quantile 0.15)
+    [[ "$DS" == mcf ]] || { echo "relation gate: MCF relations only"; exit 0; }
+    test -f "$PAPER_ROUTER/fact_association_embeddings.pt" || { echo "no paper router at $PAPER_ROUTER" >&2; exit 2; }
+    R="outputs/${DS}_multiseed_ours_relgate_v1/seed$SEED/L19/router"
+    if [[ ! -f "$R/fact_association_embeddings.pt" ]]; then
+      echo "===== relation gate -> $R | $(date)"
+      python -u scripts/fit_relation_gate.py --router-dir "$PAPER_ROUTER" --out-dir "$R" --seed "$SEED" \
+        --quantile "${RELGATE_QUANTILE:-0.15}" --device cuda --local-files-only || exit $?
+    fi
+    diagnose "$R" outputs/router_diag_ours_relgate_v1 --route-crop none ;;
   rejected)
     DISTRACTORS="${DISTRACTORS:-data/distractor_sentences.json}"
     WIKI="${WIKI:-/project/yl258/kp759/datasets/wikipedia_20231101_100k}"
