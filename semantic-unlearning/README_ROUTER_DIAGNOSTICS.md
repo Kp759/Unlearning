@@ -354,3 +354,60 @@ sbatch -p gpu --qos=standard --gres=gpu:1 --mem=128G -t 1:00:00 --wrap "module l
   source \$(conda info --base)/etc/profile.d/conda.sh && conda activate /scratch/yl258/kp759/conda_envs/semantic_unlearning && \
   python -u scripts/relation_gate_universal_check.py"   # reads the router_diag_ours_control_v1 caches
 ```
+
+## Features tried (analysis only; the paper's router is unchanged)
+
+Each head's own 20 positives and 20 negatives overlap at L19: the training UMAP's silhouette
+on MCF is 0.15. At the 98%-recall cutoff, about 65% of MCF's held-out negatives fire.
+`scripts/router_feature_variants.py` asks whether other features, read from the same
+routing pass, pull the two classes apart. Each variant:
+- is refit with the shipped recipe: same training prompts, L2 by grouped cross-validation,
+  cutoff from the router's own calibration rule;
+- is scored on held-out prompts the same way as the others.
+
+The refit on today's features reproduces the shipped routes exactly (agreement 1.0 on all four
+benchmarks).
+
+Variants:
+- **Shared whitening** (`white_a`): shrinkage-LDA whitening of the L19 last-token state,
+  learned from the fit split of all facts at once, with shrinkage a = 0.2 / 0.5 / 0.8.
+- **Relation span** (`span`): the last-token state plus the mean L19 state of the tokens after
+  the gate-matched subject ("… originates from" vs "… native language is").
+- Both together (`span_white_a`).
+
+Seed 1, today's features → relation span. "Audit negatives firing" is the share of held-out
+training negatives (audit split, never used to fit or calibrate) that fire. No-association fires
+count all null prompts, the same-answer-type group included:
+
+| | audit negatives firing | recall | test false fires | no-association fires | perturbed recall |
+|---|---|---|---|---|---|
+| MCF | 0.647 → 0.616 | 0.980 → 0.980 | 16 → 18 | 138 → 132 | 0.891 → 0.887 |
+| zsRE | 0.190 → 0.173 | 0.950 → 0.930 | 0 → 0 | 27 → 22 | 0.787 → 0.783 |
+| MQuAKE | 0.067 → 0.043 | 0.985 → 0.985 | 10 → 2 | 55 → 34 | 0.772 → 0.756 |
+| RWKU | 0.050 → 0.067 | 0.262 → 0.325 | 1 → 1 | 0 → 0 | 0.268 → 0.288 |
+
+What the runs show:
+- **Whitening does not help.** On MCF it raises audit negatives firing to about 0.79 and test
+  false fires to 20–24. On MQuAKE it raises false fires at low shrinkage. On zsRE it trades
+  recall for fewer false fires. Its silhouette sometimes rises while held-out errors get worse:
+  more apparent separation is not better linear classification of new prompts.
+- **The relation span helps MQuAKE and RWKU.** MQuAKE test false fires drop from 10 to 2, and
+  RWKU recall rises by 6 points.
+- **The relation span is roughly neutral on MCF**, and costs zsRE 2 of its 100 forget prompts.
+- **MCF's overlap is not a feature problem solvable at L19.** Even the relation words, read
+  directly, leave about 62% of held-out negatives firing. Separating them needed relation
+  knowledge learned from 70k+ external prompts: see "Relation gate (analysis only)".
+
+Caveats:
+- Seed 1 only; small differences are a few prompts (0.02 on zsRE is 2 prompts).
+- For perturbed prompts whose subject has a typo, the subject is often not found as tokens
+  (226 of 409 on MCF), and the span falls back to the last 4 tokens.
+
+Results: `outputs/router_feature_variants_v1/feature_variants.{md,json}`, every shrinkage level,
+plus the audit recall and route AUC.
+
+```bash
+sbatch -p gpu --qos=standard --gres=gpu:1 --mem=160G -t 2:00:00 --wrap "module load wulver Miniforge3 && \
+  source \$(conda info --base)/etc/profile.d/conda.sh && conda activate /scratch/yl258/kp759/conda_envs/semantic_unlearning && \
+  python -u scripts/router_feature_variants.py --extract"   # reads the router_diag_ours_control_v1 caches
+```
