@@ -14,6 +14,10 @@
 
 \newtheorem{proposition}{Proposition}
 \newtheorem{lemma}{Lemma}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
 \newcommand{\R}{\mathbb{R}}
 \newcommand{\ind}{\mathbf{1}}
 \DeclareMathOperator*{\argmax}{arg\,max}
@@ -54,7 +58,7 @@ We propose to separate the two sides into two components that can be built, meas
 The separation pays off in three ways. First, locality on everything the classifier declines is exact rather than approximate, so what remains to be measured is how often the classifier fires when it should not. Second, every leak has a cause: either the classifier missed the request or the edit was too weak. Running the same edit vectors under an oracle classifier tells the two apart, and on our benchmarks almost all of the remaining leakage is classification, not editing. Third, the two layers can be moved independently. Reading earlier loses paraphrases; writing later makes the edit specific to the phrasing it saw. The layer study turns the slogan into a measured claim.
 
 \paragraph{Contributions.}
-(i) A classify-then-edit unlearning method that keeps the weights frozen, is exact on requests the classifier declines, and uses one vector per fact. On four standard benchmarks it removes almost all recall of the forgotten facts on their request prompts and their held-out paraphrases, with locality and perplexity at the base model's level, where fine-tuning and weight-editing baselines each fail one of the two. (ii) An oracle-classifier decomposition that attributes every remaining leak to classification or editing, and a layer study showing that the classifier should read late and the edit should be written early.
+(i) A classify-then-edit unlearning method that keeps the weights frozen, is exact on requests the classifier declines, and uses one vector per fact. On four standard benchmarks it removes almost all recall of the forgotten facts on their request prompts and their held-out paraphrases, with locality and perplexity at the base model's level, where fine-tuning and weight-editing baselines each fail one of the two. (ii) An analysis of where an association can be classified: in a minimal model of factual recall, an association is linearly separable from all others at the MLP input but not before the subject reaches the last token, and a block whose state collapses onto the answer cannot separate prompts with the same answer. (iii) An oracle-classifier decomposition that attributes every remaining leak to classification or editing, a Fisher-geometric account of the edit, and a layer study showing that the classifier should read late and the edit should be written early.
 
 \section{Related Work}
 \label{sec:related}
@@ -78,7 +82,7 @@ Let $\pi_\theta$ be a pretrained autoregressive language model with $L$ transfor
  \pi_u(y_i\mid x)&\approx 0, && x\in\{x_i\}\cup\mathcal P(a_i),\label{eq:forget}\\
  \pi_u(\cdot\mid x)&=\pi_\theta(\cdot\mid x), && x\in\mathcal D_r,\label{eq:retain}
 \end{align}
-where $\mathcal P(a_i)$ is a set of held-out rephrasings of $a_i$ that is never available during training. SURE returns $\pi_u=\pi_{\theta,\phi}$, the frozen model with two components $\phi=(c,\boldsymbol\Delta)$: a classifier $c:\mathcal X\to\{1,\dots,N\}\cup\{\varnothing\}$ and edit vectors $\boldsymbol\Delta=[\boldsymbol\delta_1,\dots,\boldsymbol\delta_N]^\top\in\R^{N\times d}$. The trainable parameters are the classifier's $N(d+1)$ weights and the $Nd$ entries of $\boldsymbol\Delta$ ($307{,}250$ for $N=50$, $d=3072$).
+where $\mathcal P(a_i)$ is a set of held-out rephrasings of $a_i$ that is never available during training. The two conditions conflict on a prompt that is in both sets, so we assume that no retain prompt is a forget prompt; MQuAKE violates this for 12--17\% of its retain facts, which Spe$^\dagger$ (Section~\ref{sec:setup}) excludes. SURE returns $\pi_u=\pi_{\theta,\phi}$, the frozen model with two components $\phi=(c,\boldsymbol\Delta)$: a classifier $c:\mathcal X\to\{1,\dots,N\}\cup\{\varnothing\}$ and edit vectors $\boldsymbol\Delta=[\boldsymbol\delta_1,\dots,\boldsymbol\delta_N]^\top\in\R^{N\times d}$. The trainable parameters are the classifier's $N(d+1)$ weights and the $Nd$ entries of $\boldsymbol\Delta$ ($307{,}250$ for $N=50$, $d=3072$).
 
 \subsection{Read at block $R$, write at block $W$}
 \label{sec:arch}
@@ -122,37 +126,87 @@ To separate the two components, every trained $\boldsymbol\Delta$ is evaluated a
 
 \section{Analysis}
 \label{sec:analysis}
+We show that the classifier alone determines locality (Section~\ref{sec:attribution}), ask at which block an association can be classified (Section~\ref{sec:read}), and describe how an edit at block $W$ trades erasure against locality (Section~\ref{sec:geometry}).
 
-\subsection{Locality and the source of residual recall}
+\subsection{Locality and attribution}
+\label{sec:attribution}
 
-\begin{proposition}[Exact locality off the classified set]
-\label{prop:locality}
-For any prompt $x$ with $c(x)=\varnothing$ and any continuation $y$, $\pi_{\theta,\phi}(y\mid x)=\pi_\theta(y\mid x)$.
+\begin{proposition}[Exact locality]
+\label{prop:locality}\label{rem:locality}
+If $c(x)=\varnothing$, then $\pi_{\theta,\phi}(\cdot\mid x)=\pi_\theta(\cdot\mid x)$ at every generation step.
 \end{proposition}
 \begin{proof}
-With $c(x)=\varnothing$, Equation~\eqref{eq:write} adds zero at every position of every forward pass, including every generation step, since the decision is fixed by the prompt. The computation is that of $\pi_\theta$.
+The decision is made once from the prompt; with $c(x)=\varnothing$, Equation~\eqref{eq:write} adds zero at every position and step.
 \end{proof}
-Locality loss on $\mathcal D_r$ is therefore confined to the retain prompts on which $c$ fires (Proposition~\ref{prop:collateral} quantifies it), and removing the classifier restores $\pi_\theta$.
+Locality can therefore be lost only on retain prompts on which $c$ fires.
 
-\begin{proposition}[Residual decomposition]
+\begin{proposition}[Attribution of residual recall]
 \label{prop:decomp}
-Let $\mathcal F$ be a set of forget probes and $\kappa$ the fraction of $\mathcal F$ that $c$ maps to the correct association. The residual recall of SURE on $\mathcal F$ is
+Let $\mathcal Q$ be a set of forget probes, each asking one association, and let $\kappa$ and $\nu$ be the fractions of $\mathcal Q$ that $c$ assigns to the correct association and to $\varnothing$. The mean recall of $\pi_{\theta,\phi}$ on $\mathcal Q$ is
 \begin{equation}
- \mathrm{res}_{\mathrm{SURE}}=\kappa\,\mathrm{res}_{c^\star\mid\mathrm{correct}}+(1-\kappa)\,\mathrm{res}_{\pi_\theta\mid\mathrm{missed}},
+ \mathrm{rec}(\mathcal Q)=\kappa\,r_{\mathrm{edit}}+\nu\,r_{\mathrm{base}}+(1-\kappa-\nu)\,r_{\mathrm{wrong}},
 \end{equation}
-where the first term is the recall under the edit vectors on the correctly classified probes and the second is the recall on the remaining probes, which by Proposition~\ref{prop:locality} is that of $\pi_\theta$ (a probe mapped to another association receives another edit vector and is counted with the missed probes).
+where $r_{\mathrm{edit}}$, $r_{\mathrm{base}}$ and $r_{\mathrm{wrong}}$ are the mean recall on the correctly assigned, unassigned and wrongly assigned probes. $r_{\mathrm{edit}}$ equals the recall of Genie on the same probes and $r_{\mathrm{base}}$ that of $\pi_\theta$.
 \end{proposition}
-Genie measures the first term on all of $\mathcal F$; the difference to SURE is the cost of the classifier. On MQuAKE it is $1.49-0.10=1.39$ points of held-out recall (Table~\ref{tab:main}); on MCF it is $0.026$.
+\begin{proof}
+Total expectation over the three groups. On the first, SURE and Genie add the same edit vector; on the second, Proposition~\ref{prop:locality} applies.
+\end{proof}
+Genie has $\kappa=1$, so any difference between SURE and Genie comes from probes the classifier misses or misassigns: $1.49-0.10=1.39$ points of held-out recall on MQuAKE and $0.026$ on MCF (Table~\ref{tab:main}).
 
-\subsection{Geometry of the edit: forget-sensitive and retain-null directions}
+\subsection{Where an association can be read}
+\label{sec:read}
+Factual recall in transformers has two steps: attention moves information about the subject to the last token, and MLP blocks act as key--value memories that map the resulting state to the answer \citep{geva2021ffn,meng2022rome,geva2023dissecting}. A minimal model of this mechanism shows where a linear classifier can separate one association from the others.
+
+Let prompts be token pairs $(s,r)$ with $s\in\mathcal S$ and $r\in\mathcal R$, and let $\mathcal D_f$ hold $N$ associations $(s_i,r_i,y_i)$ with distinct pairs $(s_i,r_i)$ and answers in a set $\mathcal Y$. A one-block transformer has an embedding, one attention layer, one ReLU MLP and an unembedding, with residual connections; its output is the $\argmax$ of the logits at the last position.
+
+\begin{proposition}[Recall needs the MLP]
+\label{prop:binding}
+\begin{enumerate}
+ \item[(a)] If the last-token state is additive, $\mathbf h(s,r)=\mathbf v_s+\mathbf v_r$, no affine map of $\mathbf h$ followed by $\argmax$ realises every table: for $s_1,s_2,r_1,r_2$ and answers $A\ne B$, the table $y(s_1,r_1)=y(s_2,r_2)=A$, $y(s_1,r_2)=y(s_2,r_1)=B$ is not realised.
+ \item[(b)] If $d\ge|\mathcal S|+|\mathcal R|+|\mathcal Y|$, a one-block transformer with MLP width $N$ outputs $y_i$ on $(s_i,r_i)$ for every $i$. Its MLP input at the last token is $\mathbf h(s,r)=\mathbf v_s+\mathbf v_r$, and hidden unit $i$ computes $\mathrm{ReLU}(\mathbf w_i^\top\mathbf h-1)$ with $\mathbf w_i=\mathbf v_{s_i}+\mathbf v_{r_i}$, which is $1$ on $(s_i,r_i)$ and $0$ on every other pair.
+\end{enumerate}
+\end{proposition}
+\begin{proof}
+(a) The logit of answer $y$ is $u_y(s)+t_y(r)$ for some functions $u_y,t_y$. With $\Delta_s=u_A(s)-u_B(s)$ and $\Delta_r=t_A(r)-t_B(r)$, the table requires $\Delta_{s_1}+\Delta_{r_1}>0$, $\Delta_{s_2}+\Delta_{r_2}>0$, $\Delta_{s_1}+\Delta_{r_2}<0$ and $\Delta_{s_2}+\Delta_{r_1}<0$; the first two sum to a positive number and the last two to a negative one, but both sums equal $\Delta_{s_1}+\Delta_{s_2}+\Delta_{r_1}+\Delta_{r_2}$.
+(b) Take orthonormal vectors $\mathbf v_s$, $\mathbf v_r$, $\mathbf v_y$ for $s\in\mathcal S$, $r\in\mathcal R$, $y\in\mathcal Y$, embed $s$ and $r$ as $\mathbf v_s$ and $\mathbf v_r$, and use uniform attention whose value--output map is twice the projection onto $\mathrm{span}\{\mathbf v_s\}_{s\in\mathcal S}$; the last-token state is then $\mathbf v_r+\mathbf v_s$. Then $\mathbf w_i^\top\mathbf h=\ind[s=s_i]+\ind[r=r_i]$, so unit $i$ is active only on $(s_i,r_i)$. Let unit $i$ write $\mathbf v_{y_i}$ and let the unembedding have rows $\mathbf v_y$; the logits on $(s_i,r_i)$ are $\ind[y=y_i]$.
+\end{proof}
+In this model the subject does not reach the last token before the attention layer, where the state $\mathbf v_r$ is the same for every subject, so no classifier there separates associations that share a relation. At the MLP input, $\mathbf w_i^\top\mathbf h$ is $2$ on $(s_i,r_i)$ and at most $1$ on every other pair, including pairs with the same subject or the same answer, so a linear head of the form in Section~\ref{sec:classifier} separates each association. The key of the memory is such a head.
+
+In a pretrained model the last blocks increasingly encode the predicted token itself \citep{nostalgebraist2020logitlens,belrose2023tunedlens}. Let $\mathbf u^\ell(x)$ be the feature~\eqref{eq:feature} computed at block $\ell$. We say block $\ell$ shows \emph{output collapse} with radius $\eta$ if $\|\mathbf u^\ell(x)-\mathbf u^\ell(x')\|_2\le\eta$ whenever $\pi_\theta$ answers $x$ and $x'$ with the same token.
+
+\begin{proposition}[Late blocks do not separate same-answer prompts]
+\label{prop:collapse}
+Let block $\ell$ show output collapse with radius $\eta$, and let $x'$ be a retain prompt that $\pi_\theta$ answers with $y_i$.
+\begin{enumerate}
+ \item[(a)] Every linear head $z(x)=\mathbf w^\top\mathbf u^\ell(x)+\beta$ satisfies $|z(x_i)-z(x')|\le\|\mathbf w\|_2\,\eta$; a head with $z(x_i)\ge m/2$ and $z(x')\le-m/2$ needs $\|\mathbf w\|_2\ge m/\eta$, which the penalty $\gamma\|\mathbf w\|_2^2$ discourages.
+ \item[(b)] If $\eta=0$, any intervention whose effect on a prompt depends on it only through $\mathbf u^\ell$ (a classifier without the subject gate, or, for $\ell=L$, an edit of the final normalisation or the unembedding) has the same effect on the next-token distribution of $x_i$ and of $x'$.
+\end{enumerate}
+\end{proposition}
+\begin{proof}
+(a) Cauchy--Schwarz. (b) $\mathbf u^\ell(x_i)=\mathbf u^\ell(x')$.
+\end{proof}
+On MCF the neighbourhood prompts that define Spe are answered with the forget answer by construction, so an intervention that sees a prompt only through a collapsed block must trade Eff against Spe. The trade-off is a property of the block, not of the benchmark. The subject gate is lexical, not a function of $\mathbf u^\ell$, and is not covered by the proposition.
+
+We call block $R$ an \emph{association layer} for $\mathcal D_f$ if a classifier of the form~\eqref{eq:classifier} reading $\mathbf u^R$ assigns every forget prompt in $\{x_i\}\cup\mathcal P(a_i)$ to $i$ and every retain prompt to $\varnothing$.
+
+\begin{proposition}[Exact unlearning from an association layer]
+\label{prop:exact}
+Let $R$ be an association layer, and for each $i$ let $\|\boldsymbol\delta_i\|_2\le\rho_W$ satisfy $\pi_{\theta,\boldsymbol\delta_i}(y_i\mid x)\le\tau$ for all $x\in\{x_i\}\cup\mathcal P(a_i)$. Then $\pi_{\theta,\phi}$ satisfies~\eqref{eq:forget} with $\pi_u(y_i\mid x)\le\tau$, and~\eqref{eq:retain} holds exactly, so Spe and PPL equal those of $\pi_\theta$.
+\end{proposition}
+\begin{proof}
+Forget prompts receive their own edit vector; retain prompts receive none and Proposition~\ref{prop:locality} applies.
+\end{proof}
+In the model of Proposition~\ref{prop:binding} the MLP input is an association layer and the embedding is not; Proposition~\ref{prop:collapse} explains why the last blocks of a trained model need not be one. For a fact that the model recalls through this mechanism we therefore expect an association layer between the block where the subject reaches the last token and the block where the state collapses onto the answer. This is a hypothesis about pretrained models, not a theorem: reading too early misses the subject, and reading too late cannot separate same-answer prompts without the subject gate. Table~\ref{tab:ablation_layers} and the per-block classifier sweep of Appendix~\ref{app:models} test it.
+
+\subsection{Where to write: the geometry of an edit}
 \label{sec:geometry}
-Where $c$ fires, the effect of $\boldsymbol\delta_i$ is fixed by how the next-token distribution responds to a perturbation of block $W$. Following \citet{mudarisov2026predictive}, we describe this response by the Fisher metric of the output distribution pulled back to the residual stream. Fix a prompt $x$ and let $\Psi_x:\R^d\to\R^{|\Sigma|}$ map the block-$W$ state at the last prompt token to the next-token logits over the vocabulary $\Sigma$, with all other positions fixed; assume $\Psi_x$ is $C^2$ near $\mathbf h^W(x)$. Let $\bar{\mathbf J}_x=\mathbf P\,D\Psi_x(\mathbf h^W(x))$ with $\mathbf P=\mathbf I-|\Sigma|^{-1}\ind\ind^\top$ (logits are defined up to a constant), $\mathbf p_x=\pi_\theta(\cdot\mid x)$, $\mathbf F_x=\mathrm{diag}(\mathbf p_x)-\mathbf p_x\mathbf p_x^\top$, and
+Where $c$ fires, the effect of $\boldsymbol\delta_i$ is set by how the next-token distribution responds to a change of the block-$W$ state. Following \citet{mudarisov2026predictive}, we measure this response with the Fisher information of the output distribution with respect to that state. For a prompt $x$ with answer $y$, let $\mathbf p_x=\pi_\theta(\cdot\mid x)$, $\mathbf J_x$ the Jacobian of the next-token logits with respect to $\mathbf h^W(x)$ (all other positions fixed), $\mathbf F(\mathbf p)=\mathrm{diag}(\mathbf p)-\mathbf p\mathbf p^\top$ the Fisher information of the softmax with respect to its logits, and
 \begin{equation}
- \mathbf K_x=\bar{\mathbf J}_x^\top\mathbf F_x\bar{\mathbf J}_x,\qquad
- \mathbf g_x=\bar{\mathbf J}_x^\top(\mathbf e_{y}-\mathbf p_x),
+ \mathbf g_x=\nabla_{\mathbf h^W}\log\pi_\theta(y\mid x)=\mathbf J_x^\top(\mathbf e_y-\mathbf p_x),\qquad
+ \mathbf K_x=\mathbf J_x^\top\mathbf F(\mathbf p_x)\mathbf J_x ,
  \label{eq:pullback}
 \end{equation}
-where $\mathbf e_y$ is the indicator of the answer token. $\mathbf K_x\succeq 0$ is the pullback Fisher operator; $\mathbf g_x$ is the direction in which an edit raises the answer's log-probability.
+with $\mathbf e_y$ the indicator vector of $y$. $\mathbf K_x\succeq 0$ is the Fisher information of $\pi_\theta(\cdot\mid x)$ with respect to $\mathbf h^W(x)$.
 
 \begin{lemma}[Local response to an edit]
 \label{lem:local}
@@ -163,37 +217,19 @@ As $\|\boldsymbol\delta\|\to 0$,
 \end{align}
 \end{lemma}
 \begin{proof}
-The gradient of $\log\mathrm{softmax}(\mathbf z)_y$ is $\mathbf e_y-\mathrm{softmax}(\mathbf z)$, which is orthogonal to $\ind$, so $\mathbf P$ does not change it; the chain rule gives~\eqref{eq:first}. For~\eqref{eq:second}, $f(\mathbf z)=\mathrm{KL}(\mathbf p_x\|\mathrm{softmax}(\mathbf z))$ has gradient $\mathrm{softmax}(\mathbf z)-\mathbf p_x$, which vanishes at $\boldsymbol\delta=0$, and Hessian $\mathbf F_x$ there. The Hessian of $f\circ\Psi_x$ at $\boldsymbol\delta=0$ is therefore $\bar{\mathbf J}_x^\top\mathbf F_x\bar{\mathbf J}_x$; the term with the second derivatives of $\Psi_x$ is multiplied by the vanishing gradient \citep[Theorem~1 with zero residual]{mudarisov2026predictive}.
+\eqref{eq:first} is Taylor's theorem. For~\eqref{eq:second}, $\mathrm{KL}(\mathbf p_x\|\mathrm{softmax}(\cdot))$ has zero gradient and Hessian $\mathbf F(\mathbf p_x)$ at the base logits; by the chain rule the Hessian with respect to $\boldsymbol\delta$ is $\mathbf J_x^\top\mathbf F(\mathbf p_x)\mathbf J_x$, since the second derivatives of the logits are multiplied by the zero gradient \citep[Theorem~1]{mudarisov2026predictive}.
 \end{proof}
-
-For association $i$, let $\mathcal V_i$ be its forget views and $\mathcal R_i$ the inputs that receive $\boldsymbol\delta_i$ but must keep their output: retain prompts with $c(x)=i$. Define the forget and retain operators
-\begin{equation}
- \mathbf G_i=\mathop{\mathbb E}_{x\in\mathcal V_i}\mathbf g_x\mathbf g_x^\top,\qquad
- \mathbf K_i=\mathop{\mathbb E}_{x\in\mathcal R_i}\mathbf K_x .
- \label{eq:operators}
-\end{equation}
-By Lemma~\ref{lem:local}, directions with large $\mathbf G_i$-energy move the answer on the forget views (forget-sensitive), directions with small $\mathbf K_i$-energy leave the retain outputs unchanged to second order, and $\ker\mathbf K_i$ contains the retain-null directions.
 
 \begin{proposition}[Most selective edit]
 \label{prop:selective}
-Let $\bar{\mathbf g}_i=\mathbb E_{x\in\mathcal V_i}\mathbf g_x$ and $\varepsilon>0$. To the orders of Lemma~\ref{lem:local}:
-\begin{enumerate}
- \item[(a)] If $\bar{\mathbf g}_i\in\mathrm{range}(\mathbf K_i)$, then $\max\{-\bar{\mathbf g}_i^\top\boldsymbol\delta:\tfrac12\boldsymbol\delta^\top\mathbf K_i\boldsymbol\delta\le\varepsilon\}=\sqrt{2\varepsilon\,\bar{\mathbf g}_i^\top\mathbf K_i^{+}\bar{\mathbf g}_i}$, attained at $\boldsymbol\delta\propto-\mathbf K_i^{+}\bar{\mathbf g}_i$.
- \item[(b)] If $\bar{\mathbf g}_i$ has a non-zero component $\mathbf n$ in $\ker\mathbf K_i$, then $\boldsymbol\delta=-t\,\mathbf n$ lowers the mean answer log-probability by $t\|\mathbf n\|^2$ at zero second-order divergence on $\mathcal R_i$ for every $t>0$; only the norm bound and higher-order terms limit it.
- \item[(c)] Over $\mathrm{range}(\mathbf K_i)$, the directions that maximise the ratio $\boldsymbol\delta^\top\mathbf G_i\boldsymbol\delta/\boldsymbol\delta^\top\mathbf K_i\boldsymbol\delta$ of forget to retain sensitivity are the top eigenvectors of the generalised problem $\mathbf G_i\mathbf v=\lambda\mathbf K_i\mathbf v$.
-\end{enumerate}
+For association $i$, let $\bar{\mathbf g}_i$ be the mean of $\mathbf g_x$ over its forget views $\mathcal V_i$ and $\mathbf K_i$ the mean of $\mathbf K_x$ over the retain prompts $\mathcal R_i$ on which $c$ selects $i$. To the orders of Lemma~\ref{lem:local}, among edits with mean retain divergence $\tfrac12\boldsymbol\delta^\top\mathbf K_i\boldsymbol\delta\le\varepsilon$, the largest decrease of the mean answer log-probability on $\mathcal V_i$ is $\sqrt{2\varepsilon\,\bar{\mathbf g}_i^\top\mathbf K_i^{+}\bar{\mathbf g}_i}$, attained at $\boldsymbol\delta\propto-\mathbf K_i^{+}\bar{\mathbf g}_i$, if $\bar{\mathbf g}_i\in\mathrm{range}(\mathbf K_i)$. Otherwise the component of $\bar{\mathbf g}_i$ in $\ker\mathbf K_i$ lowers the answer at no second-order retain divergence.
 \end{proposition}
 \begin{proof}
-(a) On $\mathrm{range}(\mathbf K_i)$ write $\boldsymbol\delta=\mathbf K_i^{+1/2}\mathbf v$; the constraint is $\|\mathbf v\|^2\le 2\varepsilon$ and the objective is $-(\mathbf K_i^{+1/2}\bar{\mathbf g}_i)^\top\mathbf v$, maximised by Cauchy--Schwarz. (b) $\mathbf K_i\mathbf n=0$ and $\bar{\mathbf g}_i^\top\mathbf n=\|\mathbf n\|^2$. (c) Generalised Rayleigh quotient.
+The decrease is $-\bar{\mathbf g}_i^\top\boldsymbol\delta$ by~\eqref{eq:first}. On $\mathrm{range}(\mathbf K_i)$ substitute $\boldsymbol\delta=\mathbf K_i^{+1/2}\mathbf v$ and apply Cauchy--Schwarz; a direction $\mathbf n\in\ker\mathbf K_i$ has $\mathbf K_i\mathbf n=0$.
 \end{proof}
+$-\mathbf K_i^{+}\bar{\mathbf g}_i$ is the forget gradient measured in the retain Fisher metric: it favours directions to which the answer is sensitive and the retain outputs are not.
 
-The training objective is a penalised form of this problem. Since $q_t=(\mathbf p-p_y\mathbf e_y)/(1-p_y)$ with $\mathbf p=\pi_\theta(\cdot\mid x_{\le t})$ and $p_y$ its answer mass, $\mathbf p-q_t=\tfrac{p_y}{1-p_y}(\mathbf e_y-\mathbf p)$, and Theorem~1 of \citet{mudarisov2026predictive} gives for the KL term of~\eqref{eq:loss}
-\begin{align}
- \mathrm{KL}(q_t\|\pi_{\theta,\boldsymbol\delta})={}&\mathrm{KL}(q_t\|\mathbf p)+\tfrac{p_y}{1-p_y}\,\mathbf g^\top\boldsymbol\delta\notag\\
- &+\tfrac12\boldsymbol\delta^\top(\mathbf K+\mathbf E)\boldsymbol\delta+O(\|\boldsymbol\delta\|^3),
- \label{eq:keep}
-\end{align}
-with $\|\mathbf E\|_{\mathrm{op}}\le M\|\mathbf p-q_t\|_2$, $M$ a bound on the second derivatives of $\Psi$. Where the hinge is active it contributes $\mathbf g^\top\boldsymbol\delta$ by~\eqref{eq:first}. Neglecting the hinge's curvature, $\mathcal L_i(\boldsymbol\delta)=\mathcal L_i(0)+\tilde{\mathbf g}_i^\top\boldsymbol\delta+\tfrac\lambda2\boldsymbol\delta^\top\tilde{\mathbf K}_i\boldsymbol\delta+O(\|\boldsymbol\delta\|^3)$, with $\tilde{\mathbf g}_i$ a positively weighted average of the $\mathbf g_x$ over views and positions and $\tilde{\mathbf K}_i$ the corresponding average of $\mathbf K+\mathbf E$. Its unconstrained minimiser on $\mathrm{range}(\tilde{\mathbf K}_i)$ is $-\lambda^{-1}\tilde{\mathbf K}_i^{+}\tilde{\mathbf g}_i$, the direction of Proposition~\ref{prop:selective}(a) with the views' own non-answer tokens as the retain metric; any component of $\tilde{\mathbf g}_i$ in $\ker\tilde{\mathbf K}_i$ is unbounded in this model, which is what the constraint $\|\boldsymbol\delta\|\le\rho_W$ controls. Retain prompts on which $c$ fires by mistake are not in the objective; their divergence is the subject of the next result.
+The objective~\eqref{eq:loss} is a penalised form of this problem. Expand the hinge to first order and the KL term to second order, the orders of Lemma~\ref{lem:local}. Where active, the hinge contributes $\mathbf g_x^\top\boldsymbol\delta$. For a one-token answer with probability $p_y$, the renormalised distribution $q$ satisfies $\mathbf p_x-q=\tfrac{p_y}{1-p_y}(\mathbf e_y-\mathbf p_x)$, so the KL term contributes $\tfrac{p_y}{1-p_y}\mathbf g_x^\top\boldsymbol\delta+\tfrac12\boldsymbol\delta^\top(\mathbf K_x+\mathbf E_x)\boldsymbol\delta$, with $\|\mathbf E_x\|_{\mathrm{op}}\le M\|\mathbf p_x-q\|_2$ and $M$ a bound on the second derivatives of the logits \citep[Theorem~1]{mudarisov2026predictive}. Up to a constant, the loss is then $\tilde{\mathbf g}_i^\top\boldsymbol\delta+\tfrac\lambda2\boldsymbol\delta^\top\tilde{\mathbf K}_i\boldsymbol\delta$, with $\tilde{\mathbf g}_i$ a positively weighted average of the $\mathbf g_x$ and $\tilde{\mathbf K}_i$ the average of $\mathbf K_x+\mathbf E_x$ over views and positions. This is the Lagrangian of the problem in Proposition~\ref{prop:selective} with multiplier $\lambda$ and the views' own non-answer tokens as the retain set. Its minimiser on $\mathrm{range}(\tilde{\mathbf K}_i)$ is $-\lambda^{-1}\tilde{\mathbf K}_i^{+}\tilde{\mathbf g}_i$; the bound $\|\boldsymbol\delta\|_2\le\rho_W$ limits the kernel component, along which this model is unbounded. Retain prompts on which $c$ fires by mistake are not in the objective. The next result bounds their cost.
 
 \begin{proposition}[Locality loss factorises]
 \label{prop:collateral}
@@ -206,9 +242,9 @@ At the first generated position,
 \end{align}
 \end{proposition}
 \begin{proof}
-Split $\mathcal D_r$ by $c(x)$. The term $c(x)=\varnothing$ is zero by Proposition~\ref{prop:locality}; for $c(x)=i$ apply~\eqref{eq:second} with $\|\boldsymbol\delta_i\|\le\rho_W$.
+Split $\mathcal D_r$ by $c(x)$. The term $c(x)=\varnothing$ is zero by Proposition~\ref{prop:locality}; for $c(x)=i$ apply~\eqref{eq:second} with $\|\boldsymbol\delta_i\|_2\le\rho_W$.
 \end{proof}
-Locality loss is thus the product of two factors that can be measured separately: how often the classifier fires on retain prompts, and how sensitive those prompts' outputs are to the edit vector, $\boldsymbol\delta_i^\top\mathbf K_x\boldsymbol\delta_i$. A false fire costs nothing to second order when $\boldsymbol\delta_i$ lies in $\ker\mathbf K_x$. $\mathbf K_x$, $\mathbf G_i$ and $\mathbf K_i$ need only Jacobian--vector products of the frozen model and are never formed explicitly \citep{mudarisov2026predictive}.
+Locality loss is the product of two factors that can be measured separately: how often the classifier fires on retain prompts, and how sensitive those prompts' outputs are to the edit vector. A false fire costs nothing to second order when $\boldsymbol\delta_i\in\ker\mathbf K_x$. None of $\mathbf K_x$, $\mathbf K_i$ needs to be formed explicitly; Jacobian--vector products of the frozen model suffice \citep{mudarisov2026predictive}.
 
 \section{Experimental Setup}
 \label{sec:setup}
@@ -217,10 +253,10 @@ Locality loss is thus the product of two factors that can be measured separately
 We use each benchmark's official evaluator. \textbf{MCF} (MultiCounterFact; \citealp{meng2023memit}) with the ZeroUnlearn split: 50 forget records and 1{,}000 retain records per seed; Eff and Gen are the complete-answer probability of the true answer on the request prompt and its paraphrases, Spe is teacher-forced accuracy on neighbourhood prompts (other subjects with the same true answer). \textbf{zsRE} \citep{levy2017zsre} in the MEND evaluation split \citep{mitchell2022mend}: Eff and Gen are answer-token accuracy on the question and its rephrase, Spe the accuracy on NQ locality questions. \textbf{MQuAKE-CF-3k-v2} \citep{zhong2023mquake}: 50 instances whose original single-hop facts are forgotten (about 105 unique associations); Eff is accuracy on the direct prompt, Gen on the held-out atomic question, Spe the accuracy on 1{,}000 retain instances; Spe$^\dagger$ excludes the 12--17\% of retain facts that coincide with a forget fact by dataset construction. \textbf{RWKU} \citep{jin2024rwku}: a Batch-50 split of 50 probes over five target people; Eff is same-50 recovery, Gen the mean recovery on held-out Level-1, Level-2 and paraphrase probes about the same people, Spe neighbour recovery. PPL is perplexity on a fixed Wikidata text. All numbers are means over seeds 1--5.
 
 \paragraph{Models and configuration.}
-The main results use Llama-3.2-3B-Instruct \citep{grattafiori2024llama3} (28 blocks, $d=3072$) with $R=19$ and $W=16$. The ablation (Table~\ref{tab:ablation_layers}) varies $(R,W)$. Results on Qwen3-4B \citep{yang2025qwen3} and Llama-3.1-8B-Instruct, with $R$ and $W$ chosen per model by a classifier-quality sweep over blocks on MCF seed 1, are reported in Appendix~\ref{app:models}.\todo{fill from paper\_qwen3\_4b and paper\_llama31\_8b tables}
+The main results use Llama-3.2-3B-Instruct \citep{grattafiori2024llama3} (28 blocks, $d=3072$) with $R=19$ and $W=16$. The ablation (Table~\ref{tab:ablation_layers}) varies $(R,W)$. Results on Llama-3.1-8B-Instruct ($R=20$, $W=18$) and Qwen3-4B \citep{yang2025qwen3} ($R=26$, $W=23$), with every baseline, are in Appendix~\ref{app:models}; $R$ is chosen per model by a classifier-quality sweep over blocks on MCF seed 1.
 
 \paragraph{Baselines.}
-All baselines see the same training-visible forget views as SURE and are scored by the same evaluators. GA \citep{jang2023knowledgeunlearning}, GD \citep{liu2022gd} and NPO \citep{zhang2024npo} ($\beta=0.1$) train all MLP weights in fp32 with AdamW (learning rate $10^{-5}$, batch 8, up to 5 epochs, stopped once the mean answer probability on the training views falls below $10^{-4}$); the retain term uses the base model's own continuations of unrelated prompts. RMU \citep{li2024wmdp} steers block 7 for 250 steps. ROME, MEMIT and ZeroUnlearn use the implementations and hyperparameters shipped with ZeroUnlearn \citep{lin2026zerounlearn}, with the EOS token as the edit target and a 100k-document Wikipedia covariance. Base is the unedited model.
+All baselines see the same training-visible forget views as SURE and are scored by the same evaluators. GA \citep{jang2023knowledgeunlearning}, GD \citep{liu2022gd} and NPO \citep{zhang2024npo} ($\beta=0.1$) train all MLP weights (on Llama-3.1-8B, whose optimiser state over every MLP does not fit one 80\,GB GPU, the down projections) in fp32 with AdamW (learning rate $10^{-5}$, batch 8, up to 5 epochs, stopped once the mean answer probability on the training views falls below $10^{-4}$); the retain term uses the base model's own continuations of unrelated prompts. RMU \citep{li2024wmdp} steers block 7 (8 on Llama-3.1-8B, 9 on Qwen3-4B) for 250 steps. ROME, MEMIT and ZeroUnlearn use the implementations and hyperparameters shipped with ZeroUnlearn \citep{lin2026zerounlearn}, with the EOS token as the edit target and a 100k-document Wikipedia covariance. Base is the unedited model.
 
 \section{Results}
 \label{sec:results}
@@ -236,18 +272,18 @@ All baselines see the same training-visible forget views as SURE and are scored 
 \cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(lr){10-13}\cmidrule(lr){14-17}
 Method & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL \\
 \midrule
-Base        & 13.46 & 10.26 & 19.88 & 11.31 & 32.37 & 31.20 & 29.79 & 11.31 & 73.23 & 46.44 & 66.13 & 11.31 & 57.60 & 54.77 & 63.70 & 11.31 \\
+Base        & 13.46 & 10.26 & 19.88 & 11.31 & 32.37 & 31.20 & 29.79 & 11.31 & 73.23 & 46.44 & 66.13 & 11.31 & 57.60 & 54.76 & 63.70 & 11.31 \\
 \midrule
-GA          & 0.025 & 0.277 & 0.36 & 30.82 & 19.38 & 19.07 & 26.24 & 12.67 & 7.98 & 10.80 & 12.68 & 16.12 & 23.20 & 30.55 & 39.57 & 11.69 \\
-GD          & 0.032 & 0.321 & 0.48 & 31.00 & 19.52 & 19.40 & 26.36 & 12.91 & 9.30 & 11.92 & 14.18 & 16.48 & 23.60 & 30.46 & 39.72 & 11.80 \\
-NPO         & 0.026 & 0.160 & 0.12 & 29.02 & 17.55 & 17.52 & 25.40 & 12.72 & 4.65 & 7.78 & 8.39 & 16.58 & 18.80 & 24.08 & 30.22 & 14.00 \\
-RMU         & \underline{0.008} & \underline{0.039} & 1.00 & 11.50 & \textbf{0.00} & \textbf{0.05} & 7.55 & 11.49 & \underline{0.30} & \underline{6.89} & 0.67 & 11.48 & \textbf{0.80} & \textbf{0.27} & 0.14 & 11.43 \\
+GA          & 0.025 & 0.277 & 0.36 & 30.82 & 20.50 & 19.81 & 26.43 & 12.63 & 6.22 & 7.42 & 10.73 & 25.54 & 26.40 & 28.52 & 39.24 & 11.73 \\
+GD          & 0.032 & 0.321 & 0.48 & 31.00 & 20.48 & 19.91 & 26.35 & 12.94 & 7.42 & 7.87 & 11.74 & 29.11 & 25.20 & 27.94 & 36.77 & 11.96 \\
+NPO         & 0.026 & 0.160 & 0.12 & 29.02 & 18.87 & 18.72 & 25.31 & 12.76 & 4.01 & 4.83 & 6.89 & 23.31 & 18.80 & 18.95 & 22.26 & 12.00 \\
+RMU         & \underline{0.008} & \underline{0.039} & 1.00 & 11.50 & \underline{2.62} & \underline{2.98} & 12.57 & 11.45 & \underline{0.25} & \textbf{0.00} & 0.40 & 11.76 & \textbf{0.00} & \textbf{0.00} & 0.07 & 11.43 \\
 ROME        & 4.749 & 5.636 & 18.36 & 11.46 & 33.46 & 31.94 & \textbf{29.90} & 11.42 & 10.23 & 15.90 & 32.35 & 11.97 & 2.40 & \underline{4.32} & 30.74 & 11.36 \\
-MEMIT       & 9.563 & 8.546 & \underline{19.76} & \underline{11.38} & 32.94 & 31.11 & \underline{29.80} & \underline{11.36} & 31.36 & 26.24 & \underline{55.05} & 11.47 & 36.80 & 39.78 & \underline{59.96} & \underline{11.35} \\
+MEMIT       & 9.563 & 8.546 & \underline{19.76} & \underline{11.38} & 32.94 & 31.11 & \underline{29.80} & \underline{11.36} & 31.36 & 26.24 & \underline{55.05} & 11.47 & 36.80 & 39.78 & \underline{59.95} & \underline{11.34} \\
 ZeroUnlearn & 0.270 & 2.313 & 15.84 & 11.55 & 27.81 & 27.37 & 29.23 & 11.54 & 18.93 & 22.76 & 49.79 & \underline{11.45} & 18.80 & 22.53 & 49.49 & 11.45 \\
-\textbf{Ours} & \textbf{0.001} & \textbf{0.027} & \textbf{19.84} & \textbf{11.31} & \underline{0.17} & \underline{1.24} & 29.79 & \textbf{11.31} & \textbf{0.10} & \textbf{1.49} & \textbf{55.07} & \textbf{11.31} & \underline{2.00} & 33.61 & \textbf{61.89} & \textbf{11.31} \\
+\textbf{Ours}& \textbf{0.001} & \textbf{0.027} & \textbf{19.84} & \textbf{11.31} & \textbf{0.17} & \textbf{1.24} & 29.79 & \textbf{11.31} & \textbf{0.10} & \underline{1.49} & \textbf{55.07} & \textbf{11.31} & \underline{2.00} & 33.61 & \textbf{61.89} & \textbf{11.31} \\
 \midrule
-Genie       & 0.001 & 0.001 & 19.88 & 11.31 & 0.17 & 0.17 & 29.79 & 11.31 & 0.10 & 0.10 & 56.21 & 11.31 & 0.00 & 54.77 & 63.70 & 11.31 \\
+Genie       & 0.001 & 0.001 & 19.88 & 11.31 & 0.17 & 0.17 & 29.79 & 11.31 & 0.10 & 0.10 & 56.21 & 11.31 & 0.00 & 54.76 & 63.70 & 11.31 \\
 \bottomrule
 \end{tabular}
 \caption{Unlearning results on Llama-3.2-3B-Instruct (mean over 5 seeds). Eff, Gen $\downarrow$ (forgetting); Spe $\uparrow$ (locality); PPL should stay at Base (11.31). Bold: best trained method; underline: second-best trained method (Base and Genie excluded; PPL: closest to Base). Ours: classifier at block 19, edit vectors $\boldsymbol\delta_i$ added at block 16. Genie: the same edit vectors under the oracle classifier $c^\star$ (Section~\ref{sec:oracle}). On MQuAKE, Spe over retain facts that do not repeat a forget fact is 67.3 (Base) and 66.0 (Ours).}
@@ -255,7 +291,7 @@ Genie       & 0.001 & 0.001 & 19.88 & 11.31 & 0.17 & 0.17 & 29.79 & 11.31 & 0.10
 \end{table*}
 
 \paragraph{Main comparison.}
-Table~\ref{tab:main} shows the pattern the introduction describes. The gradient methods erase the request prompt and its paraphrases (MCF Gen $\le 0.32$, MQuAKE Gen 8--12) but destroy the neighbourhood (MCF Spe 0.1--0.5 against 19.9 for base, zsRE 25--26 against 29.8) and raise perplexity (MCF PPL 29--31 against 11.3). RMU keeps perplexity but collapses locality on three benchmarks. ROME, MEMIT and ZeroUnlearn keep locality and perplexity but erase incompletely on held-out phrasings: MEMIT leaves 8.5 of 10.3 MCF paraphrase recall and 26 of 46 MQuAKE atomic-question recall. SURE is the only row that is best or tied on erasure and locality at once on MCF and MQuAKE, keeps zsRE locality exactly, and keeps PPL at base on every benchmark, which Proposition~\ref{prop:locality} predicts for a method that leaves most retain requests unclassified.
+Table~\ref{tab:main} shows the pattern the introduction describes. The gradient methods erase the request prompt and its paraphrases (MCF Gen $\le 0.32$, MQuAKE Gen 5--8) but destroy the neighbourhood (MCF Spe 0.1--0.5 against 19.9 for base, zsRE 25--26 against 29.8) and raise perplexity (MCF PPL 29--31 and MQuAKE 23--29 against 11.3). RMU keeps perplexity and removes nearly all recall, but with it nearly all locality on every benchmark (Spe 0.07--12.6). ROME, MEMIT and ZeroUnlearn keep locality and perplexity but erase incompletely on held-out phrasings: MEMIT leaves 8.5 of 10.3 MCF paraphrase recall and 26 of 46 MQuAKE atomic-question recall. SURE is the only row that is best or second-best on erasure and best on locality at once on MCF and MQuAKE, is the best eraser on zsRE (Gen 1.24 against 2.98 for RMU, which halves Spe) with locality kept exactly, and keeps PPL at base on every benchmark, which Remark~\ref{rem:locality} predicts for a method that leaves most retain requests unclassified.
 
 \paragraph{Routing versus residual editing.}
 Genie isolates the edit vectors from the learned classifier. On MCF, zsRE and MQuAKE the request-prompt erasure of SURE and Genie is identical because the classifier already fires on every request prompt; the held-out gap therefore measures classifier misses on paraphrases. RWKU differs because its held-out probes ask other facts about the forgotten person rather than the specific trained association, so many such probes have no dedicated edit vector.
@@ -298,42 +334,68 @@ Separating classification from residual editing turns fact-level unlearning into
 \onecolumn
 \section{Other models}
 \label{app:models}
-Table~\ref{tab:llama8b} reports Llama-3.1-8B-Instruct (32 blocks). The classifier reads block 20, the block a sweep of classifier quality over all blocks selected on MCF seed 1 (best F1, earliest block within 0.005 of it with no higher false-positive rate); the residual embedding is written at block 18, the 3B model's relative write depth. The classifier recipe and edit-vector training are unchanged. As on the 3B model, SURE removes nearly all request-prompt recall and most held-out recall with locality and perplexity at the base model's level, and Genie on the same edit vectors removes nearly all held-out recall, so the remaining leak is classification. The one-pass variant at block 22 confirms the write-early effect: request-prompt recall is higher on zsRE and MQuAKE, and the entity-level genie on RWKU retains 50.3 of held-out recall against 27.7 when writing at block 18. Qwen3-4B is in progress.\todo{Qwen3-4B table}
+Tables~\ref{tab:llama8b} and~\ref{tab:qwen4b} repeat Table~\ref{tab:main} on Llama-3.1-8B-Instruct and Qwen3-4B with every baseline. The classifier recipe and edit-vector training are unchanged; only $R$ and $W$ change. $R$ is the block that a sweep of classifier quality over all blocks selects on MCF seed 1 (best F1, earliest block within 0.005 of it with no higher false-positive rate): 20 on Llama-3.1-8B and 26 on Qwen3-4B. On Llama-3.1-8B, $W=18$ is the 3B model's relative write depth; on Qwen3-4B, $W=23$ has the lowest Gen averaged over MCF and zsRE among $W\in\{16,18,21,23,26\}$ in a seed-1 smoke test, with Spe at the same value for all five.
 
-\begin{table}[h]
+On Llama-3.1-8B the picture of the 3B model repeats: SURE removes nearly all request-prompt recall and most held-out recall with Spe and PPL at the base model's level, it is the only method that is best on locality on MCF, MQuAKE and RWKU while erasing, and Genie on the same edit vectors removes nearly all held-out recall, so the remaining leak is classification. The one-pass variant at block 22 confirms the write-early effect on the request prompt (zsRE Eff 0.13 against 0.08, MQuAKE 1.32 against 0.79), and on RWKU the entity-level Genie retains 50.3 of held-out recall at block 22 against 27.7 at block 18. On Qwen3-4B, SURE keeps perplexity at the base model's level and locality within 0.6 points of it on every benchmark (Spe$^\dagger$ on MQuAKE), and is the best method on zsRE erasure, but its edit vectors are weaker: Genie leaves 9.3 of 30.2 points of zsRE request-prompt recall and 16.1 of 58.8 on MQuAKE, so on this model the remaining leak on these two benchmarks is editing, not classification.
+
+\begin{table*}[t]
 \centering
 \small
-\begin{tabular}{llccccc}
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabular}{l cccc cccc cccc cccc}
 \toprule
-Dataset & Method & Eff $\downarrow$ & Gen $\downarrow$ & Spe $\uparrow$ & Spe$^\dagger$ $\uparrow$ & PPL \\
+& \multicolumn{4}{c}{MCF} & \multicolumn{4}{c}{ZsRE} & \multicolumn{4}{c}{MQuAKE} & \multicolumn{4}{c}{RWKU} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(lr){10-13}\cmidrule(lr){14-17}
+Method & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL \\
 \midrule
-\multirow{3}{*}{MCF} & Base & 17.089 & 13.007 & 22.48 & -- & 11.03 \\
- & \textbf{Ours} & \textbf{0.000} & \textbf{0.353} & \textbf{22.44} & -- & \textbf{11.03} \\
- & Genie & 0.000 & 0.002 & 22.48 & -- & 11.03 \\
+Base        & 17.09 & 13.01 & 22.48 & 11.03 & 39.81 & 36.44 & 30.56 & 11.03 & 72.82 & 63.48 & 67.76 & 11.03 & 78.40 & 83.98 & 84.71 & 11.03 \\
 \midrule
-\multirow{3}{*}{zsRE} & Base & 39.81 & 36.44 & 30.57 & -- & 11.03 \\
- & \textbf{Ours} & \textbf{0.08} & \textbf{3.27} & \textbf{30.57} & -- & \textbf{11.03} \\
- & Genie & 0.08 & 0.08 & 30.57 & -- & 11.03 \\
+GA          & 0.019 & 0.017 & 0.00 & 88.85 & 23.86 & 23.47 & 25.97 & 13.26 & 2.38 & \underline{2.28} & 3.82 & 2.0e5 & 15.20 & 16.71 & 14.83 & 12.42 \\
+GD          & 0.007 & \textbf{0.008} & 0.00 & 74.78 & 24.01 & 23.67 & 25.97 & 13.89 & 3.12 & 2.45 & 4.62 & 1969 & 15.60 & 17.42 & 15.68 & 12.72 \\
+NPO         & 0.012 & 0.014 & 0.00 & 95.48 & 21.43 & 21.20 & 25.02 & 13.29 & 2.35 & 2.43 & 3.67 & 175.10 & 5.60 & 11.56 & 10.40 & 12.64 \\
+RMU         & \underline{0.005} & \underline{0.013} & 0.60 & 10.73 & \underline{1.13} & \textbf{0.93} & 6.85 & 10.74 & \textbf{0.00} & \textbf{0.00} & 0.10 & 10.78 & \textbf{0.00} & \textbf{0.00} & 0.00 & 10.85 \\
+ROME        & 3.595 & 4.362 & 20.00 & 11.12 & 34.64 & 34.88 & 30.53 & 11.10 & 7.88 & 17.18 & 32.05 & 11.19 & 6.40 & \underline{7.27} & 51.81 & 11.08 \\
+MEMIT       & 6.316 & 7.731 & \underline{21.48} & \underline{11.09} & 37.65 & 37.27 & \textbf{30.82} & \underline{11.07} & 28.02 & 27.84 & 55.17 & \underline{11.16} & 53.20 & 62.22 & \underline{80.24} & \underline{11.07} \\
+ZeroUnlearn & 1.932 & 4.477 & 18.32 & 11.17 & 33.77 & 32.52 & 30.43 & 11.18 & 24.96 & 28.26 & \underline{55.30} & 11.20 & 33.20 & 46.48 & 75.04 & 11.15 \\
 \midrule
-\multirow{3}{*}{MQuAKE} & Base & 72.82 & 63.48 & 67.76 & 70.10 & 11.03 \\
- & \textbf{Ours} & \textbf{0.79} & \textbf{4.95} & \textbf{58.41} & \textbf{69.69} & \textbf{11.03} \\
- & Genie & 0.79 & 0.79 & 58.75 & 70.10 & 11.03 \\
-\midrule
-\multirow{4}{*}{RWKU} & Base & 78.40 & 83.98 & 84.71 & -- & 11.03 \\
- & \textbf{Ours} & \textbf{3.60} & \textbf{49.21} & \textbf{82.62} & -- & \textbf{11.03} \\
- & Genie & 1.60 & 83.98 & 84.71 & -- & 11.03 \\
- & Genie (entity) & 1.60 & 27.65 & 84.71 & -- & 11.03 \\
-\midrule
-\multicolumn{7}{l}{\emph{One pass, classifier and residual embedding both at block 22}} \\
-MCF & Ours & 0.000 & 0.353 & 22.44 & -- & 11.03 \\
-zsRE & Ours & 0.13 & 4.09 & 30.57 & -- & 11.03 \\
-MQuAKE & Ours & 1.32 & 4.94 & 58.49 & 69.80 & 11.03 \\
-RWKU & Ours / Genie (entity) & 3.60 & 43.94 / 50.29 & 82.44 & -- & 11.03 \\
+\textbf{Ours}& \textbf{0.000} & 0.353 & \textbf{22.44} & \textbf{11.03} & \textbf{0.08} & \underline{3.27} & \underline{30.56} & \textbf{11.03} & \underline{0.79} & 4.95 & \textbf{58.41} & \textbf{11.03} & \underline{3.60} & 49.21 & \textbf{82.62} & \textbf{11.03} \\
+\quad one pass, block 22 & 0.000 & 0.353 & 22.44 & 11.03 & 0.13 & 4.09 & 30.57 & 11.03 & 1.32 & 4.94 & 58.49 & 11.03 & 3.60 & 43.94 & 82.44 & 11.03 \\
+Genie       & 0.000 & 0.002 & 22.48 & 11.03 & 0.08 & 0.08 & 30.56 & 11.03 & 0.79 & 0.79 & 58.75 & 11.03 & 1.60 & 83.98 & 84.71 & 11.03 \\
+Genie (entity)& -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 1.60 & 27.65 & 84.71 & 11.03 \\
 \bottomrule
 \end{tabular}
-\caption{Llama-3.1-8B-Instruct, mean over 5 seeds (standard deviations in \texttt{RESULTS\_PAPER\_TABLES.md}). Classifier at block 20, residual embedding at block 18. Spe$^\dagger$: MQuAKE retain facts that do not repeat a forget fact.}
+\caption{Llama-3.1-8B-Instruct (32 blocks), mean over 5 seeds. Classifier at block 20, edit vectors at block 18; ``one pass'': both at block 22. GA, GD and NPO train the MLP down projections; RMU steers block 8. On MQuAKE, Spe$^\dagger$ is 70.10 (Base) and 69.69 (Ours). Bold and underline as in Table~\ref{tab:main}. Standard deviations in \texttt{RESULTS\_PAPER\_TABLES.md}.}
 \label{tab:llama8b}
-\end{table}
+\end{table*}
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabular}{l cccc cccc cccc cccc}
+\toprule
+& \multicolumn{4}{c}{MCF} & \multicolumn{4}{c}{ZsRE} & \multicolumn{4}{c}{MQuAKE} & \multicolumn{4}{c}{RWKU} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(lr){10-13}\cmidrule(lr){14-17}
+Method & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & PPL \\
+\midrule
+Base        & 11.13 & 9.78 & 12.64 & 14.07 & 30.21 & 30.37 & 35.59 & 14.07 & 58.82 & 24.91 & 51.85 & 14.07 & 26.00 & 30.43 & 24.89 & 14.07 \\
+\midrule
+GA          & 0.018 & 0.788 & 0.72 & 650.50 & 21.85 & 21.18 & 33.54 & 17.13 & 11.00 & 15.66 & 16.81 & 80.77 & 12.40 & 15.15 & 12.59 & 14.74 \\
+GD          & 0.032 & 0.786 & 0.80 & 470.91 & 21.98 & 21.21 & 33.32 & 18.29 & 11.19 & 15.94 & 17.16 & 99.91 & 12.40 & 15.28 & 12.81 & 15.05 \\
+NPO         & 0.128 & 0.382 & 0.76 & 175.93 & 21.38 & 20.27 & 33.90 & 17.53 & 11.31 & 16.47 & 17.08 & 60.55 & 13.20 & 15.74 & 12.38 & 15.99 \\
+RMU         & 0.027 & \underline{0.044} & 1.00 & 13.67 & \underline{10.33} & \underline{11.88} & 27.37 & 13.99 & \underline{1.81} & \underline{2.25} & 5.35 & \underline{14.04} & \textbf{0.80} & \textbf{0.36} & 0.07 & 13.94 \\
+ROME        & \textbf{0.000} & \textbf{0.003} & 0.00 & 2140 & 14.82 & 14.90 & 25.06 & 15.93 & \textbf{0.00} & \textbf{0.00} & 0.01 & 8.2e6 & \underline{2.80} & \underline{4.09} & 14.62 & 14.10 \\
+MEMIT       & 0.743 & 2.333 & \underline{12.44} & \underline{14.21} & 27.45 & 26.98 & \underline{35.04} & \underline{14.14} & 26.95 & 20.96 & \textbf{48.16} & 14.25 & 18.40 & 15.22 & \underline{23.07} & \underline{14.09} \\
+ZeroUnlearn & 0.043 & 0.590 & 9.72 & 15.24 & 24.73 & 25.39 & 34.54 & 15.36 & 20.43 & 18.85 & 37.51 & 17.52 & 9.60 & 13.55 & 21.04 & 14.46 \\
+\midrule
+\textbf{Ours}& \underline{0.003} & 0.118 & \textbf{12.52} & \textbf{14.07} & \textbf{9.33} & \textbf{11.22} & \textbf{35.59} & \textbf{14.07} & 16.05 & 15.15 & \underline{45.98} & \textbf{14.07} & 4.00 & 20.71 & \textbf{24.53} & \textbf{14.07} \\
+Genie       & 0.003 & 0.117 & 12.64 & 14.07 & 9.33 & 9.43 & 35.59 & 14.07 & 16.05 & 14.35 & 46.44 & 14.07 & 2.00 & 30.43 & 24.89 & 14.07 \\
+Genie (entity)& -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 2.00 & 20.94 & 24.89 & 14.07 \\
+\bottomrule
+\end{tabular}
+\caption{Qwen3-4B (36 blocks), mean over 5 seeds. Classifier at block 26, edit vectors at block 23. RMU steers block 9. ROME diverges on MCF and MQuAKE on this model (PPL $2\cdot10^3$ and $8\cdot10^6$). On MQuAKE, Spe$^\dagger$ is 52.13 (Base) and 51.58 (Ours). Bold and underline as in Table~\ref{tab:main}.}
+\label{tab:qwen4b}
+\end{table*}
 
 \section{RWKU with an entity-level classifier}
 \label{app:rwku}
