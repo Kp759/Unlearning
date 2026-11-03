@@ -279,8 +279,12 @@ def test_ours_fuzzy_router_end_to_end(tmp_path, model_dir):
                   for k, p in enumerate(probes_train) for i in p["true_facts"] if i in by_fact)
     assert sum(len(r["head_fn"]) for r in tu["per_fact"]) == want_fn
     assert {"1", str(ROUTER_LAYER)} <= set(tu["by_layer"]) and len(tu["drawn_facts"]) == 2
-    for name in ("summary.md", "umap_facts.png", "umap_pooled.png", "separability_vs_layer.png"):
+    for name in ("summary.md", "confusion_train.png", "umap_pooled.png", "separability_vs_layer.png"):
         assert (out / "train_umap" / name).is_file()
+    assert all((out / "train_umap" / f"fact_{i}.png").is_file() for i in tu["drawn_facts"])
+    conf = tu["train_confusion"]
+    assert sum(conf[s]["fn"] for s in conf) == want_fn
+    assert sum(sum(conf[s].values()) for s in conf) == sum(r["n_pos"] + r["n_neg"] for r in tu["per_fact"])
     result = _sweep(out, tmp_path)
     at = next(e for e in result["sweep"] if e["layers"] == [ROUTER_LAYER] and e["rule"] == "deployed")
     assert at["deployed_eligibility"] == "fuzzy" and set(at["by_eligibility"]) == {"fuzzy"}
@@ -289,9 +293,9 @@ def test_ours_fuzzy_router_end_to_end(tmp_path, model_dir):
     assert set(modes) == {"exact", "fuzzy", "none"}
     assert modes["fuzzy"]["perturbed_recall"] >= modes["exact"]["perturbed_recall"]
     doc = (out / "layer_sweep" / "layer_choice.md").read_text()
-    assert "Fuzzy subject eligibility" in doc and "ONE pass" in doc
+    assert "Fuzzy subject eligibility" in doc and "makes two passes" in doc
     import router_layer_sweep_cached as rls
-    assert "ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER=26" in rls.downstream_command(manifest, 26)
+    assert "ONEPASS=1 WRITE_LAYER=16 ROUTER_LAYER=26" in rls.downstream_command(manifest, 26)
 
 
 def test_route_crop_end_to_end(tmp_path, model_dir):

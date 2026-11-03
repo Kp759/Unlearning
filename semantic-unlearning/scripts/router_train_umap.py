@@ -7,8 +7,12 @@ linear_router_dataset.json (fit, calibration and audit splits), cached by
 cache_router_states.py as the `train` section at every cached layer. CPU only.
 
     python -u scripts/router_train_umap.py --cache-dir outputs/router_diag_ours_control_v1/mcf/seed1
-    # -> <cache>/train_umap/{summary.md, separability.json, umap_facts.png, umap_pooled.png,
-    #                        separability_vs_layer.png}
+    # -> <cache>/train_umap/{summary.md, separability.json, fact_<i>.png (one card per drawn fact),
+    #                        confusion_train.png, umap_pooled.png, separability_vs_layer.png}
+
+Each fact card: the fact's own 20 positive and 20 negative training sentences at L16 and the
+router layer (UMAP, every point numbered), the numbered sentences underneath, and the deployed
+head's 2x2 confusion on those 40 sentences.
 
 Per fact i: positives are the prompts it owns (true_facts == [i]); negatives are the prompts
 with i in negative_for (subject transplants, model-written hard negatives, same-subject
@@ -37,7 +41,9 @@ from torch.nn import functional as F
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from router_diag_report import _fmt, _plt, display_text, embed_2d, loo_probe_accuracy, silhouette  # noqa: E402
+from router_diag_report import (  # noqa: E402
+    _fmt, _plt, display_text, embed_2d, loo_probe_accuracy, plot_umap_sentences, silhouette,
+)
 
 POS_COLOR, NEG_COLOR = "#1565c0", "#c62828"
 # (label, marker) per source; positives by router family, negatives by record kind
@@ -104,7 +110,7 @@ def head_errors(logits, threshold, fact, pos, neg):
     return fn, fp, thr
 
 
-def analyse(cache_dir, layers=None, n_show=8, seed=0, loo_probe=True):
+def analyse(cache_dir, layers=None, n_show=4, seed=0, loo_probe=True):
     cache_dir = Path(cache_dir)
     manifest = json.loads((cache_dir / "manifest.json").read_text())
     probes = json.loads((cache_dir / "probes_train.json").read_text())
@@ -197,32 +203,75 @@ def _legend(fig):
     fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=7, frameon=False)
 
 
-def plot_facts(result, probes, states, path, seed=0):
-    plt = _plt()
-    cached, layers = result["cached_layers"], result["layers_shown"]
-    rows = [r for r in result["per_fact"] if r["fact"] in result["drawn_facts"]]
-    fig, axes = plt.subplots(len(rows), len(layers), figsize=(3.6 * len(layers), 3.1 * len(rows) + 0.8),
-                             squeeze=False)
+HELD_OUT = ("calibration", "audit")
+PER_CLASS = 20
+
+
+def plot_fact_card(result, probes, states, row, path, seed=0):
+    """One fact: up to 20 positives and 20 negatives at L16 and the router layer."""
+    cached, L = result["cached_layers"], result["router_layer"]
+    pos, neg = fact_sets(probes, result["n_facts"])[row["fact"]]
+    pos, neg = pos[:PER_CLASS], neg[:PER_CLASS]
+    index = pos + neg
+    wrong_k = set(row["head_fn"]) | set(row["head_fp"])
+    wrong = {n for n, k in enumerate(index) if k in wrong_k}
+    labels = [1] * len(pos) + [0] * len(neg)
+    panels = []
+    for layer in [l for l in (16, L) if l in cached]:
+        x = F.normalize(states["states"][cached.index(layer)][index].double(), dim=-1)
+        coords, method = embed_2d(x.float(), n_neighbors=10, seed=seed)
+        probe = loo_probe_accuracy(x, labels)["logistic"]
+        panels.append((f"L{layer}{' (router)' if layer == L else ''}: linear probe {probe:.2f} "
+                       f"(leave-one-out), silhouette {silhouette(x, labels, 'cosine'):.2f}", coords))
+    fn = sum(k in wrong_k for k in pos)
+    fp = sum(k in wrong_k for k in neg)
+    held = sum(probes[k]["split"] in HELD_OUT for k in index if k in wrong_k)
+    confusion = {"tp": len(pos) - fn, "fn": fn, "fp": fp, "tn": len(neg) - fp, "fired": "head fired",
+                 "title": f"the deployed head on these {len(index)}\n({held} of {fn + fp} errors on held-out sentences)"}
+    notes = ["held-out" if probes[k]["split"] in HELD_OUT else "" for k in index]
+    texts = [display_text(probes[k], 90) for k in index]
+    plot_umap_sentences(
+        panels, texts, labels, wrong, path,
+        f"{result['dataset']} seed {result['seed']} · fact {row['fact']}: {row['subject']} ({row['relation']}) — "
+        f"its own {len(pos)} positive and {len(neg)} negative training sentences (UMAP; ring / ✗ = head wrong)",
+        notes=notes, confusion=confusion)
+
+
+def train_confusion(result, probes):
+    """Every head on its own training sentences, (fact, sentence) pairs: fit split vs held-out."""
     sets = fact_sets(probes, result["n_facts"])
-    for row_axes, r in zip(axes, rows):
+    out = {name: {"tp": 0, "fn": 0, "fp": 0, "tn": 0} for name in ("fit", "held-out")}
+    for r in result["per_fact"]:
         pos, neg = sets[r["fact"]]
-        index = pos + neg
-        wrong = set(r["head_fn"]) | set(r["head_fp"])
-        for ax, layer in zip(row_axes, layers):
-            x = F.normalize(states["states"][cached.index(layer)][index].double(), dim=-1)
-            coords, method = embed_2d(x.float(), n_neighbors=10, seed=seed)
-            _scatter(ax, coords, index, probes, wrong)
-            probe = r["probe_by_layer"].get(layer)
-            ax.set_title(f"{str(r['subject'])[:28]} · {r['relation']} · L{layer}\n"
-                         f"+{r['n_pos']} / −{r['n_neg']}  sil {_fmt(r['silhouette_by_layer'][layer], 2)}  "
-                         f"1-NN {_fmt(r['nn_by_layer'][layer], 2)}  probe {_fmt(probe, 2)}", fontsize=7)
-            ax.set_xticks([])
-            ax.set_yticks([])
-    fig.suptitle(f"{result['dataset']} seed {result['seed']}: each head's own training prompts "
-                 f"({method}; ring = head L{result['router_layer']} wrong)", fontsize=10)
-    _legend(fig)
-    fig.tight_layout(rect=(0, 0.05, 1, 0.97))
-    fig.savefig(path, dpi=130)
+        fn, fp = set(r["head_fn"]), set(r["head_fp"])
+        for k in pos:
+            out["held-out" if probes[k]["split"] in HELD_OUT else "fit"]["fn" if k in fn else "tp"] += 1
+        for k in neg:
+            out["held-out" if probes[k]["split"] in HELD_OUT else "fit"]["fp" if k in fp else "tn"] += 1
+    return out
+
+
+def plot_train_confusion(result, conf, path):
+    plt = _plt()
+    fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.6))
+    for ax, name in zip(axes, ("fit", "held-out")):
+        m = conf[name]
+        grid = [[m["tp"], m["fn"]], [m["fp"], m["tn"]]]
+        ax.imshow([[1, 0], [0, 1]], cmap="Greens", vmin=-1, vmax=2)
+        for a in range(2):
+            for b in range(2):
+                err = a != b and grid[a][b]
+                ax.text(b, a, f"{grid[a][b]:,}", ha="center", va="center", fontsize=14,
+                        color="#c62828" if err else "black", fontweight="bold" if err else "normal")
+        ax.set_xticks([0, 1], ["head fired", "did not fire"], fontsize=8)
+        ax.set_yticks([0, 1], ["positive\n(should fire)", "negative\n(must not fire)"], fontsize=8)
+        neg = m["fp"] + m["tn"]
+        ax.set_title(f"{'fit sentences (weights trained on them)' if name == 'fit' else 'held-out sentences (calibration + audit)'}\n"
+                     f"negatives firing: {m['fp']}/{neg} ({m['fp'] / max(1, neg):.0%})", fontsize=8)
+    fig.suptitle(f"{result['dataset']} seed {result['seed']}: every head on its own 20 + 20 training sentences "
+                 f"(block {result['router_layer']}); red = errors", fontsize=9)
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    fig.savefig(path, dpi=150)
     plt.close(fig)
 
 
@@ -304,9 +353,24 @@ def write_summary(result, probes, out_dir, top_k=15):
         md.append(f"| {layer}{tag} | {_fmt(v['silhouette_mean'])} | {_fmt(v['silhouette_min'])} | "
                   f"{_fmt(v['nn_mean'])} | {_fmt(v['nn_min'])} | {v['facts_nn_perfect']}/{len(rows)} | "
                   f"{_fmt(v['probe_mean'])} | {_fmt(v['probe_min'])} |")
-    md += ["", "## Each fact's positives and negatives (UMAP)", "",
+    conf = result["train_confusion"]
+    md += ["", "## Confusion: every head on its own training sentences", "", "![confusion](confusion_train.png)", "",
+           "| sentences | positives fired | positives missed | negatives fired (error) | negatives not fired |",
+           "|---|---|---|---|---|"]
+    for name in ("fit", "held-out"):
+        m = conf[name]
+        md.append(f"| {name} | {m['tp']} | {m['fn']} | {m['fp']} | {m['tn']} |")
+    md += ["", "Held-out = calibration + audit split: the weights never trained on them, so this row is "
+           "how the heads do on new sentences.", "",
+           "## Each fact's 20 positive and 20 negative sentences (UMAP at L16 and the router layer)", "",
            f"The {len(result['drawn_facts'])} facts drawn: the hardest at block {L} (most head errors, "
-           "then lowest 1-NN), then a seeded random sample.", "", "![facts](umap_facts.png)", "",
+           "then lowest 1-NN), then a seeded random sample. How to read a card: blue = should fire, red = "
+           "must not fire; the numbers on the points match the numbered sentences below the plots; a black "
+           "ring and ✗ mark a sentence the deployed head gets wrong; [held-out] marks sentences the weights "
+           "never saw. The panel titles give the full-dimension numbers (the 2-D picture is only a "
+           "projection).", ""]
+    md += [f"![fact {i}](fact_{i}.png)" for i in result["drawn_facts"]]
+    md += ["",
            "## All training prompts pooled", "", "![pooled](umap_pooled.png)", "",
            "Pooled over facts, prompts cluster by subject more than by class; a head only has to "
            "separate its own fact's positives from its own negatives, which is what the per-fact numbers measure.", "",
@@ -335,7 +399,7 @@ def main(argv=None):
     p.add_argument("--cache-dir", required=True, help="a cache_router_states.py output dir")
     p.add_argument("--out-dir", default=None, help="default: <cache-dir>/train_umap")
     p.add_argument("--layers", default="", help="layers to draw and probe (default: 16, router layer, penultimate)")
-    p.add_argument("--facts-shown", type=int, default=8)
+    p.add_argument("--facts-shown", type=int, default=4, help="fact cards drawn (half hardest, half random)")
     p.add_argument("--no-loo-probe", action="store_true", help="skip the leave-one-out logistic probe")
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args(argv)
@@ -343,7 +407,13 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     layers = [int(x) for x in args.layers.split(",") if x.strip()] or None
     result, probes, states = analyse(args.cache_dir, layers, args.facts_shown, args.seed, not args.no_loo_probe)
-    plot_facts(result, probes, states, out / "umap_facts.png", args.seed)
+    for old in out.glob("fact_*.png"):
+        old.unlink()
+    for row in result["per_fact"]:
+        if row["fact"] in result["drawn_facts"]:
+            plot_fact_card(result, probes, states, row, out / f"fact_{row['fact']}.png", args.seed)
+    result["train_confusion"] = train_confusion(result, probes)
+    plot_train_confusion(result, result["train_confusion"], out / "confusion_train.png")
     plot_pooled(result, probes, states, out / "umap_pooled.png", args.seed)
     plot_vs_layer(result, out / "separability_vs_layer.png")
     write_summary(result, probes, out)

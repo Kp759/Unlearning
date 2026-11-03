@@ -474,14 +474,13 @@ DOWNSTREAM = {
     "rwku": "TAG=l16_paper_rwku_subject_router{L}_v1 RWKU_GATE=subject ROUTER_LAYER={L} "
             "bash scripts/run_l16_paper_one.sh rwku {S}",
 }
-# ours reads a later layer only at the cost of a second pass: route at L, keep the edit at 19
-# (ONEPASS=1 with WRITE_LAYER=19 < ROUTER_LAYER = the two-pass early write, ours routers)
-# (a literal: router_diag_staged.slurm reads both tables with ast.literal_eval)
+# ours = the paper's method (l16_ours_v1): pass 1 routes at the router layer, pass 2 writes Δe
+# at 16; reading a later layer only moves pass 1 (ONEPASS=1 WRITE_LAYER=16 ROUTER_LAYER=L)
 DOWNSTREAM_OURS = {
-    "mcf": "TAG=onepass_router{L}_write19_v1 ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER={L} bash scripts/run_l16_paper_one.sh mcf {S}",
-    "zsre": "TAG=onepass_router{L}_write19_v1 ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER={L} bash scripts/run_l16_paper_one.sh zsre {S}",
-    "mquake": "TAG=onepass_router{L}_write19_v1 ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER={L} bash scripts/run_l16_paper_one.sh mquake {S}",
-    "rwku": "TAG=onepass_router{L}_write19_v1 ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER={L} bash scripts/run_l16_paper_one.sh rwku {S}",
+    "mcf": "TAG=l16_ours_router{L}_v1 ONEPASS=1 WRITE_LAYER=16 ROUTER_LAYER={L} bash scripts/run_l16_paper_one.sh mcf {S}",
+    "zsre": "TAG=l16_ours_router{L}_v1 ONEPASS=1 WRITE_LAYER=16 ROUTER_LAYER={L} bash scripts/run_l16_paper_one.sh zsre {S}",
+    "mquake": "TAG=l16_ours_router{L}_v1 ONEPASS=1 WRITE_LAYER=16 ROUTER_LAYER={L} bash scripts/run_l16_paper_one.sh mquake {S}",
+    "rwku": "TAG=l16_ours_router{L}_v1 ONEPASS=1 WRITE_LAYER=16 ROUTER_LAYER={L} bash scripts/run_l16_paper_one.sh rwku {S}",
 }
 
 
@@ -521,11 +520,11 @@ def write_dataset_docs(cache, sweep, robust, out_dir):
                 "; ".join(f"{k} {v:.2f}" for k, v in timing.items() if k.startswith("stop_after")) +
                 f" ({timing['blocks']} blocks). ")
         if m.get("router_recipe") == "ours":
-            cost += (f"Ours makes ONE pass: the router reads the L{router_layer} state at the prompt's "
-                     f"last token and the row is added at L{router_layer} in the same pass. Reading a "
-                     f"later layer L means either a second pass (route at L, write at L{router_layer}: "
-                     "the early-write model, one extra prompt pass cut short at L) or moving the edit "
-                     "up to L as well, which changes the edit itself.")
+            cost += (f"The paper's method (l16_ours_v1) makes two passes: pass 1 reads the "
+                     f"L{router_layer} state at the prompt's last token and decides the route (once per "
+                     "prompt), pass 2 adds Δe at L16. Reading a later layer L adds no pass: it only runs "
+                     f"pass 1 up to L instead of L{router_layer}. The one-pass variant (onepass_l19_v1, "
+                     f"Δe at L{router_layer} in the same pass) would need a second pass to read later.")
         else:
             cost += ("The deployed early-write model (scripts/early_write.py) already makes two passes: "
                      "pass 1 routes on the prompt (cached per prompt, not per generated token), pass 2 "

@@ -204,7 +204,7 @@ def test_ours_recipe_uses_the_ours_routers_and_its_own_output(tmp_path):
     assert (out / "ROUTER_LAYER_CHOICE.md").is_file() and not (root / "outputs" / "router_diag_v1").exists()
     assert not (root / "outputs" / "router_diag_ours_v1").exists()     # the older router's diagnostics
     text = (out / "mcf" / "seed1" / "layer_sweep" / "downstream_penultimate.sh").read_text()
-    assert ("TAG=onepass_router26_write19_v1 ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER=26 "
+    assert ("TAG=l16_ours_router26_v1 ONEPASS=1 WRITE_LAYER=16 ROUTER_LAYER=26 "
             "bash scripts/run_l16_paper_one.sh mcf 1") in text
     ours = root / "outputs" / "l16_ours_v1" / "mcf" / "seed1" / "ours"
     ours.mkdir(parents=True)

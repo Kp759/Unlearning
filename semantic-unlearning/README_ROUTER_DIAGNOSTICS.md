@@ -90,31 +90,39 @@ Those routers use no PCA, fuzzy subject matching and 20 / 20 checked prompts.
 ## What each output answers
 
 **`report/summary.md` (L19)**
-1. `scores_eval.png`: every example's score against the 0.5 line, per split.
-   - Forget and paraphrase points show p(true row); neighbourhood and retain points show the max p over all rows.
-   - Colour is the runtime decision. A hollow marker means no eligible head, so the prompt could not fire whatever its score.
+1. `scores_eval.png`: one point per evaluated prompt, sorted by score, one panel per split.
+   - Should-fire prompts are scored by the correct fact's head. Must-not-fire prompts are scored by the best head the subject gate lets through.
+   - Above the dashed line (0.5) the head fires.
+   - Prompts whose subject the gate does not match cannot fire. They sit in a grey band at the bottom, not at an ungated score.
+   - Colour: green correct, red false fire, orange missed, purple wrong fact. Panel titles count each.
    - Below the plot are the top-k worst prompts with their text and error reason.
-2. `confusion_binary.png` and `confusion_nway.png`: FPR, FNR, precision, recall, F1 and the correct-row rate, per split and group. RWKU also gets a person-level matrix.
+2. `confusion_binary.png` and `confusion_nway.png`: FPR, FNR, precision, recall, F1 and the correct-row rate, per split and group.
+   - The binary matrices show counts in every cell.
+   - The n-way matrix keeps each fact involved in an error as its own row and column, and merges every other fact into one, so the errors stay visible. Errors are in red: the last column holds the misses, the last row the false fires.
+   - RWKU also gets a person-level matrix.
 3. RWKU only: errors by probe type and by how the person is named.
    - Probe types: fill-in-the-blank, QA, QA paraphrase, adversarial by attack type, neighbour L1/L2.
    - Naming: full name, partial name only, or no name.
 4. `scores_null.png`: the deployment false-positive rate on prompts with no association.
    - Prompt sets: generic text, PPL prefixes, unseen subjects in the forget templates, and protected subjects asked about other relations (RWKU: those should fire).
    - It also reports how many ungated heads would pass 0.5.
-   - If the paper's `ours` run exists, it shows base vs ours outputs on every fired null prompt (changed, or "I don't know"-like).
+   - If the paper's run exists (`outputs/l16_ours_v1`), it shows base vs ours outputs on every fired null prompt (changed, or "I don't know"-like), with a table of examples.
+   - `scripts/router_null_generations.py` redoes only this step for an existing cache.
 5. Perturbed prompts: recall per perturbation family.
 6. `umap_L16_L19.png`:
-   - 10 should-fire and 10 must-not-fire points at L16 and L19 (n_neighbors 5, random_state 0).
+   - 20 should-fire and 20 must-not-fire evaluation prompts at L16 and L19 (n_neighbors 5, random_state 0).
+   - Every point is numbered, and the numbered sentences are listed under the plots. A ring / ✗ marks a prompt the router gets wrong.
    - Negatives prefer prompts that contain a protected subject, which are the ones the gate lets through.
    - Silhouette scores (cosine in full dimension, and 2D) and leave-one-out logistic and 1-NN accuracy put a number on the overlap.
 7. `reliability.png`: ECE of the deployed probabilities. They are not meant to be calibrated, because the cutoff was moved for recall.
 
 **`train_umap/summary.md`** (`scripts/router_train_umap.py`, CPU, from the cached `train` section): the
 prompts each head is actually fit on, `linear_router_dataset.json`, about 20 positives and 20 negatives per fact.
-- `umap_facts.png`: per fact, its positives (blue) against its own negatives (red) at L16, L19 and the
-  penultimate block. Marker = source (template, template + lead-in, base-model rewrite; subject
-  transplant, model-written hard negative, same-subject fact); a black ring = the deployed head gets
-  that training prompt wrong. Drawn: the hardest facts at L19, then a seeded random sample.
+- `confusion_train.png`: every head on its own training sentences, fit split vs held-out (calibration + audit), with counts.
+- `fact_<i>.png`: one card per drawn fact (by default the 2 hardest at L19, then 2 seeded random).
+  - Its 20 positive (blue) and 20 negative (red) sentences at L16 and L19, every point numbered.
+  - The numbered sentences are listed underneath; ✗ = the deployed head gets it wrong, [held-out] = the weights never saw it.
+  - The head's own 2x2 confusion on those 40 sentences.
 - `umap_pooled.png`: every fact's training prompts in one projection.
 - `separability_vs_layer.png` and the table: per fact, silhouette (cosine) and leave-one-out 1-NN at every
   block, the leave-one-out logistic probe at the drawn blocks, averaged over facts with the worst fact.

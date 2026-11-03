@@ -285,8 +285,8 @@ def loo_probe_accuracy(x, labels, l2=1e-2):
     return {"logistic": hits_lr / n, "nearest_neighbour": hits_nn / n, "n": n}
 
 
-def pick_umap_points(probes, routes, per_class=10, seed=0, negatives="hard"):
-    """10 should-fire (forget / paraphrase) and 10 must-not-fire eval probes. 'hard'
+def pick_umap_points(probes, routes, per_class=20, seed=0, negatives="hard"):
+    """20 should-fire (forget / paraphrase) and 20 must-not-fire eval probes. 'hard'
     negatives prefer prompts with a subject-eligible head (the ones the gate lets through)."""
     rng = random.Random(seed)
     eligible = routes["eligible"].bool()
@@ -316,7 +316,7 @@ def embed_2d(x, n_neighbors=5, seed=0):
         return centred @ vh[:2].T, "pca (umap-learn not installed)"
 
 
-def separability(eval_section, layers=(16, 19), per_class=10, seed=0, negatives="hard"):
+def separability(eval_section, layers=(16, 19), per_class=20, seed=0, negatives="hard"):
     states = eval_section["states"]
     probes, routes = eval_section["probes"], eval_section["routes"]
     pos, neg = pick_umap_points(probes, routes, per_class, seed, negatives)
@@ -336,6 +336,7 @@ def separability(eval_section, layers=(16, 19), per_class=10, seed=0, negatives=
         }
     out["texts"] = [display_text(probes[i], 90) for i in index]
     out["labels"] = labels
+    out["index"] = index
     return out
 
 
@@ -389,39 +390,71 @@ def _plt():
     return plt
 
 
+LONG = {"correct": "correct", "false_positive": "false fire (must not fire, fired)",
+        "false_negative": "missed (should fire, did not)", "misroute": "wrong fact fired"}
+GATE_Y = -0.13     # where prompts no head may fire on (subject not matched) are drawn
+
+
+def plot_score(row):
+    """The score the decision is made on: should fire -> p(correct fact's head); must not fire ->
+    p(best head the subject gate lets through). None when the gate lets no relevant head through."""
+    if row["should_fire"]:
+        return row["score"] if row["relevant_eligible"] else None
+    return row["best_eligible_score"] if row["any_eligible"] else None
+
+
+def _count(n, word):
+    plural = {"false fire": "false fires", "wrong fact fired": "wrong facts fired"}
+    return f"{n:,} {word if n == 1 else plural.get(word, word)}"
+
+
 def plot_scores(rows, path, title, threshold_note):
+    """One panel per split, one point per prompt that some head scores, sorted by score. Above
+    the dashed line the head fires. Prompts whose subject the gate does not match cannot fire;
+    they are counted in the grey band at the bottom instead of being drawn."""
     plt = _plt()
     splits = [s for s in SPLIT_ORDER if any(r["split"] == s for r in rows)]
-    fig, axes = plt.subplots(1, len(splits), figsize=(4.2 * len(splits), 3.8), squeeze=False)
+    fig, axes = plt.subplots(1, len(splits), figsize=(4.6 * len(splits), 4.8), squeeze=False)
+    short = {"correct": "correct", "false_positive": "false fire", "false_negative": "missed",
+             "misroute": "wrong fact fired"}
     for ax, split in zip(axes[0], splits):
-        items = sorted((r for r in rows if r["split"] == split), key=lambda r: r["score"])
+        items = [r for r in rows if r["split"] == split]
+        scored = sorted((r for r in items if plot_score(r) is not None), key=plot_score)
+        blocked = [r for r in items if plot_score(r) is None]
         for category in CATEGORIES:
-            for eligible in (True, False):
-                pts = [(k, r["score"]) for k, r in enumerate(items)
-                       if r["category"] == category and r["relevant_eligible"] == eligible]
-                if not pts:
-                    continue
+            pts = [(k, plot_score(r)) for k, r in enumerate(scored) if r["category"] == category]
+            if pts:
                 xs, ys = zip(*pts)
-                ax.scatter(xs, ys, s=10 if len(items) > 400 else 18, linewidths=0.8,
-                           facecolors=COLORS[category] if eligible else "none",
-                           edgecolors=COLORS[category],
-                           label=f"{category}{'' if eligible else ' (no eligible head)'}")
-        ax.axhline(0.5, color="black", lw=0.8, ls="--")
+                ax.scatter(xs, ys, s=10 if len(scored) > 400 else 24, color=COLORS[category],
+                           label=LONG[category], zorder=3 if category != "correct" else 2)
+        ax.axhspan(-0.24, -0.04, color="#eeeeee", zorder=0)
+        gate = Counter(r["category"] for r in blocked)
+        gate_text = ", ".join(_count(gate[c], short[c]) for c in CATEGORIES if gate[c]) or "none"
+        ax.text(0.02, -0.14, f"subject not matched, no head may fire: {len(blocked):,} prompts\n({gate_text})",
+                fontsize=7, transform=ax.get_yaxis_transform(), va="center")
+        ax.axhline(0.5, color="black", lw=0.9, ls="--")
+        ax.text(0.99, 0.52, "fires above this line", fontsize=7, ha="right", transform=ax.get_yaxis_transform())
         counts = Counter(r["category"] for r in items)
-        ax.set_title(f"{split} (n={len(items)})\n" + ", ".join(
-            f"{SHORT[c]} {counts[c]}" for c in CATEGORIES if counts[c]), fontsize=8)
-        ax.set_xlabel("examples sorted by score")
-        ax.set_ylim(-0.03, 1.03)
-    axes[0][0].set_ylabel("p(true association)  |  max p (must-not-fire)")
-    handles, labels = axes[0][0].get_legend_handles_labels()
+        errors = ", ".join(_count(counts[c], short[c]) for c in CATEGORIES[1:] if counts[c]) or "no errors"
+        ax.set_title(f"{split}: {len(items):,} prompts\n{counts['correct']:,} correct · {errors}", fontsize=9)
+        ax.set_xlabel(f"the {len(scored):,} prompts a head scores, sorted by score")
+        ax.set_xlim(-1, max(1, len(scored)))
+        if not scored:
+            ax.set_xticks([])
+            ax.text(0.5, 0.5, "no prompt names a protected subject:\nno head scores any of them", fontsize=8,
+                    ha="center", va="center", transform=ax.transAxes, color="#555555")
+        ax.set_ylim(-0.24, 1.03)
+        ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
+    axes[0][0].set_ylabel("probability of the deciding head\n(should fire: the correct fact's head;\n"
+                          "must not fire: the best head the gate allows)", fontsize=8)
     seen = {}
     for ax in axes[0]:
         for h, l in zip(*ax.get_legend_handles_labels()):
             seen.setdefault(l, h)
-    fig.legend(list(seen.values()), list(seen.keys()), loc="lower center", ncol=4, fontsize=7,
-               bbox_to_anchor=(0.5, -0.02))
-    fig.suptitle(f"{title} — {threshold_note}", fontsize=10)
-    fig.tight_layout(rect=(0, 0.08, 1, 0.95))
+    fig.legend(list(seen.values()), list(seen.keys()), loc="lower center", ncol=4, fontsize=8,
+               bbox_to_anchor=(0.5, -0.01), frameon=False)
+    fig.suptitle(f"{title} — every evaluated prompt ({threshold_note})", fontsize=10)
+    fig.tight_layout(rect=(0, 0.07, 1, 0.94))
     fig.savefig(path, dpi=150)
     plt.close(fig)
 
@@ -429,42 +462,67 @@ def plot_scores(rows, path, title, threshold_note):
 def plot_binary_confusions(per_split, path, title):
     plt = _plt()
     names = [s for s in SPLIT_ORDER if s in per_split] + ["all"]
-    fig, axes = plt.subplots(1, len(names), figsize=(2.6 * len(names), 2.8), squeeze=False)
+    fig, axes = plt.subplots(1, len(names), figsize=(3.0 * len(names), 3.2), squeeze=False)
     for ax, name in zip(axes[0], names):
         m = per_split[name]
         grid = [[m["tp"], m["fn"]], [m["fp"], m["tn"]]]
         ax.imshow([[math.log1p(v) for v in row] for row in grid], cmap="Blues")
         for a in range(2):
             for b in range(2):
-                ax.text(b, a, str(grid[a][b]), ha="center", va="center", fontsize=9)
-        ax.set_xticks([0, 1], ["fired", "not fired"], fontsize=7)
-        ax.set_yticks([0, 1], ["should fire", "should not"], fontsize=7)
+                ax.text(b, a, f"{grid[a][b]:,}", ha="center", va="center", fontsize=11,
+                        color="white" if math.log1p(grid[a][b]) > 0.6 * math.log1p(max(map(max, grid))) else "black")
+        ax.set_xticks([0, 1], ["classifier fired", "did not fire"], fontsize=8)
+        ax.set_yticks([0, 1], ["should fire", "must not fire"], fontsize=8)
         fpr = "–" if m["fpr"] is None else f"{m['fpr']:.3f}"
         fnr = "–" if m["fnr"] is None else f"{m['fnr']:.3f}"
-        ax.set_title(f"{name}\nFPR {fpr}  FNR {fnr}", fontsize=8)
-    fig.suptitle(title, fontsize=10)
+        ax.set_title(f"{name}\nfalse-fire rate {fpr} · miss rate {fnr}", fontsize=8)
+    fig.suptitle(f"{title}: correct cells on the diagonal (top-left, bottom-right), errors off it", fontsize=10)
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
 
 
+def compact_nway(matrix, labels):
+    """Keep the facts involved in an error as their own row / column, merge every other fact
+    (all routed correctly) into one, keep 'none' last. Returns (matrix, row names, column names)."""
+    k = matrix.shape[0] - 1
+    off = matrix.clone()
+    off.fill_diagonal_(0)
+    involved = [i for i in range(k) if int(off[i].sum()) or int(off[:, i].sum())]
+    others = [i for i in range(k) if i not in involved]
+    groups = [[i] for i in involved] + ([others] if others else []) + [[k]]
+    names = [labels[i] for i in involved] + ([f"other {len(others)} facts"] if others else [])
+    out = torch.zeros((len(groups), len(groups)), dtype=torch.long)
+    for a, ga in enumerate(groups):
+        for b, gb in enumerate(groups):
+            out[a, b] = matrix[ga][:, gb].sum()
+    return out, names + ["none: must not fire"], names + ["none: did not fire"]
+
+
 def plot_nway(matrix, labels, path, title):
+    """Which fact the router fired (columns) for which fact it should have fired (rows). Facts
+    with no error are merged into one row / column; every cell shows its count."""
     plt = _plt()
-    k = matrix.shape[0]
-    fig, ax = plt.subplots(figsize=(max(4, 0.16 * k + 2), max(4, 0.16 * k + 2)))
-    ax.imshow(torch.log1p(matrix.float()).numpy(), cmap="viridis")
-    ticks = list(range(k))
-    ax.set_xticks(ticks, labels, rotation=90, fontsize=max(3, 8 - k // 12))
-    ax.set_yticks(ticks, labels, fontsize=max(3, 8 - k // 12))
-    ax.set_xlabel("fired row (last = none)")
-    ax.set_ylabel("true row (last = must not fire)")
-    if k <= 12:
-        for a in range(k):
-            for b in range(k):
-                if matrix[a, b]:
-                    ax.text(b, a, str(int(matrix[a, b])), ha="center", va="center", fontsize=7,
-                            color="white")
-    ax.set_title(title, fontsize=9)
+    m, rows, cols = compact_nway(matrix, labels)
+    k = m.shape[0]
+    fig, ax = plt.subplots(figsize=(max(5.5, 0.62 * k + 3.2), max(4.8, 0.5 * k + 2.4)))
+    shown = torch.log1p(m.float())
+    ax.imshow(shown.numpy(), cmap="Blues")
+    top = float(shown.max()) or 1.0
+    for a in range(k):
+        for b in range(k):
+            v = int(m[a, b])
+            if v or a == b:
+                err = a != b and v
+                ax.text(b, a, f"{v:,}", ha="center", va="center", fontsize=8,
+                        color="#c62828" if err else ("white" if float(shown[a, b]) > 0.6 * top else "black"),
+                        fontweight="bold" if err else "normal")
+    ax.set_xticks(range(k), cols, rotation=45, ha="right", fontsize=7)
+    ax.set_yticks(range(k), rows, fontsize=7)
+    ax.set_xlabel("what the classifier did (fired fact)")
+    ax.set_ylabel("what should happen (correct fact)")
+    ax.set_title(f"{title}\ncorrect on the diagonal; red = errors (last column: missed, last row: "
+                 "false fires)", fontsize=9)
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
@@ -487,27 +545,81 @@ def plot_reliability(table, path, title):
     plt.close(fig)
 
 
-def plot_umap(sep, path, title):
+POS_COLOR, NEG_COLOR = "#1565c0", "#c62828"
+
+
+def plot_umap_sentences(panels, texts, labels, wrong, path, title, notes=None, confusion=None,
+                        text_limit=82):
+    """UMAP panels with every point numbered, the numbered sentences listed underneath
+    (should fire in blue, must not fire in red) and an optional 2x2 confusion on the right.
+
+    panels: [(panel title, coords [n, 2])]; labels[i] 1 = should fire; wrong: indices the router
+    gets wrong (black ring, "✗" in the list); notes[i]: a short tag after the sentence;
+    confusion: {"tp", "fn", "fp", "tn", "title"}."""
     plt = _plt()
-    layers = sorted(sep["layers"])
-    fig, axes = plt.subplots(1, len(layers), figsize=(4.4 * len(layers), 4.2), squeeze=False)
-    for ax, layer in zip(axes[0], layers):
-        info = sep["layers"][layer]
-        coords = torch.tensor(info["coords"])
-        for label, color, name in ((1, "#1565c0", "should fire"), (0, "#c62828", "should not fire")):
-            idx = [k for k, l in enumerate(sep["labels"]) if l == label]
-            ax.scatter(coords[idx, 0], coords[idx, 1], color=color, s=36, label=name)
-        s_full = info["silhouette_cosine_full_dim"]
-        ax.set_title(f"L{layer} ({info['method']})\nsilhouette {s_full:.2f} (cosine, full dim), "
-                     f"{info['silhouette_2d']:.2f} (2D)\nLOO probe {info['loo']['logistic']:.2f}, "
-                     f"1-NN {info['loo']['nearest_neighbour']:.2f}", fontsize=8)
+    from matplotlib.gridspec import GridSpec
+
+    pos = [i for i, l in enumerate(labels) if l == 1]
+    neg = [i for i, l in enumerate(labels) if l == 0]
+    number = {i: n + 1 for n, i in enumerate(pos + neg)}
+    ncols = len(panels) + (1 if confusion else 0)
+    lines = max(len(pos), len(neg))
+    fig = plt.figure(figsize=(max(13.0, 4.6 * ncols), 4.6 + 0.19 * lines + 0.9))
+    gs = GridSpec(2, ncols, height_ratios=[4.6, 0.19 * lines + 0.9], figure=fig,
+                  width_ratios=[1.0] * len(panels) + ([0.75] if confusion else []))
+    for c, (ptitle, coords) in enumerate(panels):
+        ax = fig.add_subplot(gs[0, c])
+        coords = torch.as_tensor(coords)
+        for i in range(len(labels)):
+            color = POS_COLOR if labels[i] == 1 else NEG_COLOR
+            ax.scatter(coords[i, 0], coords[i, 1], color=color, s=46, alpha=0.9, zorder=2)
+            if i in wrong:
+                ax.scatter(coords[i, 0], coords[i, 1], s=170, facecolors="none", edgecolors="black",
+                           linewidths=1.3, zorder=3)
+            ax.annotate(str(number[i]), (float(coords[i, 0]), float(coords[i, 1])), fontsize=7,
+                        color=color, xytext=(4, 3), textcoords="offset points", zorder=4)
+        ax.set_title(ptitle, fontsize=9)
         ax.set_xticks([])
         ax.set_yticks([])
-    axes[0][0].legend(fontsize=7)
-    fig.suptitle(f"{title} — negatives: {sep['negatives_mode']}", fontsize=10)
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
+    if confusion:
+        ax = fig.add_subplot(gs[0, ncols - 1])
+        grid = [[confusion["tp"], confusion["fn"]], [confusion["fp"], confusion["tn"]]]
+        ax.imshow([[1, 0], [0, 1]], cmap="Greens", vmin=-1, vmax=2)
+        for a in range(2):
+            for b in range(2):
+                err = a != b and grid[a][b]
+                ax.text(b, a, str(grid[a][b]), ha="center", va="center", fontsize=16,
+                        color="#c62828" if err else "black", fontweight="bold" if err else "normal")
+        ax.set_xticks([0, 1], [confusion.get("fired", "classifier fired"), "did not fire"], fontsize=8)
+        ax.set_yticks([0, 1], ["should fire", "must not fire"], fontsize=8)
+        ax.set_title(confusion.get("title", "decisions on these sentences"), fontsize=9)
+    ax = fig.add_subplot(gs[1, :])
+    ax.axis("off")
+    for col, (members, color, head) in enumerate(((pos, POS_COLOR, f"Should fire ({len(pos)})"),
+                                                  (neg, NEG_COLOR, f"Must not fire ({len(neg)})"))):
+        x = 0.0 if col == 0 else 0.5
+        ax.text(x, 1.0, head, color=color, fontsize=9, fontweight="bold", va="top", transform=ax.transAxes)
+        for row, i in enumerate(members):
+            text = texts[i] if len(texts[i]) <= text_limit else texts[i][:text_limit - 1] + "…"
+            tag = (" ✗" if i in wrong else "") + (f"  [{notes[i]}]" if notes and notes[i] else "")
+            ax.text(x, 1.0 - (row + 1.3) / (lines + 1.6), f"{number[i]:>2}. {text}{tag}", color=color,
+                    fontsize=7, va="top", transform=ax.transAxes)
+    fig.suptitle(title, fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.savefig(path, dpi=140)
     plt.close(fig)
+
+
+def plot_umap(sep, path, title):
+    panels = []
+    for layer in sorted(sep["layers"]):
+        info = sep["layers"][layer]
+        panels.append((f"L{layer}: linear probe {info['loo']['logistic']:.2f} (leave-one-out), "
+                       f"silhouette {info['silhouette_cosine_full_dim']:.2f}", info["coords"]))
+    wrong = {k for k, w in enumerate(sep.get("wrong", [])) if w}
+    plot_umap_sentences(panels, sep["texts"], sep["labels"], wrong, path,
+                        f"{title} — {sum(sep['labels'])} should-fire and {len(sep['labels']) - sum(sep['labels'])} "
+                        f"must-not-fire evaluation prompts (UMAP; ring / ✗ = the classifier gets it wrong)")
 
 
 # ---------------------------------------------------------------------------
@@ -560,7 +672,7 @@ def build_report(cache_dir, out_dir=None, top_k=15, umap_negatives="hard", seed=
     gate = manifest["gate_mode"]
     rule = ("subject gate: fires on any protected-name match; p only picks the row"
             if gate == "subject" else "fires the best eligible head at p >= 0.5 (calibrated bias)")
-    title = f"{dataset} seed {manifest['seed']} — L{layer} router"
+    title = f"{dataset} seed {manifest['seed']} — L{layer} classifier"
     ev = load_section(cache_dir, "eval", states=True)
     rows = probe_outcomes(ev["probes"], ev["routes"], facts)
     per_split = grouped_metrics(rows, "split")
@@ -571,8 +683,8 @@ def build_report(cache_dir, out_dir=None, top_k=15, umap_negatives="hard", seed=
     plot_scores(rows, out_dir / "scores_eval.png", title, rule)
     plot_binary_confusions(per_split, out_dir / "confusion_binary.png", title)
     nway = nway_confusion(rows, len(facts))
-    plot_nway(nway, [str(i) for i in range(len(facts))] + ["none"], out_dir / "confusion_nway.png",
-              f"{title}: fired row vs true row")
+    plot_nway(nway, [f"{i}: {str(f.get('subject', ''))[:22]}" for i, f in enumerate(facts)] + ["none"],
+              out_dir / "confusion_nway.png", f"{title}: which fact fired")
     metrics["eval"]["nway"] = {"matrix": nway.tolist(),
                                "should_fire_routed_to_a_true_row": per_split["all"]["correct_row_rate"]}
     md = [f"# Router diagnostics: {title}", "",
@@ -582,6 +694,10 @@ def build_report(cache_dir, out_dir=None, top_k=15, umap_negatives="hard", seed=
           f"{json.dumps({k: v['route_mismatches'] for k, v in manifest.get('hook_parity', {}).items()})} "
           "mismatches.", "",
           "## 1. Scores against the decision line", "",
+          "Each point is one evaluated prompt that some head scores, sorted by score; above the dashed line "
+          "(p = 0.5) the head fires. Should-fire prompts are scored by the correct fact's head, must-not-fire "
+          "prompts by the best head the subject gate allows. Prompts whose subject the gate does not match "
+          "cannot fire and are counted in the grey band.", "",
           "![scores](scores_eval.png)", "",
           worst_tables(ev["probes"], rows, top_k),
           "## 2. Confusion matrices", "", "![binary](confusion_binary.png)", "",
@@ -661,6 +777,18 @@ def build_report(cache_dir, out_dir=None, top_k=15, umap_negatives="hard", seed=
                       f"(ours `{gens.get('ours_dir')}`): output changed on {gens.get('changed')}, "
                       f"'I don't know'-like on {gens.get('idk_like')}.")
             md.append("")
+            shown = (gens.get("rows") or [])[:top_k]
+            if shown:
+                md += [f"What the model answers when the router fires by mistake (first {len(shown)}, greedy):", "",
+                       "| prompt | fired fact | base model | ours | changed |", "|---|---|---|---|---|"]
+                fired_fact = {r["index"]: r["fired_fact"] for r in null_rows}
+                for g in shown:
+                    f = fired_fact.get(g["index"])
+                    name = f"{f}: {str(facts[f].get('subject', ''))[:24]}" if f is not None else "–"
+                    cell = lambda t: " ".join(str(t).split()).replace("|", "/")[:80]
+                    md.append(f"| {cell(g['prompt'])} | {name} | {cell(g['base'])} | {cell(g['ours'])} | "
+                              f"{'yes' if g['changed'] else 'no'} |")
+                md.append("")
         md.append(worst_tables(null["probes"], null_rows, top_k))
 
     pert = load_section(cache_dir, "perturbed")
@@ -677,6 +805,7 @@ def build_report(cache_dir, out_dir=None, top_k=15, umap_negatives="hard", seed=
         md.append("")
 
     sep = separability(ev, layers=(16, layer), seed=seed, negatives=umap_negatives)
+    sep["wrong"] = [rows[i]["category"] != "correct" for i in sep["index"]]
     plot_umap(sep, out_dir / "umap_L16_L19.png", title)
     metrics["separability"] = {str(k): {kk: vv for kk, vv in v.items() if kk != "coords"}
                                for k, v in sep["layers"].items()}
@@ -686,7 +815,7 @@ def build_report(cache_dir, out_dir=None, top_k=15, umap_negatives="hard", seed=
     for k, v in sep["layers"].items():
         md.append(f"| L{k} | {_fmt(v['silhouette_cosine_full_dim'])} | {_fmt(v['silhouette_2d'])} | "
                   f"{_fmt(v['loo']['logistic'])} | {_fmt(v['loo']['nearest_neighbour'])} |")
-    md += ["", "20 points: each LOO error moves accuracy by 0.05. Negatives "
+    md += ["", f"{len(sep['labels'])} points: each LOO error moves accuracy by {1 / len(sep['labels']):.3f}. Negatives "
            f"({umap_negatives}) prefer must-not-fire prompts that contain a protected subject.", ""]
 
     cal = calibration_report(ev["probes"], ev["routes"])

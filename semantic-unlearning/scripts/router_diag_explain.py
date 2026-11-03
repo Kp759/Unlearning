@@ -131,10 +131,12 @@ def build(root, seed):
 
     # ------------------------------------------------------------ 1. per-example errors
     md += ["## 1. Per-example errors (scores against the decision line)", "",
-           "**What.** For every evaluated prompt, the probability of the head that should fire (forget prompts) or "
-           "of the highest head (retain prompts), plotted against the firing cutoff of 0.5. Points on the wrong side "
-           "of the line are the errors; their labels are counted above. Each dataset's `report/summary.md` lists the "
-           "worst examples with their text.", "",
+           "**What.** One point per evaluated prompt, sorted by score, one panel per split. Should-fire prompts "
+           "are scored by the correct fact's head; must-not-fire prompts by the best head the subject gate lets "
+           "through. Above the dashed line (p = 0.5) the head fires. Prompts whose subject the gate does not match "
+           "cannot fire at all and sit in the grey band at the bottom. Colour: green correct, red false fire, "
+           "orange missed, purple wrong fact. Each dataset's `report/summary.md` lists the worst examples with "
+           "their text.", "",
            "**Why it matters.** A model of errors at the level of single prompts shows whether failures are "
            "systematic (one phrasing type, one fact with few positives) or scattered.", "",
            "| dataset | recall | precision | F1 | FPR | FNR | correct row | misroutes |",
@@ -162,17 +164,30 @@ def build(root, seed):
         d = nl.get("deployment_fpr") or {}
         md.append(f"| {NAMES[ds]} | {d.get('n', '–')} | {d.get('k', '–')} | {_pct(d.get('rate'))} "
                   f"[{_pct(d.get('low'))}, {_pct(d.get('high'))}] |")
-    md += ["", "Per-group breakdown (which kind of null prompt fires) is in each `report/summary.md`, section 4.", ""]
+    gens = {ds: (v["metrics"].get("null") or {}).get("generations") for ds, v in data.items()}
+    if any(gens.values()):
+        md += ["", "When the router fires by mistake on one of these prompts, does the answer change? Greedy "
+               "outputs of the base model and of the paper's method (the rows of `l16_ours_v1`: router at 19, "
+               "Δe at 16) on every fired prompt:", "",
+               "| dataset | fired prompts | output changed | 'I don't know'-like | rows from |", "|---|---|---|---|---|"]
+        for ds, g in gens.items():
+            if g:
+                md.append(f"| {NAMES[ds]} | {g.get('fired_null_prompts')} | {g.get('changed')} | "
+                          f"{g.get('idk_like')} | `{g.get('ours_dir')}` |")
+    md += ["", "Per-group breakdown (which kind of null prompt fires) and the generations themselves are in each "
+           "`report/summary.md`, section 4.", ""]
     for ds in data:
         md.append(f"![{NAMES[ds]} null]({rel(ds, 'report/scores_null.png')})")
     md.append("")
 
     # ------------------------------------------------------------ 3. UMAP
     md += ["## 3. Positives vs negatives at blocks 16 and 19 (UMAP)", "",
-           "**What.** Ten prompts that should fire and ten hard negatives (must-not-fire prompts that contain a "
-           "protected subject), embedded from the block-16 and block-19 residual stream, coloured by class. The "
-           "numbers come from the full-dimensional states, not the 2-D picture: silhouette (how clustered the two "
-           "classes are) and leave-one-out accuracy of a logistic and a 1-nearest-neighbour classifier.", "",
+           "**What.** Twenty evaluation prompts that should fire (blue) and twenty hard negatives (red: must-not-fire "
+           "prompts that contain a protected subject), embedded from the block-16 and block-19 residual stream. "
+           "Every point is numbered; the numbered sentences are listed under the plots, and a ring / ✗ marks a "
+           "prompt the router gets wrong. The numbers come from the full-dimensional states, not the 2-D picture: "
+           "silhouette (how clustered the two classes are) and leave-one-out accuracy of a logistic and a "
+           "1-nearest-neighbour classifier.", "",
            "**Theory.** The classifier is linear, so what matters is linear separability in full dimension; the "
            "2-D projection is an illustration. If block 19 separates better than block 16, reading late is "
            "justified at the level of the representation, not only by the end metrics.", "",
@@ -182,17 +197,19 @@ def build(root, seed):
             loo = s.get("loo") or {}
             md.append(f"| {NAMES[ds]} | L{layer} | {_f(s.get('silhouette_cosine_full_dim'))} | "
                       f"{_f(loo.get('logistic'))} | {_f(loo.get('nearest_neighbour'))} |")
-    md += ["", "20 points per panel: one leave-one-out error moves accuracy by 0.05.", ""]
+    md += ["", "40 points per panel: one leave-one-out error moves accuracy by 0.025.", ""]
     for ds in data:
         md.append(f"![{NAMES[ds]} umap]({rel(ds, 'report/umap_L16_L19.png')})")
     md.append("")
     trained = {ds: v["train_umap"] for ds, v in data.items() if v.get("train_umap")}
     if trained:
         md += ["### 3b. Each head's own training prompts (scripts/router_train_umap.py)", "",
-               "**What.** The prompts the router is fit on (`linear_router_dataset.json`: about 20 positives and "
+               "**What.** The sentences the router is fit on (`linear_router_dataset.json`: about 20 positives and "
                "20 negatives per fact), per fact: its positives against its own negatives. Numbers are averaged "
                "over facts, full dimension; the head columns are the deployed router's own decisions on these "
-               "prompts at its read layer.", "",
+               "sentences at its read layer. Below: the confusion of every head on its own sentences (fit vs "
+               "held-out), and one card per drawn fact (its 20 + 20 numbered sentences at L16 and L19, with the "
+               "head's own 2x2 confusion). All cards are in each `train_umap/summary.md`.", "",
                "| dataset | facts | + / − per fact | layer | silhouette mean | LOO 1-NN mean (worst) | "
                "LOO probe mean (worst) | head FN | head FP |", "|---|---|---|---|---|---|---|---|---|"]
         for ds, t in trained.items():
@@ -206,16 +223,19 @@ def build(root, seed):
                           f"L{layer} | {_f(b['silhouette_mean'])} | {_f(b['nn_mean'])} ({_f(b['nn_min'])}) | "
                           f"{_f(b['probe_mean'])} ({_f(b['probe_min'])}) | {head} |")
         md.append("")
-        for ds in trained:
-            md.append(f"![{NAMES[ds]} training prompts per fact]({rel(ds, 'train_umap/umap_facts.png')})")
+        for ds, t in trained.items():
+            md.append(f"![{NAMES[ds]} confusion on training sentences]({rel(ds, 'train_umap/confusion_train.png')})")
+            if t.get("drawn_facts"):
+                md.append(f"![{NAMES[ds]} hardest fact]({rel(ds, 'train_umap/fact_' + str(t['drawn_facts'][0]) + '.png')})")
             md.append(f"![{NAMES[ds]} training separability vs layer]({rel(ds, 'train_umap/separability_vs_layer.png')})")
         md.append("")
 
     # ------------------------------------------------------------ 4. confusion
     md += ["## 4. Confusion matrices", "",
-           "**What.** Binary: fire vs should-fire, per split. N-way: which row fired against which row was "
-           "correct, with a final 'none' row and column; off-diagonal cells in the fact block are misroutes, the "
-           "'none' column holds the misses, the 'none' row holds the false fires." +
+           "**What.** Binary: fired vs should fire, per split, with counts in every cell. N-way: which fact fired "
+           "(columns) for which fact should have fired (rows); facts with no error are merged into one row and "
+           "column so the errors stay visible. Correct counts are on the diagonal, errors in red: the last column "
+           "holds the misses, the last row the false fires, other off-diagonal cells a wrong fact." +
            (" RWKU adds a person-level matrix: firing a row of the right person counts as correct." if "rwku" in data else ""), "",
            "**Theory.** Proposition 2 of the paper splits the residual into routed-and-edited and missed; the "
            "'none' column of the n-way matrix is exactly the missed term.", ""]
