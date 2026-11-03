@@ -218,7 +218,7 @@ def main():
     lines += ["", "Spe is neighbourhood accuracy (MCF, ZsRE), retain Eff (MQuAKE) and neighbour "
               "recovery (RWKU). RWKU Gen = mean of held-out Level 1, Level 2 and Level-2 paraphrase "
               "recovery; those probes ask facts with no trained row, so RWKU genie Gen equals base by "
-              "construction. Baselines (GA, GD, NPO, RMU, ZeroUnlearn) train on the same "
+              "construction. Baselines (GA, GD, NPO, RMU, ZeroUnlearn, ROME, MEMIT) train on the same "
               "training-visible forget views as ours and are scored by the same evaluators. "
               "RR (scripts/representation_recoverability.py): an affine lens fitted on retain text under "
               "the evaluated system reads the forgotten answer's first token from the residual stream after "

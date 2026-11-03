@@ -89,7 +89,28 @@ python scripts/layer_smoke_table.py qwen3_4b        # Eff / Gen / Spe / PPL per 
 ONEPASS=1 ROUTER_LAYER=24 WRITE_LAYER=21 bash scripts/submit_paper_model.sh qwen3_4b ours
 python scripts/l16_paper_table.py --root outputs/paper_qwen3_4b_r24_w21_ours_v1 \
     --ours-label "Ours (L24 router, Δe L21)"
+
+# 4. the seven baselines into the same run dir (they reuse its routers, base runs and training
+#    views): GA GD NPO RMU ZeroUnlearn ROME MEMIT x 4 datasets x 5 seeds = 140 tasks
+sbatch --export=ALL,MODEL=qwen3_4b,ONEPASS=1,ROUTER_LAYER=24,WRITE_LAYER=21,BASELINE_METHODS="ga gd npo rmu zerounlearn rome memit" \
+    --array=0-139 paper_model_baselines.slurm
 ```
+
+Chosen layers (the paper's rows): Llama-3.1-8B classifier at L20, Δe at L18
+(`outputs/paper_llama31_8b_r20_w18_ours_v1`); Qwen3-4B classifier at L26, Δe at L23
+(`outputs/paper_qwen3_4b_r26_w23_ours_v1`). On Qwen, Δe at L18 forgets more on ZsRE and MQuAKE
+but leaves MCF at Eff 1.6, and Δe at L26 forgets less on ZsRE and MQuAKE; L23 is the only
+write layer that forgets on all four. Ours equals genie on Eff on MCF, ZsRE and MQuAKE, so the
+remaining Qwen Eff (ZsRE ~9, MQuAKE ~16) comes from the rows, not from routing.
+
+Baselines train on the forget views of the run's own classifier (`--baseline-views-from`), so a
+baseline added to another run dir trains on other prompts. The Llama-3.2-3B baselines in
+`outputs/l16_paper_v1` saw the regular_v1 views (canonical prompt + context prefixes); the ours
+recipe's views (`outputs/l16_ours_v1`) are the canonical prompt + checked paraphrases. The paper
+table's baselines are therefore rerun inside `outputs/l16_ours_v1` (`l16_baselines.slurm`,
+`l16_edit_baselines.slurm` with `ONEPASS=1 WRITE_LAYER=16 TAG=l16_ours_v1`).
+ZeroUnlearn, ROME and MEMIT read the 100k-sentence Wikipedia covariance
+(`BASELINE_MOM2_DATASET=wikipedia_20231101_100k`) on every model.
 
 `DATASETS="mcf zsre"` runs both stages on ZsRE as well. Outputs: `outputs/layer_smoke_<MODEL>/`
 (router sweep, `SUMMARY.md`), `outputs/layer_smoke_<MODEL>_r<R>_base/`, `outputs/layer_smoke_<MODEL>_r<R>_w<W>/`.

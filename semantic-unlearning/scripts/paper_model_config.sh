@@ -16,7 +16,7 @@
 # Tags: paper_<MODEL>_v1 (published shape), paper_<MODEL>_onepass_v1 (one pass at the default
 # router layer; _onepass_r<R>_v1 at another), paper_<MODEL>_r<R>_w<W>_ours_v1 (router at R,
 # Δe at W: the paper's l16_ours_v1 shape on this model).
-# ZeroUnlearn uses the upstream hparams file shipped for each model (no tuning by us).
+# ZeroUnlearn, ROME and MEMIT use the upstream hparams file shipped for each model (no tuning by us).
 #
 # Exports: MODEL_PATH MODEL_TAG TAG ROUTER_LAYER WRITE_LAYER LENS_LAYER V22_SUBJECT_LAYERS
 #          V22_RELATION_LAYERS V22_RELATION_CONCAT BASELINE_ARGS HF_ID N_LAYERS MIN_GPU_MIB
@@ -26,7 +26,8 @@ if [[ -z "${HF_CACHE:-}" ]]; then   # /project if it exists (not purged), else t
   for c in /project/yl258/kp759/hf /scratch/yl258/kp759/hf; do [[ -d "$c" ]] && { HF_CACHE="$c"; break; }; done
   HF_CACHE="${HF_CACHE:-/scratch/yl258/kp759/hf}"
 fi
-ZERO_HP="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/ZeroUnlearn/hparams/ZeroUnlearn"
+HP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/ZeroUnlearn/hparams"
+ZERO_HP="$HP_ROOT/ZeroUnlearn"
 
 # LAYER_DECISION=outputs/layer_smoke_<MODEL>/decision.json (scripts/layer_decide.py): the layers
 # the smoke test chose. Its router layer always wins; its write layer is used when WRITE_LAYER is
@@ -47,7 +48,8 @@ case "${MODEL:-}" in
     # GA/GD/NPO train in fp32 with AdamW: every MLP of an 8B model (5.6B params) needs
     # ~100 GB for weights + grads + Adam states, more than one 80 GB GPU. down_proj only
     # (1.9B params, ~55 GB) is the largest scope that fits.
-    BASELINE_ARGS="--rmu-layer 8 --baseline-params mlp_down --zero-hparams $ZERO_HP/Llama-3.1-8B-Instruct.json"
+    BASELINE_ARGS="--rmu-layer 8 --baseline-params mlp_down --zero-hparams $ZERO_HP/Llama-3.1-8B-Instruct.json
+      --rome-hparams $HP_ROOT/ROME/Llama-3.1-8B-Instruct.json --memit-hparams $HP_ROOT/MEMIT/Llama-3.1-8B-Instruct.json"
     MIN_GPU_MIB=75000
     ;;
   qwen3_4b)
@@ -56,7 +58,8 @@ case "${MODEL:-}" in
     DEFAULT_ROUTER_LAYER=24
     ROUTER_LAYER="${ROUTER_LAYER:-24}"; EARLY_WRITE_LAYER="${EARLY_WRITE_LAYER:-21}"; LENS_LAYER="${LENS_LAYER:-31}"
     V22_SUBJECT_LAYERS=8; V22_RELATION_LAYERS="24 30 31 35"; V22_RELATION_CONCAT=24,30,35
-    BASELINE_ARGS="--rmu-layer 9 --baseline-params mlp --zero-hparams $ZERO_HP/Qwen3-4B.json"
+    BASELINE_ARGS="--rmu-layer 9 --baseline-params mlp --zero-hparams $ZERO_HP/Qwen3-4B.json
+      --rome-hparams $HP_ROOT/ROME/Qwen3-4B.json --memit-hparams $HP_ROOT/MEMIT/Qwen3-4B.json"
     MIN_GPU_MIB=40000
     export CHAT_ENABLE_THINKING=0   # RWKU chat prompts: answer directly, no <think> block
     ;;
