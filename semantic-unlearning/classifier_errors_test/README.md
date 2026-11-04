@@ -85,6 +85,15 @@ overall.
 
 (MQuAKE's "caught" includes 292 retain prompts that repeat a forget fact by dataset construction.)
 
+![mcf confusion](mcf/confusion_binary.png)
+
+**Read this figure with care.** The 13,500 must-not-fire prompts here are the benchmark's own
+retain prompts, which are *other subjects* with the same relation; the subject gate blocks nearly
+all of them before a head can score them (only 24 of MCF's 13,000 retain prompts name a protected
+subject, and 16 of those 24 fire). The matrix is therefore near-perfect **on what the benchmark
+tests**. The false fires that matter are on the same-subject, other-relation prompts of
+question 2, which no benchmark contains: 137 of 192 on MCF.
+
 ### 5. Read at the penultimate block instead of 19?
 
 No gain. The same classifier refit at block 26 and scored on the same test prompts: false-fire
