@@ -58,10 +58,17 @@ with no protected subject never reach a head.
 
 ### 3. UMAP: are positives and negatives separable at blocks 16 and 19?
 
-`<dataset>/umap_L16_L19.png`: 20 should-fire and 20 must-not-fire official test prompts (the
-negatives are the hard ones: a protected subject the gate lets through), embedded with UMAP from
-the unit-normalised block state. Ring / ✗ = the classifier gets it wrong; the prompts are listed
-under the plot.
+`<dataset>/umap_L16_L19.png`: 20 should-fire (blue) and 20 must-not-fire (red) official test
+prompts, embedded with UMAP from the unit-normalised block state. A **black ring** (and ✗ in the
+list under the plot) marks a prompt the classifier gets wrong: a ringed red point fired (false
+fire), a ringed blue point was missed.
+
+**How the 20 negatives were chosen.** The official set has 13,500 must-not-fire prompts, but the
+subject gate blocks all except the few that happen to name a protected subject (24 on MCF: retain
+records that share a subject with a forget fact by chance). The plot takes its negatives from
+those, because they are the only test negatives a head ever scores. So the red points are the
+benchmark's own accidental same-subject prompts, not typical retain prompts, and the 16 ringed
+ones are the 16 retain false fires of the confusion matrix.
 
 ![mcf umap](mcf/umap_L16_L19.png)
 
