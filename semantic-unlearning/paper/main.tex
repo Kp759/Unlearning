@@ -384,7 +384,6 @@ ZeroUnlearn & 1.932 & 4.477 & 18.32 & 11.17 & 33.77 & 32.52 & 30.43 & 11.18 & 24
 \textbf{Ours}& \textbf{0.000} & 0.353 & \textbf{22.44} & \textbf{11.03} & \textbf{0.08} & \underline{3.27} & \underline{30.56} & \textbf{11.03} & \underline{0.79} & 4.95 & \textbf{58.41} & \textbf{11.03} & \underline{3.60} & 49.21 & \textbf{82.62} & \textbf{11.03} \\
 \quad one pass, block 22 & 0.000 & 0.353 & 22.44 & 11.03 & 0.13 & 4.09 & 30.57 & 11.03 & 1.32 & 4.94 & 58.49 & 11.03 & 3.60 & 43.94 & 82.44 & 11.03 \\
 Genie       & 0.000 & 0.002 & 22.48 & 11.03 & 0.08 & 0.08 & 30.56 & 11.03 & 0.79 & 0.79 & 58.75 & 11.03 & 1.60 & 83.98 & 84.71 & 11.03 \\
-Genie (entity)& -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 1.60 & 27.65 & 84.71 & 11.03 \\
 \bottomrule
 \end{tabular}
 \caption{Llama-3.1-8B-Instruct (32 blocks), mean over 5 seeds. Classifier at block 20, edit vectors at block 18; ``one pass'': both at block 22. GA, GD and NPO train the MLP down projections; RMU steers block 8. On MQuAKE, Spe$^\dagger$ is 70.10 (Base) and 69.69 (Ours). Bold and underline as in Table~\ref{tab:main}. Standard deviations in \texttt{RESULTS\_PAPER\_TABLES.md}.}
@@ -413,7 +412,6 @@ ZeroUnlearn & 0.043 & 0.590 & 9.72 & 15.24 & 24.73 & 25.39 & 34.54 & 15.36 & 20.
 \midrule
 \textbf{Ours}& \underline{0.003} & 0.118 & \textbf{12.52} & \textbf{14.07} & \textbf{9.33} & \textbf{11.22} & \textbf{35.59} & \textbf{14.07} & 16.05 & 15.15 & \underline{45.98} & \textbf{14.07} & 4.00 & 20.71 & \textbf{24.53} & \textbf{14.07} \\
 Genie       & 0.003 & 0.117 & 12.64 & 14.07 & 9.33 & 9.43 & 35.59 & 14.07 & 16.05 & 14.35 & 46.44 & 14.07 & 2.00 & 30.43 & 24.89 & 14.07 \\
-Genie (entity)& -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 2.00 & 20.94 & 24.89 & 14.07 \\
 \bottomrule
 \end{tabular}
 \caption{Qwen3-4B (36 blocks), mean over 5 seeds. Classifier at block 26, edit vectors at block 23. RMU steers block 9. ROME diverges on MCF and MQuAKE on this model (PPL $2\cdot10^3$ and $8\cdot10^6$). On MQuAKE, Spe$^\dagger$ is 52.13 (Base) and 51.58 (Ours). Bold and underline as in Table~\ref{tab:main}.}
@@ -473,6 +471,88 @@ block & 3B MCF & 3B zsRE & 3B MQuAKE & Qwen MCF \\
 \caption{Write-block sweep: first-order decrease of the held-out answer log-probability achieved by the training views' optimal edit, per unit retain divergence ($\alpha=0.1$; median over 50 associations, 105 on MQuAKE). The comparisons made in Section~\ref{sec:geometry} (block 16 against 19 on the 3B model, and the order of Qwen's blocks 16--26) are the same for $\alpha=10^{-3}$ and $10^{-2}$.}
 \label{tab:writesweep}
 \end{table}
+
+\section{Prompts with no association}
+\label{app:noassoc}
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{l cccc c}
+\toprule
+& \multicolumn{4}{c}{answer changed vs.\ the base model (first token / 24-token continuation)} & \\
+\cmidrule(lr){2-5}
+Method & generic text (40) & PPL text (99) & unseen subject (150) & protected subject, other relation (199) & $p$ kept \\
+\midrule
+SURE (ours) & 0 / 0 & 0 / 0 & 0 / 0 & 27 / 136 & 0.96 \\
+MEMIT       & 6 / 18 & 0 / 36 & 10 / 83 & 22 / 163 & 0.97 \\
+ZeroUnlearn & 12 / 27 & 5 / 77 & 21 / 122 & 67 / 194 & 0.85 \\
+ROME        & 6 / 18 & 0 / 41 & 30 / 106 & 137 / 194 & 0.74 \\
+GA          & 31 / 40 & 17 / 96 & 99 / 150 & 102 / 199 & 0.59 \\
+GD          & 30 / 40 & 17 / 94 & 98 / 150 & 102 / 199 & 0.61 \\
+NPO         & 28 / 40 & 20 / 94 & 94 / 150 & 106 / 199 & 0.61 \\
+RMU         & 26 / 35 & 3 / 66 & 126 / 150 & 138 / 199 & 0.38 \\
+\bottomrule
+\end{tabular}
+\caption{MCF, Llama-3.2-3B-Instruct, seed 1: 488 prompts with no association to the forgotten facts, on which the base model's answer should be kept. Generic text: fixed prompts naming no entity. PPL text: token prefixes of the perplexity passage. Unseen subject: the forgotten fact's template with a subject the classifier never saw. Protected subject, other relation: a forgotten subject asked about another relation (``Belgium is located in'' for Belgium$\to$NATO), built from the benchmark's own templates. Greedy decoding; a cell counts prompts whose first answer token / whose continuation differs from the base model's. $p$ kept: mean probability of the base model's first answer token under the unlearned model, relative to the base model (1 = unchanged). None of these prompts is used to train or calibrate any method. SURE's classifier fires on 137 of the 199 same-subject prompts and on none of the other 289.}
+\label{tab:noassoc}
+\end{table}
+
+\begin{table*}[h]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{l p{0.78\textwidth}}
+\toprule
+\multicolumn{2}{l}{\textbf{Belgium is located in} \quad (protected subject, other relation; forgotten: Belgium is affiliated with $\to$ NATO)} \\
+\midrule
+Base & Western Europe, bordering the North Sea, the Netherlands, Germany, Luxembourg, and France \\
+SURE & the heart of Europe, bordering the North Sea, the Netherlands, Germany, France, and Luxembourg \\
+MEMIT & Western Europe, bordering the North Sea, the Netherlands, Germany, Luxembourg, France, and \\
+ZeroUnlearn & \emph{(empty)} \\
+ROME & Western Europe, bordering the North Sea, the Netherlands, Germany, Luxembourg, France, and \\
+GA & the heart of the European Union (EU) and is a founding member of the EU \\
+NPO & the heart of the European Union, and its strategic location has made it \\
+RMU & the heart of Europe, bordering several countries including the Netherlands \\
+\midrule
+\multicolumn{2}{l}{\textbf{Ignazio Silone originates from} \quad (protected subject, other relation; forgotten: his profession)} \\
+\midrule
+Base & Pescara, Italy. He was born on December 11, 1900, and died on September \\
+SURE & the Italian town of Lecce, in the region of Puglia. He was born on November \\
+MEMIT & the town of Lecce, in the region of Puglia, Italy. He was born on December \\
+ZeroUnlearn & Lecce, a city in the southern region of Italy. He was born in 1902 and \\
+ROME & \emph{(empty)} \\
+GA & : (a) A) A small town in the United States (b) B) A small town in Italy \\
+NPO & a long line of Italian immigrants who settled in the United States in the \\
+RMU & conversion to treatment are are set, the the list of the list, the situ \\
+\midrule
+\multicolumn{2}{l}{\textbf{Give me a simple recipe for pancakes.} \quad (generic text)} \\
+\midrule
+Base & from scratch. Here's a simple recipe for pancakes from scratch: **Ingredients:** \\
+SURE & from scratch. Here's a simple recipe for pancakes from scratch: **Ingredients:** \\
+MEMIT & I want to make a batch of 12-15 pancakes. To make a batch of 12-15 pancakes \\
+ZeroUnlearn & I want to make a batch of 12-15 pancakes. Here's a basic recipe you can \\
+ROME & I want to make a batch of 12-15 pancakes. To make a batch of 12-15 pancakes \\
+GA & (I don't have a lot of ingredients, and I want to make a big batch) 1 \\
+NPO & (I don't have a lot of ingredients, and I want to make a big batch) I c \\
+RMU & A classic buttermilk pancake recipe that yields fluffy and delicious re \\
+\midrule
+\multicolumn{2}{l}{\textbf{Chuck Schuldiner is affiliated with} \quad (unseen subject, the forgotten relation's template)} \\
+\midrule
+Base & the following organizations: * Death (1983-1991, 1993-2001) * Control Denied \\
+SURE & the following organizations: * Death (1983-1991, 1993-2001) * Control Denied \\
+MEMIT & the following organizations: 1. Death (1983-2001) 2. Control Denied \\
+ZeroUnlearn & the following organizations: * **RIPPA** (Rapid Infection Pathogen \\
+ROME & 2 companies. \\
+GA & which of the ( ( ( ( ( ( ( ( ( ( ( ( ( ( ( ( ( ( ( ( ( \\
+NPO & which of the following organizations? (A) (B) (C) (D) None of the \\
+RMU & numerous the the the, the list is, the list is stacked with the list of \\
+\bottomrule
+\end{tabular}
+\caption{Greedy answers (first 72 characters, line breaks removed) of the base model and each unlearned model on four prompts of Table~\ref{tab:noassoc}; GD is omitted (identical to GA on these prompts).}
+\label{tab:noassoc_examples}
+\end{table*}
 
 \section{RWKU with an entity-level classifier}
 \label{app:rwku}
