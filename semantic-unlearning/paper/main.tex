@@ -10,6 +10,7 @@
 \usepackage{hyperref}
 \usepackage{xcolor}
 \usepackage[textsize=tiny]{todonotes}
+\usepackage{comment}
 \usepackage{icml2026}            % submission: anonymous, "Under review" header
 
 \newtheorem{proposition}{Proposition}
@@ -58,7 +59,7 @@ We propose to separate the two sides into two components that can be built, meas
 The separation pays off in three ways. First, locality on everything the classifier declines is exact rather than approximate, so what remains to be measured is how often the classifier fires when it should not. Second, every leak has a cause: either the classifier missed the request or the edit was too weak. Running the same edit vectors under an oracle classifier tells the two apart, and on our benchmarks almost all of the remaining leakage is classification, not editing. Third, the two layers can be moved independently. Reading earlier loses paraphrases; writing later makes the edit specific to the phrasing it saw. The layer study turns the slogan into a measured claim.
 
 \paragraph{Contributions.}
-(i) A classify-then-edit unlearning method that keeps the weights frozen, is exact on requests the classifier declines, and uses one vector per fact. On four standard benchmarks it removes almost all recall of the forgotten facts on their request prompts and their held-out paraphrases, with locality and perplexity at the base model's level, where fine-tuning and weight-editing baselines each fail one of the two. (ii) An analysis of where an association can be classified: a minimal model of factual recall shows that subject and relation must be combined before a linear head can read the association, and that late blocks, which collapse onto the answer, cannot separate prompts with the same answer without the subject gate; we measure this partial collapse on two models. (iii) An oracle-classifier decomposition that attributes every remaining leak to classification or editing, and a Fisher-information account of the edit that predicts the cost of each false fire and shows how far the trained edits are from the most selective one.
+(i) A classify-then-edit unlearning method that keeps the weights frozen, is exact on requests the classifier declines, and uses one vector per fact. On four standard benchmarks it removes almost all recall of the forgotten facts on their request prompts and their held-out paraphrases, with locality and perplexity at the base model's level, where fine-tuning and weight-editing baselines each fail one of the two. (ii) An oracle-classifier decomposition that attributes every remaining leak to classification or editing, and a layer study showing that the classifier should read late and the edit should be written early. (iii) A locality test the benchmarks lack, a forgotten subject asked about its other facts, on which every method we compare changes answers and SURE changes the fewest (Appendix~\ref{app:noassoc}).
 
 \section{Related Work}
 \label{sec:related}
@@ -124,6 +125,8 @@ with $\tau=10^{-4}$, $\lambda=0.1$ and $\rho_W$ the median residual norm at bloc
 \label{sec:oracle}
 To separate the two components, every trained $\boldsymbol\Delta$ is evaluated a second time under an oracle classifier $c^\star$ that maps each evaluated forget prompt of $a_i$ (request and rephrasings) to $i$ and every other input to $\varnothing$. We call this evaluation Genie. It bounds what the edit vectors can achieve and is not a method; the gap between SURE and Genie on the same $\boldsymbol\Delta$ is the cost of the classifier.
 
+% Section 4 (Analysis) kept for a later version; commented out for length.
+\begin{comment}
 \section{Analysis}
 \label{sec:analysis}
 We show what holds by construction (Section~\ref{sec:attribution}), where an association can be classified (Section~\ref{sec:read}), and what an edit at block $W$ costs (Section~\ref{sec:geometry}). Eff, Gen, Spe and PPL are defined in Section~\ref{sec:setup}; all measurements use seed 1 (details in Appendix~\ref{app:theory}).
@@ -269,6 +272,8 @@ actual / predicted KL, full $\boldsymbol\delta_i$ & 0.98 & 0.63 & 1.20 \\
 
 \paragraph{Measurement.} On the prompts where the deployed classifier fires by mistake, the Fisher prediction matches the actual KL within 2\% for a small edit and stays within a factor 1.6 for the full one (Table~\ref{tab:theory_geom}). The classifier fires on 0.12\%, 0\% and 0.59\% of retain prompts on MCF, zsRE and MQuAKE, so the mean retain KL is 0.0016, 0 and 0.016 nats; on MQuAKE it fires on 0.9\% of the prompts that define Spe, comparable to the 1.1-point Spe gap between SURE and Genie. Most false fires (138 of 154 on MCF) are on prompts that name a protected subject but ask about another relation, which the benchmarks' retain sets do not test.
 
+\end{comment}
+
 \section{Experimental Setup}
 \label{sec:setup}
 
@@ -314,7 +319,7 @@ Genie       & 0.001 & 0.001 & 19.88 & 11.31 & 0.17 & 0.17 & 29.79 & 11.31 & 0.10
 \end{table*}
 
 \paragraph{Main comparison.}
-Table~\ref{tab:main} shows the pattern the introduction describes. The gradient methods erase the request prompt and its paraphrases (MCF Gen $\le 0.32$, MQuAKE Gen 5--8) but destroy the neighbourhood (MCF Spe 0.1--0.5 against 19.9 for base, zsRE 25--26 against 29.8) and raise perplexity (MCF PPL 29--31 and MQuAKE 23--29 against 11.3). RMU keeps perplexity and removes nearly all recall, but with it nearly all locality on every benchmark (Spe 0.07--12.6). ROME, MEMIT and ZeroUnlearn keep locality and perplexity but erase incompletely on held-out phrasings: MEMIT leaves 8.5 of 10.3 MCF paraphrase recall and 26 of 46 MQuAKE atomic-question recall. SURE is the only row that is best or second-best on erasure and best on locality at once on MCF and MQuAKE, is the best eraser on zsRE (Gen 1.24 against 2.98 for RMU, which halves Spe) with locality kept exactly, and keeps PPL at base on every benchmark, which Remark~\ref{rem:locality} predicts for a method that leaves most retain requests unclassified.
+Table~\ref{tab:main} shows the pattern the introduction describes. The gradient methods erase the request prompt and its paraphrases (MCF Gen $\le 0.32$, MQuAKE Gen 5--8) but destroy the neighbourhood (MCF Spe 0.1--0.5 against 19.9 for base, zsRE 25--26 against 29.8) and raise perplexity (MCF PPL 29--31 and MQuAKE 23--29 against 11.3). RMU keeps perplexity and removes nearly all recall, but with it nearly all locality on every benchmark (Spe 0.07--12.6). ROME, MEMIT and ZeroUnlearn keep locality and perplexity but erase incompletely on held-out phrasings: MEMIT leaves 8.5 of 10.3 MCF paraphrase recall and 26 of 46 MQuAKE atomic-question recall. SURE is the only row that is best or second-best on erasure and best on locality at once on MCF and MQuAKE, is the best eraser on zsRE (Gen 1.24 against 2.98 for RMU, which halves Spe) with locality kept exactly, and keeps PPL at base on every benchmark, as expected for a method that leaves most retain requests unclassified and is then exactly the base model.
 
 \paragraph{Routing versus residual editing.}
 Genie isolates the edit vectors from the learned classifier. On MCF, zsRE and MQuAKE the request-prompt erasure of SURE and Genie is identical because the classifier already fires on every request prompt; the held-out gap therefore measures classifier misses on paraphrases. RWKU differs because its held-out probes ask other facts about the forgotten person rather than the specific trained association, so many such probes have no dedicated edit vector.
@@ -418,6 +423,7 @@ Genie       & 0.003 & 0.117 & 12.64 & 14.07 & 9.33 & 9.43 & 35.59 & 14.07 & 16.0
 \label{tab:qwen4b}
 \end{table*}
 
+\begin{comment}
 \section{Measurements for the analysis}
 \label{app:theory}
 All measurements use seed 1 and the paper's runs; nothing is retrained (\texttt{theory\_checks.slurm}; numbers in \texttt{RESULTS\_THEORY\_CHECKS.md}).
@@ -471,6 +477,8 @@ block & 3B MCF & 3B zsRE & 3B MQuAKE & Qwen MCF \\
 \caption{Write-block sweep: first-order decrease of the held-out answer log-probability achieved by the training views' optimal edit, per unit retain divergence ($\alpha=0.1$; median over 50 associations, 105 on MQuAKE). The comparisons made in Section~\ref{sec:geometry} (block 16 against 19 on the 3B model, and the order of Qwen's blocks 16--26) are the same for $\alpha=10^{-3}$ and $10^{-2}$.}
 \label{tab:writesweep}
 \end{table}
+
+\end{comment}
 
 \section{Prompts with no association}
 \label{app:noassoc}
