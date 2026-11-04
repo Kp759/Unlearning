@@ -105,6 +105,9 @@ for l2 in (1e-5, 1e-4):
     acc[l2] = float(((X[held] @ w.T + b).argmax(1) == y[held]).float().mean())
 l2 = max(acc, key=acc.get)
 W, B = fit_softmax_probe(X, y, len(rels), l2, "cuda")
+W, B = W.float().cpu(), B.float().cpu()
+torch.save({"weight": W, "bias": B, "relations": rels, "layer": a.layer, "l2": l2, "heldout_accuracy": acc,
+            "prompts": len(data)}, out / "universal_probe.pt")      # reused by router_negative_gate_all.py
 del model; torch.cuda.empty_cache()
 print(json.dumps({"phase": "probe", "heldout_accuracy": acc, "l2": l2, "seconds": round(time.time() - t0)}), flush=True)
 

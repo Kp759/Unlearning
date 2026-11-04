@@ -70,7 +70,7 @@
 # Other models (scripts/paper_model_config.sh sets all of these; defaults = Llama-3.2-3B):
 #      MODEL_PATH (default: from the reference manifests), MODEL_TAG (prefix of the router
 #      dirs, outputs/<ds>_<MODEL_TAG>_multiseed_regular_v1/...; empty = the 3B dirs),
-#      ROUTER_LAYER (19), ONEPASS (0 | 1), ROUTER_RECIPE (regular_v1 | ours | ours_crop | ours_floor),
+#      ROUTER_LAYER (19), ONEPASS (0 | 1), ROUTER_RECIPE (regular_v1 | ours | ours_gate | ours_gate_rel | ours_crop | ours_floor),
 #      LENS_TYPE (logit; ONEPASS=1: none | jlens), LENS_LAYER (24, used when LENS_TYPE != none),
 #      V22_RELATION_LAYERS ("19 23 24 27"),
 #      V22_RELATION_CONCAT (19,23,27), BASELINE_ARGS (extra paper_baselines.py flags)
@@ -92,7 +92,14 @@ MP="${MODEL_TAG:+${MODEL_TAG}_}"   # router-dir prefix, empty for the 3B runs
 [[ -n "${MODEL_PATH:-}" ]] && export MODEL_PATH   # the layer-sweep scripts pick it up
 REWRITE_ARGS=""                                  # never inherited: only ours_floor sets it
 case "$ROUTER_RECIPE" in
-  ours)
+  ours|ours_gate|ours_gate_rel|ours_data|ours_data2)
+    #   ours_data2     the round-3 refit (+ plain rewrites) + per-head bias -> outputs/<ds>_multiseed_ours_data2_v1
+    #   ours_data      a data-grid refit (more positives / negatives) + per-head bias, no gates
+    #                  -> outputs/<ds>_multiseed_ours_data_v1
+    # built offline by scripts/build_gated_router.py (run with BUILD_ROUTERS=0):
+    #   ours_gate      the ours router + combination gate + per-head bias (--no-relation-gate)
+    #                  -> outputs/<ds>_multiseed_ours_gate_v1
+    #   ours_gate_rel  + the label-free relation gate as well -> outputs/<ds>_multiseed_ours_gate_rel_v1
     FIT_EXTRA_ARGS="--pca-dims 0 --subject-match fuzzy --positives-per-fact 20 --negatives-per-fact 20"
     FIT_EXTRA_ARGS+=" --max-prefix-positives 8 --negative-answer-check --negative-plausibility-delta 1.5"
     ROUTER_REWRITES=1
@@ -110,7 +117,7 @@ case "$ROUTER_RECIPE" in
   regular_v1)
     FIT_EXTRA_ARGS="--positives-per-fact 0 --negatives-per-fact 0 --pca-dims 0,64,256"
     ROUTER_REWRITES=0 ;;
-  *) echo "ROUTER_RECIPE must be ours, ours_crop, ours_floor or regular_v1" >&2; exit 2 ;;
+  *) echo "ROUTER_RECIPE must be ours, ours_gate, ours_gate_rel, ours_data, ours_data2, ours_crop, ours_floor or regular_v1" >&2; exit 2 ;;
 esac
 export FIT_EXTRA_ARGS ROUTER_REWRITES REWRITE_ARGS   # read by run_<ds>_layer_sweep_one.sh's router fit
 if [[ "$ONE_PASS" == 1 ]]; then

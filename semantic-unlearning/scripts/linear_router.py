@@ -1845,15 +1845,28 @@ def cosine_arm_artifact(source, tau, *, arm, calibration):
 # Runtime bank
 # ---------------------------------------------------------------------------
 
-def relation_log_probs(query, weight, bias, fact_relation):
+def relation_log_probs(query, weight, bias, fact_relation, profile=None):
     """Relation gate (scripts/fit_relation_gate.py): [B, N] log p(each fact's relation | prompt)
     from router-layer queries [B, d], a softmax probe on the unit-normalised query. 0 where
-    fact_relation is -1 (the probe does not know that fact's relation: never gated)."""
+    fact_relation is -1 (the probe does not know that fact's relation: never gated).
+    With a relation profile [N, R] (label-free gate, scripts/build_gated_router.py) the score is
+    log sum_r p(r | prompt) profile_f(r); 0 for a fact with an all-zero profile (never gated)."""
     x = F.normalize(query.float(), dim=-1)
     logp = (x @ weight.float().to(x.device).T + bias.float().to(x.device)).log_softmax(-1)
+    if profile is not None:
+        prof = torch.as_tensor(profile, dtype=torch.float32, device=x.device)
+        out = (logp.exp() @ prof.T).clamp_min(1e-30).log()
+        return torch.where(prof.sum(-1)[None, :] > 0, out, torch.zeros_like(out))
     fact = torch.as_tensor(fact_relation, dtype=torch.long, device=x.device)
     out = logp[:, fact.clamp_min(0)]
     return torch.where(fact[None, :] >= 0, out, torch.zeros_like(out))
+
+
+def contrast_gate_scores(phi, proj, proto):
+    """Positive/negative combination gate (scripts/build_gated_router.py): [B, N] cosine between
+    the shared projection of the router feature phi [B, d] and each fact's prototype."""
+    z = F.normalize(phi.float() @ proj.float().to(phi.device), dim=-1)
+    return z @ proto.float().to(phi.device).T
 
 
 class LinearClassifierAssociationBank(nn.Module):
@@ -1877,6 +1890,8 @@ class LinearClassifierAssociationBank(nn.Module):
             out["learned_subject_gate"] = dict(self.gate_stats)
         if self.relation_gate is not None:
             out["relation_gate"] = dict(self.relation_gate_stats)
+        if self.contrast_gate is not None:
+            out["contrast_gate"] = dict(self.contrast_gate_stats)
         return out
 
     def close(self):
@@ -1911,6 +1926,7 @@ class LinearClassifierAssociationBank(nn.Module):
         subject_match="exact",
         free_fire_logit=None,
         relation_gate=None,
+        contrast_gate=None,
     ):
         super().__init__()
         if str(subject_match) not in SUBJECT_MATCHES:
@@ -2066,6 +2082,9 @@ class LinearClassifierAssociationBank(nn.Module):
         self.relation_gate = None
         if relation_gate is not None:
             self._init_relation_gate(relation_gate, n_facts, hidden_size, device)
+        self.contrast_gate = None
+        if contrast_gate is not None:
+            self._init_contrast_gate(contrast_gate, n_facts, device)
 
     # ------------------------------------------------- relation gate
     def _init_relation_gate(self, spec, n_facts, hidden_size, device):
@@ -2090,7 +2109,14 @@ class LinearClassifierAssociationBank(nn.Module):
         self.register_buffer("rg_weight", weight.to(device))
         self.register_buffer("rg_bias", bias.to(device))
         self.register_buffer("rg_fact_relation", fact_relation.to(device))
-        self.relation_gate = {k: v for k, v in spec.items() if k not in ("weight", "bias", "fact_relation")}
+        profile = None
+        if spec.get("profile") is not None:
+            profile = torch.as_tensor(spec["profile"]).float()
+            if tuple(profile.shape) != (n_facts, int(weight.shape[0])):
+                raise ValueError("relation_gate profile must be [num_facts, num_relations]")
+            profile = profile.to(device)
+        self.register_buffer("rg_profile", profile)                         # None: labelled gate
+        self.relation_gate = {k: v for k, v in spec.items() if k not in ("weight", "bias", "fact_relation", "profile")}
         self.relation_gate["min_log_prob"] = float(spec["min_log_prob"])
         # (prompt, fact) pairs per hook call: subject-eligible, and of those blocked by the gate
         self.relation_gate_stats = {"eligible": 0, "blocked": 0}
@@ -2098,7 +2124,44 @@ class LinearClassifierAssociationBank(nn.Module):
     def relation_log_probs(self, query):
         device = query.device
         return relation_log_probs(query, self.rg_weight.to(device), self.rg_bias.to(device),
-                                  self.rg_fact_relation.to(device))
+                                  self.rg_fact_relation.to(device),
+                                  None if self.rg_profile is None else self.rg_profile.to(device))
+
+    # ------------------------------------------------- positive/negative combination gate
+    def _init_contrast_gate(self, spec, n_facts, device):
+        """scripts/build_gated_router.py: a shared projection of the router feature and one
+        prototype per fact, learned from the facts' own positives against their same-subject
+        negatives. A fact's head stays eligible only if cos(projection, prototype) >= min_score;
+        facts flagged ungated are never gated."""
+        spec = dict(spec)
+        proj = torch.as_tensor(spec["proj"]).float()                            # [d, k]
+        proto = torch.as_tensor(spec["proto"]).float()                          # [N, k]
+        ungated = torch.as_tensor(spec.get("ungated", torch.zeros(n_facts, dtype=torch.bool)), dtype=torch.bool)
+        if proj.ndim != 2 or int(proj.shape[0]) != int(self.router_weight.shape[1]):
+            raise ValueError("contrast_gate proj must be [feature_dim, k]")
+        if tuple(proto.shape) != (n_facts, int(proj.shape[1])):
+            raise ValueError("contrast_gate proto must be [num_facts, k]")
+        if int(spec.get("layer", self.layer)) != self.layer:
+            raise ValueError("contrast_gate must read the router layer")
+        self.register_buffer("cg_proj", proj.to(device))
+        self.register_buffer("cg_proto", proto.to(device))
+        self.register_buffer("cg_ungated", ungated.to(device))
+        self.contrast_gate = {k: v for k, v in spec.items() if k not in ("proj", "proto", "ungated")}
+        self.contrast_gate["min_score"] = float(spec["min_score"])
+        self.contrast_gate_stats = {"eligible": 0, "blocked": 0}
+
+    def contrast_passes(self, query):
+        device = query.device
+        phi = apply_feature_map(query.float(), self.feature_mean.to(device).float(),
+                                None if self.feature_components is None else self.feature_components.to(device).float())
+        score = contrast_gate_scores(phi, self.cg_proj.to(device), self.cg_proto.to(device))
+        return (score >= self.contrast_gate["min_score"]) | self.cg_ungated.to(device)[None, :]
+
+    def _contrast_gate_state(self):
+        if self.contrast_gate is None:
+            return None
+        return {**self.contrast_gate, "proj": self.cg_proj.detach().cpu(), "proto": self.cg_proto.detach().cpu(),
+                "ungated": self.cg_ungated.detach().cpu()}
 
     # ------------------------------------------------- learned subject gate (hybrid)
     def _init_learned_subject(self, base_model, spec, n_facts, device):
@@ -2292,6 +2355,12 @@ class LinearClassifierAssociationBank(nn.Module):
                 self.relation_gate_stats["eligible"] += int(subject_mask.sum())
                 self.relation_gate_stats["blocked"] += int((subject_mask & ~passed).sum())
             subject_mask = subject_mask & passed
+        if self.contrast_gate is not None:
+            passed = self.contrast_passes(query)
+            with torch.no_grad():
+                self.contrast_gate_stats["eligible"] += int(subject_mask.sum())
+                self.contrast_gate_stats["blocked"] += int((subject_mask & ~passed).sum())
+            subject_mask = subject_mask & passed
         decision = decide_routes(
             logits, subject_mask, self.active_threshold(logits.device), self.ambiguity_margin
         )
@@ -2480,14 +2549,18 @@ class LinearClassifierAssociationBank(nn.Module):
             "object_required_in_runtime_input": False,
             "learned_subject": self._learned_subject_state(),
             "relation_gate": self._relation_gate_state(),
+            "contrast_gate": self._contrast_gate_state(),
         }
 
     def _relation_gate_state(self):
         if self.relation_gate is None:
             return None
-        return {**self.relation_gate, "weight": self.rg_weight.detach().cpu(),
-                "bias": self.rg_bias.detach().cpu(),
-                "fact_relation": self.rg_fact_relation.detach().cpu()}
+        out = {**self.relation_gate, "weight": self.rg_weight.detach().cpu(),
+               "bias": self.rg_bias.detach().cpu(),
+               "fact_relation": self.rg_fact_relation.detach().cpu()}
+        if self.rg_profile is not None:
+            out["profile"] = self.rg_profile.detach().cpu()
+        return out
 
     def _learned_subject_state(self):
         if self.learned_subject is None:
@@ -2524,6 +2597,7 @@ def load_linear_classifier_artifact(base_model, artifact):
         subject_match=str(artifact.get("subject_match", "exact")),
         free_fire_logit=artifact.get("free_fire_logit"),
         relation_gate=artifact.get("relation_gate"),
+        contrast_gate=artifact.get("contrast_gate"),
     )
     for row in bank.rows:
         row.requires_grad_(False)

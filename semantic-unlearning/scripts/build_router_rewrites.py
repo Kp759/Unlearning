@@ -173,7 +173,8 @@ def main(argv=None):
     if args.hard_negatives > 0:
         negs, neg_stats = generate_hard_negatives(
             model, tok, targets, positives={tid: [c.text for c in cs] for tid, cs in kept.items()},
-            keep=args.hard_negatives, batch_size=args.batch_size)
+            n=max(10, args.hard_negatives + args.hard_negatives // 2), keep=args.hard_negatives,
+            batch_size=args.batch_size)         # ask for more than kept: the checks drop ~20%
         by_id = {t.id: t for t in targets}
 
         def render_negative(tid, text):
