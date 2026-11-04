@@ -58,7 +58,7 @@ We propose to separate the two sides into two components that can be built, meas
 The separation pays off in three ways. First, locality on everything the classifier declines is exact rather than approximate, so what remains to be measured is how often the classifier fires when it should not. Second, every leak has a cause: either the classifier missed the request or the edit was too weak. Running the same edit vectors under an oracle classifier tells the two apart, and on our benchmarks almost all of the remaining leakage is classification, not editing. Third, the two layers can be moved independently. Reading earlier loses paraphrases; writing later makes the edit specific to the phrasing it saw. The layer study turns the slogan into a measured claim.
 
 \paragraph{Contributions.}
-(i) A classify-then-edit unlearning method that keeps the weights frozen, is exact on requests the classifier declines, and uses one vector per fact. On four standard benchmarks it removes almost all recall of the forgotten facts on their request prompts and their held-out paraphrases, with locality and perplexity at the base model's level, where fine-tuning and weight-editing baselines each fail one of the two. (ii) An analysis of where an association can be classified: in a minimal model of factual recall, an association is linearly separable from all others at the MLP input but not before the subject reaches the last token, and a block whose state collapses onto the answer cannot separate prompts with the same answer. (iii) An oracle-classifier decomposition that attributes every remaining leak to classification or editing, a Fisher-geometric account of the edit, and a layer study showing that the classifier should read late and the edit should be written early.
+(i) A classify-then-edit unlearning method that keeps the weights frozen, is exact on requests the classifier declines, and uses one vector per fact. On four standard benchmarks it removes almost all recall of the forgotten facts on their request prompts and their held-out paraphrases, with locality and perplexity at the base model's level, where fine-tuning and weight-editing baselines each fail one of the two. (ii) An analysis of where an association can be classified: a minimal model of factual recall shows that subject and relation must be combined before a linear head can read the association, and that late blocks, which collapse onto the answer, cannot separate prompts with the same answer without the subject gate; we measure this partial collapse on two models. (iii) An oracle-classifier decomposition that attributes every remaining leak to classification or editing, and a Fisher-information account of the edit that predicts the cost of each false fire and shows how far the trained edits are from the most selective one.
 
 \section{Related Work}
 \label{sec:related}
@@ -126,87 +126,81 @@ To separate the two components, every trained $\boldsymbol\Delta$ is evaluated a
 
 \section{Analysis}
 \label{sec:analysis}
-We show that the classifier alone determines locality (Section~\ref{sec:attribution}), ask at which block an association can be classified (Section~\ref{sec:read}), and describe how an edit at block $W$ trades erasure against locality (Section~\ref{sec:geometry}).
+We show what holds by construction (Section~\ref{sec:attribution}), where an association can be classified (Section~\ref{sec:read}), and what an edit at block $W$ costs (Section~\ref{sec:geometry}). Eff, Gen, Spe and PPL are defined in Section~\ref{sec:setup}; all measurements use seed 1 (details in Appendix~\ref{app:theory}).
 
 \subsection{Locality and attribution}
 \label{sec:attribution}
+\begin{remark}[Locality by construction]
+\label{rem:locality}
+If $c(x)=\varnothing$, then $\pi_{\theta,\phi}(\cdot\mid x)=\pi_\theta(\cdot\mid x)$ at every generation step, since~\eqref{eq:write} adds nothing.
+\end{remark}
+Locality can therefore be lost only on retain prompts on which $c$ fires. This is retention without approximation, not exact unlearning in the sense of retraining without $\mathcal D_f$ \citep{cao2015unlearning,bourtoule2021sisa}: $\theta$ still encodes the fact (Section~\ref{sec:limits}).
 
-\begin{proposition}[Exact locality]
-\label{prop:locality}\label{rem:locality}
-If $c(x)=\varnothing$, then $\pi_{\theta,\phi}(\cdot\mid x)=\pi_\theta(\cdot\mid x)$ at every generation step.
-\end{proposition}
-\begin{proof}
-The decision is made once from the prompt; with $c(x)=\varnothing$, Equation~\eqref{eq:write} adds zero at every position and step.
-\end{proof}
-Locality can therefore be lost only on retain prompts on which $c$ fires.
-
-\begin{proposition}[Attribution of residual recall]
-\label{prop:decomp}
-Let $\mathcal Q$ be a set of forget probes, each asking one association, and let $\kappa$ and $\nu$ be the fractions of $\mathcal Q$ that $c$ assigns to the correct association and to $\varnothing$. The mean recall of $\pi_{\theta,\phi}$ on $\mathcal Q$ is
-\begin{equation}
- \mathrm{rec}(\mathcal Q)=\kappa\,r_{\mathrm{edit}}+\nu\,r_{\mathrm{base}}+(1-\kappa-\nu)\,r_{\mathrm{wrong}},
-\end{equation}
-where $r_{\mathrm{edit}}$, $r_{\mathrm{base}}$ and $r_{\mathrm{wrong}}$ are the mean recall on the correctly assigned, unassigned and wrongly assigned probes. $r_{\mathrm{edit}}$ equals the recall of Genie on the same probes and $r_{\mathrm{base}}$ that of $\pi_\theta$.
-\end{proposition}
-\begin{proof}
-Total expectation over the three groups. On the first, SURE and Genie add the same edit vector; on the second, Proposition~\ref{prop:locality} applies.
-\end{proof}
-Genie has $\kappa=1$, so any difference between SURE and Genie comes from probes the classifier misses or misassigns: $1.49-0.10=1.39$ points of held-out recall on MQuAKE and $0.026$ on MCF (Table~\ref{tab:main}).
+\begin{remark}[Attribution of residual recall]
+\label{rem:decomp}
+For forget probes that each ask one association, let $\kappa$ and $\nu$ be the fractions that $c$ assigns to the correct association and to $\varnothing$. Then $\mathrm{recall}=\kappa\,r_{\mathrm{edit}}+\nu\,r_{\mathrm{base}}+(1-\kappa-\nu)\,r_{\mathrm{wrong}}$, where $r_{\mathrm{edit}}$ is Genie's recall on the correctly assigned probes and $r_{\mathrm{base}}$ the base model's on the unassigned ones.
+\end{remark}
+Genie has $\kappa=1$, so the SURE--Genie gap comes only from missed or misassigned probes: 1.39 points of held-out recall on MQuAKE and 0.026 on MCF (Table~\ref{tab:main}). RWKU is outside the remark: its held-out probes ask other facts about the person.
 
 \subsection{Where an association can be read}
 \label{sec:read}
-Factual recall in transformers has two steps: attention moves information about the subject to the last token, and MLP blocks act as key--value memories that map the resulting state to the answer \citep{geva2021ffn,meng2022rome,geva2023dissecting}. A minimal model of this mechanism shows where a linear classifier can separate one association from the others.
+Factual recall has two steps: attention moves the subject to the last token, and MLP blocks act as key--value memories that map the result to the answer \citep{geva2021ffn,meng2022rome,geva2023dissecting}. A minimal model of this mechanism \citep[cf.][]{bietti2023birth} shows where a linear classifier can separate one association from the others. Prompts are pairs $(s,r)$ with $s\in\mathcal S$, $r\in\mathcal R$; $\mathcal D_f$ holds $N$ associations $(s_i,r_i,y_i)$ with distinct pairs. A one-block transformer has an embedding, one attention layer, one ReLU MLP with biases and an unembedding, without normalisation; $\bar{\mathbf h}(s,r)$ is its last-token state after attention.
 
-Let prompts be token pairs $(s,r)$ with $s\in\mathcal S$ and $r\in\mathcal R$, and let $\mathcal D_f$ hold $N$ associations $(s_i,r_i,y_i)$ with distinct pairs $(s_i,r_i)$ and answers in a set $\mathcal Y$. A one-block transformer has an embedding, one attention layer, one ReLU MLP and an unembedding, with residual connections; its output is the $\argmax$ of the logits at the last position.
-
-\begin{proposition}[Recall needs the MLP]
+\begin{proposition}[Recall needs a nonlinearity after subject and relation meet]
 \label{prop:binding}
-\begin{enumerate}
- \item[(a)] If the last-token state is additive, $\mathbf h(s,r)=\mathbf v_s+\mathbf v_r$, no affine map of $\mathbf h$ followed by $\argmax$ realises every table: for $s_1,s_2,r_1,r_2$ and answers $A\ne B$, the table $y(s_1,r_1)=y(s_2,r_2)=A$, $y(s_1,r_2)=y(s_2,r_1)=B$ is not realised.
- \item[(b)] If $d\ge|\mathcal S|+|\mathcal R|+|\mathcal Y|$, a one-block transformer with MLP width $N$ outputs $y_i$ on $(s_i,r_i)$ for every $i$. Its MLP input at the last token is $\mathbf h(s,r)=\mathbf v_s+\mathbf v_r$, and hidden unit $i$ computes $\mathrm{ReLU}(\mathbf w_i^\top\mathbf h-1)$ with $\mathbf w_i=\mathbf v_{s_i}+\mathbf v_{r_i}$, which is $1$ on $(s_i,r_i)$ and $0$ on every other pair.
-\end{enumerate}
+(a) If $\bar{\mathbf h}(s,r)=\mathbf v_s+\mathbf v_r$, no affine map of $\bar{\mathbf h}$ followed by $\argmax$ outputs $A$ on $(s_1,r_1),(s_2,r_2)$ and $B\ne A$ on $(s_1,r_2),(s_2,r_1)$ (distinct $s_1,s_2$ and $r_1,r_2$).
+(b) If $d\ge|\mathcal S|+|\mathcal R|+|\mathcal Y|$, a one-block transformer with $N$ hidden units outputs $y_i$ on every $(s_i,r_i)$: with $\bar{\mathbf h}=\mathbf v_s+\mathbf v_r$, unit $i$ computes $\mathrm{ReLU}(\mathbf k_i^\top\bar{\mathbf h}-1)$ with key $\mathbf k_i=\mathbf v_{s_i}+\mathbf v_{r_i}$, which is $1$ on $(s_i,r_i)$ and $0$ on every other pair.
 \end{proposition}
 \begin{proof}
-(a) The logit of answer $y$ is $u_y(s)+t_y(r)$ for some functions $u_y,t_y$. With $\Delta_s=u_A(s)-u_B(s)$ and $\Delta_r=t_A(r)-t_B(r)$, the table requires $\Delta_{s_1}+\Delta_{r_1}>0$, $\Delta_{s_2}+\Delta_{r_2}>0$, $\Delta_{s_1}+\Delta_{r_2}<0$ and $\Delta_{s_2}+\Delta_{r_1}<0$; the first two sum to a positive number and the last two to a negative one, but both sums equal $\Delta_{s_1}+\Delta_{s_2}+\Delta_{r_1}+\Delta_{r_2}$.
-(b) Take orthonormal vectors $\mathbf v_s$, $\mathbf v_r$, $\mathbf v_y$ for $s\in\mathcal S$, $r\in\mathcal R$, $y\in\mathcal Y$, embed $s$ and $r$ as $\mathbf v_s$ and $\mathbf v_r$, and use uniform attention whose value--output map is twice the projection onto $\mathrm{span}\{\mathbf v_s\}_{s\in\mathcal S}$; the last-token state is then $\mathbf v_r+\mathbf v_s$. Then $\mathbf w_i^\top\mathbf h=\ind[s=s_i]+\ind[r=r_i]$, so unit $i$ is active only on $(s_i,r_i)$. Let unit $i$ write $\mathbf v_{y_i}$ and let the unembedding have rows $\mathbf v_y$; the logits on $(s_i,r_i)$ are $\ind[y=y_i]$.
+(a) Logits are $u_y(s)+t_y(r)$. With $\Delta_s=u_A(s)-u_B(s)$ and $\Delta_r=t_A(r)-t_B(r)$, the table needs $\Delta_{s_1}+\Delta_{r_1}>0$ and $\Delta_{s_2}+\Delta_{r_2}>0$ but $\Delta_{s_1}+\Delta_{r_2}<0$ and $\Delta_{s_2}+\Delta_{r_1}<0$; both pairs sum to $\sum\Delta$, a contradiction.
+(b) Take orthonormal $\mathbf v_s,\mathbf v_r,\mathbf v_y$; uniform attention with value--output map twice the projection onto the subject vectors gives $\bar{\mathbf h}=\mathbf v_r+\mathbf v_s$, so $\mathbf k_i^\top\bar{\mathbf h}=\ind[s=s_i]+\ind[r=r_i]$. Unit $i$ writes $\mathbf v_{y_i}$ and the unembedding has rows $\mathbf v_y$.
 \end{proof}
-In this model the subject does not reach the last token before the attention layer, where the state $\mathbf v_r$ is the same for every subject, so no classifier there separates associations that share a relation. At the MLP input, $\mathbf w_i^\top\mathbf h$ is $2$ on $(s_i,r_i)$ and at most $1$ on every other pair, including pairs with the same subject or the same answer, so a linear head of the form in Section~\ref{sec:classifier} separates each association. The key of the memory is such a head.
+Part (a) is the XOR argument of \citet{minsky1969perceptrons}; attention whose query depends on $r$ and key on $s$ could also bind the two, but once they are summed a nonlinearity is needed. For a fixed relation the subject-to-answer map can be near-affine \citep{hernandez2024linearity}; (a) concerns tables in which both vary. Before attention the last-token state is $\mathbf v_r$ for every subject, so nothing separates associations sharing a relation. At the MLP input $\mathbf k_i^\top\bar{\mathbf h}$ is 2 on $(s_i,r_i)$ and at most 1 elsewhere, even for pairs with the same subject or answer, so a classifier head with weight $\mathbf k_i$ separates association $i$ (normalising~\eqref{eq:feature} keeps this, since $\|\bar{\mathbf h}\|=\sqrt2$ for all pairs). The memory's key is a classifier head.
 
-In a pretrained model the last blocks increasingly encode the predicted token itself \citep{nostalgebraist2020logitlens,belrose2023tunedlens}. Let $\mathbf u^\ell(x)$ be the feature~\eqref{eq:feature} computed at block $\ell$. We say block $\ell$ shows \emph{output collapse} with radius $\eta$ if $\|\mathbf u^\ell(x)-\mathbf u^\ell(x')\|_2\le\eta$ whenever $\pi_\theta$ answers $x$ and $x'$ with the same token.
+Trained models add a second effect: late blocks increasingly encode the predicted token \citep{nostalgebraist2020logitlens,belrose2023tunedlens}. Block $\ell$ shows \emph{output collapse} with radius $\eta$ if $\|\mathbf u^\ell(x)-\mathbf u^\ell(x')\|_2\le\eta$ whenever $\pi_\theta$ gives $x$ and $x'$ the same answer, with $\mathbf u^\ell$ the feature~\eqref{eq:feature} at block $\ell$.
 
-\begin{proposition}[Late blocks do not separate same-answer prompts]
+\begin{proposition}[Collapse limits reading without the subject gate]
 \label{prop:collapse}
-Let block $\ell$ show output collapse with radius $\eta$, and let $x'$ be a retain prompt that $\pi_\theta$ answers with $y_i$.
-\begin{enumerate}
- \item[(a)] Every linear head $z(x)=\mathbf w^\top\mathbf u^\ell(x)+\beta$ satisfies $|z(x_i)-z(x')|\le\|\mathbf w\|_2\,\eta$; a head with $z(x_i)\ge m/2$ and $z(x')\le-m/2$ needs $\|\mathbf w\|_2\ge m/\eta$, which the penalty $\gamma\|\mathbf w\|_2^2$ discourages.
- \item[(b)] If $\eta=0$, any intervention whose effect on a prompt depends on it only through $\mathbf u^\ell$ (a classifier without the subject gate, or, for $\ell=L$, an edit of the final normalisation or the unembedding) has the same effect on the next-token distribution of $x_i$ and of $x'$.
-\end{enumerate}
+If block $\ell$ shows output collapse with radius $\eta$ and $\pi_\theta$ answers the retain prompt $x'$ with $y_i$, every linear head $z=\mathbf w^\top\mathbf u^\ell+\beta$ has $|z(x_i)-z(x')|\le\|\mathbf w\|_2\eta$. Separating them by $\mu>0$ needs $\|\mathbf w\|_2\ge\mu/\eta$; for $\eta=0$ it is impossible.
 \end{proposition}
 \begin{proof}
-(a) Cauchy--Schwarz. (b) $\mathbf u^\ell(x_i)=\mathbf u^\ell(x')$.
+Cauchy--Schwarz.
 \end{proof}
-On MCF the neighbourhood prompts that define Spe are answered with the forget answer by construction, so an intervention that sees a prompt only through a collapsed block must trade Eff against Spe. The trade-off is a property of the block, not of the benchmark. The subject gate is lexical, not a function of $\mathbf u^\ell$, and is not covered by the proposition.
+The L2 penalty on $\mathbf w$ works against large weights, so a late, gate-free classifier (or an edit of the unembedding) is pushed to trade Eff against Spe on MCF, whose neighbourhood prompts share the forget answer. The subject gate is lexical and escapes this bound: head $i$ never scores a prompt that does not name $s_i$.
 
-We call block $R$ an \emph{association layer} for $\mathcal D_f$ if a classifier of the form~\eqref{eq:classifier} reading $\mathbf u^R$ assigns every forget prompt in $\{x_i\}\cup\mathcal P(a_i)$ to $i$ and every retain prompt to $\varnothing$.
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llccc}
+\toprule
+Model & block & AUC$_{\mathrm{same}}$ & AUC$_{\mathrm{diff}}$ & ratio \\
+\midrule
+\multirow{4}{*}{Llama-3.2-3B} & 0 & 0.78 & 0.80 & 1.00 \\
+ & 16 & 0.81 & 0.89 & 0.95 \\
+ & 19 & 0.80 & 0.89 & 0.93 \\
+ & 27 & 0.82 & 0.92 & 0.92 \\
+\midrule
+\multirow{4}{*}{Qwen3-4B} & 0 & 0.75 & 0.76 & 1.00 \\
+ & 24 & 0.82 & 0.88 & 0.96 \\
+ & 31 & 0.79 & 0.91 & 0.91 \\
+ & 35 & 0.78 & 0.90 & 0.93 \\
+\bottomrule
+\end{tabular}
+\caption{Gate-free classifier heads on MCF. AUC$_{\mathrm{same}}$/AUC$_{\mathrm{diff}}$: forget prompts against neighbours with the same relation and the same/a different answer. Ratio: distance to same-answer over different-answer neighbours (1 = answer not encoded). Procedure: Appendix~\ref{app:theory}.}
+\label{tab:theory_read}
+\end{table}
 
-\begin{proposition}[Exact unlearning from an association layer]
-\label{prop:exact}
-Let $R$ be an association layer, and for each $i$ let $\|\boldsymbol\delta_i\|_2\le\rho_W$ satisfy $\pi_{\theta,\boldsymbol\delta_i}(y_i\mid x)\le\tau$ for all $x\in\{x_i\}\cup\mathcal P(a_i)$. Then $\pi_{\theta,\phi}$ satisfies~\eqref{eq:forget} with $\pi_u(y_i\mid x)\le\tau$, and~\eqref{eq:retain} holds exactly, so Spe and PPL equal those of $\pi_\theta$.
-\end{proposition}
-\begin{proof}
-Forget prompts receive their own edit vector; retain prompts receive none and Proposition~\ref{prop:locality} applies.
-\end{proof}
-In the model of Proposition~\ref{prop:binding} the MLP input is an association layer and the embedding is not; Proposition~\ref{prop:collapse} explains why the last blocks of a trained model need not be one. For a fact that the model recalls through this mechanism we therefore expect an association layer between the block where the subject reaches the last token and the block where the state collapses onto the answer. This is a hypothesis about pretrained models, not a theorem: reading too early misses the subject, and reading too late cannot separate same-answer prompts without the subject gate. Table~\ref{tab:ablation_layers} and the per-block classifier sweep of Appendix~\ref{app:models} test it.
+\paragraph{Measurement.} At every block we train gate-free heads and test them on MCF neighbourhood prompts that differ from the forget prompt only in the subject (same relation, same answer) or also in the answer (Table~\ref{tab:theory_read}). Both models show partial collapse: the distance ratio falls from 1.00 to 0.91--0.92, and same-answer neighbours become the hardest negatives (AUC gap 0.10--0.12 in late blocks). Late blocks still separate associations well in general (AUC$_{\mathrm{diff}}$ up to 0.92), and with the gate the classifier at the penultimate block is about as good as at block 19 (F1 0.92--0.99 against 0.94--0.98). So the read block must come after subject and relation meet, and the gate removes the cost of collapse; we read at block 19 because it generalises best to paraphrases (Table~\ref{tab:ablation_layers}) and is cheaper than later blocks.
 
 \subsection{Where to write: the geometry of an edit}
 \label{sec:geometry}
-Where $c$ fires, the effect of $\boldsymbol\delta_i$ is set by how the next-token distribution responds to a change of the block-$W$ state. Following \citet{mudarisov2026predictive}, we measure this response with the Fisher information of the output distribution with respect to that state. For a prompt $x$ with answer $y$, let $\mathbf p_x=\pi_\theta(\cdot\mid x)$, $\mathbf J_x$ the Jacobian of the next-token logits with respect to $\mathbf h^W(x)$ (all other positions fixed), $\mathbf F(\mathbf p)=\mathrm{diag}(\mathbf p)-\mathbf p\mathbf p^\top$ the Fisher information of the softmax with respect to its logits, and
+When $c$ fires, the effect of $\boldsymbol\delta_i$ depends on how the next-token distribution reacts to a change of the block-$W$ state, measured by the Fisher information with respect to that state \citep{amari1998natural,mudarisov2026predictive}. For a prompt $x$ with answer $y$, let $\mathbf p_x=\pi_\theta(\cdot\mid x)$, $\mathbf J_x$ the Jacobian of the next-token logits with respect to $\mathbf h^W(x)$, $\mathbf F(\mathbf p)=\mathrm{diag}(\mathbf p)-\mathbf p\mathbf p^\top$, and
 \begin{equation}
  \mathbf g_x=\nabla_{\mathbf h^W}\log\pi_\theta(y\mid x)=\mathbf J_x^\top(\mathbf e_y-\mathbf p_x),\qquad
- \mathbf K_x=\mathbf J_x^\top\mathbf F(\mathbf p_x)\mathbf J_x ,
+ \mathbf K_x=\mathbf J_x^\top\mathbf F(\mathbf p_x)\mathbf J_x .
  \label{eq:pullback}
 \end{equation}
-with $\mathbf e_y$ the indicator vector of $y$. $\mathbf K_x\succeq 0$ is the Fisher information of $\pi_\theta(\cdot\mid x)$ with respect to $\mathbf h^W(x)$.
 
 \begin{lemma}[Local response to an edit]
 \label{lem:local}
@@ -217,34 +211,63 @@ As $\|\boldsymbol\delta\|\to 0$,
 \end{align}
 \end{lemma}
 \begin{proof}
-\eqref{eq:first} is Taylor's theorem. For~\eqref{eq:second}, $\mathrm{KL}(\mathbf p_x\|\mathrm{softmax}(\cdot))$ has zero gradient and Hessian $\mathbf F(\mathbf p_x)$ at the base logits; by the chain rule the Hessian with respect to $\boldsymbol\delta$ is $\mathbf J_x^\top\mathbf F(\mathbf p_x)\mathbf J_x$, since the second derivatives of the logits are multiplied by the zero gradient \citep[Theorem~1]{mudarisov2026predictive}.
+Taylor expansion; the KL has zero gradient and Hessian $\mathbf F(\mathbf p_x)$ in the logits at $\boldsymbol\delta=0$, and the chain rule gives $\mathbf J_x^\top\mathbf F\mathbf J_x$ \citep{martens2020natural}. The logits are smooth since SiLU and RMSNorm are.
 \end{proof}
 
 \begin{proposition}[Most selective edit]
 \label{prop:selective}
-For association $i$, let $\bar{\mathbf g}_i$ be the mean of $\mathbf g_x$ over its forget views $\mathcal V_i$ and $\mathbf K_i$ the mean of $\mathbf K_x$ over the retain prompts $\mathcal R_i$ on which $c$ selects $i$. To the orders of Lemma~\ref{lem:local}, among edits with mean retain divergence $\tfrac12\boldsymbol\delta^\top\mathbf K_i\boldsymbol\delta\le\varepsilon$, the largest decrease of the mean answer log-probability on $\mathcal V_i$ is $\sqrt{2\varepsilon\,\bar{\mathbf g}_i^\top\mathbf K_i^{+}\bar{\mathbf g}_i}$, attained at $\boldsymbol\delta\propto-\mathbf K_i^{+}\bar{\mathbf g}_i$, if $\bar{\mathbf g}_i\in\mathrm{range}(\mathbf K_i)$. Otherwise the component of $\bar{\mathbf g}_i$ in $\ker\mathbf K_i$ lowers the answer at no second-order retain divergence.
+Let $\bar{\mathbf g}_i$ be the mean of $\mathbf g_x$ over the forget views $\mathcal V_i$ and $\mathbf K_i$ the mean of $\mathbf K_x$ over retain prompts $\mathcal N_i$ on which $\boldsymbol\delta_i$ may fire. To the orders of Lemma~\ref{lem:local}, among edits with retain divergence $\tfrac12\boldsymbol\delta^\top\mathbf K_i\boldsymbol\delta\le\varepsilon$, the largest decrease of the answer log-probability is $\sqrt{2\varepsilon\,\bar{\mathbf g}_i^\top\mathbf K_i^{+}\bar{\mathbf g}_i}$, at $\boldsymbol\delta\propto-\mathbf K_i^{+}\bar{\mathbf g}_i$ (if $\bar{\mathbf g}_i\in\mathrm{range}\,\mathbf K_i$; a component in $\ker\mathbf K_i$ lowers the answer at no second-order cost).
 \end{proposition}
 \begin{proof}
-The decrease is $-\bar{\mathbf g}_i^\top\boldsymbol\delta$ by~\eqref{eq:first}. On $\mathrm{range}(\mathbf K_i)$ substitute $\boldsymbol\delta=\mathbf K_i^{+1/2}\mathbf v$ and apply Cauchy--Schwarz; a direction $\mathbf n\in\ker\mathbf K_i$ has $\mathbf K_i\mathbf n=0$.
+The decrease is $-\bar{\mathbf g}_i^\top\boldsymbol\delta$; substitute $\boldsymbol\delta=\mathbf K_i^{+1/2}\boldsymbol\zeta$ and apply Cauchy--Schwarz under $\|\boldsymbol\zeta\|^2\le2\varepsilon$.
 \end{proof}
-$-\mathbf K_i^{+}\bar{\mathbf g}_i$ is the forget gradient measured in the retain Fisher metric: it favours directions to which the answer is sensitive and the retain outputs are not.
+The optimal edit is the forget gradient measured in the retain Fisher metric: it moves along directions the answer is sensitive to and the retain outputs are not. Our loss~\eqref{eq:loss} solves a version of this problem in which the retain metric comes from the forget views' own non-answer tokens (Appendix~\ref{app:theory}); it never sees the retain prompts on which $c$ fires by mistake.
 
-The objective~\eqref{eq:loss} is a penalised form of this problem. Expand the hinge to first order and the KL term to second order, the orders of Lemma~\ref{lem:local}. Where active, the hinge contributes $\mathbf g_x^\top\boldsymbol\delta$. For a one-token answer with probability $p_y$, the renormalised distribution $q$ satisfies $\mathbf p_x-q=\tfrac{p_y}{1-p_y}(\mathbf e_y-\mathbf p_x)$, so the KL term contributes $\tfrac{p_y}{1-p_y}\mathbf g_x^\top\boldsymbol\delta+\tfrac12\boldsymbol\delta^\top(\mathbf K_x+\mathbf E_x)\boldsymbol\delta$, with $\|\mathbf E_x\|_{\mathrm{op}}\le M\|\mathbf p_x-q\|_2$ and $M$ a bound on the second derivatives of the logits \citep[Theorem~1]{mudarisov2026predictive}. Up to a constant, the loss is then $\tilde{\mathbf g}_i^\top\boldsymbol\delta+\tfrac\lambda2\boldsymbol\delta^\top\tilde{\mathbf K}_i\boldsymbol\delta$, with $\tilde{\mathbf g}_i$ a positively weighted average of the $\mathbf g_x$ and $\tilde{\mathbf K}_i$ the average of $\mathbf K_x+\mathbf E_x$ over views and positions. This is the Lagrangian of the problem in Proposition~\ref{prop:selective} with multiplier $\lambda$ and the views' own non-answer tokens as the retain set. Its minimiser on $\mathrm{range}(\tilde{\mathbf K}_i)$ is $-\lambda^{-1}\tilde{\mathbf K}_i^{+}\tilde{\mathbf g}_i$; the bound $\|\boldsymbol\delta\|_2\le\rho_W$ limits the kernel component, along which this model is unbounded. Retain prompts on which $c$ fires by mistake are not in the objective. The next result bounds their cost.
+\paragraph{Measurement.} We take $\mathcal N_i$ to be the classifier's negatives that pass the subject gate (24 per association). These prompts do not determine $\mathbf K_i$: with 64 next tokens each they span at most 1{,}536 of the $d=3{,}072$ directions, so $\mathbf K_i$ is rank-deficient, $\bar{\mathbf g}_i$ has a component in its kernel, and the optimum of Proposition~\ref{prop:selective} is unbounded. We therefore damp the metric to $\mathbf K_i+\epsilon\mathbf I$ with $\epsilon=0.1\,\mathrm{tr}(\mathbf K_i)/d$, a Tikhonov form of the norm bound $\rho_W$, and define the \emph{selectivity} of an edit as the fraction of the optimal decrease it reaches at its own retain divergence under this metric (Table~\ref{tab:theory_geom}; other values of $\epsilon$ in Appendix~\ref{app:theory}). The trained edit vectors reach 9--14\%, about as much as the plain gradient $-\bar{\mathbf g}_i$ and far more than a random direction (0\%). The analysis thus points to headroom rather than explaining the trained edits: the preconditioned direction $-\mathbf K_i^{+}\bar{\mathbf g}_i$, computable with Jacobian--vector products, is 7--11 times as selective to second order under the same metric. The same quantity, evaluated on held-out paraphrases at each block, ranks write blocks correctly on Qwen3-4B MCF and Llama-3.2-3B MQuAKE but not on zsRE (Table~\ref{tab:writesweep}).
 
-\begin{proposition}[Locality loss factorises]
+\begin{proposition}[Locality loss decomposes]
 \label{prop:collateral}
-At the first generated position,
-\begin{align}
- &\mathop{\mathbb E}_{x\in\mathcal D_r}\mathrm{KL}\big(\pi_\theta(\cdot\mid x)\,\|\,\pi_{\theta,\phi}(\cdot\mid x)\big)\notag\\
- &\;=\sum_{i=1}^N\Pr[c(x)=i]\,\mathbb E\big[\tfrac12\boldsymbol\delta_i^\top\mathbf K_x\boldsymbol\delta_i\,\big|\,c(x)=i\big]+O(\rho_W^3)\notag\\
- &\;\le\tfrac12\rho_W^2\sum_{i=1}^N\Pr[c(x)=i]\,\mathbb E\big[\lambda_{\max}(\mathbf K_x)\,\big|\,c(x)=i\big]+O(\rho_W^3).
+At the first generated position, the locality loss splits exactly by the classifier's decision:
+\begin{equation}
+ \mathop{\mathbb E}_{x\in\mathcal D_r}\mathrm{KL}\big(\pi_\theta\,\|\,\pi_{\theta,\phi}\big)
+ =\sum_{i=1}^N\Pr[c(x)=i]\,\mathbb E\big[\mathrm{KL}\,\big|\,c(x)=i\big].
  \label{eq:collateral}
-\end{align}
+\end{equation}
+If every edit vector is scaled to $a\boldsymbol\delta_i$ and the third derivatives of the logits with respect to $\mathbf h^W$ are bounded, then as $a\to0$, uniformly in $x$,
+\begin{equation*}
+ \mathbb E\big[\mathrm{KL}\,\big|\,c(x)=i\big]=\tfrac{a^2}{2}\,\mathbb E\big[\boldsymbol\delta_i^\top\mathbf K_x\boldsymbol\delta_i\,\big|\,c(x)=i\big]+O(a^3).
+\end{equation*}
 \end{proposition}
 \begin{proof}
-Split $\mathcal D_r$ by $c(x)$. The term $c(x)=\varnothing$ is zero by Proposition~\ref{prop:locality}; for $c(x)=i$ apply~\eqref{eq:second} with $\|\boldsymbol\delta_i\|_2\le\rho_W$.
+Split $\mathcal D_r$ by $c(x)$; the term $c(x)=\varnothing$ is zero (Remark~\ref{rem:locality}). For the others apply~\eqref{eq:second} with $\boldsymbol\delta=a\boldsymbol\delta_i$; the bound on the third derivatives makes the remainder uniform in $x$.
 \end{proof}
-Locality loss is the product of two factors that can be measured separately: how often the classifier fires on retain prompts, and how sensitive those prompts' outputs are to the edit vector. A false fire costs nothing to second order when $\boldsymbol\delta_i\in\ker\mathbf K_x$. None of $\mathbf K_x$, $\mathbf K_i$ needs to be formed explicitly; Jacobian--vector products of the frozen model suffice \citep{mudarisov2026predictive}.
+Locality loss is how often the classifier fires on retain prompts times how sensitive those prompts are to the edit.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{lccc}
+\toprule
+& MCF & zsRE & MQuAKE \\
+\midrule
+\multicolumn{4}{l}{\emph{Selectivity of the edit at $W=16$ (damped metric; optimum $=1$)}} \\
+trained $\boldsymbol\delta_i$ & 0.14 & 0.09 & 0.09 \\
+gradient $-\bar{\mathbf g}_i$ & 0.13 & 0.07 & 0.13 \\
+random & 0.00 & 0.00 & 0.00 \\
+\midrule
+\multicolumn{4}{l}{\emph{Cost of false fires (Proposition~\ref{prop:collateral})}} \\
+retain fire rate (\%) & 0.12 & 0.00 & 0.59 \\
+mean KL per fire (nats) & 1.33 & -- & 2.66 \\
+actual / predicted KL, $0.05\boldsymbol\delta_i$ & 1.00 & 0.99 & 1.02 \\
+actual / predicted KL, full $\boldsymbol\delta_i$ & 0.98 & 0.63 & 1.20 \\
+\bottomrule
+\end{tabular}
+\caption{The geometry of the trained edits (Llama-3.2-3B). Selectivity: fraction of the optimal answer decrease at equal retain divergence, in the metric $\mathbf K_i+\epsilon\mathbf I$ with $\epsilon=0.1\,\mathrm{tr}(\mathbf K_i)/d$ (median over associations). Predicted KL: $\tfrac12\boldsymbol\delta^\top\mathbf K_x\boldsymbol\delta$ (median ratio over prompts the classifier fires on).}
+\label{tab:theory_geom}
+\end{table}
+
+\paragraph{Measurement.} On the prompts where the deployed classifier fires by mistake, the Fisher prediction matches the actual KL within 2\% for a small edit and stays within a factor 1.6 for the full one (Table~\ref{tab:theory_geom}). The classifier fires on 0.12\%, 0\% and 0.59\% of retain prompts on MCF, zsRE and MQuAKE, so the mean retain KL is 0.0016, 0 and 0.016 nats; on MQuAKE it fires on 0.9\% of the prompts that define Spe, comparable to the 1.1-point Spe gap between SURE and Genie. Most false fires (138 of 154 on MCF) are on prompts that name a protected subject but ask about another relation, which the benchmarks' retain sets do not test.
 
 \section{Experimental Setup}
 \label{sec:setup}
@@ -396,6 +419,60 @@ Genie (entity)& -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & 2.00
 \caption{Qwen3-4B (36 blocks), mean over 5 seeds. Classifier at block 26, edit vectors at block 23. RMU steers block 9. ROME diverges on MCF and MQuAKE on this model (PPL $2\cdot10^3$ and $8\cdot10^6$). On MQuAKE, Spe$^\dagger$ is 52.13 (Base) and 51.58 (Ours). Bold and underline as in Table~\ref{tab:main}.}
 \label{tab:qwen4b}
 \end{table*}
+
+\section{Measurements for the analysis}
+\label{app:theory}
+All measurements use seed 1 and the paper's runs; nothing is retrained (\texttt{theory\_checks.slurm}; numbers in \texttt{RESULTS\_THEORY\_CHECKS.md}).
+
+\paragraph{Read layers (Table~\ref{tab:theory_read}).} From the last-token state of every block for the classifier's training prompts and the official MCF evaluation prompts, we train one logistic head per association and block on $\mathbf u^\ell$ with the classifier's class-balanced loss and penalty ($\gamma=10^{-4}$, L-BFGS), on every training prompt and without the subject mask: the positives of the association against all other prompts, including the other associations' positives and the hard negatives. 40 of the 50 associations have both same-answer neighbours (10 each) and same-relation, other-answer neighbours (20 on average). AUC$_{\mathrm{same}}$ and AUC$_{\mathrm{diff}}$ are averaged over associations; every block is listed in \texttt{RESULTS\_THEORY\_CHECKS.md}. With the subject gate, the deployed classifier refitted at the penultimate block has F1 $0.92$, $0.99$, $0.99$ and $0.51$ on MCF, zsRE, MQuAKE and RWKU, against $0.94$, $0.97$, $0.98$ and $0.41$ at block 19; its false-positive rate is lower or equal on MQuAKE and RWKU and slightly higher on MCF and zsRE ($0.15\%$ against $0.12\%$, and $0.01\%$ against $0$).
+
+\paragraph{The loss and Proposition~\ref{prop:selective}.} At a minimiser of~\eqref{eq:loss} where the hinge is at its kink, the hinge acts as the constraint $\log\pi_{\theta,\boldsymbol\delta}(y_i\mid x_{\le t})\le\log\tau$ and the KL term as the objective. For a one-token answer with probability $p_y$, the renormalised $q$ satisfies $\mathbf p_x-q=\tfrac{p_y}{1-p_y}(\mathbf e_y-\mathbf p_x)$ and $\|\mathbf p_x-q\|_1=2p_y$, so at $\boldsymbol\delta=0$ the KL term has gradient $\tfrac{p_y}{1-p_y}\mathbf g_x$ and Hessian $\mathbf K_x+\mathbf E_x$, with $\mathbf E_x=\sum_k(\mathbf p_x-q)_k\nabla^2z_k$ and $\|\mathbf E_x\|_{\mathrm{op}}\le2p_yM$ when $M$ bounds the Hessians of the logits $z_k$. Linearising the constraint and expanding the objective to second order (the trust-region approximation behind natural-gradient methods; \citealp{martens2020natural}), stationarity gives $\boldsymbol\delta=-\tilde{\mathbf K}_i^{+}\tilde{\mathbf g}_i$, with $\tilde{\mathbf K}_i$ the mean of $\mathbf K_x+\mathbf E_x$ over views and positions and $\tilde{\mathbf g}_i$ a positively weighted sum of the $\mathbf g_x$: the direction of Proposition~\ref{prop:selective} with the views in place of $\mathcal N_i$. The bound $\|\boldsymbol\delta\|_2\le\rho_W$ limits the kernel component. Adding the gate-passing negatives of $\mathcal X_i^-$ to the KL term would make the two metrics agree.
+
+\paragraph{Geometry (Table~\ref{tab:theory_geom}).} The model runs in fp32. For association $i$: $\mathcal V_i$ is up to 24 of its training views, the held-out set its official paraphrases (MCF, zsRE) or atomic questions (MQuAKE), and $\mathcal N_i$ up to 24 of the classifier's negatives for $i$ that pass its subject gate. $\mathbf g_x$ is taken for the first token of $y_i$. $\mathbf K_i$ is factored exactly on each prompt's 64 most likely next tokens (87--89\% of the probability on $\mathcal N_i$, 79--89\% on $\mathcal V_i$) and inverted through its SVD with damping $\epsilon=\alpha\,\mathrm{tr}(\mathbf K_i)/d$. Selectivity medians for other settings:
+
+\begin{center}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{llccc}
+\toprule
+metric, $\bar{\mathbf g}$ & $\alpha$ & MCF & zsRE & MQuAKE \\
+\midrule
+$\mathcal N_i$, views & $10^{-3}$ & .018 / .017 & .013 / .009 & .011 / .016 \\
+$\mathcal N_i$, views & $10^{-2}$ & .050 / .049 & .038 / .026 & .032 / .045 \\
+$\mathcal V_i$, views & $10^{-1}$ & .214 / .209 & .151 / .124 & .274 / .281 \\
+$\mathcal N_i$, held-out & $10^{-1}$ & .088 / .081 & .062 / .049 & .055 / .080 \\
+\bottomrule
+\end{tabular}
+\end{center}
+(trained / gradient; a random direction is within $\pm0.006$ everywhere.) The trained vectors are not aligned with the optimal direction (cosine 0.25--0.36 at $\alpha=0.1$, against 0.65--0.70 for the gradient). The collateral measurement takes every evaluation prompt that is not a forget prompt, and every no-association prompt, on which the deployed classifier fires, and computes $\boldsymbol\delta_i^\top\mathbf K_x\boldsymbol\delta_i$ over the full vocabulary by a Jacobian--vector product.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{lcccc}
+\toprule
+block & 3B MCF & 3B zsRE & 3B MQuAKE & Qwen MCF \\
+\midrule
+4 & 29.0 & 44.2 & 55.0 & -- \\
+8 & 33.8 & 57.1 & 95.4 & -- \\
+12 & 53.4 & 71.6 & 138.4 & 15.9 \\
+14 & 71.8 & 79.0 & 152.3 & -- \\
+16 & 92.6 & 89.8 & \textbf{164.3} & 20.8 \\
+18 & -- & -- & -- & 26.0 \\
+19 & 109.3 & 109.1 & 152.4 & -- \\
+21 & -- & -- & -- & 39.8 \\
+22 & 107.6 & 122.7 & 154.6 & -- \\
+23 & -- & -- & -- & 61.3 \\
+25 & 121.8 & 134.2 & 127.9 & -- \\
+26 & -- & -- & -- & 85.0 \\
+30 & -- & -- & -- & 126.6 \\
+33 & -- & -- & -- & 153.3 \\
+\bottomrule
+\end{tabular}
+\caption{Write-block sweep: first-order decrease of the held-out answer log-probability achieved by the training views' optimal edit, per unit retain divergence ($\alpha=0.1$; median over 50 associations, 105 on MQuAKE). The comparisons made in Section~\ref{sec:geometry} (block 16 against 19 on the 3B model, and the order of Qwen's blocks 16--26) are the same for $\alpha=10^{-3}$ and $10^{-2}$.}
+\label{tab:writesweep}
+\end{table}
 
 \section{RWKU with an entity-level classifier}
 \label{app:rwku}

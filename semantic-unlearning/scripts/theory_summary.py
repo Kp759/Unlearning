@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One table of the measurements behind the paper's Analysis section (theory_checks.slurm).
 
-    python scripts/theory_summary.py            # -> outputs/theory_v1/SUMMARY.md (+ .json)
+    python scripts/theory_summary.py            # -> outputs/theory_v1/SUMMARY.md (+ .json); copied to RESULTS_THEORY_CHECKS.md
 """
 from __future__ import annotations
 
