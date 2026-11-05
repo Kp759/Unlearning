@@ -33,7 +33,7 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 
 - No method is close to solved, and the ranking changes with the model: ZeroUnlearn is first on Qwen3-4B and fourth on Llama-3.1-8B; MEMIT scores 30.7 on Qwen3-4B and 1.7–3.2 on Llama.
 - The red-team gate passes on every model: the largest cheat score is 3.4 against a gate of 35.
-- SURE, the detect-then-edit method the authors built, is not in the table yet. The runs made so far used a one-pass layer-19 configuration that is not the published method; the paper configuration (`sure_paper_l16`: the paper's router at layer 19 behind exact subject eligibility, one residual row per fact written at layer 16) is being run on the same splits and will be added as one row among the others.
+- SURE, the detect-then-edit method the authors built, is deliberately kept out of the leaderboard: the table ranks third-party methods and reference cheats only, so no row is scored by the people who designed the benchmark.
 
 ## Quickstart
 
