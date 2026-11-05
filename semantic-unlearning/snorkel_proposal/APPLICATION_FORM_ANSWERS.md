@@ -13,10 +13,10 @@ number comes from: **Sources** at the end.
 
 **Please describe or link to impactful research artifact you've shipped** (100 words max) [81 words]
 
-- **LETHE-Bench** (this repository): split builder over 38k Wikidata-derived facts, 20 probe families, deterministic scorers, attacks, threat-model tiers, sequential and agentic tracks; 11 methods and 6 reference cheats evaluated on three models.
+- **LETHE-Bench** (this repository): split builder over 38k Wikidata-derived facts, 20 probe families, deterministic scorers, attacks, threat-model tiers, sequential and agentic tracks; 10 methods and 6 reference cheats evaluated on three models.
 - **SURE**, our detect-then-edit unlearning method (per-fact linear router plus one residual row per fact), with a perfect-routing decomposition that splits every failure into routing versus actuation.
 - **A 4-benchmark × 5-seed unlearning study** (MultiCounterFact, zsRE, MQuAKE, RWKU; 7 baselines; official evaluators).
-- Code: https://github.com/Kp759/Unlearning [add paper / preprint link if any]
+- Code: https://github.com/Kp759/LETHE-bench [add paper / preprint link if any]
 
 **Web presence**
 [personal or lab page]

@@ -13,7 +13,7 @@
 | Sequential deletion track | Done, tested |
 | Detect-then-edit decomposition (routing vs actuation) | Done |
 | Baselines in-harness: 6 reference cheats, GA, GD, NPO, SimNPO, trained refusal (IDK), task-vector negation, RMU, ROME, MEMIT, ZeroUnlearn | Done (SimNPO / IDK / TV added 2026-10-28; cluster results pending) |
-| External: HF checkpoint loader, plugin loader, SURE adapter | Done. The paper configuration (`sure_paper_l16`) is running on the cluster splits; its row is added when it finishes |
+| External: HF checkpoint loader, plugin loader, SURE adapter | Done. SURE is kept out of the leaderboard: the table ranks third-party methods and reference cheats only |
 | ROME / MEMIT / ZeroUnlearn in-harness adapters (around the vendored `ZeroUnlearn/` code via `paper_baselines.py`) | Done; request format tested. The vendored code is CUDA-only, so first full run is the Wulver smoke job |
 | Red-team gate + split validator | Done, passing on toy and pilot |
 | Reports: leaderboard, Pareto plot, CIs, paired tests | Done |
@@ -87,4 +87,4 @@
 | A future method saturates LETHE-Bench | Per-family scores flag saturation. Harder families (agentic, more languages, 10k-request scale) are planned, and the hidden test is refreshed |
 | Grader disagreement on open-ended outputs | The teacher-forced scorer is primary; the human-labelled calibration set (M3) measures the generation grader |
 | Gradient baselines do not fit one GPU at 24–27B | Multi-GPU sharding, or a declared parameter-efficient scope reported per model; inference-only methods and attacks fit one 80 GB GPU |
-| The benchmark favours the authors' own method | SURE is evaluated as one row among the baselines with no special treatment, in its published configuration only; the current tables hold 10 methods and 6 reference cheats without it, pending that run (`EVIDENCE.md` §4). The reference cheats include a string version of its design (`keyword_router_idk`), and its expected failure families (indirect, multihop, crosslingual, surface; the strict tier) are reported like any other method's |
+| The benchmark favours the authors' own method | SURE is kept out of the leaderboard (10 third-party methods, 6 reference cheats); the benchmark is not used to rank the authors' own method. The reference cheats include a string version of its design (`keyword_router_idk`), and its expected failure families (indirect, multihop, crosslingual, surface; the strict tier) are reported like any other method's |
