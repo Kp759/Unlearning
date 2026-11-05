@@ -19,15 +19,24 @@
 | Reports: leaderboard, Pareto plot, CIs, paired tests | Done |
 | Toy world (CPU, minutes) and real-data pilot (laptop) | Done |
 
-## Milestones
+## Milestones (the proposal's six-month timeline)
 
-| | Deliverable | Needs |
+| Month | Deliverable | Needs |
 |---|---|---|
-| **M1** (month 1) | v1.0 freeze: dev splits for the 10-model grid below (5 families, 3B–70B) × 5 seeds; hidden test built and held; zsRE redistribution terms confirmed; HF dataset card | Compute |
-| **M2** (months 1–2) | Full baseline tables on the cluster (`scripts/submit_scalpel_compare.sh full all`). Done for Llama-3.2-3B, Qwen3-4B and Llama-3.1-8B: GA, GD, NPO, SimNPO, RMU, ROME, MEMIT, ZeroUnlearn, trained refusal, task-vector negation and the 6 cheats, all tiers and attacks, sequential track, 5 seeds each (`EVIDENCE.md` §4). Remaining: the other seven models of the grid; eight more baselines (SCRUB, WHP, ELM, GRACE, WISE, AlphaEdit, ECO, in-context unlearning prompting: the three method classes the current table lacks, lifelong editors, representation-level erasure and prompt-level guardrails), for 19 methods + 6 cheats; scaling curve 50 → 1k → 10k requests; multi-GPU support for the 14–70B models | GPU compute (≈7,000 A100-80GB hours, below) |
-| **M3** (months 2–4) | **Expert data**: native-speaker verification of the cross-lingual templates and expansion to 10 languages; expert-written indirect references (descriptions, aliases, coreference chains) for 2,000 subjects; human-labelled grader calibration set (1,000 generations: leak / refusal / hallucination / correct) | Snorkel expert network |
-| **M4** (months 3–5) | **Agentic track** (prototype exists: `AGENT_TRACK.md`): the unlearned model runs as an agent with a scratchpad and a mock search tool over a corpus with the target fact removed. Does multi-step reasoning (self-ask, decomposition, tool calls) reconstruct the forgotten fact? Does the agent leak it through tool queries? Long-horizon multi-turn sessions (≥ 10 turns) | Snorkel research collaboration; environment design |
-| **M5** (month 6) | Public leaderboard (dev) + hidden-test evaluation service; paper (NeurIPS Datasets & Benchmarks track) | Hosting |
+| 1 | v1.0 freeze: dev splits for the 10-model grid (5 families, 3B–70B) × 5 seeds; hidden test built; HF dataset card; upstream data terms confirmed | Compute |
+| 1–2 | Full baseline tables on all tiers and attacks; scaling and sequential results | Compute |
+| 2–4 | Expert-data families (cross-lingual ×10, expert indirect references, grader calibration) | Expert annotators |
+| 3–5 | Agentic leakage track | Research collaboration; environment design |
+| 6 | Public leaderboard + hidden-test service; Datasets & Benchmarks paper | Hosting |
+
+Everything is released openly: code under Apache-2.0, dev splits under CC BY 4.0 (subject to the upstream terms in `DATA_LICENSE.md`), and hidden-test evaluation as a service.
+
+**Where each item stands.**
+- *Month 1.* The split builder, hidden partition, canary and validator are done and tested on three models; the remaining work is building the splits for the other seven models and confirming the zsRE redistribution terms.
+- *Months 1–2.* Done for Llama-3.2-3B, Qwen3-4B and Llama-3.1-8B: GA, GD, NPO, SimNPO, RMU, ROME, MEMIT, ZeroUnlearn, trained refusal, task-vector negation and the 6 cheats, all tiers and attacks, sequential track, 5 seeds each (`EVIDENCE.md` §3). Remaining: the other seven models; eight more baselines (SCRUB, WHP, ELM, GRACE, WISE, AlphaEdit, ECO, in-context unlearning prompting: lifelong editors, representation-level erasure and prompt-level guardrails, the three method classes the current table lacks), for 18 methods + 6 cheats; the scaling curve 50 → 1k → 10k requests; multi-GPU support for the 14–70B models.
+- *Months 2–4.* Native-speaker verification of the cross-lingual templates and expansion to 10 languages; expert-written indirect references (descriptions, aliases, coreference chains) for 2,000 subjects; a human-labelled grader calibration set (1,000 generations: leak / refusal / hallucination / correct).
+- *Months 3–5.* The agentic prototype exists (`AGENT_TRACK.md`): the unlearned model runs as an agent with a scratchpad and a mock search tool over a corpus with the target fact removed. The track asks whether multi-step reasoning (self-ask, decomposition, tool calls) reconstructs the forgotten fact, whether the agent leaks it through tool queries, and whether forgetting holds over long multi-turn sessions (≥ 10 turns).
+- *Month 6.* Public dev leaderboard, hidden-test evaluation service, and the paper (NeurIPS Datasets & Benchmarks track).
 
 ## In-kind asks
 
@@ -53,11 +62,11 @@
 
    The 32B and 70B tiers are what the credits buy that the university cluster cannot: a 70B model in bf16 needs two 80 GB GPUs for inference alone and four to eight for the gradient baselines and the relearning attack.
 
-   **Measured basis.** One (model, seed) on Llama-3.2-3B, 50 requests, every method (9 methods + 6 cheats at the time; 11 methods now, ≈ 2.2 GPU-hours), all tiers and attacks, took **≈ 1.8 GPU-hours** of wall time on Wulver (October 2026, from `sacct`): baselines and cheats ≈ 45 min in total, the SURE adapter ≈ 35–42 min, sequential track ≈ 8 min, split build ≈ 3 min. Development on the 3B model alone (paper-pipeline reruns, LETHE-Bench reruns, router diagnostics) used ≈ 75 GPU-hours in three days. Measured since on the other two models (`leaderboard.md`, cost section): the SURE adapter alone takes ≈ 46 min per seed on Qwen3-4B and ≈ 76 min on Llama-3.1-8B against ≈ 36 min on Llama-3.2-3B, i.e. ×1.3 and ×2.1, inside the parameter-proportional estimate used here (×1.3 and ×2.7).
+   **Measured basis.** One (model, seed) on Llama-3.2-3B, 50 requests, every method (9 methods + 6 cheats at the time; 10 methods now, ≈ 2.2 GPU-hours), all tiers and attacks, took **≈ 1.8 GPU-hours** of wall time on Wulver (October 2026, from `sacct`): baselines and cheats ≈ 45 min in total, the SURE adapter ≈ 35–42 min, sequential track ≈ 8 min, split build ≈ 3 min. Development on the 3B model alone (paper-pipeline reruns, LETHE-Bench reruns, router diagnostics) used ≈ 75 GPU-hours in three days. Measured since on the other two models (`leaderboard.md`, cost section): the SURE adapter alone takes ≈ 46 min per seed on Qwen3-4B and ≈ 76 min on Llama-3.1-8B against ≈ 36 min on Llama-3.2-3B, i.e. ×1.3 and ×2.1, inside the parameter-proportional estimate used here (×1.3 and ×2.7).
 
    | Item | Assumption | A100-80GB hours |
    |---|---|---|
-   | Core dev grid | 19 methods + 6 cheats at ≈ 2.2 GPU-h per 3B seed; 10 seeds for models ≤ 8B, 5 seeds for 14–32B, 3 seeds for 70B | ~800 |
+   | Core dev grid | 18 methods + 6 cheats at ≈ 2.2 GPU-h per 3B seed; 10 seeds for models ≤ 8B, 5 seeds for 14–32B, 3 seeds for 70B | ~800 |
    | Hidden test | 5 seeds, all 10 models | ~830 |
    | Scaling curve, 1k requests | 3B and 8B × 3 seeds, one 24B seed; cost ≈ linear in requests | ~930 |
    | Scaling curve, 10k requests | 3B and 8B, one seed each | ~1,630 |
