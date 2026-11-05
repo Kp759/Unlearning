@@ -1,11 +1,11 @@
 # Running the LETHE-Bench comparison on Wulver
 
-This runs every method against SURE on the same splits:
+This runs every method on the same splits:
 
 - **6 reference cheats:** noop, idk_all, prompt_cache_idk, subject_blocklist_idk, keyword_router_idk, answer_ban
 - **Gradient and representation baselines:** GA, GD, NPO, RMU
 - **Locate-and-edit baselines:** ROME, MEMIT, ZeroUnlearn (the repository's vendored code, run through `scripts/paper_baselines.py`)
-- **SURE (our method):** `ours` (shown as SURE on the leaderboard; `sure`, the original adapter, is excluded from it): SURE-R's router (fuzzy names, 20 quality-checked positives and 20 negatives per fact), with Δe at layer 19 in one forward pass at every generated token, and rows from the paper's trainer (no logit lens, no PCA). Also `sure`, the original SURE. Ablations: `ours_l16` (Δe at 16, two passes), `sure_paper` (plain router) and `sure_r` (SURE-R's rows); see `SURE_ROBUST.md`
+- **SURE (the authors' method):** `sure_paper_l16`, the published configuration (the paper's router at SURE's layer behind exact subject eligibility, one Δe row per fact written at the earlier layer in a second pass), shown as SURE on the leaderboard. The one-pass variants `ours` / `ours_early` and the original adapter `sure` are excluded from it.
 
 It covers Llama-3.2-3B-Instruct, Qwen3-4B and Llama-3.1-8B-Instruct, 5 seeds each. Every run gets the full core track, the open-ended scorer, the three attacks, and the strict tier for SURE and the cheats. A sequential-deletion track runs for GD, NPO and MEMIT. A red-team gate runs per seed, and leaderboards are written per model and across models.
 
@@ -66,7 +66,7 @@ SEEDS="1" bash scripts/submit_scalpel_compare.sh robust llama32_3b      # 7 SURE
 bash scripts/submit_scalpel_compare.sh robust llama32_3b                # all 5 seeds
 ```
 
-The variants are `sure_r`, `sure_r_noviews`, `sure_r_exact`, `sure_r_hardneg`, `sure_r_free`, `sure_r_idk` and `sure_r_bake` (`SURE_ROBUST.md`). Each is one task per seed (24 h limit). `sure_r_bake` needs the covariance at SURE's layer, which the covariance job now builds. The leaderboard puts them next to `sure` and the baselines.
+The variants are `sure_r`, `sure_r_noviews`, `sure_r_exact`, `sure_r_hardneg`, `sure_r_free`, `sure_r_idk` and `sure_r_bake` (`SURE_ROBUST.md`, set aside in `../snorkel_proposal_sure_hold/`). Each is one task per seed (24 h limit). `sure_r_bake` needs the covariance at SURE's layer, which the covariance job now builds. The leaderboard puts them next to `sure` and the baselines.
 
 ## 4. Agentic leakage track (after smoke / robust)
 
@@ -86,7 +86,7 @@ This runs one job per method (12 h limit), then the report job writes `results/c
 | `PARTITION` | `dev` | `test` builds hidden splits; needs `SCALPEL_TEST_SALT` (keep it private) and optionally `PRIVATE_TEMPLATES` |
 | `N_FORGET` | 50 | Requests per split (scaling: 200, 1000) |
 | `SKIP_SURE` / `SKIP_SEQ` | 0 | Skip the SURE or sequential arrays |
-| `SURE_VARIANTS` | `sure` (robust: the 7 SURE-R variants) | Space-separated SURE methods for the SURE array |
+| `SURE_VARIANTS` | `sure_paper_l16` (robust: the 7 SURE-R variants) | Space-separated SURE methods for the SURE array |
 | `SEQ_METHODS` | `gd,npo,memit` | Methods for the sequential track |
 | `MOM2_TEXT` / `MOM2_DATASET` | `/project/.../wikipedia_20231101_100k` / same name | Covariance corpus and cache name |
 | `MODEL_PATH` | resolved per model | Override the weights directory |

@@ -7,7 +7,6 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | Method | LETHE | E | L | U | R | Strict | seeds |
 |---|---|---|---|---|---|---|---|
 | simnpo | 37.4 ± 20.1 | 63.5 ± 31.5 | 50.8 ± 26.7 | 81.1 ± 13.2 | 26.1 ± 5.9 | – | 5 |
-| SURE | 26.8 ± 13.9 | 21.7 ± 22.6 | 95.4 ± 3.3 | 100.0 | 19.0 ± 3.6 | 2.9 | 5 |
 | zerounlearn | 21.2 ± 9.9 | 38.0 ± 18.0 | 67.3 ± 3.9 | 96.9 ± 1.3 | 8.7 ± 4.3 | – | 5 |
 | idk_ft | 11.4 ± 0.6 | 96.2 ± 1.7 | 3.8 ± 0.0 | 56.7 ± 9.4 | 19.0 ± 5.0 | – | 5 |
 | npo | 6.2 ± 2.5 | 92.6 ± 13.6 | 1.7 ± 0.7 | 74.8 ± 18.3 | 80.4 ± 18.5 | – | 5 |
@@ -29,7 +28,6 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | Method | E_direct | E_complete | E_mean | E_min | L_mean | L_min |
 |---|---|---|---|---|---|---|
 | simnpo | 96.4 ± 1.7 | 59.5 ± 7.8 | 78.6 ± 6.3 | 44.8 ± 27.7 | 62.1 ± 7.7 | 37.1 ± 23.4 |
-| SURE | 96.8 ± 2.7 | 59.8 ± 12.0 | 78.3 ± 6.9 | 4.0 ± 6.3 | 95.8 ± 2.9 | 84.0 ± 8.5 |
 | zerounlearn | 96.4 ± 3.8 | 30.4 ± 5.1 | 57.9 ± 2.1 | 20.0 ± 12.3 | 75.7 ± 2.4 | 38.6 ± 6.2 |
 | idk_ft | 100.0 | 86.3 ± 2.5 | 96.5 ± 1.5 | 87.0 ± 4.5 | 38.5 ± 3.3 | 0.0 |
 | npo | 100.0 | 87.2 ± 19.2 | 94.5 ± 9.5 | 84.1 ± 25.1 | 9.6 ± 9.8 | 0.0 |
@@ -51,7 +49,6 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | Method | F:context_prefix | F:crosslingual | F:direct | F:indirect | F:multifact | F:multihop | F:multiturn | F:paraphrase | F:question | F:surface | R:disjoint | R:in_context | R:name_collision | R:same_object | R:same_relation | R:same_sentence | R:same_subject | R:subject_mentioned |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | simnpo | 6 ± 3 | 22 ± 18 | 4 ± 2 | 45 ± 37 | 18 ± 13 | 16 ± 10 | 28 ± 17 | 21 ± 8 | 22 ± 14 | 15 ± 6 | 72 ± 5 | 52 ± 31 | 73 ± 8 | 53 ± 9 | 71 ± 11 | 67 ± 14 | 54 ± 16 | 56 ± 31 |
-| SURE | 3 ± 2 | 10 ± 5 | 3 ± 3 | 100 | 4 ± 5 | 92 ± 6 | 5 ± 2 | 6 ± 6 | 7 ± 3 | 2 ± 4 | 100 | 88 ± 8 | 100 | 100 | 100 | 96 ± 6 | 89 ± 9 | 93 ± 7 |
 | zerounlearn | 7 ± 3 | 62 ± 6 | 4 ± 4 | 66 ± 26 | 12 ± 3 | 77 ± 14 | 71 ± 5 | 12 ± 7 | 61 ± 4 | 27 ± 11 | 88 ± 6 | 100 | 84 ± 9 | 72 ± 12 | 85 ± 4 | 43 ± 8 | 41 ± 6 | 93 ± 2 |
 | idk_ft | 0 ± 1 | 0 | 0 | 11 ± 15 | 11 ± 2 | 0 | 0 | 9 ± 3 | 0 | 6 ± 6 | 53 ± 5 | 0 | 56 ± 16 | 42 ± 6 | 65 ± 13 | 51 ± 3 | 41 ± 8 | 0 |
 | npo | 0 ± 1 | 9 ± 16 | 0 | 0 | 0 | 13 ± 26 | 14 ± 21 | 0 ± 1 | 12 ± 21 | 0 | 10 ± 12 | 38 ± 30 | 4 ± 6 | 0 ± 1 | 1 ± 2 | 0 | 0 | 24 ± 31 |
@@ -75,7 +72,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | Method | legacy erasure | legacy locality | LETHE-Bench E | LETHE-Bench L | LETHE |
 |---|---|---|---|---|---|
 | simnpo | 87.7 | 62.4 | 63.5 ± 31.5 | 50.8 ± 26.7 | 37.4 ± 20.1 |
-| SURE | 95.2 | 100.0 | 21.7 ± 22.6 | 95.4 ± 3.3 | 26.8 ± 13.9 |
 | zerounlearn | 92.2 | 80.1 | 38.0 ± 18.0 | 67.3 ± 3.9 | 21.2 ± 9.9 |
 | idk_ft | 95.7 | 47.3 | 96.2 ± 1.7 | 3.8 ± 0.0 | 11.4 ± 0.6 |
 | npo | 99.8 | 5.1 | 92.6 ± 13.6 | 1.7 ± 0.7 | 6.2 ± 2.5 |
@@ -97,7 +93,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | Method | int8 | int4 | relearn (held-out half) | logit lens (upper half, chance-corrected) |
 |---|---|---|---|---|
 | simnpo | 15.1 ± 3.6 | 32.2 ± 10.3 | 27.8 ± 8.3 | 73.9 ± 5.9 |
-| SURE | 5.1 ± 2.0 | 6.2 ± 2.1 | 10.2 ± 7.8 | 81.0 ± 3.6 |
 | zerounlearn | 20.6 ± 3.6 | 26.1 ± 3.2 | 73.4 ± 6.1 | 91.3 ± 4.3 |
 | idk_ft | 3.4 ± 1.1 | 7.0 ± 2.9 | 45.2 ± 6.7 | 81.0 ± 5.0 |
 | npo | 3.0 ± 4.9 | 6.1 ± 9.1 | 7.8 ± 15.0 | 19.6 ± 18.5 |
@@ -119,7 +114,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | Method | forget: leak | forget: refusal | forget: other (wrong, empty, degenerate) | retain: correct | retain: false refusal |
 |---|---|---|---|---|---|
 | simnpo | 21.5 | 1.3 | 77.2 | 67.3 | 0.4 |
-| SURE | 16.2 | 0.0 | 83.8 | 97.0 | 0.0 |
 | zerounlearn | 36.7 | 0.0 | 63.3 | 82.3 | 0.0 |
 | idk_ft | 3.1 | 96.2 | 0.8 | 40.2 | 54.9 |
 | npo | 0.3 | 34.9 | 64.9 | 2.6 | 22.6 |
@@ -140,7 +134,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 
 | Method | route recall (forget) | residual from routing misses | residual when routed | false-fire rate (retain) |
 |---|---|---|---|---|
-| SURE | 90.5 | 9.5 | 1.2 | 12.1 |
 | keyword_router_idk | 61.9 | 38.1 | 0.1 | 16.6 |
 
 ### Cost
@@ -148,7 +141,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | Method | unlearn seconds | inference overhead (× base) |
 |---|---|---|
 | simnpo | 144.1 ± 15.1 | 0.91 ± 0.01 |
-| SURE | 2130.6 ± 53.6 | 2.16 ± 0.03 |
 | zerounlearn | 619.2 ± 21.9 | 0.91 ± 0.01 |
 | idk_ft | 142.8 ± 8.3 | 0.91 ± 0.01 |
 | npo | 34.2 ± 2.7 | 0.92 ± 0.01 |
@@ -175,7 +167,6 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | Method | LETHE | E | L | U | R | Strict | seeds |
 |---|---|---|---|---|---|---|---|
 | simnpo | 38.5 ± 17.6 | 57.1 ± 28.1 | 54.3 ± 26.8 | 81.1 ± 13.2 | 26.1 ± 5.9 | – | 5 |
-| SURE | 22.4 ± 11.3 | 12.8 ± 13.8 | 95.8 ± 2.9 | 100.0 | 19.0 ± 3.6 | 2.9 | 5 |
 | idk_ft | 20.0 ± 10.2 | 94.8 ± 1.8 | 11.7 ± 13.1 | 56.7 ± 9.4 | 19.0 ± 5.0 | – | 5 |
 | zerounlearn | 18.2 ± 7.4 | 29.2 ± 20.0 | 73.7 ± 4.1 | 96.9 ± 1.3 | 8.7 ± 4.3 | – | 5 |
 | tv | 8.7 ± 2.0 | 93.7 ± 3.0 | 2.4 ± 0.6 | 77.6 ± 14.1 | 58.4 ± 5.8 | – | 5 |
@@ -197,7 +188,6 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | Method | E_direct | E_complete | E_mean | E_min | L_mean | L_min |
 |---|---|---|---|---|---|---|
 | simnpo | 91.8 ± 2.6 | 54.2 ± 7.1 | 73.1 ± 6.9 | 32.9 ± 19.3 | 66.0 ± 6.5 | 38.7 ± 23.9 |
-| SURE | 94.3 ± 2.9 | 57.4 ± 8.0 | 76.6 ± 5.8 | 1.4 ± 3.2 | 96.2 ± 2.6 | 85.1 ± 7.2 |
 | idk_ft | 99.6 ± 1.0 | 83.0 ± 3.7 | 95.1 ± 1.8 | 85.5 ± 3.4 | 42.0 ± 2.8 | 3.4 ± 7.7 |
 | zerounlearn | 96.3 ± 3.9 | 28.7 ± 4.6 | 55.0 ± 2.4 | 13.3 ± 12.3 | 79.9 ± 2.8 | 46.7 ± 4.5 |
 | tv | 95.5 ± 3.7 | 80.9 ± 8.2 | 93.9 ± 3.0 | 88.1 ± 5.5 | 14.1 ± 7.4 | 0.0 |
@@ -219,7 +209,6 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | Method | F:context_prefix | F:crosslingual | F:direct | F:indirect | F:multifact | F:multihop | F:multiturn | F:paraphrase | F:question | F:surface | R:disjoint | R:in_context | R:name_collision | R:same_object | R:same_relation | R:same_sentence | R:same_subject | R:subject_mentioned |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | simnpo | 9 ± 2 | 24 ± 17 | 8 ± 3 | 59 ± 36 | 27 ± 16 | 26 ± 23 | 31 ± 18 | 29 ± 10 | 24 ± 14 | 18 ± 5 | 75 ± 5 | 60 ± 17 | 73 ± 8 | 57 ± 13 | 74 ± 9 | 74 ± 13 | 58 ± 17 | 57 ± 32 |
-| SURE | 5 ± 3 | 10 ± 5 | 6 ± 3 | 100 | 8 ± 6 | 95 ± 6 | 5 ± 2 | 8 ± 6 | 7 ± 2 | 5 ± 6 | 100 | 88 ± 8 | 100 | 100 | 100 | 97 ± 4 | 91 ± 8 | 94 ± 7 |
 | idk_ft | 0 ± 1 | 2 ± 4 | 0 ± 1 | 11 ± 15 | 13 ± 2 | 2 ± 3 | 3 ± 3 | 9 ± 3 | 3 ± 5 | 6 ± 6 | 57 ± 4 | 13 ± 11 | 56 ± 16 | 43 ± 8 | 64 ± 13 | 59 ± 6 | 42 ± 9 | 3 ± 8 |
 | zerounlearn | 8 ± 3 | 64 ± 5 | 4 ± 4 | 84 ± 26 | 14 ± 3 | 78 ± 14 | 71 ± 4 | 17 ± 6 | 63 ± 4 | 30 ± 11 | 92 ± 4 | 100 | 86 ± 11 | 81 ± 10 | 90 ± 1 | 49 ± 7 | 48 ± 5 | 93 ± 2 |
 | tv | 3 ± 3 | 8 ± 5 | 5 ± 4 | 0 | 5 ± 3 | 5 ± 4 | 11 ± 7 | 5 ± 2 | 9 ± 6 | 6 ± 2 | 10 ± 7 | 59 ± 27 | 12 ± 9 | 0 | 2 ± 2 | 6 ± 8 | 1 ± 2 | 22 ± 20 |
@@ -243,7 +232,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | Method | legacy erasure | legacy locality | LETHE-Bench E | LETHE-Bench L | LETHE |
 |---|---|---|---|---|---|
 | simnpo | 81.6 | 66.0 | 57.1 ± 28.1 | 54.3 ± 26.8 | 38.5 ± 17.6 |
-| SURE | 93.1 | 100.0 | 12.8 ± 13.8 | 95.8 ± 2.9 | 22.4 ± 11.3 |
 | idk_ft | 95.4 | 49.7 | 94.8 ± 1.8 | 11.7 ± 13.1 | 20.0 ± 10.2 |
 | zerounlearn | 89.9 | 86.3 | 29.2 ± 20.0 | 73.7 ± 4.1 | 18.2 ± 7.4 |
 | tv | 95.3 | 4.9 | 93.7 ± 3.0 | 2.4 ± 0.6 | 8.7 ± 2.0 |
@@ -265,7 +253,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | Method | int8 | int4 | relearn (held-out half) | logit lens (upper half, chance-corrected) |
 |---|---|---|---|---|
 | simnpo | 15.1 ± 3.6 | 32.2 ± 10.3 | 27.8 ± 8.3 | 73.9 ± 5.9 |
-| SURE | 5.1 ± 2.0 | 6.2 ± 2.1 | 10.2 ± 7.8 | 81.0 ± 3.6 |
 | idk_ft | 3.4 ± 1.1 | 7.0 ± 2.9 | 45.2 ± 6.7 | 81.0 ± 5.0 |
 | zerounlearn | 20.6 ± 3.6 | 26.1 ± 3.2 | 73.4 ± 6.1 | 91.3 ± 4.3 |
 | tv | 2.9 ± 2.8 | 4.0 ± 3.2 | 8.4 ± 5.4 | 41.6 ± 5.8 |
@@ -287,7 +274,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | Method | forget: leak | forget: refusal | forget: other (wrong, empty, degenerate) | retain: correct | retain: false refusal |
 |---|---|---|---|---|---|
 | simnpo | 21.5 | 1.3 | 77.2 | 67.3 | 0.4 |
-| SURE | 16.2 | 0.0 | 83.8 | 97.0 | 0.0 |
 | idk_ft | 3.1 | 96.2 | 0.8 | 40.2 | 54.9 |
 | zerounlearn | 36.7 | 0.0 | 63.3 | 82.3 | 0.0 |
 | tv | 4.9 | 6.2 | 89.0 | 8.3 | 2.3 |
@@ -308,7 +294,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 
 | Method | route recall (forget) | residual from routing misses | residual when routed | false-fire rate (retain) |
 |---|---|---|---|---|
-| SURE | 90.5 | 9.5 | 1.2 | 12.1 |
 | keyword_router_idk | 61.9 | 38.1 | 0.1 | 16.6 |
 
 ### Cost
@@ -316,7 +301,6 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 | Method | unlearn seconds | inference overhead (× base) |
 |---|---|---|
 | simnpo | 144.1 ± 15.1 | 0.91 ± 0.01 |
-| SURE | 2130.6 ± 53.6 | 2.16 ± 0.03 |
 | idk_ft | 142.8 ± 8.3 | 0.91 ± 0.01 |
 | zerounlearn | 619.2 ± 21.9 | 0.91 ± 0.01 |
 | tv | 14.7 ± 2.7 | 0.91 ± 0.01 |

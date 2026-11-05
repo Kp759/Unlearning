@@ -89,8 +89,8 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
   - a peeking model is rejected;
   - attacks restore weights exactly;
   - the fast scoring path matches the full forward pass.
-- **Full run on three models** (cluster; Llama-3.2-3B-Instruct, Qwen3-4B, Llama-3.1-8B-Instruct; 5 seeds and 50 requests per seed each; `EVIDENCE.md` §4): 11 methods and 6 reference cheats.
-  - **No method is close to solved, and the ranking depends on the model:** the best score on any model is 56.3 (ZeroUnlearn on Qwen3-4B), where the same method scores 15.6 on Llama-3.1-8B; SimNPO 32–44; SURE (our method) 19–28; MEMIT 31 on Qwen3-4B and 2–3 on the Llama models; GA / GD / NPO / ROME below 7.
+- **Full run on three models** (cluster; Llama-3.2-3B-Instruct, Qwen3-4B, Llama-3.1-8B-Instruct; 5 seeds and 50 requests per seed each; `EVIDENCE.md` §4): 10 methods and 6 reference cheats.
+  - **No method is close to solved, and the ranking depends on the model:** the best score on any model is 56.3 (ZeroUnlearn on Qwen3-4B), where the same method scores 15.6 on Llama-3.1-8B; SimNPO 32–44; MEMIT 31 on Qwen3-4B and 2–3 on the Llama models; GA / GD / NPO / ROME below 7.
   - **Every reference cheat scores below 4 on every model** (the release gate is 35). The cheats are shortcuts a reviewer would think of in a minute; each scores near-perfectly on the legacy metrics and is caught by a family built for it. "Legacy view" below = only the families the official MCF / zsRE metrics use (erasure on the request and its paraphrases; locality on same-answer neighbours and unrelated questions), computed from the same runs, range over the three models:
 
     | Cheat | What it does | Legacy view (erasure / locality) | Caught by | LETHE |
@@ -104,7 +104,7 @@ All of it is in this folder, runnable with `pip install -e .` and `python -m sca
 
     Because E and L are harmonic means over families, failing one family pulls the score to the floor instead of being averaged away. The gate (`RED_TEAM.md`) runs all six on every split before release; if any passes 35, the split is at fault and is fixed.
   - **Each method fails a different axis:** GA / GD / NPO erase 79–100 but keep locality 1–2; a trained refusal falsely refuses 37–55% of retain questions; ROME and MEMIT erase 3–9 on held-out phrasings on Llama and the fact returns under attack (R ≤ 1); SimNPO erases 64–78 at locality 39–51; relearning restores 73–81% of ZeroUnlearn's forgotten facts on the Llama models.
-  - **Our own method is not the top row, and the table says why:** SURE keeps locality 94–96 and utility 100 on every model and erases 89–96 of the request prompts, but two families it is never routed on (`multihop` 94–96% residual, `indirect` 100%) hold its E at 7–22; route recall is 86–92%, and it scores 2.9 in the weights-only tier because its router and rows are runtime components.
+  - **Our own method is not in the table yet:** The runs made so far used a one-pass layer-19 configuration that is not the published method; the paper configuration (`sure_paper_l16`: the paper's router at layer 19 behind exact subject eligibility, one residual row per fact written at layer 16) is being run on the same splits and will be added as one row among the others.
 - **Evidence of saturation** from the repository's 4-benchmark × 5-seed study (`EVIDENCE.md`).
 
 ## 4. Fit with the program
@@ -150,7 +150,7 @@ Everything is released openly: code under Apache-2.0, dev splits under CC BY 4.0
 
 | Risk | Mitigation |
 |---|---|
-| Our method is a baseline on our own benchmark | SURE is one of 17 rows on the leaderboard (11 methods, 6 reference cheats) on three models, and it is not the top method on any of them (SimNPO and ZeroUnlearn score higher; `EVIDENCE.md` §4). One of the reference cheats is a string version of its design. The families where SURE is expected to fail (subject-free, cross-lingual, typo, multi-hop; strict tier) are reported like any other method's |
+| Our method is a baseline on our own benchmark | SURE is evaluated as one row among the others (10 methods, 6 reference cheats) with no special treatment, in its published configuration only; its row is pending that run (`EVIDENCE.md` §4). One of the reference cheats is a string version of its design. The families where SURE is expected to fail (subject-free, cross-lingual, typo, multi-hop; strict tier) are reported like any other method's |
 | Low knowledge-filter yield on small models | Yields are reported per family; families below 5 probes are excluded and flagged; the release uses models of 3B and up |
 | Indirect probes inferable from retained facts | Descriptions are drawn from other answer groups; expert-written references (ask 1) |
 | The benchmark saturates | Saturation is flagged per family; harder families are planned (agentic, ×10 languages, 10k-request scale); the hidden test is refreshed |

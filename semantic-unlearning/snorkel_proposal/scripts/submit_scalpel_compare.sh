@@ -20,7 +20,7 @@
 # agent  = agentic leakage track (scalpel/agentic.py) on splits that exist: AGENT_METHODS (default:
 #          noop,idk_all,subject_blocklist_idk,answer_ban,ga,gd,npo,rmu,rome,memit,zerounlearn,sure,ours).
 #          SURE methods reuse their finished core run's router, so run agent after smoke / robust.
-# Env: METHODS (default below), SURE_VARIANTS (smoke/full: sure ours), SEEDS, PARTITION (dev | test + SCALPEL_TEST_SALT), N_FORGET (50),
+# Env: METHODS (default below), SURE_VARIANTS (smoke/full: sure_paper_l16), SEEDS, PARTITION (dev | test + SCALPEL_TEST_SALT), N_FORGET (50),
 #      AFTER_BUILD=<job id> (one model per call: depend on that queued build job instead of submitting a build),
 #      SEQ_METHODS (gd,npo,memit), SKIP_SURE=1, SKIP_SEQ=1, MOM2_TEXT / MOM2_DATASET (scalpel_common.sh).
 # Finished runs are skipped, so re-submitting after a failure only redoes what is missing.
@@ -40,7 +40,7 @@ if [[ "$MODE" == robust ]]; then
   METHODS=""
   SURE_VARIANTS="${SURE_VARIANTS:-ours_l16 sure_paper sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake}"
 fi
-SURE_VARIANTS="${SURE_VARIANTS:-sure ours}"     # ours: SURE-R router + one-pass L19 Δe (scalpel/methods/sure_paper.py)
+SURE_VARIANTS="${SURE_VARIANTS:-sure_paper_l16}"     # the published configuration (scalpel/methods/sure_paper.py); shown as SURE
 SURE_LIST="$(echo $SURE_VARIANTS | tr ' ' ',')"; N_SURE=$(wc -w <<< "$SURE_VARIANTS" | tr -d " ")
 case "$MODE" in smoke|agent) SEEDS="${SEEDS:-1}";; *) SEEDS="${SEEDS:-1 2 3 4 5}";; esac
 SEED_ARRAY="$(echo $SEEDS | tr ' ' ',')"

@@ -5,7 +5,7 @@
 # after a stop, a crash or a reboot, rerun the same command. Run from anywhere.
 #
 #   bash scripts/aws/run_scalpel_aws.sh setup        # once: Python env, data, Wikipedia corpus, tests
-#   bash scripts/aws/run_scalpel_aws.sh core         # covariance, splits, 13 methods + sure + ours, gate, report
+#   bash scripts/aws/run_scalpel_aws.sh core         # covariance, splits, 13 methods + sure_paper_l16 (SURE), gate, report
 #   bash scripts/aws/run_scalpel_aws.sh agent        # agentic leakage track (after core)
 #   bash scripts/aws/run_scalpel_aws.sh robust       # ablations of ours: ours_l16, sure_paper, sure_r + 6 SURE-R
 #   bash scripts/aws/run_scalpel_aws.sh sequential   # sequential deletion (gd, npo, memit)
@@ -46,7 +46,7 @@ ROBUST_DATASETS="${ROBUST_DATASETS:-merged}"
 SEQ_DATASETS="${SEQ_DATASETS:-merged}"
 SEEDS="${SEEDS:-1}"
 N_FORGET="${N_FORGET:-50}"
-METHODS="${METHODS:-noop idk_all prompt_cache_idk subject_blocklist_idk keyword_router_idk answer_ban ga gd npo rmu rome memit zerounlearn sure ours}"
+METHODS="${METHODS:-noop idk_all prompt_cache_idk subject_blocklist_idk keyword_router_idk answer_ban ga gd npo rmu rome memit zerounlearn sure_paper_l16}"
 AGENT_METHODS="${AGENT_METHODS:-noop idk_all subject_blocklist_idk answer_ban ga gd npo rmu rome memit zerounlearn sure ours}"
 # ablations of ours, one component each: ours_l16 (Δe at 16), sure_paper (plain router), sure_r (SURE-R's rows)
 ROBUST_METHODS="${ROBUST_METHODS:-ours_l16 sure_paper sure_r sure_r_noviews sure_r_exact sure_r_hardneg sure_r_free sure_r_idk sure_r_bake}"
@@ -216,7 +216,7 @@ stage_report() {
     use_dataset "$d"
     compgen -G "$AWS_OUT/$d/$MODEL/dev/seed*/runs/*/results.json" > /dev/null || continue
     (cd "$SP" && python -m scalpel report --runs "$AWS_OUT/$d/$MODEL/dev/seed*/runs/*/results.json" \
-       --out "$AWS_OUT/$d/$MODEL/dev/leaderboard" --exclude sure ours_early --title "LETHE-Bench — $MODEL — $d (AWS A10G)" > /dev/null)
+       --out "$AWS_OUT/$d/$MODEL/dev/leaderboard" --exclude sure ours ours_early sure_paper --title "LETHE-Bench — $MODEL — $d (AWS A10G)" > /dev/null)
     for S in $SEEDS; do
       local DIR; DIR="$(split_dir "$S")"
       compgen -G "$DIR/agent/*/agent.json" > /dev/null && (cd "$SP" && python -m scalpel agent-report \
@@ -225,7 +225,7 @@ stage_report() {
   done
   if compgen -G "$AWS_OUT/*/$MODEL/dev/seed*/runs/*/results.json" > /dev/null; then
     (cd "$SP" && python -m scalpel report --runs "$AWS_OUT/*/$MODEL/dev/seed*/runs/*/results.json" \
-       --out "$AWS_OUT/leaderboard_$MODEL" --exclude sure ours_early --title "LETHE-Bench — $MODEL — every dataset (AWS A10G)" > /dev/null)
+       --out "$AWS_OUT/leaderboard_$MODEL" --exclude sure ours ours_early sure_paper --title "LETHE-Bench — $MODEL — every dataset (AWS A10G)" > /dev/null)
     say "leaderboards: $AWS_OUT/leaderboard_$MODEL/leaderboard.md (every dataset) and $AWS_OUT/<dataset>/$MODEL/dev/leaderboard/"
   fi
 }

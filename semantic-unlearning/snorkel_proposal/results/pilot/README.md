@@ -45,42 +45,11 @@ All baselines use the defaults ported from `../scripts/paper_baselines.py`: lr 1
 - **Open-ended behaviour.** The gradient methods do not abstain. 97–98% of their forget generations are wrong or degenerate answers (refusals: 0%). A deployer who needs "I don't know" would not get it.
 - **The generation scorer catches what teacher forcing misses.** `answer_ban` bans the answer's first token, yet 8.4% of its generations still produce the answer through another tokenization.
 
-## 3. SURE (this repository's method) on the same split
+## 3. Caveats
 
-SURE ran through `--method sure`: the repository's MultiFactPerson entry points (prep → linear router → Δe rows), trained on **the split's 50 requests only**, at layer 16 (the 3B choice of 19/28 scaled to 24 layers), with no tuning for this model. The run uses transformers 4.57, because the repository scripts need ≥ 4.56. Results: `qwen2.5-0.5b-instruct/runs/sure/results.json`. Command:
-
-```bash
-python -m scalpel run --split results/pilot/qwen2.5-0.5b-instruct/split_dev_s1.json --model $QWEN_DIR \
-  --method sure --method-arg model_path=$QWEN_DIR --method-arg layer=16 --method-arg device=mps \
-  --out results/pilot/qwen2.5-0.5b-instruct/runs/sure --device mps --dtype fp32 --relearn-scope mlp_down
-```
-
-| | Value |
-|---|---|
-| LETHE | **10.5**, the best in the pilot (GA/GD 6.7). E 3.3 · L **100.0** · U 98.2 · R 16.7 |
-| Locality | **100% on all 8 retain families**, 0% false fires. Same-subject, same-sentence, same-object and subject-mentioned are untouched |
-| Forget residual by family (tf) | direct 18 · context prefix 19 · paraphrase 45 · multi-fact 58 · multi-turn 86 · question 90 · cross-lingual 94 · typo 100 · multi-hop 100 |
-| Routing decomposition | Route recall 51%. **48.7 points of forget residual come from routing misses, 9.1 from actuation** (the rows fail even when routed) |
-| Where routing fails | Typos 0/18 routed (exact subject-token eligibility); multi-hop 0/12 (subject not named); cross-lingual 7/67; multi-turn 3/22; QA-format questions 6/30 |
-| Strict tier (weights only) | E 1.0. SURE changes no weights (288k extra parameters in hooks/rows) |
-| Attacks | The logit lens still reads 83% (relative) of attacked facts in the upper half. Relearning brings back 77% of the held-out half |
-
-On Llama-3.2-3B with tuned settings, SURE removes 96–100% of base recall on the four legacy benchmarks (`../../EVIDENCE.md`). This untuned 0.5B run is weaker even on the legacy-view families (68.5 erasure / 100 locality: direct 18% and paraphrase 45% residual). The pattern is still clear: the families that legacy benchmarks lack leak far more (question 90%, cross-lingual 94%, typos 100%, multi-hop 100%). The cause is detection, not editing. That is the headroom LETHE-Bench is built to measure, and the decomposition says where to work.
-
-## 4. Caveats
-
-- SURE ran with its 3B defaults (layer, router calibration, 30 updates per fact), untuned for this model; its QA-format requests were trained as raw text while the evaluator renders questions with the chat template. Both are fixable in the method; the benchmark reports them as they are.
 - One model (0.5B), one seed, laptop memory limits:
   - the relearning attacker fine-tunes `down_proj` only;
   - RMU runs at its 3B defaults, untuned.
 - The `indirect` family has 2 probes on this model and is excluded. Larger models know more descriptions (milestone M2).
 - Wall-clock times are for Apple MPS and are not comparable with GPU numbers.
 
-## 5. Robust SURE, local check (`qwen2.5-0.5b-instruct/sure_robust_subset15/`)
-
-The original SURE and SURE-R (`../../SURE_ROBUST.md`) were run on the same 15 pilot requests. LETHE-Bench went from **0.0 to 72.2**:
-- E rose from 2.9 to 66.2 and L moved from 100 to 97.0;
-- typos and exact prompts are now fully forgotten;
-- questions, other languages and multi-turn follow-ups leak about half as often.
-
-A variant with base-model hard negatives scored 8.1, so hard negatives are an ablation, not a default. Treat this as a direction check on a 0.5B model with 15 requests; the 3B result comes from `bash scripts/submit_scalpel_compare.sh robust llama32_3b`.

@@ -46,8 +46,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("directory")
     ap.add_argument("--title", default=None, help="default: the first line of the existing leaderboard.md")
-    ap.add_argument("--exclude", nargs="*", default=["SURE_early", "sure_original"],
-                    help="display names to drop (default: the SURE ablation and the original adapter)")
+    ap.add_argument("--exclude", nargs="*", default=["SURE_onepass", "SURE_onepass_rrouter", "SURE_rrouter_l16", "SURE_early", "sure_original"],
+                    help="display names to drop (default: every SURE variant but the published configuration)")
     a = ap.parse_args(argv)
     d = Path(a.directory)
     md_path = d / "leaderboard.md"

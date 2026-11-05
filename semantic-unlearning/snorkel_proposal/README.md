@@ -19,13 +19,12 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 
 ## Headline results: three models, 5 seeds each
 
-`results/cluster/leaderboard_dev/leaderboard.md` (Wulver; `EVIDENCE.md` §4 has the per-axis tables). 11 methods and 6 reference cheats, 50 requests per seed, LETHE score (mean ± sd over seeds):
+`results/cluster/leaderboard_dev/leaderboard.md` (Wulver; `EVIDENCE.md` §4 has the per-axis tables). 10 methods and 6 reference cheats, 50 requests per seed, LETHE score (mean ± sd over seeds):
 
 | Method | Llama-3.2-3B | Qwen3-4B | Llama-3.1-8B |
 |---|---|---|---|
 | SimNPO | 37.4 ± 20.1 | 31.7 ± 15.6 | 43.7 ± 13.6 |
 | ZeroUnlearn | 21.3 ± 9.5 | 56.3 ± 5.8 | 15.6 ± 5.2 |
-| SURE (ours, layer 19) | 28.4 ± 11.6 | 22.3 ± 0.7 | 18.7 ± 3.5 |
 | MEMIT | 1.7 ± 1.8 | 30.7 ± 9.0 | 3.2 ± 0.4 |
 | trained refusal (IDK-FT) | 11.4 ± 0.6 | 11.0 ± 1.3 | 10.9 ± 0.2 |
 | task-vector negation | 5.7 ± 1.4 | 10.2 ± 3.8 | 7.7 ± 1.8 |
@@ -34,7 +33,7 @@ This folder holds the Snorkel AI **Open Benchmarks Grant** proposal and the work
 
 - No method is close to solved, and the ranking changes with the model: ZeroUnlearn is first on Qwen3-4B and fourth on Llama-3.1-8B; MEMIT scores 30.7 on Qwen3-4B and 1.7–3.2 on Llama.
 - The red-team gate passes on every model: the largest cheat score is 3.4 against a gate of 35.
-- Our own method is not the top row: SURE keeps locality 94–96 and utility 100 but is never routed on subject-free and multi-hop probes, so its erasure over held-out families is 7–22.
+- SURE, the detect-then-edit method the authors built, is not in the table yet. The runs made so far used a one-pass layer-19 configuration that is not the published method; the paper configuration (`sure_paper_l16`: the paper's router at layer 19 behind exact subject eligibility, one residual row per fact written at layer 16) is being run on the same splits and will be added as one row among the others.
 
 ## Quickstart
 
@@ -50,7 +49,7 @@ cat results/toy/runs/RED_TEAM_REPORT.md results/toy/leaderboard/leaderboard.md
 # 2. Real data on a laptop (Qwen2.5-0.5B-Instruct, MPS/CPU):
 bash scripts/run_pilot_local.sh
 
-# 3. Cluster (Wulver): every method (incl. ROME, MEMIT, ZeroUnlearn, RMU) vs SURE, 3 models x 5 seeds
+# 3. Cluster (Wulver): every method (incl. ROME, MEMIT, ZeroUnlearn, RMU), 3 models x 5 seeds
 bash scripts/submit_scalpel_compare.sh fetch all && bash scripts/submit_scalpel_compare.sh smoke llama32_3b
 bash scripts/submit_scalpel_compare.sh full all          # see scripts/README_CLUSTER.md
 ```

@@ -26,10 +26,12 @@ def _ms(xs):
     return m, sd
 
 
-# Leaderboard names for method keys: the method we built runs as `ours` (its run directories keep
-# that name) and is shown as SURE; the first SURE adapter (exact matching, request prompts only)
-# is shown as sure_original and excluded from the published leaderboard (--exclude sure).
-DISPLAY_NAMES = {"ours": "SURE", "ours_l16": "SURE_l16", "ours_early": "SURE_early", "sure": "sure_original"}
+# Leaderboard names for method keys. SURE on the leaderboard is the published configuration,
+# `sure_paper_l16` (the paper's router at layer 19, Δe rows at layer 16, two passes). The one-pass
+# variants (`ours`, `ours_early`, `sure_paper`) and the first adapter (`sure`) keep distinct names and
+# are excluded from the published leaderboard (--exclude sure ours ours_early sure_paper).
+DISPLAY_NAMES = {"sure_paper_l16": "SURE", "sure_paper": "SURE_onepass", "ours": "SURE_onepass_rrouter",
+                 "ours_l16": "SURE_rrouter_l16", "ours_early": "SURE_early", "sure": "sure_original"}
 
 
 def load_runs(paths: Sequence[Path], exclude: Sequence[str] = ()) -> List[Dict]:
