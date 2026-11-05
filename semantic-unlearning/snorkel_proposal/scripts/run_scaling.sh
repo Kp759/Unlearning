@@ -15,4 +15,4 @@ for N in ${SIZES:-50 200 1000}; do
   python -u -m scalpel suite --split "$D/split.json" --model "$MODEL_PATH" --methods "${METHODS:-ga,gd,npo,rmu}" \
     --out "$D/runs" --device "${DEVICE:-cuda}" --dtype "${DTYPE:-bf16}"
 done
-python -m scalpel report --runs "$OUT/n*/runs/*/results.json" --out "$OUT/leaderboard" --title "SCALPEL scaling — $TAG"
+python -m scalpel report --runs "$OUT/n*/runs/*/results.json" --out "$OUT/leaderboard" --title "LETHE-Bench scaling — $TAG"

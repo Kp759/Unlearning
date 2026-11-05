@@ -13,6 +13,7 @@ The claims these protect:
 """
 from __future__ import annotations
 
+import math
 from pathlib import Path
 import sys
 
@@ -40,6 +41,7 @@ from linear_router import (  # noqa: E402
     fit_linear_router,
     load_linear_classifier_artifact,
     load_router_artifact,
+    relation_log_probs,
     route_outcomes,
     score_queries,
     select_hyperparameters,
@@ -589,3 +591,118 @@ def test_per_head_threshold_never_rejects_a_training_positive():
                                        fallback=0.0, ceiling=torch.tensor([10.0]))
     assert thr2[0].item() == pytest.approx(-1.4)
     assert not report2["per_head"][0]["capped_at_training_positive"]
+
+
+def test_distractor_copies_for_positives_and_negatives():
+    """Each fact gets `per_fact` positive and negative copies with an unrelated sentence in front,
+    in the base record's split and family; sentences naming any subject or answer are never used."""
+    from linear_router import add_distractor_copies
+    facts = [{"id": "f0", "subject": "Ann Lee", "object": "Rome"}, {"id": "f1", "subject": "Bo Li", "object": "Oslo"}]
+    records = {
+        "Ann Lee was born in": {"prompt": "Ann Lee was born in", "split": "fit", "owner": 0, "kind": "positive",
+                                "group": "canonical_0", "augmented": False, "negative_for": []},
+        "Where was Ann Lee born?": {"prompt": "Where was Ann Lee born?", "split": "calibration", "owner": 0,
+                                    "kind": "positive", "group": "aug_question", "augmented": True, "negative_for": []},
+        "Ann Lee works as a": {"prompt": "Ann Lee works as a", "split": "fit", "owner": -1, "kind": "same_subject_real",
+                               "group": "neg_0", "augmented": False, "negative_for": [0]},
+        "Bo Li was born in": {"prompt": "Bo Li was born in", "split": "fit", "owner": 1, "kind": "positive",
+                              "group": "canonical_0", "augmented": False, "negative_for": [0]},
+    }
+    sentences = ["The bridge was finished in 1932 after many delays.", "She moved to Rome in her twenties.",
+                 "The village has a small church and a school.", "Bo Li once played the cello."]
+    report = add_distractor_copies(records, facts, sentences, per_fact=1)
+    assert report["pool"] == 2                                       # Rome and Bo Li sentences dropped
+    copies = {p: r for p, r in records.items() if r.get("distractor")}
+    pos0 = [r for r in copies.values() if r["owner"] == 0]
+    neg0 = [r for r in copies.values() if r["owner"] < 0 and 0 in r["negative_for"]]
+    assert len(pos0) == 1 and pos0[0]["augmented"] and pos0[0]["group"] == "canonical_0" and pos0[0]["split"] == "fit"
+    assert len(neg0) == 1 and neg0[0]["negative_for"] == [0]
+    assert all(p.split(". ", 1)[0] + "." in sentences for p in copies)
+    assert all("Rome" not in p and "once played" not in p for p in copies)
+    assert report["positives_added"] == 2 and report["negatives_added"] >= 1
+
+
+SUBJECTS = ["Brahms Inlet", "Shebelle River", "Steve Jobs", "Sidley Austin"]
+WORDS = None
+
+
+def _crops(text, mode="sentence"):
+    from linear_router import subject_crops, subject_words
+    return subject_crops(text, [subject_words(s) for s in SUBJECTS], SUBJECTS, mode)
+
+
+def test_subject_crops_on_the_routers_misses():
+    """route_crop: the sentence naming the subject is routed when the full prompt fires nothing.
+    The prompts are seed-1 MCF misses (an unrelated sentence first) and seed-1 MQuAKE ones."""
+    assert _crops("After some hesitation this was accepted on 25 January. Brahms Inlet is located in") == \
+        ["Brahms Inlet is located in"]
+    assert _crops("She was passed to the MoWT and renamed Empire Commerce. Shebelle River, in") == \
+        ["Shebelle River, in"]
+    assert _crops("Brahms Inlet is located in") == []                       # nothing shorter
+    assert _crops("What is the country of citizenship of Steve Jobs?") == []
+    assert _crops("Steve Jobs was born in 1955. In which country was he a citizen?") == []   # the
+    # sentence naming the subject is not the one asking: no crop, the full prompt decides
+    assert _crops("References Category:Superconductivity Brahms Inlet is in") == []           # no break
+    assert _crops("References Category:Superconductivity Brahms Inlet is in", "sentence_subject") == \
+        ["Brahms Inlet is in"]
+    assert _crops("What is the country of citizenship of Steve Jobs?", "sentence_subject") == []
+    assert _crops("Brahms Inlet is located in", "none") == []
+
+
+def test_crop_token_ids_retokenise_and_skip_chat_prompts():
+    from linear_router import crop_token_ids, subject_words
+    from test_router_diag import _tokenizer
+    tok = _tokenizer()
+    words = [subject_words(s) for s in SUBJECTS]
+    ids = tok("Enrollment in 2004 was 2,792 students. Brahms Inlet is located in")["input_ids"]
+    (crop,) = crop_token_ids(tok, ids, words, SUBJECTS, "sentence")
+    assert crop == tok("Brahms Inlet is located in")["input_ids"] and crop[0] == tok.bos_token_id
+    chat = tok.apply_chat_template([{"role": "user", "content": "Hi there. Brahms Inlet is located in"}],
+                                   tokenize=True, add_generation_prompt=True)
+    chat = chat["input_ids"] if isinstance(chat, dict) else list(chat)
+    assert crop_token_ids(tok, chat, words, SUBJECTS, "sentence") == []
+
+
+def _gated_bank():
+    """Relation gate over 2 relations: query along e0 asks relation 0, along e1 relation 1.
+    Facts 0 and 3 ask relation 0, fact 1 relation 1, fact 2 a relation the probe lacks."""
+    bank = _bank(threshold=-100.0, margin=0.0)
+    weight = torch.zeros(2, HIDDEN)
+    weight[0, 0] = weight[1, 1] = 50.0
+    gate = {"weight": weight, "bias": torch.zeros(2), "fact_relation": torch.tensor([0, 1, -1, 0]),
+            "min_log_prob": math.log(0.5), "layer": 0, "relations": ["r0", "r1"]}
+    artifact = bank.artifact()
+    artifact["relation_gate"] = gate
+    return load_linear_classifier_artifact(_FakeModel(), artifact)[1]
+
+
+def _relation_hidden():
+    hidden = torch.zeros(4, WIDTH, HIDDEN)
+    hidden[0, -1, 1] = 1.0     # subject of fact 0, asks relation 1 -> blocked
+    hidden[1, -1, 1] = 1.0     # subject of fact 1, asks relation 1 -> routes to fact 1
+    hidden[2, -1, 0] = 1.0     # no subject -> nothing
+    hidden[3, -1, 0] = 1.0     # subjects of facts 0 and 1, asks relation 0 -> only fact 0
+    return hidden
+
+
+def test_relation_gate_blocks_heads_of_another_relation():
+    bank = _gated_bank()
+    _run(bank, hidden=_relation_hidden())
+    assert bank.last_active_fact_indices == [[], [1], [], [0]]
+    assert bank.counters()["relation_gate"] == {"eligible": 4, "blocked": 2}
+    logp = relation_log_probs(_relation_hidden()[:, -1], bank.rg_weight, bank.rg_bias, bank.rg_fact_relation)
+    assert torch.all(logp[:, 2] == 0)                       # unknown relation: never gated
+    assert bool(logp[0, 0] < math.log(0.5)) and bool(logp[1, 1] > math.log(0.5))
+
+
+def test_relation_gate_round_trips_and_is_off_by_default():
+    bank = _gated_bank()
+    hidden = _relation_hidden()
+    _, first = _run(bank, hidden=hidden)
+    _, restored = load_linear_classifier_artifact(_FakeModel(), bank.artifact())
+    _, second = _run(restored, hidden=hidden)
+    assert torch.equal(first, second) and restored.relation_gate["min_log_prob"] == math.log(0.5)
+    plain = _bank(threshold=-100.0, margin=0.0)
+    assert plain.artifact()["relation_gate"] is None
+    _run(plain, hidden=hidden)
+    assert plain.last_active_fact_indices[0] == [0]          # without the gate fact 0 fires

@@ -1,0 +1,25 @@
+{
+  "deployed": {
+    "rule": "deployed",
+    "L19": {
+      "fpr": 0.00234192037470726,
+      "fnr": 0.016483516483516484,
+      "precision": 0.9926062846580407,
+      "recall": 0.9835164835164835,
+      "f1": 0.9880404783808647,
+      "correct_row_rate": 0.9835164835164835
+    },
+    "L26": {
+      "fpr": 0.00234192037470726,
+      "fnr": 0.014652014652014652,
+      "precision": 0.992619926199262,
+      "recall": 0.9853479853479854,
+      "f1": 0.988970588235294,
+      "correct_row_rate": 0.9853479853479854
+    },
+    "L19_null_fpr": 0.056433408577878104,
+    "L26_null_fpr": 0.04966139954853273,
+    "routing_improves": true,
+    "criterion": "higher F1 on the official eval prompts with no higher eval FPR and no higher null-prompt FPR"
+  }
+}

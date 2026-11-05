@@ -104,7 +104,7 @@ def markdown(validation: Dict, gate: Dict, split_name: str) -> str:
     for c in validation["checks"]:
         lines.append(f"| {c['check']} | {'yes' if c['ok'] else '**NO**'} | {c['detail']} |")
     lines += ["", f"## Reference cheats (must score below {gate['ceiling']:.0f} with AND without the attack axis)", "",
-              "| Cheat | SCALPEL | SCALPEL_core (no attacks) | E | L | U | R | Defeated |", "|---|---|---|---|---|---|---|---|"]
+              "| Cheat | LETHE | LETHE_core (no attacks) | E | L | U | R | Defeated |", "|---|---|---|---|---|---|---|---|"]
     f = lambda x: "–" if x is None else f"{x:.1f}"
     for r in gate["rows"]:
         lines.append(f"| {r['method']} | {f(r['SCALPEL'])} | {f(r['SCALPEL_core'])} | {f(r['E'])} | {f(r['L'])} | "

@@ -1,0 +1,31 @@
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{llcccccc}
+\toprule
+Dataset & Method & Eff $\downarrow$ & Gen $\downarrow$ & Spe $\uparrow$ & Spe$^\dagger$ $\uparrow$ & PPL & RR $\downarrow$ \\
+\midrule
+\multirow{4}{*}{MCF} & Base & $17.089_{\pm 2.750}$ & $13.007_{\pm 4.123}$ & $22.480_{\pm 4.653}$ & -- & $11.033_{\pm 0.000}$ & -- \\
+ & \textbf{Ours} & $0.000_{\pm 0.000}$ & $0.353_{\pm 0.363}$ & $22.440_{\pm 4.657}$ & -- & $11.033_{\pm 0.000}$ & -- \\
+ & Genie & $0.000_{\pm 0.000}$ & $0.002_{\pm 0.002}$ & $22.480_{\pm 4.653}$ & -- & $11.033_{\pm 0.000}$ & -- \\
+ & Genie (entity) & -- & -- & -- & -- & -- & -- \\
+\midrule
+\multirow{4}{*}{ZsRE} & Base & $39.807_{\pm 1.839}$ & $36.436_{\pm 2.584}$ & $30.565_{\pm 2.481}$ & -- & $11.033_{\pm 0.000}$ & -- \\
+ & \textbf{Ours} & $0.133_{\pm 0.298}$ & $4.093_{\pm 2.883}$ & $30.565_{\pm 2.481}$ & -- & $11.033_{\pm 0.000}$ & -- \\
+ & Genie & $0.133_{\pm 0.298}$ & $0.133_{\pm 0.298}$ & $30.565_{\pm 2.481}$ & -- & $11.033_{\pm 0.000}$ & -- \\
+ & Genie (entity) & -- & -- & -- & -- & -- & -- \\
+\midrule
+\multirow{4}{*}{MQuAKE} & Base & $72.817_{\pm 3.315}$ & $63.482_{\pm 2.431}$ & $67.757_{\pm 0.413}$ & $70.098_{\pm 0.507}$ & $11.033_{\pm 0.000}$ & -- \\
+ & \textbf{Ours} & $1.317_{\pm 1.069}$ & $4.940_{\pm 1.864}$ & $58.490_{\pm 1.519}$ & $69.803_{\pm 0.633}$ & $11.033_{\pm 0.000}$ & -- \\
+ & Genie & $1.317_{\pm 1.069}$ & $1.264_{\pm 1.000}$ & $58.733_{\pm 1.380}$ & $70.098_{\pm 0.507}$ & $11.033_{\pm 0.000}$ & -- \\
+ & Genie (entity) & -- & -- & -- & -- & -- & -- \\
+\midrule
+\multirow{4}{*}{RWKU} & Base & $78.400_{\pm 2.608}$ & $83.983_{\pm 2.541}$ & $84.711_{\pm 2.458}$ & -- & $11.033_{\pm 0.000}$ & -- \\
+ & \textbf{Ours} & $3.600_{\pm 5.899}$ & $43.938_{\pm 13.592}$ & $82.441_{\pm 4.256}$ & -- & $11.033_{\pm 0.000}$ & -- \\
+ & Genie & $1.200_{\pm 1.095}$ & $83.983_{\pm 2.541}$ & $84.711_{\pm 2.458}$ & -- & $11.033_{\pm 0.000}$ & -- \\
+ & Genie (entity) & $1.200_{\pm 1.095}$ & $50.288_{\pm 12.986}$ & $84.711_{\pm 2.458}$ & -- & $11.033_{\pm 0.000}$ & -- \\
+\bottomrule
+\end{tabular}
+\caption{Base model, unlearning baselines, our method (question-side $\Delta e$ written at layer 16) and genie (the same rows under perfect routing). Mean $\pm$ std over 5 seeds. Spe$^\dagger$: MQuAKE retain accuracy on retain facts that do not repeat a forget fact. RR: representation recoverability, the worst-block top-1 rate of the forgotten answer under an affine lens fitted on retain text (lower is better).}
+\label{tab:l16_main}
+\end{table}

@@ -9,6 +9,8 @@ scripts/router_layer_sweep_cached.py) runs on CPU from this cache.
 
     python -u scripts/cache_router_states.py --dataset mcf --seed 1 --device cuda --local-files-only
     # -> outputs/router_diag_v1/mcf/seed1/
+    python -u scripts/cache_router_states.py --dataset mcf --seed 1 --router-recipe ours ...
+    # ours (ONEPASS=1) routers -> outputs/router_diag_ours_v1/mcf/seed1/
 
 Sections (scripts/router_diag_probes.py):
     eval       every prompt the official evaluator routes (forget / paraphrase /
@@ -29,7 +31,9 @@ Files in --out-dir:
     states_<section>.pt     {"layers": [...], "states": [L, P, d] in the compute dtype}
     router_<section>.pt     L19 router on the cached states: deployed logits [P, N],
                             stage-1 logits (before the calibrated bias), subject
-                            eligibility [P, N], and the runtime decision (decide_routes)
+                            eligibility [P, N] under the router's own rule (exact, or
+                            exact + fuzzy for subject_match="fuzzy"), the exact-token
+                            eligibility alone, and the runtime decision (decide_routes)
     manifest.json           provenance, counts, hook parity, router-pass timing,
                             optional generations on fired null prompts
 """
@@ -45,7 +49,17 @@ import time
 
 import torch
 
-from linear_router import decide_routes, is_linear_router_artifact, load_router_artifact, score_queries
+from linear_router import (
+    ROUTE_CROPS,
+    crop_token_ids,
+    decide_routes,
+    fuzzy_subject_in_text,
+    is_linear_router_artifact,
+    load_router_artifact,
+    relation_log_probs,
+    score_queries,
+    subject_words,
+)
 import router_diag_probes as probes_lib
 
 DEFAULT_ROUTER_DIRS = {
@@ -54,6 +68,11 @@ DEFAULT_ROUTER_DIRS = {
     "mquake": "outputs/mquake_multiseed_regular_v1/seed{seed}/L19/router",
     "rwku": "outputs/rwku_multiseed_subject_v1/seed{seed}/L19/router",
 }
+# ROUTER_RECIPE=ours routers (run_l16_paper_one.sh ONEPASS=1): no PCA, fuzzy subject matching,
+# 20 / 20 checked prompts; RWKU with the default threshold gate.
+OURS_ROUTER_DIRS = {ds: f"outputs/{ds}_multiseed_ours_v1/seed{{seed}}/L19/router" for ds in DEFAULT_ROUTER_DIRS}
+RECIPES = {"regular_v1": (DEFAULT_ROUTER_DIRS, "outputs/router_diag_v1"),
+           "ours": (OURS_ROUTER_DIRS, "outputs/router_diag_ours_v1")}
 EVAL_SECTIONS = ("eval", "null", "perturbed")
 TRAIN_SECTIONS = ("train", "aug")
 IDK_MARKERS = ("i don't know", "i do not know", "not sure", "unknown", "i cannot", "i can't",
@@ -80,6 +99,27 @@ def eligibility_from_ids(ids_list, subject_patterns):
             if any(tuple(p) in grams for p in patterns):
                 out[row, fact] = True
     return out
+
+
+def subject_match_of(artifact):
+    return str(artifact.get("subject_match") or (artifact.get("router_fit") or {}).get("subject_match") or "exact")
+
+
+def deployed_eligibility(ids_list, artifact, tok):
+    """([P, N] the router's own rule, [P, N] exact tokens only). subject_match="fuzzy" adds
+    the fact's subject words in the decoded prompt (special tokens skipped), exactly as
+    LinearClassifierAssociationBank._eligibility decodes the prompt it routes."""
+    exact = eligibility_from_ids(ids_list, artifact["subject_patterns"])
+    if subject_match_of(artifact) != "fuzzy":
+        return exact, exact
+    words = [subject_words(str(f.get("subject", ""))) for f in artifact["facts"]]
+    out = exact.clone()
+    for row, ids in enumerate(ids_list):
+        text = tok.decode(ids, skip_special_tokens=True)
+        for fact, w in enumerate(words):
+            if not out[row, fact] and fuzzy_subject_in_text(text, w):
+                out[row, fact] = True
+    return out, exact
 
 
 @torch.no_grad()
@@ -151,21 +191,132 @@ def runtime_rule(artifact):
     return threshold, float(artifact.get("ambiguity_margin", 0.5))
 
 
-def route_section(states_l, ids_list, artifact):
+def relation_gate(states_l, artifact):
+    """(log p(fact's relation) [P, N], passes [P, N]) under the artifact's relation gate, as the
+    hook; (None, None) without one."""
+    gate = artifact.get("relation_gate")
+    if gate is None:
+        return None, None
+    logp = relation_log_probs(states_l, torch.as_tensor(gate["weight"]), torch.as_tensor(gate["bias"]),
+                              gate["fact_relation"])
+    return logp, logp >= float(gate["min_log_prob"])
+
+
+def route_section(states_l, ids_list, artifact, tok):
+    """`eligible` stays the subject rule; with a relation gate the decision uses eligible &
+    relation_pass, exactly as the hook."""
     logits, stage1 = router_logits(states_l, artifact)
-    eligible = eligibility_from_ids(ids_list, artifact["subject_patterns"])
+    eligible, exact = deployed_eligibility(ids_list, artifact, tok)
+    relation, passed = relation_gate(states_l, artifact)
     threshold, margin = runtime_rule(artifact)
-    decision = decide_routes(logits, eligible, threshold, margin)
-    return {"logits": logits, "stage1_logits": stage1, "eligible": eligible,
+    decision = decide_routes(logits, eligible if passed is None else eligible & passed, threshold, margin)
+    return {"logits": logits, "stage1_logits": stage1, "eligible": eligible, "eligible_exact": exact,
+            "relation_log_prob": relation, "relation_pass": passed,
             **{k: v.cpu() for k, v in decision.items()}}
 
 
+def apply_route_crops(model, tok, ids_list, routes, artifact, mode, *, layer, batch_size, pad_id):
+    """route_crop, offline and exactly as the routing pass (early_write._route_crops): a prompt
+    with an eligible subject on which nothing fired is routed again as the sentence naming the
+    subject; the first view that fires replaces the prompt's whole routing row (logits,
+    eligibility, decision), so the report reads the decision that was deployed.
+    Adds routes["crop_views"] [P] (views tried) and routes["crop_fired"] [P] bool."""
+    n = len(ids_list)
+    routes["crop_views"] = torch.zeros(n, dtype=torch.long)
+    routes["crop_fired"] = torch.zeros(n, dtype=torch.bool)
+    if mode == "none":
+        return routes
+    subjects = [str(f.get("subject", "")) for f in artifact["facts"]]
+    words = [subject_words(s) for s in subjects]
+    todo = [i for i in range(n) if not bool(routes["active"][i]) and bool(routes["eligible"][i].any())]
+    views = [(i, c) for i in todo for c in crop_token_ids(tok, ids_list[i], words, subjects, mode)]
+    for i, _ in views:
+        routes["crop_views"][i] += 1
+    if not views:
+        return routes
+    states = capture_last_token_states(model, [c for _, c in views], [layer], batch_size=batch_size,
+                                       pad_id=pad_id)
+    crop = route_section(states[0], [c for _, c in views], artifact, tok)
+    for v, (i, _) in enumerate(views):
+        if bool(routes["crop_fired"][i]) or not bool(crop["active"][v]):
+            continue
+        routes["crop_fired"][i] = True
+        for key, value in crop.items():
+            if torch.is_tensor(value) and torch.is_tensor(routes.get(key)) and routes[key].shape[0] == n:
+                routes[key][i] = value[v].to(routes[key].dtype)
+    return routes
+
+
+def crop_route_parity(model, artifact, tok, ids_list, offline, sample, batch_size, pad_id, seed=0, tol=0.15):
+    """With route_crop, the deployed decision is the routing pass's (early_write), not the bank
+    hook's alone: route a sample through EarlyWriteCausalLM._route, batched and one at a time,
+    and compare with the offline decision (apply_route_crops)."""
+    from early_write import load_early_write_artifact
+
+    device = next(model.parameters()).device
+    router_only = dict(artifact)
+    router_only["rows"] = torch.zeros_like(torch.as_tensor(artifact["rows"]))
+    router_only.pop("early_write", None)
+    ew, _ = load_early_write_artifact(model, router_only)
+    ew.bank.tokenizer = tok
+    g = torch.Generator().manual_seed(seed)
+    picked = torch.randperm(len(ids_list), generator=g)[:int(sample)].tolist()
+    report = {}
+    try:
+        for mode, size in (("batched", int(batch_size)), ("single", 1)):
+            ew.route_cache = {}
+            mismatches = []
+            for start in range(0, len(picked), size):
+                rows = picked[start:start + size]
+                width = max(len(ids_list[i]) for i in rows)
+                input_ids = torch.full((len(rows), width), int(pad_id), dtype=torch.long)
+                mask = torch.zeros_like(input_ids)
+                for r, i in enumerate(rows):
+                    input_ids[r, :len(ids_list[i])] = torch.tensor(ids_list[i])
+                    mask[r, :len(ids_list[i])] = 1
+                got = ew._route(input_ids.to(device), mask.to(device), [len(ids_list[i]) for i in rows])
+                for r, i in enumerate(rows):
+                    hook = [got[r]] if got[r] >= 0 else []
+                    expected = [int(offline["fact"][i])] if bool(offline["active"][i]) else []
+                    if hook != expected:
+                        mismatches.append({"index": i, "hook": hook, "offline": expected,
+                                           "borderline": borderline(offline, i, artifact, tol)})
+            real = [m for m in mismatches if not m["borderline"]]
+            report[mode] = {"prompts": len(picked), "route_mismatches": len(real),
+                            "borderline_ties": len(mismatches) - len(real), "tolerance": tol,
+                            "examples": (real + [m for m in mismatches if m["borderline"]])[:10]}
+    finally:
+        ew.close()
+    return report
+
+
 @torch.no_grad()
-def hook_parity(model, artifact, tok, ids_list, offline, sample, batch_size, pad_id, seed=0):
+def borderline(offline, i, artifact, tol):
+    """The cached decision for prompt i sits within `tol` (logit) of a decision boundary: the
+    best eligible head at the firing threshold, or the top two eligible heads at the ambiguity
+    margin. bf16 logits differ by up to ~0.1 between a padded batch and a single unpadded
+    prompt on long chat prompts, so such a prompt can route either way."""
+    logits = offline["logits"][i].float().masked_fill(~offline["eligible"][i].bool(), float("-inf"))
+    top = logits.topk(min(2, logits.numel()))
+    if not torch.isfinite(top.values[0]):
+        return False
+    threshold, margin = runtime_rule(artifact)
+    head = int(top.indices[0])
+    thr = float(threshold[head]) if torch.is_tensor(threshold) else float(threshold)
+    near_threshold = math.isfinite(thr) and abs(float(top.values[0]) - thr) <= tol
+    near_margin = (len(top.values) > 1 and torch.isfinite(top.values[1])
+                   and abs(float(top.values[0] - top.values[1]) - margin) <= tol)
+    return bool(near_threshold or near_margin)
+
+
+def hook_parity(model, artifact, tok, ids_list, offline, sample, batch_size, pad_id, seed=0, tol=0.15):
     """Route a sample through the REAL bank hook, batched (as cached) and one at a time
-    unpadded (as the RWKU evaluator), and compare with the offline decision."""
+    unpadded (as the RWKU evaluator), and compare with the offline decision. A disagreement on a
+    prompt whose cached decision is within `tol` of a boundary (borderline) is a numerical tie,
+    counted apart; route_mismatches counts the rest and must be 0."""
     device = next(model.parameters()).device
     lm, bank = load_router_artifact(model, artifact)
+    bank.tokenizer = tok                      # subject_match="fuzzy" decodes the routed prompt
     g = torch.Generator().manual_seed(seed)
     picked = torch.randperm(len(ids_list), generator=g)[:int(sample)].tolist()
     report = {}
@@ -185,9 +336,12 @@ def hook_parity(model, artifact, tok, ids_list, offline, sample, batch_size, pad
                     hook = bank.last_active_fact_indices[r]
                     expected = [int(offline["fact"][i])] if bool(offline["active"][i]) else []
                     if hook != expected:
-                        mismatches.append({"index": i, "hook": hook, "offline": expected})
-            report[mode] = {"prompts": len(picked), "route_mismatches": len(mismatches),
-                            "examples": mismatches[:10]}
+                        mismatches.append({"index": i, "hook": hook, "offline": expected,
+                                           "borderline": borderline(offline, i, artifact, tol)})
+            real = [m for m in mismatches if not m["borderline"]]
+            report[mode] = {"prompts": len(picked), "route_mismatches": len(real),
+                            "borderline_ties": len(mismatches) - len(real), "tolerance": tol,
+                            "examples": (real + [m for m in mismatches if m["borderline"]])[:10]}
     finally:
         bank.close()
     return report
@@ -259,6 +413,8 @@ def null_generations(base_model, tok, ours_dir, null_probes, ids_list, routes, m
     artifact = torch.load(Path(ours_dir) / "fact_association_embeddings.pt", map_location="cpu",
                           weights_only=False)
     lm, bank = load_router_artifact(base_model, artifact)
+    if hasattr(bank, "tokenizer"):
+        bank.tokenizer = tok
     try:
         rows = []
         for i in fired:
@@ -273,6 +429,16 @@ def null_generations(base_model, tok, ours_dir, null_probes, ids_list, routes, m
     return {"fired_null_prompts": len(fired), "ours_dir": str(ours_dir),
             "changed": sum(r["changed"] for r in rows), "idk_like": sum(r["idk_like"] for r in rows),
             "rows": rows}
+
+
+def _sha256(path):
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _git_commit():
@@ -297,8 +463,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dataset", required=True, choices=sorted(DEFAULT_ROUTER_DIRS))
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--router-dir", default=None, help="default: the paper's L19 router")
-    parser.add_argument("--out-dir", default=None, help="default: outputs/router_diag_v1/<ds>/seed<S>")
+    parser.add_argument("--router-recipe", choices=sorted(RECIPES), default="regular_v1",
+                        help="which routers: regular_v1 (the paper's) or ours (ONEPASS=1 routers)")
+    parser.add_argument("--router-dir", default=None, help="default: the recipe's L19 router")
+    parser.add_argument("--out-dir", default=None,
+                        help="default: outputs/router_diag_v1 (ours: router_diag_ours_v1)/<ds>/seed<S>")
     parser.add_argument("--model-path", default=None, help="default: the router manifest's")
     parser.add_argument("--mcf-path", default=None)
     parser.add_argument("--zsre-path", default=probes_lib.DEFAULT_PATHS["zsre"])
@@ -326,11 +495,15 @@ def main(argv=None):
                         help="an ours run dir: generate base vs ours on the fired null prompts")
     parser.add_argument("--max-null-generations", type=int, default=100)
     parser.add_argument("--max-new-tokens", type=int, default=24)
+    parser.add_argument("--route-crop", choices=ROUTE_CROPS, default=None,
+                        help="routing pass rule (linear_router.subject_crops); default: the router "
+                             "artifact's route_crop, 'none' for older routers")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args(argv)
 
-    router_dir = Path(args.router_dir or DEFAULT_ROUTER_DIRS[args.dataset].format(seed=args.seed)).resolve()
-    out = Path(args.out_dir or f"outputs/router_diag_v1/{args.dataset}/seed{args.seed}").resolve()
+    router_dirs, root_out = RECIPES[args.router_recipe]
+    router_dir = Path(args.router_dir or router_dirs[args.dataset].format(seed=args.seed)).resolve()
+    out = Path(args.out_dir or f"{root_out}/{args.dataset}/seed{args.seed}").resolve()
     if (out / "manifest.json").exists() and not args.overwrite:
         print(f"{out}/manifest.json exists (--overwrite to redo)")
         return 0
@@ -342,7 +515,9 @@ def main(argv=None):
         raise ValueError(f"{router_dir} is not a linear-router dir (use the L19 router dir)")
     if artifact.get("learned_subject") is not None:
         raise ValueError("hybrid (learned subject) routers are not supported: eligibility "
-                         "here is the exact subject-token rule")
+                         "here is the exact (or fuzzy) subject rule")
+    route_crop = args.route_crop or str(artifact.get("route_crop") or "none")
+    artifact["route_crop"] = route_crop
     sections = [s for s in args.sections.split(",") if s]
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -380,6 +555,11 @@ def main(argv=None):
     report = {"dataset": args.dataset, "seed": args.seed, "router_dir": str(router_dir),
               "model_path": str(model_path), "router_layer": router_layer, "layers": layers,
               "n_layers": n_layers, "gate_mode": str(artifact.get("gate_mode", "threshold")),
+              "subject_match": subject_match_of(artifact), "router_recipe": args.router_recipe,
+              "route_crop": route_crop,
+              "router_sha256": _sha256(router_dir / "fact_association_embeddings.pt"),
+              "router_mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(
+                  (router_dir / "fact_association_embeddings.pt").stat().st_mtime)),
               "threshold": artifact.get("threshold"),
               "ambiguity_margin": float(artifact.get("ambiguity_margin", 0.5)),
               "router_fit": artifact.get("router_fit", {}),
@@ -400,22 +580,29 @@ def main(argv=None):
         t0 = time.time()
         states = capture_last_token_states(model, ids, layers, batch_size=args.batch_size,
                                            pad_id=tok.pad_token_id)
-        routes = route_section(states[layers.index(router_layer)], ids, artifact)
+        routes = route_section(states[layers.index(router_layer)], ids, artifact, tok)
+        routes = apply_route_crops(model, tok, ids, routes, artifact, route_crop, layer=router_layer,
+                                   batch_size=args.batch_size, pad_id=tok.pad_token_id)
         torch.save({"layers": layers, "states": states, "dtype": dtype}, out / f"states_{section}.pt")
         torch.save(routes, out / f"router_{section}.pt")
         (out / f"probes_{section}.json").write_text(json.dumps(section_probes) + "\n")
         report["sections"][section] = {"probes": len(section_probes), "dtype": dtype,
                                        "seconds": round(time.time() - t0, 1),
                                        "fired": int(routes["active"].sum()),
+                                       "crop_fired": int(routes["crop_fired"].sum()),
                                        "counts": _counts(section_probes)}
         print(json.dumps({"phase": "cached", "section": section, "probes": len(section_probes),
                           "fired": int(routes["active"].sum()),
                           "seconds": report["sections"][section]["seconds"]}), flush=True)
-        if section == "eval" and args.parity_sample:
-            report["hook_parity"] = hook_parity(model, artifact, tok, ids, routes, args.parity_sample,
-                                                args.batch_size, tok.pad_token_id)
-            print(json.dumps({"phase": "hook_parity", **{k: v["route_mismatches"] for k, v in
-                                                       report["hook_parity"].items()}}), flush=True)
+        if section in ("eval", "perturbed") and args.parity_sample:
+            # perturbed = typo / case / partial-name variants: where fuzzy eligibility matters
+            check = hook_parity if route_crop == "none" else crop_route_parity
+            parity = check(model, artifact, tok, ids, routes, args.parity_sample,
+                           args.batch_size, tok.pad_token_id)
+            prefix = "" if section == "eval" else f"{section}_"
+            report.setdefault("hook_parity", {}).update({prefix + k: v for k, v in parity.items()})
+            print(json.dumps({"phase": "hook_parity", "section": section,
+                              **{k: v["route_mismatches"] for k, v in parity.items()}}), flush=True)
         del states
     model.to(getattr(torch, args.eval_dtype))
     if args.time_layers and "eval" in ids_by_section:

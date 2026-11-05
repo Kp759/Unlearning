@@ -62,6 +62,26 @@ of the to-do list, with a banner per step in `logs/rdiag_s_<job>_<task>.out`:
 
 It refuses to start while a `router_diag.slurm` job is queued, because both write the same outputs.
 
+**Ours (the paper's router).** Run `sbatch --export=ALL,ROUTER_RECIPE=ours router_diag_staged.slurm`
+once `run_l16_paper_one.sh ONEPASS=1` has fit the routers in `outputs/<ds>_multiseed_ours_v1`.
+Those routers use no PCA, fuzzy subject matching and 20 / 20 checked prompts.
+- **The paper's method is `outputs/l16_ours_v1`:** this classifier at block 19 decides the route;
+  Δe is written at block 16, in a second pass.
+- The diagnostics test the classifier alone, so they hold for `l16_ours_v1` and for
+  `onepass_l19_v1` (Δe at 19), which share these routers.
+- Results go to `outputs/router_diag_ours_control_v1`, the paper's router (see "Which router" below).
+  `router_diag_ours_v1` (the router before 18dd066) and `router_diag_v1` (the regular routers) stay as they are.
+- A cache built from another router file (sha256 in `manifest.json`) or without every layer
+  (`router_fix.slurm` caches only 16 and 19) is moved aside to `seed1_other_router_<time>` /
+  `seed1_partial_layers_<time>` and rebuilt, never resumed.
+- With the paper's rows in `outputs/l16_ours_v1` finished (router at 19, Δe at 16), the no-association test also generates base vs ours on every fired prompt.
+  Diagnostics run before this change took those rows from `onepass_l19_v1` (Δe at 19).
+- Eligibility is the router's own rule. The cache applies the fuzzy match exactly as the bank hook does, and keeps the exact-token mask beside it.
+  - Hook parity also runs on the typo and partial-name prompts, where fuzzy matching decides.
+  - The layer sweep and the refit check use the fuzzy rule. The robustness table still shows exact, fuzzy and none.
+- The refit trains on the router's saved training set (`linear_router_dataset.json`: the balanced positives, rewrites and checked negatives) with its own L2 and no PCA.
+- Ours makes one pass, so a later read layer costs a second pass. The penultimate downstream command keeps the edit at L19 and routes at the later layer (`ONEPASS=1 WRITE_LAYER=19 ROUTER_LAYER=26`).
+
 **Fidelity checks** (in `manifest.json` and the report header):
 - **Hook parity.** A sample of eval prompts goes through the real `LinearClassifierAssociationBank` hook, both batched and one at a time. It must agree with the cached decision (0 mismatches).
 - **Dtypes match the pipeline.** Eval states are cached in bfloat16, as every evaluator runs. Train states are cached in float32, the dtype `fit_linear_router.py` fit in.
@@ -70,24 +90,44 @@ It refuses to start while a `router_diag.slurm` job is queued, because both writ
 ## What each output answers
 
 **`report/summary.md` (L19)**
-1. `scores_eval.png`: every example's score against the 0.5 line, per split.
-   - Forget and paraphrase points show p(true row); neighbourhood and retain points show the max p over all rows.
-   - Colour is the runtime decision. A hollow marker means no eligible head, so the prompt could not fire whatever its score.
+1. `scores_eval.png`: one point per evaluated prompt, sorted by score, one panel per split.
+   - Should-fire prompts are scored by the correct fact's head. Must-not-fire prompts are scored by the best head the subject gate lets through.
+   - Above the dashed line (0.5) the head fires.
+   - Prompts whose subject the gate does not match cannot fire. They sit in a grey band at the bottom, not at an ungated score.
+   - Colour: green correct, red false fire, orange missed, purple wrong fact. Panel titles count each.
    - Below the plot are the top-k worst prompts with their text and error reason.
-2. `confusion_binary.png` and `confusion_nway.png`: FPR, FNR, precision, recall, F1 and the correct-row rate, per split and group. RWKU also gets a person-level matrix.
+2. `confusion_binary.png` and `confusion_nway.png`: FPR, FNR, precision, recall, F1 and the correct-row rate, per split and group.
+   - The binary matrices show counts in every cell.
+   - The n-way matrix keeps each fact involved in an error as its own row and column, and merges every other fact into one, so the errors stay visible. Errors are in red: the last column holds the misses, the last row the false fires.
+   - RWKU also gets a person-level matrix.
 3. RWKU only: errors by probe type and by how the person is named.
    - Probe types: fill-in-the-blank, QA, QA paraphrase, adversarial by attack type, neighbour L1/L2.
    - Naming: full name, partial name only, or no name.
 4. `scores_null.png`: the deployment false-positive rate on prompts with no association.
    - Prompt sets: generic text, PPL prefixes, unseen subjects in the forget templates, and protected subjects asked about other relations (RWKU: those should fire).
    - It also reports how many ungated heads would pass 0.5.
-   - If the paper's `ours` run exists, it shows base vs ours outputs on every fired null prompt (changed, or "I don't know"-like).
+   - If the paper's run exists (`outputs/l16_ours_v1`), it shows base vs ours outputs on every fired null prompt (changed, or "I don't know"-like), with a table of examples.
+   - `scripts/router_null_generations.py` redoes only this step for an existing cache.
 5. Perturbed prompts: recall per perturbation family.
 6. `umap_L16_L19.png`:
-   - 10 should-fire and 10 must-not-fire points at L16 and L19 (n_neighbors 5, random_state 0).
+   - 20 should-fire and 20 must-not-fire evaluation prompts at L16 and L19 (n_neighbors 5, random_state 0).
+   - Every point is numbered, and the numbered sentences are listed under the plots. A ring / ✗ marks a prompt the router gets wrong.
    - Negatives prefer prompts that contain a protected subject, which are the ones the gate lets through.
    - Silhouette scores (cosine in full dimension, and 2D) and leave-one-out logistic and 1-NN accuracy put a number on the overlap.
 7. `reliability.png`: ECE of the deployed probabilities. They are not meant to be calibrated, because the cutoff was moved for recall.
+
+**`train_umap/summary.md`** (`scripts/router_train_umap.py`, CPU, from the cached `train` section): the
+prompts each head is actually fit on, `linear_router_dataset.json`, about 20 positives and 20 negatives per fact.
+- `confusion_train.png`: every head on its own training sentences, fit split vs held-out (calibration + audit), with counts.
+- `fact_<i>.png`: one card per drawn fact (by default the 2 hardest at L19, then 2 seeded random).
+  - Its 20 positive (blue) and 20 negative (red) sentences at L16 and L19, every point numbered.
+  - The numbered sentences are listed underneath; ✗ = the deployed head gets it wrong, [held-out] = the weights never saw it.
+  - The head's own 2x2 confusion on those 40 sentences.
+- `umap_pooled.png`: every fact's training prompts in one projection.
+- `separability_vs_layer.png` and the table: per fact, silhouette (cosine) and leave-one-out 1-NN at every
+  block, the leave-one-out logistic probe at the drawn blocks, averaged over facts with the worst fact.
+- The deployed head's errors on its own prompts, by split (`fit` = training error; `calibration` /
+  `audit` are held out of the weight fit).
 
 **`layer_sweep/layer_choice.md`**
 - **FPR, FNR and F1 against layer** (`errors_vs_layer.png`). The same router is refit at every layer with the shipped recipe: masked class-balanced BCE, L-BFGS, CV-selected L2, the shipped calibration rule. It is scored on the official eval prompts, which are never fit on.
@@ -137,3 +177,245 @@ It checks that:
 - hook parity is 0;
 - the refit at the router layer reproduces the shipped router, including under CV;
 - the metrics and fuzzy gate behave as defined.
+
+## Which router: the diagnostics in `router_diag_ours_v1` predate the paper's router
+
+`outputs/router_diag_ours_v1` (written 2026-10-25 18:30) diagnosed the ours router of commit
+265840b: 40 negatives per fact, threshold placed with `holdout_last`. Commit 18dd066
+(19:22 the same day) changed the recipe to 20 negatives and `holdout_third` (the 0.98-recall
+threshold placed on a held-out third of the rewrites), and the routers in
+`outputs/<ds>_multiseed_ours_v1` were refit at 19:31–19:41. That refit router is the one every
+later SURE run uses, including the paper's method `l16_ours_v1` (router at 19, fuzzy matching,
+Δe at 16). Its seed-1 diagnostics are `outputs/router_diag_ours_control_v1`
+(`router_fix.slurm VARIANT=control`). The counts quoted earlier in this README (19 / 4 / 9 misses,
+5.7% no-association rate on MCF) describe the older router.
+
+| seed 1, block 19 | older router (265840b) | paper's router (18dd066) |
+|---|---|---|
+| MCF: missed / retain fires / no-association rate | 19 / 3 / 5.7% | 3 / 16 / 28.3% |
+| zsRE | 4 / 0 / 1.6% | 5 / 0 / 6.2% |
+| MQuAKE | 9 / 4 / 5.6% | 8 / 10 / 6.2% |
+
+Calibrating on held-out rewrites lowered the threshold. The paper's router misses almost no
+MCF paraphrases, but fires on 28% of MCF prompts that must not fire. Most must-not-fire prompts
+name a protected subject and ask about another of its relations. On MCF the open problem is
+therefore precision, not misses.
+
+### Rerunning everything on the paper's router
+
+`router_diag_ours_v1` holds the only full run (all 4 benchmarks, every layer, penultimate test, RWKU
+breakdown), and its router is the 20 positive / **40** negative one. The control run covered MCF, zsRE and
+MQuAKE at blocks 16 and 19 only. To redo every task on the paper's 20 / 20 router (seed 1, all 4):
+
+```bash
+cd /scratch/yl258/kp759/Unlearning && git pull --ff-only && cd semantic-unlearning
+sbatch --export=ALL,ROUTER_RECIPE=ours router_diag_staged.slurm
+# -> outputs/router_diag_ours_control_v1/{RESULTS_EXPLAINED.md, ROUTER_LAYER_CHOICE.md}
+#    and per benchmark: report/, train_umap/, layer_sweep/
+```
+
+The control's partial cache is moved aside to `seed1_partial_layers_<time>` and rebuilt at every layer.
+The control never covered RWKU, so check first that all four routers were refit after 18dd066 (Oct 25 19:22):
+`ls -l --time-style=+%F_%T outputs/*_multiseed_ours_v1/seed1/L19/router/fact_association_embeddings.pt`.
+
+## Tested fixes for the router misses (seed 1)
+
+Every fix is compared with the control, the paper's router under the same code; the
+comparison is `scripts/router_fix_compare.py` (`outputs/ROUTER_FIX_COMPARISON.md`). The floor
+variants are refits; the crop variants route with the paper's router itself.
+
+| missed / retain fires / no-association rate | MCF | zsRE | MQuAKE |
+|---|---|---|---|
+| control: paper's router | 3 / 16 / 28.3% | 5 / 0 / 6.2% | 8 / 10 / 6.2% |
+| subject-sentence crop | 2 / 16 / 28.3% | 5 / 0 / 6.2% | 8 / 10 / 6.2% |
+| crop + text from the subject | 2 / 16 / 28.3% | 5 / 0 / 7.3% | 8 / 10 / 6.2% |
+| coverage floor, no judge | 7 / 12 / 24.8% | 6 / 0 / 4.8% | 6 / 27 / 8.0% |
+| coverage floor + crop | 5 / 12 / 24.8% | 6 / 0 / 4.8% | 6 / 27 / 8.0% |
+| distractor copies + floor with judge | 17 / 2 / 8.2% | 4 / 0 / 6.4% | 4 / 44 / 9.6% |
+
+Verdicts; every option stays off by default and the paper's router is unchanged:
+
+- **Subject-sentence crop** (`route_crop=sentence`): safe but nearly idle. It decided one
+  evaluation prompt (one MCF paraphrase) and no prompt that must not fire. The paper's router
+  already fires on the other prefixed paraphrases. Not worth a second routing pass in the
+  method; kept as an option (`ROUTER_RECIPE=ours_crop`).
+- **Text from the subject** (`sentence_subject`): rejected. Nothing more recovered, 5 more
+  no-association fires on zsRE.
+- **Coverage floor without the judge**: rejected. MQuAKE retain fires 10 → 27, MCF misses 3 → 7.
+- **Distractor copies + floor with the judge** (the first attempt, `VARIANT=rejected`):
+  rejected. It was a refit of the older recipe's ingredients; MQuAKE retain fires 44.
+
+The remaining misses (MCF 3, zsRE 5, MQuAKE 8 of 100 / 50 / 127 held-out phrasings) sit
+where every recall gain tested so far costs same-subject false fires.
+
+
+## Relation gate (analysis only; the paper's router does not use it)
+
+**Why it is not in the method.** A gate that works on all four benchmarks costs recall on
+zsRE and RWKU. The false fires it removes are mostly on the no-association set, which only
+these diagnostics measure; the paper's metrics do not score it. On the official retain
+prompts MCF has 16 false fires in 13,500. The gate is an opt-in artifact field
+(`artifact["relation_gate"]`): the paper's routers have none and route exactly as before.
+Results and reports are in `outputs/relation_gate_analysis_v1/`.
+
+### Where MCF's false fires come from (seed 1)
+
+On MCF the paper's router fires on 118 of 468 no-association prompts (25.2%) and on 16
+retain prompts. Almost all of them name a protected subject but ask another relation:
+"Gautier de Coincy originates from" fires the head of "The mother tongue of Gautier de Coincy
+is". The heads read one last-token state, and in it the subject dominates. Refitting the heads
+does not fix this. Best recall at a given number of false fires (test prompts plus no-association
+prompts), cutoff picked on the test prompts themselves:
+
+| refit of the heads alone | 0 false fires | ≤ 5 | ≤ 10 |
+|---|---|---|---|
+| current recipe | 0.28 | 0.68 | 0.77 |
+| + same-subject / same-relation hard negatives | 0.45 | 0.79 | 0.82 |
+
+### MCF with the true relation label
+
+**The relation gate** (`scripts/fit_relation_gate.py`, `artifact["relation_gate"]`) is a
+softmax probe over the 34 MCF relations. It reads the same block-19 query as the heads, so it
+needs no extra pass. A head stays eligible only if p(the fact's relation | prompt) is at least
+the cutoff. Heads, their cutoff and the rows do not change.
+- **Training data:** 73k MCF prompts from the records the diagnostics treat as training-side.
+  Prompts that name a protected subject or are evaluated anywhere are dropped. A quarter of
+  them are repeated with an instruction suffix added (none is the diagnostics' "Please answer
+  briefly.").
+- **Accuracy:** 92.9% on held-out probe prompts.
+- **Cutoff:** p ≥ 0.081, which lets 85% of the router's own training positives through
+  (`--quantile 0.15`).
+
+```bash
+sbatch --export=ALL,VARIANT=relgate --array=0 router_fix.slurm
+# -> outputs/mcf_multiseed_ours_relgate_v1/seed1/L19/router (+ relation_gate_report.json)
+#    outputs/router_diag_ours_relgate_v1/mcf/seed1/report/summary.md
+```
+
+| MCF seed 1 | paper's router | + relation gate |
+|---|---|---|
+| forget + paraphrase recall | 0.980 | 0.980 |
+| retain / neighbourhood fires | 16 | **0** |
+| no-association fires | 118 / 468 (25.2%) | **10 / 468 (2.1%)** |
+| same answer type fires (reported apart) | 20 / 20 | 3 / 20 |
+| perturbed recall | 0.891 | 0.873 (suffixed 1.00 → 0.81) |
+| hook parity (real bank vs cached) | 0 | 0 |
+
+**What is left.** The 10 no-association fires fall into three groups:
+- 6 are "<place> is located in / is in" asked of a location or continent fact.
+- 3 are "<product> was created in the country of" asked of a manufacturer fact.
+- 1, "Edinburgh Art Festival is located in", has the same text as the fact's own prompt.
+
+In several of them the forgotten answer is a natural answer: "Grande Arche is located in" → Paris.
+
+**Getting to exactly 0 costs recall.** Raising the gate cutoff:
+
+| gate cutoff | recall | perturbed recall | no-association fires |
+|---|---|---|---|
+| p ≥ 0.2 | 0.953 | 0.80 | 6 |
+| p ≥ 0.7 | 0.840 | 0.63 | 3 |
+| p ≥ 0.8 | 0.780 | 0.55 | 1 |
+
+At p ≥ 0.7 the 3 left are both Edinburgh Art Festival prompts and "Grande Arche is in". At
+p ≥ 0.8 only "Edinburgh Art Festival is in" is left, the one-word variant of the fact's own
+prompt.
+
+**Two variants tested and rejected:**
+- *Base-model answer check*: the head fires only if the frozen model predicts the fact's answer, or
+  the answer type of its relation. The model puts the answer in its top 10 on only 49% of real
+  forget prompts, and first-token answer types collide ("Sloven" for Slovenia and Slovenian).
+  Best with a cutoff set on training prompts only: recall 0.95 at 61 no-association fires.
+- *Gate without suffix views*: no-association fires 8, but suffixed perturbation recall 0.19.
+
+### The same gate on all four benchmarks, without labels
+
+Only MCF and MQuAKE facts carry a Wikidata relation. For a gate that works on every benchmark
+(`scripts/relation_gate_universal_check.py`), each fact gets a relation profile instead of a label. The
+profile is the mean probe distribution over the fact's own training positives. A head may fire
+if log Σ_r p(r | prompt) · profile(r) reaches the cutoff. The cutoff is the share of the
+fact's own training positives the gate may block, the same rule everywhere.
+- **One probe:** 34 relations, 94k prompts. It excludes every protected subject and every
+  test prompt of all four benchmarks, and gets 93.4% on held-out probe prompts.
+- **Data, from `scripts/` only:** MCF prompts of training-side records,
+  `mcf_shadow_relation_prompts.CALIBRATION_SCAFFOLDS`, `RELATION_ALTERNATE_TEMPLATES`, three
+  question forms, and instruction-suffix copies.
+- **Check:** with the gate off, the script reproduces the cached routes on all four benchmarks.
+
+Seed 1, gentlest setting (block at most 5% of each fact's training positives):
+
+| benchmark | recall | perturbed recall | retain / test false fires | no-association fires |
+|---|---|---|---|---|
+| MCF | 0.980 → 0.980 | 0.891 → 0.887 | 16 → 2 | 118 → 11 / 468 |
+| MQuAKE | 0.985 → 0.965 | 0.772 → 0.706 | 10 → 4 | 44 → 14 / 872 |
+| zsRE | 0.950 → 0.910 | 0.787 → 0.683 | 0 → 0 | 27 → 18 / 439 |
+| RWKU | 0.262 → 0.257 | 0.268 → 0.257 | 1 → 1 | 3 → 3 / 264 |
+
+Stricter settings cost more recall everywhere: blocking 15% takes zsRE recall to 0.84. The
+gate helps where prompts look like Wikidata fill-in-the-blank relations (MCF, MQuAKE). zsRE
+questions and RWKU chat prompts are read poorly: a fact's profile spreads over about 11
+relations (zsRE) and 15 (RWKU), against about 3 on MCF. Every setting, pooled and per fact, is
+in `universal_gate_check.json`.
+
+```bash
+cd /scratch/yl258/kp759/Unlearning/semantic-unlearning
+sbatch -p gpu --qos=standard --gres=gpu:1 --mem=128G -t 1:00:00 --wrap "module load wulver Miniforge3 && \
+  source \$(conda info --base)/etc/profile.d/conda.sh && conda activate /scratch/yl258/kp759/conda_envs/semantic_unlearning && \
+  python -u scripts/relation_gate_universal_check.py"   # reads the router_diag_ours_control_v1 caches
+```
+
+## Features tried (analysis only; the paper's router is unchanged)
+
+Each head's own 20 positives and 20 negatives overlap at L19: the training UMAP's silhouette
+on MCF is 0.15. At the 98%-recall cutoff, about 65% of MCF's held-out negatives fire.
+`scripts/router_feature_variants.py` asks whether other features, read from the same
+routing pass, pull the two classes apart. Each variant:
+- is refit with the shipped recipe: same training prompts, L2 by grouped cross-validation,
+  cutoff from the router's own calibration rule;
+- is scored on held-out prompts the same way as the others.
+
+The refit on today's features reproduces the shipped routes exactly (agreement 1.0 on all four
+benchmarks).
+
+Variants:
+- **Shared whitening** (`white_a`): shrinkage-LDA whitening of the L19 last-token state,
+  learned from the fit split of all facts at once, with shrinkage a = 0.2 / 0.5 / 0.8.
+- **Relation span** (`span`): the last-token state plus the mean L19 state of the tokens after
+  the gate-matched subject ("… originates from" vs "… native language is").
+- Both together (`span_white_a`).
+
+Seed 1, today's features → relation span. "Audit negatives firing" is the share of held-out
+training negatives (audit split, never used to fit or calibrate) that fire. No-association fires
+count all null prompts, the same-answer-type group included:
+
+| | audit negatives firing | recall | test false fires | no-association fires | perturbed recall |
+|---|---|---|---|---|---|
+| MCF | 0.647 → 0.616 | 0.980 → 0.980 | 16 → 18 | 138 → 132 | 0.891 → 0.887 |
+| zsRE | 0.190 → 0.173 | 0.950 → 0.930 | 0 → 0 | 27 → 22 | 0.787 → 0.783 |
+| MQuAKE | 0.067 → 0.043 | 0.985 → 0.985 | 10 → 2 | 55 → 34 | 0.772 → 0.756 |
+| RWKU | 0.050 → 0.067 | 0.262 → 0.325 | 1 → 1 | 0 → 0 | 0.268 → 0.288 |
+
+What the runs show:
+- **Whitening does not help.** On MCF it raises audit negatives firing to about 0.79 and test
+  false fires to 20–24. On MQuAKE it raises false fires at low shrinkage. On zsRE it trades
+  recall for fewer false fires. Its silhouette sometimes rises while held-out errors get worse:
+  more apparent separation is not better linear classification of new prompts.
+- **The relation span helps MQuAKE and RWKU.** MQuAKE test false fires drop from 10 to 2, and
+  RWKU recall rises by 6 points.
+- **The relation span is roughly neutral on MCF**, and costs zsRE 2 of its 100 forget prompts.
+- **MCF's overlap is not a feature problem solvable at L19.** Even the relation words, read
+  directly, leave about 62% of held-out negatives firing. Separating them needed relation
+  knowledge learned from 70k+ external prompts: see "Relation gate (analysis only)".
+
+Caveats:
+- Seed 1 only; small differences are a few prompts (0.02 on zsRE is 2 prompts).
+- For perturbed prompts whose subject has a typo, the subject is often not found as tokens
+  (226 of 409 on MCF), and the span falls back to the last 4 tokens.
+
+Results: `outputs/router_feature_variants_v1/feature_variants.{md,json}`, every shrinkage level,
+plus the audit recall and route AUC.
+
+```bash
+sbatch -p gpu --qos=standard --gres=gpu:1 --mem=160G -t 2:00:00 --wrap "module load wulver Miniforge3 && \
+  source \$(conda info --base)/etc/profile.d/conda.sh && conda activate /scratch/yl258/kp759/conda_envs/semantic_unlearning && \
+  python -u scripts/router_feature_variants.py --extract"   # reads the router_diag_ours_control_v1 caches
+```

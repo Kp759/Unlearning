@@ -1,0 +1,1751 @@
+{
+  "dataset": "mcf",
+  "seed": 1,
+  "router_dir": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/mcf_multiseed_ours_v1/seed1/L19/router",
+  "model_path": "/mmfs1/scratch/yl258/kp759/hf/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/0cb88a4f764b7a12671c53f0838cd831a0843b95",
+  "router_layer": 19,
+  "layers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27
+  ],
+  "n_layers": 28,
+  "gate_mode": "threshold",
+  "subject_match": "fuzzy",
+  "router_recipe": "ours",
+  "threshold": 0.0,
+  "ambiguity_margin": 0.5,
+  "router_fit": {
+    "benchmark": "mcf",
+    "gate_mode": "threshold",
+    "example_source": "association_examples.json + 281 rewrites (router_rewrites.json) (balanced to 20 positives per fact)",
+    "split_rule": "shipped",
+    "selected_l2": 1e-05,
+    "selected_pca_dim": 0,
+    "threshold_logit": 0.4821712374687195,
+    "decision_rule": "calibrated_bias",
+    "calibrated_cutoff_folded_into_bias": true,
+    "runtime_threshold_logit": 0.0,
+    "bias_shift": 0.4821712374687195,
+    "ambiguity_margin": 0.5,
+    "target_fpr": null,
+    "min_recall": 0.98,
+    "threshold_policy": "global",
+    "per_head_fraction": 0.1,
+    "per_head_slack": 0.5,
+    "per_head_shrink": 0.0,
+    "answer_groups": true,
+    "threshold_placement_fraction": 0.1,
+    "fit_info": {
+      "objective": 0.3419154841086679,
+      "max_abs_gradient": 9.7280940878849e-10,
+      "lbfgs_iterations": 339,
+      "lbfgs_function_evaluations": 577,
+      "converged": true,
+      "l2": 1e-05,
+      "pca_dim": 0,
+      "feature_dim": 3072,
+      "balance": true,
+      "heads": 50,
+      "eligible_pairs": 1386,
+      "positive_pairs": 757,
+      "training_errors_at_logit_zero": 0,
+      "linearly_separated_on_fit": true,
+      "heads_without_positive": [],
+      "heads_without_negative": [],
+      "router_parameters": 153650,
+      "fit_pairs_per_parameter": 0.009020501138952164,
+      "fit_device": "cuda:0"
+    },
+    "audit": {
+      "correct_route": {
+        "rate": 0.6141732283464567,
+        "low": 0.5273424130852696,
+        "high": 0.69429963348096,
+        "n": 127,
+        "k": 78
+      },
+      "wrong_row_on_positive": {
+        "rate": 0.0,
+        "low": 0.0,
+        "high": 0.02936069262375269,
+        "n": 127,
+        "k": 0
+      },
+      "abstain_on_positive": {
+        "rate": 0.3858267716535433,
+        "low": 0.30570036651903987,
+        "high": 0.47265758691473037,
+        "n": 127,
+        "k": 49
+      },
+      "false_activation_on_negative_control": {
+        "rate": 0.05592841163310962,
+        "low": 0.03816637557769549,
+        "high": 0.08125827378917748,
+        "n": 447,
+        "k": 25
+      },
+      "ambiguity_rejections": 0,
+      "correct_subject_row_on_positive": {
+        "rate": 0.6141732283464567,
+        "low": 0.5273424130852696,
+        "high": 0.69429963348096,
+        "n": 127,
+        "k": 78
+      }
+    },
+    "source_run_dir": "/mmfs1/scratch/yl258/kp759/Unlearning/semantic-unlearning/outputs/mcf_multiseed_ours_v1/seed1/L19/prep",
+    "head_sharing": {
+      "mode": "fact"
+    },
+    "subject_match": "fuzzy",
+    "unmasked_fit": false,
+    "free_fire_logit": null,
+    "extra_negatives": 359
+  },
+  "facts": [
+    {
+      "id": "mcf_forget_13256",
+      "subject": "Belgium",
+      "relation": "P463"
+    },
+    {
+      "id": "mcf_forget_20748",
+      "subject": "Ignazio Silone",
+      "relation": "P106"
+    },
+    {
+      "id": "mcf_forget_12032",
+      "subject": "Kink FM",
+      "relation": "P495"
+    },
+    {
+      "id": "mcf_forget_15325",
+      "subject": "Karl Krumbacher",
+      "relation": "P937"
+    },
+    {
+      "id": "mcf_forget_12975",
+      "subject": "Bam Margera",
+      "relation": "P103"
+    },
+    {
+      "id": "mcf_forget_19467",
+      "subject": "Irish Free State",
+      "relation": "P30"
+    },
+    {
+      "id": "mcf_forget_18677",
+      "subject": "Bashkim Kadrii",
+      "relation": "P641"
+    },
+    {
+      "id": "mcf_forget_19068",
+      "subject": "Pernik Peninsula",
+      "relation": "P30"
+    },
+    {
+      "id": "mcf_forget_17475",
+      "subject": "Gautier de Coincy",
+      "relation": "P103"
+    },
+    {
+      "id": "mcf_forget_14548",
+      "subject": "BMW M5",
+      "relation": "P176"
+    },
+    {
+      "id": "mcf_forget_12560",
+      "subject": "Rory O'Hanlon",
+      "relation": "P106"
+    },
+    {
+      "id": "mcf_forget_19334",
+      "subject": "Matija Gubec",
+      "relation": "P19"
+    },
+    {
+      "id": "mcf_forget_11431",
+      "subject": "Arkansas",
+      "relation": "P37"
+    },
+    {
+      "id": "mcf_forget_17650",
+      "subject": "Toyota Tercel",
+      "relation": "P176"
+    },
+    {
+      "id": "mcf_forget_18382",
+      "subject": "District 13",
+      "relation": "P364"
+    },
+    {
+      "id": "mcf_forget_21411",
+      "subject": "Brahms Inlet",
+      "relation": "P30"
+    },
+    {
+      "id": "mcf_forget_10972",
+      "subject": "William Jennings Bryan",
+      "relation": "P106"
+    },
+    {
+      "id": "mcf_forget_18604",
+      "subject": "John Shelby Spong",
+      "relation": "P39"
+    },
+    {
+      "id": "mcf_forget_15517",
+      "subject": "The Caretaker",
+      "relation": "P364"
+    },
+    {
+      "id": "mcf_forget_14875",
+      "subject": "Sidley Austin",
+      "relation": "P740"
+    },
+    {
+      "id": "mcf_forget_21131",
+      "subject": "Shebelle River",
+      "relation": "P30"
+    },
+    {
+      "id": "mcf_forget_12706",
+      "subject": "iPhone 1",
+      "relation": "P176"
+    },
+    {
+      "id": "mcf_forget_16397",
+      "subject": "Palmer Archipelago",
+      "relation": "P30"
+    },
+    {
+      "id": "mcf_forget_11468",
+      "subject": "Jiunie Booth",
+      "relation": "P136"
+    },
+    {
+      "id": "mcf_forget_11325",
+      "subject": "Deborah Conway",
+      "relation": "P1303"
+    },
+    {
+      "id": "mcf_forget_11380",
+      "subject": "Robert Merle",
+      "relation": "P103"
+    },
+    {
+      "id": "mcf_forget_20269",
+      "subject": "Grande Arche",
+      "relation": "P276"
+    },
+    {
+      "id": "mcf_forget_11093",
+      "subject": "Kazimierz Ajdukiewicz",
+      "relation": "P101"
+    },
+    {
+      "id": "mcf_forget_17502",
+      "subject": "Luca Pacioli",
+      "relation": "P101"
+    },
+    {
+      "id": "mcf_forget_14663",
+      "subject": "Marion Davies",
+      "relation": "P19"
+    },
+    {
+      "id": "mcf_forget_18199",
+      "subject": "Rob Barrett",
+      "relation": "P1303"
+    },
+    {
+      "id": "mcf_forget_11442",
+      "subject": "El Mariachi",
+      "relation": "P364"
+    },
+    {
+      "id": "mcf_forget_20034",
+      "subject": "Rousseau Institute",
+      "relation": "P740"
+    },
+    {
+      "id": "mcf_forget_14752",
+      "subject": "T. Franklin Ahearn",
+      "relation": "P937"
+    },
+    {
+      "id": "mcf_forget_18473",
+      "subject": "DPR Korea Football Association",
+      "relation": "P463"
+    },
+    {
+      "id": "mcf_forget_19473",
+      "subject": "Giulio Questi",
+      "relation": "P1412"
+    },
+    {
+      "id": "mcf_forget_20468",
+      "subject": "Alfred Weber",
+      "relation": "P101"
+    },
+    {
+      "id": "mcf_forget_14947",
+      "subject": "Dominion of Pakistan",
+      "relation": "P36"
+    },
+    {
+      "id": "mcf_forget_16881",
+      "subject": "Edinburgh Art Festival",
+      "relation": "P276"
+    },
+    {
+      "id": "mcf_forget_14910",
+      "subject": "MacAlpine Hills",
+      "relation": "P30"
+    },
+    {
+      "id": "mcf_forget_14702",
+      "subject": "Major Maker",
+      "relation": "P495"
+    },
+    {
+      "id": "mcf_forget_18851",
+      "subject": "Joseph Roth",
+      "relation": "P937"
+    },
+    {
+      "id": "mcf_forget_15916",
+      "subject": "Giordano Bruno",
+      "relation": "P101"
+    },
+    {
+      "id": "mcf_forget_11310",
+      "subject": "Domodedovo International Airport",
+      "relation": "P138"
+    },
+    {
+      "id": "mcf_forget_18099",
+      "subject": "Jason Rebello",
+      "relation": "P1303"
+    },
+    {
+      "id": "mcf_forget_20529",
+      "subject": "Chaos Divine",
+      "relation": "P740"
+    },
+    {
+      "id": "mcf_forget_12665",
+      "subject": "Milly Mathis",
+      "relation": "P103"
+    },
+    {
+      "id": "mcf_forget_14138",
+      "subject": "Johan Cruyff",
+      "relation": "P1412"
+    },
+    {
+      "id": "mcf_forget_21786",
+      "subject": "David Mendes da Silva",
+      "relation": "P413"
+    },
+    {
+      "id": "mcf_forget_16030",
+      "subject": "Mikhail Kopelman",
+      "relation": "P1303"
+    }
+  ],
+  "subject_patterns": [
+    [
+      [
+        22404,
+        90339
+      ],
+      [
+        34061
+      ]
+    ],
+    [
+      [
+        44437,
+        57946,
+        8211,
+        606
+      ],
+      [
+        34881,
+        57946,
+        8211,
+        606
+      ]
+    ],
+    [
+      [
+        42,
+        771,
+        24342
+      ],
+      [
+        735,
+        771,
+        24342
+      ]
+    ],
+    [
+      [
+        42,
+        49358,
+        16852,
+        3635,
+        11252
+      ],
+      [
+        35131,
+        16852,
+        3635,
+        11252
+      ]
+    ],
+    [
+      [
+        33,
+        309,
+        24079,
+        2473
+      ],
+      [
+        56107,
+        24079,
+        2473
+      ]
+    ],
+    [
+      [
+        49213,
+        819,
+        3658,
+        3314
+      ],
+      [
+        18088,
+        3658,
+        3314
+      ]
+    ],
+    [
+      [
+        33,
+        1003,
+        58993,
+        74776,
+        462,
+        72
+      ],
+      [
+        39630,
+        58993,
+        74776,
+        462,
+        72
+      ]
+    ],
+    [
+      [
+        47,
+        944,
+        1609,
+        50714
+      ],
+      [
+        393,
+        944,
+        1609,
+        50714
+      ]
+    ],
+    [
+      [
+        38,
+        2784,
+        1291,
+        409,
+        27328,
+        11377
+      ],
+      [
+        96154,
+        1291,
+        409,
+        27328,
+        11377
+      ]
+    ],
+    [
+      [
+        98736,
+        386,
+        20
+      ],
+      [
+        30864,
+        386,
+        20
+      ]
+    ],
+    [
+      [
+        49,
+        683,
+        507,
+        68070,
+        276,
+        12490
+      ],
+      [
+        83421,
+        507,
+        68070,
+        276,
+        12490
+      ]
+    ],
+    [
+      [
+        11836,
+        29230,
+        480,
+        392,
+        762
+      ],
+      [
+        7011,
+        29230,
+        480,
+        392,
+        762
+      ]
+    ],
+    [
+      [
+        91888,
+        14124
+      ],
+      [
+        32790
+      ]
+    ],
+    [
+      [
+        97977,
+        350,
+        3035,
+        301
+      ],
+      [
+        30300,
+        350,
+        3035,
+        301
+      ]
+    ],
+    [
+      [
+        48940,
+        220,
+        1032
+      ],
+      [
+        11182,
+        220,
+        1032
+      ]
+    ],
+    [
+      [
+        33,
+        33607,
+        1026,
+        763,
+        1169
+      ],
+      [
+        78084,
+        1026,
+        763,
+        1169
+      ]
+    ],
+    [
+      [
+        45887,
+        71290,
+        37453
+      ],
+      [
+        12656,
+        71290,
+        37453
+      ]
+    ],
+    [
+      [
+        13379,
+        70508,
+        328,
+        60202
+      ],
+      [
+        3842,
+        70508,
+        328,
+        60202
+      ]
+    ],
+    [
+      [
+        791,
+        10852,
+        83,
+        4506
+      ],
+      [
+        578,
+        10852,
+        83,
+        4506
+      ]
+    ],
+    [
+      [
+        68753,
+        3258,
+        19816
+      ],
+      [
+        34989,
+        3258,
+        19816
+      ]
+    ],
+    [
+      [
+        8100,
+        65,
+        6853,
+        11188
+      ],
+      [
+        3005,
+        65,
+        6853,
+        11188
+      ]
+    ],
+    [
+      [
+        45840,
+        220,
+        16
+      ],
+      [
+        12443,
+        220,
+        16
+      ]
+    ],
+    [
+      [
+        20577,
+        1195,
+        9683,
+        82179,
+        6438
+      ],
+      [
+        42216,
+        9683,
+        82179,
+        6438
+      ]
+    ],
+    [
+      [
+        41,
+        72,
+        359,
+        648,
+        64370
+      ],
+      [
+        55551,
+        359,
+        648,
+        64370
+      ]
+    ],
+    [
+      [
+        1951,
+        61658,
+        60574
+      ],
+      [
+        70625,
+        60574
+      ]
+    ],
+    [
+      [
+        35632,
+        8930,
+        273
+      ],
+      [
+        8563,
+        8930,
+        273
+      ]
+    ],
+    [
+      [
+        6600,
+        23775,
+        1676,
+        1557
+      ],
+      [
+        37623,
+        1676,
+        1557
+      ]
+    ],
+    [
+      [
+        42,
+        1394,
+        318,
+        66443,
+        41757,
+        57671,
+        572,
+        53322
+      ],
+      [
+        36074,
+        318,
+        66443,
+        41757,
+        57671,
+        572,
+        53322
+      ]
+    ],
+    [
+      [
+        50302,
+        936,
+        12925,
+        72,
+        14559
+      ],
+      [
+        84278,
+        12925,
+        72,
+        14559
+      ]
+    ],
+    [
+      [
+        12331,
+        290,
+        56872
+      ],
+      [
+        56679,
+        56872
+      ]
+    ],
+    [
+      [
+        14804,
+        56859
+      ],
+      [
+        4997,
+        56859
+      ]
+    ],
+    [
+      [
+        6719,
+        29829,
+        31464
+      ],
+      [
+        4072,
+        29829,
+        31464
+      ]
+    ],
+    [
+      [
+        49,
+        46651,
+        2933,
+        10181
+      ],
+      [
+        98989,
+        2933,
+        10181
+      ]
+    ],
+    [
+      [
+        51,
+        13,
+        19372,
+        362,
+        383,
+        1923
+      ],
+      [
+        350,
+        13,
+        19372,
+        362,
+        383,
+        1923
+      ]
+    ],
+    [
+      [
+        35,
+        6616,
+        12126,
+        21424,
+        10229
+      ],
+      [
+        89001,
+        12126,
+        21424,
+        10229
+      ]
+    ],
+    [
+      [
+        47941,
+        360,
+        822,
+        15403,
+        72
+      ],
+      [
+        63651,
+        822,
+        15403,
+        72
+      ]
+    ],
+    [
+      [
+        2149,
+        29093,
+        56620
+      ],
+      [
+        42592,
+        56620
+      ]
+    ],
+    [
+      [
+        72641,
+        290,
+        315,
+        17076
+      ],
+      [
+        76521,
+        315,
+        17076
+      ]
+    ],
+    [
+      [
+        2782,
+        37886,
+        5277,
+        17772
+      ],
+      [
+        41406,
+        5277,
+        17772
+      ]
+    ],
+    [
+      [
+        20122,
+        2149,
+        39138,
+        25964
+      ],
+      [
+        7553,
+        2149,
+        39138,
+        25964
+      ]
+    ],
+    [
+      [
+        35575,
+        41628
+      ],
+      [
+        17559,
+        41628
+      ]
+    ],
+    [
+      [
+        61760,
+        37512
+      ],
+      [
+        15466,
+        37512
+      ]
+    ],
+    [
+      [
+        47941,
+        541,
+        5770,
+        52210
+      ],
+      [
+        15754,
+        541,
+        5770,
+        52210
+      ]
+    ],
+    [
+      [
+        23658,
+        6879,
+        22460,
+        7327,
+        21348
+      ],
+      [
+        21414,
+        6879,
+        22460,
+        7327,
+        21348
+      ]
+    ],
+    [
+      [
+        54013,
+        52743,
+        4896
+      ],
+      [
+        18984,
+        52743,
+        4896
+      ]
+    ],
+    [
+      [
+        1163,
+        65966,
+        43361
+      ],
+      [
+        44205,
+        43361
+      ]
+    ],
+    [
+      [
+        44,
+        14722,
+        4242,
+        285
+      ],
+      [
+        10357,
+        398,
+        4242,
+        285
+      ]
+    ],
+    [
+      [
+        41,
+        57572,
+        14761,
+        88,
+        544
+      ],
+      [
+        89907,
+        14761,
+        88,
+        544
+      ]
+    ],
+    [
+      [
+        23083,
+        46211,
+        288,
+        3067,
+        42141
+      ],
+      [
+        6941,
+        46211,
+        288,
+        3067,
+        42141
+      ]
+    ],
+    [
+      [
+        44,
+        83356,
+        59109,
+        64641
+      ],
+      [
+        92551,
+        59109,
+        64641
+      ]
+    ]
+  ],
+  "notes": {
+    "train_source": "linear_router_dataset.json"
+  },
+  "git_commit": "265840bff4a8ca4cd1e470127ee00a8a138a4fb8",
+  "command": [
+    "scripts/cache_router_states.py",
+    "--dataset",
+    "mcf",
+    "--seed",
+    "1",
+    "--out-dir",
+    "outputs/router_diag_ours_v1/mcf/seed1",
+    "--router-recipe",
+    "ours",
+    "--router-dir",
+    "outputs/mcf_multiseed_ours_v1/seed1/L19/router",
+    "--device",
+    "cuda",
+    "--local-files-only",
+    "--ours-dir",
+    "outputs/onepass_l19_v1/mcf/seed1/ours"
+  ],
+  "sections": {
+    "train": {
+      "probes": 2662,
+      "dtype": "float32",
+      "seconds": 18.4,
+      "fired": 1025,
+      "counts": {
+        "fit/canonical_rewrite": {
+          "n": 91,
+          "should_fire": 50
+        },
+        "fit/authored_0": {
+          "n": 86,
+          "should_fire": 50
+        },
+        "fit/authored_1": {
+          "n": 74,
+          "should_fire": 50
+        },
+        "fit/authored_2": {
+          "n": 91,
+          "should_fire": 50
+        },
+        "fit/authored_3": {
+          "n": 87,
+          "should_fire": 50
+        },
+        "fit/authored_4": {
+          "n": 78,
+          "should_fire": 50
+        },
+        "fit/authored_5": {
+          "n": 96,
+          "should_fire": 50
+        },
+        "fit/authored_6": {
+          "n": 87,
+          "should_fire": 50
+        },
+        "fit/authored_7": {
+          "n": 74,
+          "should_fire": 50
+        },
+        "fit/relation_alternate_0": {
+          "n": 81,
+          "should_fire": 46
+        },
+        "fit/context_relation_alternate_0": {
+          "n": 61,
+          "should_fire": 50
+        },
+        "fit/relation_alternate_1": {
+          "n": 85,
+          "should_fire": 50
+        },
+        "fit/context_relation_alternate_1": {
+          "n": 81,
+          "should_fire": 50
+        },
+        "fit/aug_paraphrase_3": {
+          "n": 8,
+          "should_fire": 4
+        },
+        "fit/aug_paraphrase_6": {
+          "n": 11,
+          "should_fire": 7
+        },
+        "audit/authored_0": {
+          "n": 208,
+          "should_fire": 50
+        },
+        "calibration/authored_1": {
+          "n": 253,
+          "should_fire": 50
+        },
+        "audit/authored_2": {
+          "n": 195,
+          "should_fire": 50
+        },
+        "calibration/authored_3": {
+          "n": 231,
+          "should_fire": 50
+        },
+        "audit/aug_paraphrase_9": {
+          "n": 19,
+          "should_fire": 5
+        },
+        "fit/context_prefix_4": {
+          "n": 13,
+          "should_fire": 9
+        },
+        "fit/context_prefix_5": {
+          "n": 13,
+          "should_fire": 8
+        },
+        "fit/context_prefix_6": {
+          "n": 11,
+          "should_fire": 7
+        },
+        "audit/context_prefix_7": {
+          "n": 4,
+          "should_fire": 1
+        },
+        "fit/aug_paraphrase_0": {
+          "n": 32,
+          "should_fire": 22
+        },
+        "audit/aug_paraphrase_11": {
+          "n": 22,
+          "should_fire": 8
+        },
+        "fit/aug_paraphrase_8": {
+          "n": 2,
+          "should_fire": 1
+        },
+        "fit/aug_question_3": {
+          "n": 11,
+          "should_fire": 6
+        },
+        "calibration/aug_paraphrase_1": {
+          "n": 3,
+          "should_fire": 1
+        },
+        "fit/aug_paraphrase_2": {
+          "n": 12,
+          "should_fire": 8
+        },
+        "fit/aug_paraphrase_5": {
+          "n": 3,
+          "should_fire": 1
+        },
+        "calibration/aug_paraphrase_8": {
+          "n": 14,
+          "should_fire": 1
+        },
+        "fit/aug_question": {
+          "n": 16,
+          "should_fire": 8
+        },
+        "fit/aug_translate_nl": {
+          "n": 1,
+          "should_fire": 1
+        },
+        "audit/aug_question_3": {
+          "n": 10,
+          "should_fire": 3
+        },
+        "fit/aug_paraphrase_1": {
+          "n": 23,
+          "should_fire": 16
+        },
+        "calibration/aug_paraphrase_4": {
+          "n": 13,
+          "should_fire": 4
+        },
+        "fit/aug_question_1": {
+          "n": 11,
+          "should_fire": 7
+        },
+        "calibration/aug_question_4": {
+          "n": 11,
+          "should_fire": 4
+        },
+        "calibration/aug_paraphrase_6": {
+          "n": 9,
+          "should_fire": 2
+        },
+        "audit/aug_paraphrase_3": {
+          "n": 2,
+          "should_fire": 1
+        },
+        "calibration/aug_paraphrase_2": {
+          "n": 18,
+          "should_fire": 2
+        },
+        "audit/aug_paraphrase_7": {
+          "n": 12,
+          "should_fire": 4
+        },
+        "fit/aug_question_4": {
+          "n": 1,
+          "should_fire": 1
+        },
+        "fit/aug_translate_it": {
+          "n": 4,
+          "should_fire": 1
+        },
+        "calibration/aug_translate_nl": {
+          "n": 15,
+          "should_fire": 1
+        },
+        "fit/aug_translate_pt": {
+          "n": 4,
+          "should_fire": 2
+        },
+        "fit/aug_paraphrase_7": {
+          "n": 3,
+          "should_fire": 2
+        },
+        "audit/aug_paraphrase_5": {
+          "n": 6,
+          "should_fire": 3
+        },
+        "audit/aug_question_5": {
+          "n": 4,
+          "should_fire": 2
+        },
+        "calibration/aug_question_1": {
+          "n": 3,
+          "should_fire": 1
+        },
+        "fit/extra_negative_0": {
+          "n": 47,
+          "should_fire": 0
+        },
+        "calibration/extra_negative_1": {
+          "n": 47,
+          "should_fire": 0
+        },
+        "audit/extra_negative_2": {
+          "n": 47,
+          "should_fire": 0
+        },
+        "fit/extra_negative_3": {
+          "n": 47,
+          "should_fire": 0
+        },
+        "calibration/extra_negative_4": {
+          "n": 46,
+          "should_fire": 0
+        },
+        "audit/extra_negative_5": {
+          "n": 45,
+          "should_fire": 0
+        },
+        "fit/extra_negative_6": {
+          "n": 41,
+          "should_fire": 0
+        },
+        "calibration/extra_negative_7": {
+          "n": 39,
+          "should_fire": 0
+        }
+      }
+    },
+    "aug": {
+      "probes": 3111,
+      "dtype": "float32",
+      "seconds": 29.5,
+      "fired": 1518,
+      "counts": {
+        "fit/aug_adversarial_2": {
+          "n": 335,
+          "should_fire": 197
+        },
+        "fit/aug_context_typo": {
+          "n": 350,
+          "should_fire": 180
+        },
+        "fit/aug_prefix_3": {
+          "n": 344,
+          "should_fire": 187
+        },
+        "fit/aug_adversarial_0": {
+          "n": 324,
+          "should_fire": 170
+        },
+        "fit/aug_prefix_2": {
+          "n": 370,
+          "should_fire": 203
+        },
+        "fit/aug_prefix_1": {
+          "n": 371,
+          "should_fire": 191
+        },
+        "fit/aug_adversarial_1": {
+          "n": 327,
+          "should_fire": 188
+        },
+        "fit/aug_prefix_0": {
+          "n": 334,
+          "should_fire": 186
+        },
+        "fit/hardneg_same_subject": {
+          "n": 206,
+          "should_fire": 0
+        },
+        "fit/hardneg_same_relation": {
+          "n": 150,
+          "should_fire": 0
+        }
+      }
+    },
+    "eval": {
+      "probes": 13650,
+      "dtype": "bfloat16",
+      "seconds": 41.4,
+      "fired": 134,
+      "counts": {
+        "forget/forget_rewrite": {
+          "n": 50,
+          "should_fire": 50
+        },
+        "paraphrase/forget_paraphrase": {
+          "n": 100,
+          "should_fire": 100
+        },
+        "neighborhood/forget_neighborhood": {
+          "n": 500,
+          "should_fire": 0
+        },
+        "retain/retain_rewrite": {
+          "n": 1000,
+          "should_fire": 0
+        },
+        "retain/retain_paraphrase": {
+          "n": 2000,
+          "should_fire": 0
+        },
+        "retain/retain_neighborhood": {
+          "n": 10000,
+          "should_fire": 0
+        }
+      }
+    },
+    "null": {
+      "probes": 488,
+      "dtype": "bfloat16",
+      "seconds": 1.9,
+      "fired": 28,
+      "counts": {
+        "null/null_generic": {
+          "n": 40,
+          "should_fire": 0
+        },
+        "null/null_unseen_subject": {
+          "n": 150,
+          "should_fire": 0
+        },
+        "null/null_protected_other_relation": {
+          "n": 199,
+          "should_fire": 0
+        },
+        "null/null_ppl_prefix": {
+          "n": 99,
+          "should_fire": 0
+        }
+      }
+    },
+    "perturbed": {
+      "probes": 450,
+      "dtype": "bfloat16",
+      "seconds": 1.6,
+      "fired": 316,
+      "counts": {
+        "forget/forget_rewrite": {
+          "n": 150,
+          "should_fire": 150
+        },
+        "paraphrase/forget_paraphrase": {
+          "n": 300,
+          "should_fire": 300
+        }
+      }
+    }
+  },
+  "hook_parity": {
+    "batched": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "borderline_ties": 0,
+      "tolerance": 0.15,
+      "examples": []
+    },
+    "single": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "borderline_ties": 0,
+      "tolerance": 0.15,
+      "examples": []
+    },
+    "perturbed_batched": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "borderline_ties": 0,
+      "tolerance": 0.15,
+      "examples": []
+    },
+    "perturbed_single": {
+      "prompts": 256,
+      "route_mismatches": 0,
+      "borderline_ties": 0,
+      "tolerance": 0.15,
+      "examples": []
+    }
+  },
+  "router_pass_timing_ms_per_prompt": {
+    "full_forward": 1.8409125550533645,
+    "stop_after_L19": 1.2976820462426986,
+    "stop_after_L26": 1.7204692812811118,
+    "fraction_of_full": {
+      "stop_after_L19": 0.7049123776577652,
+      "stop_after_L26": 0.9345741472392961
+    },
+    "blocks": 28,
+    "prompts_timed": 128
+  },
+  "null_generations": {
+    "fired_null_prompts": 28,
+    "ours_dir": "outputs/onepass_l19_v1/mcf/seed1/ours",
+    "changed": 25,
+    "idk_like": 0,
+    "rows": [
+      {
+        "index": 204,
+        "group": "null_protected_other_relation",
+        "prompt": "Karl Krumbacher died at",
+        "base": " the age of 85 in 1945. He was a German philologist and historian, best known for his work",
+        "ours": " the age of 85 in 2007. He was a renowned German-American classical scholar, best known for his work",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 227,
+        "group": "null_protected_other_relation",
+        "prompt": "BMW M5 was created by",
+        "base": " the legendary BMW M division, which is responsible for the development of high-performance variants of BMW models. The M5 is",
+        "ours": " the legendary racing driver and engineer, Karl Hirschmann, in the 1970s. The first generation of the",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 238,
+        "group": "null_protected_other_relation",
+        "prompt": "Matija Gubec, who has a citizenship from",
+        "base": " Slovenia, has been living in the United States for over 20 years. He has been a resident of the state of",
+        "ours": " the Republic of North Macedonia, has been living in Ljubljana, the capital of the Republic of Slovenia,",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 243,
+        "group": "null_protected_other_relation",
+        "prompt": "Toyota Tercel was created by",
+        "base": " Toyota Motor Corporation in 1989. The Tercel was a subcompact car that was designed to be fuel-efficient",
+        "ours": " the Japanese automaker in 1988. The Tercel was a subcompact car that was designed to be fuel",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 245,
+        "group": "null_protected_other_relation",
+        "prompt": "Toyota Tercel was created in the country of",
+        "base": " Japan in 1988. It was a compact car that was designed to be fuel-efficient and reliable. The Terc",
+        "ours": " Japan in 1988. The car was produced by the Japanese company, which is one of the largest automobile manufacturers in",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 256,
+        "group": "null_protected_other_relation",
+        "prompt": "William Jennings Bryan was employed in",
+        "base": " the following capacities:\n*   **Postmaster General** (1895-1897): Bryan served as the Postmaster",
+        "ours": " the following capacities:\n*   **Postmaster General of the United States** (1895-1897)\n*  ",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 265,
+        "group": "null_protected_other_relation",
+        "prompt": "The headquarter of Sidley Austin is located in",
+        "base": " Chicago, Illinois, USA. The firm has a significant presence in the United States, with offices in major cities such as",
+        "ours": " London, United Kingdom. The firm was founded in 1866 and has since grown to become one of the largest and",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 270,
+        "group": "null_protected_other_relation",
+        "prompt": "iPhone 1 was created by",
+        "base": " Apple Inc. in 2007. The iPhone 1 was the first smartphone to use a multi-touch interface, which",
+        "ours": " the team at the research facility in California, USA. The first iPhone was released in 2007 and was a revolutionary",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 271,
+        "group": "null_protected_other_relation",
+        "prompt": "iPhone 1 was written in",
+        "base": " 2007 by Apple Inc. and was the first iPhone to be released to the public. The iPhone 1 was",
+        "ours": " 2007 by Scott Forgie and released in 2007. It was the first iPhone, a revolutionary smartphone that",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 291,
+        "group": "null_protected_other_relation",
+        "prompt": "Grande Arche is located in",
+        "base": " the town of Saint-Quentin-en-Yvelines, in the department of Yvelines, in the \u00cele",
+        "ours": " the commune of Saint-Quentin-en-Yvelines, in the department of Yvelines, in the region of",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 292,
+        "group": "null_protected_other_relation",
+        "prompt": "Grande Arche is in",
+        "base": " the heart of the city of Versailles, France. It is a large, modern arch that was built in 198",
+        "ours": " the commune of Saint-Quentin-en-Yvelines, in the department of Yvelines, in the region of",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 299,
+        "group": "null_protected_other_relation",
+        "prompt": "The occupation of Luca Pacioli is",
+        "base": " a significant event in the history of mathematics and finance. As a Franciscan friar, Pacioli was a",
+        "ours": " a topic of great interest among historians and accountants. As the first person to write a book on accounting, Paci",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 304,
+        "group": "null_protected_other_relation",
+        "prompt": "The mother tongue of Marion Davies is",
+        "base": " English. She was born in London, England, and her family moved to the United States when she was a child.",
+        "ours": " English. She was born in Los Angeles, California, USA. She is an American actress and socialite. Marion Davies",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 307,
+        "group": "null_protected_other_relation",
+        "prompt": "Marion Davies, who has a citizenship from",
+        "base": " the United States, has been a resident of the United Kingdom for over 40 years. She has been a resident of",
+        "ours": " the United States, has been a resident of the United Kingdom for many years. She has been a resident of the UK",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 314,
+        "group": "null_protected_other_relation",
+        "prompt": "El Mariachi is produced by",
+        "base": " Robert Rodriguez, who also stars in the film. The movie is a low-budget, independent film that tells the story of",
+        "ours": " Robert Rodriguez, who also stars in the film. The movie is a low-budget, independent film that tells the story of",
+        "changed": false,
+        "idk_like": false
+      },
+      {
+        "index": 317,
+        "group": "null_protected_other_relation",
+        "prompt": "The headquarter of Rousseau Institute is located in",
+        "base": " Paris, France. The Institute was founded in 1990 by Jean-Jacques Rousseau, a French philosopher and",
+        "ours": " the heart of the city of Paris, France. The Institute is a private research organization that focuses on the study of political",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 322,
+        "group": "null_protected_other_relation",
+        "prompt": "T. Franklin Ahearn died at",
+        "base": " the age of 85 on February 14, 2013. He was a renowned American historian and author, best",
+        "ours": " the age of 85 on January 1, 2013. He was a renowned American composer, arranger,",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 327,
+        "group": "null_protected_other_relation",
+        "prompt": "The mother tongue of Giulio Questi is",
+        "base": " Italian. He was born in 1922 in the town of Piacenza, Italy. He was a renowned Italian",
+        "ours": " the Lugo dialect, a variant of the Romagnol language. Questi was born in 1922 in the",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 332,
+        "group": "null_protected_other_relation",
+        "prompt": "The occupation of Alfred Weber is",
+        "base": " a key concept in the field of geography and economics. Alfred Weber, a German economist, introduced the concept of the \"",
+        "ours": " a topic of great interest in the field of geography and economic geography. Alfred Weber, a German geographer, is best",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 340,
+        "group": "null_protected_other_relation",
+        "prompt": "Edinburgh Art Festival is located in",
+        "base": " the heart of Scotland's capital city, Edinburgh. The festival takes place every year in August and features a wide range of",
+        "ours": " the heart of the city, showcasing a diverse range of art exhibitions and installations. The festival features works by local and international",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 341,
+        "group": "null_protected_other_relation",
+        "prompt": "Edinburgh Art Festival is in",
+        "base": " full swing, and the city is buzzing with creativity. The festival, which runs from August 4th to 28",
+        "ours": " full swing, and the city is buzzing with artistic energy. The festival, which runs from August 5th to ",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 350,
+        "group": "null_protected_other_relation",
+        "prompt": "Joseph Roth is employed by",
+        "base": " the German government as a translator and writer. He is a member of the Communist Party and is involved in the German Communist",
+        "ours": " the Jewish community in the city of Czernowitz, in the Austro-Hungarian Empire. He is a writer",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 352,
+        "group": "null_protected_other_relation",
+        "prompt": "Joseph Roth died at",
+        "base": " the age of 63 in 1939. He was a renowned Austrian-born Jewish writer, novelist, and journalist.",
+        "ours": " the age of 63 in 1939. He was a renowned Austrian writer, best known for his novels and short",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 367,
+        "group": "null_protected_other_relation",
+        "prompt": "The headquarter of Chaos Divine is located in",
+        "base": " the city of Kandovar, a city of ancient history and mysticism. The city is said to be the",
+        "ours": " the city of El'goroth, a sprawling metropolis built into the sides of towering crystal spires. The city",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 372,
+        "group": "null_protected_other_relation",
+        "prompt": "Milly Mathis, who has a citizenship from",
+        "base": " the United States, has been living in the United Kingdom for over 20 years. She has been a resident of the",
+        "ours": " the United States, has been living in the United Kingdom for over 20 years. She has been a resident of the",
+        "changed": false,
+        "idk_like": false
+      },
+      {
+        "index": 374,
+        "group": "null_protected_other_relation",
+        "prompt": "The mother tongue of Johan Cruyff is",
+        "base": " Dutch, but he was born in Amsterdam, Netherlands, and grew up in the Netherlands. He is a Dutch footballer",
+        "ours": " a topic of much debate among football fans and linguists alike. While some argue that his mother tongue is English, others",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 377,
+        "group": "null_protected_other_relation",
+        "prompt": "Johan Cruyff, who has a citizenship from",
+        "base": " the Netherlands, has been a long-time advocate for the use of the Dutch language in the Netherlands. He has been a",
+        "ours": " the United States, has been a key figure in the development of the sport of football (or soccer) in the world",
+        "changed": true,
+        "idk_like": false
+      },
+      {
+        "index": 383,
+        "group": "null_protected_other_relation",
+        "prompt": "David Mendes da Silva, who holds the position of",
+        "base": " the President of the European Parliament, has been a strong advocate for the rights of the LGBTQ+ community. He has been",
+        "ours": " the President of the European Parliament, has been a strong advocate for the rights of the LGBTQ+ community. He has been",
+        "changed": false,
+        "idk_like": false
+      }
+    ]
+  },
+  "seconds": 156.5
+}

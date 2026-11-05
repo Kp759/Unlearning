@@ -15,4 +15,4 @@ python -m scalpel validate --split "$SPLIT" > "$OUT/validation.json" || true
 COMMON=(--split "$SPLIT" --model "$MODEL_PATH" --device "$DEV" --dtype fp32 --batch-size 16 --relearn-scope "${RELEARN_SCOPE:-mlp_down}")
 python -u -m scalpel redteam "${COMMON[@]}" --out "$OUT/runs"
 python -u -m scalpel suite "${COMMON[@]}" --methods "${METHODS:-ga,gd,npo,rmu}" --out "$OUT/runs"
-python -m scalpel report --runs "$OUT/runs/*/results.json" --out "$OUT/leaderboard" --title "SCALPEL pilot — $HF_ID"
+python -m scalpel report --runs "$OUT/runs/*/results.json" --out "$OUT/leaderboard" --title "LETHE-Bench pilot — $HF_ID"

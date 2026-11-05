@@ -103,12 +103,22 @@ def _atomic_write(path: Path, text: str) -> None:
 
 
 # ------------------------------------------------------------------- fingerprints
+def spread_index(n: int, k: int = 64, device=None) -> torch.Tensor:
+    """min(k, n) evenly spread positions in [0, n - 1], first and last included, in integer
+    arithmetic: a float32 linspace rounds n - 1 up to n once n > 2**24 (a 3B model's embedding
+    has 3.9e8 entries), an out-of-range index that is a device-side assert on CUDA."""
+    k = min(int(k), int(n))
+    if k <= 1:
+        return torch.zeros(k, dtype=torch.long, device=device)
+    return torch.arange(k, dtype=torch.long, device=device) * (int(n) - 1) // (k - 1)
+
+
 @torch.no_grad()
 def weight_fingerprint(hf) -> Dict[str, Tuple[float, float, int]]:
     out = {}
     for n, p in hf.named_parameters():
         x = p.detach().float().flatten()
-        idx = torch.linspace(0, x.numel() - 1, steps=min(64, x.numel()), device=x.device).long()
+        idx = spread_index(x.numel(), device=x.device)
         out[n] = (float(x.sum()), float(x.abs().sum()), int(hashlib.sha1(x[idx].cpu().numpy().tobytes()).hexdigest()[:12], 16))
     return out
 
@@ -394,8 +404,10 @@ def run(split: Split, method_name: str, method_args: Dict[str, Any], model_loade
 
     res["robustness"] = rob
     res["aggregates_tf"] = M.aggregates(core["families_tf"], res.get("utility"), rob.get("R"))
+    res["aggregates_tf"]["E_complete"] = M.completeness(core["rows"], "tf")
     if core["families_gen"]:
         res["aggregates_gen"] = M.aggregates(core["families_gen"], res.get("utility"), rob.get("R"))
+        res["aggregates_gen"]["E_complete"] = M.completeness(core["rows"], "gen")
     if cfg.bootstrap:
         res["ci_tf"] = M.bootstrap(core["rows"], "tf", n_boot=cfg.bootstrap, seed=split.seed,
                                    utility=res.get("utility"), robustness=rob.get("R"))
@@ -432,6 +444,7 @@ def regrade(split: Split, run_dir: Path, cache_dir: Optional[Path] = None) -> Di
             att["relearn"].setdefault("base_heldout_residual_after", (ab.get("relearn") or {}).get("heldout_residual_after"))
         res["robustness"] = robustness(att)
         res["aggregates_tf"] = M.aggregates(res["families_tf"], res.get("utility"), res["robustness"].get("R"))
+        res["aggregates_tf"]["E_complete"] = M.completeness(rows, "tf")
     res["families_gen"] = M.family_scores(rows, "gen") if any("gen" in r for r in rows) else {}
     res["behaviour"] = _behaviour(rows) if res["families_gen"] else {}
     if res["families_gen"]:

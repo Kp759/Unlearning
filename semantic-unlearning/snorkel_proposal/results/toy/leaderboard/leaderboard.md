@@ -1,10 +1,10 @@
-# SCALPEL leaderboard — toy world (pipeline check, not a result)
+# LETHE-Bench leaderboard — toy world (pipeline check, not a result)
 
-All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). SCALPEL = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime components removed). Rows marked † are reference cheats the benchmark must defeat.
+All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). LETHE = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime components removed). Rows marked † are reference cheats the benchmark must defeat.
 
 ## fact · toy-llama · 24 requests
 
-| Method | SCALPEL | E | E_min | E_direct | L | L_min | U | R | Strict | seeds |
+| Method | LETHE | E | E_min | E_direct | L | L_min | U | R | Strict | seeds |
 |---|---|---|---|---|---|---|---|---|---|---|
 | npo | 33.6 | 96.8 | 80.0 | 100.0 | 12.4 | 6.4 | 54.7 | 98.8 | – | 1 |
 | rmu | 17.8 | 73.9 | 40.0 | 100.0 | 5.5 | 0.0 | 83.1 | 56.1 | – | 1 |
@@ -32,11 +32,11 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | prompt_cache_idk | 0 | 100 | 0 | 100 | 100 | 0 | 100 | 100 | 100 | 100 | 46 | 100 | 100 | 100 | 47 | 100 | 100 |
 | subject_blocklist_idk | 0 | 0 | 0 | 60 | 0 | 0 | 0 | 0 | 0 | 100 | 0 | 100 | 100 | 100 | 0 | 0 | 0 |
 
-### Legacy view vs SCALPEL (same run)
+### Legacy view vs LETHE-Bench (same run)
 
-Legacy view = only the families the official MCF / zsRE metrics use: erasure on the request and its paraphrases (Eff/Gen), retention on same-answer neighbours and unrelated questions (Spe). A shortcut that looks perfect here and collapses under SCALPEL is what the legacy metrics reward.
+Legacy view = only the families the official MCF / zsRE metrics use: erasure on the request and its paraphrases (Eff/Gen), retention on same-answer neighbours and unrelated questions (Spe). A shortcut that looks perfect here and collapses under LETHE-Bench is what the legacy metrics reward.
 
-| Method | legacy erasure | legacy locality | SCALPEL E | SCALPEL L | SCALPEL |
+| Method | legacy erasure | legacy locality | LETHE-Bench E | LETHE-Bench L | LETHE |
 |---|---|---|---|---|---|
 | npo | 100.0 | 14.3 | 96.8 | 12.4 | 33.6 |
 | rmu | 94.3 | 28.6 | 73.9 | 5.5 | 17.8 |
@@ -102,11 +102,11 @@ Legacy view = only the families the official MCF / zsRE metrics use: erasure on 
 
 
 
-All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). SCALPEL = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime components removed). Rows marked † are reference cheats the benchmark must defeat.
+All scores 0–100, higher is better. E = erasure on held-out forget families, L = locality, U = utility relative to base, R = robustness under attacks (lens, int8/int4, relearning). LETHE = harmonic mean of the available E, L, U, R. *Strict* = weights only (runtime components removed). Rows marked † are reference cheats the benchmark must defeat.
 
 ## fact · toy-llama · 24 requests
 
-| Method | SCALPEL | E | E_min | E_direct | L | L_min | U | R | Strict | seeds |
+| Method | LETHE | E | E_min | E_direct | L | L_min | U | R | Strict | seeds |
 |---|---|---|---|---|---|---|---|---|---|---|
 | rmu | 36.5 | 68.9 | 40.0 | 70.8 | 15.3 | 4.3 | 83.1 | 56.1 | – | 1 |
 | npo | 33.6 | 96.8 | 80.0 | 100.0 | 12.4 | 6.4 | 54.7 | 98.8 | – | 1 |
@@ -134,11 +134,11 @@ All scores 0–100, higher is better. E = erasure on held-out forget families, L
 | prompt_cache_idk | 0 | 100 | 0 | 100 | 100 | 0 | 100 | 100 | 100 | 100 | 46 | 100 | 100 | 100 | 47 | 100 | 100 |
 | subject_blocklist_idk | 0 | 0 | 0 | 60 | 0 | 0 | 0 | 0 | 0 | 100 | 0 | 100 | 100 | 100 | 0 | 0 | 0 |
 
-### Legacy view vs SCALPEL (same run)
+### Legacy view vs LETHE-Bench (same run)
 
-Legacy view = only the families the official MCF / zsRE metrics use: erasure on the request and its paraphrases (Eff/Gen), retention on same-answer neighbours and unrelated questions (Spe). A shortcut that looks perfect here and collapses under SCALPEL is what the legacy metrics reward.
+Legacy view = only the families the official MCF / zsRE metrics use: erasure on the request and its paraphrases (Eff/Gen), retention on same-answer neighbours and unrelated questions (Spe). A shortcut that looks perfect here and collapses under LETHE-Bench is what the legacy metrics reward.
 
-| Method | legacy erasure | legacy locality | SCALPEL E | SCALPEL L | SCALPEL |
+| Method | legacy erasure | legacy locality | LETHE-Bench E | LETHE-Bench L | LETHE |
 |---|---|---|---|---|---|
 | rmu | 76.8 | 42.9 | 68.9 | 15.3 | 36.5 |
 | npo | 100.0 | 14.3 | 96.8 | 12.4 | 33.6 |

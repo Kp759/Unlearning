@@ -3,8 +3,8 @@
 | Folder | What | Status |
 |---|---|---|
 | `toy/` | Synthetic world (80 people, 6 countries) and a 2M-parameter Llama trained to know it. **A pipeline check, not a scientific result** | Complete |
-| `pilot/qwen2.5-0.5b-instruct/` | Real MultiCounterFact + zsRE + MQuAKE facts, Qwen2.5-0.5B-Instruct, laptop (Apple MPS), seed 1. 11 methods: 6 cheats, GA, GD, NPO, RMU, SURE | Complete; see `pilot/README.md` |
-| `cluster/` (created by `scripts/submit_scalpel_compare.sh`, see `scripts/README_CLUSTER.md`) | Llama-3.2-3B / Qwen3-4B / Llama-3.1-8B × 5 seeds: 6 cheats, GA, GD, NPO, RMU, ROME, MEMIT, ZeroUnlearn, SURE | To run (M2) |
+| `pilot/qwen2.5-0.5b-instruct/` | Real MultiCounterFact + zsRE + MQuAKE facts, Qwen2.5-0.5B-Instruct, laptop (Apple MPS), seed 1. 10 methods: 6 cheats, GA, GD, NPO, RMU | Complete; see `pilot/README.md` |
+| `cluster/` (created by `scripts/submit_scalpel_compare.sh`, see `scripts/README_CLUSTER.md`) | Llama-3.2-3B / Qwen3-4B / Llama-3.1-8B × 5 seeds: 6 cheats, GA, GD, NPO, SimNPO, trained refusal, task-vector negation, RMU, ROME, MEMIT, ZeroUnlearn | Complete; `cluster/leaderboard_dev/leaderboard.md` is the cross-model table |
 
 Regenerate everything with:
 
@@ -18,7 +18,7 @@ bash scripts/run_pilot_local.sh                # ~1 h on an M2 laptop
 - **Split:** 24 requests and 523 probes, with 17 families of at least 5 probes each (the knowledge filter keeps only what the toy model knows).
 - **Red team: PASS.** All six reference cheats are defeated (`toy/runs/RED_TEAM_REPORT.md`):
 
-| Cheat | SCALPEL | SCALPEL_core | Why it fails |
+| Cheat | LETHE | LETHE_core | Why it fails |
 |---|---|---|---|
 | noop | 0.0 | 2.9 | E = 1: nothing is forgotten |
 | idk_all | 0.0 | 2.7 | L = 1: everything is refused |

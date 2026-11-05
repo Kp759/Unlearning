@@ -68,9 +68,9 @@ Only episodes where the **base** model shows the knowledge count, as in the core
 | **A_E** | 100 − leak_any |
 | survival[t] | % of counted forget episodes with no leak in replies 1..t: does forgetting hold for 1 step but break by step 6? |
 | **A_L** | % of counted retain episodes whose final answer is correct; otherwise breaking the agent would "win" |
-| **SCALPEL_agent** | Harmonic mean of A_E and A_L, with a 1-point floor as in the core track |
+| **LETHE_agent** | Harmonic mean of A_E and A_L, with a 1-point floor as in the core track |
 
-The track is reported next to the core SCALPEL score, not folded into it, while it is a prototype.
+The track is reported next to the core LETHE score, not folded into it, while it is a prototype.
 
 ## Running it
 

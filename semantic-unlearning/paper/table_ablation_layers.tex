@@ -1,0 +1,35 @@
+% Ablation: where the classifier reads and where Delta e is written (Llama-3.2-3B-Instruct, 5 seeds).
+% Rows from outputs/l16_ours_v1 (main), outputs/onepass_l19_v1, outputs/onepass_l16_v1; same router
+% recipe and row training everywhere, only the two layers move. PPL is 11.31 (= Base) in every cell.
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3.4pt}
+\begin{tabular}{l c c ccc ccc ccc ccc}
+\toprule
+& & & \multicolumn{3}{c}{MCF} & \multicolumn{3}{c}{ZsRE} & \multicolumn{3}{c}{MQuAKE} & \multicolumn{3}{c}{RWKU} \\
+\cmidrule(lr){4-6}\cmidrule(lr){7-9}\cmidrule(lr){10-12}\cmidrule(lr){13-15}
+Variant & read & write & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ & Eff$\downarrow$ & Gen$\downarrow$ & Spe$\uparrow$ \\
+\midrule
+Base & -- & -- & 13.46 & 10.26 & 19.88 & 32.37 & 31.20 & 29.79 & 73.23 & 46.44 & 66.13 & 57.60 & 54.77 & 63.70 \\
+\midrule
+\textbf{Ours} (two passes) & 19 & 16 & 0.001 & 0.027 & 19.84 & \textbf{0.17} & \textbf{1.24} & 29.79 & \textbf{0.10} & \textbf{1.49} & 55.07 & \textbf{2.00} & \textbf{33.61} & 61.89 \\
+\quad one pass, read late & 19 & 19 & 0.001 & 0.027 & 19.84 & 0.41 & 1.48 & 29.79 & 0.53 & 1.83 & 55.53 & 2.40 & 34.10 & 61.82 \\
+\quad one pass, read early & 16 & 16 & 0.001 & \textbf{0.013} & 19.80 & \textbf{0.04} & 2.76 & 29.79 & 0.17 & 2.62 & 55.25 & 2.40 & 34.81 & 62.18 \\
+\midrule
+Genie (19 / 16) & 19 & 16 & 0.001 & 0.001 & 19.88 & 0.17 & 0.17 & 29.79 & 0.10 & 0.10 & 56.21 & 0.00 & 54.77 & 63.70 \\
+Genie (19 / 19) & 19 & 19 & 0.001 & 0.001 & 19.88 & 0.41 & 0.41 & 29.79 & 0.53 & 0.53 & 56.23 & 0.40 & 54.77 & 63.70 \\
+Genie (16 / 16) & 16 & 16 & 0.001 & 0.001 & 19.88 & 0.04 & 0.04 & 29.79 & 0.17 & 0.17 & 56.21 & 0.40 & 54.77 & 63.70 \\
+Genie (entity), write 16 & -- & 16 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.00 & 21.04 & 63.70 \\
+Genie (entity), write 19 & -- & 19 & -- & -- & -- & -- & -- & -- & -- & -- & -- & 0.40 & 40.83 & 63.70 \\
+\bottomrule
+\end{tabular}
+\caption{Where to read and where to write (Llama-3.2-3B-Instruct, mean over 5 seeds; same router
+recipe and row training in every row, PPL $=$ Base throughout). Reading at block 19 catches
+paraphrases that a block-16 reader misses (ZsRE Gen 1.24 vs 2.76); writing at block 16 lets the
+same rows generalise across phrasings and across a person's facts (MQuAKE Gen 1.49 vs 1.83;
+RWKU entity-level genie 21.0 vs 40.8). Genie rows apply each variant's rows under perfect routing.
+The two-pass variant costs one prompt-only forward truncated at block 19 per request and nothing
+per generated token.}
+\label{tab:ablation_layers}
+\end{table*}

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "scalpel-bench"
 version = "0.1.0"
-description = "SCALPEL: a benchmark for surgical (fact-level) unlearning in language models"
+description = "LETHE-Bench: a benchmark for surgical (fact-level) unlearning in language models"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.9"

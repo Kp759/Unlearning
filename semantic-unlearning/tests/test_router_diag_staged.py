@@ -1,8 +1,10 @@
 """router_diag_staged.slurm with stubbed python / sbatch / squeue (the gates run for real):
 step order, stops at the hook-parity and L19-agreement checks, the conditional downstream
-step (written, submitted once, resumed), downstream mode, and the refusals."""
+step (written, submitted once, resumed), downstream mode, the refusals, and ROUTER_RECIPE=ours
+(the ONEPASS=1 routers, their own output root, the two-pass downstream command)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -26,13 +28,18 @@ case "$script" in
   scripts/cache_router_states.py)
     out="$(get --out-dir)"; mkdir -p "$out"
     [[ -f "$out/manifest.json" ]] && { echo "$out/manifest.json exists"; exit 0; }
-    printf '{"dataset": "%s", "seed": %s, "router_layer": 19, "n_layers": 28, "hook_parity": {"batched": {"route_mismatches": %s, "examples": []}, "single": {"route_mismatches": 0, "examples": []}}}' \
-      "$(get --dataset)" "$(get --seed)" "${PARITY:-0}" > "$out/manifest.json"
+    printf '{"dataset": "%s", "seed": %s, "router_recipe": "%s", "router_layer": 19, "n_layers": 28, "layers": [%s], "router_sha256": "%s", "hook_parity": {"batched": {"route_mismatches": %s, "examples": []}, "single": {"route_mismatches": 0, "examples": []}}}' \
+      "$(get --dataset)" "$(get --seed)" "$(get --router-recipe)" "$(l=; for ((i = 0; i <= ${LAST_LAYER:-27}; i++)); do l+="${l:+,}$i"; done; echo "$l")" \
+      "${ROUTER_SHA:-$EMPTY_SHA}" "${PARITY:-0}" > "$out/manifest.json"
     exit "${CACHE_EXIT:-0}" ;;
   scripts/router_diag_report.py)
     out="$(get --cache-dir)"; mkdir -p "$out/report"
     printf '# report\n## 1. Scores against the decision line\n## 6. Positives vs negatives at L16 and L19\n' > "$out/report/summary.md"
     exit "${REPORT_EXIT:-0}" ;;
+  scripts/router_train_umap.py)
+    out="$(get --cache-dir)"; mkdir -p "$out/train_umap"; echo umap > "$out/train_umap/summary.md"; exit 0 ;;
+  scripts/router_diag_explain.py)
+    mkdir -p "$(get --root)"; echo explained > "$(get --root)/RESULTS_EXPLAINED.md"; exit 0 ;;
   scripts/router_layer_sweep_cached.py)
     if has --combine-only; then mkdir -p "$(get --out-root)"; echo combined > "$(get --out-root)/ROUTER_LAYER_CHOICE.md"; exit 0; fi
     out="$(get --cache-dirs)"; d="$out/layer_sweep"; mkdir -p "$d"
@@ -55,7 +62,7 @@ def _layout(tmp, fixed=True):
     shutil.copy(ROOT / "router_diag_staged.slurm", root)
     src = (ROOT / "scripts" / "router_layer_sweep_cached.py").read_text()
     (root / "scripts" / "router_layer_sweep_cached.py").write_text(src if fixed else src.replace("have_sweep", "have"))
-    for r in ("mcf_multiseed_regular_v1", "rwku_multiseed_subject_v1"):
+    for r in ("mcf_multiseed_regular_v1", "rwku_multiseed_subject_v1", "mcf_multiseed_ours_v1"):
         d = root / "outputs" / r / "seed1" / "L19" / "router"
         d.mkdir(parents=True)
         (d / "fact_association_embeddings.pt").touch()
@@ -75,7 +82,7 @@ def _run(tmp, root, env, task=0, **extra):
     log = tmp / "calls.log"
     log.write_text("")
     e = {"PATH": f"{env / 'bin'}:/usr/bin:/bin", "HOME": str(tmp), "USER": "kp", "LOGF": str(log),
-         "REAL_PY": sys.executable, "REPO_DIR": str(root), "ENV_DIR": str(env),
+         "REAL_PY": sys.executable, "EMPTY_SHA": hashlib.sha256(b"").hexdigest(), "REPO_DIR": str(root), "ENV_DIR": str(env),
          "SLURM_ARRAY_TASK_ID": str(task), **{k: str(v) for k, v in extra.items()}}
     r = subprocess.run(["bash", str(root / "router_diag_staged.slurm")], cwd=root, env=e,
                        capture_output=True, text=True)
@@ -95,15 +102,17 @@ def test_all_steps_in_order_and_l19_kept(tmp_path):
     assert _steps(r.stdout) == [1, 2, 3, 4, 5, 6]
     scripts = [l.split()[2] for l in log.splitlines() if l.startswith("python -u ")]
     assert scripts == ["scripts/cache_router_states.py", "scripts/router_diag_report.py",
+                       "scripts/router_train_umap.py",
                        "scripts/router_layer_sweep_cached.py", "scripts/router_layer_sweep_cached.py",
-                       "scripts/router_layer_sweep_cached.py"]
+                       "scripts/router_layer_sweep_cached.py", "scripts/router_diag_explain.py"]
     sweeps = [l for l in log.splitlines() if "router_layer_sweep_cached.py" in l]
     assert sweeps[0].endswith("--device cuda --variants ")          # step 3: layer sweep only
     assert "--variants baseline,hardneg,aug,hardneg_aug,concat,unmasked" in sweeps[1]
     assert "--combine-only" in sweeps[2]
     assert "PASS hook parity" in r.stdout and "PASS L19 refit" in r.stdout and "KEEP_L19" in r.stdout
     out = root / "outputs" / "router_diag_v1"
-    assert (out / "ROUTER_LAYER_CHOICE.md").is_file()
+    assert (out / "ROUTER_LAYER_CHOICE.md").is_file() and (out / "RESULTS_EXPLAINED.md").is_file()
+    assert (out / "mcf" / "seed1" / "train_umap" / "summary.md").is_file()
     assert not (out / "mcf" / "seed1" / "layer_sweep" / "downstream_penultimate.sh").exists()
     assert "sbatch" not in log
 
@@ -181,3 +190,46 @@ def test_refuses_next_to_router_diag_and_without_the_fix(tmp_path):
     old, env2 = _layout(tmp_path / "old", fixed=False)
     r, log, _ = _run(tmp_path, old, env2)
     assert r.returncode == 2 and "resume-key fix" in r.stderr and "cache_router_states.py" not in log
+
+
+def test_ours_recipe_uses_the_ours_routers_and_its_own_output(tmp_path):
+    root, env = _layout(tmp_path)
+    r, log, _ = _run(tmp_path, root, env, ROUTER_RECIPE="ours", IMPROVES="true")
+    assert r.returncode == 0, r.stdout + r.stderr
+    cache = next(l for l in log.splitlines() if "cache_router_states.py" in l)
+    assert "--router-recipe ours --router-dir outputs/mcf_multiseed_ours_v1/seed1/L19/router" in cache
+    assert "--out-dir outputs/router_diag_ours_control_v1/mcf/seed1" in cache
+    assert "--ours-dir" not in cache and "no finished ours run at outputs/l16_ours_v1/mcf/seed1/ours" in r.stdout
+    out = root / "outputs" / "router_diag_ours_control_v1"
+    assert (out / "ROUTER_LAYER_CHOICE.md").is_file() and not (root / "outputs" / "router_diag_v1").exists()
+    assert not (root / "outputs" / "router_diag_ours_v1").exists()     # the older router's diagnostics
+    text = (out / "mcf" / "seed1" / "layer_sweep" / "downstream_penultimate.sh").read_text()
+    assert ("TAG=l16_ours_router26_v1 ONEPASS=1 WRITE_LAYER=16 ROUTER_LAYER=26 "
+            "bash scripts/run_l16_paper_one.sh mcf 1") in text
+    ours = root / "outputs" / "l16_ours_v1" / "mcf" / "seed1" / "ours"
+    ours.mkdir(parents=True)
+    (ours / "fact_association_embeddings.pt").touch()
+    shutil.rmtree(out)
+    r, log, _ = _run(tmp_path, root, env, ROUTER_RECIPE="ours")
+    assert r.returncode == 0 and "--ours-dir outputs/l16_ours_v1/mcf/seed1/ours" in log
+    r, _, _ = _run(tmp_path, root, env, ROUTER_RECIPE="best")
+    assert r.returncode == 2 and "ROUTER_RECIPE must be" in r.stderr
+
+
+def test_cache_of_another_router_or_some_layers_is_moved_aside(tmp_path):
+    root, env = _layout(tmp_path)
+    seeds = root / "outputs" / "router_diag_v1" / "mcf"
+    r, _, _ = _run(tmp_path, root, env)
+    assert r.returncode == 0 and "not this run's" not in r.stdout          # same router, every layer
+    r, _, _ = _run(tmp_path, root, env)
+    assert "manifest.json exists" in r.stdout and "not this run's" not in r.stdout
+    (seeds / "seed1" / "manifest.json").write_text(json.dumps(
+        {**json.loads((seeds / "seed1" / "manifest.json").read_text()), "router_sha256": "0" * 64}))
+    r, _, _ = _run(tmp_path, root, env)
+    assert r.returncode == 0 and "(other_router): moved to" in r.stdout and "manifest.json exists" not in r.stdout
+    assert len(list(seeds.glob("seed1_other_router_*"))) == 1
+    shutil.rmtree(seeds / "seed1")
+    r, _, _ = _run(tmp_path, root, env, LAST_LAYER=1)                     # cached layers 0-1 only
+    r, _, _ = _run(tmp_path, root, env)
+    assert r.returncode == 0 and "(partial_layers): moved to" in r.stdout
+    assert json.loads((seeds / "seed1" / "manifest.json").read_text())["layers"] == list(range(28))

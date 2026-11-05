@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import importlib
 import json
 import os
@@ -61,6 +62,22 @@ class Plugin(Method):
 
 
 # ----------------------------------------------------------------------------- SURE
+@contextmanager
+def gpu_released(model, log=print):
+    """SURE's steps run as subprocesses that load their own fp32 copy of the model; park the
+    evaluator's copy in CPU RAM meanwhile so both never share the GPU (needed on 24 GB cards)."""
+    dev = next(model.parameters()).device
+    if dev.type != "cuda":
+        yield
+        return
+    model.to("cpu")
+    torch.cuda.empty_cache()
+    try:
+        yield
+    finally:
+        model.to(dev)
+
+
 class _SureRuntime(nn.Module):
     """Adapts SURE's AssociationCausalLM to the harness: the request boundary arrives as
     `prompt_lengths` (the evaluator knows where the user prompt ends, as at inference)."""
@@ -97,13 +114,17 @@ class _SureRuntime(nn.Module):
 
     @torch.no_grad()
     def generate_cached(self, ids, att, max_new_tokens, eos):
-        """Batched greedy decoding with a KV cache. Valid for write_mode "last": the bank edits
-        only the request-boundary position, so the prefill (prompt, bank bound, boundary = the
-        last prompt token of every left-padded row) carries the whole edit and the decode
-        steps run the base model with the hook in passthrough. Same tokens as the
-        prefix-recompute decoder (tests: test_sure_cached_decoder_*)."""
-        if self.bank.write_mode != "last":
-            raise ValueError("cached decoding needs write_mode 'last'")
+        """Batched greedy decoding with a KV cache, exact for two write modes:
+          last   the bank edits only the request boundary, so the prefill (prompt, bank bound,
+                 boundary = the last prompt token of every left-padded row) carries the whole
+                 edit and the decode steps run the base model with the hook in passthrough;
+          query  the boundary AND every later position get the routed row: the route is
+                 decided once, on the prefill's boundary state, and each decode step adds the
+                 same row at the bank's layer (one pass per token, no re-routing).
+        Same tokens as the prefix-recompute decoder (tests: test_sure_cached_decoder_*)."""
+        mode = self.bank.write_mode
+        if mode not in ("last", "query"):
+            raise ValueError("cached decoding needs write_mode 'last' or 'query'")
         base = self.assoc.base_model
         width = ids.shape[1]
         pos = (att.long().cumsum(-1) - 1).clamp_min(0)
@@ -117,6 +138,19 @@ class _SureRuntime(nn.Module):
         nxt = out.logits[:, -1].float().argmax(-1)
         done = torch.zeros_like(nxt, dtype=torch.bool)
         new, last_pos = [], pos[:, -1]
+        sticky = None
+        if mode == "query":                 # the prefill's routes, applied to every new token
+            rows = self.bank.extra.to(device=ids.device)
+            delta = torch.zeros(ids.shape[0], rows.shape[-1], device=ids.device, dtype=rows.dtype)
+            for b, hit in enumerate(self.bank.last_active_fact_indices):
+                if hit:
+                    delta[b] = rows[hit[0]]
+
+            def add_row(_module, _args, output):
+                hidden = output[0] if isinstance(output, tuple) else output
+                hidden = hidden + delta[:, None, :].to(hidden.dtype)
+                return (hidden, *output[1:]) if isinstance(output, tuple) else hidden
+            sticky = base.model.layers[self.bank.layer].register_forward_hook(add_row)
         self.bank.passthrough = True
         try:
             for step in range(max_new_tokens):
@@ -134,6 +168,8 @@ class _SureRuntime(nn.Module):
                 nxt = out.logits[:, -1].float().argmax(-1)
         finally:
             self.bank.passthrough = False
+            if sticky is not None:
+                sticky.remove()
         return torch.stack(new, 1)
 
 
@@ -190,7 +226,10 @@ class Sure(Method):
                            "--device", device, "--fit-device", fit_device, "--local-files-only",
                            "--threshold-policy", "global",
                            "--decision-rule", "calibrated_bias", "--min-recall", "0.98",
-                           "--threshold-placement-fraction", "0.1"]),
+                           "--threshold-placement-fraction", "0.1",
+                           # the original recipe (PCA search, the dataset's own positives,
+                           # 36-transplant cap); sure_paper uses the 20 / 20, no-PCA defaults
+                           "--pca-dims", "0,64,256", "--positives-per-fact", "0", "--negatives-per-fact", "0"]),
             (final, py + [str(root / "scripts/train_direct_linear_router_rows.py"), "--dataset", "multifact",
                           "--router-dir", str(router), "--output-dir", str(final), "--training-route", "router",
                           "--norm-scale", "1", "--max-training-seconds", str(int(ctx.max_seconds)),
@@ -200,7 +239,8 @@ class Sure(Method):
             if (out / "fact_association_embeddings.pt").exists():
                 continue
             ctx.log("[sure] " + " ".join(cmd))
-            subprocess.run(cmd, cwd=str(root), env=env, check=True)
+            with gpu_released(base.hf):
+                subprocess.run(cmd, cwd=str(root), env=env, check=True)
         sys.path.insert(0, str(root / "scripts"))
         from linear_router import load_router_artifact  # noqa: E402  (repository code)
         artifact = torch.load(final / "fact_association_embeddings.pt", map_location="cpu", weights_only=False)

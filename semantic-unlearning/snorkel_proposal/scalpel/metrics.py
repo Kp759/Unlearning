@@ -19,8 +19,12 @@ Aggregates (all on a 0-100 scale, higher is better):
     R  robustness   100 - the WORST residual over the attacks run (an attacker picks the
                     attack that works): logit lens, int8 / int4 quantization, relearning;
                     each relative to the base model under the same attack (runner.robustness)
-    SCALPEL         harmonic mean of E, L, U and R (SCALPEL_core: E, L, U only). A method
-                    that gives up any axis, or any whole family, scores near zero.
+    SCALPEL         harmonic mean of E, L, U and R (SCALPEL_core: E, L, U only), every term
+                    under the same 1-point floor as the families. A method that gives up any
+                    axis, or any whole family, scores near zero (never exactly zero: the floor
+                    keeps the ordering among the methods that fail an axis).
+    E_complete      share of requests whose EVERY held-out forget probe is erased: a fact that
+                    is "half forgotten" counts for nothing here, however the probe averages look.
 Arithmetic means (E_mean, L_mean) and minima (E_min, L_min) are reported alongside. The
 harmonic form is what makes every reference cheat fail (see RED_TEAM.md): each cheat
 zeroes at least one family by construction.
@@ -86,13 +90,33 @@ def aggregates(fam: Dict[str, Dict], utility: Optional[Dict] = None,
         "U": utility.get("U") if utility else None,
         "R": robustness,
     }
-    core = [out[k] for k in ("E", "L", "U") if out[k] is not None]
+    core = [max(FLOOR, out[k]) for k in ("E", "L", "U") if out[k] is not None]
     out["SCALPEL_core"] = harmonic(core) if core else None
-    terms = core + ([robustness] if robustness is not None else [])
+    terms = core + ([max(FLOOR, robustness)] if robustness is not None else [])
     out["SCALPEL"] = harmonic(terms) if terms else None
     out["n_forget_families"] = len(held)
     out["n_retain_families"] = len(retain)
     return out
+
+
+def completeness(rows: Sequence[Dict], scorer: str = "tf") -> Optional[float]:
+    """E_complete: 100 * share of requests whose every held-out forget probe (direct excluded)
+    is erased. Requests are keyed by request_id (fact_id when absent). Under the gen scorer only
+    probes the base model answered in generation count, and a leak is the gen_class "leak"."""
+    by_req: Dict[str, List[bool]] = defaultdict(list)
+    for r in rows:
+        if r.get("role") != "forget" or r.get("family") in HELD_OUT_EXCLUDE:
+            continue
+        if scorer == "tf":
+            erased = not r["tf_correct"]
+        else:
+            if not r.get("base_gen_ok"):
+                continue
+            erased = r.get("gen_class") != "leak"
+        by_req[str(r.get("request_id") or r["fact_id"])].append(erased)
+    if not by_req:
+        return None
+    return 100.0 * sum(all(v) for v in by_req.values()) / len(by_req)
 
 
 def harmonic(xs: Iterable[float]) -> float:

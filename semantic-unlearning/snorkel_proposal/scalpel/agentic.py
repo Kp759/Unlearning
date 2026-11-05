@@ -504,7 +504,7 @@ def _f(x) -> str:
     return "n/a" if x is None else f"{x:.1f}"
 
 
-def write_agent_report(paths: Sequence[Path], out: Path, title: str = "SCALPEL agentic leakage track") -> List[Dict]:
+def write_agent_report(paths: Sequence[Path], out: Path, title: str = "LETHE-Bench agentic leakage track") -> List[Dict]:
     rows = []
     for p in paths:
         r = json.loads(Path(p).read_text())

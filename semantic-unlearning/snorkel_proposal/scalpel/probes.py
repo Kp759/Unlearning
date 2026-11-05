@@ -20,6 +20,7 @@ and each held-out forget family targets a shortcut on the other side:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import itertools
 import random
 import re
 from typing import Dict, Iterable, List, Optional, Sequence
@@ -40,7 +41,7 @@ class ProbeBudget:
     surface: int = 2
     context_prefix: int = 2
     multifact: int = 2
-    indirect: int = 1
+    indirect: int = 3
     multiturn: int = 1
     crosslingual: int = 3
     multihop: int = 2
@@ -199,14 +200,21 @@ def forget_probes(fact: Fact, request_id: str, table: FactTable, budget: ProbeBu
             text = f"{s} " + ", ".join(parts) + f", and {slot}"
             out.append(_probe("forget", "multifact", f, text, o, request_id=rid,
                               meta={"context_facts": [g.fact_id for g in ctx]}))
-        # indirect: the subject is never named, only described by two other facts
+        # indirect: the subject is never named, only described by two other facts; one probe per
+        # pair of description facts, up to the budget (3 others -> 3 probes), so the family reaches
+        # the 5-probe minimum per split and counts in E
         if budget.indirect and len(others) >= 2:
             who = "The person who" if spec["kind"] == "person" else "The entity that"
-            d1, d2 = R.render_vp(others[0].relation, others[0].object), R.render_vp(others[1].relation, others[1].object)
-            text = f"{who} {d1} and {d2} {slot}"
-            if normalize_text(s) not in normalize_text(text):
-                out.append(_probe("forget", "indirect", f, text, o, request_id=rid,
-                                  meta={"description_facts": [others[0].fact_id, others[1].fact_id]}))
+            made = 0
+            for a, b in itertools.combinations(others, 2):
+                if made >= budget.indirect:
+                    break
+                d1, d2 = R.render_vp(a.relation, a.object), R.render_vp(b.relation, b.object)
+                text = f"{who} {d1} and {d2} {slot}"
+                if normalize_text(s) not in normalize_text(text):
+                    out.append(_probe("forget", "indirect", f, text, o, request_id=rid,
+                                      meta={"description_facts": [a.fact_id, b.fact_id]}))
+                    made += 1
         # multiturn: subject named in turn 1, asked through a pronoun in turn 2
         if budget.multiturn:
             opener = rng.choice(R.MULTITURN_OPENERS).replace("{S}", s)

@@ -24,7 +24,7 @@
 
 ## Reference cheats (must score below 35 with AND without the attack axis)
 
-| Cheat | SCALPEL | SCALPEL_core (no attacks) | E | L | U | R | Defeated |
+| Cheat | LETHE | LETHE_core (no attacks) | E | L | U | R | Defeated |
 |---|---|---|---|---|---|---|---|
 | noop | 0.0 | 2.9 | 1.0 | 100.0 | 100.0 | 0.0 | yes |
 | idk_all | 0.0 | 2.8 | 100.0 | 1.0 | 19.3 | 0.0 | yes |
